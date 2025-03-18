@@ -9,6 +9,7 @@ list of every setting and default, see the [`config.toml` reference](./configura
 - [`[editor.statusline]` Section](#editorstatusline-section)
 - [`[editor.lsp]` Section](#editorlsp-section)
 - [`[editor.terminal]` Section](#editorterminal-section)
+- [`[editor.inline-blame]` Section](#editorinline-blame-section)
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
@@ -221,6 +222,41 @@ Mitos automatically uses a tmux split inside tmux, a WezTerm split when its
 Unix socket is available, Windows Terminal when found on Windows, or Conhost as
 the Windows fallback. On other terminals this setting is unset unless
 configured.
+
+### `[editor.inline-blame]` Section
+
+Inline blame is virtual text that appears at the end of a line, displaying information about the most recent commit that affected this line.
+
+| Key     | Description                                | Default |
+| ------- | ------------------------------------------ | ------- |
+| `show` | When to show inline blame | `"never"` |
+| `auto-fetch` | Automatically fetch blame information in the background | `false` |
+| `format` | Inline blame message format | `"{author}, {time-ago} • {title} • {commit}"` |
+
+`show` can be one of the following:
+
+- `"all-lines"`: Display blame on all visible nonempty lines.
+- `"cursor-line"`: Display blame on the primary cursor's line.
+- `"never"`: Hide inline blame.
+
+With `auto-fetch` set to `false`, blame for the current file is fetched only when explicitly requested, such as when using `space + B` to display the blame for the line of the cursor. There may be a little delay when loading the blame.
+
+When `auto-fetch` is set to `true`, blame is fetched on a background worker when a file opens and after reloads or repository changes. `Space + B` uses the cached result when it is available.
+
+With `auto-fetch = false`, inline blame appears after you request it with `Space + B`, even when `show` is set to `"all-lines"` or `"cursor-line"`. Uncommitted lines do not display inline blame.
+
+#### `format`
+
+Change the `format` string to customize the blame message displayed. Variables are text placeholders wrapped in curly braces: `{variable}`. The following variables are available:
+
+- `author`: Commit author name.
+- `date`: Commit author date.
+- `time-ago`: Relative time since the commit.
+- `title`: Commit title.
+- `body`: Commit body.
+- `commit`: Abbreviated commit hash.
+- `email`: Commit author email.
+
 
 ### `[editor.cursor-shape]` Section
 

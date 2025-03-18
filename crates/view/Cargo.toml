@@ -17,6 +17,7 @@ bench = false
 
 [features]
 default = []
+git = ["vcs/git"]
 unicode-lines = []
 # Exposes internals. Should not be enabled except for benchmarking.
 bench = []

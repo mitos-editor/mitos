@@ -19,3 +19,7 @@ mod workspace_trust;
 
 #[path = "handler_setup/auto_save.rs"]
 mod auto_save;
+
+#[cfg(feature = "git")]
+#[path = "handler_setup/blame.rs"]
+mod blame;

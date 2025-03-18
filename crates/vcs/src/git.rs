@@ -20,10 +20,10 @@ use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 use crate::{ChangedFileScope, FileChange};
 
 #[cfg(test)]
-mod test;
+pub(super) mod test;
 
 #[inline]
-fn get_repo_dir(file: &Path) -> Result<&Path> {
+pub(super) fn get_repo_dir(file: &Path) -> Result<&Path> {
     file.parent().context("file has no parent directory")
 }
 
@@ -109,7 +109,7 @@ pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> 
     Ok(paths)
 }
 
-fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
+pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
     // `trust_full` is the workspace-trust decision made by the caller, and it must be the
     // authority on the gix trust level. gix's own discovery (`discover_*`) ignores a
     // caller-supplied trust level: it always re-derives trust from `.git` ownership, so a malicious

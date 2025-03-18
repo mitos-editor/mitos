@@ -373,6 +373,16 @@ impl EditorView {
         }
 
         Self::render_rulers(editor, doc, view, inner, surface, theme);
+        if config.inline_blame.show != view::config::InlineBlameShow::Never {
+            decorations.add_decoration(text_decorations::blame::InlineBlame::new(
+                doc,
+                view.id,
+                &config.inline_blame,
+                theme
+                    .try_get("ui.virtual.inline-blame")
+                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
+            ));
+        }
 
         let primary_cursor = doc
             .selection(view.id)

@@ -625,6 +625,11 @@ impl Editor {
         // we have fully unregistered this document from its LS
         doc.language_servers.clear();
         doc.set_path(Some(path));
+        let trust_full = self
+            .workspace_trust
+            .query(doc.workspace_root(), TrustQuery::Git)
+            .is_trusted();
+        doc.refresh_vcs(&self.diff_providers, trust_full);
         doc.detect_editor_config();
         self.refresh_doc_language(doc_id);
         self.refresh_vcs_watches();

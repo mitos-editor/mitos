@@ -13,12 +13,13 @@ homepage.workspace = true
 [dependencies]
 event.workspace = true
 ropey.workspace = true
+stdx.workspace = true
 
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros"] }
 parking_lot.workspace = true
 arc-swap.workspace = true
 
-gix = { workspace = true, features = ["attributes", "status", "max-performance", "sha1"], optional = true }
+gix = { workspace = true, features = ["attributes", "status", "blame", "parallel", "max-performance", "sha1"], optional = true }
 imara-diff.workspace = true
 anyhow.workspace = true
 

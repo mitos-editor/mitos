@@ -27,6 +27,8 @@ pub struct LinePos {
     pub doc_line: usize,
     /// Vertical offset from the top of the inner view area
     pub visual_line: u16,
+    /// The given visual line is the last visual line of the document line
+    pub is_last_visual_line: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -87,6 +89,7 @@ pub fn render_text(
         first_visual_line: false,
         doc_line: usize::MAX,
         visual_line: u16::MAX,
+        is_last_visual_line: true,
     };
     let mut last_line_end = 0;
     let mut is_in_indent_area = true;
@@ -110,11 +113,16 @@ pub fn render_text(
 
         // if the end of the viewport is reached stop rendering
         if grapheme.visual_pos.row as u16 >= renderer.viewport.height + renderer.offset.row as u16 {
+            last_line_pos.is_last_visual_line = last_line_pos.doc_line != grapheme.line_idx;
             break;
         }
 
         // apply decorations before rendering a new line
         if grapheme.visual_pos.row as u16 != last_line_pos.visual_line {
+            if last_line_pos.doc_line == grapheme.line_idx {
+                last_line_pos.is_last_visual_line = false;
+            }
+
             // we initiate doc_line with usize::MAX because no file
             // can reach that size (memory allocations are limited to isize::MAX)
             // initially there is no "previous" line (so doc_line is set to usize::MAX)
@@ -129,6 +137,7 @@ pub fn render_text(
                 first_visual_line: grapheme.line_idx != last_line_pos.doc_line,
                 doc_line: grapheme.line_idx,
                 visual_line: grapheme.visual_pos.row as u16,
+                is_last_visual_line: true,
             };
             decorations.decorate_line(renderer, last_line_pos);
         }

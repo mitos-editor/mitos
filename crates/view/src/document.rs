@@ -271,6 +271,10 @@ pub struct Document {
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
+    /// Committed blame; errors are displayed only when requested explicitly.
+    pub file_blame: Option<anyhow::Result<vcs::FileBlame>>,
+    pub(crate) blame_request: event::TaskController,
+    pub(crate) blame_handler: Option<crate::handlers::blame::BlameHandler>,
 
     // when document was used for most-recent-used buffer picker
     pub focused_at: std::time::Instant,
@@ -353,6 +357,16 @@ pub struct DocumentInlayHintsId {
     pub first_line: usize,
     /// Last line for which the inlay hints were requested.
     pub last_line: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LineBlameError<'a> {
+    #[error("Not committed yet")]
+    NotCommittedYet,
+    #[error("Unable to get blame for line {0}: {1}")]
+    NoFileBlame(u32, &'a anyhow::Error),
+    #[error("The blame for this file is not ready yet. Try again in a few seconds")]
+    NotReadyYet,
 }
 
 use std::{fmt, mem};
@@ -801,6 +815,9 @@ impl Document {
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             diff_handle: None,
+            file_blame: None,
+            blame_request: Default::default(),
+            blame_handler: None,
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
@@ -1443,6 +1460,7 @@ impl Document {
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead
     pub fn set_path(&mut self, path: Option<&Path>) {
+        self.invalidate_blame();
         let path = path.map(stdx::path::canonicalize);
 
         // `take` to remove any prior relative path that may have existed.
@@ -1515,6 +1533,13 @@ impl Document {
         }
 
         Range::new(0, 1).grapheme_aligned(self.text().slice(..))
+    }
+
+    /// Get the line of cursor for the primary selection
+    pub fn cursor_line(&self, view_id: ViewId) -> usize {
+        let text = self.text();
+        let selection = self.selection(view_id);
+        text.char_to_line(selection.primary().cursor(text.slice(..)))
     }
 
     /// Reset the view's selection on this document to the
@@ -1763,6 +1788,66 @@ impl Document {
     /// Apply a [`Transaction`] to the [`Document`] to change its text.
     pub fn apply(&mut self, transaction: &Transaction, view_id: ViewId) -> bool {
         self.apply_inner(transaction, view_id, true)
+    }
+
+    /// Discard cached and pending blame after the file path or repository changes.
+    pub(crate) fn invalidate_blame(&mut self) {
+        self.blame_request.cancel();
+        self.file_blame = None;
+    }
+
+    /// Get the line blame for this view
+    pub fn line_blame(&self, cursor_line: u32, format: &str) -> Result<String, LineBlameError<'_>> {
+        // how many lines were inserted and deleted before the cursor line
+        let (inserted_lines, deleted_lines) = self
+            .diff_handle()
+            .map_or(
+                // in theory there can be situations where we don't have the diff for a file
+                // but we have the blame. In this case, we can just act like there is no diff
+                Some((0, 0)),
+                |diff_handle| {
+                    // Compute the amount of lines inserted and deleted before the `line`
+                    // This information is needed to accurately transform the state of the
+                    // file in the file system into what gix::blame knows about (gix::blame only
+                    // knows about commit history, it does not know about uncommitted changes)
+                    diff_handle
+                        .try_load()?
+                        .hunks_intersecting_line_ranges(std::iter::once((0, cursor_line as usize)))
+                        .try_fold(
+                            (0, 0),
+                            |(total_inserted_lines, total_deleted_lines), hunk| {
+                                // check if the line intersects the hunk's `after` (which represents
+                                // inserted lines)
+                                (hunk.after.start > cursor_line || hunk.after.end <= cursor_line)
+                                    .then_some((
+                                        total_inserted_lines + (hunk.after.end - hunk.after.start),
+                                        total_deleted_lines + (hunk.before.end - hunk.before.start),
+                                    ))
+                            },
+                        )
+                },
+            )
+            .ok_or(LineBlameError::NotCommittedYet)?;
+
+        let file_blame = match &self.file_blame {
+            None => return Err(LineBlameError::NotReadyYet),
+            Some(result) => match result {
+                Err(err) => {
+                    return Err(LineBlameError::NoFileBlame(
+                        // convert 0-based line into 1-based line
+                        cursor_line.saturating_add(1),
+                        err,
+                    ));
+                }
+                Ok(file_blame) => file_blame,
+            },
+        };
+
+        let line_blame = file_blame
+            .blame_for_line(cursor_line, inserted_lines, deleted_lines)
+            .parse_format(format);
+
+        Ok(line_blame)
     }
 
     /// Apply a [`Transaction`] to the [`Document`] to change its text
@@ -2085,6 +2170,7 @@ impl Document {
 
     /// Refresh both branch display and the diff base after repository changes.
     pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+        self.invalidate_blame();
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
@@ -2097,6 +2183,11 @@ impl Document {
             }
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
+        if self.config.load().inline_blame.auto_fetch
+            && let Some(handler) = self.blame_handler.clone()
+        {
+            handler.request(self, trust_full, None);
+        }
     }
 
     /// Initialize or update the differ for this document with a new base.

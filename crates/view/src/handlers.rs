@@ -8,6 +8,7 @@ use crate::{DocumentId, Editor, ViewId};
 
 pub mod auto_reload;
 pub mod auto_save;
+pub mod blame;
 pub mod code_action_hint;
 pub mod completion;
 pub mod dap;
@@ -37,6 +38,7 @@ pub struct Handlers {
     pub completions: CompletionHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
+    pub blame: blame::BlameHandler,
     pub auto_reload: auto_reload::AutoReloadHandler,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
@@ -64,6 +66,7 @@ impl Handlers {
             completions: CompletionHandler::new(callbacks.clone(), config),
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
+            blame: blame::BlameHandler::new(callbacks.clone()),
             auto_reload: auto_reload::AutoReloadHandler::new(callbacks.clone(), config),
             word_index: word_index::Handler::spawn(),
             pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler::new(callbacks.clone()),
@@ -86,6 +89,7 @@ impl Handlers {
         doc.auto_save_trigger = Some(self.auto_save.trigger());
         doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
+        doc.blame_handler = Some(self.blame.clone());
         doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 
@@ -168,6 +172,7 @@ fn register_hooks() {
     REGISTER.call_once(|| {
         auto_reload::register_hooks();
         auto_save::register_hooks();
+        blame::register_hooks();
         signature_help::register_hooks();
         completion::register_hooks();
         // Register didOpen/didChange before features can request results from the server.

@@ -11,6 +11,12 @@ use std::{error::Error, path::Path};
 use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, icons::ICONS, theme::Style, Editor};
 
+pub(super) fn blame_line(cx: &mut Context) {
+    let (view, doc) = current_ref!(cx.editor);
+    cx.editor
+        .blame_line(doc.id(), doc.cursor_line(view.id) as u32);
+}
+
 pub(super) fn changed_file_picker(cx: &mut Context) {
     changed_file_picker_for_scope(
         cx,
