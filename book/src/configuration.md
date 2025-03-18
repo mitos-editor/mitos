@@ -162,6 +162,7 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | `indent-guides` | table | See below | Vertical indentation guides. See [`[editor.indent-guides]`](#editorindent-guides). |
 | `soft-wrap` | table | See below | Soft wrapping. See [`[editor.soft-wrap]`](#editorsoft-wrap). |
 | `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
+| `inline-blame` | table | See below | Git blame rendered at the end of buffer lines. See [`[editor.inline-blame]`](#editorinline-blame). |
 | `workspace-trust` | table | See below | Implicit workspace trust policy. See [`[editor.workspace-trust]`](#editorworkspace-trust). |
 | `bufferline` | table | See below | See [`[editor.bufferline]`](#editorbufferline). |
 | `clipboard` | table | See below | See [`[editor.clipboard]`](#editorclipboard). |
@@ -569,6 +570,16 @@ component-specific settings.
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
 | `supersede-menu` | boolean | `false` | Give smart-tab precedence over completion-menu navigation. |
+
+### `[editor.inline-blame]`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
+| `auto-fetch` | boolean | `false` | Fetch blame on a background worker when files open or their VCS state is refreshed. |
+| `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./editor.md#format). |
+
+`Space + B` fetches blame on demand and displays it in the status area. Inline blame skips uncommitted and empty lines.
 
 ### `[editor.diagnostics.inline]`
 
