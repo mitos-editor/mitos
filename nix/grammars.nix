@@ -2,15 +2,19 @@
   stdenv,
   lib,
   linkFarm,
+  fetchurl,
   includeGrammarIf ? _: true,
   grammarOverlays ? [ ],
   callPackage,
 }:
 let
   # Load the TOML
-  languagesConfig = lib.importTOML ../languages.toml;
+  mitosGrammarConfig = lib.importTOML ../languages.toml;
 
-  # All grammars are git grammar, this is future-proofing
+  # Load the grammar FOD hashes.
+  nixGrammarLock = lib.importJSON ./grammar-sources.json;
+
+  # All grammars are git grammars currently, this is future-proofing
   isGitGrammar = grammar: grammar ? source.git && grammar ? source.rev;
 
   # grammar builder
@@ -21,34 +25,55 @@ let
   # Otherwise use all grammars.
   useGrammar =
     let
-      hasOnly = languagesConfig ? use-grammars.only;
-      hasExcept = languagesConfig ? use-grammars.except;
+      hasOnly = mitosGrammarConfig ? use-grammars.only;
+      hasExcept = mitosGrammarConfig ? use-grammars.except;
     in
     grammar:
     if hasOnly then
-      builtins.elem grammar.name languagesConfig.use-grammars.only
+      builtins.elem grammar.name mitosGrammarConfig.use-grammars.only
     else if hasExcept then
-      !(builtins.elem grammar.name languagesConfig.use-grammars.except)
+      !(builtins.elem grammar.name mitosGrammarConfig.use-grammars.except)
     else
       true;
 
   # Filter the grammars to the ones that we must build
   grammarsToBuild = builtins.filter (
     g: (useGrammar g) && (isGitGrammar g) && (includeGrammarIf g)
-  ) languagesConfig.grammar;
+  ) mitosGrammarConfig.grammar;
 
   # Build an attrset of grammars that looks like:
   # {
   #    ${name} = built-grammar;
   # }
+  #
+  # Do not error if a grammar is missing or the files are mismatched.
+  # Mitos will work fine without all grammars.
   builtGrammars = lib.foldr (
-    grammar: attrset:
-    attrset
-    // {
-      ${grammar.name} = buildGrammar {
-        inherit (grammar) name source;
-      };
-    }
+    grammar: grammarPkgSet:
+    let
+      name = grammar.name;
+    in
+    if nixGrammarLock ? ${name} then
+      let
+        metadata = nixGrammarLock.${name};
+        rev =
+          lib.warnIf (grammar.source.rev != metadata.rev)
+            "Nix grammar lock file and Mitos languages.toml git hashes do not match for ${name}. Will use Nix-locked grammar."
+            metadata.rev;
+      in
+      grammarPkgSet
+      // {
+        ${name} = buildGrammar {
+          inherit name;
+          version = rev;
+          src = fetchurl {
+            inherit (metadata) url hash;
+          };
+          subpath = grammar.source.subpath or null;
+        };
+      }
+    else
+      builtins.warn "Nix grammar lock file does not contain ${name}, skipping." grammarPkgSet
   ) { } grammarsToBuild;
 
   # Combine all overlays to one
