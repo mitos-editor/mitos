@@ -4943,8 +4943,12 @@ version = "0.1.0"
 dependencies = [
  "core",
  "ropey",
+ "serde",
+ "serde_json",
  "stdx",
+ "tempfile",
  "term",
+ "toml",
  "view",
 ]
 
