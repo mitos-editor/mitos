@@ -18,13 +18,14 @@ use event::AsyncHook;
 use futures_util::future::BoxFuture;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Nucleo};
+use ratatui_image::{thread::ThreadProtocol, Resize, StatefulImage};
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 use tui::{
     buffer::Buffer as Surface,
     layout::{Constraint, Layout},
     text::{Line, Span},
-    widgets::{Cell, Paragraph, Row, Table},
+    widgets::{Cell, Paragraph, Row, StatefulWidget, Table},
 };
 
 use tui::buffer::BufferExt as _;
@@ -56,7 +57,9 @@ use view::{
     Document, DocumentId, Editor,
 };
 
-use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
+use self::handlers::{
+    spawn_image_preview, DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler,
+};
 
 pub const ID: &str = "picker";
 
@@ -102,15 +105,22 @@ pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 pub enum CachedPreview {
     Document(Box<Document>),
     Directory(Vec<(PathBuf, bool)>),
+    Image(Box<ImagePreview>),
     Binary,
     LargeFile,
     NotFound,
 }
 
+pub enum ImagePreview {
+    Loading,
+    Ready(Box<ThreadProtocol>),
+    Failed,
+}
+
 // We don't store this enum in the cache so as to avoid lifetime constraints
 // from borrowing a document already opened in the editor.
 pub enum Preview<'picker, 'editor> {
-    Cached(&'picker CachedPreview),
+    Cached(&'picker mut CachedPreview),
     EditorDocument(&'editor Document),
 }
 
@@ -130,13 +140,25 @@ impl Preview<'_, '_> {
         }
     }
 
+    fn image(&mut self) -> Option<&mut ImagePreview> {
+        match self {
+            Preview::Cached(CachedPreview::Image(image)) => Some(image.as_mut()),
+            _ => None,
+        }
+    }
+
     /// Alternate text to show for the preview.
     fn placeholder(&self) -> &str {
-        match *self {
+        match self {
             Self::EditorDocument(_) => "<Invalid file location>",
-            Self::Cached(preview) => match preview {
+            Self::Cached(preview) => match &**preview {
                 CachedPreview::Document(_) => "<Invalid file location>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
+                CachedPreview::Image(image) => match &**image {
+                    ImagePreview::Loading => "<Loading image>",
+                    ImagePreview::Ready(_) => "<Rendering image>",
+                    ImagePreview::Failed => "<Image preview unavailable>",
+                },
                 CachedPreview::Binary => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
                 CachedPreview::NotFound => "<File not found>",
@@ -165,11 +187,12 @@ impl FilePreview {
         self.read_buffer.clear();
     }
 
-    fn get<'preview, 'editor>(
+    fn get<'preview, 'editor, T: 'static + Send + Sync, D: 'static + Send + Sync>(
         &'preview mut self,
         editor: &'editor Editor,
         (path_or_id, range): FileLocation<'_>,
         preview_highlight_handler: &Sender<Arc<Path>>,
+        image_picker: Option<&ratatui_image::picker::Picker>,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
         match path_or_id {
             PathOrId::Path(path) => {
@@ -179,9 +202,11 @@ impl FilePreview {
 
                 if self.preview_cache.contains_key(path) {
                     let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
+                    let path = Arc::clone(path);
                     if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
                         event::send_blocking(preview_highlight_handler, path.clone());
                     }
+                    let preview = self.preview_cache.get_mut(&path).unwrap();
                     return Some((Preview::Cached(preview), range));
                 }
 
@@ -202,7 +227,11 @@ impl FilePreview {
                                 Ok(is_binary)
                             })?;
                             if is_binary {
-                                return Ok(CachedPreview::Binary);
+                                return Ok(if image_picker.is_some() {
+                                    CachedPreview::Image(Box::new(ImagePreview::Loading))
+                                } else {
+                                    CachedPreview::Binary
+                                });
                             }
                             let mut doc = Document::open(
                                 &path,
@@ -229,8 +258,26 @@ impl FilePreview {
                         }
                     })
                     .unwrap_or(CachedPreview::NotFound);
+                let load_image = matches!(
+                    preview,
+                    CachedPreview::Image(ref image)
+                        if matches!(image.as_ref(), ImagePreview::Loading)
+                );
+                if load_image {
+                    // Decoded images and their terminal encodings can be much larger than the
+                    // files on disk. Keep only the active image preview while retaining the
+                    // existing cache behavior for text documents and directories.
+                    self.preview_cache
+                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
+                }
                 self.preview_cache.insert(path.clone(), preview);
-                Some((Preview::Cached(&self.preview_cache[&path]), range))
+                if load_image {
+                    spawn_image_preview::<T, D>(path.clone(), image_picker.unwrap().clone());
+                }
+                Some((
+                    Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
+                    range,
+                ))
             }
             PathOrId::Id(id) => {
                 let doc = editor.documents.get(&id).unwrap();
@@ -241,7 +288,7 @@ impl FilePreview {
 }
 
 fn render_preview_content(
-    preview: Preview<'_, '_>,
+    mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
     area: Rect,
     inner: Rect,
@@ -250,6 +297,31 @@ fn render_preview_content(
 ) {
     let text_style = cx.editor.theme.get("ui.text");
     let directory_style = cx.editor.theme.get("ui.text.directory");
+    if let Some(image) = preview.image() {
+        match image {
+            ImagePreview::Loading => {
+                render_preview_placeholder(surface, inner, "<Loading image>", text_style);
+            }
+            ImagePreview::Ready(protocol) => {
+                StatefulImage::<ThreadProtocol>::default()
+                    .resize(Resize::Fit(None))
+                    .render(inner, surface, protocol.as_mut());
+                if protocol.protocol_type().is_none() {
+                    render_preview_placeholder(surface, inner, "<Rendering image>", text_style);
+                }
+            }
+            ImagePreview::Failed => {
+                render_preview_placeholder(
+                    surface,
+                    inner,
+                    "<Image preview unavailable>",
+                    text_style,
+                );
+            }
+        }
+        return;
+    }
+
     let doc = match preview.document() {
         Some(doc)
             if range.is_none_or(|(start, end)| start <= end && end <= doc.text().len_lines()) =>
@@ -980,12 +1052,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn get_preview<'picker, 'editor>(
         &'picker mut self,
         editor: &'editor Editor,
+        image_picker: Option<&ratatui_image::picker::Picker>,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
         let snapshot = self.matcher.snapshot();
         let current = snapshot.get_matched_item(self.cursor)?.data;
         let location = (self.file_fn.as_ref()?)(editor, current)?;
-        self.preview
-            .get(editor, location, &self.preview_highlight_handler)
+        self.preview.get::<T, D>(
+            editor,
+            location,
+            &self.preview_highlight_handler,
+            image_picker,
+        )
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -1188,10 +1265,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let inner = block.inner(area);
         block.render(area, surface);
 
-        if let Some((preview, range)) = self.get_preview(cx.editor) {
+        if let Some((preview, range)) = self.get_preview(cx.editor, cx.image_picker) {
             render_preview_content(preview, range, area, inner, surface, cx);
         }
     }
+}
+
+fn render_preview_placeholder(
+    surface: &mut Surface,
+    area: Rect,
+    placeholder: &str,
+    style: view::theme::Style,
+) {
+    let x = area.x + area.width.saturating_sub(placeholder.len() as u16) / 2;
+    let y = area.y + area.height / 2;
+    surface.set_stringn(x, y, placeholder, area.width as usize, style);
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {

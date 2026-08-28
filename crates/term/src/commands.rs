@@ -181,6 +181,7 @@ impl Context<'_> {
             editor: self.editor,
             jobs: self.jobs,
             scroll: None,
+            image_picker: None,
         }
         .block_try_flush_writes()
     }
@@ -262,6 +263,7 @@ impl MappableCommand {
                         editor: cx.editor,
                         jobs: cx.jobs,
                         scroll: None,
+                        image_picker: None,
                     };
                     if let Err(e) = typed::execute_command(
                         &mut cx,

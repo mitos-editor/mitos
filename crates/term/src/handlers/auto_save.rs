@@ -85,6 +85,7 @@ fn request_auto_save(editor: &mut Editor) {
         editor,
         scroll: Some(0),
         jobs: &mut Jobs::new(),
+        image_picker: None,
     };
 
     let options = commands::WriteAllOptions {

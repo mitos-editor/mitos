@@ -79,6 +79,7 @@ pub struct Application {
     compositor: Compositor,
     terminal: Terminal,
     pub editor: Editor,
+    image_picker: Option<ratatui_image::picker::Picker>,
 
     config: Arc<ArcSwap<Config>>,
 
@@ -256,6 +257,7 @@ impl Application {
             compositor,
             terminal,
             editor,
+            image_picker: None,
             config,
             signals,
             jobs,
@@ -280,6 +282,7 @@ impl Application {
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
+            image_picker: self.image_picker.as_ref(),
         };
 
         event::start_frame();
@@ -617,6 +620,7 @@ impl Application {
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
+            image_picker: self.image_picker.as_ref(),
         };
         let should_render = self.compositor.handle_event(&Event::IdleTimeout, &mut cx);
         if should_render || self.editor.needs_redraw {
@@ -741,6 +745,7 @@ impl Application {
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
+            image_picker: self.image_picker.as_ref(),
         };
         // Handle key events
         let should_redraw = match event.unwrap() {
@@ -1382,6 +1387,30 @@ impl Application {
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         self.terminal.backend_mut().claim()?;
+
+        #[cfg(not(feature = "integration"))]
+        {
+            self.image_picker = Some(
+                ratatui_image::picker::Picker::from_query_stdio().unwrap_or_else(|err| {
+                    log::warn!(
+                        "failed to detect terminal image capabilities, using halfblocks: {err}"
+                    );
+                    ratatui_image::picker::Picker::halfblocks()
+                }),
+            );
+            log::debug!(
+                "terminal image protocol: {:?}",
+                self.image_picker
+                    .as_ref()
+                    .expect("image picker was just initialized")
+                    .protocol_type()
+            );
+        }
+
+        #[cfg(feature = "integration")]
+        {
+            self.image_picker = Some(ratatui_image::picker::Picker::halfblocks());
+        }
 
         self.event_loop(input_stream).await;
 

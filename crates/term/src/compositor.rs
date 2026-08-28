@@ -25,6 +25,7 @@ pub struct Context<'a> {
     pub editor: &'a mut Editor,
     pub scroll: Option<usize>,
     pub jobs: &'a mut Jobs,
+    pub image_picker: Option<&'a ratatui_image::picker::Picker>,
 }
 
 impl Context<'_> {

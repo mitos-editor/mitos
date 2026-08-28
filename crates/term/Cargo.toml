@@ -63,6 +63,8 @@ signal-hook.workspace = true
 tokio-stream.workspace = true
 futures-util.workspace = true
 arc-swap.workspace = true
+ratatui-image.workspace = true
+image.workspace = true
 termini.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 

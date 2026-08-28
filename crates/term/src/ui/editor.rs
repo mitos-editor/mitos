@@ -1832,6 +1832,7 @@ impl Component for EditorView {
                                         editor: cx.editor,
                                         jobs: cx.jobs,
                                         scroll: None,
+                                        image_picker: None,
                                     };
 
                                     match completion.handle_event(event, &mut cx) {
