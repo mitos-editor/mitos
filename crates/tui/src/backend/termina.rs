@@ -1,4 +1,4 @@
-use std::io::{self, Write as _};
+use std::io::{self, Write};
 
 use ratatui::{
     backend::{Backend, ClearType, WindowSize as RatatuiWindowSize},
@@ -100,9 +100,8 @@ pub struct TerminaBackend {
     is_synchronized_output_set: bool,
     /// The requested terminal background color, set in `Self::set_background_color`.
     background_color: Option<RgbColor>,
-    /// The terminal emulator's background color. This is queried when claiming the terminal so
-    /// that custom colors set outside of Mitos with OSC11 are restored when Mitos exits.
-    original_background_color: Option<RgbColor>,
+    /// Whether Mitos currently owns an OSC 11 background override.
+    background_color_is_set: bool,
 }
 
 impl TerminaBackend {
@@ -117,7 +116,7 @@ impl TerminaBackend {
         terminal.enter_raw_mode()?;
 
         let mut capabilities = Capabilities::default();
-        let mut original_background_color = None;
+        let mut terminal_background_color = None;
         let start = Instant::now();
 
         // HACK: emitting OSC11 / OSC111 seems to break SGR and cause flickering in tmux.
@@ -190,7 +189,7 @@ impl TerminaBackend {
                         colors,
                     )) => {
                         if let Some(osc::ColorOrQuery::Color(color)) = colors.first() {
-                            original_background_color = Some(*color);
+                            terminal_background_color = Some(*color);
                         }
                     }
                     Event::Dcs(dcs::Dcs::Response {
@@ -207,7 +206,7 @@ impl TerminaBackend {
             }
 
             if capabilities.theme_mode.is_none() {
-                capabilities.theme_mode = original_background_color.map(theme_mode_from_background);
+                capabilities.theme_mode = terminal_background_color.map(theme_mode_from_background);
             }
 
             let end = Instant::now();
@@ -278,7 +277,7 @@ impl TerminaBackend {
             reset_cursor_command,
             is_synchronized_output_set: false,
             background_color: None,
-            original_background_color,
+            background_color_is_set: false,
         })
     }
 
@@ -317,17 +316,7 @@ impl TerminaBackend {
     }
 
     fn reset_background_color(&mut self) -> io::Result<()> {
-        write!(
-            self.terminal,
-            "{}",
-            match self.original_background_color {
-                Some(color) => Osc::ChangeDynamicColors(
-                    osc::DynamicColorNumber::TextBackgroundColor,
-                    vec![color.into()]
-                ),
-                None => Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor),
-            }
-        )
+        write_reset_background_color(&mut self.terminal)
     }
 
     fn enable_extensions(&mut self) -> io::Result<()> {
@@ -455,6 +444,7 @@ impl TerminaBackend {
                     vec![color.into()]
                 )
             )?;
+            self.background_color_is_set = true;
         }
         self.enable_mouse_capture()?;
         self.enable_extensions()?;
@@ -486,8 +476,9 @@ impl TerminaBackend {
             decreset!(FocusTracking),
             decreset!(ClearAndEnableAlternateScreen),
         )?;
-        if self.background_color.is_some() {
+        if self.background_color_is_set {
             self.reset_background_color()?;
+            self.background_color_is_set = false;
         }
         self.terminal.flush()?;
         self.terminal.enter_cooked_mode()?;
@@ -645,23 +636,37 @@ impl TerminaBackend {
         if !self.capabilities.dynamic_background_color {
             return Ok(());
         }
-        self.background_color = match color {
-            Some(Color::Rgb(r, g, b)) => Some(RgbColor::new(r, g, b)),
-            _ => None,
-        };
-        if let Some(color) = self.background_color {
-            write!(
-                self.terminal,
-                "{}",
-                Osc::ChangeDynamicColors(
-                    osc::DynamicColorNumber::TextBackgroundColor,
-                    vec![color.into()]
-                )
-            )
-        } else {
-            self.reset_background_color()
+        match color {
+            Some(Color::Rgb(r, g, b)) => {
+                let color = RgbColor::new(r, g, b);
+                write!(
+                    self.terminal,
+                    "{}",
+                    Osc::ChangeDynamicColors(
+                        osc::DynamicColorNumber::TextBackgroundColor,
+                        vec![color.into()]
+                    )
+                )?;
+                self.background_color = Some(color);
+                self.background_color_is_set = true;
+            }
+            _ if self.background_color_is_set => {
+                self.reset_background_color()?;
+                self.background_color = None;
+                self.background_color_is_set = false;
+            }
+            _ => {}
         }
+        Ok(())
     }
+}
+
+fn write_reset_background_color<W: Write>(writer: &mut W) -> io::Result<()> {
+    write!(
+        writer,
+        "{}",
+        Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor)
+    )
 }
 
 impl Backend for TerminaBackend {
@@ -798,7 +803,7 @@ impl Drop for TerminaBackend {
                 decreset!(FocusTracking),
                 decreset!(ClearAndEnableAlternateScreen),
             );
-            if self.background_color.is_some() {
+            if self.background_color_is_set {
                 let _ = self.reset_background_color();
             }
             // NOTE: Drop for Platform terminal resets the mode and flushes the buffer when not
@@ -886,5 +891,19 @@ fn color_to_termina(color: RatatuiColor) -> ColorSpec {
         RatatuiColor::White => ColorSpec::BRIGHT_WHITE,
         RatatuiColor::Indexed(index) => ColorSpec::PaletteIndex(index),
         RatatuiColor::Rgb(r, g, b) => RgbColor::new(r, g, b).into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_reset_background_color;
+
+    #[test]
+    fn reset_background_color_releases_the_dynamic_background() {
+        let mut output = Vec::new();
+
+        write_reset_background_color(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b]111\x1b\\");
     }
 }
