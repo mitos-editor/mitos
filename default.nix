@@ -77,8 +77,10 @@ in
     postInstall = ''
       mkdir -p $out/lib
       installShellCompletion ${./contrib/completion}/ms.{bash,fish,zsh}
-      mkdir -p $out/share/applications
+      mkdir -p $out/share/{applications,icons/hicolor/{256x256,scalable}/apps}
       cp ${./contrib/Mitos.desktop} $out/share/applications/Mitos.desktop
+      cp ${./logo.svg} $out/share/icons/hicolor/scalable/apps/mitos.svg
+      cp ${./contrib/mitos.png} $out/share/icons/hicolor/256x256/apps/mitos.png
     '';
 
     meta.mainProgram = "ms";

@@ -1,6 +1,12 @@
-# Mitos
+<div align="center">
 
-[![Build status](https://github.com/matoous/mitos/actions/workflows/build.yml/badge.svg)](https://github.com/matoous/mitos/actions)
+<h1>
+  <img alt="Mitos" height="128" src="logo.svg">
+</h1>
+
+</div>
+
+[![Build status](https://github.com/mitos-editor/mitos/actions/workflows/build.yml/badge.svg)](https://github.com/mitos-editor/mitos/actions)
 
 Mitos is a post-modern, modal text editor written in Rust. It is a fork of [Helix](https://github.com/helix-editor/helix) and continues its selection-first editing model with multiple selections, built-in language server support, and tree-sitter-powered syntax awareness.
 
@@ -17,7 +23,7 @@ Mitos is a post-modern, modal text editor written in Rust. It is a fork of [Heli
 Mitos requires Rust 1.97.1 or newer.
 
 ```sh
-git clone https://github.com/matoous/mitos
+git clone https://github.com/mitos-editor/mitos
 cd mitos
 cargo build --release
 ./target/release/ms --health
@@ -26,8 +32,9 @@ cargo build --release
 The optimized executable is written to `target/release/ms` (`ms` is short for
 Mitos). Install it on your `PATH` with `cargo install --path crates/term --locked`.
 
-The source documentation lives in [`book/`](./book). Contributor guidance is
-available in [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
+The Blume documentation site lives in [`website/`](./website). Run it locally
+with `npm install` followed by `npm run dev` from that directory. Contributor
+guidance is available in [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
 
 ---
 

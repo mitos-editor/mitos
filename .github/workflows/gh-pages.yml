@@ -3,7 +3,7 @@ name: GitHub Pages
 on:
   push:
     branches:
-      - master
+      - main
     tags:
       - '*'
 
@@ -22,25 +22,37 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          # mdbook-version: 'latest'
-          mdbook-version: '0.5.3'
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
 
-      - run: mdbook build book
+      - name: Install website dependencies
+        run: npm ci
+        working-directory: website
 
       - name: Set output directory
         run: |
           OUTDIR=$(basename "${{ github.ref }}")
           echo "OUTDIR=$OUTDIR" >> "$GITHUB_ENV"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "BASE_PATH=/" >> "$GITHUB_ENV"
+          else
+            echo "BASE_PATH=/$OUTDIR/" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build website
+        run: npm run verify
+        working-directory: website
 
       - name: Deploy stable
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         if: startswith(github.ref, 'refs/tags/')
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./book/book
+          publish_dir: ./website/dist
           # Preserve prior version subdirs at gh-pages root.
           keep_files: true
 
@@ -48,5 +60,5 @@ jobs:
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./book/book
+          publish_dir: ./website/dist
           destination_dir: ./${{ env.OUTDIR }}

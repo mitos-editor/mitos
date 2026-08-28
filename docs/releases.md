@@ -18,5 +18,5 @@ Before tagging a release:
 Use GitHub's compare view to curate release notes:
 
 ```text
-https://github.com/matoous/mitos/compare/<previous-tag>...<new-tag>
+https://github.com/mitos-editor/mitos/compare/<previous-tag>...<new-tag>
 ```

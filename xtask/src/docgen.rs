@@ -10,9 +10,51 @@ use view::document::Mode;
 use std::collections::HashSet;
 use std::fs;
 
-pub const TYPABLE_COMMANDS_MD_OUTPUT: &str = "typable-cmd.md";
-pub const STATIC_COMMANDS_MD_OUTPUT: &str = "static-cmd.md";
+pub const COMMANDS_MD_OUTPUT: &str = "commands.md";
 pub const LANG_SUPPORT_MD_OUTPUT: &str = "lang-support.md";
+
+const COMMANDS_HEADER: &str = r#"---
+title: Commands
+description: Reference for Mitos typable and static commands.
+---
+
+- [Typable commands](#typable-commands)
+- [Static commands](#static-commands)
+
+## Typable commands
+
+Typable commands are used from command mode and may take arguments. Command mode can be activated by pressing `:`. The built-in typable commands are:
+
+"#;
+
+const STATIC_COMMANDS_HEADER: &str = r#"
+## Static commands
+
+Static commands take no arguments and can be bound to keys. Static commands can also be executed from the command picker (`<space>?`). The built-in static commands are:
+
+"#;
+
+const LANGUAGE_SUPPORT_HEADER: &str = r#"---
+title: Language support
+description: Language features and default language servers supported by Mitos.
+---
+
+The following languages and Language Servers are supported. To use
+Language Server features, you must first [configure][lsp-config-wiki] the
+appropriate Language Server.
+
+You can check the language support in your installed Mitos version with `ms --health`.
+
+Also see the [Language Configuration][lang-config] docs and the [Adding
+Languages][adding-languages] guide for more language configuration information.
+
+"#;
+
+const LANGUAGE_SUPPORT_LINKS: &str = r#"
+[lsp-config-wiki]: https://github.com/helix-editor/helix/wiki/Language-Server-Configurations
+[lang-config]: /languages
+[adding-languages]: /guides/adding-languages
+"#;
 
 fn md_table_heading(cols: &[String]) -> String {
     let mut header = String::new();
@@ -52,6 +94,16 @@ pub fn typable_commands() -> Result<String, DynError> {
     }
 
     Ok(md)
+}
+
+pub fn commands() -> Result<String, DynError> {
+    Ok(format!(
+        "{}{}{}{}",
+        COMMANDS_HEADER,
+        typable_commands()?,
+        STATIC_COMMANDS_HEADER,
+        static_commands()?
+    ))
 }
 
 pub fn static_commands() -> Result<String, DynError> {
@@ -190,8 +242,17 @@ pub fn lang_features() -> Result<String, DynError> {
     Ok(md)
 }
 
+pub fn language_support() -> Result<String, DynError> {
+    Ok(format!(
+        "{}{}{}",
+        LANGUAGE_SUPPORT_HEADER,
+        lang_features()?,
+        LANGUAGE_SUPPORT_LINKS
+    ))
+}
+
 pub fn write(filename: &str, data: &str) {
     let error = format!("Could not write to {}", filename);
-    let path = path::book_gen().join(filename);
+    let path = path::website_docs().join(filename);
     fs::write(path, data).expect(&error);
 }

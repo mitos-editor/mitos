@@ -12,9 +12,8 @@ pub mod tasks {
 
     pub fn docgen() -> Result<(), DynError> {
         use crate::docgen::*;
-        write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands()?);
-        write(STATIC_COMMANDS_MD_OUTPUT, &static_commands()?);
-        write(LANG_SUPPORT_MD_OUTPUT, &lang_features()?);
+        write(COMMANDS_MD_OUTPUT, &commands()?);
+        write(LANG_SUPPORT_MD_OUTPUT, &language_support()?);
         Ok(())
     }
 
@@ -541,7 +540,7 @@ pub mod tasks {
 Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
 
     Tasks:
-        docgen                     Generate files to be included in the mdbook output.
+        docgen                     Generate website reference pages.
         query-check [languages]    Check that tree-sitter queries are valid for the given
                                    languages, or all languages if none are specified.
         indent-check [languages]   Check indentation for the corpus files in tests/indent/

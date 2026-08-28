@@ -7,8 +7,8 @@ pub fn project_root() -> PathBuf {
         .to_path_buf()
 }
 
-pub fn book_gen() -> PathBuf {
-    project_root().join("book/src/generated/")
+pub fn website_docs() -> PathBuf {
+    project_root().join("website/src/content/docs/")
 }
 
 pub fn runtime() -> PathBuf {

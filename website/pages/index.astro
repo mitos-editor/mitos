@@ -1,0 +1,254 @@
+---
+import PageLayout from 'blume/components/layout/PageLayout.astro';
+import data from 'blume:data';
+
+const { config } = data;
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const withBase = (path: string) =>
+  `${base}${path.replace(/^\/+/, '')}`;
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  fontCssVars={data.fontCssVars}
+  themeMode={config.theme.mode}
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  structuredDataEnabled={config.structuredData}
+  page={{
+    title: 'Mitos — modal text editor',
+    description:
+      'A terminal text editor with selection-first modal editing, multiple selections, and built-in language tooling.',
+    route: '/',
+  }}
+>
+  <div class="home-shell">
+    <section class="home-hero">
+      <div class="home-hero__intro">
+        <p class="home-kicker">Terminal text editor</p>
+        <h1>Mitos</h1>
+        <p class="home-summary">A modal editor built around selections.</p>
+        <p class="home-description">
+          Mitos is written in Rust and based on Helix. It combines a
+          selection-first editing model with multiple selections, tree-sitter
+          syntax awareness, and built-in language server support.
+        </p>
+        <nav class="home-actions" aria-label="Project links">
+          <a class="home-action home-action--primary" href={withBase('/basics')}>
+            Read the documentation
+          </a>
+          <a class="home-action" href={withBase('/install')}>Install Mitos</a>
+          <a class="home-action" href="https://github.com/mitos-editor/mitos">
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+        <div class="home-command">
+          <span aria-hidden="true">$</span>
+          <code>ms --tutor</code>
+          <small>interactive tutorial</small>
+        </div>
+      </div>
+
+      <div class="editor-window">
+        <div class="editor-window__bar" aria-hidden="true">
+          <span></span><span></span><span></span>
+          <strong>commands.rs — Mitos</strong>
+        </div>
+        <img
+          src={withBase('/editor-screenshot.png')}
+          alt="Mitos editing Rust code with inline documentation"
+          width="2023"
+          height="1530"
+        />
+      </div>
+
+      <dl class="project-facts">
+        <div>
+          <dt>Interface</dt>
+          <dd>Terminal</dd>
+        </div>
+        <div>
+          <dt>Editing model</dt>
+          <dd>Selection → action</dd>
+        </div>
+        <div>
+          <dt>Implementation</dt>
+          <dd>Rust + Ratatui</dd>
+        </div>
+        <div>
+          <dt>License</dt>
+          <dd>MPL-2.0</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="home-section" id="features">
+      <div class="home-section__heading">
+        <p class="home-kicker">Features</p>
+        <h2>What Mitos supports</h2>
+      </div>
+      <div class="feature-groups">
+        <article>
+          <h3>Editing</h3>
+          <ul>
+            <li>Selection-first modal editing</li>
+            <li>Multiple selections as a core operation</li>
+            <li>Syntax-aware motions and text objects</li>
+            <li>Registers, macros, search, and surround operations</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Code intelligence</h3>
+          <ul>
+            <li>Incremental parsing and highlighting with tree-sitter</li>
+            <li>Built-in LSP client for completion and navigation</li>
+            <li>Diagnostics, formatting, rename, and code actions</li>
+            <li>Debug adapter support</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Workflow</h3>
+          <ul>
+            <li>File, buffer, symbol, and diagnostic pickers</li>
+            <li>Shell commands and selection pipelines</li>
+            <li>Configurable keymaps, themes, and languages</li>
+            <li>Workspace trust for project-local configuration</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="home-section__heading">
+        <p class="home-kicker">Editing model</p>
+        <h2>Select first, then act</h2>
+      </div>
+      <div class="editing-model">
+        <div class="editing-model__copy">
+          <p>
+            In Mitos, a cursor is a one-character selection. Motions change or
+            extend that selection, and commands operate on what is selected.
+            The target of an edit is visible before the edit happens.
+          </p>
+          <p>
+            Multiple selections use the same commands as a single selection.
+            Select every match, press <kbd>c</kbd>, and type once to change all
+            of them.
+          </p>
+          <a href={withBase('/basics')}>Learn the editing model →</a>
+        </div>
+        <ol class="editing-sequence" aria-label="Example multi-selection edit">
+          <li>
+            <kbd>x</kbd>
+            <span><strong>Select a line</strong><small>Start with a visible range</small></span>
+          </li>
+          <li>
+            <kbd>s</kbd>
+            <span><strong>Select regex matches</strong><small>One selection per match</small></span>
+          </li>
+          <li>
+            <kbd>c</kbd>
+            <span><strong>Change every selection</strong><small>Type the replacement once</small></span>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="home-section__heading">
+        <p class="home-kicker">Use cases</p>
+        <h2>Where it fits</h2>
+      </div>
+      <div class="use-case-list">
+        <article>
+          <h3>Repeated and structural edits</h3>
+          <p>
+            Multiple selections and tree-sitter text objects make related edits
+            explicit and let one command operate on every target.
+          </p>
+        </article>
+        <article>
+          <h3>Programming with language tools</h3>
+          <p>
+            Use completion, diagnostics, symbol navigation, formatting, and
+            code actions through the built-in LSP client.
+          </p>
+        </article>
+        <article>
+          <h3>Terminal-based workflows</h3>
+          <p>
+            Open files from the shell, pipe selections through commands, and
+            keep editing close to compilers, version control, and other tools.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="home-section__heading">
+        <p class="home-kicker">Documentation</p>
+        <h2>Start here</h2>
+      </div>
+      <nav class="docs-index" aria-label="Documentation sections">
+        <a href={withBase('/install')}>
+          <strong>Installation</strong>
+          <span>Install a release or build Mitos from source.</span>
+        </a>
+        <a href={withBase('/basics')}>
+          <strong>Basics</strong>
+          <span>Learn modes, movement, selections, and common commands.</span>
+        </a>
+        <a href={withBase('/keymap')}>
+          <strong>Keymap</strong>
+          <span>Look up the default bindings by mode and command.</span>
+        </a>
+        <a href={withBase('/configuration')}>
+          <strong>Configuration</strong>
+          <span>Configure editor behavior, themes, keys, and languages.</span>
+        </a>
+        <a href={withBase('/lsp')}>
+          <strong>Language servers</strong>
+          <span>Set up completion, diagnostics, formatting, and actions.</span>
+        </a>
+        <a href={withBase('/commands')}>
+          <strong>Command reference</strong>
+          <span>Browse normal-mode and typed commands.</span>
+        </a>
+      </nav>
+    </section>
+
+    <section class="home-section home-project">
+      <div class="home-section__heading">
+        <p class="home-kicker">Project</p>
+        <h2>About Mitos</h2>
+      </div>
+      <div class="home-project__copy">
+        <p>
+          Mitos is an independent fork of
+          <a href="https://helix-editor.com/">Helix</a>. It retains the upstream
+          Git history and continues Helix's selection-first editing model while
+          developing as a separate project.
+        </p>
+        <p>
+          The editor is open source under the Mozilla Public License 2.0. Mitos
+          is not endorsed by or affiliated with the Helix project or its
+          maintainers.
+        </p>
+        <div class="project-links">
+          <a href="https://github.com/mitos-editor/mitos">Source code ↗</a>
+          <a href="https://github.com/mitos-editor/mitos/releases">Releases ↗</a>
+          <a href={withBase('/building-from-source')}>Build from source →</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</PageLayout>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-.5 -.5 6 6" shape-rendering="crispEdges" role="img" aria-labelledby="mitos-logo-title">
+  <title id="mitos-logo-title">Mitos</title>
+  <path fill="#6eaaff" d="M0 0h1v1H0zm4 0h1v1H4z"/>
+  <path fill="#7d82ff" d="M0 1h2v1H0zm3 0h2v1H3z"/>
+  <path fill="#b464f5" d="M0 2h1v1H0zm4 0h1v1H4z"/>
+  <path fill="#e65fbe" d="M2 2h1v1H2z"/>
+  <path fill="#f57882" d="M0 3h1v1H0zm4 0h1v1H4z"/>
+  <path fill="#f5a05a" d="M0 4h1v1H0zm4 0h1v1H4z"/>
+</svg>

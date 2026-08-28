@@ -29,6 +29,7 @@ assets = [
   { source = "../../contrib/completion/ms.fish", dest = "/usr/share/fish/vendor_completions.d/ms.fish", mode = "644" },
   { source = "../../contrib/completion/ms.zsh", dest = "/usr/share/zsh/vendor-completions/_ms", mode = "644" },
   { source = "../../contrib/Mitos.desktop", dest = "/usr/share/applications/Mitos.desktop", mode = "644" },
+  { source = "../../contrib/mitos.png", dest = "/usr/share/icons/hicolor/256x256/apps/mitos.png", mode = "644" },
 ]
 
 [features]

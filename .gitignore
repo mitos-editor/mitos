@@ -4,3 +4,7 @@ crates/term/rustfmt.toml
 result
 runtime/grammars
 .DS_Store
+website/.blume
+website/.blume-verify
+website/dist
+website/node_modules
