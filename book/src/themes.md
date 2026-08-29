@@ -6,7 +6,7 @@ Without a configured theme, Mitos uses the built-in `default` theme. It uses
 the terminal's ANSI color palette, so its colors follow the terminal's own
 theme and light or dark appearance.
 
-Separate themes can be configured for light and dark modes. On terminals supporting [mode 2031 dark/light detection](https://github.com/contour-terminal/contour/blob/master/docs/vt-extensions/color-palette-update-notifications.md), the theme mode is detected from the terminal and updates when the terminal follows a system appearance change. On other terminals that report their background color, Mitos infers the initial mode from that color.
+Separate themes can be configured for light and dark modes. On terminals supporting [mode 2031 dark/light detection](https://github.com/contour-terminal/contour/blob/master/docs/vt-extensions/color-palette-update-notifications.md), the theme mode is detected from the terminal and updates when the terminal follows a system appearance change. On other terminals, Mitos uses the configured `fallback` theme, or the dark theme when no fallback is specified.
 
 ```toml
 [theme]

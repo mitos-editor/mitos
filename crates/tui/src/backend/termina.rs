@@ -53,18 +53,6 @@ fn vte_version() -> Option<usize> {
     std::env::var("VTE_VERSION").ok()?.parse().ok()
 }
 
-fn theme_mode_from_background(color: RgbColor) -> theme::Mode {
-    // YIQ luma is a useful approximation for deciding whether text should be
-    // presented on a light or dark terminal background.
-    let luma =
-        u32::from(color.red) * 299 + u32::from(color.green) * 587 + u32::from(color.blue) * 114;
-    if luma >= 128_000 {
-        theme::Mode::Light
-    } else {
-        theme::Mode::Dark
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 struct Capabilities {
     kitty_keyboard: KittyKeyboardSupport,
@@ -116,7 +104,6 @@ impl TerminaBackend {
         terminal.enter_raw_mode()?;
 
         let mut capabilities = Capabilities::default();
-        let mut terminal_background_color = None;
         let start = Instant::now();
 
         // HACK: emitting OSC11 / OSC111 seems to break SGR and cause flickering in tmux.
@@ -138,7 +125,7 @@ impl TerminaBackend {
         // If we only receive the device attributes then we know it is not.
         write!(
             terminal,
-            "{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}",
             // Synchronized output
             Csi::Mode(csi::Mode::QueryDecPrivateMode(csi::DecPrivateMode::Code(
                 csi::DecPrivateModeCode::SynchronizedOutput
@@ -151,10 +138,6 @@ impl TerminaBackend {
             Csi::Sgr(csi::Sgr::UnderlineColor(TEST_COLOR.into())),
             Dcs::Request(dcs::DcsRequest::GraphicRendition),
             Csi::Sgr(csi::Sgr::Reset),
-            Osc::ChangeDynamicColors(
-                osc::DynamicColorNumber::TextBackgroundColor,
-                vec![osc::ColorOrQuery::Query]
-            ),
             // Finally request the primary device attributes
             Csi::Device(csi::Device::RequestPrimaryDeviceAttributes),
         )?;
@@ -184,14 +167,6 @@ impl TerminaBackend {
                         capabilities.theme_mode_updates = true;
                         capabilities.theme_mode = Some(mode.into());
                     }
-                    Event::Osc(Osc::ChangeDynamicColors(
-                        osc::DynamicColorNumber::TextBackgroundColor,
-                        colors,
-                    )) => {
-                        if let Some(osc::ColorOrQuery::Color(color)) = colors.first() {
-                            terminal_background_color = Some(*color);
-                        }
-                    }
                     Event::Dcs(dcs::Dcs::Response {
                         value: dcs::DcsResponse::GraphicRendition(sgrs),
                         ..
@@ -203,10 +178,6 @@ impl TerminaBackend {
                     }
                     _ => (),
                 }
-            }
-
-            if capabilities.theme_mode.is_none() {
-                capabilities.theme_mode = terminal_background_color.map(theme_mode_from_background);
             }
 
             let end = Instant::now();
