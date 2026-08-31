@@ -10,7 +10,13 @@ use editor_core::{
     LineEnding, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::{ops::ControlFlow, sync::Arc};
+use std::{
+    ops::ControlFlow,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use stdx::rope::RopeExt as _;
 use view::{
     align_view,
@@ -198,7 +204,17 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
 
 struct GlobalSearchConfig {
     search: Arc<WorkspaceSearch>,
+    case_sensitive: AtomicBool,
     style: PathStyleConfig,
+}
+
+impl GlobalSearchConfig {
+    fn search_config(&self) -> Arc<WorkspaceSearch> {
+        Arc::new(WorkspaceSearch {
+            smart_case: !self.case_sensitive.load(Ordering::Relaxed),
+            ..(*self.search).clone()
+        })
+    }
 }
 
 fn display_match(mut matched: ::search::Match) -> ::search::Match {
@@ -212,7 +228,7 @@ fn query_global_search(
     config: Arc<GlobalSearchConfig>,
     injector: &ui::picker::Injector<::search::Match, GlobalSearchConfig>,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<()>> {
-    let request = SearchRequest::new(query, editor, config.search.clone());
+    let request = SearchRequest::new(query, editor, config.search_config());
     editor.clear_status();
     if let Err(error) = &request {
         editor.set_error(|| error.to_string());
@@ -242,7 +258,7 @@ fn refresh_global_search(
     config: Arc<GlobalSearchConfig>,
     cancel: event::TaskHandle,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<::search::Match>>> {
-    let request = SearchRequest::new(query, editor, config.search.clone());
+    let request = SearchRequest::new(query, editor, config.search_config());
     async move {
         let Some(request) = request? else {
             return Ok(Vec::new());
@@ -258,18 +274,32 @@ fn refresh_global_search(
 }
 
 pub(super) fn global_search(cx: &mut Context) {
+    let reg = cx.register.unwrap_or('/');
+    cx.editor.registers.last_search_register = reg;
+    let picker = global_search_picker(cx.editor, cx.jobs, stdx::env::current_working_dir(), reg);
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn global_search_picker(
+    editor: &mut Editor,
+    jobs: &crate::job::Jobs,
+    root: std::path::PathBuf,
+    reg: char,
+) -> Picker<::search::Match, GlobalSearchConfig> {
     use ::search::Match as FileResult;
 
-    let config = cx.editor.config();
+    let config = editor.config();
     let config = GlobalSearchConfig {
         search: Arc::new(WorkspaceSearch {
-            root: stdx::env::current_working_dir(),
+            root: stdx::path::canonicalize(root),
             smart_case: config.search.smart_case,
             options: crate::files::picker_options(&config.file_picker),
         }),
-        style: PathStyleConfig::new(cx.editor),
+        case_sensitive: AtomicBool::new(!config.search.smart_case),
+        style: PathStyleConfig::new(editor),
     };
 
+    let initial_case_sensitive = config.case_sensitive.load(Ordering::Relaxed);
     let columns = [
         PickerColumn::new("path", |item: &FileResult, config: &GlobalSearchConfig| {
             config
@@ -280,11 +310,8 @@ pub(super) fn global_search(cx: &mut Context) {
         PickerColumn::hidden("contents"),
     ];
 
-    let reg = cx.register.unwrap_or('/');
-    cx.editor.registers.last_search_register = reg;
-
-    let picker = Picker::new(
-        cx.editor.redraw().clone(),
+    Picker::new(
+        editor.redraw().clone(),
         columns,
         1, // contents
         [],
@@ -349,19 +376,21 @@ pub(super) fn global_search(cx: &mut Context) {
             },
         })
     })
+    .with_replacement(|cx, items, query, replacement, replace_all, config| {
+        let search = ::search::Search::new(query, !config.case_sensitive.load(Ordering::Relaxed))?;
+        cx.editor
+            .replace_workspace_matches(&search, items, replacement, replace_all)
+    })
+    .with_case_sensitive_toggle(initial_case_sensitive, |config, enabled| {
+        config.case_sensitive.store(enabled, Ordering::Relaxed);
+    })
     .with_title("Search")
     .with_history_register(Some(reg))
-    .with_dynamic_query(query_global_search, Some(275), cx.jobs)
-    .with_file_updates(
-        cx.editor,
-        |config| &config.search.root,
-        refresh_global_search,
-    )
+    .with_dynamic_query(query_global_search, Some(275), jobs)
+    .with_file_updates(editor, |config| &config.search.root, refresh_global_search)
     .with_item_key(|item| (item.path.clone(), item.line_start, item.match_start_col))
     .refresh_on_content_changes()
-    .refresh_on_document_changes();
-
-    cx.push_layer(Box::new(overlaid(picker)));
+    .refresh_on_document_changes()
 }
 
 pub(super) fn selection_for_global_search_match(
@@ -433,6 +462,7 @@ mod tests {
                 smart_case: true,
                 options: ::search::Options::default(),
             }),
+            case_sensitive: AtomicBool::new(false),
             style: PathStyleConfig::new(&app.editor),
         });
         let mut task = event::TaskController::new();
@@ -462,6 +492,7 @@ mod tests {
             )],
             GlobalSearchConfig {
                 search: config.search.clone(),
+                case_sensitive: AtomicBool::new(false),
                 style: PathStyleConfig::new(&app.editor),
             },
         );
@@ -514,3 +545,7 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "integration"))]
+#[path = "search/replacement_tests.rs"]
+mod replacement_tests;

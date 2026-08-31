@@ -1,5 +1,5 @@
 //! Workspace text requests own compiled patterns, buffer snapshots, and worker execution.
-//! Frontends own replacement, display paths, and result publication.
+//! Frontends own display paths and result publication; the editor owns replacements.
 use crate::Editor;
 use anyhow::Context;
 use editor_core::Rope;

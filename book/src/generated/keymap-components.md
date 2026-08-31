@@ -16,7 +16,10 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 
 ## Buffer picker
 
@@ -34,7 +37,10 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 
 ## Quicklist picker
 
@@ -53,7 +59,10 @@
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <C-x> `` | `` remove_entry `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 
 ## Prompt
 

@@ -6,6 +6,7 @@ mod handlers;
 mod matching_tests;
 mod preview;
 mod query;
+mod replacement;
 mod results;
 #[cfg(all(test, feature = "integration"))]
 pub(crate) mod test;
@@ -50,6 +51,7 @@ use view::{
 
 use self::handlers::{DynamicQueryChange, DynamicQueryHandler};
 use self::preview::{render_preview_content, FilePreview};
+use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacement};
 
 // These types remain available through the picker facade.
 pub use self::preview::{
@@ -239,6 +241,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
+    replacement: Option<Replacement<T, D>>,
+    case_sensitive: Option<CaseSensitiveToggle<D>>,
+    dynamic_query_pending: bool,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
     dynamic_query_request: event::TaskController,
     poll: Option<PollTask>,
@@ -417,6 +422,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview: FilePreview::default(),
             file_fn: None,
             quicklist_fn: None,
+            replacement: None,
+            case_sensitive: None,
+            dynamic_query_pending: false,
             dynamic_query_handler: None,
             dynamic_query_request: event::TaskController::new(),
             poll: None,
@@ -503,6 +511,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             is_paste: true,
         };
         event::send_blocking(&handler, event);
+        self.dynamic_query_pending = true;
         self.dynamic_query_handler = Some(handler);
         self
     }
@@ -690,7 +699,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        if let EventResult::Consumed(_) = self.prompt.handle_event(event, cx) {
+        let search_active = !self.replacement_active();
+        let result = self.active_prompt_mut().handle_event(event, cx);
+        if search_active && matches!(result, EventResult::Consumed(_)) {
             self.handle_prompt_change(matches!(event, Event::Paste(_)));
         }
         EventResult::Consumed(None)
@@ -755,6 +766,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .map(|pattern| &**pattern)
                 .unwrap_or_default();
             if &*self.primary_query() != previous {
+                self.dynamic_query_pending = true;
                 if let Some(updates) = &mut self.editor_updates {
                     updates.task.cancel();
                 }
@@ -817,18 +829,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let inner = block.inner(area);
         block.render(area, surface);
 
-        let [prompt_area, separator_area, inner] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas(inner);
+        let input_areas = split_picker_input_area(inner, self.replacement_visible());
+        let inner = input_areas.results;
 
         // -- Render the input bar:
 
         let count = format!(
-            "{}{}/{}",
-            if status.running || self.results.matcher.active_injectors() > 0 {
+            "{}{}{}/{}",
+            self.case_sensitive.as_ref().map_or("", |toggle| {
+                if toggle.enabled {
+                    "case-sensitive "
+                } else {
+                    "smart-case "
+                }
+            }),
+            if self.dynamic_query_pending
+                || status.running
+                || self.results.matcher.active_injectors() > 0
+            {
                 "(running) "
             } else {
                 ""
@@ -837,7 +855,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             snapshot.item_count(),
         );
 
-        let prompt_area = prompt_area.clip_left(1);
+        let prompt_area = input_areas.search.clip_left(1);
         let [line_area, count_area, _right_padding] = Layout::horizontal([
             Constraint::Min(0),
             Constraint::Length(count.len() as u16),
@@ -847,6 +865,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         // render the prompt first since it will clear its background
         self.prompt.render(line_area, surface, cx);
+        if let Some(area) = input_areas.replacement {
+            self.replacement.as_mut().unwrap().prompt.render(
+                area.clip_left(1).clip_right(1),
+                surface,
+                cx,
+            );
+        }
 
         Paragraph::new(count)
             .style(text_style)
@@ -854,7 +879,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let sep_style = cx.editor.theme.get("ui.background.separator");
         panel::top_border(sep_style, cx.editor.config().border_style)
-            .render(separator_area, surface);
+            .render(input_areas.search_separator, surface);
+        if let Some(area) = input_areas.replacement_separator {
+            panel::top_border(sep_style, cx.editor.config().border_style).render(area, surface);
+        }
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let rows = rows.max(1);
@@ -1026,6 +1054,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             picker.results.discard_pending();
             picker.results.spare_matcher = None;
 
+            picker.dynamic_query_pending = false;
+            picker.query_refresh = false;
             picker.dynamic_query_request.cancel();
             if let Some(updates) = &mut picker.editor_updates {
                 updates.task.cancel();
@@ -1132,6 +1162,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             return EventResult::Consumed(Some(callback));
                         }
                     }
+                }
+                PickerAction::ToggleReplacement => self.toggle_replacement_prompt(),
+                PickerAction::ToggleCaseSensitive => self.toggle_case_sensitive(ctx.editor),
+                PickerAction::ReplaceAll => {
+                    if self.replacement_visible() {
+                        self.replace_matches(ctx, true);
+                        return EventResult::Consumed(None);
+                    }
+                }
+                PickerAction::Accept if self.replacement_visible() => {
+                    self.replace_matches(ctx, false);
+                    return EventResult::Consumed(None);
                 }
                 PickerAction::Accept => {
                     // If the prompt has a history completion and is empty, use enter to accept
@@ -1282,7 +1324,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn has_pending_keys(&self) -> bool {
-        self.keys.is_pending() || self.prompt.has_pending_keys()
+        self.keys.is_pending() || self.active_prompt().has_pending_keys()
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
@@ -1303,7 +1345,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
         // Once the embedded prompt starts a key sequence or register selection,
         // it owns subsequent keys, including keys normally handled by the picker.
-        if self.prompt.has_pending_keys() {
+        if self.active_prompt().has_pending_keys() {
             return self.prompt_handle_event(event, ctx);
         }
         let actions = match self
@@ -1326,16 +1368,20 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         let render_preview =
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);
-        let area = panel::bordered(&editor.theme, editor.config().border_style)
-            .inner(picker_area)
-            .with_height(1)
-            .clip_left(1);
-
-        self.prompt.cursor(area, editor)
+        let inner = panel::bordered(&editor.theme, editor.config().border_style).inner(picker_area);
+        let areas = split_picker_input_area(inner, self.replacement_visible());
+        let area = if self.replacement_active() {
+            areas.replacement.unwrap().clip_right(1)
+        } else {
+            areas.search
+        };
+        self.active_prompt().cursor(area.clip_left(1), editor)
     }
 
     fn required_size(&mut self, (width, height): (u16, u16)) -> Option<(u16, u16)> {
-        self.completion_height = height.saturating_sub(4 + self.header_height());
+        self.completion_height = height.saturating_sub(
+            4 + self.header_height() + if self.replacement_visible() { 2 } else { 0 },
+        );
         Some((width, height))
     }
 

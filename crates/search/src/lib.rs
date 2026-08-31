@@ -5,7 +5,7 @@
 //! applications choose the worker on which to run it.
 
 use editor_core::{Rope, RopeReader};
-use grep_matcher::Matcher;
+use grep_matcher::{Captures, Matcher};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
 use ignore::WalkState;
@@ -41,6 +41,58 @@ impl Search {
                 .multi_line(true)
                 .build(pattern)?,
         })
+    }
+
+    /// Expand captures into character-indexed edits, optionally for one exact match.
+    pub fn replacement_changes(
+        &self,
+        text: editor_core::RopeSlice<'_>,
+        replacement: &str,
+        target: Option<std::ops::Range<usize>>,
+    ) -> anyhow::Result<Vec<(usize, usize, Option<editor_core::Tendril>)>> {
+        let haystack = text.to_string();
+        let mut captures = self.matcher.new_captures()?;
+        let mut changes = Vec::new();
+        let mut invalid_boundary = false;
+        self.matcher
+            .captures_iter(haystack.as_bytes(), &mut captures, |captures| {
+                let matched = captures.get(0).unwrap();
+                if !haystack.is_char_boundary(matched.start())
+                    || !haystack.is_char_boundary(matched.end())
+                {
+                    // The byte regex engine can report empty matches inside a scalar.
+                    // Skip those; nonempty partial scalars cannot become text edits.
+                    invalid_boundary |= matched.start() != matched.end();
+                    return !invalid_boundary;
+                }
+                let start = text.byte_to_char_idx(matched.start());
+                let end = text.byte_to_char_idx(matched.end());
+                if target
+                    .as_ref()
+                    .is_some_and(|target| *target != (start..end))
+                {
+                    return true;
+                }
+                let mut expanded = Vec::new();
+                captures.interpolate(
+                    |name| self.matcher.capture_index(name),
+                    haystack.as_bytes(),
+                    replacement.as_bytes(),
+                    &mut expanded,
+                );
+                changes.push((start, end, expanded));
+                target.is_none()
+            })?;
+        anyhow::ensure!(
+            !invalid_boundary,
+            "search pattern matches inside a UTF-8 character"
+        );
+        changes
+            .into_iter()
+            .map(|(start, end, expanded)| {
+                Ok((start, end, Some(String::from_utf8(expanded)?.into())))
+            })
+            .collect()
     }
 
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
@@ -127,8 +179,8 @@ fn match_line_cols(
     matcher: &grep_regex::RegexMatcher,
 ) -> Option<(usize, usize, usize, usize)> {
     let matched = matcher.find(line_content.as_bytes()).ok().flatten()?;
-    let prefix = &line_content[..matched.start()];
-    let matched_text = &line_content[..matched.end()];
+    let prefix = line_content.get(..matched.start())?;
+    let matched_text = line_content.get(..matched.end())?;
 
     let start_line = line_start + prefix.matches('\n').count();
     let start_col = prefix.rsplit('\n').next().unwrap_or(prefix).chars().count();
@@ -148,6 +200,83 @@ fn match_line_cols(
 mod tests {
     use super::*;
     use std::sync::{atomic::AtomicUsize, Mutex};
+
+    #[test]
+    fn replacement_expands_captures_for_all_matches() {
+        let text = Rope::from("foo-12 FOO-34\n");
+        let search = Search::new(r"(?P<word>foo)-(\d+)", true).unwrap();
+        let changes = search
+            .replacement_changes(text.slice(..), "${word}:$2 $$", None)
+            .unwrap();
+        assert_eq!(
+            changes,
+            vec![
+                (0, 6, Some("foo:12 $".into())),
+                (7, 13, Some("FOO:34 $".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn replacement_targets_character_ranges_and_rejects_stale_matches() {
+        let text = Rope::from("α foo foo\n");
+        let search = Search::new("foo", true).unwrap();
+        assert_eq!(
+            search
+                .replacement_changes(text.slice(..), "bar", Some(6..9))
+                .unwrap(),
+            vec![(6, 9, Some("bar".into()))]
+        );
+        assert!(search
+            .replacement_changes(text.slice(..), "bar", Some(5..8))
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            Search::new("foo", false)
+                .unwrap()
+                .replacement_changes(Rope::from("FOO foo").slice(..), "", None)
+                .unwrap(),
+            vec![(4, 7, Some("".into()))]
+        );
+    }
+
+    #[test]
+    fn replacement_handles_multiline_and_empty_matches() {
+        let text = Rope::from("α\nβ\n");
+        assert_eq!(
+            Search::new("α\\nβ", true)
+                .unwrap()
+                .replacement_changes(text.slice(..), "x", None)
+                .unwrap(),
+            vec![(0, 3, Some("x".into()))]
+        );
+        let changes = Search::new("", true)
+            .unwrap()
+            .replacement_changes(Rope::from("αβ").slice(..), "x", None)
+            .unwrap();
+        assert_eq!(
+            changes,
+            vec![
+                (0, 0, Some("x".into())),
+                (1, 1, Some("x".into())),
+                (2, 2, Some("x".into()))
+            ]
+        );
+    }
+
+    #[test]
+    fn replacement_rejects_partial_utf8_matches_and_captures() {
+        let text = Rope::from("é");
+        for (pattern, replacement) in [(r"(?-u:\xA9)", "x"), (r"(?-u:(.)(.))", "$1")] {
+            assert!(Search::new(pattern, true)
+                .unwrap()
+                .replacement_changes(text.slice(..), replacement, None)
+                .is_err());
+        }
+        assert!(
+            match_line_cols(0, "é", &Search::new(r"(?-u:\xA9)", true).unwrap().matcher).is_none()
+        );
+    }
 
     fn options() -> Options {
         Options {

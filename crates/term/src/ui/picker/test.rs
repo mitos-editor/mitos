@@ -71,3 +71,15 @@ pub(crate) async fn until<T: Send + Sync, D: Send + Sync>(
     .await?;
     Ok(())
 }
+
+pub(crate) fn is_settled<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>) -> bool {
+    !picker.dynamic_query_pending
+        && !picker.query_refresh
+        && !picker.results.is_refreshing()
+        && picker
+            .file_updates
+            .as_ref()
+            .is_none_or(|updates| !updates.is_pending())
+        && picker.results.matcher.active_injectors() == 0
+        && !picker.results.matcher.tick(0).running
+}

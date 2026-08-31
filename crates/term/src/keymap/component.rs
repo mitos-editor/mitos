@@ -44,6 +44,9 @@ pub enum PickerAction {
     AcceptHorizontalSplit,
     AcceptVerticalSplit,
     TogglePreview,
+    ToggleReplacement,
+    ToggleCaseSensitive,
+    ReplaceAll,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(untagged, skip_deserializing)]
@@ -155,6 +158,10 @@ impl Default for ComponentKeymaps {
             ("C-s", K::AcceptHorizontalSplit),
             ("C-v", K::AcceptVerticalSplit),
             ("C-t", K::TogglePreview),
+            ("A-r", K::ToggleReplacement),
+            ("A-c", K::ToggleCaseSensitive),
+            ("C-ret", K::ReplaceAll),
+            ("Meta-ret", K::ReplaceAll),
         ]);
         Self {
             prompt: bindings(&[

@@ -128,7 +128,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | Table | Actions |
 | --- | --- |
 | `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
-| `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `populate_quicklist` |
+| `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |

@@ -32,6 +32,10 @@ struct Pending<T, D> {
 }
 
 impl<T, D> FileUpdates<T, D> {
+    pub(super) fn is_pending(&self) -> bool {
+        self.dirty || self.pending.is_some()
+    }
+
     pub(super) fn stop(&mut self) {
         self.task.cancel();
         self.pending = None;
@@ -151,6 +155,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             updates.dirty = true;
         }
         if updates.dirty
+            && !self.dynamic_query_pending
             && updates.pending.is_none()
             && self.results.matcher.active_injectors() == 0
             && !self.results.is_refreshing()

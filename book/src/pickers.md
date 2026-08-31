@@ -61,6 +61,26 @@ Insert a register into a query with `Ctrl-r`, then its name. `Ctrl-r .`
 inserts the current selections; `Ctrl-r %` inserts the current file's path.
 See [Search and replacement](./search.md) for project-search examples.
 
+## Replacing global search results
+
+Global search uses smart case by default. Press `Alt-c` to toggle between
+smart case and case-sensitive matching. The input bar shows the current mode.
+
+Press `Alt-r` to reveal the replacement input. Press it again to switch focus
+between the search and replacement inputs. While the replacement input is
+visible, `Enter` replaces the selected match; `Ctrl-Enter`, `Cmd-Enter`, or
+`Win-Enter` replaces every occurrence in the files matching the current path
+filter. Wait for search and result updates to finish before replacing.
+
+Replacement text expands regex captures: `$1` and `${name}` insert numbered
+and named captures, and `$$` inserts a literal dollar sign. An empty replacement
+deletes matches. Changes stay in editor buffers until saved and form one undo
+step per affected buffer. Open buffers, including unsaved edits, take precedence
+over files on disk.
+
+Results and previews refresh after replacement so subsequent actions use current
+match positions. These bindings can be changed under `[keys.picker]`.
+
 ## File explorer
 
 Press `Space e` to browse the workspace, or `Space E` for the current file's

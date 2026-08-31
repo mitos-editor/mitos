@@ -43,9 +43,14 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if !(changed || resume) {
             return;
         }
+        self.request_dynamic_refresh(false);
+    }
+
+    pub(super) fn request_dynamic_refresh(&mut self, is_paste: bool) {
         let Some(handler) = &self.dynamic_query_handler else {
             return;
         };
+        self.dynamic_query_pending = true;
         self.query_refresh = true;
         self.results.discard_pending();
 
@@ -55,7 +60,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             handler,
             super::handlers::DynamicQueryChange {
                 query: self.primary_query(),
-                is_paste: false,
+                is_paste,
             },
         );
     }

@@ -188,6 +188,10 @@ impl Prompt {
         &self.line
     }
 
+    pub(crate) fn set_prompt(&mut self, prompt: impl Into<Cow<'static, str>>) {
+        self.prompt = prompt.into();
+    }
+
     pub fn with_history_register(&mut self, history_register: Option<char>) -> &mut Self {
         self.history_register = history_register;
         self

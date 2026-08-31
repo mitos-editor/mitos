@@ -106,6 +106,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                 );
                 return;
             }
+            picker.dynamic_query_pending = false;
             let injector = if std::mem::take(&mut picker.query_refresh) {
                 picker.refresh_injector()
             } else {

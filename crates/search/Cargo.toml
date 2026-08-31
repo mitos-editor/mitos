@@ -17,6 +17,7 @@ grep-matcher.workspace = true
 grep-regex.workspace = true
 grep-searcher.workspace = true
 log.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
