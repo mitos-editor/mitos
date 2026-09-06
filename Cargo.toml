@@ -92,7 +92,7 @@ ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
 textwrap = "0.16.2"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
-unicode-width = "=0.1.12"
+unicode-width = "=0.2.0"
 spellbook = "0.4"
 
 # Parsing, search, and diffing
