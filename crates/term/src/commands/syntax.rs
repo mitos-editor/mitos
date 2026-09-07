@@ -194,13 +194,14 @@ fn tags_iter<'a>(
 }
 
 pub fn syntax_symbol_picker(cx: &mut Context) {
+    let doc_id = doc!(cx.editor).id();
+    cx.editor.ensure_syntax(doc_id);
     let doc = doc!(cx.editor);
     let Some(syntax) = doc.syntax() else {
         cx.editor
             .set_error(|| "Syntax tree is not available on this buffer");
         return;
     };
-    let doc_id = doc.id();
     let text = doc.text().slice(..);
     let loader = cx.editor.syn_loader.load();
     let tags = tags_iter(syntax, &loader, text, UriOrDocumentId::Id(doc.id()), None);
@@ -327,6 +328,14 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
             Ok(pattern) => pattern,
             Err(err) => return async { Err(anyhow::anyhow!(err)) }.boxed(),
         };
+        let pending: Vec<_> = editor
+            .documents()
+            .filter(|doc| doc.is_syntax_pending())
+            .map(Document::id)
+            .collect();
+        for id in pending {
+            editor.ensure_syntax(id);
+        }
         let loader = editor.syn_loader.load();
         for doc in editor.documents() {
             let Some(syntax) = doc.syntax() else { continue };

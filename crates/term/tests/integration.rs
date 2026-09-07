@@ -22,4 +22,5 @@ mod test {
     mod movement;
     mod spelling;
     mod splits;
+    mod startup;
 }

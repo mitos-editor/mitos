@@ -20,6 +20,7 @@ pub fn register() {
     register_event::<PostInsertChar>();
     register_event::<PostCommand>();
     register_event::<DocumentDidOpen>();
+    register_event::<view::events::DocumentSyntaxRequested>();
     register_event::<DocumentDidChange>();
     register_event::<DocumentDidClose>();
     register_event::<DocumentFocusLost>();

@@ -114,6 +114,12 @@ pub async fn test_key_sequences(
     inputs: Vec<(Option<&str>, Option<&dyn Fn(&Application)>)>,
     should_exit: bool,
 ) -> anyhow::Result<()> {
+    // Command tests start from a ready fixture. Startup tests exercise input
+    // arriving while the initial syntax tree is still being built.
+    if app.editor.documents().any(|doc| doc.is_syntax_pending()) {
+        tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
+    }
+
     const TIMEOUT: Duration = Duration::from_millis(500);
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let mut rx_stream = UnboundedReceiverStream::new(rx);

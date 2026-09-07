@@ -128,6 +128,8 @@ impl Application {
         let area = Rect::from(terminal.size()?);
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
+        let jobs = Jobs::new();
+        jobs.set_current();
         let handlers = handlers::setup(config.clone());
         let mut editor = Editor::new(
             area,
@@ -146,8 +148,6 @@ impl Application {
         }));
         let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
         compositor.push(editor_view);
-
-        let jobs = Jobs::new();
 
         if args.load_tutor {
             let path = loader::runtime_file(Path::new("tutor"));
@@ -383,8 +383,12 @@ impl Application {
                         // Don't report idle while a save is still in flight, or an assertion on the post-save document state (e.g. its path,
                         // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed. Slow file I/O on Windows
                         // (atomic_save's rename/fsync dance over the still-open temp file) makes this race observable.
-                        // Errors produce an event too, so it cannot hang.
-                        if _idle_handled && self.editor.write_count == 0 {
+                        // Initial syntax must also settle before assertions; its completion can
+                        // schedule spelling checks. Both success and failure complete via jobs.
+                        if _idle_handled
+                            && self.editor.write_count == 0
+                            && !self.editor.documents().any(|doc| doc.is_syntax_pending())
+                        {
                             return true;
                         }
                     }

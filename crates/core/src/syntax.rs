@@ -469,10 +469,16 @@ impl Loader {
 
     pub fn set_scopes(&self, scopes: Vec<String>) {
         self.scopes.store(Arc::new(scopes));
+        self.refresh_highlights();
+    }
 
-        // Reconfigure existing grammars
+    /// Apply the current theme's scopes to initialized languages.
+    /// Background syntax initialization calls this before publishing its result,
+    /// since a theme change may have missed queries that were still compiling.
+    pub fn refresh_highlights(&self) {
+        let scopes = self.scopes();
         for data in &self.languages {
-            data.reconfigure(&self.scopes());
+            data.reconfigure(&scopes);
         }
     }
 }

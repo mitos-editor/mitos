@@ -29,6 +29,12 @@ pub fn request_redraw() {
     REDRAW_NOTIFY.notify_one();
 }
 
+/// Capture the current editor's redraw signal for use on background threads.
+pub fn redraw_callback() -> impl Fn() + Send + Sync + 'static {
+    let notify: &'static Notify = &REDRAW_NOTIFY;
+    move || notify.notify_one()
+}
+
 /// Returns a future that will yield once a redraw has been asynchronously
 /// requested using [`request_redraw`].
 pub fn redraw_requested() -> impl Future<Output = ()> {
@@ -52,11 +58,38 @@ pub fn lock_frame() -> RenderLockGuard {
     RENDER_LOCK.read()
 }
 
-/// A zero sized type that requests a redraw via [request_redraw] when the type [Drop]s.
-pub struct RequestRedrawOnDrop;
+/// Requests a redraw of the originating editor when dropped, even on another thread.
+#[derive(Clone)]
+pub struct RequestRedrawOnDrop(&'static Notify);
+
+impl Default for RequestRedrawOnDrop {
+    fn default() -> Self {
+        Self(&REDRAW_NOTIFY)
+    }
+}
 
 impl Drop for RequestRedrawOnDrop {
     fn drop(&mut self) {
-        request_redraw();
+        self.0.notify_one();
+    }
+}
+
+#[cfg(all(test, feature = "integration_test"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn background_redraws_notify_the_originating_runtime() {
+        let callback = redraw_callback();
+        std::thread::spawn(callback).join().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), redraw_requested())
+            .await
+            .unwrap();
+
+        let redraw = RequestRedrawOnDrop::default();
+        std::thread::spawn(move || drop(redraw)).join().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), redraw_requested())
+            .await
+            .unwrap();
     }
 }

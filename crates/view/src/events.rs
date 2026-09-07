@@ -5,6 +5,7 @@ use lsp_client::LanguageServerId;
 use crate::{editor::Config, Document, DocumentId, Editor, ViewId};
 
 events! {
+    DocumentSyntaxRequested<'a> { doc: &'a mut Document }
     DocumentDidOpen<'a> {
         editor: &'a mut Editor,
         doc: DocumentId

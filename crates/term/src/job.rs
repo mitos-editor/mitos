@@ -1,6 +1,7 @@
+use arc_swap::ArcSwapOption;
 use event::status::StatusMessage;
 use event::{runtime_local, send_blocking};
-use std::sync::OnceLock;
+use std::sync::Arc;
 use view::Editor;
 
 use crate::compositor::Compositor;
@@ -14,23 +15,26 @@ pub type EditorCallback = Box<dyn FnOnce(&mut Editor) + Send>;
 pub type EditorCallbackFollowup = Box<dyn FnOnce(&mut Editor) -> Option<Job> + Send>;
 
 runtime_local! {
-    static JOB_QUEUE: OnceLock<Sender<Callback>> = OnceLock::new();
+    static JOB_QUEUE: ArcSwapOption<Sender<Callback>> = ArcSwapOption::const_empty();
+}
+
+fn callback_sender() -> Arc<Sender<Callback>> {
+    JOB_QUEUE.load_full().expect("job queue is not initialized")
 }
 
 pub async fn dispatch_callback(job: Callback) {
-    let _ = JOB_QUEUE.wait().send(job).await;
+    let _ = callback_sender().send(job).await;
 }
 
 pub async fn dispatch(job: impl FnOnce(&mut Editor, &mut Compositor) + Send + 'static) {
-    let _ = JOB_QUEUE
-        .wait()
+    let _ = callback_sender()
         .send(Callback::EditorCompositor(Box::new(job)))
         .await;
 }
 
 pub fn dispatch_blocking(job: impl FnOnce(&mut Editor, &mut Compositor) + Send + 'static) {
-    let jobs = JOB_QUEUE.wait();
-    send_blocking(jobs, Callback::EditorCompositor(Box::new(job)))
+    let jobs = callback_sender();
+    send_blocking(&jobs, Callback::EditorCompositor(Box::new(job)))
 }
 
 pub enum Callback {
@@ -48,6 +52,7 @@ pub struct Job {
 }
 
 pub struct Jobs {
+    sender: Arc<Sender<Callback>>,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -81,13 +86,20 @@ impl Jobs {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let (tx, rx) = channel(1024);
-        let _ = JOB_QUEUE.set(tx);
+        let sender = Arc::new(tx);
         let status_messages = event::status::setup();
         Self {
+            sender,
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             status_messages,
         }
+    }
+
+    /// Use this editor's queue for callbacks dispatched by event hooks.
+    /// Temporary job collections, such as those used by auto-save, do not replace it.
+    pub(crate) fn set_current(&self) {
+        JOB_QUEUE.store(Some(self.sender.clone()));
     }
 
     pub fn spawn<F: Future<Output = anyhow::Result<()>> + Send + 'static>(&mut self, f: F) {
@@ -131,9 +143,14 @@ impl Jobs {
         if j.wait {
             self.wait_futures.push(j.future);
         } else {
+            // Keep each job attached to its originating editor, even if a new
+            // editor replaces the runtime's default dispatch queue meanwhile.
+            let sender = self.sender.clone();
             tokio::spawn(async move {
                 match j.future.await {
-                    Ok(Some(cb)) => dispatch_callback(cb).await,
+                    Ok(Some(cb)) => {
+                        let _ = sender.send(cb).await;
+                    }
                     Ok(None) => (),
                     Err(err) => event::status::report(err).await,
                 }
@@ -185,5 +202,33 @@ impl Jobs {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn callbacks_follow_the_selected_queue_and_jobs_keep_their_owner() {
+        let mut first = Jobs::new();
+        first.set_current();
+        let mut second = Jobs::new();
+
+        // Creating a temporary collection must not redirect event-hook callbacks.
+        dispatch_callback(Callback::Editor(Box::new(|_| {}))).await;
+        assert!(first.callbacks.try_recv().is_ok());
+        assert!(second.callbacks.try_recv().is_err());
+
+        second.set_current();
+        first.callback(async { Ok(Callback::Editor(Box::new(|_| {}))) });
+        tokio::time::timeout(std::time::Duration::from_secs(1), first.callbacks.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(second.callbacks.try_recv().is_err());
+
+        dispatch_callback(Callback::Editor(Box::new(|_| {}))).await;
+        assert!(second.callbacks.try_recv().is_ok());
     }
 }

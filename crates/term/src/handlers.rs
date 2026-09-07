@@ -29,6 +29,7 @@ mod prompt;
 mod signature_help;
 mod snippet;
 mod spelling;
+mod syntax;
 mod workspace_trust;
 
 pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
@@ -61,6 +62,7 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     };
 
     view::handlers::register_hooks(&handlers);
+    syntax::register_hooks();
     completion::register_hooks(&handlers);
     signature_help::register_hooks(&handlers);
     document_highlight::register_hooks(&handlers);

@@ -1,3 +1,8 @@
+mod syntax_initialization;
+
+use syntax_initialization::PendingSyntax;
+pub use syntax_initialization::SyntaxRequest;
+
 use anyhow::{anyhow, bail, Error};
 use arc_swap::access::DynAccess;
 use arc_swap::ArcSwap;
@@ -197,6 +202,7 @@ pub struct Document {
     pub line_ending: LineEnding,
 
     pub syntax: Option<Syntax>,
+    pending_syntax: Option<PendingSyntax>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub language: Option<Arc<LanguageConfiguration>>,
 
@@ -844,6 +850,7 @@ impl Document {
             line_ending,
             restore_cursor: false,
             syntax: None,
+            pending_syntax: None,
             language: None,
             changes,
             old_state,
@@ -898,6 +905,7 @@ impl Document {
     // TODO: async fn?
     /// Create a new document from `path`. Encoding is auto-detected, but it can be manually
     /// overwritten with the `encoding` parameter.
+    /// The editor requests syntax initialization after assigning the document an id.
     pub fn open(
         path: &Path,
         mut encoding: Option<&'static Encoding>,
@@ -935,7 +943,8 @@ impl Document {
         // set the path and try detecting the language
         doc.set_path(Some(path));
         if detect_language {
-            doc.detect_language(&loader);
+            // The editor requests syntax after assigning a stable document id.
+            doc.language = doc.detect_language_config(&loader);
         }
 
         doc.editor_config = editor_config;
@@ -1305,9 +1314,10 @@ impl Document {
         Ok(future)
     }
 
-    /// Detect the programming language based on the file type.
-    pub fn detect_language(&mut self, loader: &syntax::Loader) {
-        self.set_language(self.detect_language_config(loader), loader);
+    /// Detect the language and initialize syntax without delaying file loading.
+    pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
+        self.language = self.detect_language_config(loader);
+        self.initialize_syntax(loader.clone());
     }
 
     /// Detect the programming language based on the file type.
@@ -1489,20 +1499,18 @@ impl Document {
         self.pickup_last_saved_time();
     }
 
-    /// Set the programming language for the file and load associated data (e.g. highlighting)
-    /// if it exists.
+    /// Set the language and load its syntax immediately for an explicit language command.
+    /// Automatic file loading uses [`Self::detect_language`] to initialize in the background.
     pub fn set_language(
         &mut self,
-        language_config: Option<Arc<syntax::config::LanguageConfiguration>>,
+        language_config: Option<Arc<LanguageConfiguration>>,
         loader: &syntax::Loader,
     ) {
+        self.pending_syntax = None;
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
             Syntax::new(self.text.slice(..), config.language(), loader)
                 .map_err(|err| {
-                    // `NoRootConfig` means that there was an issue loading the language/syntax
-                    // config for the root language of the document. An error must have already
-                    // been logged by `LanguageData::syntax_config`.
                     if err != syntax::HighlighterError::NoRootConfig {
                         log::warn!("Error building syntax for '{}': {err}", self.display_name());
                     }

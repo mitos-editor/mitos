@@ -128,7 +128,7 @@ fn recheck_document(editor: &mut Editor, doc_id: DocumentId, changes: ChangeSet,
     let Some(doc) = editor.documents.get(&doc_id) else {
         return;
     };
-    if doc.spelling_languages.is_empty() {
+    if doc.spelling_languages.is_empty() || doc.is_syntax_pending() {
         return;
     }
     // A syntax edit can change prose boundaries far beyond the edited word (for example an
@@ -195,7 +195,7 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
     let Some(doc) = editor.documents.get(&doc_id) else {
         return;
     };
-    if doc.spelling_languages.is_empty() {
+    if doc.spelling_languages.is_empty() || doc.is_syntax_pending() {
         return;
     }
     let languages = doc.spelling_languages.clone();

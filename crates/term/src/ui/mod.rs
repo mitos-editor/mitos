@@ -243,7 +243,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
 
     let mut walk_builder = WalkBuilder::new(&root);
 
-    let mut files = walk_builder
+    let files = walk_builder
         .hidden(config.file_picker.hidden)
         .parents(config.file_picker.parents)
         .ignore(config.file_picker.ignore)
@@ -309,27 +309,13 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     })
     .with_preview(|_editor, path| Some((path.as_path().into(), None)));
     let injector = picker.injector();
-    let timeout = std::time::Instant::now() + std::time::Duration::from_millis(30);
-
-    let mut hit_timeout = false;
-    for file in &mut files {
-        if injector.push(file).is_err() {
-            break;
-        }
-        if std::time::Instant::now() >= timeout {
-            hit_timeout = true;
-            break;
-        }
-    }
-    if hit_timeout {
-        std::thread::spawn(move || {
-            for file in files {
-                if injector.push(file).is_err() {
-                    break;
-                }
+    tokio::task::spawn_blocking(move || {
+        for file in files {
+            if injector.push(file).is_err() {
+                break;
             }
-        });
-    }
+        }
+    });
     picker
 }
 

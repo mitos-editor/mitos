@@ -441,7 +441,7 @@ impl<I, D> Clone for Injector<I, D> {
             editor_data: self.editor_data.clone(),
             version: self.version,
             picker_version: self.picker_version.clone(),
-            _redraw: event::RequestRedrawOnDrop,
+            _redraw: self._redraw.clone(),
         }
     }
 }
@@ -566,7 +566,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         assert!(matcher_columns > 0);
         let matcher = Nucleo::new(
             Config::DEFAULT,
-            Arc::new(event::request_redraw),
+            Arc::new(event::redraw_callback()),
             None,
             matcher_columns,
         );
@@ -576,7 +576,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data: Arc::new(editor_data),
             version: 0,
             picker_version: Arc::new(AtomicUsize::new(0)),
-            _redraw: event::RequestRedrawOnDrop,
+            _redraw: event::RequestRedrawOnDrop::default(),
         };
         (matcher, streamer)
     }
@@ -625,7 +625,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         assert!(matcher_columns > 0);
         let matcher = Nucleo::new(
             Config::DEFAULT,
-            Arc::new(event::request_redraw),
+            Arc::new(event::redraw_callback()),
             None,
             matcher_columns,
         );
@@ -713,7 +713,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data: self.editor_data.clone(),
             version: self.version.load(atomic::Ordering::Relaxed),
             picker_version: self.version.clone(),
-            _redraw: event::RequestRedrawOnDrop,
+            _redraw: event::RequestRedrawOnDrop::default(),
         }
     }
 

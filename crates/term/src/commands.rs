@@ -7700,7 +7700,7 @@ fn lsp_or_syntax_symbol_picker(cx: &mut Context) {
         .is_some()
     {
         lsp::symbol_picker(cx);
-    } else if doc.syntax().is_some() {
+    } else if doc.syntax().is_some() || doc.is_syntax_pending() {
         syntax_symbol_picker(cx);
     } else {
         cx.editor.set_error(|| {

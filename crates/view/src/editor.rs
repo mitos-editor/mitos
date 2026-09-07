@@ -2137,6 +2137,7 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
+        doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);
         self.refresh_vcs_watches();
@@ -2456,6 +2457,17 @@ impl Editor {
     #[inline]
     pub fn document_mut(&mut self, id: DocumentId) -> Option<&mut Document> {
         self.documents.get_mut(&id)
+    }
+
+    /// Finish pending syntax initialization for an explicit syntax-dependent command.
+    /// Normal file loading publishes syntax asynchronously through the job queue.
+    pub fn ensure_syntax(&mut self, id: DocumentId) {
+        if self
+            .document_mut(id)
+            .is_some_and(Document::finish_syntax_initialization)
+        {
+            self.refresh_spelling(id);
+        }
     }
 
     #[inline]
