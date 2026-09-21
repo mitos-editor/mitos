@@ -1,6 +1,7 @@
 mod handlers;
 mod query;
 
+use crate::ui::image::{cached_image, render_image, PreparedImage};
 use crate::{
     alt,
     compositor::{self, Component, Compositor, Context, Event, EventResult},
@@ -18,14 +19,13 @@ use event::AsyncHook;
 use futures_util::future::BoxFuture;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Nucleo};
-use ratatui_image::{thread::ThreadProtocol, Resize, StatefulImage};
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 use tui::{
     buffer::Buffer as Surface,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Size},
     text::{Line, Span},
-    widgets::{Cell, Paragraph, Row, StatefulWidget, Table},
+    widgets::{Cell, Paragraph, Row, Table},
 };
 
 use tui::buffer::BufferExt as _;
@@ -58,7 +58,8 @@ use view::{
 };
 
 use self::handlers::{
-    spawn_image_preview, DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler,
+    spawn_image_preview, DynamicQueryChange, DynamicQueryHandler, ImagePreviewTask,
+    PreviewHighlightHandler,
 };
 
 pub const ID: &str = "picker";
@@ -112,9 +113,25 @@ pub enum CachedPreview {
 }
 
 pub enum ImagePreview {
-    Loading,
-    Ready(Box<ThreadProtocol>),
-    Failed,
+    Loading {
+        size: Size,
+        request: Arc<()>,
+    },
+    Ready {
+        size: Size,
+        image: Arc<PreparedImage>,
+    },
+    Failed {
+        size: Size,
+    },
+}
+
+impl ImagePreview {
+    fn size(&self) -> Size {
+        match self {
+            Self::Loading { size, .. } | Self::Ready { size, .. } | Self::Failed { size } => *size,
+        }
+    }
 }
 
 // We don't store this enum in the cache so as to avoid lifetime constraints
@@ -155,9 +172,9 @@ impl Preview<'_, '_> {
                 CachedPreview::Document(_) => "<Invalid file location>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
                 CachedPreview::Image(image) => match &**image {
-                    ImagePreview::Loading => "<Loading image>",
-                    ImagePreview::Ready(_) => "<Rendering image>",
-                    ImagePreview::Failed => "<Image preview unavailable>",
+                    ImagePreview::Loading { .. } => "<Loading image>",
+                    ImagePreview::Ready { .. } => "<Rendering image>",
+                    ImagePreview::Failed { .. } => "<Image preview unavailable>",
                 },
                 CachedPreview::Binary => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
@@ -170,6 +187,7 @@ impl Preview<'_, '_> {
 struct FilePreview {
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
     read_buffer: Vec<u8>,
+    image_task: Option<ImagePreviewTask>,
 }
 
 impl Default for FilePreview {
@@ -177,12 +195,29 @@ impl Default for FilePreview {
         Self {
             preview_cache: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
+            image_task: None,
         }
     }
 }
 
 impl FilePreview {
+    fn cancel_image_load(&mut self, location: Option<(&Path, Size)>) {
+        if self
+            .image_task
+            .as_ref()
+            .is_some_and(|task| location != Some((task.path.as_ref(), task.size)))
+        {
+            let task = self.image_task.take().unwrap();
+            if matches!(self.preview_cache.get(&task.path), Some(CachedPreview::Image(image))
+                if matches!(image.as_ref(), ImagePreview::Loading { .. }))
+            {
+                self.preview_cache.remove(&task.path);
+            }
+        }
+    }
+
     fn clear(&mut self) {
+        self.image_task = None;
         self.preview_cache.clear();
         self.read_buffer.clear();
     }
@@ -193,13 +228,35 @@ impl FilePreview {
         (path_or_id, range): FileLocation<'_>,
         preview_highlight_handler: &Sender<Arc<Path>>,
         image_picker: Option<&ratatui_image::picker::Picker>,
+        image_size: Size,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
+        let path_or_id = match path_or_id {
+            PathOrId::Id(id) => {
+                let doc = editor.documents.get(&id)?;
+                if doc.is_binary() {
+                    doc.path().map_or(PathOrId::Id(id), PathOrId::Path)
+                } else {
+                    PathOrId::Id(id)
+                }
+            }
+            path => path,
+        };
+        self.cancel_image_load(match path_or_id {
+            PathOrId::Path(path) => Some((path, image_size)),
+            PathOrId::Id(_) => None,
+        });
         match path_or_id {
             PathOrId::Path(path) => {
-                if let Some(doc) = editor.document_by_path(path) {
+                if let Some(doc) = editor.document_by_path(path).filter(|doc| !doc.is_binary()) {
                     return Some((Preview::EditorDocument(doc), range));
                 }
 
+                if matches!(self.preview_cache.get(path), Some(CachedPreview::Image(image))
+                    if image.size() != image_size || matches!(image.as_ref(), ImagePreview::Ready { image, .. }
+                        if image_picker.is_some_and(|picker| !image.is_current(path, picker, image_size))))
+                {
+                    self.preview_cache.remove(path);
+                }
                 if self.preview_cache.contains_key(path) {
                     let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
                     let path = Arc::clone(path);
@@ -211,6 +268,24 @@ impl FilePreview {
                 }
 
                 let path: Arc<Path> = path.into();
+                if let Some(image) =
+                    image_picker.and_then(|picker| cached_image(&path, picker, image_size))
+                {
+                    // Other images remain available in the shared, bounded cache.
+                    self.preview_cache
+                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
+                    self.preview_cache.insert(
+                        path.clone(),
+                        CachedPreview::Image(Box::new(ImagePreview::Ready {
+                            size: image_size,
+                            image,
+                        })),
+                    );
+                    return Some((
+                        Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
+                        range,
+                    ));
+                }
                 let preview = std::fs::metadata(&path)
                     .and_then(|metadata| {
                         if metadata.is_dir() {
@@ -222,13 +297,18 @@ impl FilePreview {
                             }
                             let is_binary = std::fs::File::open(&path).and_then(|file| {
                                 let n = file.take(1024).read_to_end(&mut self.read_buffer)?;
-                                let is_binary = crate::is_binary(&self.read_buffer[..n]);
+                                let bytes = &self.read_buffer[..n];
+                                let is_binary =
+                                    crate::is_binary(bytes) || image::guess_format(bytes).is_ok();
                                 self.read_buffer.clear();
                                 Ok(is_binary)
                             })?;
                             if is_binary {
                                 return Ok(if image_picker.is_some() {
-                                    CachedPreview::Image(Box::new(ImagePreview::Loading))
+                                    CachedPreview::Image(Box::new(ImagePreview::Loading {
+                                        size: image_size,
+                                        request: Arc::new(()),
+                                    }))
                                 } else {
                                     CachedPreview::Binary
                                 });
@@ -258,12 +338,14 @@ impl FilePreview {
                         }
                     })
                     .unwrap_or(CachedPreview::NotFound);
-                let load_image = matches!(
-                    preview,
-                    CachedPreview::Image(ref image)
-                        if matches!(image.as_ref(), ImagePreview::Loading)
-                );
-                if load_image {
+                let request = match &preview {
+                    CachedPreview::Image(image) => match image.as_ref() {
+                        ImagePreview::Loading { request, .. } => Some(request.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if request.is_some() {
                     // Decoded images and their terminal encodings can be much larger than the
                     // files on disk. Keep only the active image preview while retaining the
                     // existing cache behavior for text documents and directories.
@@ -271,8 +353,13 @@ impl FilePreview {
                         .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
                 }
                 self.preview_cache.insert(path.clone(), preview);
-                if load_image {
-                    spawn_image_preview::<T, D>(path.clone(), image_picker.unwrap().clone());
+                if let Some(request) = request {
+                    self.image_task = Some(spawn_image_preview::<T, D>(
+                        path.clone(),
+                        image_picker.unwrap().clone(),
+                        image_size,
+                        request,
+                    ));
                 }
                 Some((
                     Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
@@ -299,18 +386,13 @@ fn render_preview_content(
     let directory_style = cx.editor.theme.get("ui.text.directory");
     if let Some(image) = preview.image() {
         match image {
-            ImagePreview::Loading => {
+            ImagePreview::Loading { .. } => {
                 render_preview_placeholder(surface, inner, "<Loading image>", text_style);
             }
-            ImagePreview::Ready(protocol) => {
-                StatefulImage::<ThreadProtocol>::default()
-                    .resize(Resize::Fit(None))
-                    .render(inner, surface, protocol.as_mut());
-                if protocol.protocol_type().is_none() {
-                    render_preview_placeholder(surface, inner, "<Rendering image>", text_style);
-                }
+            ImagePreview::Ready { image, .. } => {
+                render_image(&image.protocol, &image.details, inner, surface, text_style);
             }
-            ImagePreview::Failed => {
+            ImagePreview::Failed { .. } => {
                 render_preview_placeholder(
                     surface,
                     inner,
@@ -1053,15 +1135,22 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         &'picker mut self,
         editor: &'editor Editor,
         image_picker: Option<&ratatui_image::picker::Picker>,
+        image_size: Size,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
         let snapshot = self.matcher.snapshot();
-        let current = snapshot.get_matched_item(self.cursor)?.data;
-        let location = (self.file_fn.as_ref()?)(editor, current)?;
+        let location = snapshot
+            .get_matched_item(self.cursor)
+            .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
+        let Some(location) = location else {
+            self.preview.cancel_image_load(None);
+            return None;
+        };
         self.preview.get::<T, D>(
             editor,
             location,
             &self.preview_highlight_handler,
             image_picker,
+            image_size,
         )
     }
 
@@ -1265,7 +1354,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let inner = block.inner(area);
         block.render(area, surface);
 
-        if let Some((preview, range)) = self.get_preview(cx.editor, cx.image_picker) {
+        if inner.is_empty() {
+            self.preview.cancel_image_load(None);
+            return;
+        }
+        let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
+        if let Some((preview, range)) = self.get_preview(cx.editor, cx.image_picker, image_size) {
             render_preview_content(preview, range, area, inner, surface, cx);
         }
     }
@@ -1299,6 +1393,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
         if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
+        } else {
+            self.preview.cancel_image_load(None);
         }
     }
 
@@ -1316,6 +1412,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         let close_fn = |picker: &mut Self| {
+            picker.preview.cancel_image_load(None);
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
@@ -1487,7 +1584,8 @@ type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallba
 #[cfg(test)]
 mod tests {
     use super::{split_picker_area, visible_column_widths, Column};
-    use tui::layout::Constraint;
+    use crate::ui::image::image_preview_layout;
+    use tui::layout::{Constraint, Size};
     use view::graphics::Rect;
 
     #[test]
@@ -1498,6 +1596,31 @@ mod tests {
         assert_eq!(Rect::new(3, 5, 40, 24), picker);
         assert_eq!(Some(Rect::new(43, 5, 41, 24)), preview);
         assert_eq!((area, None), split_picker_area(area, false));
+    }
+
+    #[test]
+    fn image_and_caption_are_centered_as_a_group() {
+        let area = Rect::new(10, 5, 60, 30);
+        let (image, caption) = image_preview_layout(area, Size::new(20, 10));
+        assert_eq!(image, Rect::new(30, 14, 20, 10));
+        assert_eq!(caption, Rect::new(10, 25, 60, 1));
+        assert_eq!(image.y - area.y, area.bottom() - caption.bottom());
+
+        let (image, caption) = image_preview_layout(area, Size::new(8, 28));
+        assert_eq!(image, Rect::new(36, 5, 8, 28));
+        assert_eq!(caption, Rect::new(10, 34, 60, 1));
+    }
+
+    #[test]
+    fn image_layout_stays_inside_tiny_previews() {
+        for width in 0..3 {
+            for height in 0..3 {
+                let area = Rect::new(10, 5, width, height);
+                let (image, caption) = image_preview_layout(area, Size::new(20, 10));
+                assert_eq!(image.intersection(area), image);
+                assert_eq!(caption.intersection(area), caption);
+            }
+        }
     }
 
     #[test]

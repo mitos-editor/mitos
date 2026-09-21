@@ -7,6 +7,7 @@ use crate::{
     keymap::{KeymapResult, Keymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
+        image::{render_placeholder, ImageDocumentView},
         layout::ApplicationLayout,
         statusline,
         text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
@@ -24,7 +25,9 @@ use editor_core::{
     visual_offset_from_block, Change, Position, Range, Selection, Transaction,
 };
 use loader::VERSION_AND_GIT_HASH;
-use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc, sync::LazyLock};
+use std::{
+    collections::HashMap, mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc, sync::LazyLock,
+};
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -35,12 +38,12 @@ use view::{
     editor::{BufferLine, CompleteAction, CursorShapeConfig},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     icons::ICONS,
-    Document, Editor, Theme, View,
+    Document, Editor, Theme, View, ViewId,
 };
 
 use tui::{
     buffer::Buffer as Surface,
-    layout::{Alignment, Constraint, Layout},
+    layout::{Alignment, Constraint, Layout, Size},
     text::{Line, Span},
     widgets::{Paragraph, Row, Table, TableState, Tabs, Widget},
 };
@@ -52,6 +55,7 @@ pub struct EditorView {
     pub(crate) last_edit: LastEdit,
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
+    images: HashMap<ViewId, ImageDocumentView>,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
 }
@@ -82,6 +86,7 @@ impl EditorView {
             last_edit: LastEdit::Insert(commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
             spinners: ProgressSpinners::default(),
+            images: HashMap::new(),
             terminal_focused: true,
         }
     }
@@ -262,6 +267,10 @@ impl EditorView {
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        if doc.is_binary() {
+            Self::render_view_border(editor, view, viewport, surface);
+            return;
+        }
         let inner = view.inner_area(doc);
         let area = view.area;
         let theme = &editor.theme;
@@ -408,21 +417,25 @@ impl EditorView {
             );
         }
 
-        // if we're not at the edge of the screen, draw a right border
-        if viewport.right() != view.area.right() {
-            let x = area.right();
-            let border_style = theme.get("ui.window");
-            for y in area.top()..area.bottom() {
-                surface[(x, y)]
-                    .set_symbol(tui::symbols::line::VERTICAL)
-                    .set_style(border_style);
-            }
-        }
+        Self::render_view_border(editor, view, viewport, surface);
 
         if config.inline_diagnostics.disabled()
             && config.end_of_line_diagnostics == DiagnosticFilter::Disable
         {
             Self::render_diagnostics(doc, view, inner, surface, theme);
+        }
+    }
+
+    fn render_view_border(editor: &Editor, view: &View, viewport: Rect, surface: &mut Surface) {
+        // if we're not at the edge of the screen, draw a right border
+        if viewport.right() != view.area.right() {
+            let x = view.area.right();
+            let border_style = editor.theme.get("ui.window");
+            for y in view.area.top()..view.area.bottom() {
+                surface[(x, y)]
+                    .set_symbol(tui::symbols::line::VERTICAL)
+                    .set_style(border_style);
+            }
         }
     }
 
@@ -1965,8 +1978,32 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, bufferline, surface);
         }
 
+        self.images.retain(|id, _| {
+            cx.editor.tree.try_get(*id).is_some_and(|view| {
+                cx.editor
+                    .document(view.doc)
+                    .is_some_and(Document::is_binary)
+            })
+        });
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
+            if doc.is_binary() && !view.area.is_empty() {
+                let style = cx.editor.theme.get("ui.text");
+                if let Some(picker) = cx.image_picker {
+                    let size =
+                        Size::new(view.area.width, view.area.height.saturating_sub(2).max(1));
+                    let image = self
+                        .images
+                        .entry(view.id)
+                        .or_insert_with(|| ImageDocumentView::new(doc, picker.clone(), size));
+                    if !image.matches(doc, size) {
+                        *image = ImageDocumentView::new(doc, picker.clone(), size);
+                    }
+                    image.render(view.area, surface, style);
+                } else {
+                    render_placeholder("<Binary file>", view.area, surface, style);
+                }
+            }
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
         }
 
@@ -2080,6 +2117,9 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if current_ref!(editor).1.is_binary() {
+            return (None, CursorKind::Hidden);
+        }
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {

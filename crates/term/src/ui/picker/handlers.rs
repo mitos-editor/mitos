@@ -9,25 +9,40 @@ use tokio::time::Instant;
 
 use crate::{job, ui::overlay::Overlay};
 
-use ratatui_image::{
-    picker::Picker as ImagePicker,
-    protocol::StatefulProtocol,
-    thread::{ResizeRequest, ThreadProtocol},
-};
+use crate::ui::image::load_image;
+use ratatui_image::picker::Picker as ImagePicker;
+use tui::layout::Size;
 
 use super::{CachedPreview, DynQueryCallback, ImagePreview, Picker};
 
-const MAX_IMAGE_PREVIEW_DIMENSION: u32 = 32_768;
-const MAX_IMAGE_PREVIEW_ALLOCATION: u64 = 128 * 1024 * 1024;
+const IMAGE_PREVIEW_DELAY: Duration = Duration::from_millis(150);
+
+pub(super) struct ImagePreviewTask {
+    pub path: Arc<Path>,
+    pub size: Size,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for ImagePreviewTask {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
 
 pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
     path: Arc<Path>,
     image_picker: ImagePicker,
-) {
-    tokio::task::spawn_blocking(move || {
-        let protocol = decode_image_preview(&path, &image_picker);
+    size: Size,
+    request: Arc<()>,
+) -> ImagePreviewTask {
+    let handle_path = path.clone();
+    let task_path = path.clone();
+    let task = tokio::spawn(async move {
+        // Do not decode or transmit images that the user only scrolls past.
+        tokio::time::sleep(IMAGE_PREVIEW_DELAY).await;
+        let result = load_image(task_path, image_picker, size).await;
 
-        job::dispatch_blocking(move |_editor, compositor| {
+        job::dispatch(move |_editor, compositor| {
             let Some(Overlay {
                 content: picker, ..
             }) = compositor.find::<Overlay<Picker<T, D>>>()
@@ -37,18 +52,15 @@ pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + 
             let Some(preview) = picker.preview.preview_cache.get_mut(&path) else {
                 return;
             };
-            if !matches!(
-                preview,
-                CachedPreview::Image(image)
-                    if matches!(image.as_ref(), ImagePreview::Loading)
-            ) {
+            // A previous selection of the same path must not replace its newer request.
+            if !matches!(preview, CachedPreview::Image(image)
+                if matches!(image.as_ref(), ImagePreview::Loading { request: current, .. }
+                    if Arc::ptr_eq(current, &request)))
+            {
                 return;
             }
-
-            *preview = match protocol {
-                Ok(protocol) => CachedPreview::Image(Box::new(ImagePreview::Ready(Box::new(
-                    spawn_resize_worker::<T, D>(path, protocol),
-                )))),
+            *preview = match result {
+                Ok(image) => CachedPreview::Image(Box::new(ImagePreview::Ready { size, image })),
                 Err(err) => {
                     log::debug!(
                         "failed to decode image preview for {}: {err}",
@@ -57,98 +69,14 @@ pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + 
                     CachedPreview::Binary
                 }
             };
-        });
+        })
+        .await;
     });
-}
-
-fn decode_image_preview(
-    path: &Path,
-    image_picker: &ImagePicker,
-) -> Result<StatefulProtocol, String> {
-    let mut reader = image::ImageReader::open(path)
-        .map_err(|err| err.to_string())?
-        .with_guessed_format()
-        .map_err(|err| err.to_string())?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_IMAGE_PREVIEW_DIMENSION);
-    limits.max_image_height = Some(MAX_IMAGE_PREVIEW_DIMENSION);
-    limits.max_alloc = Some(MAX_IMAGE_PREVIEW_ALLOCATION);
-    reader.limits(limits);
-    let image = reader.decode().map_err(|err| err.to_string())?;
-    Ok(image_picker.new_resize_protocol(image))
-}
-
-fn spawn_resize_worker<T: 'static + Send + Sync, D: 'static + Send + Sync>(
-    path: Arc<Path>,
-    protocol: StatefulProtocol,
-) -> ThreadProtocol {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ResizeRequest>();
-
-    tokio::spawn(async move {
-        while let Some(request) = rx.recv().await {
-            let result = tokio::task::spawn_blocking(move || request.resize_encode()).await;
-            match result {
-                Ok(Ok(response)) => {
-                    let path = path.clone();
-                    job::dispatch_blocking(move |_editor, compositor| {
-                        let Some(Overlay {
-                            content: picker, ..
-                        }) = compositor.find::<Overlay<Picker<T, D>>>()
-                        else {
-                            return;
-                        };
-                        let Some(CachedPreview::Image(image)) =
-                            picker.preview.preview_cache.get_mut(&path)
-                        else {
-                            return;
-                        };
-                        let ImagePreview::Ready(protocol) = image.as_mut() else {
-                            return;
-                        };
-                        protocol.update_resized_protocol(response);
-                    });
-                }
-                Ok(Err(err)) => {
-                    mark_image_preview_failed::<T, D>(path.clone(), err.to_string());
-                    break;
-                }
-                Err(err) => {
-                    mark_image_preview_failed::<T, D>(path.clone(), err.to_string());
-                    break;
-                }
-            }
-        }
-    });
-
-    ThreadProtocol::new(tx, Some(protocol))
-}
-
-fn mark_image_preview_failed<T: 'static + Send + Sync, D: 'static + Send + Sync>(
-    path: Arc<Path>,
-    error: String,
-) {
-    job::dispatch_blocking(move |_editor, compositor| {
-        log::debug!(
-            "failed to prepare image preview for {}: {error}",
-            path.display()
-        );
-        let Some(Overlay {
-            content: picker, ..
-        }) = compositor.find::<Overlay<Picker<T, D>>>()
-        else {
-            return;
-        };
-        let Some(preview) = picker.preview.preview_cache.get_mut(&path) else {
-            return;
-        };
-        if matches!(
-            preview,
-            CachedPreview::Image(image)
-                if matches!(image.as_ref(), ImagePreview::Ready(_))
-        ) {
-            *preview = CachedPreview::Image(Box::new(ImagePreview::Failed));
-        }
-    });
+    ImagePreviewTask {
+        path: handle_path,
+        size,
+        task,
+    }
 }
 
 pub(super) struct PreviewHighlightHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
@@ -333,9 +261,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
 mod image_preview_tests {
     use std::fs;
 
-    use ratatui_image::protocol::StatefulProtocolType;
+    use ratatui_image::{picker::ProtocolType, protocol::Protocol, Image};
+    use tui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
     use super::*;
+    use crate::ui::image::decode_image_preview;
 
     #[test]
     fn decodes_a_supported_image_into_the_selected_protocol() {
@@ -343,12 +273,74 @@ mod image_preview_tests {
         let path = dir.path().join("preview.png");
         image::DynamicImage::new_rgba8(2, 2).save(&path).unwrap();
 
-        let protocol = decode_image_preview(&path, &ImagePicker::halfblocks()).unwrap();
+        let (protocol, details) =
+            decode_image_preview(&path, &ImagePicker::halfblocks(), Size::new(20, 10)).unwrap();
 
-        assert!(matches!(
-            protocol.protocol_type(),
-            StatefulProtocolType::Halfblocks(_)
-        ));
+        assert!(matches!(protocol, Protocol::Halfblocks(_)));
+        assert_eq!(protocol.size(), Size::new(1, 1));
+        assert!(details.starts_with("PNG · 2 × 2 px · "));
+    }
+
+    #[test]
+    fn prepares_a_fitted_image_and_keeps_original_dimensions_in_caption() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preview.png");
+        image::DynamicImage::new_rgb8(800, 600).save(&path).unwrap();
+        let (protocol, details) =
+            decode_image_preview(&path, &ImagePicker::halfblocks(), Size::new(40, 10)).unwrap();
+        assert!(protocol.size().width <= 40);
+        assert!(protocol.size().height <= 10);
+        assert!(details.starts_with("PNG · 800 × 600 px · "));
+    }
+
+    #[test]
+    fn kitty_preview_transmits_pixels_only_on_its_first_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preview.png");
+        image::DynamicImage::new_rgb8(20, 20).save(&path).unwrap();
+        let mut picker = ImagePicker::halfblocks();
+        picker.set_protocol_type(ProtocolType::Kitty);
+        let (protocol, _) = decode_image_preview(&path, &picker, Size::new(20, 10)).unwrap();
+        let area = Rect::new(0, 0, 20, 10);
+        let mut buffer = Buffer::empty(area);
+        Image::new(&protocol).render(area, &mut buffer);
+        assert!(buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol().contains("\x1b_G")));
+        buffer.reset();
+        Image::new(&protocol).render(area, &mut buffer);
+        assert!(!buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol().contains("\x1b_G")));
+    }
+
+    #[tokio::test]
+    async fn moving_past_an_image_cancels_its_debounced_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preview.png");
+        image::DynamicImage::new_rgb8(2, 2).save(&path).unwrap();
+        let mut jobs = job::Jobs::new();
+        jobs.set_current();
+        let task = spawn_image_preview::<(), ()>(
+            path.into(),
+            ImagePicker::halfblocks(),
+            Size::new(20, 10),
+            Arc::new(()),
+        );
+        // The pending selection must not enqueue a render during fast navigation.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), jobs.callbacks.recv())
+                .await
+                .is_err()
+        );
+        drop(task);
+        assert!(
+            tokio::time::timeout(IMAGE_PREVIEW_DELAY * 2, jobs.callbacks.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[test]
@@ -357,6 +349,8 @@ mod image_preview_tests {
         let path = dir.path().join("not-an-image.bin");
         fs::write(&path, b"\0\x01\x02not an image").unwrap();
 
-        assert!(decode_image_preview(&path, &ImagePicker::halfblocks()).is_err());
+        assert!(
+            decode_image_preview(&path, &ImagePicker::halfblocks(), Size::new(20, 10)).is_err()
+        );
     }
 }

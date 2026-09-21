@@ -2221,7 +2221,9 @@ impl Editor {
                 .workspace_trust
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
-            if let Some(diff_base) = self.diff_providers.get_diff_base(&path, trust_full) {
+            if !doc.is_binary()
+                && let Some(diff_base) = self.diff_providers.get_diff_base(&path, trust_full)
+            {
                 doc.set_diff_base(diff_base);
             }
             doc.set_version_control_head(

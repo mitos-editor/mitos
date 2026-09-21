@@ -143,9 +143,28 @@ pub enum DocumentOpenError {
     IoError(#[from] io::Error),
 }
 
+fn read_file(
+    file: &mut std::fs::File,
+    encoding: Option<&'static Encoding>,
+) -> io::Result<(Rope, &'static Encoding, bool, bool)> {
+    use std::io::BufRead;
+    let mut reader = io::BufReader::with_capacity(1024, file);
+    let explicitly_unicode = encoding
+        .is_some_and(|encoding| encoding == encoding::UTF_16LE || encoding == encoding::UTF_16BE);
+    let prefix = reader.fill_buf()?;
+    if stdx::file::has_binary_signature(prefix)
+        || (!explicitly_unicode && stdx::file::is_binary(prefix))
+    {
+        return Ok((Rope::new(), encoding::UTF_8, false, true));
+    }
+    let (text, encoding, has_bom) = from_reader(&mut reader, encoding)?;
+    Ok((text, encoding, has_bom, false))
+}
+
 pub struct Document {
     pub(crate) id: DocumentId,
     text: Rope,
+    binary: bool,
     selections: HashMap<ViewId, Selection>,
     view_data: HashMap<ViewId, ViewData>,
     pub active_snippet: Option<ActiveSnippet>,
@@ -839,6 +858,7 @@ impl Document {
             encoding,
             has_bom,
             text,
+            binary: false,
             selections: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
@@ -926,20 +946,21 @@ impl Document {
         encoding = encoding.or(editor_config.encoding);
 
         // Open the file if it exists, otherwise assume it is a new file (and thus empty).
-        let (rope, encoding, has_bom) = if path.exists() {
+        let (rope, encoding, has_bom, binary) = if path.exists() {
             let mut file = std::fs::File::open(path)?;
-            from_reader(&mut file, encoding)?
+            read_file(&mut file, encoding)?
         } else {
             let line_ending = editor_config
                 .line_ending
                 .unwrap_or_else(|| config.load().default_line_ending.into());
             let encoding = encoding.unwrap_or(encoding::UTF_8);
-            (Rope::from(line_ending.as_str()), encoding, false)
+            (Rope::from(line_ending.as_str()), encoding, false, false)
         };
 
         let loader = syn_loader.load();
         let mut doc = Self::from(rope, Some((encoding, has_bom)), config, syn_loader);
 
+        doc.binary = binary;
         // set the path and try detecting the language
         doc.set_path(Some(path));
         if detect_language {
@@ -1116,6 +1137,9 @@ impl Document {
         impl Future<Output = Result<DocumentSavedEvent, anyhow::Error>> + 'static + Send + use<>,
         anyhow::Error,
     > {
+        if self.binary {
+            bail!("Binary files are read-only and cannot be saved as text");
+        }
         log::debug!(
             "submitting save of doc '{:?}'",
             self.path().map(|path| path.to_string_lossy())
@@ -1325,6 +1349,9 @@ impl Document {
         &self,
         loader: &syntax::Loader,
     ) -> Option<Arc<syntax::config::LanguageConfiguration>> {
+        if self.binary {
+            return None;
+        }
         let language = loader
             .language_for_filename(self.path.as_ref()?)
             .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
@@ -1359,6 +1386,10 @@ impl Document {
     /// `:set-spelling-language` override, then the `.editorconfig` `spelling_language`, then the
     /// resolved config (`languages.toml` over `[editor.spelling]`). Re-run when any of these change.
     pub fn detect_spelling_languages(&mut self) {
+        if self.binary {
+            self.spelling_languages.clear();
+            return;
+        }
         let config = self.config.load();
         self.spelling_languages = if let Some(languages) = &self.spelling_language_override {
             languages.clone()
@@ -1392,6 +1423,11 @@ impl Document {
         }
     }
 
+    /// Binary files have no editable text; their original bytes remain on disk.
+    pub fn is_binary(&self) -> bool {
+        self.binary
+    }
+
     /// Filesystem modification time recorded by the last read or successful save.
     pub fn last_saved_time(&self) -> SystemTime {
         self.last_saved_time
@@ -1420,10 +1456,7 @@ impl Document {
     // Detect if the file is readonly and change the readonly field if necessary (unix only)
     pub fn detect_readonly(&mut self) {
         // Allows setting the flag for files the user cannot modify, like root files
-        self.readonly = match &self.path {
-            None => false,
-            Some(p) => readonly(p),
-        };
+        self.readonly = self.binary || self.path.as_ref().is_some_and(|p| readonly(p));
     }
 
     /// Reload the document from its path.
@@ -1446,7 +1479,10 @@ impl Document {
         self.detect_readonly();
 
         let mut file = std::fs::File::open(&path)?;
-        let (rope, ..) = from_reader(&mut file, Some(encoding))?;
+        let (rope, _, _, binary) = read_file(&mut file, Some(encoding))?;
+        // Reload may change the content type. Allow this replacement, then restore
+        // the binary write guard before returning to the editor.
+        let was_binary = std::mem::replace(&mut self.binary, false);
 
         // Calculate the difference between the buffer and source text, and apply it.
         // This is not considered a modification of the contents of the file regardless
@@ -1454,6 +1490,17 @@ impl Document {
         let transaction = editor_core::diff::compare_ropes(self.text(), &rope);
         self.apply(&transaction, view.id);
         self.append_changes_to_history(view);
+        self.binary = binary;
+        self.detect_readonly();
+        if binary {
+            self.language = None;
+            self.syntax = None;
+            self.pending_syntax = None;
+            self.language_servers.clear();
+        } else if was_binary {
+            let loader = self.syn_loader.load_full();
+            self.detect_language(&loader);
+        }
         self.reset_modified();
         self.pickup_last_saved_time();
         self.detect_indent_and_line_ending();
@@ -1604,6 +1651,9 @@ impl Document {
     ) -> bool {
         use editor_core::Assoc;
 
+        if self.binary && !transaction.changes().is_empty() {
+            return false;
+        }
         let old_doc = self.text().clone();
         let changes = transaction.changes();
         if !changes.apply(&mut self.text) {
@@ -1795,6 +1845,9 @@ impl Document {
         view_id: ViewId,
         emit_lsp_notification: bool,
     ) -> bool {
+        if self.binary && !transaction.changes().is_empty() {
+            return false;
+        }
         // store the state just before any changes are made. This allows us to undo to the
         // state just before a transaction was applied.
         if self.changes.is_empty() && !transaction.changes().is_empty() {
@@ -2142,15 +2195,23 @@ impl Document {
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
-        match providers.get_diff_base(&path, trust_full) {
-            Some(base) => self.set_diff_base(base),
-            None => self.diff_handle = None,
+        if self.binary {
+            self.diff_handle = None;
+        } else {
+            match providers.get_diff_base(&path, trust_full) {
+                Some(base) => self.set_diff_base(base),
+                None => self.diff_handle = None,
+            }
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
     }
 
     /// Initialize or update the differ for this document with a new base.
     pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
+        if self.binary {
+            self.diff_handle = None;
+            return;
+        }
         match from_reader(&mut diff_base.as_slice(), Some(self.encoding)) {
             Ok((diff_base, ..)) => {
                 if let Some(differ) = &self.diff_handle {
