@@ -11,7 +11,7 @@ use tui::{
     widgets::{Cell, Row},
 };
 
-use super::{align_view, push_jump, Align, Context, Editor};
+use super::{align_view, context::make_job_callback, push_jump, Align, Context, Editor};
 
 use editor_core::{
     diagnostic::{DiagnosticProvider, NumberOrString, Severity},
@@ -1779,7 +1779,7 @@ fn compute_inlay_hints_for_view(
 
     let offset_encoding = language_server.offset_encoding();
 
-    let callback = super::make_job_callback(
+    let callback = make_job_callback(
         language_server.text_document_range_inlay_hints(doc.identifier(), range, None)?,
         move |editor, _compositor, response: Option<Vec<lsp::InlayHint>>| {
             // The config was modified or the window was closed while the request was in flight

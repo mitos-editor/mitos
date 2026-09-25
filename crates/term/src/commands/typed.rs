@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::io::BufReader;
 use std::ops;
 
-use crate::job::Job;
+use crate::job::{Job, Jobs};
 
 use super::shell::{shell, shell_impl_async, ShellBehavior};
 use super::*;
