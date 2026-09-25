@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    typed::{complete_command_args, SHELL_COMPLETER, SHELL_SIGNATURE},
+    catalog::{SHELL_COMPLETER, SHELL_SIGNATURE},
+    typed::complete_command_args,
     Context,
 };
 

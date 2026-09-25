@@ -83,7 +83,7 @@ use crate::job;
 use std::{
     char::{ToLowercase, ToUppercase},
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     error::Error,
     future::Future,
     io::Read,
@@ -3365,7 +3365,7 @@ pub fn command_palette(cx: &mut Context) {
             };
 
             let commands = MappableCommand::STATIC_COMMAND_LIST.iter().cloned().chain(
-                typed::TYPABLE_COMMAND_LIST
+                catalog::TYPABLE_COMMAND_LIST
                     .iter()
                     .map(|cmd| MappableCommand::Typable {
                         name: cmd.name.to_owned(),
@@ -7088,6 +7088,8 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
