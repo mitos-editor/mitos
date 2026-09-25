@@ -342,11 +342,38 @@ impl Application {
                 return false;
             }
 
+            // One input event can enqueue several callbacks. Drain a bounded
+            // batch before accepting more input so synchronous event hooks do
+            // not spend every keystroke waiting for space in their own queue.
+            let mut handled_callbacks = false;
+            for _ in 0..64 {
+                let Ok(callback) = self.jobs.callbacks.try_recv() else {
+                    break;
+                };
+                if let Some(job) = self.jobs.handle_callback(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    Ok(Some(callback)),
+                ) {
+                    self.jobs.add(job);
+                }
+                handled_callbacks = true;
+            }
+            if handled_callbacks {
+                self.render().await;
+                #[cfg(feature = "integration")]
+                self.editor.reset_idle_timer();
+                // Callbacks can close the editor as well as change its state.
+                if self.editor.should_close() {
+                    return false;
+                }
+            }
+
             use futures_util::StreamExt;
 
+            // Keep callbacks and saves progressing even when terminal input is
+            // continuously ready; input priority can fill the callback queue.
             tokio::select! {
-                biased;
-
                 Some(signal) = self.signals.next() => {
                     if !self.handle_signals(signal).await {
                         return false;
