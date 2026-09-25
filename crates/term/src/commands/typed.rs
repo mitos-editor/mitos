@@ -8,6 +8,7 @@ use super::shell::{shell, shell_impl_async, ShellBehavior};
 use super::*;
 
 use crate::config::{ConfigEvent, EditorSettings};
+use anyhow::ensure;
 use command_line::{Args, Flag, Signature, Token, TokenKind};
 use editor_core::fuzzy::fuzzy_match;
 use editor_core::indent::MAX_INDENT;
