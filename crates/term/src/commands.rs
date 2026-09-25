@@ -4,6 +4,7 @@ mod context;
 pub(crate) mod dap;
 pub(crate) mod lsp;
 mod mappable;
+mod movement;
 pub(crate) mod shell;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -14,6 +15,7 @@ use event::status;
 use futures_util::FutureExt;
 pub use lsp::*;
 pub use mappable::MappableCommand;
+pub use movement::scroll;
 use stdx::{
     path::{self, find_paths},
     rope::{self, RopeSliceExt},
@@ -27,11 +29,9 @@ pub use typed::*;
 use vcs::{FileChange, Hunk};
 
 use editor_core::{
-    char_idx_at_visual_offset,
     chars::char_is_word,
     comment,
     diagnostic::DiagnosticProvider,
-    doc_formatter::TextFormat,
     encoding, find_workspace,
     graphemes::{self, next_grapheme_boundary},
     history::UndoKind,
@@ -39,17 +39,16 @@ use editor_core::{
     indent::{self, IndentStyle},
     line_ending::{get_line_ending_of_str, line_end_char_index},
     match_brackets,
-    movement::{self, move_vertically_visual, Direction},
+    movement::{self as core_movement, Direction, Movement},
     object, pos_at_coords,
     regex::{self, Regex},
-    search::{self},
     selection, surround,
     syntax::config::{BlockCommentToken, LanguageServerFeature},
-    text_annotations::{Overlay, TextAnnotations},
+    text_annotations::Overlay,
     textobject,
     unicode::width::UnicodeWidthChar,
-    visual_offset_from_block, Deletion, LineEnding, Position, Range, Rope, RopeReader, RopeSlice,
-    Selection, SmallVec, Syntax, Tendril, Transaction,
+    Deletion, LineEnding, Position, Range, Rope, RopeReader, RopeSlice, Selection, SmallVec,
+    Syntax, Tendril, Transaction,
 };
 use ui_core::{
     input::{self, KeyEvent},
@@ -57,7 +56,7 @@ use ui_core::{
 };
 use view::{
     document::{FormatterError, Mode, SCRATCH_BUFFER_NAME},
-    editor::{Action, Motion},
+    editor::Action,
     expansion,
     icons::ICONS,
     info::Info,
@@ -71,7 +70,6 @@ use view::{
 use anyhow::{anyhow, bail, Context as _};
 use arc_swap::access::DynAccess;
 use insert::*;
-use movement::Movement;
 
 use crate::{
     compositor::{self, Compositor},
@@ -108,190 +106,6 @@ use view::{align_view, Align};
 
 fn no_op(_cx: &mut Context) {}
 
-type MoveFn =
-    fn(RopeSlice, Range, Direction, usize, Movement, &TextFormat, &mut TextAnnotations) -> Range;
-
-fn move_impl(cx: &mut Context, move_fn: MoveFn, dir: Direction, behaviour: Movement) {
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let text_fmt = doc.text_format(view.inner_area(doc).width, None);
-    let mut annotations = view.text_annotations(doc, None);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        move_fn(
-            text,
-            range,
-            dir,
-            count,
-            behaviour,
-            &text_fmt,
-            &mut annotations,
-        )
-    });
-    drop(annotations);
-    doc.set_selection(view.id, selection);
-}
-
-use editor_core::movement::{move_horizontally, move_vertically};
-
-fn move_char_left(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Backward, Movement::Move)
-}
-
-fn move_char_right(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Forward, Movement::Move)
-}
-
-fn move_line_up(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Backward, Movement::Move)
-}
-
-fn move_line_down(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Forward, Movement::Move)
-}
-
-fn move_visual_line_up(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Backward,
-        Movement::Move,
-    )
-}
-
-fn move_visual_line_down(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Forward,
-        Movement::Move,
-    )
-}
-
-fn extend_char_left(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Backward, Movement::Extend)
-}
-
-fn extend_char_right(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Forward, Movement::Extend)
-}
-
-fn extend_line_up(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Backward, Movement::Extend)
-}
-
-fn extend_line_down(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Forward, Movement::Extend)
-}
-
-fn extend_visual_line_up(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Backward,
-        Movement::Extend,
-    )
-}
-
-fn extend_visual_line_down(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Forward,
-        Movement::Extend,
-    )
-}
-
-fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-        let line_start = text.line_to_char(line);
-
-        let pos = graphemes::prev_grapheme_boundary(text, line_end_char_index(&text, line))
-            .max(line_start);
-
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
-}
-
-fn goto_line_end(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_impl(
-        view,
-        doc,
-        if cx.editor.mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
-}
-
-fn extend_to_line_end(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_impl(view, doc, Movement::Extend)
-}
-
-fn goto_line_end_newline_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-        let pos = line_end_char_index(&text, line);
-
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
-}
-
-fn goto_line_end_newline(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_newline_impl(
-        view,
-        doc,
-        if cx.editor.mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
-}
-
-fn extend_to_line_end_newline(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_newline_impl(view, doc, Movement::Extend)
-}
-
-fn goto_line_start_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-
-        // adjust to start of the line
-        let pos = text.line_to_char(line);
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
-}
-
-fn goto_line_start(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_start_impl(
-        view,
-        doc,
-        if cx.editor.mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
-}
-
 fn goto_next_buffer(cx: &mut Context) {
     goto_buffer(cx.editor, Direction::Forward, cx.count());
 }
@@ -323,11 +137,6 @@ fn goto_buffer(editor: &mut Editor, direction: Direction, count: usize) {
     let id = *id;
 
     editor.switch(id, Action::Replace);
-}
-
-fn extend_to_line_start(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_start_impl(view, doc, Movement::Extend)
 }
 
 fn kill_to_line_start(cx: &mut Context) {
@@ -377,41 +186,6 @@ fn kill_to_line_end(cx: &mut Context) {
     );
 }
 
-fn goto_first_nonwhitespace(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-
-    goto_first_nonwhitespace_impl(
-        view,
-        doc,
-        if cx.editor.mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
-}
-
-fn extend_to_first_nonwhitespace(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_first_nonwhitespace_impl(view, doc, Movement::Extend)
-}
-
-fn goto_first_nonwhitespace_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-
-        if let Some(pos) = text.line(line).first_non_whitespace_char() {
-            let pos = pos + text.line_to_char(line);
-            range.put_cursor(text, pos, movement == Movement::Extend)
-        } else {
-            range
-        }
-    });
-    doc.set_selection(view.id, selection);
-}
-
 fn trim_selections(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
@@ -425,8 +199,9 @@ fn trim_selections(cx: &mut Context) {
             }
             let mut start = range.from();
             let mut end = range.to();
-            start = movement::skip_while(text, start, |x| x.is_whitespace()).unwrap_or(start);
-            end = movement::backwards_skip_while(text, end, |x| x.is_whitespace()).unwrap_or(end);
+            start = core_movement::skip_while(text, start, |x| x.is_whitespace()).unwrap_or(start);
+            end = core_movement::backwards_skip_while(text, end, |x| x.is_whitespace())
+                .unwrap_or(end);
             Some(Range::new(start, end).with_direction(range.direction()))
         })
         .collect();
@@ -525,151 +300,6 @@ fn align_selections(cx: &mut Context) {
     let transaction = Transaction::change(doc.text(), changes);
     doc.apply(&transaction, view.id);
     exit_select_mode(cx);
-}
-
-fn goto_window(cx: &mut Context, align: Align) {
-    let count = cx.count() - 1;
-    let config = cx.editor.config();
-    let (view, doc) = current!(cx.editor);
-    let view_offset = doc.view_offset(view.id);
-
-    let height = view.inner_height(doc);
-
-    // respect user given count if any
-    // - 1 so we have at least one gap in the middle.
-    // a height of 6 with padding of 3 on each side will keep shifting the view back and forth
-    // as we type
-    let scrolloff = config.scrolloff.min(height.saturating_sub(1) / 2);
-
-    let last_visual_line = view.last_visual_line(doc);
-
-    let visual_line = match align {
-        Align::Top => view_offset.vertical_offset + scrolloff + count,
-        Align::Center => view_offset.vertical_offset + (last_visual_line / 2),
-        Align::Bottom => {
-            view_offset.vertical_offset + last_visual_line.saturating_sub(scrolloff + count)
-        }
-    };
-    let visual_line = visual_line
-        .max(view_offset.vertical_offset + scrolloff)
-        .min(view_offset.vertical_offset + last_visual_line.saturating_sub(scrolloff));
-
-    let pos = view
-        .pos_at_visual_coords(doc, visual_line as u16, 0, false)
-        .expect("visual_line was constrained to the view area");
-
-    let text = doc.text().slice(..);
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| range.put_cursor(text, pos, cx.editor.mode == Mode::Select));
-    doc.set_selection(view.id, selection);
-}
-
-fn goto_window_top(cx: &mut Context) {
-    goto_window(cx, Align::Top)
-}
-
-fn goto_window_center(cx: &mut Context) {
-    goto_window(cx, Align::Center)
-}
-
-fn goto_window_bottom(cx: &mut Context) {
-    goto_window(cx, Align::Bottom)
-}
-
-fn move_word_impl<F>(cx: &mut Context, move_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize) -> Range,
-{
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| move_fn(text, range, count));
-    doc.set_selection(view.id, selection);
-}
-
-fn move_next_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_word_start)
-}
-
-fn move_prev_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_word_start)
-}
-
-fn move_prev_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_word_end)
-}
-
-fn move_next_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_word_end)
-}
-
-fn move_next_long_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_long_word_start)
-}
-
-fn move_prev_long_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_long_word_start)
-}
-
-fn move_prev_long_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_long_word_end)
-}
-
-fn move_next_long_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_long_word_end)
-}
-
-fn move_next_sub_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_sub_word_start)
-}
-
-fn move_prev_sub_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_sub_word_start)
-}
-
-fn move_prev_sub_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_sub_word_end)
-}
-
-fn move_next_sub_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_sub_word_end)
-}
-
-fn goto_para_impl<F>(cx: &mut Context, move_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize, Movement) -> Range + 'static,
-{
-    let count = cx.count();
-    let motion = move |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-        let text = doc.text().slice(..);
-        let behavior = if editor.mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        };
-
-        let selection = doc
-            .selection(view.id)
-            .clone()
-            .transform(|range| move_fn(text, range, count, behavior));
-        doc.set_selection(view.id, selection);
-    };
-    cx.editor.apply_motion(motion)
-}
-
-fn goto_prev_paragraph(cx: &mut Context) {
-    goto_para_impl(cx, movement::move_prev_paragraph)
-}
-
-fn goto_next_paragraph(cx: &mut Context) {
-    goto_para_impl(cx, movement::move_next_paragraph)
 }
 
 fn goto_file_start(cx: &mut Context) {
@@ -974,228 +604,6 @@ fn should_open_url_externally(url: &Url) -> bool {
     matches!(is_binary, Ok(true))
 }
 
-fn extend_word_impl<F>(cx: &mut Context, extend_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize) -> Range,
-{
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let word = extend_fn(text, range, count);
-        let pos = word.cursor(text);
-        range.put_cursor(text, pos, true)
-    });
-    doc.set_selection(view.id, selection);
-}
-
-fn extend_next_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_word_start)
-}
-
-fn extend_prev_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_word_start)
-}
-
-fn extend_next_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_word_end)
-}
-
-fn extend_prev_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_word_end)
-}
-
-fn extend_next_long_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_long_word_start)
-}
-
-fn extend_prev_long_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_long_word_start)
-}
-
-fn extend_prev_long_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_long_word_end)
-}
-
-fn extend_next_long_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_long_word_end)
-}
-
-fn extend_next_sub_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_sub_word_start)
-}
-
-fn extend_prev_sub_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_sub_word_start)
-}
-
-fn extend_prev_sub_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_sub_word_end)
-}
-
-fn extend_next_sub_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_sub_word_end)
-}
-
-/// Separate branch to find_char designed only for `<ret>` char.
-//
-// This is necessary because the one document can have different line endings inside. And we
-// cannot predict what character to find when <ret> is pressed. On the current line it can be `lf`
-// but on the next line it can be `crlf`. That's why [`find_char_impl`] cannot be applied here.
-fn find_char_line_ending_motion(
-    editor: &mut Editor,
-    count: usize,
-    direction: Direction,
-    inclusive: bool,
-    extend: bool,
-) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let cursor_anchor = range.cursor(text);
-        let cursor_head = next_grapheme_boundary(text, cursor_anchor);
-        let cursor_line = range.cursor_line(text);
-
-        let pos = match direction {
-            Direction::Forward => {
-                let line_end = line_end_char_index(&text, cursor_line);
-                let on_edge = if inclusive {
-                    line_end == cursor_anchor
-                } else {
-                    line_end == cursor_head || line_end == cursor_anchor
-                };
-                let line = cursor_line + count - 1 + on_edge as usize;
-                if line >= text.len_lines() - 1 {
-                    return range;
-                }
-                line_end_char_index(&text, line) - !inclusive as usize
-            }
-            Direction::Backward => {
-                if inclusive {
-                    let line = cursor_line as isize - count as isize;
-                    if line < 0 {
-                        return range;
-                    }
-                    line_end_char_index(&text, line as usize)
-                } else {
-                    let on_edge = text.line_to_char(cursor_line) == cursor_anchor;
-                    let line = cursor_line as isize - count as isize + 1 - on_edge as isize;
-                    if line <= 0 {
-                        return range;
-                    }
-                    text.line_to_char(line as usize)
-                }
-            }
-        };
-
-        if extend {
-            range.put_cursor(text, pos, true)
-        } else {
-            Range::point(range.cursor(text)).put_cursor(text, pos, true)
-        }
-    });
-    doc.set_selection(view.id, selection);
-}
-
-fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
-    // TODO: count is reset to 1 before next key so we move it into the closure here.
-    // Would be nice to carry over.
-    let count = cx.count();
-
-    // need to wait for next key
-    // TODO: should this be done by grapheme rather than char?  For example,
-    // we can't properly handle the line-ending CRLF case here in terms of char.
-    cx.on_next_key(move |cx, event| {
-        let motion: Motion = if event.code == KeyCode::Enter {
-            Box::new(move |editor: &mut Editor| {
-                find_char_line_ending_motion(editor, count, direction, inclusive, extend);
-            })
-        } else if let Some(ch) = match event.code {
-            KeyCode::Tab => Some('\t'),
-            KeyCode::Char(ch) => Some(ch),
-            _ => None,
-        } {
-            Box::new(move |editor: &mut Editor| {
-                let (view, doc) = current!(editor);
-                let text = doc.text().slice(..);
-
-                let selection = doc.selection(view.id).clone().transform(|range| {
-                    let cursor_anchor = range.cursor(text);
-                    let cursor_head = next_grapheme_boundary(text, cursor_anchor);
-
-                    // Exclusive search skips the next char after cursor to enable repeated application
-                    let search_start_pos = match (inclusive, direction) {
-                        (true, Direction::Forward) => cursor_head,
-                        (true, Direction::Backward) => cursor_anchor,
-                        (false, Direction::Forward) => cursor_head + 1,
-                        (false, Direction::Backward) => cursor_anchor.saturating_sub(1),
-                    };
-
-                    search::find_nth_char(count, text, ch, search_start_pos, direction)
-                        // Exclusive search should stop on previous character
-                        .map(|pos| match (inclusive, direction) {
-                            (true, Direction::Forward) => pos,
-                            (true, Direction::Backward) => pos,
-                            (false, Direction::Forward) => pos - 1,
-                            (false, Direction::Backward) => pos + 1,
-                        })
-                        .map_or(range, |pos| {
-                            if extend {
-                                range.put_cursor(text, pos, true)
-                            } else {
-                                Range::point(range.cursor(text)).put_cursor(text, pos, true)
-                            }
-                        })
-                });
-
-                doc.set_selection(view.id, selection);
-            })
-        } else {
-            return;
-        };
-
-        cx.editor.apply_motion(motion);
-    })
-}
-
-fn find_till_char(cx: &mut Context) {
-    find_char(cx, Direction::Forward, false, false);
-}
-
-fn find_next_char(cx: &mut Context) {
-    find_char(cx, Direction::Forward, true, false)
-}
-
-fn extend_till_char(cx: &mut Context) {
-    find_char(cx, Direction::Forward, false, true)
-}
-
-fn extend_next_char(cx: &mut Context) {
-    find_char(cx, Direction::Forward, true, true)
-}
-
-fn till_prev_char(cx: &mut Context) {
-    find_char(cx, Direction::Backward, false, false)
-}
-
-fn find_prev_char(cx: &mut Context) {
-    find_char(cx, Direction::Backward, true, false)
-}
-
-fn extend_till_prev_char(cx: &mut Context) {
-    find_char(cx, Direction::Backward, false, true)
-}
-
-fn extend_prev_char(cx: &mut Context) {
-    find_char(cx, Direction::Backward, true, true)
-}
-
-fn repeat_last_motion(cx: &mut Context) {
-    cx.editor.repeat_last_motion(cx.count())
-}
-
 fn replace_char(cx: &mut Context) {
     let mut buf = [0u8; 4]; // To hold utf8 encoded char.
 
@@ -1361,164 +769,6 @@ fn switch_to_lowercase(cx: &mut Context) {
     switch_case_impl(cx, |string| {
         string.chunks().map(|chunk| chunk.to_lowercase()).collect()
     });
-}
-
-pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
-    use Direction::*;
-    let config = cx.editor.config();
-    let (view, doc) = current!(cx.editor);
-    let mut view_offset = doc.view_offset(view.id);
-
-    let range = doc.selection(view.id).primary();
-    let text = doc.text().slice(..);
-
-    let cursor = range.cursor(text);
-    let height = view.inner_height(doc);
-
-    let scrolloff = config.scrolloff.min(height.saturating_sub(1) / 2);
-    let offset = match direction {
-        Forward => offset as isize,
-        Backward => -(offset as isize),
-    };
-
-    let doc_text = doc.text().slice(..);
-    let viewport = view.inner_area(doc);
-    let text_fmt = doc.text_format(viewport.width, None);
-    (view_offset.anchor, view_offset.vertical_offset) = char_idx_at_visual_offset(
-        doc_text,
-        view_offset.anchor,
-        view_offset.vertical_offset as isize + offset,
-        0,
-        &text_fmt,
-        // &annotations,
-        &view.text_annotations(&*doc, None),
-    );
-    doc.set_view_offset(view.id, view_offset);
-
-    let doc_text = doc.text().slice(..);
-    let mut annotations = view.text_annotations(&*doc, None);
-
-    if sync_cursor {
-        let movement = match cx.editor.mode {
-            Mode::Select => Movement::Extend,
-            _ => Movement::Move,
-        };
-        // TODO: When inline diagnostics gets merged- 1. move_vertically_visual removes
-        // line annotations/diagnostics so the cursor may jump further than the view.
-        // 2. If the cursor lands on a complete line of virtual text, the cursor will
-        // jump a different distance than the view.
-        let selection = doc.selection(view.id).clone().transform(|range| {
-            move_vertically_visual(
-                doc_text,
-                range,
-                direction,
-                offset.unsigned_abs(),
-                movement,
-                &text_fmt,
-                &mut annotations,
-            )
-        });
-        drop(annotations);
-        doc.set_selection(view.id, selection);
-        return;
-    }
-
-    let view_offset = doc.view_offset(view.id);
-
-    let mut head;
-    match direction {
-        Forward => {
-            let off;
-            (head, off) = char_idx_at_visual_offset(
-                doc_text,
-                view_offset.anchor,
-                (view_offset.vertical_offset + scrolloff) as isize,
-                0,
-                &text_fmt,
-                &annotations,
-            );
-            head += (off != 0) as usize;
-            if head <= cursor {
-                return;
-            }
-        }
-        Backward => {
-            head = char_idx_at_visual_offset(
-                doc_text,
-                view_offset.anchor,
-                (view_offset.vertical_offset + height - scrolloff - 1) as isize,
-                0,
-                &text_fmt,
-                &annotations,
-            )
-            .0;
-            if head >= cursor {
-                return;
-            }
-        }
-    }
-
-    let anchor = if cx.editor.mode == Mode::Select {
-        range.anchor
-    } else {
-        head
-    };
-
-    // replace primary selection with an empty selection at cursor pos
-    let prim_sel = Range::new(anchor, head);
-    let mut sel = doc.selection(view.id).clone();
-    let idx = sel.primary_index();
-    sel = sel.replace(idx, prim_sel);
-    drop(annotations);
-    doc.set_selection(view.id, sel);
-}
-
-fn page_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Backward, false);
-}
-
-fn page_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Forward, false);
-}
-
-fn half_page_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Backward, false);
-}
-
-fn half_page_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Forward, false);
-}
-
-fn page_cursor_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Backward, true);
-}
-
-fn page_cursor_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Forward, true);
-}
-
-fn page_cursor_half_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Backward, true);
-}
-
-fn page_cursor_half_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Forward, true);
 }
 
 #[allow(deprecated)]
@@ -4590,7 +3840,7 @@ pub mod insert {
         delete_by_selection_insert_mode(
             cx,
             |text, range| {
-                let anchor = movement::move_prev_word_start(text, *range, count).from();
+                let anchor = core_movement::move_prev_word_start(text, *range, count).from();
                 let next = Range::new(anchor, range.cursor(text));
                 let range = exclude_cursor(text, next, *range);
                 (range.from(), range.to())
@@ -4604,7 +3854,7 @@ pub mod insert {
         delete_by_selection_insert_mode(
             cx,
             |text, range| {
-                let head = movement::move_next_word_end(text, *range, count).to();
+                let head = core_movement::move_next_word_end(text, *range, count).to();
                 (range.cursor(text), head)
             },
             Direction::Forward,
@@ -5166,7 +4416,7 @@ fn format_selections(cx: &mut Context) {
 }
 
 fn join_selections_impl(cx: &mut Context, select_space: bool) {
-    use movement::skip_while;
+    use core_movement::skip_while;
     let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
     let text = doc.text();
@@ -5672,7 +4922,7 @@ fn move_node_bound_impl(cx: &mut Context, dir: Direction, movement: Movement) {
             let text = doc.text().slice(..);
             let current_selection = doc.selection(view.id);
 
-            let selection = movement::move_parent_node_end(
+            let selection = core_movement::move_parent_node_end(
                 syntax,
                 text,
                 current_selection.clone(),
@@ -5953,55 +5203,6 @@ fn copy_between_registers(cx: &mut Context) {
     });
 }
 
-fn align_view_top(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Top);
-}
-
-fn align_view_center(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Center);
-}
-
-fn align_view_bottom(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Bottom);
-}
-
-fn align_view_middle(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let inner_width = view.inner_width(doc);
-    let text_fmt = doc.text_format(inner_width, None);
-    // there is no horizontal position when softwrap is enabled
-    if text_fmt.soft_wrap {
-        return;
-    }
-    let doc_text = doc.text().slice(..);
-    let pos = doc.selection(view.id).primary().cursor(doc_text);
-    let pos = visual_offset_from_block(
-        doc_text,
-        doc.view_offset(view.id).anchor,
-        pos,
-        &text_fmt,
-        &view.text_annotations(doc, None),
-    )
-    .0;
-
-    let mut offset = doc.view_offset(view.id);
-    offset.horizontal_offset = pos
-        .col
-        .saturating_sub((view.inner_area(doc).width as usize) / 2);
-    doc.set_view_offset(view.id, offset);
-}
-
-fn scroll_up(cx: &mut Context) {
-    scroll(cx, cx.count(), Direction::Backward, false);
-}
-
-fn scroll_down(cx: &mut Context) {
-    scroll(cx, cx.count(), Direction::Forward, false);
-}
-
 fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
     let count = cx.count();
     let motion = move |editor: &mut Editor| {
@@ -6011,7 +5212,7 @@ fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direct
             let text = doc.text().slice(..);
 
             let selection = doc.selection(view.id).clone().transform(|range| {
-                let new_range = movement::goto_treesitter_object(
+                let new_range = core_movement::goto_treesitter_object(
                     text, range, object, direction, syntax, &loader, count,
                 );
 
@@ -6980,12 +6181,12 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
     let mut cursor_fwd = Range::point(cursor);
     let mut cursor_rev = Range::point(cursor);
     if text.get_char(cursor).is_some_and(|c| !c.is_whitespace()) {
-        let cursor_word_end = movement::move_next_word_end(text, cursor_fwd, 1);
+        let cursor_word_end = core_movement::move_next_word_end(text, cursor_fwd, 1);
         //  single grapheme words need a special case
         if cursor_word_end.anchor == cursor {
             cursor_fwd = cursor_word_end;
         }
-        let cursor_word_start = movement::move_prev_word_start(text, cursor_rev, 1);
+        let cursor_word_start = core_movement::move_prev_word_start(text, cursor_rev, 1);
         if cursor_word_start.anchor == next_grapheme_boundary(text, cursor) {
             cursor_rev = cursor_word_start;
         }
@@ -6993,7 +6194,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
     'outer: loop {
         let mut changed = false;
         while cursor_fwd.head < end {
-            cursor_fwd = movement::move_next_word_end(text, cursor_fwd, 1);
+            cursor_fwd = core_movement::move_next_word_end(text, cursor_fwd, 1);
             // The cursor is on a word that is atleast two graphemes long and
             // madeup of word characters. The latter condition is needed because
             // move_next_word_end simply treats a sequence of characters from
@@ -7021,7 +6222,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             break;
         }
         while cursor_rev.head > start {
-            cursor_rev = movement::move_prev_word_start(text, cursor_rev, 1);
+            cursor_rev = core_movement::move_prev_word_start(text, cursor_rev, 1);
             // The cursor is on a word that is atleast two graphemes long and
             // madeup of word characters. The latter condition is needed because
             // move_prev_word_start simply treats a sequence of characters from
