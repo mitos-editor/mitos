@@ -110,6 +110,7 @@ pub enum OnKeyCallbackKind {
 }
 
 pub struct Context<'a> {
+    pub config: crate::config::Context<'a>,
     pub register: Option<char>,
     pub count: Option<NonZeroUsize>,
     pub editor: &'a mut Editor,
@@ -178,6 +179,7 @@ impl Context<'_> {
     /// operations for all documents.
     pub fn block_try_flush_writes(&mut self) -> anyhow::Result<()> {
         compositor::Context {
+            config: self.config,
             editor: self.editor,
             jobs: self.jobs,
             scroll: None,
@@ -260,6 +262,7 @@ impl MappableCommand {
             Self::Typable { name, args, doc: _ } => {
                 if let Some(command) = typed::TYPABLE_COMMAND_MAP.get(name.as_str()) {
                     let mut cx = compositor::Context {
+                        config: cx.config,
                         editor: cx.editor,
                         jobs: cx.jobs,
                         scroll: None,
@@ -4022,6 +4025,7 @@ pub fn command_palette(cx: &mut Context) {
 
             let picker = Picker::new(columns, 0, commands, data, move |cx, command, _action| {
                 let mut ctx = Context {
+                    config: cx.config,
                     register,
                     count,
                     editor: cx.editor,

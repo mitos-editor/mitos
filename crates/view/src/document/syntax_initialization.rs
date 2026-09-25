@@ -133,7 +133,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        editor::Config,
+        config::Config,
         events::{DocumentDidChange, SelectionDidChange},
         ViewId,
     };

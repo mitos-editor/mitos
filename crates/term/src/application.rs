@@ -22,7 +22,7 @@ use view::{
 use crate::{
     args::Args,
     compositor::{Compositor, Event},
-    config::Config,
+    config::{Config, EditorSettings},
     handlers,
     job::Jobs,
     keymap::Keymaps,
@@ -67,11 +67,11 @@ type TerminalEvent = crossterm::event::Event;
 
 type Terminal = tui::Terminal<TerminalBackend>;
 
-fn terminal_config(config: &view::editor::Config) -> tui::terminal::Config {
+fn terminal_config(config: &Config) -> tui::terminal::Config {
     tui::terminal::Config {
-        enable_mouse_capture: config.mouse,
-        force_enable_extended_underlines: config.undercurl,
-        kitty_keyboard_protocol: config.kitty_keyboard_protocol,
+        enable_mouse_capture: config.editor.mouse,
+        force_enable_extended_underlines: config.terminal.undercurl,
+        kitty_keyboard_protocol: config.terminal.kitty_keyboard_protocol,
     }
 }
 
@@ -82,6 +82,10 @@ pub struct Application {
     image_picker: Option<ratatui_image::picker::Picker>,
 
     config: Arc<ArcSwap<Config>>,
+    config_updates: (
+        tokio::sync::mpsc::UnboundedSender<crate::config::ConfigEvent>,
+        tokio::sync::mpsc::UnboundedReceiver<crate::config::ConfigEvent>,
+    ),
 
     signals: Signals,
     jobs: Jobs,
@@ -116,10 +120,10 @@ impl Application {
         let theme_loader = theme::Loader::new(&theme_parent_dirs);
 
         #[cfg(all(not(windows), not(feature = "integration")))]
-        let backend = TerminaBackend::new(terminal_config(&config.editor))
+        let backend = TerminaBackend::new(terminal_config(&config))
             .context("failed to create terminal backend")?;
         #[cfg(all(windows, not(feature = "integration")))]
-        let backend = CrosstermBackend::new(std::io::stdout(), terminal_config(&config.editor));
+        let backend = CrosstermBackend::new(std::io::stdout(), terminal_config(&config));
 
         #[cfg(feature = "integration")]
         let backend = TestBackend::new(120, 150);
@@ -259,6 +263,7 @@ impl Application {
             editor,
             image_picker: None,
             config,
+            config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
             lsp_progress: LspProgressMap::new(),
@@ -284,7 +289,12 @@ impl Application {
             self.compositor.full_redraw = false;
         }
 
+        let config = self.config.load();
         let mut cx = crate::compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
@@ -388,6 +398,19 @@ impl Application {
                 Some(event) = input_stream.next() => {
                     self.handle_terminal_events(event).await;
                 }
+                Some(event) = self.config_updates.1.recv() => {
+                    match event {
+                        crate::config::ConfigEvent::Update(settings) => {
+                            let old_editor_config = self.editor.config();
+                            self.apply_editor_settings(*settings);
+                            self.refresh_editor_config(&old_editor_config);
+                        }
+                        crate::config::ConfigEvent::Refresh => {
+                            self.handle_config_events(ConfigEvent::Refresh);
+                        }
+                    }
+                    self.render().await;
+                }
                 Some(callback) = self.jobs.callbacks.recv() => {
                     if let Some(job) = self.jobs.handle_callback(&mut self.editor, &mut self.compositor, Ok(Some(callback))) {
                         self.jobs.add(job);
@@ -446,20 +469,12 @@ impl Application {
         match config_event {
             ConfigEvent::Refresh => self.refresh_config(),
 
-            // Since only the Application can make changes to Editor's config,
-            // the Editor must send up a new copy of a modified config so that
-            // the Application can apply it.
             ConfigEvent::Update(editor_config) => {
-                let mut app_config = (*self.config.load().clone()).clone();
-                app_config.editor = *editor_config;
-                if let Err(err) = self
-                    .terminal
-                    .backend_mut()
-                    .reconfigure(terminal_config(&app_config.editor))
-                {
-                    self.editor.set_error(|| err.to_string());
-                };
-                self.config.store(Arc::new(app_config));
+                let terminal = self.config.load().terminal.clone();
+                self.apply_editor_settings(EditorSettings {
+                    editor: *editor_config,
+                    terminal,
+                });
             }
             ConfigEvent::ThemeChanged => {
                 let _ = self.terminal.backend_mut().set_background_color(
@@ -472,9 +487,27 @@ impl Application {
             }
         }
 
+        self.refresh_editor_config(&old_editor_config);
+    }
+
+    fn apply_editor_settings(&mut self, settings: EditorSettings) {
+        let mut app_config = (**self.config.load()).clone();
+        app_config.editor = settings.editor;
+        app_config.terminal = settings.terminal;
+        if let Err(err) = self
+            .terminal
+            .backend_mut()
+            .reconfigure(terminal_config(&app_config))
+        {
+            self.editor.set_error(|| err.to_string());
+        }
+        self.config.store(Arc::new(app_config));
+    }
+
+    fn refresh_editor_config(&mut self, old_editor_config: &view::config::Config) {
         // Update all the relevant members in the editor after updating
         // the configuration.
-        self.editor.refresh_config(&old_editor_config);
+        self.editor.refresh_config(old_editor_config);
 
         // reset view position in case softwrap was enabled/disabled
         let scrolloff = self.editor.config().scrolloff;
@@ -522,7 +555,7 @@ impl Application {
 
             self.terminal
                 .backend_mut()
-                .reconfigure(terminal_config(&default_config.editor))?;
+                .reconfigure(terminal_config(&default_config))?;
             // Store new config
             self.config.store(Arc::new(default_config));
             Ok(())
@@ -546,7 +579,7 @@ impl Application {
         mode: Option<theme::Mode>,
     ) {
         let true_color = terminal.backend().supports_true_color()
-            || config.editor.true_color
+            || config.terminal.true_color
             || crate::true_color();
         let theme_config = config.theme.clone().unwrap_or_default();
         let name = theme_config.choose(mode);
@@ -645,7 +678,12 @@ impl Application {
     }
 
     pub async fn handle_idle_timeout(&mut self) {
+        let config = self.config.load();
         let mut cx = crate::compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
@@ -770,7 +808,12 @@ impl Application {
         #[cfg(not(windows))]
         use termina::escape::csi;
 
+        let config = self.config.load();
         let mut cx = crate::compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,

@@ -1,12 +1,14 @@
 use crate::keymap;
 use crate::keymap::{merge_keys, KeyTrie};
 use loader::merge_toml_values;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::fs;
 use std::io::Error as IOError;
+use tokio::sync::mpsc::UnboundedSender;
 use toml::de::Error as TomlError;
+use ui_core::terminal::KittyKeyboardProtocolConfig;
 use view::custom_commands::{CustomCommand, CustomCommands};
 use view::{document::Mode, theme};
 
@@ -14,7 +16,65 @@ use view::{document::Mode, theme};
 pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
-    pub editor: view::editor::Config,
+    pub editor: view::config::Config,
+    pub terminal: TerminalConfig,
+}
+
+/// Terminal capability overrides. Their TOML keys remain under `[editor]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct TerminalConfig {
+    /// Override automatic detection of true color support.
+    pub true_color: bool,
+    /// Override automatic detection of extended underline support.
+    pub undercurl: bool,
+    /// Policy for enabling the Kitty keyboard protocol.
+    pub kitty_keyboard_protocol: KittyKeyboardProtocolConfig,
+}
+
+/// The user-facing `[editor]` table, composed from editor and frontend settings.
+/// This compatibility representation is also used by `:get`, `:set`, and `:toggle`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct EditorSettings {
+    #[serde(flatten)]
+    pub editor: view::config::Config,
+    #[serde(flatten)]
+    pub terminal: TerminalConfig,
+}
+
+impl<'de> Deserialize<'de> for EditorSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Partition before deserializing so both schemas retain strict unknown-field
+        // validation. Flattened deserialization cannot preserve that boundary reliably.
+        let mut editor = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut terminal = serde_json::Map::new();
+        for key in ["true-color", "undercurl", "kitty-keyboard-protocol"] {
+            if let Some(value) = editor.remove(key) {
+                terminal.insert(key.to_owned(), value);
+            }
+        }
+        Ok(Self {
+            editor: serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?,
+            terminal: serde_json::from_value(terminal.into()).map_err(serde::de::Error::custom)?,
+        })
+    }
+}
+
+/// Configuration requests originating in the terminal frontend.
+pub enum ConfigEvent {
+    Update(Box<EditorSettings>),
+    Refresh,
+}
+
+/// A frontend configuration snapshot and the application's update queue.
+/// Commands request updates; only the application installs them.
+#[derive(Clone, Copy)]
+pub struct Context<'a> {
+    pub current: &'a Config,
+    pub updates: &'a UnboundedSender<ConfigEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -52,7 +112,8 @@ impl Default for Config {
         Config {
             theme: None,
             keys: keymap::default(),
-            editor: view::editor::Config::default(),
+            editor: view::config::Config::default(),
+            terminal: TerminalConfig::default(),
         }
     }
 }
@@ -79,6 +140,13 @@ impl Display for ConfigLoadError {
 }
 
 impl Config {
+    pub fn editor_settings(&self) -> EditorSettings {
+        EditorSettings {
+            editor: self.editor.clone(),
+            terminal: self.terminal.clone(),
+        }
+    }
+
     pub fn load(
         global: Result<&String, ConfigLoadError>,
         local: Result<String, ConfigLoadError>,
@@ -97,8 +165,8 @@ impl Config {
                     merge_keys(&mut keys, local_keys)
                 }
 
-                let mut editor = match (global.editor, local.editor) {
-                    (None, None) => view::editor::Config::default(),
+                let mut settings: EditorSettings = match (global.editor, local.editor) {
+                    (None, None) => EditorSettings::default(),
                     (None, Some(val)) | (Some(val), None) => {
                         val.try_into().map_err(ConfigLoadError::BadConfig)?
                     }
@@ -115,13 +183,14 @@ impl Config {
                     }
                 }
                 if let Some(commands) = global.commands {
-                    editor.commands = commands.into_custom_commands();
+                    settings.editor.commands = commands.into_custom_commands();
                 }
 
                 Config {
                     theme: local.theme.or(global.theme),
                     keys,
-                    editor,
+                    editor: settings.editor,
+                    terminal: settings.terminal,
                 }
             }
             // if any configs are invalid return that first
@@ -134,18 +203,19 @@ impl Config {
                 if let Some(keymap) = config.keys {
                     merge_keys(&mut keys, keymap);
                 }
-                let mut editor = config.editor.map_or_else(
-                    || Ok(view::editor::Config::default()),
+                let mut settings: EditorSettings = config.editor.map_or_else(
+                    || Ok(EditorSettings::default()),
                     |val| val.try_into().map_err(ConfigLoadError::BadConfig),
                 )?;
                 if let Some(commands) = config.commands {
-                    editor.commands = commands.into_custom_commands();
+                    settings.editor.commands = commands.into_custom_commands();
                 }
 
                 Config {
                     theme: config.theme,
                     keys,
-                    editor,
+                    editor: settings.editor,
+                    terminal: settings.terminal,
                 }
             }
 
@@ -251,6 +321,63 @@ mod tests {
         // From the Default trait
         let default_keys = Config::default().keys;
         assert_eq!(default_keys, keymap::default());
+    }
+
+    #[test]
+    fn terminal_settings_keep_editor_table_and_merge_precedence() {
+        assert_eq!(Config::load_test("").terminal, TerminalConfig::default());
+        let global = "[editor]\ntrue-color = true\nundercurl = true\nkitty-keyboard-protocol = 'disabled'\nscrolloff = 7".to_owned();
+        let local = "[editor]\ntrue-color = false\nkitty-keyboard-protocol = 'enabled'\n[editor.auto-save.after-delay]\nenable = true\ntimeout = 2500".to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+
+        assert_eq!(
+            config.terminal,
+            TerminalConfig {
+                true_color: false,
+                undercurl: true,
+                kitty_keyboard_protocol: KittyKeyboardProtocolConfig::Enabled,
+            }
+        );
+        assert_eq!(config.editor.scrolloff, 7);
+        assert!(config.editor.auto_save.after_delay.enable);
+        assert_eq!(config.editor.auto_save.after_delay.timeout, 2500);
+
+        // The shared editor schema no longer contains terminal capabilities.
+        let shared = serde_json::to_value(&config.editor).unwrap();
+        assert!(shared.get("true-color").is_none());
+        assert!(shared.get("undercurl").is_none());
+        assert!(shared.get("kitty-keyboard-protocol").is_none());
+    }
+
+    #[test]
+    fn composed_settings_retain_strict_validation() {
+        for settings in [
+            "true-color = 'yes'",
+            "undercurl = 1",
+            "kitty-keyboard-protocol = 'sometimes'",
+            "undercurls = true",
+            "scrolloff = 'seven'",
+            "auto-save = { after-delay = { unknown = true } }",
+        ] {
+            assert!(
+                Config::load_test_result(&format!("[editor]\n{settings}")).is_err(),
+                "{settings}"
+            );
+        }
+    }
+
+    #[test]
+    fn composed_settings_round_trip_for_runtime_options() {
+        let config = Config::load_test("[editor]\ntrue-color = true\nundercurl = true\nkitty-keyboard-protocol = 'disabled'\nidle-timeout = 123\n[editor.cursor-shape]\ninsert = 'bar'");
+        let settings = config.editor_settings();
+        let value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(value["true-color"], true);
+        assert_eq!(value["idle-timeout"], 123);
+        assert_eq!(value["cursor-shape"]["insert"], "bar");
+        assert_eq!(
+            serde_json::from_value::<EditorSettings>(value).unwrap(),
+            settings
+        );
     }
 
     #[test]

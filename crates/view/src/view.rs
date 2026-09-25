@@ -1,8 +1,8 @@
 use crate::{
     align_view,
     annotations::diagnostics::InlineDiagnostics,
+    config::{GutterConfig, GutterType},
     document::{DocumentColorSwatches, DocumentInlayHints},
-    editor::{GutterConfig, GutterType},
     graphics::{Rect, RectExt as _},
     handlers::diagnostics::DiagnosticsHandler,
     Align, Document, DocumentId, Theme, ViewId,
@@ -736,8 +736,8 @@ mod tests {
     // 1 diagnostics + 1 spacer + 1 gutter
     const DEFAULT_GUTTER_OFFSET_ONLY_DIAGNOSTICS: u16 = 3;
 
+    use crate::config::{Config, GutterConfig, GutterLineNumbersConfig, GutterType};
     use crate::document::Document;
-    use crate::editor::{Config, GutterConfig, GutterLineNumbersConfig, GutterType};
 
     #[test]
     fn breadcrumbs_reduce_only_the_top_of_file_backed_view_content() {

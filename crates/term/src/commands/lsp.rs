@@ -1098,12 +1098,8 @@ pub(crate) fn code_actions_for_range(
 /// kinds, in order, each against the latest document state, before running
 /// `tail` (the auto-format / save job). Returns `tail` unchanged when nothing is
 /// configured.
-pub fn code_actions_on_save(
-    cx: &compositor::Context,
-    doc_id: DocumentId,
-    tail: Option<Job>,
-) -> Option<Job> {
-    let kinds = doc!(cx.editor, &doc_id)
+pub fn code_actions_on_save(editor: &Editor, doc_id: DocumentId, tail: Option<Job>) -> Option<Job> {
+    let kinds = doc!(editor, &doc_id)
         .language_config()
         .and_then(|config| config.code_actions_on_save.clone());
     let Some(kinds) = kinds else {

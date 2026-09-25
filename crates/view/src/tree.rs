@@ -725,7 +725,7 @@ impl DoubleEndedIterator for Traverse<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::editor::GutterConfig;
+    use crate::config::GutterConfig;
     use crate::DocumentId;
 
     #[test]

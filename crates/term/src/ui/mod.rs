@@ -457,6 +457,7 @@ fn directory_content(
 
 pub mod completers {
     use super::Utf8PathBuf;
+    use crate::config::EditorSettings;
     use crate::ui::prompt::Completion;
     use command_line::{self, Tokenizer};
     use editor_core::fuzzy::fuzzy_match;
@@ -467,7 +468,7 @@ pub mod completers {
     use tui::text::Span;
     use view::document::SCRATCH_BUFFER_NAME;
     use view::theme;
-    use view::{editor::Config, Editor};
+    use view::Editor;
 
     pub type Completer = fn(&Editor, &str) -> Vec<Completion>;
 
@@ -548,7 +549,7 @@ pub mod completers {
     pub fn setting(_editor: &Editor, input: &str) -> Vec<Completion> {
         static KEYS: LazyLock<Vec<String>> = LazyLock::new(|| {
             let mut keys = Vec::new();
-            let json = serde_json::json!(Config::default());
+            let json = serde_json::json!(EditorSettings::default());
             get_keys(&json, &mut keys, None);
             keys
         });
