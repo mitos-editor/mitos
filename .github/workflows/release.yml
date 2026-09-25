@@ -96,6 +96,8 @@ jobs:
 
       - name: Download grammars
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: grammars
 
       - name: Move grammars under runtime
         if: "!startsWith(matrix.os, 'windows')"
@@ -123,10 +125,17 @@ jobs:
         run: cargo build --profile opt --locked --target ${{ matrix.target }}
 
       - name: Install cargo-deb
+        id: cargo-deb
         if: matrix.build == 'x86_64-linux'
+        continue-on-error: true
         uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
         with:
-          tool: cargo-deb
+          tool: cargo-deb@3.7.0
+
+      # Some prebuilt cargo-deb binaries require a newer glibc than our release runner.
+      - name: Build cargo-deb from source
+        if: matrix.build == 'x86_64-linux' && steps.cargo-deb.outcome == 'failure'
+        run: cargo install cargo-deb --version 3.7.0 --locked --force
 
       - name: Build Deb
         shell: bash
@@ -194,7 +203,7 @@ jobs:
               fi
               pkgname="mitos-$tag-$platform"
               mkdir -p "$pkgname"
-              cp "$source/LICENSE" "$source/README.md" "$source/FORK.md" "$pkgname"
+              cp "$source/LICENSE" "$source/README.md" "$pkgname"
               mkdir "$pkgname/contrib"
               cp -r "$source/contrib/completion" "$pkgname/contrib"
               mv "bins-$platform/runtime" "$pkgname/"

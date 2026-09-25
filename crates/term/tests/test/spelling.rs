@@ -658,6 +658,41 @@ async fn incremental_edits_keep_distant_diagnostics_and_whole_tokens() -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn identifier_corrections_and_edits_preserve_surrounding_parts() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new()
+        .with_input_text("#[🚀|]# hello_wrld\n")
+        .build()?;
+    keys(&mut app, ":spelling en_US<ret>").await?;
+    wait_for_mistakes(&mut app, &["wrld"]).await?;
+    keys(&mut app, "]s").await?;
+    assert_eq!(selection(&app), &Selection::single(8, 12));
+    open_corrections(&mut app).await?;
+    choose_correction(&mut app, "Replace 'wrld' with 'world'").await?;
+    wait_for_mistakes(&mut app, &[]).await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "🚀 hello_world\n"
+    );
+    keys(&mut app, "u").await?;
+    wait_for_mistakes(&mut app, &["wrld"]).await?;
+
+    // Joining and splitting words must replace stale ranges during incremental checks.
+    replace(&mut app, 7, 8, "");
+    wait_for_mistakes(&mut app, &["hellowrld"]).await?;
+    replace(&mut app, 7, 7, "_");
+    wait_for_mistakes(&mut app, &["wrld"]).await?;
+    replace(&mut app, 7, 9, "W");
+    wait_for_mistakes(&mut app, &["Wrld"]).await?;
+    replace(&mut app, 7, 11, "World");
+    wait_for_mistakes(&mut app, &[]).await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "🚀 helloWorld\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn coalesced_edits_restore_diagnostics_even_when_text_is_unchanged() -> anyhow::Result<()> {
     let mut app = AppBuilder::new()
         .with_input_text("#[t|]#eh quik\n")

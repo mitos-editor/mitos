@@ -108,18 +108,76 @@ pub(super) fn check_region(
             continue;
         }
         let word = Cow::from(text.byte_slice(m.range()));
-        if filter.ignores(&word) {
+        // Honor explicit ignores and dictionary entries for the complete token before splitting
+        // identifiers or compounds. This also preserves accepted contractions and hyphenation.
+        if filter.ignores(&word)
+            || dictionaries
+                .iter()
+                .any(|dictionary| dictionary.check(&word))
+        {
             continue;
         }
-        if !dictionaries
-            .iter()
-            .any(|dictionary| dictionary.check(&word))
-        {
-            let start = text.byte_to_char(m.start());
-            let end = text.byte_to_char(m.end());
-            out.push(spelling_diagnostic(text, start, end, &word));
+        for (index, (offset, part)) in word_parts(&word).enumerate() {
+            if index > 0 && is_canceled() {
+                return;
+            }
+            if part != word
+                && (filter.ignores(part)
+                    || dictionaries.iter().any(|dictionary| dictionary.check(part)))
+            {
+                continue;
+            }
+            let start = text.byte_to_char(m.start() + offset);
+            let end = text.byte_to_char(m.start() + offset + part.len());
+            out.push(spelling_diagnostic(text, start, end, part));
         }
     }
+}
+
+/// Split separators and digits, then camelCase/PascalCase and acronym boundaries (HTTPServer).
+/// Keep apostrophes and combining marks attached, and return byte offsets into the original token.
+fn word_parts(word: &str) -> impl Iterator<Item = (usize, &str)> {
+    static PARTS: LazyLock<editor_core::regex::Regex> = LazyLock::new(|| {
+        editor_core::regex::Regex::new(r"\p{L}[\p{L}\p{M}]*(?:['’][\p{L}\p{M}]+)*").unwrap()
+    });
+    PARTS.find_iter(word).flat_map(|part| {
+        use editor_core::unicode::category::{get_general_category, GeneralCategory};
+
+        let mut chars = part
+            .as_str()
+            .char_indices()
+            .filter(|&(_, ch)| {
+                !matches!(
+                    get_general_category(ch),
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                )
+            })
+            .peekable();
+        let mut previous = ' ';
+        let mut start = 0;
+        std::iter::from_fn(move || {
+            while let Some((offset, ch)) = chars.next() {
+                let boundary = ch.is_uppercase()
+                    && (previous.is_lowercase()
+                        || (previous.is_uppercase()
+                            && chars.peek().is_some_and(|&(_, next)| next.is_lowercase())));
+                previous = ch;
+                if boundary {
+                    let result = (part.start() + start, &part.as_str()[start..offset]);
+                    start = offset;
+                    return Some(result);
+                }
+            }
+            if start == part.len() {
+                return None;
+            }
+            let result = (part.start() + start, &part.as_str()[start..]);
+            start = part.len();
+            Some(result)
+        })
+    })
 }
 
 fn spelling_diagnostic(text: RopeSlice, start: usize, end: usize, word: &str) -> Diagnostic {
@@ -181,6 +239,81 @@ mod tests {
     fn mini_dictionary(words: &[&str]) -> Dictionary {
         let dic = format!("{}\n{}\n", words.len(), words.join("\n"));
         Dictionary::new("SET UTF-8\n", &dic).unwrap()
+    }
+
+    #[test]
+    fn splits_identifier_styles_and_preserves_prose() {
+        for (source, expected) in [
+            ("__snake__case_", vec!["snake", "case"]),
+            ("SCREAMING_SNAKE_CASE", vec!["SCREAMING", "SNAKE", "CASE"]),
+            (
+                "camelCase PascalCase",
+                vec!["camel", "Case", "Pascal", "Case"],
+            ),
+            (
+                "HTTPServer parseXML",
+                vec!["HTTP", "Server", "parse", "XML"],
+            ),
+            ("version2Value_42test 123", vec!["version", "Value", "test"]),
+            (
+                "well-known don't isn’t",
+                vec!["well", "known", "don't", "isn’t"],
+            ),
+            (
+                "naïveÉcole cafe\u{301}Value",
+                vec!["naïve", "École", "cafe\u{301}", "Value"],
+            ),
+            ("HTT\u{301}PServer", vec!["HTT\u{301}P", "Server"]),
+            ("привет_мир 中文", vec!["привет", "мир", "中文"]),
+            ("___123___", vec![]),
+        ] {
+            let parts: Vec<_> = word_parts(source)
+                .map(|(offset, part)| {
+                    assert_eq!(&source[offset..offset + part.len()], part);
+                    part
+                })
+                .collect();
+            assert_eq!(parts, expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn identifier_findings_cover_only_misspelled_parts() {
+        let text = "🚀 hello_quik helloQuik HelloQuik HTTPQuik hello2quik well-quik";
+        let diagnostics = check(text, 0..text.chars().count());
+        let rope = Rope::from_str(text);
+        let words: Vec<_> = diagnostics
+            .iter()
+            .map(|d| rope.slice(d.range.start..d.range.end).to_string())
+            .collect();
+        assert_eq!(words, ["quik", "Quik", "Quik", "Quik", "quik", "quik"]);
+        assert_eq!(diagnostics[0].range.start, 8);
+    }
+
+    #[test]
+    fn filters_and_dictionaries_accept_whole_tokens_and_parts() {
+        let dictionary = mini_dictionary(&["hello", "iPhone", "quik-wrld", "don't", "isn’t"]);
+        let filter = SpellingFilter::new(&SpellingConfig {
+            words: vec!["custom_token".into(), "allow".into()],
+            ignore_regexes: vec!["^[A-Z0-9_]+$".into(), "^skip_".into(), "^ignore$".into()],
+            min_word_length: Some(3),
+            ..Default::default()
+        });
+        let text = Rope::from_str("custom_token CUSTOM_TOKEN skip_wrld WRLD_VALUE hello_allow hello_ignore hello_xy iPhone quik-wrld don't isn’t hello_wrld");
+        let mut diagnostics = Vec::new();
+        check_region(
+            &[&dictionary],
+            &filter,
+            text.slice(..),
+            0..text.len_chars(),
+            &mut diagnostics,
+            || false,
+        );
+        let words: Vec<_> = diagnostics
+            .iter()
+            .map(|d| text.slice(d.range.start..d.range.end).to_string())
+            .collect();
+        assert_eq!(words, ["wrld"]);
     }
 
     #[test]
@@ -248,9 +381,9 @@ mod tests {
 
     #[test]
     fn skips_words_inside_urls_and_emails() {
-        // Only the prose misspelling "teh" is flagged; the misspelled-looking host/path fragments
-        // ("barbaz", "exampel") inside the URL and email are skipped.
-        let text = "teh https://github.com/foo/barbaz me@exampel.org";
+        // Only the prose misspelling "teh" is flagged; identifier parts inside URLs and emails
+        // are skipped along with the misspelled-looking host names.
+        let text = "teh https://github.com/foo/barBaz_quik me_quik@exampel.org";
         let diagnostics = check(text, 0..text.len());
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].message.contains("teh"), "{diagnostics:?}");
@@ -312,7 +445,7 @@ mod tests {
     fn syntax_scoping_checks_comments_not_code() {
         // `teh` in the comment is a misspelling; the identically misspelled identifier `teh_value`
         // is code and must not be flagged.
-        let diagnostics = check_scoped("rust", "// teh bug\nlet teh_value = 1;\n");
+        let diagnostics = check_scoped("rust", "// teh_bug\nlet teh_value = 1;\n");
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].message.contains("teh"), "{diagnostics:?}");
         assert_eq!(diagnostics[0].range.start, 3, "the comment occurrence");
@@ -369,6 +502,28 @@ mod tests {
     #[test]
     fn cancellation_stops_tokenization() {
         let text = Rope::from_str("teh quik wrld");
+        let dictionary = mini_dictionary(&["hello"]);
+        let mut diagnostics = Vec::new();
+        let mut checked = 0;
+        check_region(
+            &[&dictionary],
+            &no_filter(),
+            text.slice(..),
+            0..text.len_chars(),
+            &mut diagnostics,
+            || {
+                checked += 1;
+                checked > 1
+            },
+        );
+        assert_eq!(diagnostics.len(), 1);
+        let range = diagnostics[0].range;
+        assert_eq!(text.slice(range.start..range.end).to_string(), "teh");
+    }
+
+    #[test]
+    fn cancellation_stops_within_an_identifier() {
+        let text = Rope::from_str("teh_quik_wrld");
         let dictionary = mini_dictionary(&["hello"]);
         let mut diagnostics = Vec::new();
         let mut checked = 0;

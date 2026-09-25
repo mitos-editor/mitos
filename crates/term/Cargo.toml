@@ -24,7 +24,6 @@ assets = [
   { source = "../../runtime/themes/**/*", dest = "/usr/lib/mitos/runtime/themes/", mode = "644" },
   { source = "../../runtime/dictionaries/**/*", dest = "/usr/lib/mitos/runtime/dictionaries/", mode = "644" },
   { source = "../../README.md", dest = "/usr/share/doc/mitos/", mode = "644" },
-  { source = "../../FORK.md", dest = "/usr/share/doc/mitos/", mode = "644" },
   { source = "../../LICENSE", dest = "/usr/share/doc/mitos/", mode = "644" },
   { source = "../../contrib/completion/ms.bash", dest = "/usr/share/bash-completion/completions/ms", mode = "644" },
   { source = "../../contrib/completion/ms.fish", dest = "/usr/share/fish/vendor_completions.d/ms.fish", mode = "644" },

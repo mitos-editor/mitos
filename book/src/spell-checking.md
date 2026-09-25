@@ -175,6 +175,16 @@ URLs and email addresses are skipped automatically. Beyond that, three knobs
 | `ignore-regexes`  | Tokens matching any of these are not checked (e.g. `"^[A-Z0-9_]+$"`).
 | `min-word-length` | Tokens shorter than this are not checked.
 
+Identifiers are checked word by word: `snake_case`, `camelCase`, `PascalCase`,
+and `HTTPServer` are split at word boundaries. Underscores, hyphens, and digits
+separate words; numbers alone are skipped. For example, `hello_wrld` reports
+only `wrld`, and a correction preserves the `hello_` prefix. Apostrophes and
+Unicode combining marks stay attached to their words.
+
+The complete token is checked against ignores and dictionaries first, preserving
+explicitly accepted identifiers and hyphenated words. Otherwise, the settings
+above also apply to each word within it, including `min-word-length`.
+
 When both global and per-language settings are present, `languages` and
 `min-word-length` are replaced by the language's value, while `words` and
 `ignore-regexes` are added to the global lists. See
