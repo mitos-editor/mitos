@@ -68,7 +68,7 @@ pub const MIN_AREA_WIDTH_FOR_PREVIEW: u16 = 72;
 /// Biggest file size to preview in bytes
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
-fn split_picker_area(area: Rect, show_preview: bool) -> (Rect, Option<Rect>) {
+pub(crate) fn split_picker_area(area: Rect, show_preview: bool) -> (Rect, Option<Rect>) {
     if show_preview {
         let [picker, preview] =
             Layout::horizontal([Constraint::Length(area.width / 2), Constraint::Min(0)])
@@ -184,7 +184,7 @@ impl Preview<'_, '_> {
     }
 }
 
-struct FilePreview {
+pub(crate) struct FilePreview {
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
     read_buffer: Vec<u8>,
     image_task: Option<ImagePreviewTask>,
@@ -216,6 +216,35 @@ impl FilePreview {
         }
     }
 
+    pub(crate) fn render(
+        &mut self,
+        area: Rect,
+        surface: &mut Surface,
+        cx: &Context,
+        location: Option<FileLocation<'_>>,
+    ) {
+        let background = cx.editor.theme.get("ui.background");
+        surface.clear_with(area, background);
+
+        let block = panel::horizontally_padded(&cx.editor.theme);
+        let inner = block.inner(area);
+        block.render(area, surface);
+
+        let Some(location) = location else {
+            return;
+        };
+        let Some((preview, range)) = self.get::<(), ()>(
+            cx.editor,
+            location,
+            None,
+            None,
+            Size::new(inner.width, inner.height),
+        ) else {
+            return;
+        };
+        render_preview_content(preview, range, area, inner, surface, cx);
+    }
+
     fn clear(&mut self) {
         self.image_task = None;
         self.preview_cache.clear();
@@ -226,7 +255,7 @@ impl FilePreview {
         &'preview mut self,
         editor: &'editor Editor,
         (path_or_id, range): FileLocation<'_>,
-        preview_highlight_handler: &Sender<Arc<Path>>,
+        preview_highlight_handler: Option<&Sender<Arc<Path>>>,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
@@ -260,8 +289,10 @@ impl FilePreview {
                 if self.preview_cache.contains_key(path) {
                     let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
                     let path = Arc::clone(path);
-                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
-                        event::send_blocking(preview_highlight_handler, path.clone());
+                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none())
+                        && let Some(handler) = preview_highlight_handler
+                    {
+                        event::send_blocking(handler, path.clone());
                     }
                     let preview = self.preview_cache.get_mut(&path).unwrap();
                     return Some((Preview::Cached(preview), range));
@@ -326,9 +357,14 @@ impl FilePreview {
                                 "Cannot open document",
                             )))?;
                             let loader = editor.syn_loader.load();
-                            if let Some(language_config) = doc.detect_language_config(&loader) {
-                                doc.language = Some(language_config);
-                                event::send_blocking(preview_highlight_handler, path.clone());
+                            let language_config = doc.detect_language_config(&loader);
+                            if let Some(handler) = preview_highlight_handler {
+                                if language_config.is_some() {
+                                    event::send_blocking(handler, path.clone());
+                                }
+                                doc.language = language_config;
+                            } else {
+                                doc.set_language(language_config, &loader);
                             }
                             Ok(CachedPreview::Document(Box::new(doc)))
                         } else {
@@ -1149,7 +1185,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.preview.get::<T, D>(
             editor,
             location,
-            &self.preview_highlight_handler,
+            Some(&self.preview_highlight_handler),
             image_picker,
             image_size,
         )

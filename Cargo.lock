@@ -3832,6 +3832,7 @@ dependencies = [
  "tokio-stream",
  "toml",
  "tui",
+ "tui-tree-widget",
  "ui-core",
  "vcs",
  "view",
@@ -4149,6 +4150,17 @@ dependencies = [
  "ui-core",
  "unicode-segmentation",
  "unicode-width 0.1.12",
+]
+
+[[package]]
+name = "tui-tree-widget"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246c1142baa1e7a42b94f0fb2b60d838fc884c16281e330bf8624da65ed8f89a"
+dependencies = [
+ "ratatui-core",
+ "ratatui-widgets",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

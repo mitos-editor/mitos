@@ -124,6 +124,7 @@ ratatui-image = { version = "11.0.6", default-features = false, features = ["tok
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 termina = "0.3"
 termini = "1"
+tui-tree-widget = "0.24.1"
 
 # System integration
 # Same filesentry revision used by Helix PR #14544.
