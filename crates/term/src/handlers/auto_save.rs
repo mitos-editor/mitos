@@ -19,7 +19,7 @@ use view::{
 };
 
 use crate::{
-    commands, compositor,
+    commands,
     events::OnModeSwitch,
     job::{self, Jobs},
 };
@@ -81,13 +81,6 @@ impl event::AsyncHook for AutoSaveHandler {
 }
 
 fn request_auto_save(editor: &mut Editor) {
-    let context = &mut compositor::Context {
-        editor,
-        scroll: Some(0),
-        jobs: &mut Jobs::new(),
-        image_picker: None,
-    };
-
     let options = commands::WriteAllOptions {
         force: false,
         write_scratch: false,
@@ -95,8 +88,8 @@ fn request_auto_save(editor: &mut Editor) {
         code_actions: false,
     };
 
-    if let Err(e) = commands::typed::write_all_impl(context, options) {
-        context.editor.set_error(|| format!("{}", e));
+    if let Err(e) = commands::typed::write_all_impl(editor, &mut Jobs::new(), options) {
+        editor.set_error(|| format!("{}", e));
     }
 }
 

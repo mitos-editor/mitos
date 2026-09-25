@@ -4,6 +4,88 @@ use editor_core::diagnostic::Severity;
 use view::custom_commands::{CustomCommand, CustomCommands};
 
 #[tokio::test(flavor = "multi_thread")]
+async fn terminal_options_remain_available_through_commands() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.terminal.true_color = true;
+    config.editor.commands = CustomCommands::new(vec![CustomCommand {
+        commands: vec![":echo retained".into()],
+        ..CustomCommand::default()
+    }
+    .named(":check-custom".into())]);
+    let mut app = AppBuilder::new().with_config(config).build()?;
+
+    for name in ["true-color", "undercurl", "kitty-keyboard-protocol"] {
+        assert!(term::ui::completers::setting(&app.editor, name)
+            .iter()
+            .any(|(_, span)| span.content == name));
+    }
+
+    // An editor-only update must preserve frontend state and custom commands.
+    let mut editor_config = (*app.editor.config()).clone();
+    editor_config.scrolloff = 11;
+    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(editor_config)));
+
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":get true-color<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "true");
+                    assert_eq!(app.editor.config().scrolloff, 11);
+                }),
+            ),
+            (Some(":set true-color false<ret>"), None),
+            (
+                Some(":get true-color<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "false");
+                }),
+            ),
+            (Some(":toggle undercurl<ret>"), None),
+            (
+                Some(":get undercurl<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "true");
+                }),
+            ),
+            (Some(":set kitty-keyboard-protocol disabled<ret>"), None),
+            (
+                Some(":get kitty-keyboard-protocol<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "\"disabled\"");
+                }),
+            ),
+            (
+                Some(":toggle kitty-keyboard-protocol disabled enabled<ret>"),
+                None,
+            ),
+            (
+                Some(":get kitty-keyboard-protocol<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "\"enabled\"");
+                }),
+            ),
+            (Some(":set scrolloff 9<ret>"), None),
+            (
+                Some(":get scrolloff<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "9");
+                }),
+            ),
+            (
+                Some(":check-custom<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "retained");
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn history_completion() -> anyhow::Result<()> {
     test_key_sequence(
         &mut AppBuilder::new().build()?,

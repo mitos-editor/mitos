@@ -49,7 +49,7 @@ use editor_core::{
 };
 
 use crate::{
-    editor::Config,
+    config::Config,
     events::{DocumentDidChange, SelectionDidChange},
     expansion,
     view::ViewPosition,

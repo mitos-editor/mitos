@@ -22,6 +22,7 @@ use view::Editor;
 pub use ui_core::input::Event;
 
 pub struct Context<'a> {
+    pub config: crate::config::Context<'a>,
     pub editor: &'a mut Editor,
     pub scroll: Option<usize>,
     pub jobs: &'a mut Jobs,

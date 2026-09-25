@@ -260,13 +260,14 @@ impl EditorView {
     #[allow(clippy::too_many_lines)]
     pub fn render_view(
         &self,
-        editor: &Editor,
+        cx: &Context,
         doc: &Document,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        let editor = &*cx.editor;
         if doc.is_binary() {
             Self::render_view_border(editor, view, viewport, surface);
             return;
@@ -413,7 +414,7 @@ impl EditorView {
                 theme,
                 inner,
                 surface,
-                editor.config().true_color || crate::true_color(),
+                cx.config.current.terminal.true_color || crate::true_color(),
             );
         }
 
@@ -1791,6 +1792,7 @@ impl Component for EditorView {
         context: &mut crate::compositor::Context,
     ) -> EventResult {
         let mut cx = commands::Context {
+            config: context.config,
             editor: context.editor,
             count: None,
             register: None,
@@ -1842,6 +1844,7 @@ impl Component for EditorView {
                                 let res = {
                                     // use a fake context here
                                     let mut cx = Context {
+                                        config: cx.config,
                                         editor: cx.editor,
                                         jobs: cx.jobs,
                                         scroll: None,
@@ -1946,7 +1949,9 @@ impl Component for EditorView {
                         auto_format: false,
                         code_actions: false,
                     };
-                    if let Err(e) = commands::typed::write_all_impl(context, options) {
+                    if let Err(e) =
+                        commands::typed::write_all_impl(context.editor, context.jobs, options)
+                    {
                         context.editor.set_error(|| format!("{}", e));
                     }
                 }
@@ -2004,7 +2009,7 @@ impl Component for EditorView {
                     render_placeholder("<Binary file>", view.area, surface, style);
                 }
             }
-            self.render_view(cx.editor, doc, view, area, surface, is_focused);
+            self.render_view(cx, doc, view, area, surface, is_focused);
         }
 
         if layout.statusline.height > 0 {

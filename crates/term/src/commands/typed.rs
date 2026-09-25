@@ -1,12 +1,13 @@
 use std::fmt::Write;
 use std::io::BufReader;
-use std::ops::{self, Deref};
+use std::ops;
 
 use crate::job::Job;
 
 use super::shell::{shell, shell_impl_async, ShellBehavior};
 use super::*;
 
+use crate::config::{ConfigEvent, EditorSettings};
 use command_line::{Args, Flag, Signature, Token, TokenKind};
 use editor_core::fuzzy::fuzzy_match;
 use editor_core::indent::MAX_INDENT;
@@ -16,7 +17,7 @@ use stdx::path::home_dir;
 use ui::completers::{self, Completer};
 use view::custom_commands::{CustomCommand, CustomCommands};
 use view::document::{read_to_string, DEFAULT_LANGUAGE_NAME};
-use view::editor::{CloseError, Config, ConfigEvent};
+use view::editor::CloseError;
 use view::expansion;
 
 #[derive(Clone)]
@@ -465,7 +466,7 @@ fn write_impl(
     });
 
     let job = if run_code_actions {
-        code_actions_on_save(cx, doc_id, tail)
+        code_actions_on_save(cx.editor, doc_id, tail)
     } else {
         tail
     };
@@ -888,20 +889,20 @@ pub struct WriteAllOptions {
 }
 
 pub fn write_all_impl(
-    cx: &mut compositor::Context,
+    editor: &mut Editor,
+    jobs: &mut Jobs,
     options: WriteAllOptions,
 ) -> anyhow::Result<()> {
     let mut errors: Vec<&'static str> = Vec::new();
-    let config = cx.editor.config();
-    let saves: Vec<_> = cx
-        .editor
+    let config = editor.config();
+    let saves: Vec<_> = editor
         .documents
         .keys()
         .cloned()
         .collect::<Vec<_>>()
         .into_iter()
         .filter_map(|id| {
-            let doc = doc!(cx.editor, &id);
+            let doc = doc!(editor, &id);
             if !doc.is_modified() {
                 return None;
             }
@@ -913,14 +914,14 @@ pub fn write_all_impl(
             }
 
             // Look for a view to apply the formatting change to.
-            let target_view = cx.editor.get_synced_view_id(doc.id());
+            let target_view = editor.get_synced_view_id(doc.id());
             Some((id, target_view))
         })
         .collect();
 
     for (doc_id, target_view) in saves {
-        let doc = doc_mut!(cx.editor, &doc_id);
-        let view = view_mut!(cx.editor, target_view);
+        let doc = doc_mut!(editor, &doc_id);
+        let view = view_mut!(editor, target_view);
 
         if doc.trim_trailing_whitespace() {
             trim_trailing_whitespace(doc, target_view);
@@ -939,7 +940,7 @@ pub fn write_all_impl(
         let force = options.force;
 
         let run_code_actions = options.code_actions
-            && doc!(cx.editor, &doc_id)
+            && doc!(editor, &doc_id)
                 .language_config()
                 .and_then(|c| c.code_actions_on_save.as_deref())
                 .is_some_and(|kinds| !kinds.is_empty());
@@ -977,15 +978,15 @@ pub fn write_all_impl(
         });
 
         let job = if run_code_actions {
-            code_actions_on_save(cx, doc_id, tail)
+            code_actions_on_save(editor, doc_id, tail)
         } else {
             tail
         };
 
         if let Some(job) = job {
-            cx.jobs.add(job);
+            jobs.add(job);
         } else {
-            cx.editor.save::<PathBuf>(doc_id, None, force)?;
+            editor.save::<PathBuf>(doc_id, None, force)?;
         }
     }
 
@@ -1003,7 +1004,8 @@ fn write_all(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> an
     }
 
     write_all_impl(
-        cx,
+        cx.editor,
+        cx.jobs,
         WriteAllOptions {
             force: false,
             write_scratch: true,
@@ -1024,7 +1026,8 @@ fn force_write_all(
     }
 
     write_all_impl(
-        cx,
+        cx.editor,
+        cx.jobs,
         WriteAllOptions {
             force: true,
             write_scratch: true,
@@ -1044,7 +1047,8 @@ fn write_all_quit(
         return Ok(());
     }
     write_all_impl(
-        cx,
+        cx.editor,
+        cx.jobs,
         WriteAllOptions {
             force: false,
             write_scratch: true,
@@ -1065,7 +1069,8 @@ fn force_write_all_quit(
         return Ok(());
     }
     let _ = write_all_impl(
-        cx,
+        cx.editor,
+        cx.jobs,
         WriteAllOptions {
             force: true,
             write_scratch: true,
@@ -1145,7 +1150,7 @@ fn force_cquit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
 
 #[cold]
 fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    let true_color = cx.editor.config.load().true_color || crate::true_color();
+    let true_color = cx.config.current.terminal.true_color || crate::true_color();
     match event {
         PromptEvent::Abort => {
             cx.editor.unset_theme_preview()?;
@@ -2348,7 +2353,7 @@ fn get_option(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     let key = &args[0].to_lowercase();
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
-    let config = serde_json::json!(cx.editor.config().deref());
+    let config = serde_json::json!(cx.config.current.editor_settings());
     let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer(&pointer).ok_or_else(key_error)?;
 
@@ -2369,7 +2374,7 @@ fn set_option(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
     let field_error = |_| anyhow::anyhow!("Could not parse field `{}`", arg);
 
-    let mut config = serde_json::json!(&cx.editor.config().deref());
+    let mut config = serde_json::json!(cx.config.current.editor_settings());
     let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer_mut(&pointer).ok_or_else(key_error)?;
 
@@ -2379,13 +2384,10 @@ fn set_option(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     } else {
         arg.parse().map_err(field_error)?
     };
-    let mut config: Box<Config> = serde_json::from_value(config).map_err(field_error)?;
-    config.commands = cx.editor.config().commands.clone();
+    let mut config: Box<EditorSettings> = serde_json::from_value(config).map_err(field_error)?;
+    config.editor.commands = cx.editor.config().commands.clone();
 
-    cx.editor
-        .config_events
-        .0
-        .send(ConfigEvent::Update(config))?;
+    cx.config.updates.send(ConfigEvent::Update(config))?;
     Ok(())
 }
 
@@ -2406,7 +2408,7 @@ fn toggle_option(
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
-    let mut config = serde_json::json!(&cx.editor.config().deref());
+    let mut config = serde_json::json!(cx.config.current.editor_settings());
     let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer_mut(&pointer).ok_or_else(key_error)?;
 
@@ -2475,14 +2477,11 @@ fn toggle_option(
     };
 
     let status = format!("'{key}' is now set to {value}");
-    let mut config: Box<Config> = serde_json::from_value(config)
+    let mut config: Box<EditorSettings> = serde_json::from_value(config)
         .map_err(|err| anyhow::anyhow!("Failed to parse config: {err}"))?;
-    config.commands = cx.editor.config().commands.clone();
+    config.editor.commands = cx.editor.config().commands.clone();
 
-    cx.editor
-        .config_events
-        .0
-        .send(ConfigEvent::Update(config))?;
+    cx.config.updates.send(ConfigEvent::Update(config))?;
     cx.editor.set_status(status);
     Ok(())
 }
@@ -2730,7 +2729,7 @@ fn refresh_config(
         return Ok(());
     }
 
-    cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
+    cx.config.updates.send(ConfigEvent::Refresh)?;
     Ok(())
 }
 
@@ -4309,6 +4308,7 @@ fn execute_command_line(
                 } else if event == PromptEvent::Validate {
                     let command: MappableCommand = configured.parse()?;
                     let mut command_cx = super::Context {
+                        config: cx.config,
                         register: None,
                         count: None,
                         editor: cx.editor,
@@ -4838,7 +4838,7 @@ fn trust_workspace(
     let workspace = current_workspace(cx);
     cx.editor.workspace_trust.trust(&workspace);
 
-    cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
+    cx.config.updates.send(ConfigEvent::Refresh)?;
     // Restart any LSPs that didn't start because trust was missing.
     lsp_restart(cx, args, event)
 }
@@ -4858,7 +4858,7 @@ fn untrust_workspace(
     // Drop any workspace overrides that were merged into the live editor config while trust was
     // granted. Running LSPs are not stopped here (use `:lsp-stop` for that); this only handles
     // in-memory config.
-    cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
+    cx.config.updates.send(ConfigEvent::Refresh)?;
     Ok(())
 }
 
@@ -4874,7 +4874,7 @@ fn exclude_workspace(
 
     let workspace = current_workspace(cx);
     cx.editor.workspace_trust.exclude(&workspace);
-    cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
+    cx.config.updates.send(ConfigEvent::Refresh)?;
     Ok(())
 }
 

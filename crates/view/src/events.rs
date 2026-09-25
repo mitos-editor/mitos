@@ -2,7 +2,7 @@ use editor_core::{ChangeSet, Rope};
 use event::events;
 use lsp_client::LanguageServerId;
 
-use crate::{editor::Config, Document, DocumentId, Editor, ViewId};
+use crate::{config::Config, Document, DocumentId, Editor, ViewId};
 
 events! {
     DocumentSyntaxRequested<'a> { doc: &'a mut Document }

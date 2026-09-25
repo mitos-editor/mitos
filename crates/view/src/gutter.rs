@@ -3,7 +3,7 @@ use std::fmt::Write;
 use editor_core::syntax::config::LanguageServerFeature;
 
 use crate::{
-    editor::GutterType,
+    config::GutterType,
     graphics::{Style, UnderlineStyle},
     icons::ICONS,
     Document, Editor, Theme, View,
@@ -202,7 +202,7 @@ pub fn line_numbers<'doc>(
                 write!(out, "{:>1$}", '~', width).unwrap();
                 Some(linenr)
             } else {
-                use crate::{document::Mode, editor::LineNumber};
+                use crate::{config::LineNumber, document::Mode};
 
                 let relative = line_number == LineNumber::Relative
                     && mode != Mode::Insert
@@ -384,8 +384,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::config::{Config, GutterConfig, GutterLineNumbersConfig};
     use crate::document::Document;
-    use crate::editor::{Config, GutterConfig, GutterLineNumbersConfig};
     use crate::graphics::Rect;
     use crate::DocumentId;
     use arc_swap::ArcSwap;
