@@ -1,4 +1,5 @@
 mod catalog;
+mod command_line;
 mod context;
 pub(crate) mod dap;
 pub(crate) mod lsp;
