@@ -118,7 +118,7 @@ toml = "1.1"
 
 # Terminal and UI
 clipboard-win = "5.4"
-crossterm = "0.28"
+crossterm = "0.29"
 ratatui = { version = "0.30.2", default-features = false, features = ["layout-cache", "std", "underline-color", "unstable-rendered-line-info"] }
 ratatui-image = { version = "11.0.6", default-features = false, features = ["tokio"] }
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
