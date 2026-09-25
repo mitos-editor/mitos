@@ -124,7 +124,7 @@ jobs:
         id: cargo-deb
         if: matrix.build == 'x86_64-linux'
         continue-on-error: true
-        uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2.86.8
+        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2.87.18
         with:
           tool: cargo-deb@3.7.0
 
