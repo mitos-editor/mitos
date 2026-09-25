@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::LazyLock};
 
-use command_line::{Args, Flag, Signature};
+use ::command_line::{Args, Flag, Signature};
 
 use super::{mappable::MappableCommand, typed};
 use crate::{
@@ -130,7 +130,7 @@ impl MappableCommand {
         ensure_selections_forward => super::ensure_selections_forward, "Ensure all selections face forward",
         insert_mode => super::insert_mode, "Insert before selection",
         append_mode => super::append_mode, "Append after selection",
-        command_mode => super::typed::command_mode, "Enter command mode",
+        command_mode => super::command_line::command_mode, "Enter command mode",
         file_picker => super::file_picker, "Open file picker",
         file_picker_in_current_buffer_directory => super::file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory => super::file_picker_in_current_directory, "Open file picker at current working directory",
