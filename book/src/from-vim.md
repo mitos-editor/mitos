@@ -106,7 +106,7 @@ search "foo" and replace with "bar" in the current selection:
 * vim: `:s/foo/bar/g<ret>`
 * mitos: `sfoo<ret><A-r>bar<ret>,`
 
-Explanation: `s` opens a regex prompt and selects all matches inside the selection. `Alt-r` opens the replacement prompt; enter `bar` and press `<ret>` to apply it once to each selection. Keep only the primary selection with `,`.
+Explanation: `s` opens a regex prompt and selects all matches inside the selection. `Alt-r` opens the replacement prompt; enter `bar` and press `<ret>` to apply it once to each selection. Keep only the main selection with `,`.
 
 ## File actions
 
