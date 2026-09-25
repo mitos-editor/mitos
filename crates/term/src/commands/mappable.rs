@@ -2,12 +2,12 @@
 
 use std::fmt;
 
+use ::command_line::{self, Args};
 use anyhow::{anyhow, ensure};
-use command_line::Args;
 use serde::de::{self, Deserialize, Deserializer};
 use ui_core::input::{self, KeyEvent};
 
-use super::{catalog::TYPABLE_COMMAND_MAP, context::Context, typed};
+use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_command, context::Context};
 use crate::{compositor, ui::PromptEvent};
 
 /// MappableCommands are commands that can be bound to keys, executable in
@@ -50,7 +50,7 @@ impl MappableCommand {
                         scroll: None,
                         image_picker: None,
                     };
-                    if let Err(e) = typed::execute_command(
+                    if let Err(e) = execute_command(
                         &mut cx,
                         command,
                         args,

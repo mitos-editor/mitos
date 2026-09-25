@@ -1,6 +1,6 @@
 use std::{borrow::Cow, process::Stdio};
 
-use command_line::Args;
+use ::command_line::Args;
 use editor_core::{encoding, Range, Rope, Selection, SmallVec, Tendril, Transaction};
 use stdx::rope::RopeSliceExt;
 use tokio::process::Command;
@@ -12,7 +12,7 @@ use crate::{
 
 use super::{
     catalog::{SHELL_COMPLETER, SHELL_SIGNATURE},
-    typed::complete_command_args,
+    command_line::complete_command_args,
     Context,
 };
 
