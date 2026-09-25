@@ -7,7 +7,7 @@ use command_line::Args;
 use serde::de::{self, Deserialize, Deserializer};
 use ui_core::input::{self, KeyEvent};
 
-use super::{context::Context, typed};
+use super::{catalog::TYPABLE_COMMAND_MAP, context::Context, typed};
 use crate::{compositor, ui::PromptEvent};
 
 /// MappableCommands are commands that can be bound to keys, executable in
@@ -42,7 +42,7 @@ impl MappableCommand {
     pub fn execute(&self, cx: &mut Context) {
         match &self {
             Self::Typable { name, args, doc: _ } => {
-                if let Some(command) = typed::TYPABLE_COMMAND_MAP.get(name.as_str()) {
+                if let Some(command) = TYPABLE_COMMAND_MAP.get(name.as_str()) {
                     let mut cx = compositor::Context {
                         config: cx.config,
                         editor: cx.editor,
@@ -134,7 +134,7 @@ impl std::str::FromStr for MappableCommand {
         if let Some(suffix) = s.strip_prefix(':') {
             let (name, args, _) = command_line::split(suffix);
             ensure!(!name.is_empty(), "Expected typable command name");
-            typed::TYPABLE_COMMAND_MAP
+            TYPABLE_COMMAND_MAP
                 .get(name)
                 .map(|cmd| {
                     let doc = if args.is_empty() {
