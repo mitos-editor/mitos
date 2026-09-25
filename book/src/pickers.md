@@ -12,6 +12,19 @@ If a picker shows multiple columns, you may apply the filter to a specific colum
 
 You can insert the contents of a [register](./registers.md) using `Ctrl-r` followed by a register name. For example, one could insert the currently selected text using `Ctrl-r`-`.`, or the directory of the current file using `Ctrl-r`-`%` followed by `Ctrl-w` to remove the last path section. The global search picker will use the contents of the [search register](./registers.md#default-registers) if you press `Enter` without typing a filter. For example, pressing `*`-`Space-/`-`Enter` will start a global search for the currently selected text.
 
+Global search uses smart case by default: a lowercase pattern is case-insensitive, while an uppercase character makes the pattern case-sensitive. Press `Alt-c` to explicitly toggle between smart case and case-sensitive matching. You can also put `(?-i)` in a regex to force case-sensitive matching for that pattern, or set `editor.search.smart-case = false` to make all searches case-sensitive.
+
+### Replacing global search results
+
+Press `Alt-r` in global search to reveal and focus a replacement input. Once it is visible, `Alt-r` switches focus between the search and replacement inputs.
+
+- `Enter` replaces the selected match.
+- `Ctrl-Enter`, `Cmd-Enter`, or `Win-Enter` replaces all current matches after the search has finished.
+
+Replacement text supports regex capture expansion: `$1` and `${name}` insert numbered and named captures, and `$$` inserts a literal dollar sign. Replacements update editor buffers and participate in normal undo history; they are not automatically saved.
+
+Replaced matches are removed from the current result list without rerunning the search. When replacing one match, focus stays at the same position and moves naturally to the next result without changing the existing order.
+
 To keep navigating a picker's current matched locations after closing it, press `Ctrl-q` to populate the [quicklist](./quicklist.md).
 
 ### File explorer

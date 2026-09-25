@@ -183,6 +183,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
 pub(super) struct DynamicQueryChange {
     pub query: Arc<str>,
     pub is_paste: bool,
+    pub refresh: bool,
 }
 
 pub(super) struct DynamicQueryHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
@@ -210,8 +211,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
     type Event = DynamicQueryChange;
 
     fn handle_event(&mut self, change: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
-        let DynamicQueryChange { query, is_paste } = change;
-        if query == self.last_query {
+        let DynamicQueryChange {
+            query,
+            is_paste,
+            refresh,
+        } = change;
+        if query == self.last_query && !refresh {
             // If the search query reverts to the last one we requested, no need to
             // make a new request.
             self.query = None;

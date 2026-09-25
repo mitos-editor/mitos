@@ -53,6 +53,14 @@ pub trait BufferExt {
     fn clear_with(&mut self, area: ratatui::layout::Rect, style: Style);
 }
 
+// Match Ratatui's string rendering: control characters must never reach cells.
+// Keep original byte offsets for the caller's syntax highlighting.
+fn visible_graphemes(string: &str) -> impl DoubleEndedIterator<Item = (usize, &str)> + Clone {
+    string
+        .grapheme_indices(true)
+        .filter(|(_, grapheme)| !grapheme.contains(char::is_control) && grapheme.width() > 0)
+}
+
 impl BufferExt for Buffer {
     fn in_bounds(&self, x: u16, y: u16) -> bool {
         self.cell((x, y)).is_some()
@@ -95,7 +103,7 @@ impl BufferExt for Buffer {
 
         let mut index = self.index_of(x, y);
         let mut rendered_width = 0;
-        let mut graphemes = string.grapheme_indices(true);
+        let mut graphemes = visible_graphemes(string);
 
         if truncate_start {
             for _ in 0..graphemes.next().map(|(_, g)| g.width()).unwrap_or_default() {
@@ -146,7 +154,8 @@ impl BufferExt for Buffer {
         }
 
         let width = width.min(self.area.right().saturating_sub(x) as usize);
-        let content_width = string.width();
+        let graphemes = visible_graphemes(string);
+        let content_width: usize = graphemes.clone().map(|(_, g)| g.width()).sum();
         let available = width.saturating_sub(usize::from(ellipsis));
         let truncated = content_width > available;
         let mut x_offset = x;
@@ -164,7 +173,7 @@ impl BufferExt for Buffer {
                 content_width as u16
             });
             let mut cursor = end;
-            for (byte_offset, grapheme) in string.grapheme_indices(true).rev() {
+            for (byte_offset, grapheme) in graphemes.rev() {
                 let grapheme_width = grapheme.width() as u16;
                 let Some(start) = cursor.checked_sub(grapheme_width) else {
                     break;
@@ -182,7 +191,7 @@ impl BufferExt for Buffer {
                 x_offset += grapheme_width;
             }
         } else {
-            for (byte_offset, grapheme) in string.grapheme_indices(true) {
+            for (byte_offset, grapheme) in graphemes {
                 let grapheme_width = grapheme.width() as u16;
                 if x_offset.saturating_sub(x) as usize + grapheme_width as usize > available {
                     break;
@@ -247,6 +256,36 @@ mod tests {
 
         assert_eq!(symbols(&buffer), "abc  ");
         assert_eq!(end, (3, 0));
+    }
+
+    #[test]
+    fn anchored_text_filters_control_characters_and_keeps_style_offsets() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, 1));
+        buffer.set_string_anchored(0, 0, false, false, "a\r\nb\tc", 5, |offset| {
+            assert!([0, 3, 5].contains(&offset));
+            Style::default()
+        });
+        assert_eq!(symbols(&buffer), "abc  ");
+        // Ratatui's diff rejects control characters even if a cell was set directly.
+        let _ = Buffer::empty(buffer.area).diff(&buffer);
+    }
+
+    #[test]
+    fn truncated_text_filters_controls_in_both_directions() {
+        for truncate_start in [false, true] {
+            let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+            buffer.set_string_truncated(
+                0,
+                0,
+                "a\r\nb\tc\u{7f}",
+                4,
+                |_| Style::default(),
+                true,
+                truncate_start,
+            );
+            assert_eq!(symbols(&buffer), "abc ");
+            let _ = Buffer::empty(buffer.area).diff(&buffer);
+        }
     }
 
     #[test]

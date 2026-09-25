@@ -86,7 +86,10 @@ use std::{
     future::Future,
     io::Read,
     num::NonZeroUsize,
-    sync::LazyLock,
+    sync::{
+        atomic::{AtomicBool, Ordering as AtomicOrdering},
+        Arc, LazyLock,
+    },
 };
 
 use std::{
@@ -97,7 +100,7 @@ use std::{
 use serde::de::{self, Deserialize, Deserializer};
 use stdx::Url;
 
-use grep_matcher::Matcher;
+use grep_matcher::{Captures, Matcher};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
 use ignore::{DirEntry, WalkBuilder, WalkState};
@@ -2643,6 +2646,55 @@ fn make_search_word_bounded(cx: &mut Context) {
     }
 }
 
+fn global_search_matcher(
+    pattern: &str,
+    case_sensitive: bool,
+) -> anyhow::Result<grep_regex::RegexMatcher> {
+    Ok(RegexMatcherBuilder::new()
+        .case_smart(!case_sensitive)
+        .multi_line(true)
+        .build(pattern)?)
+}
+
+fn global_search_replacement_changes(
+    text: RopeSlice,
+    matcher: &grep_regex::RegexMatcher,
+    replacement: &str,
+    target: Option<std::ops::Range<usize>>,
+) -> anyhow::Result<Vec<(usize, usize, Option<Tendril>)>> {
+    let haystack = text.to_string();
+    let mut captures = matcher.new_captures()?;
+    let mut changes = Vec::new();
+
+    matcher.captures_iter(haystack.as_bytes(), &mut captures, |captures| {
+        let matched = captures.get(0).unwrap();
+        let start = text.byte_to_char(matched.start());
+        let end = text.byte_to_char(matched.end());
+
+        if target
+            .as_ref()
+            .is_some_and(|target| target.start != start || target.end != end)
+        {
+            return true;
+        }
+
+        let mut expanded = Vec::new();
+        captures.interpolate(
+            |name| matcher.capture_index(name),
+            haystack.as_bytes(),
+            replacement.as_bytes(),
+            &mut expanded,
+        );
+        let expanded = String::from_utf8(expanded)
+            .expect("regex captures and replacement text must remain valid UTF-8");
+        changes.push((start, end, Some(expanded.into())));
+
+        target.is_none()
+    })?;
+
+    Ok(changes)
+}
+
 fn global_search(cx: &mut Context) {
     #[derive(Debug)]
     struct FileResult<'a> {
@@ -2701,14 +2753,16 @@ fn global_search(cx: &mut Context) {
     }
 
     struct GlobalSearchConfig {
-        smart_case: bool,
+        case_sensitive: Arc<AtomicBool>,
         file_picker_config: view::editor::FilePickerConfig,
         style: PathStyleConfig,
     }
 
     let config = cx.editor.config();
+    let initial_case_sensitive = !config.search.smart_case;
+    let case_sensitive = Arc::new(AtomicBool::new(initial_case_sensitive));
     let config = GlobalSearchConfig {
-        smart_case: config.search.smart_case,
+        case_sensitive,
         file_picker_config: config.file_picker.clone(),
         style: PathStyleConfig::new(cx.editor),
     };
@@ -2724,7 +2778,7 @@ fn global_search(cx: &mut Context) {
 
     let get_files = |query: &str,
                      editor: &mut Editor,
-                     config: std::sync::Arc<GlobalSearchConfig>,
+                     config: Arc<GlobalSearchConfig>,
                      injector: &ui::picker::Injector<_, _>| {
         if query.is_empty() {
             return async { Ok(()) }.boxed();
@@ -2741,11 +2795,8 @@ fn global_search(cx: &mut Context) {
             .map(|doc| (doc.path().map(ToOwned::to_owned), doc.text().to_owned()))
             .collect();
 
-        let matcher = match RegexMatcherBuilder::new()
-            .case_smart(config.smart_case)
-            .multi_line(true)
-            .build(query)
-        {
+        let case_sensitive = config.case_sensitive.load(AtomicOrdering::Relaxed);
+        let matcher = match global_search_matcher(query, case_sensitive) {
             Ok(matcher) => {
                 // Clear any "Failed to compile regex" errors out of the statusline.
                 editor.clear_status();
@@ -2865,6 +2916,7 @@ fn global_search(cx: &mut Context) {
 
     let reg = cx.register.unwrap_or('/');
     cx.editor.registers.last_search_register = reg;
+    let replacement_case_sensitive = config.case_sensitive.clone();
 
     let picker = Picker::new(
         columns,
@@ -2931,6 +2983,86 @@ fn global_search(cx: &mut Context) {
             },
         })
     })
+    .with_replacement(move |cx, items, query, replacement, replace_all| {
+        let matcher = global_search_matcher(
+            query,
+            replacement_case_sensitive.load(AtomicOrdering::Relaxed),
+        )?;
+
+        let targets = if replace_all {
+            let mut seen = HashSet::new();
+            items
+                .iter()
+                .filter_map(|item| {
+                    let path = item.path.clone().into_owned();
+                    seen.insert(path.clone()).then_some((path, None))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            let item = items[0];
+            vec![(
+                item.path.clone().into_owned(),
+                Some((
+                    item.line_start,
+                    item.match_start_col,
+                    item.line_end,
+                    item.match_end_col,
+                )),
+            )]
+        };
+
+        let mut plans = Vec::with_capacity(targets.len());
+        let mut replacement_count = 0;
+        for (path, target) in targets {
+            let doc_id = cx
+                .editor
+                .open(&path, Action::Load)
+                .with_context(|| format!("failed to open '{}'", path.display()))?;
+            let doc = doc!(cx.editor, &doc_id);
+            let target = target
+                .map(|(start_line, start_col, end_line, end_col)| {
+                    range_for_global_search_match(
+                        doc.text().slice(..),
+                        start_line,
+                        start_col,
+                        end_line,
+                        end_col,
+                    )
+                    .ok_or_else(|| anyhow!("the selected match no longer exists"))
+                })
+                .transpose()?;
+            let changes = global_search_replacement_changes(
+                doc.text().slice(..),
+                &matcher,
+                replacement,
+                target,
+            )?;
+
+            if !replace_all && changes.is_empty() {
+                bail!("the selected text no longer matches the search pattern");
+            }
+            replacement_count += changes.len();
+            if !changes.is_empty() {
+                plans.push((doc_id, changes));
+            }
+        }
+
+        let view_id = view!(cx.editor).id;
+        for (doc_id, changes) in plans {
+            let view = view_mut!(cx.editor, view_id);
+            let doc = doc_mut!(cx.editor, &doc_id);
+            let transaction = Transaction::change(doc.text(), changes.into_iter());
+            doc.apply(&transaction, view.id);
+            doc.append_changes_to_history(view);
+        }
+
+        Ok(replacement_count)
+    })
+    .with_case_sensitive_toggle(initial_case_sensitive, |config, enabled| {
+        config
+            .case_sensitive
+            .store(enabled, AtomicOrdering::Relaxed);
+    })
     .with_history_register(Some(reg))
     .with_dynamic_query(get_files, Some(275));
 
@@ -2944,6 +3076,17 @@ fn selection_for_global_search_match(
     end_line: usize,
     end_col: usize,
 ) -> Option<Selection> {
+    let range = range_for_global_search_match(text, start_line, start_col, end_line, end_col)?;
+    Some(Selection::single(range.start, range.end).ensure_invariants(text))
+}
+
+fn range_for_global_search_match(
+    text: RopeSlice,
+    start_line: usize,
+    start_col: usize,
+    end_line: usize,
+    end_col: usize,
+) -> Option<std::ops::Range<usize>> {
     if start_line > end_line || end_line >= text.len_lines() {
         return None;
     }
@@ -2955,7 +3098,7 @@ fn selection_for_global_search_match(
         return None;
     }
 
-    Some(Selection::single(start, end).ensure_invariants(text))
+    Some(start..end)
 }
 
 enum Extend {
@@ -7769,5 +7912,44 @@ mod tests {
             selection_for_global_search_match(text.slice(..), 0, start_col, 0, end_col).unwrap();
 
         assert_eq!(selection.primary().fragment(text.slice(..)), "search");
+    }
+
+    #[test]
+    fn global_search_replacement_expands_captures_for_all_matches() {
+        let text = Rope::from("foo-12 FOO-34\n");
+        let matcher = global_search_matcher(r"(?P<word>foo)-(\d+)", false).unwrap();
+
+        let changes =
+            global_search_replacement_changes(text.slice(..), &matcher, "${word}:$2 $$", None)
+                .unwrap();
+
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].0..changes[0].1, 0..6);
+        assert_eq!(changes[0].2.as_deref(), Some("foo:12 $"));
+        assert_eq!(changes[1].0..changes[1].1, 7..13);
+        assert_eq!(changes[1].2.as_deref(), Some("FOO:34 $"));
+    }
+
+    #[test]
+    fn global_search_replacement_can_target_one_match() {
+        let text = Rope::from("α foo foo\n");
+        let matcher = global_search_matcher("foo", false).unwrap();
+
+        let changes =
+            global_search_replacement_changes(text.slice(..), &matcher, "bar", Some(6..9)).unwrap();
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].0..changes[0].1, 6..9);
+        assert_eq!(changes[0].2.as_deref(), Some("bar"));
+    }
+
+    #[test]
+    fn global_search_can_force_case_sensitive_matching() {
+        let smart_case = global_search_matcher("foo", false).unwrap();
+        assert!(smart_case.is_match(b"FOO").unwrap());
+
+        let case_sensitive = global_search_matcher("foo", true).unwrap();
+        assert!(!case_sensitive.is_match(b"FOO").unwrap());
+        assert!(case_sensitive.is_match(b"foo").unwrap());
     }
 }

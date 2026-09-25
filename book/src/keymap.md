@@ -325,6 +325,8 @@ This layer is a kludge of mappings, mostly pickers.
 | `?`     | Open command palette                                                    | `command_palette`                          |
 
 > 💡 Global search displays results in a fuzzy picker, use `Space + '` to bring it back up after opening a file.
+>
+> Global search also supports `Alt-c` to force case-sensitive matching and `Alt-r` to open its replacement input. See [Pickers](./pickers.md#replacing-global-search-results) for the replacement bindings.
 
 ##### Popup
 

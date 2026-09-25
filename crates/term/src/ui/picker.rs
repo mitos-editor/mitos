@@ -30,11 +30,15 @@ use tui::{
 
 use tui::buffer::BufferExt as _;
 use tui::widgets::Widget;
+use ui_core::{
+    input::KeyEvent,
+    keyboard::{KeyCode, KeyModifiers},
+};
 use view::graphics::RectExt as _;
 
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     io::Read,
     path::{Path, PathBuf},
     sync::{
@@ -79,6 +83,49 @@ fn split_picker_area(area: Rect, show_preview: bool) -> (Rect, Option<Rect>) {
     }
 }
 
+struct PickerInputAreas {
+    search: Rect,
+    search_separator: Rect,
+    replacement: Option<Rect>,
+    replacement_separator: Option<Rect>,
+    results: Rect,
+}
+
+fn split_picker_input_area(area: Rect, show_replacement: bool) -> PickerInputAreas {
+    if show_replacement {
+        let [search, search_separator, replacement, replacement_separator, results] =
+            Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .areas(area);
+        PickerInputAreas {
+            search,
+            search_separator,
+            replacement: Some(replacement),
+            replacement_separator: Some(replacement_separator),
+            results,
+        }
+    } else {
+        let [search, search_separator, results] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .areas(area);
+        PickerInputAreas {
+            search,
+            search_separator,
+            replacement: None,
+            replacement_separator: None,
+            results,
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Hash)]
 pub enum PathOrId<'a> {
     Id(DocumentId),
@@ -99,6 +146,61 @@ impl From<DocumentId> for PathOrId<'_> {
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
+type ReplacementCallback<T> =
+    Box<dyn Fn(&mut Context, &[&T], &str, &str, bool) -> anyhow::Result<usize>>;
+type CaseSensitiveCallback<D> = Box<dyn Fn(&D, bool)>;
+
+#[derive(Clone, Copy)]
+enum ActivePrompt {
+    Search,
+    Replacement,
+}
+
+struct Replacement<T> {
+    prompt: Prompt,
+    callback_fn: ReplacementCallback<T>,
+    visible: bool,
+    active_prompt: ActivePrompt,
+}
+
+struct CaseSensitiveToggle<D> {
+    case_sensitive: bool,
+    callback_fn: CaseSensitiveCallback<D>,
+}
+
+#[derive(Default)]
+struct HiddenMatches {
+    indices: BTreeSet<u32>,
+}
+
+impl HiddenMatches {
+    fn clear(&mut self) {
+        self.indices.clear();
+    }
+
+    fn contains(&self, index: u32) -> bool {
+        self.indices.contains(&index)
+    }
+
+    fn count(&self) -> u32 {
+        self.indices.len() as u32
+    }
+
+    fn hide(&mut self, index: u32) {
+        self.indices.insert(index);
+    }
+
+    fn raw_index(&self, visible_index: u32) -> Option<u32> {
+        let mut raw_index = visible_index;
+        for &hidden_index in &self.indices {
+            if hidden_index > raw_index {
+                break;
+            }
+            raw_index = raw_index.checked_add(1)?;
+        }
+        Some(raw_index)
+    }
+}
 
 /// File path and range of lines (used to align and highlight lines)
 pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
@@ -684,6 +786,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     editor_data: Arc<D>,
     version: Arc<AtomicUsize>,
     matcher: Nucleo<T>,
+    /// Match indices hidden after in-place actions. Replacement waits for the
+    /// matcher to settle, so these remain stable until the query changes.
+    hidden_matches: HiddenMatches,
 
     /// Current height of the completions box
     completion_height: u16,
@@ -706,6 +811,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
+    replacement: Option<Replacement<T>>,
+    case_sensitive: Option<CaseSensitiveToggle<D>>,
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
@@ -842,6 +949,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             columns,
             primary_column: default_column,
             matcher,
+            hidden_matches: HiddenMatches::default(),
             editor_data,
             version,
             cursor: 0,
@@ -856,6 +964,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview: FilePreview::default(),
             file_fn: None,
             quicklist_fn: None,
+            replacement: None,
+            case_sensitive: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
         }
@@ -897,6 +1007,38 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Enables search-and-replace actions for this picker.
+    pub fn with_replacement(
+        mut self,
+        callback_fn: impl Fn(&mut Context, &[&T], &str, &str, bool) -> anyhow::Result<usize> + 'static,
+    ) -> Self {
+        self.replacement = Some(Replacement {
+            prompt: Prompt::new(
+                "replace: ".into(),
+                None,
+                ui::completers::none,
+                |_editor: &mut Context, _replacement: &str, _event: PromptEvent| {},
+            ),
+            callback_fn: Box::new(callback_fn),
+            visible: false,
+            active_prompt: ActivePrompt::Replacement,
+        });
+        self
+    }
+
+    /// Enables an `Alt-c` toggle between smart-case and case-sensitive dynamic queries.
+    pub fn with_case_sensitive_toggle(
+        mut self,
+        case_sensitive: bool,
+        callback_fn: impl Fn(&D, bool) + 'static,
+    ) -> Self {
+        self.case_sensitive = Some(CaseSensitiveToggle {
+            case_sensitive,
+            callback_fn: Box::new(callback_fn),
+        });
+        self
+    }
+
     pub fn with_history_register(mut self, history_register: Option<char>) -> Self {
         self.prompt.with_history_register(history_register);
         self
@@ -917,6 +1059,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query: self.primary_query(),
             // Treat the initial query as a paste.
             is_paste: true,
+            refresh: false,
         };
         event::send_blocking(&handler, event);
         self.dynamic_query_handler = Some(handler);
@@ -930,7 +1073,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
-        let len = self.matcher.snapshot().matched_item_count();
+        let len = self.visible_matched_item_count();
 
         if len == 0 {
             // No results, can't move.
@@ -964,17 +1107,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor to the last entry
     pub fn to_end(&mut self) {
-        self.cursor = self
-            .matcher
-            .snapshot()
-            .matched_item_count()
-            .saturating_sub(1);
+        self.cursor = self.visible_matched_item_count().saturating_sub(1);
     }
 
     pub fn selection(&self) -> Option<&T> {
         self.matcher
             .snapshot()
-            .get_matched_item(self.cursor)
+            .get_matched_item(self.raw_matched_item_index(self.cursor)?)
             .map(|item| item.data)
     }
 
@@ -1003,6 +1142,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.editor_data = Arc::new(editor_data);
 
         self.cursor = 0;
+        self.hidden_matches.clear();
         self.prompt.clear(editor);
         self.handle_prompt_change(false);
         self.widths = visible_column_widths(&self.columns);
@@ -1016,11 +1156,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Collects the picker's current matched items into quicklist entries.
     fn quicklist_entries(&self, editor: &Editor) -> Vec<QuicklistEntry> {
-        let snapshot = self.matcher.snapshot();
-        let mut entries = Vec::with_capacity(snapshot.matched_item_count() as usize);
+        let mut entries = Vec::with_capacity(self.visible_matched_item_count() as usize);
 
         if let Some(quicklist_fn) = &self.quicklist_fn {
-            for item in snapshot.matched_items(0..snapshot.matched_item_count()) {
+            for item in self.visible_matched_items() {
                 let Some(entry) = quicklist_fn(editor, item.data) else {
                     continue;
                 };
@@ -1033,7 +1172,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             return Vec::new();
         };
 
-        for item in snapshot.matched_items(0..snapshot.matched_item_count()) {
+        for item in self.visible_matched_items() {
             let Some((path_or_id, line_range)) = file_fn(editor, item.data) else {
                 continue;
             };
@@ -1055,6 +1194,26 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         entries
     }
+
+    fn visible_matched_items(&self) -> impl Iterator<Item = nucleo::Item<'_, T>> + '_ {
+        let snapshot = self.matcher.snapshot();
+        snapshot
+            .matched_items(0..snapshot.matched_item_count())
+            .enumerate()
+            .filter(|(index, _)| !self.hidden_matches.contains(*index as u32))
+            .map(|(_, item)| item)
+    }
+
+    fn raw_matched_item_index(&self, visible_index: u32) -> Option<u32> {
+        let raw_index = self.hidden_matches.raw_index(visible_index)?;
+        (raw_index < self.matcher.snapshot().matched_item_count()).then_some(raw_index)
+    }
+
+    fn visible_matched_item_count(&self) -> u32 {
+        let matched_item_count = self.matcher.snapshot().matched_item_count();
+        matched_item_count.saturating_sub(self.hidden_matches.count())
+    }
+
     fn primary_query(&self) -> Arc<str> {
         self.query
             .get(&self.columns[self.primary_column].name)
@@ -1074,8 +1233,28 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.show_preview = !self.show_preview;
     }
 
+    fn replacement_visible(&self) -> bool {
+        self.replacement
+            .as_ref()
+            .is_some_and(|replacement| replacement.visible)
+    }
+
     fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        if let EventResult::Consumed(_) = self.prompt.handle_event(event, cx) {
+        let search_prompt_active = self.replacement.as_ref().is_none_or(|replacement| {
+            !replacement.visible || matches!(replacement.active_prompt, ActivePrompt::Search)
+        });
+
+        let result = if search_prompt_active {
+            self.prompt.handle_event(event, cx)
+        } else {
+            self.replacement
+                .as_mut()
+                .unwrap()
+                .prompt
+                .handle_event(event, cx)
+        };
+
+        if search_prompt_active && matches!(result, EventResult::Consumed(_)) {
             self.handle_prompt_change(matches!(event, Event::Paste(_)));
         }
         EventResult::Consumed(None)
@@ -1088,6 +1267,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.query == old_query {
             return;
         }
+        self.hidden_matches.clear();
         // If the query has meaningfully changed, reset the cursor to the top of the results.
         self.cursor = 0;
         // Have nucleo reparse each changed column.
@@ -1125,8 +1305,115 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             let event = DynamicQueryChange {
                 query: self.primary_query(),
                 is_paste,
+                refresh: false,
             };
             event::send_blocking(handler, event);
+        }
+    }
+
+    fn refresh_dynamic_query(&self) {
+        if let Some(handler) = &self.dynamic_query_handler {
+            let event = DynamicQueryChange {
+                query: self.primary_query(),
+                is_paste: true,
+                refresh: true,
+            };
+            event::send_blocking(handler, event);
+        }
+    }
+
+    fn toggle_replacement_prompt(&mut self) {
+        let Some(replacement) = &mut self.replacement else {
+            return;
+        };
+
+        if replacement.visible {
+            replacement.active_prompt = match replacement.active_prompt {
+                ActivePrompt::Search => ActivePrompt::Replacement,
+                ActivePrompt::Replacement => ActivePrompt::Search,
+            };
+        } else {
+            replacement.visible = true;
+            replacement.active_prompt = ActivePrompt::Replacement;
+        }
+    }
+
+    fn toggle_case_sensitive(&mut self, editor: &mut Editor) {
+        let Some(case_sensitive) = &mut self.case_sensitive else {
+            return;
+        };
+
+        case_sensitive.case_sensitive = !case_sensitive.case_sensitive;
+        (case_sensitive.callback_fn)(&self.editor_data, case_sensitive.case_sensitive);
+        if case_sensitive.case_sensitive {
+            editor.set_status("Global search is case-sensitive");
+        } else {
+            editor.set_status("Global search is using smart case");
+        }
+        self.hidden_matches.clear();
+        self.refresh_dynamic_query();
+    }
+
+    fn replace_matches(&mut self, ctx: &mut Context, replace_all: bool) {
+        if self.replacement.is_none() {
+            return;
+        }
+
+        if self.matcher.tick(0).running || self.matcher.active_injectors() > 0 {
+            ctx.editor
+                .set_error(|| "Wait for global search to finish before replacing matches.");
+            return;
+        }
+
+        let replacement = self.replacement.as_ref().unwrap();
+
+        let query = self.primary_query();
+        if query.is_empty() {
+            ctx.editor.set_error(|| "Enter a search pattern first.");
+            return;
+        }
+
+        let selected_index = if replace_all {
+            None
+        } else {
+            self.raw_matched_item_index(self.cursor)
+        };
+        let items = if replace_all {
+            self.visible_matched_items()
+                .map(|item| item.data)
+                .collect::<Vec<_>>()
+        } else {
+            selected_index
+                .and_then(|index| self.matcher.snapshot().get_matched_item(index))
+                .map(|item| vec![item.data])
+                .unwrap_or_default()
+        };
+
+        if items.is_empty() {
+            ctx.editor.set_status("No matches to replace");
+            return;
+        }
+
+        let result =
+            (replacement.callback_fn)(ctx, &items, &query, replacement.prompt.line(), replace_all);
+        match result {
+            Ok(0) => ctx.editor.set_status("No matches replaced"),
+            Ok(count) => {
+                if replace_all {
+                    self.matcher.restart(true);
+                    self.hidden_matches.clear();
+                } else if let Some(index) = selected_index {
+                    self.hidden_matches.hide(index);
+                }
+                self.cursor = self
+                    .cursor
+                    .min(self.visible_matched_item_count().saturating_sub(1));
+                ctx.editor.set_status(format!(
+                    "Replaced {count} {}",
+                    if count == 1 { "match" } else { "matches" }
+                ));
+            }
+            Err(err) => ctx.editor.set_error(|| format!("Replace failed: {err}")),
         }
     }
 
@@ -1138,9 +1425,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
+        let current_index = self.raw_matched_item_index(self.cursor)?;
         let snapshot = self.matcher.snapshot();
         let location = snapshot
-            .get_matched_item(self.cursor)
+            .get_matched_item(current_index)
             .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
         let Some(location) = location else {
             self.preview.cancel_image_load(None);
@@ -1158,10 +1446,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
         let snapshot = self.matcher.snapshot();
+        let matched_item_count = snapshot.matched_item_count();
+        let hidden_match_count = self.hidden_matches.count();
+        let visible_matched_item_count = matched_item_count.saturating_sub(hidden_match_count);
         if status.changed {
             self.cursor = self
                 .cursor
-                .min(snapshot.matched_item_count().saturating_sub(1))
+                .min(visible_matched_item_count.saturating_sub(1))
         }
 
         let text_style = cx.editor.theme.get("ui.text");
@@ -1177,27 +1468,31 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let inner = block.inner(area);
         block.render(area, surface);
 
-        let [prompt_area, separator_area, inner] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas(inner);
+        let replacement_visible = self.replacement_visible();
+        let input_areas = split_picker_input_area(inner, replacement_visible);
 
         // -- Render the input bar:
 
+        let case_mode = self.case_sensitive.as_ref().map_or("", |case_sensitive| {
+            if case_sensitive.case_sensitive {
+                "case-sensitive "
+            } else {
+                "smart-case "
+            }
+        });
         let count = format!(
-            "{}{}/{}",
+            "{}{}{}/{}",
+            case_mode,
             if status.running || self.matcher.active_injectors() > 0 {
                 "(running) "
             } else {
                 ""
             },
-            snapshot.matched_item_count(),
-            snapshot.item_count(),
+            visible_matched_item_count,
+            snapshot.item_count().saturating_sub(hidden_match_count),
         );
 
-        let prompt_area = prompt_area.clip_left(1);
+        let prompt_area = input_areas.search.clip_left(1);
         let [line_area, count_area, _right_padding] = Layout::horizontal([
             Constraint::Min(0),
             Constraint::Length(count.len() as u16),
@@ -1205,22 +1500,41 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         ])
         .areas(prompt_area);
 
-        // render the prompt first since it will clear its background
-        self.prompt.render(line_area, surface, cx);
+        // Render prompts first since they clear their backgrounds.
+        if replacement_visible {
+            self.prompt.set_prompt("search: ");
+            self.prompt.render(line_area, surface, cx);
+
+            let replacement = self.replacement.as_mut().unwrap();
+            replacement.prompt.render(
+                input_areas.replacement.unwrap().clip_left(1).clip_right(1),
+                surface,
+                cx,
+            );
+        } else {
+            self.prompt.set_prompt("");
+            self.prompt.render(line_area, surface, cx);
+        }
 
         Paragraph::new(count)
             .style(text_style)
             .render(count_area, surface);
 
         let sep_style = cx.editor.theme.get("ui.background.separator");
-        panel::top_border(sep_style).render(separator_area, surface);
+        panel::top_border(sep_style).render(input_areas.search_separator, surface);
+        if let Some(replacement_separator_area) = input_areas.replacement_separator {
+            panel::top_border(sep_style).render(replacement_separator_area, surface);
+        }
 
-        let rows = inner.height.saturating_sub(self.header_height()) as u32;
+        let rows = input_areas
+            .results
+            .height
+            .saturating_sub(self.header_height()) as u32;
         let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
         let cursor = self.cursor.saturating_sub(offset);
-        let end = offset
-            .saturating_add(rows)
-            .min(snapshot.matched_item_count());
+        let raw_offset = self
+            .raw_matched_item_index(offset)
+            .unwrap_or(matched_item_count);
         let mut indices = Vec::new();
         let mut matcher = MATCHER.lock();
         matcher.config = Config::DEFAULT;
@@ -1228,7 +1542,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             matcher.config.set_match_paths()
         }
 
-        let options = snapshot.matched_items(offset..end).map(|item| {
+        let options = snapshot
+            .matched_items(raw_offset..matched_item_count)
+            .enumerate()
+            .filter(|(index, _)| !self.hidden_matches.contains(raw_offset + *index as u32))
+            .take(rows as usize);
+        let options = options.map(|(_, item)| {
             let mut widths = self.widths.iter_mut();
             let mut matcher_index = 0;
 
@@ -1344,7 +1663,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let mut table_state = TableState::default().with_selected(Some(cursor as usize));
 
-        table.render_table(inner, surface, &mut table_state, self.truncate_start);
+        table.render_table(
+            input_areas.results,
+            surface,
+            &mut table_state,
+            self.truncate_start,
+        );
     }
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -1380,7 +1704,9 @@ fn render_preview_placeholder(
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         // +---------+ +---------+
-        // |prompt   | |preview  |
+        // |search   | |preview  |
+        // +---------+ |         |
+        // |replace  | |         |
         // +---------+ |         |
         // |picker   | |         |
         // |         | |         |
@@ -1437,6 +1763,22 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         match key_event {
+            alt!('r') if self.replacement.is_some() => {
+                self.toggle_replacement_prompt();
+            }
+            alt!('c') if self.case_sensitive.is_some() => {
+                self.toggle_case_sensitive(ctx.editor);
+            }
+            KeyEvent {
+                code: KeyCode::Enter,
+                modifiers: KeyModifiers::CONTROL,
+            }
+            | KeyEvent {
+                code: KeyCode::Enter,
+                modifiers: KeyModifiers::SUPER,
+            } if self.replacement_visible() => {
+                self.replace_matches(ctx, true);
+            }
             shift!(Tab) | key!(Up) | ctrl!('p') => {
                 self.move_by(1, Direction::Backward);
             }
@@ -1478,6 +1820,11 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                 }
             }
             key!(Enter) => {
+                if self.replacement_visible() {
+                    self.replace_matches(ctx, false);
+                    return EventResult::Consumed(None);
+                }
+
                 // If the prompt has a history completion and is empty, use enter to accept
                 // that completion
                 if let Some(completion) = self
@@ -1550,16 +1897,29 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         let render_preview =
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);
-        let area = panel::bordered(&editor.theme)
-            .inner(picker_area)
-            .with_height(1)
-            .clip_left(1);
-
-        self.prompt.cursor(area, editor)
+        let area = panel::bordered(&editor.theme).inner(picker_area);
+        let replacement = self
+            .replacement
+            .as_ref()
+            .filter(|replacement| replacement.visible);
+        let input_areas = split_picker_input_area(area, replacement.is_some());
+        if let Some(replacement) = replacement {
+            match replacement.active_prompt {
+                ActivePrompt::Search => self.prompt.cursor(input_areas.search.clip_left(1), editor),
+                ActivePrompt::Replacement => replacement.prompt.cursor(
+                    input_areas.replacement.unwrap().clip_left(1).clip_right(1),
+                    editor,
+                ),
+            }
+        } else {
+            self.prompt.cursor(input_areas.search.clip_left(1), editor)
+        }
     }
 
     fn required_size(&mut self, (width, height): (u16, u16)) -> Option<(u16, u16)> {
-        self.completion_height = height.saturating_sub(4 + self.header_height());
+        let replacement_height = self.replacement_visible() as u16 * 2;
+        self.completion_height =
+            height.saturating_sub(4 + self.header_height() + replacement_height);
         Some((width, height))
     }
 
@@ -1584,10 +1944,33 @@ type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallba
 
 #[cfg(test)]
 mod tests {
-    use super::{split_picker_area, visible_column_widths, Column};
+    use super::{
+        split_picker_area, split_picker_input_area, visible_column_widths, Column, Picker,
+    };
     use crate::ui::image::image_preview_layout;
-    use tui::layout::{Constraint, Size};
+    use tui::{
+        layout::{Constraint, Size},
+        widgets::Cell,
+    };
     use view::graphics::Rect;
+
+    struct TestItem(&'static str);
+
+    fn test_item_cell<'a>(item: &'a TestItem, _: &()) -> Cell<'a> {
+        Cell::from(item.0)
+    }
+
+    fn test_picker(items: &[&'static str]) -> Picker<TestItem, ()> {
+        let mut picker = Picker::new(
+            [Column::new("value", test_item_cell)],
+            0,
+            items.iter().copied().map(TestItem),
+            (),
+            |_, _, _| {},
+        );
+        while picker.matcher.tick(10).running {}
+        picker
+    }
 
     #[test]
     fn preview_uses_the_right_half_of_the_picker() {
@@ -1632,5 +2015,33 @@ mod tests {
         ];
 
         assert_eq!(visible_column_widths(&columns), [Constraint::Length(4)]);
+    }
+
+    #[test]
+    fn replacement_uses_a_separate_framed_row() {
+        let areas = split_picker_input_area(Rect::new(3, 5, 40, 12), true);
+
+        assert_eq!(Rect::new(3, 5, 40, 1), areas.search);
+        assert_eq!(Rect::new(3, 6, 40, 1), areas.search_separator);
+        assert_eq!(Some(Rect::new(3, 7, 40, 1)), areas.replacement);
+        assert_eq!(Some(Rect::new(3, 8, 40, 1)), areas.replacement_separator);
+        assert_eq!(Rect::new(3, 9, 40, 8), areas.results);
+    }
+
+    #[tokio::test]
+    async fn hiding_selected_item_preserves_order_and_focuses_next() {
+        let mut picker = test_picker(&["first", "second", "third"]);
+        picker.cursor = 1;
+
+        let selected_index = picker.raw_matched_item_index(picker.cursor).unwrap();
+        picker.hidden_matches.hide(selected_index);
+
+        let visible = picker
+            .visible_matched_items()
+            .map(|item| item.data.0)
+            .collect::<Vec<_>>();
+        assert_eq!(["first", "third"], visible.as_slice());
+        assert_eq!(Some("third"), picker.selection().map(|item| item.0));
+        assert_eq!(1, picker.cursor);
     }
 }
