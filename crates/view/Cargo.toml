@@ -60,7 +60,7 @@ parking_lot.workspace = true
 spellbook.workspace = true
 thiserror.workspace = true
 
-kstring.workspace = true
+smartstring.workspace = true
 arrayvec.workspace = true
 
 [target.'cfg(windows)'.dependencies]
