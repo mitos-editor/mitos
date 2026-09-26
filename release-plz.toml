@@ -1,0 +1,27 @@
+[workspace]
+release_always = false
+git_only = true
+git_tag_enable = false
+git_release_enable = false
+changelog_update = false
+# Use the editor's numeric tags for included packages too, ignoring inherited v* tags.
+git_tag_name = "{{ version }}"
+semver_check = false
+pr_draft = false
+
+[[package]]
+name = "term"
+git_tag_enable = true
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = [
+  "command-line", "core", "dap", "dap-types", "event", "loader", "lsp",
+  "lsp-types", "parsec", "snippets", "stdx", "tui", "ui-core", "vcs", "view", "xtask",
+]
+git_release_name = "Mitos {{ version }}"
+git_release_enable = true
+
+[[package]]
+name = "lsp-types"
+# Preserve the vendored library's version independently of the editor.
+release = false

@@ -1,0 +1,47 @@
+name: Release-plz
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-plz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-plz:
+    name: Prepare release PR and publish merged release
+    if: github.repository == 'mitos-editor/mitos' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: '1.97.1'
+          cache-key: release-plz
+
+      - name: Prepare release PR
+        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
+        with:
+          command: release-pr
+          version: '0.3.169'
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+
+      - name: Publish merged release
+        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
+        with:
+          command: release
+          version: '0.3.169'
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
