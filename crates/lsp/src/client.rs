@@ -447,6 +447,29 @@ impl Client {
         self.config.as_ref()
     }
 
+    /// Resolve workspace/configuration items in request order. Empty or absent
+    /// sections select the whole configuration; missing values serialize as null.
+    /// Configuration is currently server-wide, so scope URIs do not affect lookup.
+    pub fn configuration(&self, params: &lsp::ConfigurationParams) -> Vec<Option<&Value>> {
+        params
+            .items
+            .iter()
+            .map(|item| {
+                let mut config = self.config()?;
+                if let Some(section) = item
+                    .section
+                    .as_deref()
+                    .filter(|section| !section.is_empty())
+                {
+                    for part in section.split('.') {
+                        config = config.get(part)?;
+                    }
+                }
+                Some(config)
+            })
+            .collect()
+    }
+
     pub async fn workspace_folders(
         &self,
     ) -> parking_lot::MutexGuard<'_, Vec<lsp::WorkspaceFolder>> {

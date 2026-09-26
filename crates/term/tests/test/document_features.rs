@@ -1,9 +1,13 @@
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
 use term::application::Application;
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
@@ -14,7 +18,7 @@ use view::{
     },
 };
 
-use super::helpers::{run_event_loop_until_idle, test_config, test_syntax_loader, AppBuilder};
+use super::helpers::{test_config, test_syntax_loader, AppBuilder};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Feature {
@@ -26,6 +30,7 @@ enum Feature {
 
 struct Fixture {
     app: Application,
+    gates: Vec<PathBuf>,
     callbacks: mpsc::Receiver<(Feature, bool, EditorCallback)>,
 }
 
@@ -58,9 +63,22 @@ impl Fixture {
         config.editor.lsp.auto_document_highlight = true;
         config.editor.breadcrumb.enable = true;
         let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+        let gates: Vec<_> = servers
+            .iter()
+            .map(|name| path.with_extension(format!("{name}.initialize-ready")))
+            .collect();
         let server_config = servers
             .iter()
-            .map(|name| format!("[language-server.{name}]\ncommand = {command}\n"))
+            .zip(&gates)
+            .map(|(name, gate)| {
+                let args = toml::Value::Array(
+                    ["--initialize-gate", gate.to_str().unwrap()]
+                        .into_iter()
+                        .map(|arg| toml::Value::String(arg.into()))
+                        .collect(),
+                );
+                format!("[language-server.{name}]\ncommand = {command}\nargs = {args}\n")
+            })
             .collect::<String>();
         let servers = toml::Value::Array(
             servers
@@ -93,21 +111,39 @@ impl Fixture {
         app.editor.handlers.document_symbols =
             DocumentSymbolsHandler::new(sender(Feature::Symbols, &tx));
         app.editor.open(path, Action::Replace)?;
-        Ok(Self { app, callbacks })
+        Ok(Self {
+            app,
+            gates,
+            callbacks,
+        })
     }
 
-    async fn initialize(&mut self) -> anyhow::Result<()> {
-        // Initialization arrives through the application's LSP event loop. Keep
-        // pumping it until the features have queued work. `batch` distinguishes
-        // scheduling callbacks from responses and drives the former to completion.
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while self.callbacks.len() < ALL.len() {
-                self.app.editor.reset_idle_timer();
-                run_event_loop_until_idle(&mut self.app).await;
-            }
-        })
-        .await
-        .context("language-server initialization did not queue every feature")
+    async fn initialize(&mut self) -> anyhow::Result<Vec<EditorCallback>> {
+        let mut responses = Vec::new();
+        for gate in self.gates.clone() {
+            // Opening a document and each server initialization can restart feature
+            // requests. Release one server only after the preceding batch has arrived,
+            // so no startup response can leak into a later edit's batch.
+            std::fs::write(gate, "ready")?;
+            let (server_id, call) = tokio::time::timeout(
+                Duration::from_secs(10),
+                self.app.editor.language_servers.incoming.next(),
+            )
+            .await?
+            .context("LSP message stream closed")?;
+            anyhow::ensure!(
+                matches!(&call, lsp_client::Call::Notification(message)
+                if message.method == "initialized"),
+                "expected initialization notification"
+            );
+            self.app
+                .handle_language_server_message(call, server_id)
+                .await;
+            // Earlier batches are superseded by the next initialization. Leave the
+            // final batch unpublished so tests can exercise stale-result rejection.
+            responses = self.batch(ALL).await?;
+        }
+        Ok(responses)
     }
 
     async fn batch(&mut self, expected: &[Feature]) -> anyhow::Result<Vec<EditorCallback>> {
@@ -201,8 +237,7 @@ async fn requests_events_and_results_stay_with_each_editor() -> anyhow::Result<(
         current_ref!(second.app.editor).1.id()
     );
     for fixture in [&mut first, &mut second] {
-        fixture.initialize().await?;
-        let callbacks = fixture.batch(ALL).await?;
+        let callbacks = fixture.initialize().await?;
         fixture.apply(callbacks);
     }
     first.assert_features("😀 first");
@@ -226,8 +261,7 @@ async fn requests_events_and_results_stay_with_each_editor() -> anyhow::Result<(
 async fn queued_results_are_discarded_after_edits_and_document_closure() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new(&dir.path().join("edit.feature-test"), "😀 original\n")?;
-    fixture.initialize().await?;
-    let old = fixture.batch(ALL).await?;
+    let old = fixture.initialize().await?;
     fixture.edit("replacement");
     fixture.apply(old);
     fixture.assert_empty();
@@ -249,8 +283,7 @@ async fn queued_results_are_discarded_after_edits_and_document_closure() -> anyh
 async fn queued_highlights_follow_the_selection_and_view_document() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new(&dir.path().join("selection.feature-test"), "😀 original\n")?;
-    fixture.initialize().await?;
-    let old = fixture.batch(ALL).await?;
+    let old = fixture.initialize().await?;
     let (view, doc) = current!(fixture.app.editor);
     doc.set_selection(view.id, Selection::point(3));
     fixture.apply(old);
@@ -276,8 +309,7 @@ async fn queued_highlights_follow_the_selection_and_view_document() -> anyhow::R
 async fn queued_results_from_detached_servers_are_discarded() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new(&dir.path().join("server.feature-test"), "😀 original\n")?;
-    fixture.initialize().await?;
-    let responses = fixture.batch(ALL).await?;
+    let responses = fixture.initialize().await?;
     let (_, doc) = current!(fixture.app.editor);
     doc.remove_language_server_by_name("document-feature-test")
         .unwrap();
@@ -295,25 +327,11 @@ async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::R
         "😀 original\n",
         &["document-feature-test", "document-feature-other"],
     )?;
-    fixture.initialize().await?;
-    // Each server's initialization may restart the requests. Drain every queued
-    // completion before exit; canceled generations must never publish afterward.
-    let mut old = Vec::new();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            while let Ok((_, _, callback)) = fixture.callbacks.try_recv() {
-                callback(&mut fixture.app.editor);
-            }
-            if current_ref!(fixture.app.editor).1.document_links.len() == 2 {
-                break;
-            }
-            fixture.app.editor.reset_idle_timer();
-            run_event_loop_until_idle(&mut fixture.app).await;
-        }
-    })
-    .await?;
+    let initial = fixture.initialize().await?;
+    fixture.apply(initial);
+    assert_eq!(current_ref!(fixture.app.editor).1.document_links.len(), 2);
     fixture.edit("updated");
-    old.extend(fixture.batch(ALL).await?);
+    let old = fixture.batch(ALL).await?;
     let server_id = current_ref!(fixture.app.editor)
         .1
         .language_servers()
