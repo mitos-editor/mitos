@@ -1,27 +1,25 @@
 //! Text transformations and editing commands over selections.
 
-use std::{
-    borrow::Cow,
-    char::{ToLowercase, ToUppercase},
-};
-
-use editor_core::{
-    comment, increment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
-    movement as core_movement, surround, syntax::config::BlockCommentToken, Range, Rope, RopeSlice,
-    Selection, SmallVec, Tendril, Transaction,
-};
-
-use stdx::rope::RopeSliceExt;
-use ui_core::{input::KeyEvent, keyboard::KeyCode};
-use view::{document::Mode, info::Info, Document, Editor, ViewId};
-
 use super::{
     context::Context,
     insert::{continued_line_comment_token, open, CommentContinuation, Open},
     mode::{enter_insert_mode, exit_select_mode},
-    LINE_ENDING_REGEX,
 };
 use crate::ui::{self, Prompt, PromptEvent};
+use arc_swap::access::DynAccess;
+use editor_core::{
+    comment, increment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
+    movement as core_movement, regex::Regex, surround, syntax::config::BlockCommentToken, Range,
+    Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
+};
+use std::{
+    borrow::Cow,
+    char::{ToLowercase, ToUppercase},
+    sync::LazyLock,
+};
+use stdx::rope::RopeSliceExt;
+use ui_core::{input::KeyEvent, keyboard::KeyCode};
+use view::{document::Mode, info::Info, Document, Editor, ViewId};
 
 // align text in selection
 #[allow(deprecated)]
@@ -989,5 +987,105 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
         let transaction = transaction.with_selection(new_selection);
         doc.apply(&transaction, view.id);
         exit_select_mode(cx);
+    }
+}
+
+pub(super) static LINE_ENDING_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\r\n|\r|\n").unwrap());
+
+pub(super) mod typed {
+    //! Typable editing commands.
+
+    use crate::{compositor, ui::PromptEvent};
+    use ::command_line::Args;
+    use anyhow::bail;
+    use editor_core::{Tendril, Transaction};
+
+    pub(in crate::commands) fn sort(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let scrolloff = cx.editor.config().scrolloff;
+        let (view, doc) = current!(cx.editor);
+        let text = doc.text().slice(..);
+
+        let selection = doc.selection(view.id);
+
+        if selection.len() == 1 {
+            bail!("Sorting requires multiple selections. Hint: split selection first");
+        }
+
+        let mut fragments: Vec<_> = selection
+            .slices(text)
+            .map(|fragment| fragment.chunks().collect())
+            .collect();
+
+        fragments.sort_by(
+            match (args.has_flag("insensitive"), args.has_flag("reverse")) {
+                (true, true) => |a: &Tendril, b: &Tendril| b.to_lowercase().cmp(&a.to_lowercase()),
+                (true, false) => |a: &Tendril, b: &Tendril| a.to_lowercase().cmp(&b.to_lowercase()),
+                (false, true) => |a: &Tendril, b: &Tendril| b.cmp(a),
+                (false, false) => |a: &Tendril, b: &Tendril| a.cmp(b),
+            },
+        );
+
+        let transaction = Transaction::change(
+            doc.text(),
+            selection
+                .into_iter()
+                .zip(fragments)
+                .map(|(s, fragment)| (s.from(), s.to(), Some(fragment))),
+        );
+
+        doc.apply(&transaction, view.id);
+        doc.append_changes_to_history(view);
+        view.ensure_cursor_in_view(doc, scrolloff);
+
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn reflow(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let scrolloff = cx.editor.config().scrolloff;
+        let (view, doc) = current!(cx.editor);
+
+        // Find the text_width by checking the following sources in order:
+        //   - The passed argument in `args`
+        //   - The configured text-width for this language in languages.toml
+        //   - The configured text-width in the config.toml
+        let text_width: usize = args
+            .first()
+            .map(|num| num.parse::<usize>())
+            .transpose()?
+            .unwrap_or_else(|| doc.text_width());
+
+        let rope = doc.text();
+
+        let selection = doc.selection(view.id);
+        let transaction = Transaction::change_by_selection(rope, selection, |range| {
+            let fragment = range.fragment(rope.slice(..));
+            let reflowed_text = editor_core::wrap::reflow_hard_wrap(&fragment, text_width);
+
+            (range.from(), range.to(), Some(reflowed_text))
+        });
+
+        doc.apply(&transaction, view.id);
+        doc.append_changes_to_history(view);
+        view.ensure_cursor_in_view(doc, scrolloff);
+
+        Ok(())
     }
 }

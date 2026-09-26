@@ -1,7 +1,12 @@
 //! Character and line insertion, indentation, comment continuation, and insert-mode deletion.
 
-use std::borrow::Cow;
-
+use super::{
+    context::Context,
+    mode::{append_mode, enter_insert_mode, insert_mode},
+    snippets::goto_next_tabstop,
+    syntax::move_parent_node_end,
+};
+use crate::{events::PostInsertChar, key};
 use arc_swap::access::DynAccess;
 use editor_core::{
     auto_pairs, comment, graphemes,
@@ -11,17 +16,10 @@ use editor_core::{
     unicode::width::UnicodeWidthChar,
     Deletion, Range, Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
 };
+use std::borrow::Cow;
 use stdx::rope::RopeSliceExt;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editor::SmartTabConfig, Document};
-
-use super::{
-    context::Context,
-    goto_next_tabstop,
-    mode::{append_mode, enter_insert_mode, insert_mode},
-    move_parent_node_end,
-};
-use crate::{events::PostInsertChar, key};
 
 pub type Hook = fn(&Rope, &Selection, char) -> Option<Transaction>;
 

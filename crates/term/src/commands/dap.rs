@@ -1,28 +1,24 @@
-use super::{Context, Editor};
+use super::Context;
 use crate::{
     compositor::{self, Compositor},
     job::{Callback, Jobs},
     ui::{self, overlay::overlaid, Picker, Popup, Prompt, PromptEvent, Text},
 };
-use dap::{self as dap, requests::TerminateArguments};
-use dap::{StackFrame, Thread, ThreadStates};
+use anyhow::{anyhow, bail};
+use dap::{self as dap, requests::TerminateArguments, StackFrame, Thread, ThreadStates};
 use editor_core::{
     syntax::config::{DebugConfigCompletion, DebugTemplate},
     SmallVec,
 };
 use lsp_client::block_on;
-use view::editor::Breakpoint;
-
 use serde_json::{to_value, Value};
+use std::{collections::HashMap, future::Future, path::PathBuf};
 use tui::text::Line;
-
-use std::collections::HashMap;
-use std::future::Future;
-use std::path::PathBuf;
-
-use anyhow::{anyhow, bail};
-
-use view::handlers::dap::{breakpoints_changed, jump_to_stack_frame, select_thread_id};
+use view::{
+    editor::Breakpoint,
+    handlers::dap::{breakpoints_changed, jump_to_stack_frame, select_thread_id},
+    Editor,
+};
 
 fn thread_picker(
     cx: &mut Context,
@@ -833,5 +829,80 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![4]
         );
+    }
+}
+
+pub(super) mod typed {
+    //! Typable dap commands.
+
+    use crate::{commands::dap::dap_start_impl, compositor, ui::PromptEvent};
+    use ::command_line::Args;
+    use anyhow::bail;
+
+    #[cold]
+    pub(in crate::commands) fn debug_eval(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        if let Some(debugger) = cx.editor.debug_adapters.get_active_client() {
+            let (frame, thread_id) = match (debugger.active_frame, debugger.thread_id) {
+                (Some(frame), Some(thread_id)) => (frame, thread_id),
+                _ => {
+                    bail!("Cannot find current stack frame to access variables")
+                }
+            };
+
+            // TODO: support no frame_id
+
+            let frame_id = debugger.stack_frames[&thread_id][frame].id;
+            let response = lsp_client::block_on(debugger.eval(args.join(" "), Some(frame_id)))?;
+            cx.editor.set_status(response.result);
+        }
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn debug_start(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let mut args: Vec<_> = args.into_iter().collect();
+        let name = match args.len() {
+            0 => None,
+            _ => Some(args.remove(0)),
+        };
+        dap_start_impl(cx, name.as_deref(), None, Some(args))
+    }
+
+    #[cold]
+    pub(in crate::commands) fn debug_remote(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let mut args: Vec<_> = args.into_iter().collect();
+        let address = match args.len() {
+            0 => None,
+            _ => Some(args.remove(0).parse()?),
+        };
+        let name = match args.len() {
+            0 => None,
+            _ => Some(args.remove(0)),
+        };
+        dap_start_impl(cx, name.as_deref(), address, Some(args))
     }
 }

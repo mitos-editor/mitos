@@ -1,10 +1,10 @@
-use std::{future::Future, path::PathBuf};
-
-use editor_core::{indent::IndentStyle, syntax::config::LanguageServerFeature, Transaction};
-use view::{document::FormatterError, DocumentId, ViewId};
+//! Range-formatting requests and formatting-result callbacks.
 
 use super::context::Context;
 use crate::job::{self, Callback};
+use editor_core::{indent::IndentStyle, syntax::config::LanguageServerFeature, Transaction};
+use std::{future::Future, path::PathBuf};
+use view::{document::FormatterError, DocumentId, ViewId};
 
 pub(super) fn format_selections(cx: &mut Context) {
     use lsp_client::{lsp, util::range_to_lsp_range};
@@ -141,4 +141,32 @@ pub(super) async fn make_format_callback(
     }));
 
     Ok(call)
+}
+
+pub(super) mod typed {
+    //! Typable formatting commands.
+
+    use crate::{commands::formatting::make_format_callback, compositor, ui::PromptEvent};
+    use ::command_line::Args;
+    use anyhow::Context as _;
+
+    #[cold]
+    pub(in crate::commands) fn format(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let (view, doc) = current_ref!(cx.editor);
+        let format = doc.format(cx.editor).context(
+            "A formatter isn't available, and no language server provides formatting capabilities",
+        )?;
+        let callback = make_format_callback(doc.id(), doc.version(), view.id, format, None);
+        cx.jobs.callback(callback);
+
+        Ok(())
+    }
 }

@@ -1,3 +1,13 @@
+pub use super::diagnostics::{diagnostics_picker, workspace_diagnostics_picker};
+use super::{context::make_job_callback, navigation::push_jump, Context};
+use crate::{
+    compositor::{self, Compositor},
+    job::{Callback, Job},
+    ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
+};
+use editor_core::{
+    syntax::config::LanguageServerFeature, text_annotations::InlineAnnotation, Selection, Uri,
+};
 use futures_util::{stream::FuturesUnordered, FutureExt};
 use lsp_client::{
     block_on,
@@ -5,45 +15,28 @@ use lsp_client::{
     util::{diagnostic_to_lsp_diagnostic, lsp_range_to_range, range_to_lsp_range},
     Client, LanguageServerId, OffsetEncoding,
 };
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt::Display,
+    future::Future,
+    path::Path,
+};
+use stdx::path;
 use tokio_stream::StreamExt;
 use tui::{
     text::{Line, Span},
     widgets::{Cell, Row},
 };
-
-use super::{
-    align_view, context::make_job_callback, navigation::push_jump, Align, Context, Editor,
-};
-
-use editor_core::{
-    diagnostic::{DiagnosticProvider, NumberOrString, Severity},
-    syntax::config::LanguageServerFeature,
-    text_annotations::InlineAnnotation,
-    Selection, Uri,
-};
-use stdx::path;
 use view::{
     action::Action as CodeActionItem,
+    align_view,
     document::{DocumentInlayHints, DocumentInlayHintsId},
     editor::Action,
     handlers::lsp::SignatureHelpInvoked,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    theme::{symbol_kind_scope, Style, Theme},
-    Document, DocumentId, View,
-};
-
-use crate::{
-    compositor::{self, Compositor},
-    job::{Callback, Job},
-    ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
-};
-
-use std::{
-    collections::{HashSet, VecDeque},
-    fmt::Display,
-    future::Future,
-    path::{Path, PathBuf},
+    theme::{symbol_kind_scope, Theme},
+    Align, Document, DocumentId, Editor, View,
 };
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
@@ -104,41 +97,6 @@ struct SymbolPickerData {
     theme: Theme,
 }
 
-struct DiagnosticStyles {
-    icons: bool,
-    hint: Style,
-    info: Style,
-    warning: Style,
-    error: Style,
-}
-
-/// Where a picker diagnostic lives, so it can be previewed and jumped to regardless of source.
-enum DiagnosticLocation {
-    /// A diagnostic on an open document, in the document's char offsets. Every provider's
-    /// diagnostics take this form once they are on the document (LSP included), and it covers
-    /// scratch buffers, which have no path.
-    Document {
-        doc_id: DocumentId,
-        /// The document's path, for the picker's path column. `None` for scratch buffers.
-        path: Option<PathBuf>,
-        range: editor_core::diagnostic::Range,
-    },
-    /// An LSP diagnostic for a file that is not currently open, positioned in the server's encoding.
-    File {
-        uri: Uri,
-        range: lsp::Range,
-        offset_encoding: OffsetEncoding,
-    },
-}
-
-struct PickerDiagnostic {
-    location: DiagnosticLocation,
-    severity: Option<Severity>,
-    code: Option<NumberOrString>,
-    source: Option<Box<str>>,
-    message: Box<str>,
-}
-
 fn location_to_file_location(location: &Location) -> Option<FileLocation<'_>> {
     let path = location.uri.as_path()?;
     let line = Some((
@@ -176,7 +134,7 @@ fn jump_to_location(editor: &mut Editor, location: &Location, action: Action) {
     );
 }
 
-fn jump_to_position(
+pub(super) fn jump_to_position(
     editor: &mut Editor,
     path: &Path,
     range: lsp::Range,
@@ -459,262 +417,6 @@ mod symbol_picker_tests {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
-enum DiagnosticsFormat {
-    ShowSourcePath,
-    HideSourcePath,
-}
-
-type DiagnosticsPicker = Picker<PickerDiagnostic, DiagnosticStyles>;
-
-/// Builds picker items from a single open document's diagnostics. These are in the document's own
-/// char offsets, edit-mapped, and include every provider (LSP and internal alike).
-fn open_document_diagnostics(doc: &Document) -> impl Iterator<Item = PickerDiagnostic> + '_ {
-    let doc_id = doc.id();
-    let path = doc.path().map(Path::to_path_buf);
-    doc.diagnostics().iter().map(move |diag| PickerDiagnostic {
-        location: DiagnosticLocation::Document {
-            doc_id,
-            path: path.clone(),
-            range: diag.range,
-        },
-        severity: diag.severity,
-        code: diag.code.clone(),
-        source: diag.source.clone(),
-        message: diag.message.clone(),
-    })
-}
-
-/// Builds a picker item from an LSP diagnostic held in the editor's store. This is used for files
-/// which are not currently open; open files are sourced from the document instead.
-fn store_diagnostic(
-    editor: &Editor,
-    uri: &Uri,
-    diagnostic: &lsp::Diagnostic,
-    provider: &DiagnosticProvider,
-) -> Option<PickerDiagnostic> {
-    let offset_encoding = editor
-        .language_server_by_id(provider.language_server_id()?)?
-        .offset_encoding();
-    let severity = diagnostic.severity.and_then(|severity| match severity {
-        lsp::DiagnosticSeverity::ERROR => Some(Severity::Error),
-        lsp::DiagnosticSeverity::WARNING => Some(Severity::Warning),
-        lsp::DiagnosticSeverity::INFORMATION => Some(Severity::Info),
-        lsp::DiagnosticSeverity::HINT => Some(Severity::Hint),
-        _ => None,
-    });
-    let code = diagnostic.code.as_ref().map(|code| match code {
-        lsp::NumberOrString::Number(n) => NumberOrString::Number(*n),
-        lsp::NumberOrString::String(s) => NumberOrString::String(s.clone().into()),
-    });
-    Some(PickerDiagnostic {
-        location: DiagnosticLocation::File {
-            uri: uri.clone(),
-            range: diagnostic.range,
-            offset_encoding,
-        },
-        severity,
-        code,
-        source: diagnostic.source.clone().map(Into::into),
-        message: diagnostic.message.clone().into(),
-    })
-}
-
-fn jump_to_diagnostic(editor: &mut Editor, location: &DiagnosticLocation, action: Action) {
-    match location {
-        DiagnosticLocation::File {
-            uri,
-            range,
-            offset_encoding,
-        } => {
-            let Some(path) = uri.as_path() else {
-                editor.set_error(|| format!("unable to convert URI to filepath: {uri}"));
-                return;
-            };
-            let (view, doc) = current!(editor);
-            push_jump(view, doc);
-            jump_to_position(editor, path, *range, *offset_encoding, action);
-        }
-        DiagnosticLocation::Document { doc_id, range, .. } => {
-            if !editor.documents.contains_key(doc_id) {
-                return;
-            }
-            let (view, doc) = current!(editor);
-            push_jump(view, doc);
-            editor.switch(*doc_id, action);
-            let (view, doc) = current!(editor);
-            let len = doc.text().len_chars();
-            // Flip the selection so the cursor sits at the start of the diagnostic.
-            let anchor = range.end.min(len);
-            let head = range.start.min(len);
-            doc.set_selection(view.id, Selection::single(anchor, head));
-            if action.align_view(view, doc.id()) {
-                align_view(doc, view, Align::Center);
-            }
-        }
-    }
-}
-fn diagnostic_file_location<'a>(
-    editor: &'a Editor,
-    item: &'a PickerDiagnostic,
-) -> Option<FileLocation<'a>> {
-    match &item.location {
-        DiagnosticLocation::File { uri, range, .. } => Some((
-            uri.as_path()?.into(),
-            Some((range.start.line as usize, range.end.line as usize)),
-        )),
-        DiagnosticLocation::Document { doc_id, range, .. } => {
-            let text = editor.documents.get(doc_id)?.text();
-            let len = text.len_chars();
-            let start = text.char_to_line(range.start.min(len));
-            let end = text.char_to_line(range.end.min(len));
-            Some(((*doc_id).into(), Some((start, end))))
-        }
-    }
-}
-
-fn diagnostic_quicklist_entry(editor: &Editor, item: &PickerDiagnostic) -> Option<QuicklistEntry> {
-    Some(match &item.location {
-        DiagnosticLocation::File {
-            uri,
-            range,
-            offset_encoding,
-        } => QuicklistEntry {
-            target: QuicklistTarget::Path(uri.as_path()?.to_path_buf()),
-            position: QuicklistPosition::LspRange {
-                range: *range,
-                offset_encoding: *offset_encoding,
-            },
-        },
-        DiagnosticLocation::Document { doc_id, range, .. } => {
-            let len = editor.document(*doc_id)?.text().len_chars();
-            QuicklistEntry {
-                target: QuicklistTarget::Document(*doc_id),
-                position: QuicklistPosition::Selection(Selection::single(
-                    range.end.min(len),
-                    range.start.min(len),
-                )),
-            }
-        }
-    })
-}
-
-fn diag_picker(
-    cx: &Context,
-    mut diagnostics: Vec<PickerDiagnostic>,
-    format: DiagnosticsFormat,
-) -> DiagnosticsPicker {
-    // Sort by severity, most severe first; diagnostics with no severity sort last.
-    diagnostics.sort_by_key(|diagnostic| std::cmp::Reverse(diagnostic.severity));
-
-    let styles = DiagnosticStyles {
-        icons: cx.editor.config().icons,
-        hint: cx.editor.theme.get("hint"),
-        info: cx.editor.theme.get("info"),
-        warning: cx.editor.theme.get("warning"),
-        error: cx.editor.theme.get("error"),
-    };
-
-    let mut columns = vec![
-        ui::PickerColumn::new(
-            "severity",
-            |item: &PickerDiagnostic, styles: &DiagnosticStyles| {
-                let icons = ICONS.load();
-                match item.severity {
-                    Some(Severity::Hint) => Span::styled(
-                        if styles.icons {
-                            format!("{}HINT", icons.diagnostic().hint())
-                        } else {
-                            "HINT".to_string()
-                        },
-                        styles.hint,
-                    ),
-                    Some(Severity::Info) => Span::styled(
-                        if styles.icons {
-                            format!("{}INFO", icons.diagnostic().info())
-                        } else {
-                            "INFO".to_string()
-                        },
-                        styles.info,
-                    ),
-                    Some(Severity::Warning) => Span::styled(
-                        if styles.icons {
-                            format!("{}WARN", icons.diagnostic().warning())
-                        } else {
-                            "WARN".to_string()
-                        },
-                        styles.warning,
-                    ),
-                    Some(Severity::Error) => Span::styled(
-                        if styles.icons {
-                            format!("{}ERROR", icons.diagnostic().error())
-                        } else {
-                            "ERROR".to_string()
-                        },
-                        styles.error,
-                    ),
-                    _ => Span::raw(""),
-                }
-                .into()
-            },
-        ),
-        ui::PickerColumn::new("source", |item: &PickerDiagnostic, _| {
-            item.source.as_deref().unwrap_or("").into()
-        }),
-        ui::PickerColumn::new("code", |item: &PickerDiagnostic, _| {
-            match item.code.as_ref() {
-                Some(NumberOrString::Number(n)) => n.to_string().into(),
-                Some(NumberOrString::String(s)) => (&**s).into(),
-                None => "".into(),
-            }
-        }),
-        ui::PickerColumn::new("message", |item: &PickerDiagnostic, _| {
-            (&*item.message).into()
-        }),
-    ];
-    let mut primary_column = 3; // message
-
-    if format == DiagnosticsFormat::ShowSourcePath {
-        columns.insert(
-            // between message code and message
-            3,
-            ui::PickerColumn::new("path", |item: &PickerDiagnostic, _| match &item.location {
-                DiagnosticLocation::File { uri, .. } => match uri.as_path() {
-                    Some(path) => path::get_truncated_path(path)
-                        .to_string_lossy()
-                        .to_string()
-                        .into(),
-                    None => Default::default(),
-                },
-                DiagnosticLocation::Document {
-                    path: Some(path), ..
-                } => path::get_truncated_path(path)
-                    .to_string_lossy()
-                    .to_string()
-                    .into(),
-                DiagnosticLocation::Document { path: None, .. } => "[scratch]".into(),
-            }),
-        );
-        primary_column += 1;
-    }
-
-    Picker::new(
-        columns,
-        primary_column,
-        diagnostics,
-        styles,
-        move |cx, diag, action| {
-            jump_to_diagnostic(cx.editor, &diag.location, action);
-            let (view, doc) = current!(cx.editor);
-            view.diagnostics_handler
-                .immediately_show_diagnostic(doc, view.id);
-        },
-    )
-    .with_preview(diagnostic_file_location)
-    .with_quicklist(diagnostic_quicklist_entry)
-    .truncate_start(false)
-}
-
 pub fn symbol_picker(cx: &mut Context) {
     let picker_data = SymbolPickerData {
         show_icons: cx.editor.config().icons,
@@ -926,35 +628,6 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     .with_dynamic_query(get_symbols, None)
     .truncate_start(false);
 
-    cx.push_layer(Box::new(overlaid(picker)));
-}
-
-pub fn diagnostics_picker(cx: &mut Context) {
-    let doc = doc!(cx.editor);
-    let diagnostics: Vec<_> = open_document_diagnostics(doc).collect();
-    let picker = diag_picker(cx, diagnostics, DiagnosticsFormat::HideSourcePath);
-    cx.push_layer(Box::new(overlaid(picker)));
-}
-
-pub fn workspace_diagnostics_picker(cx: &mut Context) {
-    let mut diagnostics = Vec::new();
-    // Open documents carry diagnostics from every provider, edit-mapped, scratch buffers included.
-    for doc in cx.editor.documents() {
-        diagnostics.extend(open_document_diagnostics(doc));
-    }
-    // The store additionally holds LSP diagnostics for files which are not currently open.
-    let open_paths: HashSet<&Path> = cx.editor.documents().filter_map(|doc| doc.path()).collect();
-    for (uri, diags) in &cx.editor.diagnostics {
-        if uri.as_path().is_some_and(|path| open_paths.contains(path)) {
-            continue;
-        }
-        diagnostics.extend(
-            diags
-                .iter()
-                .filter_map(|(diag, provider)| store_diagnostic(cx.editor, uri, diag, provider)),
-        );
-    }
-    let picker = diag_picker(cx, diagnostics, DiagnosticsFormat::ShowSourcePath);
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
@@ -1901,4 +1574,256 @@ fn compute_inlay_hints_for_view(
     );
 
     Some(callback)
+}
+
+pub(super) mod typed {
+    //! Typable lsp commands.
+
+    use crate::{
+        compositor::{self, Compositor},
+        job::{self, Callback},
+        ui::{self, overlay::overlaid, PromptEvent},
+    };
+    use ::command_line::Args;
+    use anyhow::{anyhow, bail, Context as _};
+    use arc_swap::access::DynAccess;
+    use editor_core::syntax::config::LanguageServerFeature;
+    use serde_json::Value;
+    use view::{DocumentId, Editor};
+
+    #[cold]
+    pub(in crate::commands) fn lsp_workspace_command(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let doc = doc!(cx.editor);
+        let ls_id_commands = doc
+            .language_servers_with_feature(LanguageServerFeature::WorkspaceCommand)
+            .flat_map(|ls| {
+                ls.capabilities()
+                    .execute_command_provider
+                    .iter()
+                    .flat_map(|options| options.commands.iter())
+                    .map(|command| (ls.id(), command))
+            });
+
+        if args.is_empty() {
+            let commands = ls_id_commands
+                .map(|(ls_id, command)| {
+                    (
+                        ls_id,
+                        lsp_client::lsp::Command {
+                            title: command.clone(),
+                            command: command.clone(),
+                            arguments: None,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            let callback = async move {
+                let call: job::Callback = Callback::EditorCompositor(Box::new(
+                    move |_editor: &mut Editor, compositor: &mut Compositor| {
+                        let columns = [ui::PickerColumn::new(
+                            "title",
+                            |(_ls_id, command): &(_, lsp_client::lsp::Command), _| {
+                                command.title.as_str().into()
+                            },
+                        )];
+                        let picker = ui::Picker::new(
+                            columns,
+                            0,
+                            commands,
+                            (),
+                            move |cx, (ls_id, command), _action| {
+                                cx.editor.execute_lsp_command(command.clone(), *ls_id);
+                            },
+                        );
+                        compositor.push(Box::new(overlaid(picker)))
+                    },
+                ));
+                Ok(call)
+            };
+            cx.jobs.callback(callback);
+        } else {
+            let command = args[0].to_string();
+            let matches: Vec<_> = ls_id_commands
+                .filter(|(_ls_id, c)| *c == &command)
+                .collect();
+
+            match matches.as_slice() {
+                [(ls_id, _command)] => {
+                    let arguments = args
+                        .get(1)
+                        .map(|rest| {
+                            serde_json::Deserializer::from_str(rest)
+                                .into_iter()
+                                .collect::<Result<Vec<Value>, _>>()
+                                .map_err(|err| anyhow!("failed to parse arguments: {err}"))
+                        })
+                        .transpose()?
+                        .filter(|args| !args.is_empty());
+
+                    cx.editor.execute_lsp_command(
+                        lsp_client::lsp::Command {
+                            title: command.clone(),
+                            arguments,
+                            command,
+                        },
+                        *ls_id,
+                    );
+                }
+                [] => {
+                    cx.editor.set_status(format!(
+                        "`{command}` is not supported for any language server"
+                    ));
+                }
+                _ => {
+                    cx.editor.set_status(format!(
+                        "`{command}` supported by multiple language servers"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn lsp_restart(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let editor_config = cx.editor.config.load();
+        let doc = doc!(cx.editor);
+        let config = doc
+            .language_config()
+            .context("LSP not defined for the current document")?;
+
+        let language_servers: Vec<_> = config
+            .language_servers
+            .iter()
+            .map(|ls| ls.name.as_str())
+            .collect();
+        let language_servers = if args.is_empty() {
+            language_servers
+        } else {
+            let (valid, invalid): (Vec<_>, Vec<_>) = args
+                .iter()
+                .map(|arg| arg.as_ref())
+                .partition(|name| language_servers.contains(name));
+            if !invalid.is_empty() {
+                let s = if invalid.len() == 1 { "" } else { "s" };
+                bail!("Unknown language server{s}: {}", invalid.join(", "));
+            }
+            valid
+        };
+
+        let mut errors = Vec::new();
+        for server in language_servers.iter() {
+            match cx
+                .editor
+                .language_servers
+                .restart_server(
+                    server,
+                    config,
+                    doc.path(),
+                    &editor_config.workspace_lsp_roots,
+                    editor_config.lsp.snippets,
+                )
+                .transpose()
+            {
+                // Ignore the executable-not-found error unless the server was explicitly requested
+                // in the arguments.
+                Err(lsp_client::Error::ExecutableNotFound(_))
+                    if !args.iter().any(|arg| arg == server) => {}
+                Err(err) => errors.push(err.to_string()),
+                _ => (),
+            }
+        }
+
+        // This collect is needed because refresh_language_server would need to re-borrow editor.
+        let document_ids_to_refresh: Vec<DocumentId> = cx
+            .editor
+            .documents()
+            .filter_map(|doc| match doc.language_config() {
+                Some(config)
+                    if config.language_servers.iter().any(|ls| {
+                        language_servers
+                            .iter()
+                            .any(|restarted_ls| restarted_ls == &ls.name)
+                    }) =>
+                {
+                    Some(doc.id())
+                }
+                _ => None,
+            })
+            .collect();
+
+        for document_id in document_ids_to_refresh {
+            cx.editor.refresh_language_servers(document_id);
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Error restarting language servers: {}",
+                errors.join(", ")
+            ))
+        }
+    }
+
+    #[cold]
+    pub(in crate::commands) fn lsp_stop(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        let doc = doc!(cx.editor);
+
+        let language_servers: Vec<_> = doc
+            .language_servers()
+            .map(|ls| ls.name().to_string())
+            .collect();
+        let language_servers = if args.is_empty() {
+            language_servers
+        } else {
+            let (valid, invalid): (Vec<_>, Vec<_>) = args
+                .iter()
+                .map(|arg| arg.to_string())
+                .partition(|name| language_servers.contains(name));
+            if !invalid.is_empty() {
+                let s = if invalid.len() == 1 { "" } else { "s" };
+                bail!("Unknown language server{s}: {}", invalid.join(", "));
+            }
+            valid
+        };
+
+        for ls_name in &language_servers {
+            cx.editor.language_servers.stop(ls_name);
+
+            for doc in cx.editor.documents_mut() {
+                if let Some(client) = doc.remove_language_server_by_name(ls_name) {
+                    doc.clear_diagnostics_for_language_server(client.id());
+                    doc.reset_all_inlay_hints();
+                    doc.inlay_hints_oudated = true;
+                    doc.clear_document_symbols();
+                }
+            }
+        }
+
+        Ok(())
+    }
 }

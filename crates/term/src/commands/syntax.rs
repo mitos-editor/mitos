@@ -1,31 +1,8 @@
-use std::{
-    collections::HashSet,
-    iter,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+//! Syntax traversal, inspection, and symbol pickers.
 
-use dashmap::DashMap;
-use editor_core::{
-    syntax::{Loader, QueryMatchIterEvent},
-    Rope, RopeSlice, Selection, Syntax, Uri,
-};
-use futures_util::FutureExt;
-use grep_regex::RegexMatcherBuilder;
-use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
-use ignore::{DirEntry, WalkBuilder, WalkState};
-use stdx::{
-    path,
-    rope::{self, RopeSliceExt},
-};
-use view::{
-    align_view,
-    document::{from_reader, SCRATCH_BUFFER_NAME},
-    quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    Align, Document, DocumentId, Editor,
-};
-
+use super::Context;
 use crate::{
+    commands::navigation::push_jump,
     filter_picker_entry,
     ui::{
         overlay::overlaid,
@@ -33,8 +10,34 @@ use crate::{
         Picker, PickerColumn,
     },
 };
-
-use super::Context;
+use dashmap::DashMap;
+use editor_core::{
+    match_brackets, movement as core_movement,
+    movement::{Direction, Movement},
+    object,
+    syntax::{Loader, QueryMatchIterEvent},
+    Range, Rope, RopeSlice, Selection, Syntax, Uri,
+};
+use futures_util::FutureExt;
+use grep_regex::RegexMatcherBuilder;
+use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
+use ignore::{DirEntry, WalkBuilder, WalkState};
+use std::{
+    collections::HashSet,
+    iter,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use stdx::{
+    path,
+    rope::{self, RopeSliceExt},
+};
+use view::{
+    align_view,
+    document::{from_reader, Mode, SCRATCH_BUFFER_NAME},
+    quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
+    Align, Document, DocumentId, Editor,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TagKind {
@@ -501,4 +504,467 @@ fn syntax_for_path(path: &Path, loader: &Loader) -> Option<(Rope, Syntax)> {
     Syntax::new(text, language, loader)
         .ok()
         .map(|syntax| (rope, syntax))
+}
+
+// tree sitter node selection
+
+pub(super) fn expand_selection(cx: &mut Context) {
+    let motion = |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+
+        if let Some(syntax) = doc.syntax() {
+            let text = doc.text().slice(..);
+
+            let current_selection = doc.selection(view.id);
+            let selection = object::expand_selection(syntax, text, current_selection.clone());
+
+            // check if selection is different from the last one
+            if *current_selection != selection {
+                // save current selection so it can be restored using shrink_selection
+                view.object_selections.push(current_selection.clone());
+
+                doc.set_selection(view.id, selection);
+            }
+        }
+    };
+    cx.editor.apply_motion(motion);
+}
+
+pub(super) fn shrink_selection(cx: &mut Context) {
+    let motion = |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+        let current_selection = doc.selection(view.id);
+        // try to restore previous selection
+        if let Some(prev_selection) = view.object_selections.pop() {
+            if current_selection.contains(&prev_selection) {
+                doc.set_selection(view.id, prev_selection);
+                return;
+            } else {
+                // clear existing selection as they can't be shrunk to anyway
+                view.object_selections.clear();
+            }
+        }
+        // if not previous selection, shrink to first child
+        if let Some(syntax) = doc.syntax() {
+            let text = doc.text().slice(..);
+            let selection = object::shrink_selection(syntax, text, current_selection.clone());
+            doc.set_selection(view.id, selection);
+        }
+    };
+    cx.editor.apply_motion(motion);
+}
+
+fn select_sibling_impl<F>(cx: &mut Context, sibling_fn: F)
+where
+    F: Fn(&editor_core::Syntax, RopeSlice, Selection) -> Selection + 'static,
+{
+    let motion = move |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+
+        if let Some(syntax) = doc.syntax() {
+            let text = doc.text().slice(..);
+            let current_selection = doc.selection(view.id);
+            let selection = sibling_fn(syntax, text, current_selection.clone());
+            doc.set_selection(view.id, selection);
+        }
+    };
+    cx.editor.apply_motion(motion);
+}
+
+pub(super) fn select_next_sibling(cx: &mut Context) {
+    select_sibling_impl(cx, object::select_next_sibling)
+}
+
+pub(super) fn select_prev_sibling(cx: &mut Context) {
+    select_sibling_impl(cx, object::select_prev_sibling)
+}
+
+fn move_node_bound_impl(cx: &mut Context, dir: Direction, movement: Movement) {
+    let motion = move |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+
+        if let Some(syntax) = doc.syntax() {
+            let text = doc.text().slice(..);
+            let current_selection = doc.selection(view.id);
+
+            let selection = core_movement::move_parent_node_end(
+                syntax,
+                text,
+                current_selection.clone(),
+                dir,
+                movement,
+            );
+
+            doc.set_selection(view.id, selection);
+        }
+    };
+
+    cx.editor.apply_motion(motion);
+}
+
+pub fn move_parent_node_end(cx: &mut Context) {
+    move_node_bound_impl(cx, Direction::Forward, Movement::Move)
+}
+
+pub fn move_parent_node_start(cx: &mut Context) {
+    move_node_bound_impl(cx, Direction::Backward, Movement::Move)
+}
+
+pub fn extend_parent_node_end(cx: &mut Context) {
+    move_node_bound_impl(cx, Direction::Forward, Movement::Extend)
+}
+
+pub fn extend_parent_node_start(cx: &mut Context) {
+    move_node_bound_impl(cx, Direction::Backward, Movement::Extend)
+}
+
+fn select_all_impl<F>(editor: &mut Editor, select_fn: F)
+where
+    F: Fn(&Syntax, RopeSlice, Selection) -> Selection,
+{
+    let (view, doc) = current!(editor);
+
+    if let Some(syntax) = doc.syntax() {
+        let text = doc.text().slice(..);
+        let current_selection = doc.selection(view.id);
+        let selection = select_fn(syntax, text, current_selection.clone());
+        doc.set_selection(view.id, selection);
+    }
+}
+
+pub(super) fn select_all_siblings(cx: &mut Context) {
+    let motion = |editor: &mut Editor| {
+        select_all_impl(editor, object::select_all_siblings);
+    };
+
+    cx.editor.apply_motion(motion);
+}
+
+pub(super) fn select_all_children(cx: &mut Context) {
+    let motion = |editor: &mut Editor| {
+        select_all_impl(editor, object::select_all_children);
+    };
+
+    cx.editor.apply_motion(motion);
+}
+
+pub(super) fn match_brackets(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+    let is_select = cx.editor.mode == Mode::Select;
+    let text = doc.text();
+    let text_slice = text.slice(..);
+
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text_slice);
+        if let Some(matched_pos) = doc.syntax().map_or_else(
+            || match_brackets::find_matching_bracket_plaintext(text.slice(..), pos),
+            |syntax| match_brackets::find_matching_bracket_fuzzy(syntax, text.slice(..), pos),
+        ) {
+            range.put_cursor(text_slice, matched_pos, is_select)
+        } else {
+            range
+        }
+    });
+
+    doc.set_selection(view.id, selection);
+}
+
+fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
+    let count = cx.count();
+    let motion = move |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+        let loader = editor.syn_loader.load();
+        if let Some(syntax) = doc.syntax() {
+            let text = doc.text().slice(..);
+
+            let selection = doc.selection(view.id).clone().transform(|range| {
+                let new_range = core_movement::goto_treesitter_object(
+                    text, range, object, direction, syntax, &loader, count,
+                );
+
+                if editor.mode == Mode::Select {
+                    let head = if new_range.head < range.anchor {
+                        new_range.anchor
+                    } else {
+                        new_range.head
+                    };
+
+                    Range::new(range.anchor, head)
+                } else {
+                    new_range.with_direction(direction)
+                }
+            });
+
+            push_jump(view, doc);
+            doc.set_selection(view.id, selection);
+        } else {
+            editor.set_status("Syntax-tree is not available in current buffer");
+        }
+    };
+    cx.editor.apply_motion(motion);
+}
+
+pub(super) fn goto_next_function(cx: &mut Context) {
+    goto_ts_object_impl(cx, "function", Direction::Forward)
+}
+
+pub(super) fn goto_prev_function(cx: &mut Context) {
+    goto_ts_object_impl(cx, "function", Direction::Backward)
+}
+
+pub(super) fn goto_next_class(cx: &mut Context) {
+    goto_ts_object_impl(cx, "class", Direction::Forward)
+}
+
+pub(super) fn goto_prev_class(cx: &mut Context) {
+    goto_ts_object_impl(cx, "class", Direction::Backward)
+}
+
+pub(super) fn goto_next_parameter(cx: &mut Context) {
+    goto_ts_object_impl(cx, "parameter", Direction::Forward)
+}
+
+pub(super) fn goto_prev_parameter(cx: &mut Context) {
+    goto_ts_object_impl(cx, "parameter", Direction::Backward)
+}
+
+pub(super) fn goto_next_comment(cx: &mut Context) {
+    goto_ts_object_impl(cx, "comment", Direction::Forward)
+}
+
+pub(super) fn goto_prev_comment(cx: &mut Context) {
+    goto_ts_object_impl(cx, "comment", Direction::Backward)
+}
+
+pub(super) fn goto_next_test(cx: &mut Context) {
+    goto_ts_object_impl(cx, "test", Direction::Forward)
+}
+
+pub(super) fn goto_prev_test(cx: &mut Context) {
+    goto_ts_object_impl(cx, "test", Direction::Backward)
+}
+
+pub(super) fn goto_next_xml_element(cx: &mut Context) {
+    goto_ts_object_impl(cx, "xml-element", Direction::Forward)
+}
+
+pub(super) fn goto_prev_xml_element(cx: &mut Context) {
+    goto_ts_object_impl(cx, "xml-element", Direction::Backward)
+}
+
+pub(super) fn goto_next_entry(cx: &mut Context) {
+    goto_ts_object_impl(cx, "entry", Direction::Forward)
+}
+
+pub(super) fn goto_prev_entry(cx: &mut Context) {
+    goto_ts_object_impl(cx, "entry", Direction::Backward)
+}
+
+pub(super) mod typed {
+    //! Typable syntax commands.
+
+    use crate::{
+        compositor::{self, Compositor},
+        job::{self, Callback},
+        ui::{self, Popup, PromptEvent},
+    };
+    use ::command_line::Args;
+    use anyhow::bail;
+    use arc_swap::access::DynAccess;
+    use editor_core::indent;
+    use view::Editor;
+
+    #[cold]
+    pub(in crate::commands) fn tree_sitter_scopes(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let (view, doc) = current!(cx.editor);
+        let text = doc.text().slice(..);
+
+        let pos = doc.selection(view.id).primary().cursor(text);
+        let scopes = indent::get_scopes(doc.syntax(), text, pos);
+
+        let contents = format!("```json\n{:?}\n````", scopes);
+
+        let callback = async move {
+            let call: job::Callback = Callback::EditorCompositor(Box::new(
+                move |editor: &mut Editor, compositor: &mut Compositor| {
+                    let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
+                    let popup = Popup::new("hover", contents).auto_close(true);
+                    compositor.replace_or_push("hover", popup);
+                },
+            ));
+            Ok(call)
+        };
+
+        cx.jobs.callback(callback);
+
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn tree_sitter_highlight_name(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let (view, doc) = current_ref!(cx.editor);
+        let Some(syntax) = doc.syntax() else {
+            return Ok(());
+        };
+        let text = doc.text().slice(..);
+        let cursor = doc.selection(view.id).primary().cursor(text);
+        let byte = text.char_to_byte(cursor) as u32;
+        // Query the same range as the one used in syntax highlighting.
+        let range = {
+            // Calculate viewport byte ranges:
+            let row = text.char_to_line(doc.view_offset(view.id).anchor.min(text.len_chars()));
+            // Saturating subs to make it inclusive zero indexing.
+            let last_line = text.len_lines().saturating_sub(1);
+            let height = view.inner_area(doc).height;
+            let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
+            let start = text.line_to_byte(row.min(last_line)) as u32;
+            let end = text.line_to_byte(last_visible_line + 1) as u32;
+
+            start..end
+        };
+
+        let loader = cx.editor.syn_loader.load();
+        let mut highlighter = syntax.highlighter(text, &loader, range);
+        let mut highlights = Vec::new();
+
+        while highlighter.next_event_offset() <= byte {
+            let (event, new_highlights) = highlighter.advance();
+            if event == editor_core::syntax::HighlightEvent::Refresh {
+                highlights.clear();
+            }
+            highlights.extend(new_highlights);
+        }
+
+        let content = highlights
+            .into_iter()
+            .fold(String::new(), |mut acc, highlight| {
+                if !acc.is_empty() {
+                    acc.push_str(", ");
+                }
+                acc.push_str(cx.editor.theme.scope(highlight));
+                acc
+            });
+
+        let callback = async move {
+            let call: job::Callback = Callback::EditorCompositor(Box::new(
+                move |editor: &mut Editor, compositor: &mut Compositor| {
+                    let content = ui::Markdown::new(content, editor.syn_loader.clone());
+                    let popup = Popup::new("hover", content).auto_close(true);
+                    compositor.replace_or_push("hover", popup);
+                },
+            ));
+            Ok(call)
+        };
+
+        cx.jobs.callback(callback);
+
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn tree_sitter_layers(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let (view, doc) = current_ref!(cx.editor);
+        let Some(syntax) = doc.syntax() else {
+            bail!("Syntax information is not available");
+        };
+
+        let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+        let text = doc.text().slice(..);
+        let cursor = doc.selection(view.id).primary().cursor(text);
+        let byte = text.char_to_byte(cursor) as u32;
+        let languages =
+            syntax
+                .layers_for_byte_range(byte, byte)
+                .fold(String::new(), |mut acc, layer| {
+                    if !acc.is_empty() {
+                        acc.push_str(", ");
+                    }
+                    acc.push_str(
+                        &loader
+                            .language(syntax.layer(layer).language)
+                            .config()
+                            .language_id,
+                    );
+                    acc
+                });
+
+        let callback = async move {
+            let call: job::Callback = Callback::EditorCompositor(Box::new(
+                move |editor: &mut Editor, compositor: &mut Compositor| {
+                    let content = ui::Markdown::new(languages, editor.syn_loader.clone());
+                    let popup = Popup::new("hover", content).auto_close(true);
+                    compositor.replace_or_push("hover", popup);
+                },
+            ));
+            Ok(call)
+        };
+
+        cx.jobs.callback(callback);
+
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn tree_sitter_subtree(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+
+        let (view, doc) = current!(cx.editor);
+
+        if let Some(syntax) = doc.syntax() {
+            let primary_selection = doc.selection(view.id).primary();
+            let text = doc.text();
+            let from = text.char_to_byte(primary_selection.from()) as u32;
+            let to = text.char_to_byte(primary_selection.to()) as u32;
+            if let Some(selected_node) = syntax.descendant_for_byte_range(from, to) {
+                let mut contents = String::from("```tsq\n");
+                editor_core::syntax::pretty_print_tree(&mut contents, selected_node)?;
+                contents.push_str("\n```");
+
+                let callback = async move {
+                    let call: job::Callback = Callback::EditorCompositor(Box::new(
+                        move |editor: &mut Editor, compositor: &mut Compositor| {
+                            let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
+                            let popup = Popup::new("hover", contents).auto_close(true);
+                            compositor.replace_or_push("hover", popup);
+                        },
+                    ));
+                    Ok(call)
+                };
+
+                cx.jobs.callback(callback);
+            }
+        }
+
+        Ok(())
+    }
 }
