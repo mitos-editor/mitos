@@ -2,7 +2,7 @@
 //!
 //! This module defines the editor settings independently of configuration file
 //! discovery and merging, which live in `term::config`. Applying settings to a
-//! running editor remains the responsibility of [`crate::editor::Editor`].
+//! running editor lives in `editor/config.rs` on [`crate::editor::Editor`].
 
 use std::{
     collections::{HashMap, HashSet},
