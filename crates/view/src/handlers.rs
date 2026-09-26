@@ -8,6 +8,7 @@ use crate::handlers::lsp::SignatureHelpInvoked;
 use crate::{DocumentId, Editor, ViewId};
 
 pub mod auto_reload;
+pub mod auto_save;
 pub mod code_action_hint;
 pub mod completion;
 pub mod dap;
@@ -21,12 +22,6 @@ pub mod spelling;
 pub mod syntax;
 pub mod word_index;
 
-#[derive(Debug)]
-pub enum AutoSaveEvent {
-    DocumentChanged { save_after: u64 },
-    LeftInsertMode,
-}
-
 pub struct Handlers {
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
     pub document_highlight: document_highlight::DocumentHighlightHandler,
@@ -36,7 +31,7 @@ pub struct Handlers {
     // only public because most of the actual implementation is in term right now :/
     pub completions: CompletionHandler,
     pub signature_hints: Sender<lsp::SignatureHelpEvent>,
-    pub auto_save: Sender<AutoSaveEvent>,
+    pub auto_save: auto_save::AutoSaveHandler,
     pub auto_reload: auto_reload::AutoReloadHandler,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
@@ -74,6 +69,7 @@ impl Handlers {
 
 pub fn register_hooks(handlers: &Handlers) {
     auto_reload::register_hooks();
+    auto_save::register_hooks();
     lsp::register_hooks(handlers);
     word_index::register_hooks(handlers);
     // must be done here because the file watcher is in helix-core

@@ -17,6 +17,7 @@ mod test {
 
     mod auto_pairs;
     mod auto_reload;
+    mod auto_save;
     mod code_action_hints;
     mod command_line;
     mod commands;

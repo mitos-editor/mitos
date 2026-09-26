@@ -5,7 +5,6 @@ use event::AsyncHook;
 
 use crate::config::Config;
 use crate::events;
-use crate::handlers::auto_save::AutoSaveHandler;
 use crate::handlers::signature_help::SignatureHelpHandler;
 
 pub use view::handlers::{word_index, Handlers};
@@ -27,7 +26,7 @@ pub fn setup(
 
     let event_tx = completion::CompletionHandler::new(config.clone()).spawn();
     let signature_hints = SignatureHelpHandler::new().spawn();
-    let auto_save = AutoSaveHandler::new().spawn();
+    let auto_save = view::handlers::auto_save::AutoSaveHandler::new(callbacks.clone());
     let auto_reload = view::handlers::auto_reload::AutoReloadHandler::new(
         callbacks.clone(),
         &config.load().editor,
@@ -68,7 +67,7 @@ pub fn setup(
     view::handlers::document_highlight::register_hooks();
     view::handlers::code_action_hint::register_hooks();
     view::handlers::document_symbols::register_hooks();
-    auto_save::register_hooks(&handlers);
+    auto_save::register_hooks();
     diagnostics::register_hooks();
     view::handlers::diagnostics::pull::register_hooks();
     snippet::register_hooks(&handlers);
