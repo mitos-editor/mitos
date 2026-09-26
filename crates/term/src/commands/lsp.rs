@@ -11,7 +11,9 @@ use tui::{
     widgets::{Cell, Row},
 };
 
-use super::{align_view, context::make_job_callback, push_jump, Align, Context, Editor};
+use super::{
+    align_view, context::make_job_callback, navigation::push_jump, Align, Context, Editor,
+};
 
 use editor_core::{
     diagnostic::{DiagnosticProvider, NumberOrString, Severity},
