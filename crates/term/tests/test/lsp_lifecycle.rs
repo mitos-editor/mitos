@@ -238,3 +238,52 @@ async fn terminal_adapter_delegates_and_keeps_the_exit_status_message() -> anyho
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Result<()> {
+    let first_dir = tempfile::tempdir()?;
+    let second_dir = tempfile::tempdir()?;
+    let mut first = Fixture::new(first_dir.path(), &["alpha"])?;
+    let mut second = Fixture::new(second_dir.path(), &["alpha"])?;
+    for fixture in [&mut first, &mut second] {
+        fixture.initialize().await?;
+        let (view, doc) = current!(fixture.app.editor);
+        let id = doc.id();
+        let uri = doc.identifier().uri;
+        let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "x".into());
+        assert!(doc.apply(&transaction, view.id));
+        fixture.app.editor.new_file(view::editor::Action::Replace);
+        assert!(fixture.app.editor.close_document(id, true).is_ok());
+        // Application shutdown only flushes outgoing messages. Await the fixture's
+        // response explicitly so its log includes all preceding notifications.
+        fixture
+            .app
+            .editor
+            .language_server_by_id(fixture.server("alpha"))
+            .unwrap()
+            .shutdown()
+            .await?;
+        assert!(fixture.app.close().await.is_empty());
+        let messages: Vec<Value> = std::fs::read_to_string(&fixture.logs[0])?
+            .split_inclusive('\n')
+            .filter(|line| line.ends_with('\n'))
+            .map(serde_json::from_str)
+            .collect::<Result<_, _>>()?;
+        for method in [
+            "textDocument/didOpen",
+            "textDocument/didChange",
+            "textDocument/didClose",
+        ] {
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|message| message["method"] == method
+                        && message["params"]["textDocument"]["uri"] == uri.as_str())
+                    .count(),
+                1,
+                "{method}"
+            );
+        }
+    }
+    Ok(())
+}

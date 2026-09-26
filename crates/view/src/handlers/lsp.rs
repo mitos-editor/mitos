@@ -15,8 +15,6 @@ use event::register_hook;
 use lsp_client::util::generate_transaction_from_edits;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 
-use super::Handlers;
-
 /// Snapshot identity retained until a queued document-feature response is applied.
 /// Cancellation while waiting on the server alone does not protect queued callbacks.
 pub(super) struct DocumentRequest {
@@ -475,7 +473,7 @@ impl Editor {
     }
 }
 
-pub fn register_hooks(_handlers: &Handlers) {
+pub(super) fn register_hooks() {
     register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
         let language_server = event.editor.language_server_by_id(event.server_id).unwrap();
 

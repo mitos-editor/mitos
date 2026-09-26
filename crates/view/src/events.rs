@@ -44,3 +44,21 @@ events! {
         new: &'a Config
     }
 }
+
+/// Install editor event types before their feature hooks, once per event registry.
+pub(crate) fn register() {
+    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
+    REGISTER.call_once(|| {
+        use event::register_event;
+        register_event::<DocumentDidOpen>();
+        register_event::<DocumentDidChange>();
+        register_event::<DocumentDidClose>();
+        register_event::<DocumentFocusLost>();
+        register_event::<SelectionDidChange>();
+        register_event::<DiagnosticsDidChange>();
+        register_event::<LanguageServerInitialized>();
+        register_event::<LanguageServerExited>();
+        register_event::<ConfigDidChange>();
+        register_event::<editor_core::file_watcher::FileSystemDidChange>();
+    });
+}

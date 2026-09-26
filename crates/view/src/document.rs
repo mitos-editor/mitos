@@ -237,6 +237,7 @@ pub struct Document {
         Option<crate::handlers::code_action_hint::CodeActionHintHandler>,
     pub(crate) signature_help_trigger:
         Option<crate::handlers::signature_help::SignatureHelpTrigger>,
+    pub(crate) word_index_trigger: Option<crate::handlers::word_index::WordIndexTrigger>,
     pub(crate) auto_save_trigger: Option<crate::handlers::auto_save::AutoSaveTrigger>,
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
@@ -896,6 +897,7 @@ impl Document {
             code_action_hint_handler: None,
             syntax_handler: None,
             auto_save_trigger: None,
+            word_index_trigger: None,
             signature_help_trigger: None,
             spelling_events: None,
             language: None,

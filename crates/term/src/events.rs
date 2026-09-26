@@ -1,10 +1,5 @@
-use editor_core::file_watcher::FileSystemDidChange;
 use event::{events, register_event};
 use view::document::Mode;
-use view::events::{
-    ConfigDidChange, DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
-    DocumentFocusLost, LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
-};
 
 use crate::commands;
 use crate::keymap::MappableCommand;
@@ -16,17 +11,10 @@ events! {
 }
 
 pub fn register() {
-    register_event::<OnModeSwitch>();
-    register_event::<PostInsertChar>();
-    register_event::<PostCommand>();
-    register_event::<DocumentDidOpen>();
-    register_event::<DocumentDidChange>();
-    register_event::<DocumentDidClose>();
-    register_event::<DocumentFocusLost>();
-    register_event::<SelectionDidChange>();
-    register_event::<DiagnosticsDidChange>();
-    register_event::<LanguageServerInitialized>();
-    register_event::<LanguageServerExited>();
-    register_event::<ConfigDidChange>();
-    register_event::<FileSystemDidChange>();
+    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
+    REGISTER.call_once(|| {
+        register_event::<OnModeSwitch>();
+        register_event::<PostInsertChar>();
+        register_event::<PostCommand>();
+    });
 }
