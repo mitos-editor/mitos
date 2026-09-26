@@ -1,11 +1,11 @@
 use std::{borrow::Cow, sync::Arc};
 
+use crate::{document::SavePoint, handlers::completion::ResponseContext, Document, Editor, ViewId};
 use editor_core::{
     self as core, chars::char_is_word, completion::CompletionProvider, movement, Transaction,
 };
 use event::TaskHandle;
 use stdx::rope::RopeSliceExt as _;
-use view::{document::SavePoint, handlers::completion::ResponseContext, Document, Editor, ViewId};
 
 use super::{request::TriggerKind, CompletionItem, CompletionItems, CompletionResponse, Trigger};
 
