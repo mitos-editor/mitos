@@ -314,7 +314,7 @@ pub fn test_config() -> Config {
 pub fn test_editor_config() -> view::editor::Config {
     view::editor::Config {
         // Watcher tests opt in; unrelated tests should not crawl the source tree.
-        file_watcher: editor_core::file_watcher::Config {
+        file_watcher: view::file_watcher::Config {
             enable: false,
             watch_vcs: false,
             ..Default::default()

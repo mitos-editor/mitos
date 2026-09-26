@@ -56,6 +56,18 @@ where
     path
 }
 
+/// Resolve existing ancestors, including symlinks, while allowing a missing leaf.
+/// Native events use real paths; editor paths may retain symlinks such as macOS `/var`.
+pub fn canonicalize_existing(path: &Path) -> PathBuf {
+    let path = canonicalize(path);
+    for ancestor in path.ancestors() {
+        if let Ok(real) = ancestor.canonicalize() {
+            return real.join(path.strip_prefix(ancestor).unwrap());
+        }
+    }
+    path
+}
+
 /// Normalize a path without resolving symlinks.
 // Strategy: start from the first component and move up. Canonicalize previous path,
 // join component, canonicalize new path, strip prefix and join to the final result.
@@ -332,6 +344,34 @@ mod tests {
     use ropey::RopeSlice;
 
     use crate::path::{self, compile_path_regex};
+
+    #[test]
+    fn canonicalize_existing_preserves_missing_descendants() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing/leaf.rs");
+        assert_eq!(
+            super::canonicalize_existing(&missing),
+            dir.path().canonicalize().unwrap().join("missing/leaf.rs")
+        );
+        assert_eq!(
+            super::canonicalize_existing(dir.path()),
+            dir.path().canonicalize().unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_existing_resolves_symlink_ancestors_for_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(
+            super::canonicalize_existing(&link.join("missing/leaf.rs")),
+            real.canonicalize().unwrap().join("missing/leaf.rs")
+        );
+    }
 
     #[test]
     fn relative_path_from_uses_an_explicit_root_without_accessing_the_filesystem() {
