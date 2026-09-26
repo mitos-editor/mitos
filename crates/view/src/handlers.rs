@@ -24,6 +24,7 @@ pub mod syntax;
 pub mod word_index;
 
 pub struct Handlers {
+    pub(crate) callbacks: EditorCallbackSender,
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
     pub document_highlight: document_highlight::DocumentHighlightHandler,
     pub document_links: document_links::DocumentLinksHandler,
@@ -62,7 +63,8 @@ impl Handlers {
             word_index: word_index::Handler::spawn(),
             pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler::new(callbacks.clone()),
             code_action_hint: code_action_hint::CodeActionHintHandler::new(callbacks.clone()),
-            spelling: SpellingHandler::new(callbacks),
+            spelling: SpellingHandler::new(callbacks.clone()),
+            callbacks,
         }
     }
 

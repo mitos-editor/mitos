@@ -43,9 +43,9 @@ use tokio::{
 
 use anyhow::{anyhow, bail, Error};
 
+use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
 pub use editor_core::diagnostic::Severity;
-use editor_core::file_watcher::{self, Watcher};
 use editor_core::{
     auto_pairs::AutoPairs,
     diagnostic::DiagnosticProvider,
@@ -254,7 +254,7 @@ impl Editor {
         let auto_pairs = (&conf.auto_pairs).into();
 
         // Initialize file watcher and diff providers
-        let file_watcher = Watcher::new(&conf.file_watcher);
+        let file_watcher = Watcher::new(&conf.file_watcher, handlers.callbacks.clone());
         let diff_providers = DiffProviderRegistry::default();
 
         // HAXX: offset the render area height by 1 to account for prompt/commandline
@@ -505,12 +505,12 @@ impl Editor {
         if !old_watched {
             self.language_servers
                 .file_event_handler
-                .file_changed(old_path.to_owned(), file_watcher::EventType::Delete);
+                .file_changed(old_path.to_owned(), lsp::FileChangeType::DELETED);
         }
         if !new_watched {
             self.language_servers
                 .file_event_handler
-                .file_changed(new_path, file_watcher::EventType::Create);
+                .file_changed(new_path, lsp::FileChangeType::CREATED);
         }
         Ok(())
     }
@@ -559,7 +559,7 @@ impl Editor {
         if !self.file_watcher.is_watching(&path) {
             self.language_servers
                 .file_event_handler
-                .file_changed(path, file_watcher::EventType::Create);
+                .file_changed(path, lsp::FileChangeType::CREATED);
         }
         Ok(())
     }
@@ -609,7 +609,7 @@ impl Editor {
         if !watched {
             self.language_servers
                 .file_event_handler
-                .file_changed(path, file_watcher::EventType::Delete);
+                .file_changed(path, lsp::FileChangeType::DELETED);
         }
         Ok(())
     }
@@ -1130,9 +1130,9 @@ impl Editor {
                 handler.file_changed(
                     event.path.clone(),
                     if created {
-                        file_watcher::EventType::Create
+                        lsp::FileChangeType::CREATED
                     } else {
-                        file_watcher::EventType::Modified
+                        lsp::FileChangeType::CHANGED
                     },
                 );
             }

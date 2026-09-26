@@ -1,9 +1,9 @@
 use std::{path::Path, time::Duration};
 
-use editor_core::file_watcher::{Config, EventType};
 use lsp_client::{jsonrpc::ErrorCode, lsp};
 use serde_json::{json, Value};
 use view::current;
+use view::file_watcher::Config;
 
 use super::helpers::lsp::Fixture;
 
@@ -178,8 +178,11 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
     })
     .await?;
     let handler = &f.app.editor.language_servers.file_event_handler;
-    handler.file_changed(uri_path.join("first.watched"), EventType::Modified);
-    handler.file_changed(folder_path.join("second.watched"), EventType::Modified);
+    handler.file_changed(uri_path.join("first.watched"), lsp::FileChangeType::CHANGED);
+    handler.file_changed(
+        folder_path.join("second.watched"),
+        lsp::FileChangeType::CHANGED,
+    );
     let second = lsp::Url::from_file_path(folder_path.join("second.watched")).unwrap();
     for log in &f.logs {
         logged(log, |m| m["params"]["changes"][0]["uri"] == second.as_str()).await?;
@@ -192,8 +195,8 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
         ]}))?,
     );
     let handler = &f.app.editor.language_servers.file_event_handler;
-    handler.file_changed(uri_path.join("after.watched"), EventType::Modified);
-    handler.file_changed(uri_path.join("done.barrier"), EventType::Modified);
+    handler.file_changed(uri_path.join("after.watched"), lsp::FileChangeType::CHANGED);
+    handler.file_changed(uri_path.join("done.barrier"), lsp::FileChangeType::CHANGED);
     let after = lsp::Url::from_file_path(uri_path.join("after.watched")).unwrap();
     let barrier = lsp::Url::from_file_path(uri_path.join("done.barrier")).unwrap();
     // FIFO delivery to the same server makes the barrier a deterministic absence check.
@@ -272,5 +275,141 @@ async fn terminal_adapter_preserves_typed_results_errors_and_null_acknowledgemen
     assert_eq!(reply["error"]["code"], -32700);
     assert!(reply.get("result").is_none());
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
+) -> anyhow::Result<()> {
+    use super::helpers::run_event_loop_until_idle;
+    use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
+
+    let first_dir = tempfile::tempdir()?;
+    let second_dir = tempfile::tempdir()?;
+    let watched_dir = tempfile::tempdir()?;
+    let root = watched_dir.path().canonicalize()?;
+    let mut first = Fixture::new(first_dir.path(), &["alpha"])?;
+    let mut second = Fixture::new(second_dir.path(), &["alpha"])?;
+    for fixture in [&mut first, &mut second] {
+        fixture.initialize().await?;
+        fixture.app.editor.register_language_server_capabilities(
+            fixture.server("alpha"),
+            serde_json::from_value(json!({"registrations": [
+                registration("first", json!([{"globPattern": "**/*.watched"}])),
+                registration("overlapping", json!([{"globPattern": "**/*.watched"}])),
+                registration("barrier", json!([{"globPattern": "**/*.barrier"}]))
+            ]}))?,
+        );
+    }
+    // Only the first editor watches this root. Both servers are interested in it.
+    first.app.editor.file_watcher.reload(&Config::default());
+    first.app.editor.file_watcher.add_root(&root);
+    let native = root.join("native.watched");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !first.app.editor.file_watcher.is_watching(&native) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    std::fs::write(&native, "native change\n")?;
+    let native_uri = lsp::Url::from_file_path(&native).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut first.app).await;
+            let contents = std::fs::read_to_string(&first.logs[0])?;
+            if contents
+                .split_inclusive('\n')
+                .filter(|line| line.ends_with('\n'))
+                .map(serde_json::from_str::<Value>)
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .any(|message| {
+                    message["params"]["changes"]
+                        .as_array()
+                        .is_some_and(|changes| {
+                            changes
+                                .iter()
+                                .any(|change| change["uri"] == native_uri.as_str())
+                        })
+                })
+            {
+                return anyhow::Ok(());
+            }
+        }
+    })
+    .await??;
+    first.app.editor.file_watcher.reload(&Config {
+        enable: false,
+        ..Default::default()
+    });
+    first.app.editor.reset_idle_timer();
+    run_event_loop_until_idle(&mut first.app).await;
+    second.app.editor.reset_idle_timer();
+    run_event_loop_until_idle(&mut second.app).await;
+
+    // The second editor gets one explicit batch. Preserve kinds and ordering,
+    // deduplicate overlapping registrations, and omit native temporary-file events.
+    let batch = root.join("batch.watched");
+    let batch_uri = lsp::Url::from_file_path(&batch).unwrap();
+    second.app.editor.handle_file_events(&Events::from(
+        [
+            EventType::Create,
+            EventType::Modified,
+            EventType::Modified,
+            EventType::Tempfile,
+            EventType::Delete,
+        ]
+        .map(|ty| Event {
+            path: CanonicalPathBuf::assert_canonicalized(&batch),
+            ty,
+        })
+        .to_vec(),
+    ));
+    let barrier = root.join("done.barrier");
+    let barrier_uri = lsp::Url::from_file_path(&barrier).unwrap();
+    for fixture in [&mut first, &mut second] {
+        fixture
+            .app
+            .editor
+            .language_servers
+            .file_event_handler
+            .file_changed(barrier.clone(), lsp::FileChangeType::CHANGED);
+    }
+    let mut changes_by_editor = Vec::new();
+    for fixture in [&first, &second] {
+        let messages = logged(&fixture.logs[0], |message| {
+            message["params"]["changes"][0]["uri"] == barrier_uri.as_str()
+        })
+        .await?;
+        let changes: Vec<Value> = messages
+            .iter()
+            .filter(|message| message["method"] == "workspace/didChangeWatchedFiles")
+            .flat_map(|message| {
+                message["params"]["changes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .cloned()
+            })
+            .collect();
+        changes_by_editor.push(changes);
+    }
+    assert!(changes_by_editor[0]
+        .iter()
+        .any(|change| change["uri"] == native_uri.as_str()));
+    assert!(!changes_by_editor[0]
+        .iter()
+        .any(|change| change["uri"] == batch_uri.as_str()));
+    assert!(!changes_by_editor[1]
+        .iter()
+        .any(|change| change["uri"] == native_uri.as_str()));
+    let batch_changes: Vec<_> = changes_by_editor[1]
+        .iter()
+        .filter(|change| change["uri"] == batch_uri.as_str())
+        .map(|change| change["type"].clone())
+        .collect();
+    assert_eq!(batch_changes, [json!(1), json!(2), json!(3)]);
+    assert!(first.app.close().await.is_empty());
+    assert!(second.app.close().await.is_empty());
     Ok(())
 }
