@@ -1,11 +1,15 @@
-//! Text transformations over selections: case, alignment, line joining, and content order.
+//! Text transformations over selections, including indentation and comment toggling.
 
 use std::char::{ToLowercase, ToUppercase};
 
 use editor_core::{
-    line_ending::line_end_char_index, movement as core_movement, Range, RopeSlice, Selection,
-    SmallVec, Tendril, Transaction,
+    comment, indent::IndentStyle, line_ending::line_end_char_index, movement as core_movement,
+    syntax::config::BlockCommentToken, Range, Rope, RopeSlice, Selection, SmallVec, Tendril,
+    Transaction,
 };
+
+use stdx::rope::RopeSliceExt;
+use view::{Document, ViewId};
 
 use super::{context::Context, continued_line_comment_token, exit_select_mode};
 
@@ -337,4 +341,242 @@ pub(super) fn rotate_selection_contents_backward(cx: &mut Context) {
 }
 pub(super) fn reverse_selection_contents(cx: &mut Context) {
     reorder_selection_contents(cx, ReorderStrategy::Reverse)
+}
+
+fn get_lines(doc: &Document, view_id: ViewId) -> Vec<usize> {
+    let mut lines = Vec::new();
+
+    // Get all line numbers
+    for range in doc.selection(view_id) {
+        let (start, end) = range.line_range(doc.text().slice(..));
+
+        for line in start..=end {
+            lines.push(line)
+        }
+    }
+    lines.sort_unstable(); // sorting by usize so _unstable is preferred
+    lines.dedup();
+    lines
+}
+
+pub(super) fn indent(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let lines = get_lines(doc, view.id);
+
+    // Indent by one level
+    let indent = Tendril::from(doc.indent_style.as_str().repeat(count));
+
+    let transaction = Transaction::change(
+        doc.text(),
+        lines.into_iter().filter_map(|line| {
+            let is_blank = doc.text().line(line).chunks().all(|s| s.trim().is_empty());
+            if is_blank {
+                return None;
+            }
+            let pos = doc.text().line_to_char(line);
+
+            let indent = if let IndentStyle::Spaces(indent_width) = doc.indent_style {
+                let line = doc.text().line(line);
+                let offset = line.first_non_whitespace_char().unwrap_or(0) % indent_width as usize;
+                indent.clone().split_off(offset)
+            } else {
+                indent.clone()
+            };
+
+            Some((pos, pos, Some(indent)))
+        }),
+    );
+    doc.apply(&transaction, view.id);
+    exit_select_mode(cx);
+}
+
+pub(super) fn unindent(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let lines = get_lines(doc, view.id);
+    let mut changes = Vec::with_capacity(lines.len());
+    let tab_width = doc.tab_width();
+    let indent_width = count * doc.indent_width();
+
+    for line_idx in lines {
+        let line = doc.text().line(line_idx);
+        let mut width = 0;
+        let mut pos = 0;
+
+        for ch in line.chars() {
+            match ch {
+                ' ' => width += 1,
+                '\t' => width = (width / tab_width + 1) * tab_width,
+                _ => break,
+            }
+
+            pos += 1;
+
+            if width >= indent_width {
+                break;
+            }
+        }
+
+        // now delete from start to first non-blank
+        if pos > 0 {
+            let start = doc.text().line_to_char(line_idx);
+            changes.push((start, start + pos, None))
+        }
+    }
+
+    let transaction = Transaction::change(doc.text(), changes.into_iter());
+
+    doc.apply(&transaction, view.id);
+    exit_select_mode(cx);
+}
+
+// comments
+type CommentTransactionFn = fn(
+    line_token: Option<&str>,
+    block_tokens: Option<&[BlockCommentToken]>,
+    doc: &Rope,
+    selection: &Selection,
+) -> Transaction;
+
+fn toggle_comments_impl(cx: &mut Context, comment_transaction: CommentTransactionFn) {
+    let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+    let (view, doc) = current!(cx.editor);
+    let cursor = doc
+        .selection(view.id)
+        .primary()
+        .cursor(doc.text().slice(..));
+    let byte_pos = doc.text().char_to_byte(cursor);
+    // Resolve the comment tokens from the enclosing injection layer that owns the comment,
+    // not the innermost layer at the cursor. Prefer the innermost layer that defines
+    // *line* comment tokens, falling back to the innermost layer with block tokens.
+    let mut line_layer = None;
+    let mut block_layer = None;
+    if let Some(syntax) = doc.syntax() {
+        for layer in syntax.layers_for_byte_range(byte_pos as u32, byte_pos as u32) {
+            let language = syntax.layer(layer).language;
+            let config = loader.language(language).config();
+            if config.comment_tokens.is_some() {
+                line_layer = Some(language);
+            }
+            if config.block_comment_tokens.is_some() {
+                block_layer = Some(language);
+            }
+        }
+    }
+    let lang_config = line_layer
+        .or(block_layer)
+        .map(|language| &**loader.language(language).config())
+        .or_else(|| doc.language_config());
+
+    // Pick the token the cursor's line is already commented with (longest match, so `///` wins over `//`).
+    // If the line isn't commented yet, fall back to the primary token for adding a comment.
+    let cursor_line = doc.text().char_to_line(cursor);
+    let line_token: Option<&str> = lang_config
+        .and_then(|lc| lc.comment_tokens.as_ref())
+        .and_then(|tokens| {
+            comment::get_comment_token(doc.text().slice(..), tokens, cursor_line)
+                .or_else(|| tokens.first().map(|token| token.as_str()))
+        });
+    let block_tokens: Option<&[BlockCommentToken]> = lang_config
+        .and_then(|lc| lc.block_comment_tokens.as_ref())
+        .map(|tc| &tc[..]);
+
+    let transaction =
+        comment_transaction(line_token, block_tokens, doc.text(), doc.selection(view.id));
+
+    doc.apply(&transaction, view.id);
+    exit_select_mode(cx);
+}
+
+/// commenting behavior:
+/// 1. only line comment tokens -> line comment
+/// 2. each line block commented -> uncomment all lines
+/// 3. whole selection block commented -> uncomment selection
+/// 4. all lines not commented and block tokens -> comment uncommented lines
+/// 5. no comment tokens and not block commented -> line comment
+pub(super) fn toggle_comments(cx: &mut Context) {
+    toggle_comments_impl(cx, |line_token, block_tokens, doc, selection| {
+        let text = doc.slice(..);
+
+        // only have line comment tokens
+        if line_token.is_some() && block_tokens.is_none() {
+            return comment::toggle_line_comments(doc, selection, line_token);
+        }
+
+        let split_lines = comment::split_lines_of_selection(text, selection);
+
+        let default_block_tokens = &[BlockCommentToken::default()];
+        let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+
+        let (line_commented, line_comment_changes) =
+            comment::find_block_comments(block_comment_tokens, text, &split_lines);
+
+        // block commented by line would also be block commented so check this first
+        if line_commented {
+            return comment::create_block_comment_transaction(
+                doc,
+                &split_lines,
+                line_commented,
+                line_comment_changes,
+            )
+            .0;
+        }
+
+        let (block_commented, comment_changes) =
+            comment::find_block_comments(block_comment_tokens, text, selection);
+
+        // check if selection has block comments
+        if block_commented {
+            return comment::create_block_comment_transaction(
+                doc,
+                selection,
+                block_commented,
+                comment_changes,
+            )
+            .0;
+        }
+
+        // not commented and only have block comment tokens
+        if line_token.is_none() && block_tokens.is_some() {
+            return comment::create_block_comment_transaction(
+                doc,
+                &split_lines,
+                line_commented,
+                line_comment_changes,
+            )
+            .0;
+        }
+
+        // not block commented at all and don't have any tokens
+        comment::toggle_line_comments(doc, selection, line_token)
+    })
+}
+
+pub(super) fn toggle_line_comments(cx: &mut Context) {
+    toggle_comments_impl(cx, |line_token, block_tokens, doc, selection| {
+        if line_token.is_none() && block_tokens.is_some() {
+            let default_block_tokens = &[BlockCommentToken::default()];
+            let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+            comment::toggle_block_comments(
+                doc,
+                &comment::split_lines_of_selection(doc.slice(..), selection),
+                block_comment_tokens,
+            )
+        } else {
+            comment::toggle_line_comments(doc, selection, line_token)
+        }
+    });
+}
+
+pub(super) fn toggle_block_comments(cx: &mut Context) {
+    toggle_comments_impl(cx, |line_token, block_tokens, doc, selection| {
+        if line_token.is_some() && block_tokens.is_none() {
+            comment::toggle_line_comments(doc, selection, line_token)
+        } else {
+            let default_block_tokens = &[BlockCommentToken::default()];
+            let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+            comment::toggle_block_comments(doc, selection, block_comment_tokens)
+        }
+    });
 }
