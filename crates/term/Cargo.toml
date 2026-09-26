@@ -1,7 +1,7 @@
 [package]
 name = "term"
 description = "Mitos terminal application, command handlers, event loop, and interactive UI"
-include = ["src/**/*", "README.md", "LICENSE"]
+include = ["src/**/*", "tests/fixtures/**/*", "README.md", "LICENSE"]
 default-run = "ms"
 version.workspace = true
 authors.workspace = true
@@ -40,6 +40,11 @@ git = ["vcs/git"]
 [[bin]]
 name = "ms"
 path = "src/main.rs"
+
+[[bin]]
+name = "mitos-test-lsp"
+path = "tests/fixtures/document_features_lsp.rs"
+required-features = ["integration"]
 
 [dependencies]
 command-line.workspace = true

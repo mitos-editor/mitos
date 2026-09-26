@@ -15,8 +15,43 @@ use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 
 use super::Handlers;
 
-pub struct DocumentColorsEvent(pub DocumentId);
-pub struct DocumentLinksEvent(pub DocumentId);
+/// Snapshot identity retained until a queued document-feature response is applied.
+/// Cancellation while waiting on the server alone does not protect queued callbacks.
+pub(super) struct DocumentRequest {
+    pub(super) cancel: event::TaskHandle,
+    doc: DocumentId,
+    version: i32,
+    uri: Option<Uri>,
+    servers: Vec<LanguageServerId>,
+}
+
+impl DocumentRequest {
+    pub(super) fn new(
+        doc: &crate::Document,
+        cancel: event::TaskHandle,
+        servers: Vec<LanguageServerId>,
+    ) -> Self {
+        Self {
+            cancel,
+            doc: doc.id(),
+            version: doc.version(),
+            uri: doc.uri(),
+            servers,
+        }
+    }
+
+    pub(super) fn is_current(&self, editor: &Editor) -> bool {
+        !self.cancel.is_canceled()
+            && editor.document(self.doc).is_some_and(|doc| {
+                doc.version() == self.version
+                    && doc.uri() == self.uri
+                    && self.servers.iter().all(|&id| {
+                        editor.language_server_by_id(id).is_some()
+                            && doc.supports_language_server(id)
+                    })
+            })
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SignatureHelpInvoked {
