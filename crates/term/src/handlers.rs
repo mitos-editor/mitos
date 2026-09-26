@@ -13,7 +13,6 @@ pub use view::handlers::{word_index, Handlers};
 
 pub(crate) mod auto_reload;
 mod auto_save;
-mod code_action_hint;
 pub mod completion;
 mod diagnostics;
 mod prompt;
@@ -31,7 +30,6 @@ pub fn setup(
     let signature_hints = SignatureHelpHandler::new().spawn();
     let auto_save = AutoSaveHandler::new().spawn();
     let auto_reload = PollHandler::new().spawn();
-    let code_action_hint = code_action_hint::Handler::default().spawn();
     let word_index = word_index::Handler::spawn();
 
     let handlers = Handlers {
@@ -56,7 +54,9 @@ pub fn setup(
         pull_diagnostics: view::handlers::diagnostics::pull::PullDiagnosticsHandler::new(
             callbacks.clone(),
         ),
-        code_action_hint,
+        code_action_hint: view::handlers::code_action_hint::CodeActionHintHandler::new(
+            callbacks.clone(),
+        ),
         spelling: view::handlers::spelling::SpellingHandler::new(callbacks),
     };
 
@@ -64,7 +64,7 @@ pub fn setup(
     completion::register_hooks(&handlers);
     signature_help::register_hooks(&handlers);
     view::handlers::document_highlight::register_hooks();
-    code_action_hint::register_hooks(&handlers);
+    view::handlers::code_action_hint::register_hooks();
     view::handlers::document_symbols::register_hooks();
     auto_save::register_hooks(&handlers);
     diagnostics::register_hooks();

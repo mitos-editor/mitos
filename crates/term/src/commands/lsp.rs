@@ -12,7 +12,7 @@ use futures_util::{stream::FuturesUnordered, FutureExt};
 use lsp_client::{
     block_on,
     lsp::{self, CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
-    util::{diagnostic_to_lsp_diagnostic, lsp_range_to_range, range_to_lsp_range},
+    util::lsp_range_to_range,
     Client, LanguageServerId, OffsetEncoding,
 };
 use std::{
@@ -28,7 +28,7 @@ use tui::{
     widgets::{Cell, Row},
 };
 use view::{
-    action::Action as CodeActionItem,
+    action::{code_actions_for_range, Action as CodeActionItem},
     align_view,
     document::{DocumentInlayHints, DocumentInlayHintsId},
     editor::Action,
@@ -727,46 +727,6 @@ pub fn code_action(cx: &mut Context) {
 
         Ok(Callback::EditorCompositor(Box::new(call)))
     });
-}
-
-// Extracting this to a type alias would require boxing this future
-#[allow(clippy::type_complexity)]
-pub(crate) fn code_actions_for_range(
-    doc: &Document,
-    range: editor_core::Range,
-    only: Option<Vec<CodeActionKind>>,
-    trigger_kind: CodeActionTriggerKind,
-) -> Vec<(
-    impl Future<Output = Result<Option<Vec<CodeActionOrCommand>>, lsp_client::Error>> + use<>,
-    LanguageServerId,
-)> {
-    let mut seen_language_servers = HashSet::new();
-
-    doc.language_servers_with_feature(LanguageServerFeature::CodeAction)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
-        // TODO this should probably already been filtered in something like "language_servers_with_feature"
-        .filter_map(|language_server| {
-            let offset_encoding = language_server.offset_encoding();
-            let language_server_id = language_server.id();
-            let lsp_range = range_to_lsp_range(doc.text(), range, offset_encoding);
-            // Filter and convert overlapping diagnostics
-            let code_action_context = lsp::CodeActionContext {
-                diagnostics: doc
-                    .diagnostics()
-                    .iter()
-                    .filter(|&diag| {
-                        range.overlaps(&editor_core::Range::new(diag.range.start, diag.range.end))
-                    })
-                    .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
-                    .collect(),
-                only: only.clone(),
-                trigger_kind: Some(trigger_kind),
-            };
-            let code_action_request =
-                language_server.code_actions(doc.identifier(), lsp_range, code_action_context)?;
-            Some((code_action_request, language_server_id))
-        })
-        .collect::<Vec<_>>()
 }
 
 /// Build the job chain that runs a document's configured `code-actions-on-save`

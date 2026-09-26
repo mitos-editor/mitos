@@ -639,9 +639,9 @@ async fn test_write_trim_trailing_whitespace() -> anyhow::Result<()> {
         .with_config(Config {
             editor: view::editor::Config {
                 trim_trailing_whitespace: true,
-                ..Default::default()
+                ..helpers::test_editor_config()
             },
-            ..Default::default()
+            ..helpers::test_config()
         })
         .with_file(file.path(), None)
         .with_input_text(LineFeedHandling::Native.apply("#[f|]#oo      \n\n \nbar      "))
@@ -661,9 +661,9 @@ async fn test_write_trim_final_newlines() -> anyhow::Result<()> {
         .with_config(Config {
             editor: view::editor::Config {
                 trim_final_newlines: true,
-                ..Default::default()
+                ..helpers::test_editor_config()
             },
-            ..Default::default()
+            ..helpers::test_config()
         })
         .with_file(file.path(), None)
         .with_input_text(LineFeedHandling::Native.apply("#[f|]#oo\n \n\n\n"))
@@ -734,9 +734,9 @@ async fn test_write_insert_final_newline_unchanged_if_missing_and_false() -> any
         .with_config(Config {
             editor: view::editor::Config {
                 insert_final_newline: false,
-                ..Default::default()
+                ..helpers::test_editor_config()
             },
-            ..Default::default()
+            ..helpers::test_config()
         })
         .with_file(file.path(), None)
         .with_input_text("#[t|]#he quiet rain continued through the night")
@@ -968,9 +968,9 @@ async fn edit_file_with_content(file_content: &[u8]) -> anyhow::Result<()> {
             .with_config(Config {
                 editor: view::editor::Config {
                     insert_final_newline: false,
-                    ..Default::default()
+                    ..helpers::test_editor_config()
                 },
-                ..Default::default()
+                ..helpers::test_config()
             })
             .build()?,
         Some(&format!(":o {}<ret>:x<ret>", file.path().to_string_lossy())),
@@ -1086,9 +1086,9 @@ async fn test_shared_auto_save_prepares_hidden_files_without_formatting() -> any
                 trim_trailing_whitespace: true,
                 trim_final_newlines: true,
                 auto_format: true,
-                ..Default::default()
+                ..helpers::test_editor_config()
             },
-            ..Default::default()
+            ..helpers::test_config()
         })
         .with_file(modified.path(), None)
         .with_input_text("#[h|]#éllo   \n\n")
@@ -1183,9 +1183,9 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
         .with_config(Config {
             editor: view::config::Config {
                 trim_trailing_whitespace: true,
-                ..Default::default()
+                ..helpers::test_editor_config()
             },
-            ..Default::default()
+            ..helpers::test_config()
         })
         .with_file(first.path(), None)
         .with_input_text("#[f|]#irst   ")
