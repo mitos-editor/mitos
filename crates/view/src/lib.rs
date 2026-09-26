@@ -19,6 +19,7 @@ pub mod clipboard;
 pub mod config;
 pub mod custom_commands;
 pub mod document;
+pub mod editing;
 pub mod editor;
 pub mod events;
 pub mod expansion;

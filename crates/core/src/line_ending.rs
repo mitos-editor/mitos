@@ -1,4 +1,13 @@
 use crate::{Rope, RopeSlice};
+use std::{borrow::Cow, sync::LazyLock};
+
+/// Normalize CRLF, bare CR, and LF sequences to the requested line ending.
+/// Other Unicode line separators and text are left unchanged.
+pub fn normalize_line_endings(text: &str, line_ending: LineEnding) -> Cow<'_, str> {
+    static LINE_ENDING_REGEX: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\r\n|\r|\n").unwrap());
+    LINE_ENDING_REGEX.replace_all(text, line_ending.as_str())
+}
 
 #[cfg(target_os = "windows")]
 pub const NATIVE_LINE_ENDING: LineEnding = LineEnding::Crlf;
@@ -226,6 +235,21 @@ pub fn rope_end_without_line_ending(slice: &RopeSlice) -> usize {
 #[cfg(test)]
 mod line_ending_tests {
     use super::*;
+
+    #[test]
+    fn normalize_mixed_line_endings_preserves_other_text() {
+        let input = "é$1\r\n界\rthree\nfour\u{2028}five";
+        assert_eq!(
+            normalize_line_endings(input, LineEnding::LF),
+            "é$1\n界\nthree\nfour\u{2028}five"
+        );
+        assert_eq!(
+            normalize_line_endings(input, LineEnding::Crlf),
+            "é$1\r\n界\r\nthree\r\nfour\u{2028}five"
+        );
+        assert_eq!(normalize_line_endings("", LineEnding::LF), "");
+        assert_eq!(normalize_line_endings("text", LineEnding::Crlf), "text");
+    }
 
     #[test]
     fn line_ending_autodetect() {

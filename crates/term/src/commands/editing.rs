@@ -9,13 +9,12 @@ use crate::ui::{self, Prompt, PromptEvent};
 use arc_swap::access::DynAccess;
 use editor_core::{
     comment, increment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
-    movement as core_movement, regex::Regex, surround, syntax::config::BlockCommentToken, Range,
-    Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
+    movement as core_movement, surround, syntax::config::BlockCommentToken, Range, Rope, RopeSlice,
+    Selection, SmallVec, Tendril, Transaction,
 };
 use std::{
     borrow::Cow,
     char::{ToLowercase, ToUppercase},
-    sync::LazyLock,
 };
 use stdx::rope::RopeSliceExt;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
@@ -657,23 +656,7 @@ pub(super) fn replace(cx: &mut Context) {
 pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
     let scrolloff = editor.config().scrolloff;
     let (view, doc) = current!(editor);
-    let replacement = Tendril::from(
-        LINE_ENDING_REGEX
-            .replace_all(replacement, doc.line_ending.as_str())
-            .as_ref(),
-    );
-    let len = replacement.chars().count();
-    let transaction =
-        Transaction::change_by_and_with_selection(doc.text(), doc.selection(view.id), |range| {
-            let selection =
-                Range::new(range.from(), range.from() + len).with_direction(range.direction());
-            (
-                (range.from(), range.to(), Some(replacement.clone())),
-                Some(selection),
-            )
-        });
-    doc.apply(&transaction, view.id);
-    doc.append_changes_to_history(view);
+    view::editing::replace_selections(doc, view, replacement);
     view.ensure_cursor_in_view(doc, scrolloff);
     if editor.mode == Mode::Select {
         editor.mode = Mode::Normal;
@@ -989,9 +972,6 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
         exit_select_mode(cx);
     }
 }
-
-pub(super) static LINE_ENDING_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\r\n|\r|\n").unwrap());
 
 pub(super) mod typed {
     //! Typable editing commands.

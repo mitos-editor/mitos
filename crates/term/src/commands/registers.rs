@@ -1,8 +1,9 @@
 //! Register and clipboard commands: yanking, pasting, replacement, and register selection.
 
-use super::{context::Context, editing::LINE_ENDING_REGEX, mode::exit_select_mode};
+use super::{context::Context, mode::exit_select_mode};
 use editor_core::{
-    line_ending::get_line_ending_of_str, Range, Selection, SmallVec, Tendril, Transaction,
+    line_ending::{get_line_ending_of_str, normalize_line_endings},
+    Range, Selection, SmallVec, Tendril, Transaction,
 };
 use std::borrow::Cow;
 use view::{document::Mode, info::Info, Document, Editor, View};
@@ -145,7 +146,7 @@ fn paste_impl(
         .any(|value| get_line_ending_of_str(value).is_some());
 
     let map_value = |value| {
-        let value = LINE_ENDING_REGEX.replace_all(value, doc.line_ending.as_str());
+        let value = normalize_line_endings(value, doc.line_ending);
         let mut out = Tendril::from(value.as_ref());
         for _ in 1..count {
             out.push_str(&value);
@@ -259,7 +260,7 @@ pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: ch
     let (view, doc) = current_ref!(editor);
 
     let map_value = |value: &Cow<str>| {
-        let value = LINE_ENDING_REGEX.replace_all(value, doc.line_ending.as_str());
+        let value = normalize_line_endings(value, doc.line_ending);
         let mut out = Tendril::from(value.as_ref());
         for _ in 1..count {
             out.push_str(&value);
