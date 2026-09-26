@@ -15,7 +15,9 @@ use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editor::SmartTabConfig, Document};
 
 use super::{
-    append_mode, context::Context, continued_line_comment_token, goto_next_tabstop, insert_mode,
+    context::Context,
+    continued_line_comment_token, goto_next_tabstop,
+    mode::{append_mode, insert_mode},
     move_parent_node_end,
 };
 use crate::{events::PostInsertChar, key};

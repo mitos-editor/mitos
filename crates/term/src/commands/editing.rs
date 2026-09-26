@@ -16,8 +16,10 @@ use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, Document, Editor, ViewId};
 
 use super::{
-    context::Context, continued_line_comment_token, enter_insert_mode, exit_select_mode, open,
-    CommentContinuation, Open, LINE_ENDING_REGEX,
+    context::Context,
+    continued_line_comment_token,
+    mode::{enter_insert_mode, exit_select_mode},
+    open, CommentContinuation, Open, LINE_ENDING_REGEX,
 };
 use crate::ui::{self, Prompt, PromptEvent};
 

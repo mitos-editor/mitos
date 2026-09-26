@@ -7,7 +7,7 @@ use editor_core::{
 };
 use view::{document::Mode, info::Info, Document, Editor, View};
 
-use super::{context::Context, exit_select_mode, LINE_ENDING_REGEX};
+use super::{context::Context, mode::exit_select_mode, LINE_ENDING_REGEX};
 
 pub(super) fn yank(cx: &mut Context) {
     yank_impl(

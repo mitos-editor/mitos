@@ -6,6 +6,7 @@ mod editing;
 pub mod insert;
 pub(crate) mod lsp;
 mod mappable;
+mod mode;
 mod movement;
 mod registers;
 mod selection;
@@ -20,6 +21,7 @@ use event::status;
 use futures_util::FutureExt;
 pub use lsp::*;
 pub use mappable::MappableCommand;
+use mode::{enter_insert_mode, exit_select_mode};
 pub use movement::scroll;
 pub(crate) use registers::{
     paste, paste_bracketed_value, replace_selections_with_register,
@@ -1072,61 +1074,6 @@ fn selection_for_global_search_match(
     Some(Selection::single(start, end).ensure_invariants(text))
 }
 
-fn enter_insert_mode(cx: &mut Context) {
-    cx.editor.mode = Mode::Insert;
-}
-
-// inserts at the start of each selection
-fn insert_mode(cx: &mut Context) {
-    enter_insert_mode(cx);
-    let (view, doc) = current!(cx.editor);
-
-    log::trace!(
-        "entering insert mode with sel: {:?}, text: {:?}",
-        doc.selection(view.id),
-        doc.text().to_string()
-    );
-
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| Range::new(range.to(), range.from()));
-
-    doc.set_selection(view.id, selection);
-}
-
-// inserts at the end of each selection
-fn append_mode(cx: &mut Context) {
-    enter_insert_mode(cx);
-    let (view, doc) = current!(cx.editor);
-    doc.restore_cursor = true;
-    let text = doc.text().slice(..);
-
-    // Make sure there's room at the end of the document if the last
-    // selection butts up against it.
-    let end = text.len_chars();
-    let last_range = doc
-        .selection(view.id)
-        .iter()
-        .last()
-        .expect("selection should always have at least one range");
-    if !last_range.is_empty() && last_range.to() == end {
-        let transaction = Transaction::change(
-            doc.text(),
-            [(end, end, Some(doc.line_ending.as_str().into()))].into_iter(),
-        );
-        doc.apply(&transaction, view.id);
-    }
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        Range::new(
-            range.from(),
-            graphemes::next_grapheme_boundary(doc.text().slice(..), range.to()),
-        )
-    });
-    doc.set_selection(view.id, selection);
-}
-
 fn file_picker(cx: &mut Context) {
     let root = find_workspace().0;
     if !root.exists() {
@@ -2161,10 +2108,6 @@ fn open_above(cx: &mut Context) {
     open(cx, Open::Above, CommentContinuation::Enabled)
 }
 
-fn normal_mode(cx: &mut Context) {
-    cx.editor.enter_normal_mode();
-}
-
 // Store a jump on the jumplist.
 fn push_jump(view: &mut View, doc: &mut Document) {
     doc.append_changes_to_history(view);
@@ -2294,33 +2237,6 @@ fn goto_last_modified_file(cx: &mut Context) {
         cx.editor.switch(alt, Action::Replace);
     } else {
         cx.editor.set_error(|| "no last modified buffer")
-    }
-}
-
-fn select_mode(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    // Make sure end-of-document selections are also 1-width.
-    // (With the exception of being in an empty document, of course.)
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        if range.is_empty() && range.head == text.len_chars() {
-            Range::new(
-                graphemes::prev_grapheme_boundary(text, range.anchor),
-                range.head,
-            )
-        } else {
-            range
-        }
-    });
-    doc.set_selection(view.id, selection);
-
-    cx.editor.mode = Mode::Select;
-}
-
-fn exit_select_mode(cx: &mut Context) {
-    if cx.editor.mode == Mode::Select {
-        cx.editor.mode = Mode::Normal;
     }
 }
 
