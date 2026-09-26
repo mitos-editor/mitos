@@ -1,8 +1,9 @@
-use event::register_hook;
-use view::events::{DocumentDidChange, DocumentFocusLost, SelectionDidChange};
-use view::handlers::Handlers;
+//! Snippet range tracking and invalidation during editor operations.
 
-pub(super) fn register_hooks(_handlers: &Handlers) {
+use crate::events::{DocumentDidChange, DocumentFocusLost, SelectionDidChange};
+use event::register_hook;
+
+pub(super) fn register_hooks() {
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         if let Some(snippet) = &event.doc.active_snippet
             && !snippet.is_valid(event.doc.selection(event.view))
