@@ -1,4 +1,4 @@
-//! Text transformations, indentation, comments, replacement, deletion, and surrounds over selections.
+//! Text transformations and editing commands over selections.
 
 use std::{
     borrow::Cow,
@@ -6,7 +6,7 @@ use std::{
 };
 
 use editor_core::{
-    comment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
+    comment, increment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
     movement as core_movement, surround, syntax::config::BlockCommentToken, Range, Rope, RopeSlice,
     Selection, SmallVec, Tendril, Transaction,
 };
@@ -921,4 +921,73 @@ pub(super) fn surround_delete(cx: &mut Context) {
     });
 
     cx.editor.autoinfo = Some(Info::new("Delete surrounding pair of", &SURROUND_HELP_TEXT));
+}
+
+enum IncrementDirection {
+    Increase,
+    Decrease,
+}
+
+/// Increment objects within selections by count.
+pub(super) fn increment(cx: &mut Context) {
+    increment_impl(cx, IncrementDirection::Increase);
+}
+
+/// Decrement objects within selections by count.
+pub(super) fn decrement(cx: &mut Context) {
+    increment_impl(cx, IncrementDirection::Decrease);
+}
+
+/// Increment objects within selections by `amount`.
+/// A negative `amount` will decrement objects within selections.
+fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
+    let sign = match increment_direction {
+        IncrementDirection::Increase => 1,
+        IncrementDirection::Decrease => -1,
+    };
+    let mut amount = sign * cx.count() as i64;
+    // If the register is `#` then increase or decrease the `amount` by 1 per element
+    let increase_by = if cx.register == Some('#') { sign } else { 0 };
+
+    let (view, doc) = current!(cx.editor);
+    let selection = doc.selection(view.id);
+    let text = doc.text().slice(..);
+
+    let mut new_selection_ranges = SmallVec::new();
+    let mut cumulative_length_diff: i128 = 0;
+    let mut changes = vec![];
+
+    for range in selection {
+        let selected_text: Cow<str> = range.fragment(text);
+        let new_from = ((range.from() as i128) + cumulative_length_diff) as usize;
+        let incremented = [increment::integer, increment::date_time]
+            .iter()
+            .find_map(|incrementor| incrementor(selected_text.as_ref(), amount));
+
+        amount += increase_by;
+
+        match incremented {
+            None => {
+                let new_range = Range::new(
+                    new_from,
+                    (range.to() as i128 + cumulative_length_diff) as usize,
+                );
+                new_selection_ranges.push(new_range);
+            }
+            Some(new_text) => {
+                let new_range = Range::new(new_from, new_from + new_text.len());
+                cumulative_length_diff += new_text.len() as i128 - selected_text.len() as i128;
+                new_selection_ranges.push(new_range);
+                changes.push((range.from(), range.to(), Some(new_text.into())));
+            }
+        }
+    }
+
+    if !changes.is_empty() {
+        let new_selection = Selection::new(new_selection_ranges, selection.primary_index());
+        let transaction = Transaction::change(doc.text(), changes.into_iter());
+        let transaction = transaction.with_selection(new_selection);
+        doc.apply(&transaction, view.id);
+        exit_select_mode(cx);
+    }
 }
