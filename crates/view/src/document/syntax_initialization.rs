@@ -1,4 +1,4 @@
-//! Syntax snapshots and publication rules; completion is delivered by the UI job queue.
+//! Syntax snapshots and publication rules, coordinated by the document's syntax handler.
 
 use std::sync::Arc;
 
@@ -104,8 +104,10 @@ impl Document {
             loader,
             controller: TaskController::new(),
         });
-        if self.pending_syntax.is_some() {
-            event::dispatch(crate::events::DocumentSyntaxRequested { doc: self });
+        if self.pending_syntax.is_some()
+            && let Some(handler) = self.syntax_handler.clone()
+        {
+            handler.request(self);
         }
     }
 
@@ -139,10 +141,6 @@ mod tests {
     };
 
     fn loader() -> Arc<syntax::Loader> {
-        event::runtime_local! {
-            static REGISTER: std::sync::Once = std::sync::Once::new();
-        }
-        REGISTER.call_once(event::register_event::<crate::events::DocumentSyntaxRequested>);
         Arc::new(
             syntax::Loader::new(
                 toml::from_str(

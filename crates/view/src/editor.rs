@@ -902,6 +902,7 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
+        doc.syntax_handler = Some(self.handlers.syntax.clone());
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);
@@ -1227,7 +1228,7 @@ impl Editor {
     }
 
     /// Finish pending syntax initialization for an explicit syntax-dependent command.
-    /// Normal file loading publishes syntax asynchronously through the job queue.
+    /// Normal file loading publishes syntax through the editor's completion sender.
     pub fn ensure_syntax(&mut self, id: DocumentId) {
         if self
             .document_mut(id)

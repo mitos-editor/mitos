@@ -222,6 +222,8 @@ pub struct Document {
 
     pub syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
+    // Assigned when the document joins an editor; standalone documents can drive requests manually.
+    pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub language: Option<Arc<LanguageConfiguration>>,
 
@@ -871,6 +873,7 @@ impl Document {
             restore_cursor: false,
             syntax: None,
             pending_syntax: None,
+            syntax_handler: None,
             language: None,
             changes,
             old_state,
