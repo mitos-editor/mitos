@@ -106,12 +106,16 @@ impl Jobs {
     /// Bind editor-only completions to this queue, independent of global dispatch.
     pub fn editor_callback_sender(&self) -> EditorCallbackSender {
         let sender = self.sender.clone();
-        EditorCallbackSender::new(move |callback| {
-            let sender = sender.clone();
-            async move {
-                let _ = sender.send(Callback::Editor(callback)).await;
-            }
-        })
+        let blocking_sender = sender.clone();
+        EditorCallbackSender::new(
+            move |callback| {
+                let sender = sender.clone();
+                async move {
+                    let _ = sender.send(Callback::Editor(callback)).await;
+                }
+            },
+            move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
+        )
     }
 
     pub fn spawn<F: Future<Output = anyhow::Result<()>> + Send + 'static>(&mut self, f: F) {
@@ -221,12 +225,23 @@ impl Jobs {
 mod tests {
     use super::*;
 
+    // Without the integration-test feature, the selected queue is process-global.
+    static QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn editor_sender_keeps_its_queue_and_backpressure() {
+        let _guard = QUEUE_TEST_LOCK.lock().await;
         let mut first = Jobs::new();
         let sender = first.editor_callback_sender();
         let mut second = Jobs::new();
         second.set_current();
+
+        sender.send_blocking(|_| {});
+        assert!(matches!(
+            first.callbacks.try_recv(),
+            Ok(Callback::Editor(_))
+        ));
+        assert!(second.callbacks.try_recv().is_err());
 
         for _ in 0..1024 {
             sender.send(|_| {}).await;
@@ -243,10 +258,12 @@ mod tests {
         // Shutdown drops queued completions and future sends finish without blocking.
         drop(first);
         sender.send(|_| {}).await;
+        sender.send_blocking(|_| {});
     }
 
     #[tokio::test]
     async fn callbacks_follow_the_selected_queue_and_jobs_keep_their_owner() {
+        let _guard = QUEUE_TEST_LOCK.lock().await;
         let mut first = Jobs::new();
         first.set_current();
         let mut second = Jobs::new();
