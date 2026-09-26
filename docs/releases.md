@@ -1,7 +1,7 @@
 # Releases
 
 [release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
-to `main`. Merging that PR creates a GitHub release and a numeric version tag;
+to `main`. Merging that PR creates a GitHub release and a version tag such as `v0.1.0`;
 the tag triggers `.github/workflows/release.yml` to build and upload the binary
 archives, Debian package, and provenance attestations.
 
@@ -12,15 +12,15 @@ remain on the same version. `lsp-types` retains its independent vendored version
 
 ## Version baseline
 
-The initial Mitos version is **25.7.1**, the Cargo workspace version at Helix
-fork commit `f9928f57f`. The latest Helix release tag at that commit was `25.07`,
-but the source version had already advanced to `25.7.1`.
+Mitos uses semantic versions starting at **0.1.0**, independently of Helix's
+release history. Tags use the form `v0.1.0`. Inherited Helix tags must not be
+pushed back into this repository.
 
-There is no Mitos `25.7.1` tag to bootstrap: release-plz treats it as the initial
+With no existing release tags, release-plz treats `0.1.0` as the initial
 release and keeps that version in its first release PR. Subsequent versions
-follow release-plz's semantic version bumps from commit messages, rather than
-automatically advancing with the calendar. Tags use `25.7.1` format, without a
-`v` prefix or zero-padded month.
+follow release-plz's semantic version bumps from commit messages.
+`release_always = false` ensures publication happens only after a release PR
+is merged.
 
 ## Repository setup
 
