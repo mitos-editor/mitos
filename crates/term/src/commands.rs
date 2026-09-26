@@ -3,6 +3,7 @@ mod command_line;
 mod context;
 pub(crate) mod dap;
 mod editing;
+mod history;
 pub mod insert;
 pub(crate) mod lsp;
 mod mappable;
@@ -44,7 +45,6 @@ use editor_core::{
     diagnostic::DiagnosticProvider,
     encoding, find_workspace,
     graphemes::{self, next_grapheme_boundary},
-    history::UndoKind,
     indent::IndentStyle,
     line_ending::line_end_char_index,
     match_brackets,
@@ -2255,59 +2255,6 @@ fn hunk_range(hunk: Hunk, text: RopeSlice) -> Range {
     };
 
     Range::new(anchor, head)
-}
-
-// Undo / Redo
-
-fn undo(cx: &mut Context) {
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    for _ in 0..count {
-        if !doc.undo(view) {
-            cx.editor.set_status("Already at oldest change");
-            break;
-        }
-    }
-}
-
-fn redo(cx: &mut Context) {
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    for _ in 0..count {
-        if !doc.redo(view) {
-            cx.editor.set_status("Already at newest change");
-            break;
-        }
-    }
-}
-
-fn earlier(cx: &mut Context) {
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    for _ in 0..count {
-        // rather than doing in batch we do this so get error halfway
-        if !doc.earlier(view, UndoKind::Steps(1)) {
-            cx.editor.set_status("Already at oldest change");
-            break;
-        }
-    }
-}
-
-fn later(cx: &mut Context) {
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    for _ in 0..count {
-        // rather than doing in batch we do this so get error halfway
-        if !doc.later(view, UndoKind::Steps(1)) {
-            cx.editor.set_status("Already at newest change");
-            break;
-        }
-    }
-}
-
-fn commit_undo_checkpoint(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    doc.append_changes_to_history(view);
 }
 
 static LINE_ENDING_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\r\n|\r|\n").unwrap());
