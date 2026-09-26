@@ -897,6 +897,7 @@ impl Editor {
         doc.document_symbols_handler = Some(self.handlers.document_symbols.clone());
         doc.pull_diagnostics_handler = Some(self.handlers.pull_diagnostics.clone());
         doc.code_action_hint_handler = Some(self.handlers.code_action_hint.clone());
+        doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
         doc.syntax_handler = Some(self.handlers.syntax.clone());
         doc.spelling_events = Some(self.handlers.spelling.event_tx.clone());
         doc.initialize_syntax(self.syn_loader.load_full());
