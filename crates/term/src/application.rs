@@ -1006,7 +1006,7 @@ impl Application {
                                     self.lsp_progress.end_progress(server_id, &token);
                                     if !self.lsp_progress.is_progressing(server_id) {
                                         editor_view.spinners_mut().get_or_create(server_id).stop();
-                                        handlers::diagnostics::request_all_document_diagnostics_for_language_server(
+                                        view::handlers::diagnostics::pull::request_all_document_diagnostics_for_language_server(
                                             &mut self.editor,
                                             server_id,
                                         );
@@ -1054,7 +1054,7 @@ impl Application {
                                 self.lsp_progress.end_progress(server_id, &token);
                                 if !self.lsp_progress.is_progressing(server_id) {
                                     editor_view.spinners_mut().get_or_create(server_id).stop();
-                                    handlers::diagnostics::request_all_document_diagnostics_for_language_server(
+                                    view::handlers::diagnostics::pull::request_all_document_diagnostics_for_language_server(
                                         &mut self.editor,
                                         server_id,
                                     );
@@ -1262,7 +1262,7 @@ impl Application {
                     }
                     Ok(MethodCall::WorkspaceDiagnosticRefresh) => {
                         let server_id = language_server!().id();
-                        handlers::diagnostics::request_all_document_diagnostics_for_language_server(
+                        view::handlers::diagnostics::pull::request_all_document_diagnostics_for_language_server(
                             &mut self.editor,
                             server_id,
                         );
