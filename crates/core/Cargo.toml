@@ -19,10 +19,6 @@ unicode-lines = ["ropey/unicode_lines"]
 integration = []
 
 [dependencies]
-event.workspace = true
-tokio = { workspace = true, features = ["rt"] }
-filesentry.workspace = true
-ignore.workspace = true
 stdx.workspace = true
 loader.workspace = true
 dap-types.workspace = true

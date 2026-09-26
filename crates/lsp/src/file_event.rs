@@ -9,19 +9,13 @@ use std::{
     sync::Weak,
 };
 
-use editor_core::file_watcher::{EventType, Events, FileSystemDidChange};
-use event::register_hook;
 use globset::{Glob, GlobBuilder, GlobSet};
 use tokio::sync::mpsc;
 
 use crate::{lsp, Client, LanguageServerId};
 
 enum Event {
-    FileChanged {
-        path: PathBuf,
-        ty: EventType,
-    },
-    FileWatcher(Events),
+    FilesChanged(Vec<(PathBuf, lsp::FileChangeType)>),
     Register {
         client: Weak<Client>,
         registration_id: String,
@@ -63,7 +57,7 @@ fn watcher_glob(pattern: lsp::GlobPattern) -> anyhow::Result<Glob> {
             let path = uri
                 .to_file_path()
                 .map_err(|_| anyhow::anyhow!("invalid file watcher base URI: {uri}"))?;
-            let path = editor_core::file_watcher::canonicalize_path(&path);
+            let path = stdx::path::canonicalize_existing(&path);
             let path = path
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("file watcher base must be UTF-8"))?;
@@ -146,13 +140,13 @@ impl State {
         }
     }
 
-    fn queue<'a>(&mut self, events: impl IntoIterator<Item = (&'a Path, EventType)>) {
+    fn queue<'a>(&mut self, events: impl IntoIterator<Item = (&'a Path, lsp::FileChangeType)>) {
         for (path, ty) in events {
-            let (flag, typ) = match ty {
-                EventType::Create => (lsp::WatchKind::Create, lsp::FileChangeType::CREATED),
-                EventType::Delete => (lsp::WatchKind::Delete, lsp::FileChangeType::DELETED),
-                EventType::Modified => (lsp::WatchKind::Change, lsp::FileChangeType::CHANGED),
-                EventType::Tempfile => continue,
+            let flag = match ty {
+                lsp::FileChangeType::CREATED => lsp::WatchKind::Create,
+                lsp::FileChangeType::DELETED => lsp::WatchKind::Delete,
+                lsp::FileChangeType::CHANGED => lsp::WatchKind::Change,
+                _ => continue,
             };
             let Ok(uri) = lsp::Url::from_file_path(path) else {
                 continue;
@@ -165,7 +159,7 @@ impl State {
                 }
                 let event = lsp::FileEvent {
                     uri: uri.clone(),
-                    typ,
+                    typ: ty,
                 };
                 let pending = &mut self.clients.get_mut(&id).unwrap().pending;
                 // Overlapping registrations should deliver a change only once per server.
@@ -176,7 +170,7 @@ impl State {
         }
     }
 
-    fn notify<'a>(&mut self, events: impl IntoIterator<Item = (&'a Path, EventType)>) {
+    fn notify<'a>(&mut self, events: impl IntoIterator<Item = (&'a Path, lsp::FileChangeType)>) {
         self.queue(events);
         let mut removed = false;
         self.clients.retain(|_, state| {
@@ -211,13 +205,6 @@ impl Handler {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(Self::run(rx));
-        let weak = tx.downgrade();
-        register_hook!(move |event: &mut FileSystemDidChange| {
-            if let Some(tx) = weak.upgrade() {
-                let _ = tx.send(Event::FileWatcher(event.fs_events.clone()));
-            }
-            Ok(())
-        });
         Self { tx }
     }
 
@@ -241,9 +228,19 @@ impl Handler {
         });
     }
 
-    pub fn file_changed(&self, path: PathBuf, ty: EventType) {
-        let path = editor_core::file_watcher::canonicalize_path(&path);
-        let _ = self.tx.send(Event::FileChanged { path, ty });
+    /// Submit one editor-observed change, including paths that no longer exist.
+    pub fn file_changed(&self, path: PathBuf, ty: lsp::FileChangeType) {
+        self.files_changed([(stdx::path::canonicalize_existing(&path), ty)]);
+    }
+
+    /// Submit an ordered batch of absolute paths with resolved existing ancestors.
+    /// The caller supplies normalized paths, without exposing native watcher types.
+    /// Overlapping registrations deliver each path/change pair only once per batch.
+    pub fn files_changed(&self, changes: impl IntoIterator<Item = (PathBuf, lsp::FileChangeType)>) {
+        let changes: Vec<_> = changes.into_iter().collect();
+        if !changes.is_empty() {
+            let _ = self.tx.send(Event::FilesChanged(changes));
+        }
     }
 
     pub fn remove_client(&self, client_id: LanguageServerId) {
@@ -254,12 +251,9 @@ impl Handler {
         let mut state = State::default();
         while let Some(event) = rx.recv().await {
             match event {
-                Event::FileWatcher(events) => state.notify(
-                    events
-                        .iter()
-                        .map(|event| (event.path.as_std_path(), event.ty)),
-                ),
-                Event::FileChanged { path, ty } => state.notify([(path.as_path(), ty)]),
+                Event::FilesChanged(changes) => {
+                    state.notify(changes.iter().map(|(path, ty)| (path.as_path(), *ty)))
+                }
                 Event::Register {
                     client,
                     registration_id,
@@ -311,10 +305,9 @@ mod tests {
         state.register(id, Weak::new(), "all".into(), registration("**/*.rs", None));
         let path = std::env::temp_dir().join("watched.rs");
         state.queue([
-            (path.as_path(), EventType::Create),
-            (path.as_path(), EventType::Modified),
-            (path.as_path(), EventType::Delete),
-            (path.as_path(), EventType::Tempfile),
+            (path.as_path(), lsp::FileChangeType::CREATED),
+            (path.as_path(), lsp::FileChangeType::CHANGED),
+            (path.as_path(), lsp::FileChangeType::DELETED),
         ]);
         let pending = &mut state.clients.get_mut(&id).unwrap().pending;
         assert_eq!(
@@ -336,8 +329,8 @@ mod tests {
         state.unregister(id, "changes");
         let config = std::env::temp_dir().join("Cargo.toml");
         state.queue([
-            (path.as_path(), EventType::Modified),
-            (config.as_path(), EventType::Create),
+            (path.as_path(), lsp::FileChangeType::CHANGED),
+            (config.as_path(), lsp::FileChangeType::CREATED),
         ]);
         assert_eq!(state.clients[&id].pending.len(), 1);
         assert_eq!(
@@ -374,15 +367,14 @@ mod tests {
         state.queue(
             paths
                 .iter()
-                .map(|path| (path.as_path(), EventType::Modified)),
+                .map(|path| (path.as_path(), lsp::FileChangeType::CHANGED)),
         );
         assert_eq!(state.clients[&id].pending.len(), 2);
     }
 
     #[test]
     fn relative_patterns_escape_the_base_and_obey_directory_boundaries() {
-        let base =
-            editor_core::file_watcher::canonicalize_path(&std::env::temp_dir()).join("project[1]");
+        let base = stdx::path::canonicalize_existing(&std::env::temp_dir()).join("project[1]");
         let glob = watcher_glob(lsp::GlobPattern::Relative(lsp::RelativePattern {
             base_uri: lsp::OneOf::Right(lsp::Url::from_directory_path(&base).unwrap()),
             pattern: "*.rs".into(),

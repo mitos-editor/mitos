@@ -12,7 +12,6 @@ use std::{
 
 use editor_core::{
     diagnostic::Severity,
-    file_watcher,
     syntax::config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig},
     LineEnding, NATIVE_LINE_ENDING,
 };
@@ -25,6 +24,7 @@ use crate::{
     clipboard::ClipboardProvider,
     custom_commands::CustomCommands,
     document::Mode,
+    file_watcher,
     graphics::CursorKind,
 };
 

@@ -5,9 +5,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use editor_core::file_watcher::{CanonicalPathBuf, Event, EventType, Events, FileSystemDidChange};
 use tempfile::TempDir;
 use term::application::Application;
+use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
 use view::{current, current_ref};
 
 use super::helpers::*;
@@ -31,13 +31,14 @@ fn app(path: &Path) -> anyhow::Result<Application> {
 }
 
 async fn notify(app: &mut Application, path: &Path, ty: EventType) {
-    let path = editor_core::file_watcher::canonicalize_path(path);
-    event::dispatch(FileSystemDidChange {
-        fs_events: Events::from(vec![Event {
-            path: CanonicalPathBuf::assert_canonicalized(&path),
-            ty,
-        }]),
-    });
+    let path = stdx::path::canonicalize_existing(path);
+    let events = Events::from(vec![Event {
+        path: CanonicalPathBuf::assert_canonicalized(&path),
+        ty,
+    }]);
+    app.editor.handle_file_events(&events);
+    // Direct shared API calls do not reset the terminal loop's idle timer.
+    app.editor.reset_idle_timer();
     run_event_loop_until_idle(app).await;
 }
 
@@ -140,7 +141,7 @@ async fn native_watcher_detects_atomic_replacement() -> anyhow::Result<()> {
     let mut app = app(&path)?;
     app.editor
         .file_watcher
-        .reload(&editor_core::file_watcher::Config::default());
+        .reload(&view::file_watcher::Config::default());
     app.editor.file_watcher.add_root(dir.path());
     tokio::time::timeout(Duration::from_secs(10), async {
         while !app.editor.file_watcher.is_watching(&path) {
@@ -221,7 +222,9 @@ impl SharedReload {
             },
         );
         self.app.editor.handlers.auto_reload =
-            AutoReloadHandler::new(callbacks, &self.app.editor.config());
+            AutoReloadHandler::new(callbacks.clone(), &self.app.editor.config());
+        self.app.editor.file_watcher =
+            view::file_watcher::Watcher::new(&self.app.editor.config().file_watcher, callbacks);
         self.callbacks = rx;
     }
 
@@ -237,7 +240,7 @@ fn fs_events(paths: &[&Path]) -> Events {
         paths
             .iter()
             .map(|path| {
-                let path = editor_core::file_watcher::canonicalize_path(path);
+                let path = stdx::path::canonicalize_existing(path);
                 Event {
                     path: CanonicalPathBuf::assert_canonicalized(&path),
                     ty: EventType::Modified,
@@ -256,47 +259,75 @@ fn edit_buffer(app: &mut Application, prefix: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn filesystem_callbacks_stay_with_each_editor_and_replaced_handlers_are_ignored(
+async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_callbacks(
 ) -> anyhow::Result<()> {
     let dir = TempDir::new()?;
-    let first_path = dir.path().join("first.txt");
-    let second_path = dir.path().join("second.txt");
-    changed(&first_path, "first\n", 1)?;
-    changed(&second_path, "second\n", 1)?;
-    let mut first = SharedReload::new(&first_path)?;
-    let mut second = SharedReload::new(&second_path)?;
-    assert_eq!(
-        current_ref!(first.app.editor).1.id(),
-        current_ref!(second.app.editor).1.id()
-    );
-    changed(&first_path, "updated first\n", 2)?;
-    changed(&second_path, "updated second\n", 2)?;
-    event::dispatch(FileSystemDidChange {
-        fs_events: fs_events(&[&first_path, &second_path]),
-    });
-    let callback = first.callback().await?;
-    callback(&mut first.app.editor);
-    assert_eq!(text(&first.app), "updated first\n");
-    assert_eq!(text(&second.app), "second\n");
-    let callback = second.callback().await?;
-    callback(&mut second.app.editor);
-    assert_eq!(text(&second.app), "updated second\n");
-
-    changed(&first_path, "replacement handler\n", 3)?;
-    event::dispatch(FileSystemDidChange {
-        fs_events: fs_events(&[&first_path]),
-    });
+    let path = dir.path().join("shared.txt");
+    changed(&path, "original\n", 1)?;
+    let mut first = SharedReload::new(&path)?;
+    let mut second = SharedReload::new(&path)?;
+    // Both editors have the same file open. Only the first owns a native watch.
+    first
+        .app
+        .editor
+        .file_watcher
+        .reload(&view::file_watcher::Config::default());
+    first.app.editor.file_watcher.add_root(dir.path());
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !first.app.editor.file_watcher.is_watching(&path) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    changed(&path, "first update\n", 2)?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while text(&first.app) != "first update\n" {
+            let callback = first.callback().await?;
+            callback(&mut first.app.editor);
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    assert_eq!(text(&second.app), "original\n");
+    assert!(second.callbacks.try_recv().is_err());
+    // Clear callbacks from the initial crawl before collecting a new change.
+    while let Ok(callback) = first.callbacks.try_recv() {
+        callback(&mut first.app.editor);
+    }
+    changed(&path, "queued update\n", 3)?;
+    let stale = first.callback().await?;
+    // Even a callback delivered to the wrong editor must be harmless.
+    stale(&mut second.app.editor);
+    assert_eq!(text(&second.app), "original\n");
+    changed(&path, "disabled watcher\n", 4)?;
+    let stale = first.callback().await?;
+    first
+        .app
+        .editor
+        .file_watcher
+        .reload(&view::file_watcher::Config {
+            enable: false,
+            ..Default::default()
+        });
+    stale(&mut first.app.editor);
+    assert_eq!(text(&first.app), "first update\n");
+    while let Ok(callback) = first.callbacks.try_recv() {
+        callback(&mut first.app.editor);
+    }
+    assert_eq!(text(&first.app), "first update\n");
+    // Replacing an active watcher must also reject callbacks already queued.
+    first
+        .app
+        .editor
+        .file_watcher
+        .reload(&view::file_watcher::Config::default());
+    changed(&path, "replacement watcher\n", 5)?;
     let stale = first.callback().await?;
     first.replace_handler();
     stale(&mut first.app.editor);
-    assert_eq!(text(&first.app), "updated first\n");
-    event::dispatch(FileSystemDidChange {
-        fs_events: fs_events(&[&first_path]),
-    });
-    let callback = first.callback().await?;
-    callback(&mut first.app.editor);
-    assert_eq!(text(&first.app), "replacement handler\n");
-    // Registry hooks hold only weak destinations, so dropping an editor closes its queue.
+    assert_eq!(text(&first.app), "first update\n");
+    first.app.editor.handle_file_events(&fs_events(&[&path]));
+    assert_eq!(text(&first.app), "replacement watcher\n");
     assert!(first.app.close().await.is_empty());
     drop(first.app);
     assert!(first.callbacks.recv().await.is_none());
@@ -483,7 +514,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabled(
 ) -> anyhow::Result<()> {
-    use view::handlers::auto_reload::{check_unwatched, handle_file_events};
+    use view::handlers::auto_reload::check_unwatched;
     let dir = TempDir::new()?;
     let path = dir.path().join("file.txt");
     changed(&path, "original\n", 1)?;
@@ -531,7 +562,7 @@ async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabl
         .set_config(loader::workspace_trust::Config::default());
     let head = dir.path().join(".git/HEAD");
     changed(&head, "ref: refs/heads/second\n", 2)?;
-    handle_file_events(&mut app.editor, &fs_events(&[&head]));
+    app.editor.handle_file_events(&fs_events(&[&head]));
     assert_eq!(
         current_ref!(app.editor)
             .1

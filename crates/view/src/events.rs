@@ -59,6 +59,5 @@ pub(crate) fn register() {
         register_event::<LanguageServerInitialized>();
         register_event::<LanguageServerExited>();
         register_event::<ConfigDidChange>();
-        register_event::<editor_core::file_watcher::FileSystemDidChange>();
     });
 }
