@@ -29,8 +29,9 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
+    let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
-    let mut request_log = if diagnostics || code_actions || lifecycle {
+    let mut request_log = if diagnostics || code_actions || lifecycle || signature_help {
         Some(std::fs::File::create(&args[2])?)
     } else {
         None
@@ -175,8 +176,44 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/signatureHelp" && signature_help {
+            writeln!(request_log.as_mut().unwrap(), "{params}")?;
+            request_log.as_mut().unwrap().flush()?;
+            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            if text.contains("error") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32603, "message": "signature fixture error"}}),
+                )?;
+                continue;
+            }
+            let result = if text.contains("empty") {
+                Value::Null
+            } else if text.contains("no-signatures") {
+                json!({"signatures": []})
+            } else {
+                json!({"signatures": [
+                    {"label": format!("{}: {text}", args[1]), "documentation": "first signature"},
+                    {"label": "second(value)", "parameters": [{"label": "value"}], "activeParameter": 0}
+                ], "activeSignature": 0})
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if signature_help => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "signatureHelpProvider": {"triggerCharacters": ["(", ","]}
+            }}),
             "initialize" if lifecycle => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1, "documentSymbolProvider": true
             }}),
