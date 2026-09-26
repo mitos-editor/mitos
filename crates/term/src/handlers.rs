@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use diagnostics::PullAllDocumentsDiagnosticHandler;
 use event::AsyncHook;
 
 use crate::config::Config;
 use crate::events;
 use crate::handlers::auto_reload::PollHandler;
 use crate::handlers::auto_save::AutoSaveHandler;
-use crate::handlers::diagnostics::PullDiagnosticsHandler;
 use crate::handlers::signature_help::SignatureHelpHandler;
 
 pub use view::handlers::{word_index, Handlers};
@@ -17,7 +15,7 @@ pub(crate) mod auto_reload;
 mod auto_save;
 mod code_action_hint;
 pub mod completion;
-pub mod diagnostics;
+mod diagnostics;
 mod prompt;
 mod signature_help;
 mod snippet;
@@ -35,8 +33,6 @@ pub fn setup(
     let auto_reload = PollHandler::new().spawn();
     let code_action_hint = code_action_hint::Handler::default().spawn();
     let word_index = word_index::Handler::spawn();
-    let pull_diagnostics = PullDiagnosticsHandler::default().spawn();
-    let pull_all_documents_diagnostics = PullAllDocumentsDiagnosticHandler::default().spawn();
 
     let handlers = Handlers {
         document_symbols: view::handlers::document_symbols::DocumentSymbolsHandler::new(
@@ -57,8 +53,9 @@ pub fn setup(
         auto_save,
         auto_reload,
         word_index,
-        pull_diagnostics,
-        pull_all_documents_diagnostics,
+        pull_diagnostics: view::handlers::diagnostics::pull::PullDiagnosticsHandler::new(
+            callbacks.clone(),
+        ),
         code_action_hint,
         spelling: view::handlers::spelling::SpellingHandler::new(callbacks),
     };
@@ -70,7 +67,8 @@ pub fn setup(
     code_action_hint::register_hooks(&handlers);
     view::handlers::document_symbols::register_hooks();
     auto_save::register_hooks(&handlers);
-    diagnostics::register_hooks(&handlers);
+    diagnostics::register_hooks();
+    view::handlers::diagnostics::pull::register_hooks();
     snippet::register_hooks(&handlers);
     view::handlers::document_colors::register_hooks();
     view::handlers::document_links::register_hooks();
