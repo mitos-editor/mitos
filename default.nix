@@ -41,6 +41,11 @@ let
   '';
 in
 rustPlatform.buildRustPackage (self: {
+  postPatch = ''
+    substituteInPlace crates/view/src/theme.rs \
+      --replace-fail '../../../runtime/themes/base16_terminal.toml' '${./runtime/themes/base16_terminal.toml}'    
+  '';
+  
   cargoLock = {
     lockFile = ./Cargo.lock;
     # This is not allowed in nixpkgs but is very convenient here: it allows us to
