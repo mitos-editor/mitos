@@ -1,10 +1,9 @@
 use completion::{CompletionEvent, CompletionHandler};
-use event::{register_hook, send_blocking};
+use event::register_hook;
 use spelling::SpellingHandler;
-use tokio::sync::mpsc::Sender;
 
 use crate::events::ConfigDidChange;
-use crate::handlers::lsp::SignatureHelpInvoked;
+use crate::handlers::signature_help::SignatureHelpInvoked;
 use crate::{DocumentId, Editor, ViewId};
 
 pub mod auto_reload;
@@ -18,6 +17,7 @@ pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
 pub mod lsp;
+pub mod signature_help;
 pub mod spelling;
 pub mod syntax;
 pub mod word_index;
@@ -30,7 +30,7 @@ pub struct Handlers {
     pub syntax: syntax::SyntaxHandler,
     // only public because most of the actual implementation is in term right now :/
     pub completions: CompletionHandler,
-    pub signature_hints: Sender<lsp::SignatureHelpEvent>,
+    pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
     pub auto_reload: auto_reload::AutoReloadHandler,
     pub word_index: word_index::Handler,
@@ -50,16 +50,7 @@ impl Handlers {
     }
 
     pub fn trigger_signature_help(&self, invocation: SignatureHelpInvoked, editor: &Editor) {
-        let event = match invocation {
-            SignatureHelpInvoked::Automatic => {
-                if !editor.config().lsp.auto_signature_help {
-                    return;
-                }
-                lsp::SignatureHelpEvent::Trigger
-            }
-            SignatureHelpInvoked::Manual => lsp::SignatureHelpEvent::Invoked,
-        };
-        send_blocking(&self.signature_hints, event)
+        self.signature_hints.trigger(editor, invocation);
     }
 
     pub fn word_index(&self) -> &word_index::WordIndex {
@@ -70,6 +61,7 @@ impl Handlers {
 pub fn register_hooks(handlers: &Handlers) {
     auto_reload::register_hooks();
     auto_save::register_hooks();
+    signature_help::register_hooks();
     lsp::register_hooks(handlers);
     word_index::register_hooks(handlers);
     // must be done here because the file watcher is in helix-core

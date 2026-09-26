@@ -27,6 +27,7 @@ mod test {
     mod lsp_workspace;
     mod movement;
     mod pull_diagnostics;
+    mod signature_help;
     mod spelling;
     mod splits;
     mod startup;
