@@ -8,7 +8,7 @@ use std::{borrow::Cow, iter, sync::Arc, time::Duration};
 use editor_core::{
     chars::char_is_word, diff::compare_ropes, fuzzy::fuzzy_match, ChangeSet, Rope, RopeSlice,
 };
-use event::{register_hook, AsyncHook, TaskController, TaskHandle};
+use event::{register_hook, TaskController, TaskHandle};
 use foldhash::HashMap;
 use parking_lot::RwLock;
 use stdx::rope::RopeSliceExt as _;
@@ -18,8 +18,6 @@ use crate::{
     events::{ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen},
     DocumentId,
 };
-
-use super::Handlers;
 
 #[derive(Debug)]
 struct Change {
@@ -56,13 +54,7 @@ fn send(coordinator: &mpsc::UnboundedSender<Event>, event: Event) {
 pub struct Handler {
     pub(super) index: WordIndex,
     /// A sender into an async hook which debounces updates to the index.
-    hook: mpsc::Sender<Event>,
-    /// A sender to a tokio task which coordinates the indexing of documents.
-    ///
-    /// See [WordIndex::run]. A supervisor-like task is in charge of spawning tasks to update the
-    /// index. This ensures that consecutive edits to a document trigger the correct order of
-    /// insertions and deletions into the word set.
-    coordinator: mpsc::UnboundedSender<Event>,
+    hook: mpsc::UnboundedSender<Event>,
     /// Cancels in-flight indexing when the handler is dropped.
     ///
     /// Indexing a large document runs on a blocking task which cannot be preempted. Without this,
@@ -78,15 +70,43 @@ impl Handler {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut cancel = TaskController::new();
         tokio::spawn(index.clone().run(rx, cancel.restart()));
-        Self {
-            hook: Hook {
+        // Opening documents and rebuilding configuration must not drop events when
+        // a frontend processes a batch without yielding. Debounce all events in order.
+        let (hook, events) = mpsc::unbounded_channel();
+        tokio::spawn(
+            Hook {
                 changes: HashMap::default(),
-                coordinator: tx.clone(),
+                coordinator: tx,
             }
-            .spawn(),
+            .run(events),
+        );
+        Self {
+            hook,
             index,
-            coordinator: tx,
             _cancel: cancel,
+        }
+    }
+
+    pub(crate) fn document_trigger(&self) -> WordIndexTrigger {
+        WordIndexTrigger {
+            events: self.hook.downgrade(),
+        }
+    }
+
+    fn event(&self, event: Event) {
+        send(&self.hook, event);
+    }
+}
+
+/// Documents can schedule indexing without keeping a dropped editor's worker alive.
+pub(crate) struct WordIndexTrigger {
+    events: mpsc::WeakUnboundedSender<Event>,
+}
+
+impl WordIndexTrigger {
+    fn event(&self, event: Event) {
+        if let Some(events) = self.events.upgrade() {
+            send(&events, event);
         }
     }
 }
@@ -99,12 +119,34 @@ struct Hook {
 
 const DEBOUNCE: Duration = Duration::from_secs(1);
 
-impl AsyncHook for Hook {
-    type Event = Event;
+impl Hook {
+    async fn run(mut self, mut events: mpsc::UnboundedReceiver<Event>) {
+        let mut deadline = None;
+        loop {
+            let event = match deadline {
+                Some(at) => match tokio::time::timeout_at(at, events.recv()).await {
+                    Ok(event) => event,
+                    Err(_) => {
+                        self.finish_debounce();
+                        deadline = None;
+                        continue;
+                    }
+                },
+                None => events.recv().await,
+            };
+            let Some(event) = event else {
+                return;
+            };
+            deadline = self.handle_event(event, deadline);
+        }
+    }
 
-    fn handle_event(&mut self, event: Self::Event, timeout: Option<Instant>) -> Option<Instant> {
+    fn handle_event(&mut self, event: Event, timeout: Option<Instant>) -> Option<Instant> {
         match event {
-            Event::Insert(_) => unreachable!("inserts are sent to the worker directly"),
+            Event::Insert(text) => {
+                send(&self.coordinator, Event::Insert(text));
+                timeout
+            }
             Event::Update(doc, change) => {
                 if let Some(pending_change) = self.changes.get_mut(&doc) {
                     // There is already a change waiting for this document. Coalesce: keep the
@@ -144,7 +186,12 @@ impl AsyncHook for Hook {
                 }
                 timeout
             }
-            Event::Clear => unreachable!("clear is sent to the worker directly"),
+            Event::Clear => {
+                // A reset must also discard edits still waiting for their debounce deadline.
+                self.changes.clear();
+                send(&self.coordinator, Event::Clear);
+                None
+            }
         }
     }
 
@@ -393,59 +440,60 @@ fn is_changeset_significant(changes: &ChangeSet) -> bool {
     diff > 1_000
 }
 
-pub(crate) fn register_hooks(handlers: &Handlers) {
-    let coordinator = handlers.word_index.coordinator.clone();
+pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if doc.word_completion_enabled() {
-            send(&coordinator, Event::Insert(doc.text().clone()));
+            event
+                .editor
+                .handlers
+                .word_index
+                .event(Event::Insert(doc.text().clone()));
         }
         Ok(())
     });
 
-    let tx = handlers.word_index.hook.clone();
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if !event.ghost_transaction && event.doc.word_completion_enabled() {
-            event::send_blocking(
-                &tx,
-                Event::Update(
-                    event.doc.id(),
-                    Change {
-                        old_text: event.old_text.clone(),
-                        text: event.doc.text().clone(),
-                        changes: event.changes.clone(),
-                        dirty: false,
-                    },
-                ),
-            );
+        if !event.ghost_transaction
+            && event.doc.word_completion_enabled()
+            && let Some(trigger) = &event.doc.word_index_trigger
+        {
+            trigger.event(Event::Update(
+                event.doc.id(),
+                Change {
+                    old_text: event.old_text.clone(),
+                    text: event.doc.text().clone(),
+                    changes: event.changes.clone(),
+                    dirty: false,
+                },
+            ));
         }
         Ok(())
     });
 
-    let tx = handlers.word_index.hook.clone();
     register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        if event.doc.word_completion_enabled() {
-            event::send_blocking(&tx, Event::Delete(event.doc.id(), event.doc.text().clone()));
+        if event.doc.word_completion_enabled()
+            && let Some(trigger) = &event.doc.word_index_trigger
+        {
+            trigger.event(Event::Delete(event.doc.id(), event.doc.text().clone()));
         }
         Ok(())
     });
 
-    let coordinator = handlers.word_index.coordinator.clone();
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        // The feature has been turned off. Clear the index and reclaim any used memory.
-        if event.old.word_completion.enable && !event.new.word_completion.enable {
-            send(&coordinator, Event::Clear);
-        }
-
-        // The feature has been turned on. Index open documents.
-        if !event.old.word_completion.enable && event.new.word_completion.enable {
-            for doc in event.editor.documents() {
-                if doc.word_completion_enabled() {
-                    send(&coordinator, Event::Insert(doc.text().clone()));
-                }
+        if event.old.word_completion.enable != event.new.word_completion.enable {
+            let handler = &event.editor.handlers.word_index;
+            // Rebuild from current document settings, including language overrides.
+            // Route the reset and inserts through the edit queue to preserve their order.
+            handler.event(Event::Clear);
+            for doc in event
+                .editor
+                .documents()
+                .filter(|doc| doc.word_completion_enabled())
+            {
+                handler.event(Event::Insert(doc.text().clone()));
             }
         }
-
         Ok(())
     });
 }
@@ -502,6 +550,41 @@ mod tests {
         let actual = index.words();
         let expected: HashSet<_> = expected.into_iter().map(|i| i.to_string()).collect();
         assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn batched_control_events_are_lossless_without_yielding() {
+        let handler = Handler::spawn();
+        for i in 0..140 {
+            handler.event(Event::Insert(Rope::from_str(&format!("stale{i:03}"))));
+        }
+        handler.event(Event::Clear);
+        let expected: Vec<_> = (0..140).map(|i| format!("word{i:03}")).collect();
+        for word in &expected {
+            handler.event(Event::Insert(Rope::from_str(word)));
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let mut words = handler.index.matches("");
+                words.sort();
+                if words == expected {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for (i, word) in expected.iter().enumerate() {
+            handler.event(Event::Delete(DocumentId::new(i + 1), Rope::from_str(word)));
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !handler.index.matches("").is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[test]

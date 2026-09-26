@@ -131,7 +131,9 @@ impl Application {
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
         jobs.set_current();
-        let handlers = handlers::setup(config.clone(), jobs.editor_callback_sender());
+        let handlers =
+            view::handlers::Handlers::new(&config.load().editor, jobs.editor_callback_sender());
+        handlers::register_hooks();
         let mut editor = Editor::new(
             area,
             Arc::new(theme_loader),

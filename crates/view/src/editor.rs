@@ -901,6 +901,7 @@ impl Editor {
         doc.code_action_hint_handler = Some(self.handlers.code_action_hint.clone());
         doc.signature_help_trigger = Some(self.handlers.signature_hints.document_trigger());
         doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
+        doc.word_index_trigger = Some(self.handlers.word_index.document_trigger());
         doc.syntax_handler = Some(self.handlers.syntax.clone());
         doc.spelling_events = Some(self.handlers.spelling.event_tx.clone());
         doc.initialize_syntax(self.syn_loader.load_full());
