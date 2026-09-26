@@ -571,6 +571,36 @@ async fn missing_dictionaries_report_an_error_and_bad_names_preserve_settings() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn spelling_events_and_completions_stay_with_their_editor() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.spelling.languages = Some(vec!["en_US".parse()?]);
+    let mut first = AppBuilder::new()
+        .with_config(config.clone())
+        .with_input_text("#[t|]#eh hello\n")
+        .build()?;
+    let mut second = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[q|]#uik world\n")
+        .build()?;
+    // Both dictionary loading and initial checks must return to their own editor,
+    // even when document IDs collide and the global queue selects another app.
+    assert_eq!(
+        current_ref!(first.editor).1.id(),
+        current_ref!(second.editor).1.id()
+    );
+    wait_for_mistakes(&mut first, &["teh"]).await?;
+    wait_for_mistakes(&mut second, &["quik"]).await?;
+
+    // Document change hooks must also route edits to the correct debounce worker.
+    replace(&mut first, 0, 3, "quik");
+    replace(&mut second, 0, 4, "teh");
+    wait_for_mistakes(&mut first, &["quik"]).await?;
+    wait_for_mistakes(&mut second, &["teh"]).await?;
+    assert_eq!(mistakes(&first), ["quik"]);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn scratch_buffers_follow_config_and_feed_diagnostics_quicklists() -> anyhow::Result<()> {
     let mut config = test_config();
     config.editor.spelling.languages = Some(vec!["en_US".parse()?]);
