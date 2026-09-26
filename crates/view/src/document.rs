@@ -222,7 +222,15 @@ pub struct Document {
 
     pub syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
-    // Assigned when the document joins an editor; standalone documents can drive requests manually.
+    // Assigned when the document joins an editor so its events return to that editor.
+    pub(crate) document_colors_handler:
+        Option<crate::handlers::document_colors::DocumentColorsHandler>,
+    pub(crate) document_links_handler:
+        Option<crate::handlers::document_links::DocumentLinksHandler>,
+    pub(crate) document_highlight_handler:
+        Option<crate::handlers::document_highlight::DocumentHighlightHandler>,
+    pub(crate) document_symbols_handler:
+        Option<crate::handlers::document_symbols::DocumentSymbolsHandler>,
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
@@ -272,16 +280,15 @@ pub struct Document {
     pub color_swatches: Option<DocumentColorSwatches>,
     /// Cached LSP document links for navigation (e.g. goto_file).
     pub document_links: Vec<DocumentLink>,
-    // NOTE: ideally this would live on the handler for color swatches. This is blocked on a
-    // large refactor that would make `&mut Editor` available on the `DocumentDidChange` event.
-    pub color_swatch_controller: TaskController,
+    // Controllers follow the document lifetime and cancel requests when it closes.
+    pub(crate) color_swatch_controller: TaskController,
     /// Per-view task controllers for canceling in-flight document highlight requests.
-    pub document_highlight_controllers: HashMap<ViewId, TaskController>,
+    pub(crate) document_highlight_controllers: HashMap<ViewId, TaskController>,
     /// Per-view task controllers for canceling in-flight code action requests.
     pub code_action_controllers: HashMap<ViewId, TaskController>,
     pub pull_diagnostic_controller: TaskController,
-    pub document_link_controller: TaskController,
-    pub document_symbols_controller: TaskController,
+    pub(crate) document_link_controller: TaskController,
+    pub(crate) document_symbols_controller: TaskController,
 
     /// Whether this document owns the startup welcome screen.
     pub is_welcome: bool,
@@ -875,6 +882,10 @@ impl Document {
             restore_cursor: false,
             syntax: None,
             pending_syntax: None,
+            document_colors_handler: None,
+            document_links_handler: None,
+            document_highlight_handler: None,
+            document_symbols_handler: None,
             syntax_handler: None,
             spelling_events: None,
             language: None,
@@ -2843,7 +2854,7 @@ impl Document {
             .map(|highlights| highlights.ranges.as_slice())
     }
 
-    pub fn document_highlight_controller(&mut self, view_id: ViewId) -> &mut TaskController {
+    pub(crate) fn document_highlight_controller(&mut self, view_id: ViewId) -> &mut TaskController {
         self.document_highlight_controllers
             .entry(view_id)
             .or_default()

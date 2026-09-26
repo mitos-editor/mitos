@@ -10,6 +10,10 @@ use crate::{DocumentId, Editor, ViewId};
 pub mod completion;
 pub mod dap;
 pub mod diagnostics;
+pub mod document_colors;
+pub mod document_highlight;
+pub mod document_links;
+pub mod document_symbols;
 pub mod lsp;
 pub mod spelling;
 pub mod syntax;
@@ -28,14 +32,16 @@ pub enum AutoReloadEvent {
 }
 
 pub struct Handlers {
+    pub document_symbols: document_symbols::DocumentSymbolsHandler,
+    pub document_highlight: document_highlight::DocumentHighlightHandler,
+    pub document_links: document_links::DocumentLinksHandler,
+    pub document_colors: document_colors::DocumentColorsHandler,
     pub syntax: syntax::SyntaxHandler,
     // only public because most of the actual implementation is in term right now :/
     pub completions: CompletionHandler,
     pub signature_hints: Sender<lsp::SignatureHelpEvent>,
     pub auto_save: Sender<AutoSaveEvent>,
     pub auto_reload: Sender<AutoReloadEvent>,
-    pub document_colors: Sender<lsp::DocumentColorsEvent>,
-    pub document_links: Sender<lsp::DocumentLinksEvent>,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: Sender<lsp::PullDiagnosticsEvent>,
     pub pull_all_documents_diagnostics: Sender<lsp::PullAllDocumentsDiagnosticsEvent>,
