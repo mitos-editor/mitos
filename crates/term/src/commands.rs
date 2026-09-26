@@ -13,6 +13,7 @@ pub(crate) mod typed;
 
 pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub use dap::*;
+pub(crate) use editing::replace_selections;
 use event::status;
 use futures_util::FutureExt;
 pub use lsp::*;
@@ -77,7 +78,7 @@ use crate::{
     compositor::{self, Compositor},
     filter_picker_entry,
     job::Callback,
-    ui::{self, overlay::overlaid, Picker, PickerColumn, Popup, Prompt, PromptEvent},
+    ui::{self, overlay::overlaid, Picker, PickerColumn, Popup, PromptEvent},
 };
 
 use crate::job;
@@ -481,97 +482,6 @@ fn should_open_url_externally(url: &Url) -> bool {
     });
 
     matches!(is_binary, Ok(true))
-}
-
-fn replace_char(cx: &mut Context) {
-    let mut buf = [0u8; 4]; // To hold utf8 encoded char.
-
-    // need to wait for next key
-    cx.on_next_key(move |cx, event| {
-        let (view, doc) = current!(cx.editor);
-        let ch: Option<&str> = match event {
-            KeyEvent {
-                code: KeyCode::Char(ch),
-                ..
-            } => Some(ch.encode_utf8(&mut buf[..])),
-            KeyEvent {
-                code: KeyCode::Enter,
-                ..
-            } => Some(doc.line_ending.as_str()),
-            KeyEvent {
-                code: KeyCode::Tab, ..
-            } => Some("\t"),
-            _ => None,
-        };
-
-        let selection = doc.selection(view.id);
-
-        if let Some(ch) = ch {
-            let transaction = Transaction::change_by_selection(doc.text(), selection, |range| {
-                if !range.is_empty() {
-                    let text: Tendril = doc
-                        .text()
-                        .slice(range.from()..range.to())
-                        .graphemes()
-                        .map(|_g| ch)
-                        .collect();
-                    (range.from(), range.to(), Some(text))
-                } else {
-                    // No change.
-                    (range.from(), range.to(), None)
-                }
-            });
-
-            doc.apply(&transaction, view.id);
-            exit_select_mode(cx);
-        }
-    })
-}
-
-fn replace(cx: &mut Context) {
-    let prompt = Prompt::new_with_callback(
-        "replace:".into(),
-        None,
-        ui::completers::none,
-        |_cx, input, event| {
-            if event != PromptEvent::Validate {
-                return None;
-            }
-            let replacement = Tendril::from(input);
-            Some(Box::new(move |compositor, cx| {
-                replace_selections(cx.editor, &replacement);
-                compositor.find::<ui::EditorView>().unwrap().last_edit =
-                    ui::editor::LastEdit::Replace(replacement);
-            }))
-        },
-    );
-    cx.push_layer(Box::new(prompt));
-}
-
-pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
-    let scrolloff = editor.config().scrolloff;
-    let (view, doc) = current!(editor);
-    let replacement = Tendril::from(
-        LINE_ENDING_REGEX
-            .replace_all(replacement, doc.line_ending.as_str())
-            .as_ref(),
-    );
-    let len = replacement.chars().count();
-    let transaction =
-        Transaction::change_by_and_with_selection(doc.text(), doc.selection(view.id), |range| {
-            let selection =
-                Range::new(range.from(), range.from() + len).with_direction(range.direction());
-            (
-                (range.from(), range.to(), Some(replacement.clone())),
-                Some(selection),
-            )
-        });
-    doc.apply(&transaction, view.id);
-    doc.append_changes_to_history(view);
-    view.ensure_cursor_in_view(doc, scrolloff);
-    if editor.mode == Mode::Select {
-        editor.mode = Mode::Normal;
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1205,69 +1115,6 @@ fn selection_for_global_search_match(
     Some(Selection::single(start, end).ensure_invariants(text))
 }
 
-enum Operation {
-    Delete,
-    Change,
-}
-
-fn selection_is_linewise(selection: &Selection, text: &Rope) -> bool {
-    selection.ranges().iter().all(|range| {
-        let text = text.slice(..);
-        if range.slice(text).len_lines() < 2 {
-            return false;
-        }
-        // If the start of the selection is at the start of a line and the end at the end of a line.
-        let (start_line, end_line) = range.line_range(text);
-        let start = text.line_to_char(start_line);
-        let end = text.line_to_char((end_line + 1).min(text.len_lines()));
-        start == range.from() && end == range.to()
-    })
-}
-
-enum YankAction {
-    Yank,
-    NoYank,
-}
-
-fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
-    let (view, doc) = current!(cx.editor);
-
-    let selection = doc.selection(view.id);
-    let only_whole_lines = selection_is_linewise(selection, doc.text());
-
-    if cx.register != Some('_') && matches!(yank, YankAction::Yank) {
-        // yank the selection
-        let text = doc.text().slice(..);
-        let values: Vec<String> = selection.fragments(text).map(Cow::into_owned).collect();
-        let reg_name = cx
-            .register
-            .unwrap_or_else(|| cx.editor.config.load().default_yank_register);
-        if let Err(err) = cx.editor.registers.write(reg_name, values) {
-            cx.editor.set_error(|| err.to_string());
-            return;
-        }
-    }
-
-    // delete the selection
-    let transaction =
-        Transaction::delete_by_selection(doc.text(), selection, |range| (range.from(), range.to()));
-    doc.apply(&transaction, view.id);
-
-    match op {
-        Operation::Delete => {
-            // exit select mode, if currently in select mode
-            exit_select_mode(cx);
-        }
-        Operation::Change => {
-            if only_whole_lines {
-                open(cx, Open::Above, CommentContinuation::Disabled);
-            } else {
-                enter_insert_mode(cx);
-            }
-        }
-    }
-}
-
 #[inline]
 fn delete_by_selection_insert_mode(
     cx: &mut Context,
@@ -1311,22 +1158,6 @@ fn delete_by_selection_insert_mode(
         );
     }
     doc.apply(&transaction, view.id);
-}
-
-fn delete_selection(cx: &mut Context) {
-    delete_selection_impl(cx, Operation::Delete, YankAction::Yank);
-}
-
-fn delete_selection_noyank(cx: &mut Context) {
-    delete_selection_impl(cx, Operation::Delete, YankAction::NoYank);
-}
-
-fn change_selection(cx: &mut Context) {
-    delete_selection_impl(cx, Operation::Change, YankAction::Yank);
-}
-
-fn change_selection_noyank(cx: &mut Context) {
-    delete_selection_impl(cx, Operation::Change, YankAction::NoYank);
 }
 
 fn enter_insert_mode(cx: &mut Context) {
