@@ -737,6 +737,14 @@ impl Application {
                 crate::handlers::auto_reload::prompt_reload_modified(&mut self.compositor, request);
                 self.render().await;
             }
+            EditorEvent::Completion(update) => {
+                crate::handlers::completion::apply_update(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    update,
+                );
+                self.render().await;
+            }
             EditorEvent::SignatureHelp(update) => {
                 crate::handlers::signature_help::show_signature_help(
                     &mut self.editor,

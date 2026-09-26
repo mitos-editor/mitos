@@ -21,6 +21,7 @@ mod test {
     mod code_action_hints;
     mod command_line;
     mod commands;
+    mod completion;
     mod config_application;
     mod document_features;
     mod lsp_lifecycle;

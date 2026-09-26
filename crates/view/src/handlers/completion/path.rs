@@ -6,13 +6,13 @@ use std::{
     sync::Arc,
 };
 
+use crate::{document::SavePoint, handlers::completion::ResponseContext, Document};
 use editor_core::{self as core, completion::CompletionProvider, Selection, Transaction};
 use event::TaskHandle;
 use stdx::path::{self, canonicalize, fold_home_dir, get_path_suffix};
 use stdx::Url;
-use view::{document::SavePoint, handlers::completion::ResponseContext, Document};
 
-use crate::handlers::completion::{item::CompletionResponse, CompletionItem, CompletionItems};
+use super::{CompletionItem, CompletionItems, CompletionResponse};
 
 pub(crate) fn path_completion(
     selection: Selection,

@@ -1,8 +1,8 @@
 use std::mem;
 
+use super::ResponseContext;
 use editor_core::completion::CompletionProvider;
 use lsp_client::{lsp, LanguageServerId};
-use view::handlers::completion::ResponseContext;
 
 pub struct CompletionResponse {
     pub items: CompletionItems,

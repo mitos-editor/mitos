@@ -427,8 +427,17 @@ async fn terminal_forwards_triggers_and_keeps_popup_navigation_and_dismissal() -
     f.key("i").await?;
     f.key("(").await?;
     f.response().await?(&mut f.app.editor);
-    let event = f.app.editor.wait_event().await;
-    assert!(matches!(event, EditorEvent::SignatureHelp(_)));
+    // Other editor features can publish updates alongside signature help.
+    let event = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = f.app.editor.wait_event().await;
+            if matches!(event, EditorEvent::SignatureHelp(_)) {
+                break event;
+            }
+            f.app.handle_editor_event(event).await;
+        }
+    })
+    .await?;
     f.app.handle_editor_event(event).await;
     assert_eq!(f.popup_selection().await?, Some(0));
     f.key("<A-n>").await?;
