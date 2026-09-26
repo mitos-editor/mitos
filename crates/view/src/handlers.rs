@@ -12,6 +12,7 @@ pub mod dap;
 pub mod diagnostics;
 pub mod lsp;
 pub mod spelling;
+pub mod syntax;
 pub mod word_index;
 
 #[derive(Debug)]
@@ -27,6 +28,7 @@ pub enum AutoReloadEvent {
 }
 
 pub struct Handlers {
+    pub syntax: syntax::SyntaxHandler,
     // only public because most of the actual implementation is in term right now :/
     pub completions: CompletionHandler,
     pub signature_hints: Sender<lsp::SignatureHelpEvent>,

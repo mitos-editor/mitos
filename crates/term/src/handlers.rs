@@ -29,10 +29,12 @@ mod prompt;
 mod signature_help;
 mod snippet;
 mod spelling;
-mod syntax;
 mod workspace_trust;
 
-pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
+pub fn setup(
+    config: Arc<ArcSwap<Config>>,
+    callbacks: view::callbacks::EditorCallbackSender,
+) -> Handlers {
     events::register();
 
     let event_tx = completion::CompletionHandler::new(config.clone()).spawn();
@@ -48,6 +50,7 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     let spelling = spelling::SpellingHook::default().spawn();
 
     let handlers = Handlers {
+        syntax: view::handlers::syntax::SyntaxHandler::new(callbacks),
         completions: view::handlers::completion::CompletionHandler::new(event_tx),
         signature_hints,
         auto_save,
@@ -62,7 +65,6 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     };
 
     view::handlers::register_hooks(&handlers);
-    syntax::register_hooks();
     completion::register_hooks(&handlers);
     signature_help::register_hooks(&handlers);
     document_highlight::register_hooks(&handlers);

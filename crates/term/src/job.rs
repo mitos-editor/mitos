@@ -2,6 +2,8 @@ use arc_swap::ArcSwapOption;
 use event::status::StatusMessage;
 use event::{runtime_local, send_blocking};
 use std::sync::Arc;
+pub use view::callbacks::EditorCallback;
+use view::callbacks::EditorCallbackSender;
 use view::Editor;
 
 use crate::compositor::Compositor;
@@ -11,7 +13,6 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub type EditorCompositorCallback = Box<dyn FnOnce(&mut Editor, &mut Compositor) + Send>;
-pub type EditorCallback = Box<dyn FnOnce(&mut Editor) + Send>;
 pub type EditorCallbackFollowup = Box<dyn FnOnce(&mut Editor) -> Option<Job> + Send>;
 
 runtime_local! {
@@ -100,6 +101,17 @@ impl Jobs {
     /// Creating another job collection does not replace this queue.
     pub(crate) fn set_current(&self) {
         JOB_QUEUE.store(Some(self.sender.clone()));
+    }
+
+    /// Bind editor-only completions to this queue, independent of global dispatch.
+    pub fn editor_callback_sender(&self) -> EditorCallbackSender {
+        let sender = self.sender.clone();
+        EditorCallbackSender::new(move |callback| {
+            let sender = sender.clone();
+            async move {
+                let _ = sender.send(Callback::Editor(callback)).await;
+            }
+        })
     }
 
     pub fn spawn<F: Future<Output = anyhow::Result<()>> + Send + 'static>(&mut self, f: F) {
@@ -208,6 +220,30 @@ impl Jobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn editor_sender_keeps_its_queue_and_backpressure() {
+        let mut first = Jobs::new();
+        let sender = first.editor_callback_sender();
+        let mut second = Jobs::new();
+        second.set_current();
+
+        for _ in 0..1024 {
+            sender.send(|_| {}).await;
+        }
+        let mut pending = std::pin::pin!(sender.send(|_| {}));
+        assert!(futures_util::poll!(&mut pending).is_pending());
+        assert!(matches!(
+            first.callbacks.recv().await,
+            Some(Callback::Editor(_))
+        ));
+        pending.await;
+        assert!(second.callbacks.try_recv().is_err());
+
+        // Shutdown drops queued completions and future sends finish without blocking.
+        drop(first);
+        sender.send(|_| {}).await;
+    }
 
     #[tokio::test]
     async fn callbacks_follow_the_selected_queue_and_jobs_keep_their_owner() {
