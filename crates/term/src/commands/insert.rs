@@ -1,9 +1,10 @@
-//! Character insertion, smart tabs, newlines, and insert-mode deletion commands.
+//! Character and line insertion, indentation, comment continuation, and insert-mode deletion.
 
 use std::borrow::Cow;
 
+use arc_swap::access::DynAccess;
 use editor_core::{
-    auto_pairs, graphemes,
+    auto_pairs, comment, graphemes,
     indent::{self, IndentStyle},
     line_ending::line_end_char_index,
     movement::{self as core_movement, Direction},
@@ -16,8 +17,8 @@ use view::{document::Mode, editor::SmartTabConfig, Document};
 
 use super::{
     context::Context,
-    continued_line_comment_token, goto_next_tabstop,
-    mode::{append_mode, insert_mode},
+    goto_next_tabstop,
+    mode::{append_mode, enter_insert_mode, insert_mode},
     move_parent_node_end,
 };
 use crate::{events::PostInsertChar, key};
@@ -543,4 +544,289 @@ pub(super) fn kill_to_line_end(cx: &mut Context) {
         },
         Direction::Forward,
     );
+}
+
+/// Fallback position to use for [`insert_with_indent`].
+enum IndentFallbackPos {
+    LineStart,
+    LineEnd,
+}
+
+// `I` inserts at the first nonwhitespace character of each line with a selection.
+// If the line is empty, automatically indent.
+pub(super) fn insert_at_line_start(cx: &mut Context) {
+    insert_with_indent(cx, IndentFallbackPos::LineStart);
+}
+
+// `A` inserts at the end of each line with a selection.
+// If the line is empty, automatically indent.
+pub(super) fn insert_at_line_end(cx: &mut Context) {
+    insert_with_indent(cx, IndentFallbackPos::LineEnd);
+}
+
+// Enter insert mode and auto-indent the current line if it is empty.
+// If the line is not empty, move the cursor to the specified fallback position.
+fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
+    let was_select_mode = cx.editor.mode == Mode::Select;
+    enter_insert_mode(cx);
+
+    let (view, doc) = current!(cx.editor);
+    let loader = cx.editor.syn_loader.load();
+
+    let text = doc.text().slice(..);
+    let contents = doc.text();
+    let selection = doc.selection(view.id);
+
+    let syntax = doc.syntax();
+    let tab_width = doc.tab_width();
+
+    let mut ranges = SmallVec::with_capacity(selection.len());
+    let mut offs = 0;
+
+    let mut transaction = Transaction::change_by_selection(contents, selection, |range| {
+        let cursor_line = range.cursor_line(text);
+        let cursor_line_start = text.line_to_char(cursor_line);
+
+        if line_end_char_index(&text, cursor_line) == cursor_line_start {
+            // line is empty => auto indent
+            let line_end_index = cursor_line_start;
+
+            let indent = indent::indent_for_newline(
+                &loader,
+                syntax,
+                &doc.config.load().indent_heuristic,
+                &doc.indent_style,
+                tab_width,
+                text,
+                cursor_line,
+                line_end_index,
+                cursor_line,
+            );
+
+            // calculate new selection ranges
+            let pos = offs + cursor_line_start;
+            let indent_width = indent.chars().count();
+            ranges.push(Range::point(pos + indent_width));
+            offs += indent_width;
+
+            (line_end_index, line_end_index, Some(indent.into()))
+        } else {
+            // move cursor to the fallback position
+            let pos = match cursor_fallback {
+                IndentFallbackPos::LineStart => text
+                    .line(cursor_line)
+                    .first_non_whitespace_char()
+                    .map(|ws_offset| ws_offset + cursor_line_start)
+                    .unwrap_or(cursor_line_start),
+                IndentFallbackPos::LineEnd => line_end_char_index(&text, cursor_line),
+            };
+
+            ranges.push(range.put_cursor(text, pos + offs, was_select_mode));
+
+            (cursor_line_start, cursor_line_start, None)
+        }
+    });
+
+    transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
+    doc.apply(&transaction, view.id);
+}
+
+#[derive(PartialEq, Eq)]
+pub enum Open {
+    Below,
+    Above,
+}
+
+#[derive(PartialEq)]
+pub enum CommentContinuation {
+    Enabled,
+    Disabled,
+}
+
+pub(super) fn continued_line_comment_token<'a>(
+    doc: &'a Document,
+    loader: &'a editor_core::syntax::Loader,
+    text: RopeSlice,
+    line_num: usize,
+    byte_pos: usize,
+) -> Option<&'a str> {
+    if let Some(syntax) = doc.syntax() {
+        let mut token = None;
+        for layer in syntax.layers_for_byte_range(byte_pos as u32, byte_pos as u32) {
+            let config = loader.language(syntax.layer(layer).language).config();
+            if let Some(tokens) = config.comment_tokens.as_ref() {
+                token = comment::get_comment_token(text, tokens, line_num).or(token);
+            }
+        }
+        token
+    } else {
+        doc.language_config()
+            .and_then(|config| config.comment_tokens.as_ref())
+            .and_then(|tokens| comment::get_comment_token(text, tokens, line_num))
+    }
+}
+
+pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentContinuation) {
+    let count = cx.count();
+    enter_insert_mode(cx);
+    let config = cx.editor.config();
+    let (view, doc) = current!(cx.editor);
+    let loader = cx.editor.syn_loader.load();
+
+    let text = doc.text().slice(..);
+    let contents = doc.text();
+    let selection = doc.selection(view.id);
+    let mut offs = 0;
+
+    let mut ranges = SmallVec::with_capacity(selection.len());
+
+    let mut transaction = Transaction::change_by_selection(contents, selection, |range| {
+        // the line number, where the cursor is currently
+        let curr_line_num = text.char_to_line(match open {
+            Open::Below => graphemes::prev_grapheme_boundary(text, range.to()),
+            Open::Above => range.from(),
+        });
+
+        // the next line number, where the cursor will be, after finishing the transaction
+        let next_new_line_num = match open {
+            Open::Below => curr_line_num + 1,
+            Open::Above => curr_line_num,
+        };
+
+        let above_next_new_line_num = next_new_line_num.saturating_sub(1);
+
+        // Continue the comment leader using the comment tokens of the layer at the current line.
+        let continue_comment_token =
+            if comment_continuation == CommentContinuation::Enabled && config.continue_comments {
+                text.line(curr_line_num)
+                    .first_non_whitespace_char()
+                    .map(|c| text.char_to_byte(text.line_to_char(curr_line_num) + c))
+                    .and_then(|byte| {
+                        continued_line_comment_token(doc, &loader, text, curr_line_num, byte)
+                    })
+            } else {
+                None
+            };
+
+        // Index to insert newlines after, as well as the char width
+        // to use to compensate for those inserted newlines.
+        let (above_next_line_end_index, above_next_line_end_width) = if next_new_line_num == 0 {
+            (0, 0)
+        } else {
+            (
+                line_end_char_index(&text, above_next_new_line_num),
+                doc.line_ending.len_chars(),
+            )
+        };
+
+        let line = text.line(curr_line_num);
+        let indent = match line.first_non_whitespace_char() {
+            Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
+            _ => indent::indent_for_newline(
+                &loader,
+                doc.syntax(),
+                &config.indent_heuristic,
+                &doc.indent_style,
+                doc.tab_width(),
+                text,
+                above_next_new_line_num,
+                above_next_line_end_index,
+                curr_line_num,
+            ),
+        };
+
+        let indent_len = indent.len();
+        let mut text = String::with_capacity(1 + indent_len);
+
+        if open == Open::Above && next_new_line_num == 0 {
+            text.push_str(&indent);
+            if let Some(token) = continue_comment_token {
+                text.push_str(token);
+                text.push(' ');
+            }
+            text.push_str(doc.line_ending.as_str());
+        } else {
+            text.push_str(doc.line_ending.as_str());
+            text.push_str(&indent);
+
+            if let Some(token) = continue_comment_token {
+                text.push_str(token);
+                text.push(' ');
+            }
+        }
+
+        let text = text.repeat(count);
+
+        // calculate new selection ranges
+        let pos = offs + above_next_line_end_index + above_next_line_end_width;
+        let comment_len = continue_comment_token
+            .map(|token| token.len() + 1) // `+ 1` for the extra space added
+            .unwrap_or_default();
+        for i in 0..count {
+            // pos                     -> beginning of reference line,
+            // + (i * (line_ending_len + indent_len + comment_len)) -> beginning of i'th line from pos (possibly including comment token)
+            // + indent_len + comment_len ->        -> indent for i'th line
+            ranges.push(Range::point(
+                pos + (i * (doc.line_ending.len_chars() + indent_len + comment_len))
+                    + indent_len
+                    + comment_len,
+            ));
+        }
+
+        // update the offset for the next range
+        offs += text.chars().count();
+
+        (
+            above_next_line_end_index,
+            above_next_line_end_index,
+            Some(text.into()),
+        )
+    });
+
+    transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
+
+    doc.apply(&transaction, view.id);
+}
+
+// o inserts a new line after each line with a selection
+pub(super) fn open_below(cx: &mut Context) {
+    open(cx, Open::Below, CommentContinuation::Enabled)
+}
+
+// O inserts a new line before each line with a selection
+pub(super) fn open_above(cx: &mut Context) {
+    open(cx, Open::Above, CommentContinuation::Enabled)
+}
+
+pub(super) fn add_newline_above(cx: &mut Context) {
+    add_newline_impl(cx, Open::Above);
+}
+
+pub(super) fn add_newline_below(cx: &mut Context) {
+    add_newline_impl(cx, Open::Below)
+}
+
+fn add_newline_impl(cx: &mut Context, open: Open) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let selection = doc.selection(view.id);
+    let text = doc.text();
+    let slice = text.slice(..);
+
+    let changes = selection.into_iter().map(|range| {
+        let (start, end) = range.line_range(slice);
+        let line = match open {
+            Open::Above => start,
+            Open::Below => end + 1,
+        };
+        let pos = text.line_to_char(line);
+        (
+            pos,
+            pos,
+            Some(doc.line_ending.as_str().repeat(count).into()),
+        )
+    });
+
+    let transaction = Transaction::change(text, changes);
+    doc.apply(&transaction, view.id);
 }

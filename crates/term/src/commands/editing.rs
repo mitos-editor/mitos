@@ -17,9 +17,9 @@ use view::{document::Mode, Document, Editor, ViewId};
 
 use super::{
     context::Context,
-    continued_line_comment_token,
+    insert::{continued_line_comment_token, open, CommentContinuation, Open},
     mode::{enter_insert_mode, exit_select_mode},
-    open, CommentContinuation, Open, LINE_ENDING_REGEX,
+    LINE_ENDING_REGEX,
 };
 use crate::ui::{self, Prompt, PromptEvent};
 

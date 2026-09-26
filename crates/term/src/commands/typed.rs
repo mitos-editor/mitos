@@ -21,7 +21,7 @@ use super::*;
 use crate::config::{ConfigEvent, EditorSettings};
 use ::command_line::{self, Args};
 use anyhow::ensure;
-use editor_core::indent::MAX_INDENT;
+use editor_core::indent::{self, MAX_INDENT};
 use editor_core::line_ending;
 use serde_json::Value;
 use stdx::path::home_dir;
