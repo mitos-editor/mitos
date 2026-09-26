@@ -246,7 +246,7 @@ impl MappableCommand {
         paste_primary_clipboard_before => super::registers::paste_primary_clipboard_before, "Paste primary clipboard before selections",
         indent => super::editing::indent, "Indent selection",
         unindent => super::editing::unindent, "Unindent selection",
-        format_selections => super::format_selections, "Format selection",
+        format_selections => super::formatting::format_selections, "Format selection",
         join_selections => super::editing::join_selections, "Join lines inside selection",
         join_selections_space => super::editing::join_selections_space, "Join lines inside selection and select spaces",
         keep_selections => super::selection::keep_selections, "Keep selections matching regex",

@@ -11,6 +11,7 @@ pub use super::catalog::{
 pub use super::command_line::complete_command_args;
 
 use super::catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG};
+use super::formatting::make_format_callback;
 use super::registers::{
     paste, replace_selections_with_register, yank_joined_impl, yank_main_selection_to_register,
     Paste,
@@ -22,7 +23,7 @@ use crate::config::{ConfigEvent, EditorSettings};
 use ::command_line::{self, Args};
 use anyhow::ensure;
 use editor_core::history::UndoKind;
-use editor_core::indent::{self, MAX_INDENT};
+use editor_core::indent::{self, IndentStyle, MAX_INDENT};
 use editor_core::line_ending;
 use serde_json::Value;
 use stdx::path::home_dir;
