@@ -18,11 +18,7 @@ use view::{
     Editor,
 };
 
-use crate::{
-    commands,
-    events::OnModeSwitch,
-    job::{self, Jobs},
-};
+use crate::{events::OnModeSwitch, job};
 
 #[derive(Debug)]
 pub(super) struct AutoSaveHandler {
@@ -81,14 +77,7 @@ impl event::AsyncHook for AutoSaveHandler {
 }
 
 fn request_auto_save(editor: &mut Editor) {
-    let options = commands::WriteAllOptions {
-        force: false,
-        write_scratch: false,
-        auto_format: false,
-        code_actions: false,
-    };
-
-    if let Err(e) = commands::typed::write_all_impl(editor, &mut Jobs::new(), options) {
+    if let Err(e) = view::save::auto_save(editor) {
         editor.set_error(|| format!("{}", e));
     }
 }

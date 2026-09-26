@@ -29,6 +29,7 @@ pub mod icons;
 pub mod info;
 pub mod quicklist;
 pub mod register;
+pub mod save;
 pub mod theme;
 pub mod tree;
 pub mod view;

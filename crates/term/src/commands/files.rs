@@ -377,6 +377,9 @@ pub(super) fn file_explorer_in_current_directory(cx: &mut Context) {
 pub(super) mod typed {
     //! Typable files commands.
 
+    use view::save::{self, PreparedSave};
+    pub use view::save::{WriteAllOptions, WriteOptions};
+
     use crate::{
         commands::{
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
@@ -395,19 +398,18 @@ pub(super) mod typed {
     use editor_core::{
         encoding, graphemes,
         indent::{IndentStyle, MAX_INDENT},
-        line_ending, pos_at_coords, LineEnding, Selection, Tendril, Transaction,
+        pos_at_coords, LineEnding, Selection, Tendril, Transaction,
     };
     use std::{
         fmt::Write,
         io::BufReader,
         path::{Path, PathBuf},
     };
-    use stdx::rope::RopeSliceExt;
     use view::{
         align_view,
         document::{read_to_string, DEFAULT_LANGUAGE_NAME},
         editor::Action,
-        Align, Document, DocumentId, Editor, ViewId,
+        Align, DocumentId, Editor, ViewId,
     };
 
     #[cold]
@@ -463,34 +465,25 @@ pub(super) mod typed {
         path: Option<&str>,
         options: WriteOptions,
     ) -> anyhow::Result<()> {
-        let config = cx.editor.config();
         let (view, doc) = current!(cx.editor);
-        let doc_id = doc.id();
-        let view_id = view.id;
+        let (doc_id, view_id) = (doc.id(), view.id);
+        let request = save::prepare(cx.editor, doc_id, view_id, path.map(Into::into), options);
+        submit_save(cx.editor, cx.jobs, request)
+    }
 
-        if doc.trim_trailing_whitespace() {
-            trim_trailing_whitespace(doc, view_id);
-        }
-        if config.trim_final_newlines {
-            trim_final_newlines(doc, view_id);
-        }
-        if doc.insert_final_newline() {
-            insert_final_newline(doc, view_id);
-        }
-
-        // Save an undo checkpoint for any outstanding changes.
-        doc.append_changes_to_history(view);
-
-        let auto_format = config.auto_format && options.auto_format;
-        let force = options.force;
-        let path: Option<PathBuf> = path.map(Into::into);
-
-        // Does the document configure any code actions to run on save?
-        let run_code_actions = options.code_actions
-            && doc!(cx.editor, &doc_id)
-                .language_config()
-                .and_then(|c| c.code_actions_on_save.as_deref())
-                .is_some_and(|kinds| !kinds.is_empty());
+    fn submit_save(
+        editor: &mut Editor,
+        jobs: &mut Jobs,
+        request: PreparedSave,
+    ) -> anyhow::Result<()> {
+        let PreparedSave {
+            doc_id,
+            view_id,
+            path,
+            force,
+            auto_format,
+            code_actions: run_code_actions,
+        } = request;
 
         // The tail of the on-save chain: re-build the auto-format job against the
         // latest document (so it formats after any code-action edits), or save
@@ -529,84 +522,18 @@ pub(super) mod typed {
         });
 
         let job = if run_code_actions {
-            code_actions_on_save(cx.editor, doc_id, tail)
+            code_actions_on_save(editor, doc_id, tail)
         } else {
             tail
         };
 
         if let Some(job) = job {
-            cx.jobs.add(job);
+            jobs.add(job);
         } else {
-            cx.editor.save(doc_id, path, force)?;
+            editor.save(doc_id, path, force)?;
         }
 
         Ok(())
-    }
-
-    /// Trim all whitespace preceding line-endings in a document.
-    fn trim_trailing_whitespace(doc: &mut Document, view_id: ViewId) {
-        let text = doc.text();
-        let mut pos = 0;
-        let transaction = Transaction::delete(
-            text,
-            text.lines().filter_map(|line| {
-                let line_end_len_chars = line_ending::get_line_ending(&line)
-                    .map(|le| le.len_chars())
-                    .unwrap_or_default();
-                // Char after the last non-whitespace character or the beginning of the line if the
-                // line is all whitespace:
-                let first_trailing_whitespace =
-                    pos + line.last_non_whitespace_char().map_or(0, |idx| idx + 1);
-                pos += line.len_chars();
-                // Char before the line ending character(s), or the final char in the text if there
-                // is no line-ending on this line:
-                let line_end = pos - line_end_len_chars;
-                if first_trailing_whitespace != line_end {
-                    Some((first_trailing_whitespace, line_end))
-                } else {
-                    None
-                }
-            }),
-        );
-        doc.apply(&transaction, view_id);
-    }
-
-    /// Trim any extra line-endings after the final line-ending.
-    fn trim_final_newlines(doc: &mut Document, view_id: ViewId) {
-        let rope = doc.text();
-        let mut text = rope.slice(..);
-        let mut total_char_len = 0;
-        let mut final_char_len = 0;
-        while let Some(line_ending) = line_ending::get_line_ending(&text) {
-            total_char_len += line_ending.len_chars();
-            final_char_len = line_ending.len_chars();
-            text = text.slice(..text.len_chars() - line_ending.len_chars());
-        }
-        let chars_to_delete = total_char_len - final_char_len;
-        if chars_to_delete != 0 {
-            let transaction = Transaction::delete(
-                rope,
-                [(rope.len_chars() - chars_to_delete, rope.len_chars())].into_iter(),
-            );
-            doc.apply(&transaction, view_id);
-        }
-    }
-
-    /// Ensure that the document is terminated with a line ending.
-    fn insert_final_newline(doc: &mut Document, view_id: ViewId) {
-        let text = doc.text();
-        if text.len_chars() > 0 && line_ending::get_line_ending(&text.slice(..)).is_none() {
-            let eof = Selection::point(text.len_chars());
-            let insert = Transaction::insert(text, &eof, doc.line_ending.as_str().into());
-            doc.apply(&insert, view_id);
-        }
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub struct WriteOptions {
-        pub force: bool,
-        pub auto_format: bool,
-        pub code_actions: bool,
     }
 
     #[cold]
@@ -831,122 +758,14 @@ pub(super) mod typed {
         Ok(())
     }
 
-    #[derive(Debug, Clone, Copy)]
-    pub struct WriteAllOptions {
-        pub force: bool,
-        pub write_scratch: bool,
-        pub auto_format: bool,
-        pub code_actions: bool,
-    }
-
     pub fn write_all_impl(
         editor: &mut Editor,
         jobs: &mut Jobs,
         options: WriteAllOptions,
     ) -> anyhow::Result<()> {
-        let mut errors: Vec<&'static str> = Vec::new();
-        let config = editor.config();
-        let saves: Vec<_> = editor
-            .documents
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .filter_map(|id| {
-                let doc = doc!(editor, &id);
-                if !doc.is_modified() {
-                    return None;
-                }
-                if doc.path().is_none() {
-                    if options.write_scratch {
-                        errors.push("cannot write a buffer without a filename");
-                    }
-                    return None;
-                }
-
-                // Look for a view to apply the formatting change to.
-                let target_view = editor.get_synced_view_id(doc.id());
-                Some((id, target_view))
-            })
-            .collect();
-
-        for (doc_id, target_view) in saves {
-            let doc = doc_mut!(editor, &doc_id);
-            let view = view_mut!(editor, target_view);
-
-            if doc.trim_trailing_whitespace() {
-                trim_trailing_whitespace(doc, target_view);
-            }
-            if config.trim_final_newlines {
-                trim_final_newlines(doc, target_view);
-            }
-            if doc.insert_final_newline() {
-                insert_final_newline(doc, target_view);
-            }
-
-            // Save an undo checkpoint for any outstanding changes.
-            doc.append_changes_to_history(view);
-
-            let auto_format = config.auto_format && options.auto_format;
-            let force = options.force;
-
-            let run_code_actions = options.code_actions
-                && doc!(editor, &doc_id)
-                    .language_config()
-                    .and_then(|c| c.code_actions_on_save.as_deref())
-                    .is_some_and(|kinds| !kinds.is_empty());
-
-            // See `write_impl`: deferred format-or-save tail that always saves, only
-            // built when there is pre-save work; otherwise a synchronous save below.
-            let tail = (auto_format || run_code_actions).then(|| {
-                let callback: job::Callback = Callback::Followup(Box::new(move |editor| {
-                    // The document could have been closed mid-chain
-                    if !editor.documents.contains_key(&doc_id) {
-                        return None;
-                    }
-                    let doc = doc!(editor, &doc_id);
-                    let fmt_job =
-                        auto_format
-                            .then(|| doc.auto_format(editor))
-                            .flatten()
-                            .map(|fmt| {
-                                let call = make_format_callback(
-                                    doc_id,
-                                    doc.version(),
-                                    target_view,
-                                    fmt,
-                                    Some((None, force)),
-                                );
-                                Job::with_callback(call).wait_before_exiting()
-                            });
-                    if fmt_job.is_none()
-                        && let Err(err) = editor.save::<PathBuf>(doc_id, None, force)
-                    {
-                        editor.set_error(|| format!("Error saving: {}", err));
-                    }
-                    fmt_job
-                }));
-                Job::with_callback(async { Ok(callback) }).wait_before_exiting()
-            });
-
-            let job = if run_code_actions {
-                code_actions_on_save(editor, doc_id, tail)
-            } else {
-                tail
-            };
-
-            if let Some(job) = job {
-                jobs.add(job);
-            } else {
-                editor.save::<PathBuf>(doc_id, None, force)?;
-            }
-        }
-
-        if !errors.is_empty() && !options.force {
-            bail!("{:?}", errors);
-        }
-
-        Ok(())
+        save::save_all(editor, options, |editor, request| {
+            submit_save(editor, jobs, request)
+        })
     }
 
     #[cold]
@@ -993,7 +812,7 @@ pub(super) mod typed {
         )
     }
 
-    /// Sets the [`Document`]'s encoding..
+    /// Sets the [`view::Document`]'s encoding..
     #[cold]
     pub(in crate::commands) fn set_encoding(
         cx: &mut compositor::Context,
@@ -1141,7 +960,7 @@ pub(super) mod typed {
         Ok(())
     }
 
-    /// Reload the [`Document`] from its source file.
+    /// Reload the [`view::Document`] from its source file.
     #[cold]
     pub(in crate::commands) fn reload(
         cx: &mut compositor::Context,
@@ -1248,7 +1067,7 @@ pub(super) mod typed {
         Ok(())
     }
 
-    /// Update the [`Document`] if it has been modified.
+    /// Update the [`view::Document`] if it has been modified.
     #[cold]
     pub(in crate::commands) fn update(
         cx: &mut compositor::Context,

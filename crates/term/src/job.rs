@@ -97,7 +97,7 @@ impl Jobs {
     }
 
     /// Use this editor's queue for callbacks dispatched by event hooks.
-    /// Temporary job collections, such as those used by auto-save, do not replace it.
+    /// Creating another job collection does not replace this queue.
     pub(crate) fn set_current(&self) {
         JOB_QUEUE.store(Some(self.sender.clone()));
     }

@@ -1071,3 +1071,160 @@ async fn test_write_then_open_does_not_panic_on_closed_scratch() -> anyhow::Resu
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_shared_auto_save_prepares_hidden_files_without_formatting() -> anyhow::Result<()> {
+    use editor_core::Transaction;
+    use view::{current, editor::Action, save};
+
+    let mut modified = tempfile::Builder::new().suffix(".toml").tempfile()?;
+    let clean = tempfile::NamedTempFile::new()?;
+    std::fs::write(clean.path(), "leave trailing spaces   ")?;
+    let mut app = AppBuilder::new()
+        .with_config(Config {
+            editor: view::config::Config {
+                trim_trailing_whitespace: true,
+                trim_final_newlines: true,
+                auto_format: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_file(modified.path(), None)
+        .with_input_text("#[h|]#éllo   \n\n")
+        .with_lang_loader(helpers::test_syntax_loader(Some(
+            r#"
+                [[language]]
+                name = "toml"
+                language-servers = []
+                formatter = { command = "bash", args = ["-c", "echo formatted"] }
+                code-actions-on-save = ["source.organizeImports"]
+            "#
+            .into(),
+        )))
+        .build()?;
+    let saved_id = doc!(app.editor).id();
+    app.editor.open(clean.path(), Action::Replace)?;
+    let scratch_id = app.editor.new_file(Action::Replace);
+    let (view, doc) = current!(app.editor);
+    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "scratch   ".into());
+    doc.apply(&transaction, view.id);
+    let scratch_before = doc.text().clone();
+
+    // No command context, job collection, or command dispatch is needed.
+    save::auto_save(&mut app.editor)?;
+    app.editor.flush_writes().await?;
+
+    helpers::assert_file_has_content(&mut modified, "héllo\n")?;
+    assert_eq!(
+        std::fs::read_to_string(clean.path())?,
+        "leave trailing spaces   "
+    );
+    assert!(!app.editor.document(saved_id).unwrap().is_modified());
+    let scratch = app.editor.document(scratch_id).unwrap();
+    assert!(scratch.is_modified());
+    assert_eq!(scratch.text(), &scratch_before);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_shared_save_all_reports_scratch_after_saving_files() -> anyhow::Result<()> {
+    use editor_core::Transaction;
+    use view::{current, editor::Action, save};
+
+    let mut file = tempfile::NamedTempFile::new()?;
+    let mut app = AppBuilder::new()
+        .with_file(file.path(), None)
+        .with_input_text("#[s|]#aved\n")
+        .build()?;
+    app.editor.new_file(Action::Replace);
+    let (view, doc) = current!(app.editor);
+    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "scratch".into());
+    doc.apply(&transaction, view.id);
+    let scratch_before = doc.text().clone();
+    let options = save::WriteAllOptions {
+        force: false,
+        write_scratch: true,
+        auto_format: false,
+        code_actions: false,
+    };
+
+    let result = save::save_all(&mut app.editor, options, |editor, request| {
+        editor.save(request.doc_id, request.path, request.force)
+    });
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "[\"cannot write a buffer without a filename\"]"
+    );
+    app.editor.flush_writes().await?;
+    helpers::assert_file_has_content(&mut file, "saved\n")?;
+    assert_eq!(doc!(app.editor).text(), &scratch_before);
+
+    save::save_all(
+        &mut app.editor,
+        save::WriteAllOptions {
+            force: true,
+            ..options
+        },
+        |_, _| panic!("clean files and scratch buffers must not be submitted"),
+    )?;
+    assert!(doc!(app.editor).is_modified());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow::Result<()> {
+    use editor_core::Transaction;
+    use view::{current, editor::Action, save};
+
+    let first = tempfile::NamedTempFile::new()?;
+    let second = tempfile::NamedTempFile::new()?;
+    let mut app = AppBuilder::new()
+        .with_config(Config {
+            editor: view::config::Config {
+                trim_trailing_whitespace: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_file(first.path(), None)
+        .with_input_text("#[f|]#irst   ")
+        .build()?;
+    app.editor.open(second.path(), Action::Replace)?;
+    let (view, doc) = current!(app.editor);
+    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "second   ".into());
+    doc.apply(&transaction, view.id);
+    let before: Vec<_> = app
+        .editor
+        .documents()
+        .filter(|doc| doc.is_modified())
+        .map(|doc| (doc.id(), doc.text().to_string()))
+        .collect();
+    assert_eq!(before.len(), 2);
+    let mut submitted = Vec::new();
+
+    let result = save::save_all(
+        &mut app.editor,
+        save::WriteAllOptions {
+            force: false,
+            write_scratch: true,
+            auto_format: false,
+            code_actions: false,
+        },
+        |_, request| {
+            submitted.push(request.doc_id);
+            anyhow::bail!("submission failed")
+        },
+    );
+    assert_eq!(result.unwrap_err().to_string(), "submission failed");
+    assert_eq!(submitted.len(), 1);
+    for (id, text) in before {
+        let current = app.editor.document(id).unwrap().text().to_string();
+        if id == submitted[0] {
+            assert_eq!(current, LineFeedHandling::Native.apply(text.trim_end()));
+        } else {
+            assert_eq!(current, text, "later documents must remain unprepared");
+        }
+    }
+    Ok(())
+}
