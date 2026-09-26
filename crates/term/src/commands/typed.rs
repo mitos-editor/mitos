@@ -11,6 +11,10 @@ pub use super::catalog::{
 pub use super::command_line::complete_command_args;
 
 use super::catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG};
+use super::registers::{
+    paste, replace_selections_with_register, yank_joined_impl, yank_main_selection_to_register,
+    Paste,
+};
 use super::shell::{shell, shell_impl_async, ShellBehavior};
 use super::*;
 
