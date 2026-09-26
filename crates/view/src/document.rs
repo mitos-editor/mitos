@@ -233,6 +233,8 @@ pub struct Document {
         Option<crate::handlers::document_symbols::DocumentSymbolsHandler>,
     pub(crate) pull_diagnostics_handler:
         Option<crate::handlers::diagnostics::pull::PullDiagnosticsHandler>,
+    pub(crate) code_action_hint_handler:
+        Option<crate::handlers::code_action_hint::CodeActionHintHandler>,
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
@@ -287,7 +289,7 @@ pub struct Document {
     /// Per-view task controllers for canceling in-flight document highlight requests.
     pub(crate) document_highlight_controllers: HashMap<ViewId, TaskController>,
     /// Per-view task controllers for canceling in-flight code action requests.
-    pub code_action_controllers: HashMap<ViewId, TaskController>,
+    pub(crate) code_action_controllers: HashMap<ViewId, TaskController>,
     pub(crate) document_link_controller: TaskController,
     pub(crate) document_symbols_controller: TaskController,
 
@@ -888,6 +890,7 @@ impl Document {
             document_highlight_handler: None,
             document_symbols_handler: None,
             pull_diagnostics_handler: None,
+            code_action_hint_handler: None,
             syntax_handler: None,
             spelling_events: None,
             language: None,
@@ -2861,15 +2864,18 @@ impl Document {
             .or_default()
     }
 
-    pub fn set_code_action_hints(&mut self, view_id: ViewId) {
+    pub(crate) fn set_code_action_hints(&mut self, view_id: ViewId) {
         self.code_action_hints.insert(view_id);
     }
 
-    pub fn clear_code_action_hints(&mut self, view_id: ViewId) {
+    pub(crate) fn clear_code_action_hints(&mut self, view_id: ViewId) {
         self.code_action_hints.remove(&view_id);
+        if let Some(controller) = self.code_action_controllers.get_mut(&view_id) {
+            controller.cancel();
+        }
     }
 
-    pub fn clear_all_code_action_hints(&mut self) {
+    pub(crate) fn clear_all_code_action_hints(&mut self) {
         self.code_action_hints.clear();
         self.code_action_controllers.clear();
     }
@@ -2878,7 +2884,7 @@ impl Document {
         self.code_action_hints.contains(&view_id)
     }
 
-    pub fn code_action_controller(&mut self, view_id: ViewId) -> &mut TaskController {
+    pub(crate) fn code_action_controller(&mut self, view_id: ViewId) -> &mut TaskController {
         self.code_action_controllers.entry(view_id).or_default()
     }
 

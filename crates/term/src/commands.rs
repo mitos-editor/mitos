@@ -47,7 +47,6 @@ pub use dap::{
 };
 pub(crate) use editing::replace_selections;
 pub use insert::{CommentContinuation, Open};
-pub(crate) use lsp::code_actions_for_range;
 pub use lsp::{
     code_action, code_actions_on_save, compute_inlay_hints_for_all_views, diagnostics_picker,
     goto_declaration, goto_definition, goto_implementation, goto_reference, goto_type_definition,

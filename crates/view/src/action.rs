@@ -1,8 +1,13 @@
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, collections::HashSet, fmt, future::Future};
 
-use lsp_client::{lsp, LanguageServerId};
+use editor_core::syntax::config::LanguageServerFeature;
+use lsp_client::{
+    lsp::{self, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
+    util::{diagnostic_to_lsp_diagnostic, range_to_lsp_range},
+    LanguageServerId,
+};
 
-use crate::Editor;
+use crate::{Document, Editor};
 
 /// A titled action against the editor, shown in the code action menu.
 ///
@@ -151,4 +156,62 @@ fn lsp_code_action_priority(action: &lsp::CodeActionOrCommand) -> u8 {
         priority += 1;
     }
     priority
+}
+
+/// Request code actions for a character range from each distinct supporting server.
+/// Used by automatic hints, interactive actions, and actions on save.
+// Extracting this to a type alias would require boxing this future
+#[allow(clippy::type_complexity)]
+pub fn code_actions_for_range(
+    doc: &Document,
+    range: editor_core::Range,
+    only: Option<Vec<CodeActionKind>>,
+    trigger_kind: CodeActionTriggerKind,
+) -> Vec<(
+    impl Future<Output = Result<Option<Vec<CodeActionOrCommand>>, lsp_client::Error>> + use<>,
+    LanguageServerId,
+)> {
+    code_actions_for_range_filtered(doc, range, only, trigger_kind, None)
+}
+
+/// Select live providers before constructing requests: the client sends them immediately.
+#[allow(clippy::type_complexity)]
+pub(crate) fn code_actions_for_range_filtered(
+    doc: &Document,
+    range: editor_core::Range,
+    only: Option<Vec<CodeActionKind>>,
+    trigger_kind: CodeActionTriggerKind,
+    servers: Option<&HashSet<LanguageServerId>>,
+) -> Vec<(
+    impl Future<Output = Result<Option<Vec<CodeActionOrCommand>>, lsp_client::Error>> + use<>,
+    LanguageServerId,
+)> {
+    let mut seen_language_servers = HashSet::new();
+
+    doc.language_servers_with_feature(LanguageServerFeature::CodeAction)
+        .filter(|ls| servers.is_none_or(|servers| servers.contains(&ls.id())))
+        .filter(|ls| seen_language_servers.insert(ls.id()))
+        // TODO this should probably already been filtered in something like "language_servers_with_feature"
+        .filter_map(|language_server| {
+            let offset_encoding = language_server.offset_encoding();
+            let language_server_id = language_server.id();
+            let lsp_range = range_to_lsp_range(doc.text(), range, offset_encoding);
+            // Filter and convert overlapping diagnostics
+            let code_action_context = lsp::CodeActionContext {
+                diagnostics: doc
+                    .diagnostics()
+                    .iter()
+                    .filter(|&diag| {
+                        range.overlaps(&editor_core::Range::new(diag.range.start, diag.range.end))
+                    })
+                    .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
+                    .collect(),
+                only: only.clone(),
+                trigger_kind: Some(trigger_kind),
+            };
+            let code_action_request =
+                language_server.code_actions(doc.identifier(), lsp_range, code_action_context)?;
+            Some((code_action_request, language_server_id))
+        })
+        .collect::<Vec<_>>()
 }
