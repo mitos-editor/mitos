@@ -1,3 +1,5 @@
+pub(crate) mod lsp;
+
 use std::{
     io::{Read, Write},
     mem::replace,
