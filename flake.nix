@@ -1,18 +1,11 @@
 {
   description = "A post-modern text editor.";
 
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
   outputs = {
     self,
     nixpkgs,
-    rust-overlay,
     ...
   }: let
     inherit (nixpkgs) lib;
@@ -20,7 +13,7 @@
     pkgsFor = eachSystem (system:
       import nixpkgs {
         localSystem.system = system;
-        overlays = [(import rust-overlay) self.overlays.mitos];
+        overlays = [self.overlays.mitos];
       });
     gitRev = self.rev or self.dirtyRev or null;
   in {
@@ -40,27 +33,15 @@
       */
       default = self.packages.${system}.mitos;
     });
-    checks =
-      lib.mapAttrs (system: pkgs: let
-        # Get Mitos's MSRV toolchain to build with by default.
-        msrvToolchain = pkgs.pkgsBuildHost.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        msrvPlatform = pkgs.makeRustPlatform {
-          cargo = msrvToolchain;
-          rustc = msrvToolchain;
-        };
-      in {
-        mitos = self.packages.${system}.mitos.override {
-          rustPlatform = msrvPlatform;
-        };
-      })
-      pkgsFor;
+
+    checks = self.packages;
 
     # Devshell behavior is preserved.
     devShells =
       lib.mapAttrs (system: pkgs: {
         default = let
           commonRustFlagsEnv = "-C link-arg=-fuse-ld=lld -C target-cpu=native --cfg tokio_unstable";
-          platformRustFlagsEnv = lib.optionalString pkgs.stdenv.isLinux "-Clink-arg=-Wl,--no-rosegment";
+          platformRustFlagsEnv = lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-Clink-arg=-Wl,--no-rosegment";
         in
           pkgs.mkShell {
             inputsFrom = [
@@ -72,11 +53,12 @@
               [
                 lld
                 cargo-flamegraph
-                rust-bin.nightly.latest.rust-analyzer
+                rust-analyzer
+                rustfmt
                 mdbook
               ]
-              ++ (lib.optional (stdenv.isx86_64 && stdenv.isLinux) cargo-tarpaulin)
-              ++ (lib.optional stdenv.isLinux lldb);
+              ++ (lib.optional (stdenv.hostPlatform.isx86_64 && stdenv.hostPlatform.isLinux) cargo-tarpaulin)
+              ++ (lib.optional stdenv.hostPlatform.isLinux lldb);
             shellHook = ''
               export RUST_BACKTRACE="1"
               export RUSTFLAGS="''${RUSTFLAGS:-""} ${commonRustFlagsEnv} ${platformRustFlagsEnv}"
