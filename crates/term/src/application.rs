@@ -733,6 +733,10 @@ impl Application {
                 self.handle_document_write(event);
                 self.render().await;
             }
+            EditorEvent::ReloadConfirmation(request) => {
+                crate::handlers::auto_reload::prompt_reload_modified(&mut self.compositor, request);
+                self.render().await;
+            }
             EditorEvent::ConfigEvent(event) => {
                 self.handle_config_events(event);
                 self.render().await;
