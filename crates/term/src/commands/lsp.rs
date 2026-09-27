@@ -28,7 +28,7 @@ use tui::{
     widgets::{Cell, Row},
 };
 use view::{
-    action::{code_actions_for_range, Action as CodeActionItem},
+    action::{code_actions_for_range, Action as CodeActionItem, LspActionContext},
     align_view,
     document::{DocumentInlayHints, DocumentInlayHintsId},
     editor::Action,
@@ -647,6 +647,7 @@ pub fn code_action(cx: &mut Context) {
     let version = doc.version();
     let selection = doc.selection(view_id).clone();
 
+    let action_context = LspActionContext::new(doc);
     let mut futures: FuturesUnordered<_> = code_actions_for_range(
         doc,
         selection.primary(),
@@ -655,6 +656,7 @@ pub fn code_action(cx: &mut Context) {
     )
     .into_iter()
     .map(|(request, ls_id)| {
+        let action_context = action_context.clone();
         async move {
             let Some(mut actions) = request.await? else {
                 return anyhow::Ok(Vec::new());
@@ -671,7 +673,7 @@ pub fn code_action(cx: &mut Context) {
 
             Ok(actions
                 .into_iter()
-                .map(|lsp_item| CodeActionItem::lsp(ls_id, lsp_item))
+                .map(|lsp_item| CodeActionItem::lsp(action_context.clone(), ls_id, lsp_item))
                 .collect())
         }
         .boxed()

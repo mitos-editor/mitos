@@ -28,16 +28,22 @@ fn main() -> anyhow::Result<()> {
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
+    let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
-    let mut request_log =
-        if diagnostics || code_actions || lifecycle || signature_help || completion {
-            Some(std::fs::File::create(&args[2])?)
-        } else {
-            None
-        };
+    let mut request_log = if diagnostics
+        || code_actions
+        || lifecycle
+        || signature_help
+        || completion
+        || action_execution
+    {
+        Some(std::fs::File::create(&args[2])?)
+    } else {
+        None
+    };
     loop {
         let mut length = None;
         loop {
@@ -66,6 +72,10 @@ fn main() -> anyhow::Result<()> {
             while !std::path::Path::new(&args[index + 1]).exists() {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
+        }
+        if action_execution {
+            writeln!(request_log.as_mut().unwrap(), "{message}")?;
+            request_log.as_mut().unwrap().flush()?;
         }
         if lifecycle {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
@@ -244,8 +254,44 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "codeAction/resolve" && action_execution {
+            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            if params["data"]["failure"] == "resolve" {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32603, "message": "fixture resolve failure"}}),
+                )?;
+            } else {
+                let mut action = params.clone();
+                let version = if params["data"]["failure"] == "edit" {
+                    -1
+                } else {
+                    params["data"]["version"].as_i64().unwrap()
+                };
+                action["edit"] = json!({"documentChanges": [{
+                    "textDocument": {"uri": params["data"]["uri"], "version": version},
+                    "edits": [{"range": range(0, 3), "newText": "fixed"}]
+                }]});
+                action["command"] = json!({"title": "after edit", "command": "fixture.command"});
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id, "result": action}),
+                )?;
+            }
+            continue;
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if action_execution => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "codeActionProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},
+                "executeCommandProvider": {"commands": ["fixture.command"]}
+            }}),
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}

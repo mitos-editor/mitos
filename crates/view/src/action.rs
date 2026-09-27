@@ -1,13 +1,19 @@
-use std::{borrow::Cow, collections::HashSet, fmt, future::Future};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fmt,
+    future::Future,
+    sync::{Arc, Weak},
+};
 
-use editor_core::syntax::config::LanguageServerFeature;
+use editor_core::{syntax::config::LanguageServerFeature, Uri};
 use lsp_client::{
     lsp::{self, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
     util::{diagnostic_to_lsp_diagnostic, range_to_lsp_range},
     LanguageServerId,
 };
 
-use crate::{Document, Editor};
+use crate::{Document, DocumentId, Editor};
 
 /// A titled action against the editor, shown in the code action menu.
 ///
@@ -51,8 +57,12 @@ impl Action {
         (self.action)(editor);
     }
 
-    /// Builds an `Action` from an LSP code action or command.
-    pub fn lsp(server_id: LanguageServerId, action: lsp::CodeActionOrCommand) -> Self {
+    /// Builds an action bound to the document snapshot used to request it.
+    pub fn lsp(
+        context: LspActionContext,
+        server_id: LanguageServerId,
+        action: lsp::CodeActionOrCommand,
+    ) -> Self {
         let title = match &action {
             lsp::CodeActionOrCommand::CodeAction(action) => action.title.clone(),
             lsp::CodeActionOrCommand::Command(command) => command.title.clone(),
@@ -60,42 +70,115 @@ impl Action {
         let priority = lsp_code_action_priority(&action);
 
         Self::new(title, priority, move |editor| {
-            let Some(language_server) = editor.language_server_by_id(server_id) else {
-                editor.set_error(|| "Language Server disappeared");
+            if !context.is_current(editor, server_id) {
+                editor.set_error(|| "Code action is no longer current");
                 return;
-            };
-            let offset_encoding = language_server.offset_encoding();
+            }
+            let server = editor.language_server_by_id(server_id).unwrap();
             match &action {
                 lsp::CodeActionOrCommand::Command(command) => {
-                    log::debug!("code action command: {:?}", command);
                     editor.execute_lsp_command(command.clone(), server_id);
                 }
-                lsp::CodeActionOrCommand::CodeAction(code_action) => {
-                    log::debug!("code action: {:?}", code_action);
-                    // We support lsp "codeAction/resolve" for `edit` and `command` fields.
-                    let resolved;
-                    let code_action = if code_action.edit.is_none() || code_action.command.is_none()
-                    {
-                        resolved = language_server
-                            .resolve_code_action(code_action)
-                            .and_then(|future| lsp_client::block_on(future).ok());
-                        resolved.as_ref().unwrap_or(code_action)
-                    } else {
-                        code_action
-                    };
-
-                    if let Some(ref workspace_edit) = code_action.edit {
-                        let _ = editor.apply_workspace_edit(offset_encoding, workspace_edit);
+                lsp::CodeActionOrCommand::CodeAction(action) => {
+                    if action.disabled.is_some() {
+                        return;
                     }
-
-                    // If a code action provides both an edit and a command the edit is applied
-                    // first, then the command.
-                    if let Some(command) = &code_action.command {
-                        editor.execute_lsp_command(command.clone(), server_id);
+                    // Resolve only when supported and a lazily supplied field is missing.
+                    let resolve = (action.edit.is_none() || action.command.is_none())
+                        .then(|| server.resolve_code_action(action))
+                        .flatten();
+                    if let Some(resolve) = resolve {
+                        let callbacks = editor.handlers.callbacks.clone();
+                        let context = context.clone();
+                        tokio::spawn(async move {
+                            let result = resolve.await;
+                            callbacks
+                                .send(move |editor| {
+                                    // The reply may have waited in the frontend queue while the
+                                    // document changed, closed, or detached from this server.
+                                    if !context.is_current(editor, server_id) {
+                                        editor.set_error(|| "Code action is no longer current");
+                                        return;
+                                    }
+                                    match result {
+                                        Ok(action) => apply_lsp_action(editor, server_id, &action),
+                                        Err(err) => editor.set_error(|| {
+                                            format!("Failed to resolve code action: {err}")
+                                        }),
+                                    }
+                                })
+                                .await;
+                        });
+                    } else {
+                        apply_lsp_action(editor, server_id, action);
                     }
                 }
             }
         })
+    }
+}
+
+/// The originating document snapshot, captured before requesting menu actions.
+///
+/// Focus may move while an action resolves; document identity and version must not.
+/// Clones share the immutable snapshot across menu items and queued callbacks.
+#[derive(Clone, Debug)]
+pub struct LspActionContext(Arc<LspActionSnapshot>);
+
+#[derive(Debug)]
+struct LspActionSnapshot {
+    doc: DocumentId,
+    version: i32,
+    uri: Option<Uri>,
+    servers: Vec<Weak<lsp_client::Client>>,
+}
+
+impl LspActionContext {
+    pub fn new(doc: &Document) -> Self {
+        Self(Arc::new(LspActionSnapshot {
+            doc: doc.id(),
+            version: doc.version(),
+            uri: doc.uri(),
+            servers: doc.language_servers.values().map(Arc::downgrade).collect(),
+        }))
+    }
+
+    fn is_current(&self, editor: &Editor, server_id: LanguageServerId) -> bool {
+        // IDs are editor-local. Retain instance identity without keeping a
+        // disconnected server alive merely because its action menu is open.
+        let snapshot = &self.0;
+        snapshot
+            .servers
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|server| {
+                server.id() == server_id
+                    && editor
+                        .language_server_by_id(server_id)
+                        .is_some_and(|current| std::ptr::eq(current, server.as_ref()))
+            })
+            && editor.document(snapshot.doc).is_some_and(|doc| {
+                doc.version() == snapshot.version
+                    && doc.path() == snapshot.uri.as_ref().and_then(Uri::as_path)
+                    && doc.supports_language_server(server_id)
+            })
+    }
+}
+
+fn apply_lsp_action(editor: &mut Editor, server_id: LanguageServerId, action: &lsp::CodeAction) {
+    if action.disabled.is_some() {
+        return;
+    }
+    let server = editor.language_server_by_id(server_id).unwrap();
+    if let Some(edit) = &action.edit
+        && let Err(err) = editor.apply_workspace_edit(server.offset_encoding(), edit)
+    {
+        editor.set_error(|| format!("Failed to apply code action: {}", err.kind));
+        return;
+    }
+    // Commands may depend on the edit, so never execute one after an edit failure.
+    if let Some(command) = &action.command {
+        editor.execute_lsp_command(command.clone(), server_id);
     }
 }
 
