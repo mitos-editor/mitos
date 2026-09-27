@@ -125,7 +125,7 @@ impl Application {
         let backend = TestBackend::new(120, 150);
 
         let theme_mode = backend.get_theme_mode();
-        let mut terminal = Terminal::new(backend)?;
+        let terminal = Terminal::new(backend)?;
         let area = Rect::from(terminal.size()?);
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
@@ -142,7 +142,8 @@ impl Application {
             handlers,
             workspace_trust,
         );
-        Self::load_configured_theme(&mut editor, &config.load(), &mut terminal, theme_mode);
+        let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
+        let _ = editor.set_theme(theme);
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
@@ -399,7 +400,7 @@ impl Application {
                         crate::config::ConfigEvent::Update(settings) => {
                             let old_editor_config = self.editor.config();
                             self.apply_editor_settings(*settings);
-                            self.refresh_editor_config(&old_editor_config);
+                            self.editor.refresh_config(&old_editor_config);
                         }
                         crate::config::ConfigEvent::Refresh => {
                             self.handle_config_events(ConfigEvent::Refresh);
@@ -483,7 +484,7 @@ impl Application {
             }
         }
 
-        self.refresh_editor_config(&old_editor_config);
+        self.editor.refresh_config(&old_editor_config);
     }
 
     fn apply_editor_settings(&mut self, settings: EditorSettings) {
@@ -500,54 +501,19 @@ impl Application {
         self.config.store(Arc::new(app_config));
     }
 
-    fn refresh_editor_config(&mut self, old_editor_config: &view::config::Config) {
-        // Update all the relevant members in the editor after updating
-        // the configuration.
-        self.editor.refresh_config(old_editor_config);
-
-        // reset view position in case softwrap was enabled/disabled
-        let scrolloff = self.editor.config().scrolloff;
-        for (view, _) in self.editor.tree.views() {
-            let doc = doc_mut!(self.editor, &view.doc);
-            view.ensure_cursor_in_view(doc, scrolloff);
-        }
-    }
-
     fn refresh_config(&mut self) {
         let mut refresh_config = || -> Result<(), Error> {
             let default_config = Config::load_default()
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
-            // Apply any change to editor.workspace_trust before reading local language config.
-            self.editor
-                .workspace_trust
-                .set_config((&default_config.editor.workspace_trust).into());
-
-            // Update the syntax language loader before setting the theme. Setting the theme will
-            // call `Loader::set_scopes` which must be done before the documents are re-parsed for
-            // the sake of locals highlighting.
-            let lang_loader = editor_core::config::user_lang_loader(&self.editor.workspace_trust)?;
-            self.editor.syn_loader.store(Arc::new(lang_loader));
-            Self::load_configured_theme(
-                &mut self.editor,
+            let lang_loader = self.editor.load_language_config(&default_config.editor)?;
+            let theme = Self::configured_theme(
+                &self.editor,
                 &default_config,
-                &mut self.terminal,
+                &self.terminal,
                 self.theme_mode,
             );
-
-            // Re-parse any open documents with the new language config.
-            let lang_loader = self.editor.syn_loader.load();
-            for document in self.editor.documents.values_mut() {
-                // Re-detect .editorconfig
-                document.detect_editor_config();
-                document.detect_language(&lang_loader);
-                let diagnostics = Editor::doc_diagnostics(
-                    &self.editor.language_servers,
-                    &self.editor.diagnostics,
-                    document,
-                );
-                document.replace_diagnostics(diagnostics, &[], None);
-            }
+            let _ = self.editor.apply_language_config(lang_loader, theme);
 
             self.terminal
                 .backend_mut()
@@ -567,19 +533,19 @@ impl Application {
         }
     }
 
-    /// Load the theme set in configuration
-    fn load_configured_theme(
-        editor: &mut Editor,
+    /// Choose a configured theme compatible with this frontend.
+    fn configured_theme(
+        editor: &Editor,
         config: &Config,
-        terminal: &mut Terminal,
+        terminal: &Terminal,
         mode: Option<theme::Mode>,
-    ) {
+    ) -> theme::Theme {
         let true_color = terminal.backend().supports_true_color()
             || config.terminal.true_color
             || crate::true_color();
         let theme_config = config.theme.clone().unwrap_or_default();
         let name = theme_config.choose(mode);
-        let theme = editor
+        editor
             .theme_loader
             .load(name)
             .map_err(|e| {
@@ -598,8 +564,7 @@ impl Application {
                 }
                 colors_ok
             })
-            .unwrap_or_else(|| editor.theme_loader.default_theme());
-        let _ = editor.set_theme(theme);
+            .unwrap_or_else(|| editor.theme_loader.default_theme())
     }
 
     #[cfg(windows)]
@@ -848,12 +813,13 @@ impl Application {
                         .is_none_or(|theme| theme.is_adaptive())
                 {
                     self.theme_mode = Some(mode);
-                    Self::load_configured_theme(
-                        &mut self.editor,
+                    let theme = Self::configured_theme(
+                        &self.editor,
                         &config,
-                        &mut self.terminal,
+                        &self.terminal,
                         self.theme_mode,
                     );
+                    let _ = self.editor.set_theme(theme);
                     true
                 } else {
                     false

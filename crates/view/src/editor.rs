@@ -1,3 +1,5 @@
+mod config;
+
 use crate::{
     document::{
         DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
@@ -324,20 +326,6 @@ impl Editor {
 
     pub fn config(&self) -> DynGuard<Config> {
         self.config.load()
-    }
-
-    /// Call if the config has changed to let the editor update all
-    /// relevant members.
-    pub fn refresh_config(&mut self, old_config: &Config) {
-        let config = self.config();
-        self.auto_pairs = (&config.auto_pairs).into();
-        self.reset_idle_timer();
-        self._refresh();
-        event::dispatch(crate::events::ConfigDidChange {
-            editor: self,
-            old: old_config,
-            new: &config,
-        })
     }
 
     pub fn clear_idle_timer(&mut self) {
