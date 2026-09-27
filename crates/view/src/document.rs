@@ -235,6 +235,7 @@ pub struct Document {
         Option<crate::handlers::diagnostics::pull::PullDiagnosticsHandler>,
     pub(crate) code_action_hint_handler:
         Option<crate::handlers::code_action_hint::CodeActionHintHandler>,
+    pub(crate) auto_save_trigger: Option<crate::handlers::auto_save::AutoSaveTrigger>,
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
@@ -892,6 +893,7 @@ impl Document {
             pull_diagnostics_handler: None,
             code_action_hint_handler: None,
             syntax_handler: None,
+            auto_save_trigger: None,
             spelling_events: None,
             language: None,
             changes,

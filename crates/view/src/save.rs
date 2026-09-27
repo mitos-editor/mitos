@@ -152,7 +152,7 @@ pub fn save_all(
 }
 
 /// Save modified files without running formatters or code actions, ignoring scratch buffers.
-/// Debouncing, focus, and mode restrictions are handled by the frontend trigger.
+/// Debouncing, focus, and mode restrictions belong to `handlers::auto_save`.
 pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
     save_all(
         editor,

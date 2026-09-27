@@ -1942,11 +1942,7 @@ impl Component for EditorView {
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {
-                if context.editor.config().auto_save.focus_lost
-                    && let Err(e) = view::save::auto_save(context.editor)
-                {
-                    context.editor.set_error(|| format!("{}", e));
-                }
+                view::handlers::auto_save::focus_lost(context.editor);
                 self.terminal_focused = false;
                 EventResult::Consumed(None)
             }

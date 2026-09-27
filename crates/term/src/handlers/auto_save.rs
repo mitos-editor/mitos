@@ -1,107 +1,16 @@
-use std::{
-    sync::{
-        atomic::{self, AtomicBool},
-        Arc,
-    },
-    time::Duration,
-};
+use event::register_hook;
+use view::document::Mode;
 
-use anyhow::Ok;
-use arc_swap::access::Access;
+use crate::events::OnModeSwitch;
 
-use event::{register_hook, send_blocking};
-use tokio::time::Instant;
-use view::{
-    document::Mode,
-    events::DocumentDidChange,
-    handlers::{AutoSaveEvent, Handlers},
-    Editor,
-};
-
-use crate::{events::OnModeSwitch, job};
-
-#[derive(Debug)]
-pub(super) struct AutoSaveHandler {
-    save_pending: Arc<AtomicBool>,
-}
-
-impl AutoSaveHandler {
-    pub fn new() -> AutoSaveHandler {
-        AutoSaveHandler {
-            save_pending: Default::default(),
-        }
-    }
-}
-
-impl event::AsyncHook for AutoSaveHandler {
-    type Event = AutoSaveEvent;
-
-    fn handle_event(
-        &mut self,
-        event: Self::Event,
-        existing_debounce: Option<tokio::time::Instant>,
-    ) -> Option<Instant> {
-        match event {
-            Self::Event::DocumentChanged { save_after } => {
-                Some(Instant::now() + Duration::from_millis(save_after))
+pub(super) fn register_hooks() {
+    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
+    REGISTER.call_once(|| {
+        register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+            if event.old_mode == Mode::Insert {
+                event.cx.editor.handlers.auto_save.left_insert_mode();
             }
-            Self::Event::LeftInsertMode => {
-                if existing_debounce.is_some() {
-                    // If the change happened more recently than the debounce, let the
-                    // debounce run down before saving.
-                    existing_debounce
-                } else {
-                    // Otherwise if there is a save pending, save immediately.
-                    if self.save_pending.load(atomic::Ordering::Relaxed) {
-                        self.finish_debounce();
-                    }
-                    None
-                }
-            }
-        }
-    }
-
-    fn finish_debounce(&mut self) {
-        let save_pending = self.save_pending.clone();
-        job::dispatch_blocking(move |editor, _| {
-            if editor.mode() == Mode::Insert {
-                // Avoid saving while in insert mode since this mixes up
-                // the modification indicator and prevents future saves.
-                save_pending.store(true, atomic::Ordering::Relaxed);
-            } else {
-                request_auto_save(editor);
-                save_pending.store(false, atomic::Ordering::Relaxed);
-            }
-        })
-    }
-}
-
-fn request_auto_save(editor: &mut Editor) {
-    if let Err(e) = view::save::auto_save(editor) {
-        editor.set_error(|| format!("{}", e));
-    }
-}
-
-pub(super) fn register_hooks(handlers: &Handlers) {
-    let tx = handlers.auto_save.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        let config = event.doc.config.load();
-        if config.auto_save.after_delay.enable {
-            send_blocking(
-                &tx,
-                AutoSaveEvent::DocumentChanged {
-                    save_after: config.auto_save.after_delay.timeout,
-                },
-            );
-        }
-        Ok(())
-    });
-
-    let tx = handlers.auto_save.clone();
-    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
-        if event.old_mode == Mode::Insert {
-            send_blocking(&tx, AutoSaveEvent::LeftInsertMode)
-        }
-        Ok(())
+            Ok(())
+        });
     });
 }
