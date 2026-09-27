@@ -31,13 +31,14 @@ impl IgnoredWordsFile {
         Ok(Self { path, words })
     }
 
-    pub(super) fn words(&self) -> impl Iterator<Item = &String> {
+    /// Words in this loaded snapshot, normalized to lowercase.
+    pub fn words(&self) -> impl Iterator<Item = &String> {
         self.words.iter()
     }
 
     /// Persist a word before publishing it to checks. Appending preserves entries written by
     /// other editor instances since this list was loaded.
-    pub(super) fn insert(&mut self, word: &str) -> io::Result<bool> {
+    pub fn insert(&mut self, word: &str) -> io::Result<bool> {
         let word = word.trim().to_lowercase();
         if word.is_empty() || word.contains(['\n', '\r']) {
             return Err(io::Error::new(
