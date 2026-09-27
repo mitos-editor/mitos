@@ -371,3 +371,104 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn theme_completion_and_commands_use_each_editors_selected_resources() -> anyhow::Result<()> {
+    use super::helpers::{test_config, test_key_sequence, test_key_sequences};
+    use loader::theme::Resources;
+    use view::theme::{Color, Loader, Style};
+
+    fn write(root: &std::path::Path, name: &str, color: &str) -> anyhow::Result<()> {
+        std::fs::create_dir_all(root.join("themes"))?;
+        std::fs::write(
+            root.join("themes").join(format!("{name}.toml")),
+            format!("inherits = 'default'\nkeyword = '{color}'"),
+        )?;
+        Ok(())
+    }
+    fn names(editor: &view::Editor) -> Vec<String> {
+        let mut names: Vec<_> = term::ui::completers::theme(editor, "")
+            .into_iter()
+            .map(|(_, span)| span.content.into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+    let a = tempfile::tempdir()?;
+    let b = tempfile::tempdir()?;
+    write(a.path(), "shared", "blue")?;
+    write(a.path(), "only-a", "blue")?;
+    write(b.path(), "shared", "red")?;
+    write(b.path(), "only-b", "red")?;
+    let mut config = test_config();
+    config.terminal.true_color = true;
+    let mut first = AppBuilder::new().with_config(config.clone()).build()?;
+    let mut second = AppBuilder::new().with_config(config).build()?;
+    first.editor.theme_loader = Arc::new(Loader::new(Resources::new(vec![a.path().into()])));
+    second.editor.theme_loader = Arc::new(Loader::new(Resources::new(vec![b.path().into()])));
+    assert_eq!(
+        names(&first.editor),
+        ["base16_default", "default", "only-a", "shared"]
+    );
+    assert_eq!(
+        names(&second.editor),
+        ["base16_default", "default", "only-b", "shared"]
+    );
+    test_key_sequence(&mut second, Some(":theme shared<ret>"), None, false).await?;
+    assert_eq!(
+        second.editor.theme.get("keyword"),
+        Style::default().fg(Color::Red)
+    );
+    test_key_sequences(
+        &mut first,
+        vec![
+            (
+                Some(":theme shared<ret>"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(app.editor.theme.name(), "shared");
+                    assert_eq!(
+                        app.editor.theme.get("keyword"),
+                        Style::default().fg(Color::Blue)
+                    );
+                    write(a.path(), "added", "green").unwrap();
+                    assert!(names(&app.editor).contains(&"added".into()));
+                    assert!(!names(&second.editor).contains(&"added".into()));
+                    write(a.path(), "shared", "green").unwrap();
+                }),
+            ),
+            (
+                Some(":theme shared<ret>"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(
+                        app.editor.theme.get("keyword"),
+                        Style::default().fg(Color::Green)
+                    );
+                    std::fs::write(a.path().join("themes/shared.toml"), "inherits = 'missing'")
+                        .unwrap();
+                }),
+            ),
+            (
+                Some(":theme shared<ret>"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(
+                        app.editor.theme.get("keyword"),
+                        Style::default().fg(Color::Green)
+                    );
+                    assert!(app
+                        .editor
+                        .get_status()
+                        .unwrap()
+                        .0
+                        .contains("Could not load theme"));
+                    assert_eq!(
+                        second.editor.theme.get("keyword"),
+                        Style::default().fg(Color::Red)
+                    );
+                }),
+            ),
+        ],
+        false,
+    )
+    .await?;
+    Ok(())
+}

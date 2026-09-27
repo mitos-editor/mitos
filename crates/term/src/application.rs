@@ -113,7 +113,7 @@ impl Application {
 
         let mut theme_parent_dirs = vec![loader::config_dir()];
         theme_parent_dirs.extend(loader::runtime_dirs().iter().cloned());
-        let theme_loader = theme::Loader::new(&theme_parent_dirs);
+        let theme_loader = theme::Loader::new(loader::theme::Resources::new(theme_parent_dirs));
 
         #[cfg(all(not(windows), not(feature = "integration")))]
         let backend = TerminaBackend::new(terminal_config(&config))

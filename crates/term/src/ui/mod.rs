@@ -469,7 +469,6 @@ pub mod completers {
     use std::sync::LazyLock;
     use tui::text::Span;
     use view::document::SCRATCH_BUFFER_NAME;
-    use view::theme;
     use view::Editor;
 
     pub type Completer = fn(&Editor, &str) -> Vec<Completion>;
@@ -491,15 +490,8 @@ pub mod completers {
             .collect()
     }
 
-    pub fn theme(_editor: &Editor, input: &str) -> Vec<Completion> {
-        let mut names = theme::Loader::read_names(&loader::config_dir().join("themes"));
-        for rt_dir in loader::runtime_dirs() {
-            names.extend(theme::Loader::read_names(&rt_dir.join("themes")));
-        }
-        names.push("default".into());
-        names.push("base16_default".into());
-        names.sort();
-        names.dedup();
+    pub fn theme(editor: &Editor, input: &str) -> Vec<Completion> {
+        let names = editor.theme_loader.resources().names();
 
         fuzzy_match(input, names, false)
             .into_iter()
