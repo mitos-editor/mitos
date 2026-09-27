@@ -1,5 +1,4 @@
 use std::{
-    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -7,139 +6,12 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context as _;
 use editor_core::{diagnostic::DiagnosticProvider, Transaction, Uri};
-use lsp_client::{lsp, Call, LanguageServerId, Notification};
+use lsp_client::{lsp, Call, Notification};
 use serde_json::{json, Value};
-use term::application::Application;
-use tokio_stream::StreamExt;
-use view::{current, current_ref, editor::Action, events::LanguageServerExited};
+use view::{current, current_ref, events::LanguageServerExited};
 
-use super::helpers::{test_config, test_syntax_loader, AppBuilder};
-
-struct Fixture {
-    app: Application,
-    gate: PathBuf,
-    logs: Vec<PathBuf>,
-}
-
-impl Fixture {
-    fn new(dir: &Path, names: &[&str]) -> anyhow::Result<Self> {
-        let gate = dir.join("initialize-ready");
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
-        let mut servers = String::new();
-        let mut logs = Vec::new();
-        for name in names {
-            let log = dir.join(format!("{name}.jsonl"));
-            let args = toml::Value::Array(
-                [
-                    "--lifecycle",
-                    name,
-                    log.to_str().unwrap(),
-                    gate.to_str().unwrap(),
-                ]
-                .into_iter()
-                .map(|s| toml::Value::String(s.into()))
-                .collect(),
-            );
-            servers.push_str(&format!("[language-server.{name}]\ncommand = {command}\nargs = {args}\nconfig = {{ lifecycle = \"{name}\" }}\n"));
-            logs.push(log);
-        }
-        let names = toml::Value::Array(
-            names
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
-        );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {servers}
-            [[language]]
-            name = "lifecycle-test"
-            scope = "source.lifecycle-test"
-            file-types = ["lifecycle-test"]
-            roots = []
-            language-servers = {names}
-        "#
-        )));
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        config.editor.breadcrumb.enable = true;
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .build()?;
-        let path = dir.join("document.lifecycle-test");
-        std::fs::write(&path, "😀 original\n")?;
-        app.editor.open(&path, Action::Replace)?;
-        Ok(Self { app, gate, logs })
-    }
-
-    fn release(&self) -> anyhow::Result<()> {
-        std::fs::write(&self.gate, "ready")?;
-        Ok(())
-    }
-
-    async fn next(&mut self) -> anyhow::Result<(LanguageServerId, Call)> {
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            self.app.editor.language_servers.incoming.next(),
-        )
-        .await?
-        .context("LSP message stream closed")
-    }
-
-    /// Drive the shared editor API directly, without terminal message handling or rendering.
-    async fn initialize(&mut self) -> anyhow::Result<()> {
-        self.release()?;
-        let mut initialized = 0;
-        while initialized < self.logs.len() {
-            let (server_id, call) = self.next().await?;
-            let Call::Notification(notification) = call else {
-                anyhow::bail!("unexpected LSP request")
-            };
-            match Notification::parse(&notification.method, notification.params)? {
-                Notification::Initialized => {
-                    self.app
-                        .editor
-                        .handle_language_server_initialized(server_id);
-                    initialized += 1;
-                }
-                Notification::PublishDiagnostics(params) => self
-                    .app
-                    .editor
-                    .handle_publish_diagnostics(server_id, params),
-                notification => anyhow::bail!("unexpected notification: {notification:?}"),
-            }
-        }
-        Ok(())
-    }
-
-    fn server(&self, name: &str) -> LanguageServerId {
-        self.app
-            .editor
-            .language_servers
-            .iter_clients()
-            .find(|server| server.name() == name)
-            .unwrap()
-            .id()
-    }
-
-    fn uri(&self) -> Uri {
-        current_ref!(self.app.editor).1.uri().unwrap()
-    }
-
-    fn messages(&self) -> Vec<String> {
-        let mut messages: Vec<_> = current_ref!(self.app.editor)
-            .1
-            .diagnostics()
-            .iter()
-            .map(|d| d.message.to_string())
-            .collect();
-        messages.sort();
-        messages
-    }
-}
+use super::helpers::lsp::Fixture;
 
 fn params(uri: &Uri, version: Option<i32>, message: &str) -> lsp::PublishDiagnosticsParams {
     serde_json::from_value(json!({

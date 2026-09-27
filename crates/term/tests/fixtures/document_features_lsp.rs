@@ -111,6 +111,10 @@ fn main() -> anyhow::Result<()> {
             "exit" => return Ok(()),
             _ => {}
         }
+        // Client replies to server requests are logged, but need no response.
+        if !message["method"].is_string() {
+            continue;
+        }
         let Some(id) = message.get("id") else {
             continue;
         };

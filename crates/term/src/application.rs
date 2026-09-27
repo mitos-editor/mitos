@@ -1,11 +1,7 @@
 use arc_swap::{access::Map, ArcSwap};
 use editor_core::{diagnostic::Severity, pos_at_coords, syntax, Range, Selection};
 use futures_util::Stream;
-use lsp_client::{
-    lsp::{self, notification::Notification},
-    util::lsp_range_to_range,
-    LanguageServerId, LspProgressMap,
-};
+use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
 use serde_json::json;
 use stdx::path::get_relative_path;
 use tui::backend::{Backend, BackendExt};
@@ -1083,119 +1079,24 @@ impl Application {
 
                         Ok(serde_json::Value::Null)
                     }
-                    Ok(MethodCall::ApplyWorkspaceEdit(params)) => {
-                        let language_server = language_server!();
-                        if language_server.is_initialized() {
-                            let offset_encoding = language_server.offset_encoding();
-                            let res = self
-                                .editor
-                                .apply_workspace_edit(offset_encoding, &params.edit);
-
-                            Ok(json!(lsp::ApplyWorkspaceEditResponse {
-                                applied: res.is_ok(),
-                                failure_reason: res.as_ref().err().map(|err| err.kind.to_string()),
-                                failed_change: res
-                                    .as_ref()
-                                    .err()
-                                    .map(|err| err.failed_change_idx as u32),
-                            }))
-                        } else {
-                            Err(lsp_client::jsonrpc::Error {
-                                code: lsp_client::jsonrpc::ErrorCode::InvalidRequest,
-                                message: "Server must be initialized to request workspace edits"
-                                    .to_string(),
-                                data: None,
-                            })
-                        }
-                    }
+                    Ok(MethodCall::ApplyWorkspaceEdit(params)) => self
+                        .editor
+                        .handle_workspace_edit(server_id, params)
+                        .map(|response| json!(response)),
                     Ok(MethodCall::WorkspaceFolders) => {
                         Ok(json!(&*language_server!().workspace_folders().await))
                     }
                     Ok(MethodCall::WorkspaceConfiguration(params)) => {
-                        let language_server = language_server!();
-                        let result: Vec<_> = params
-                            .items
-                            .iter()
-                            .map(|item| {
-                                let mut config = language_server.config()?;
-                                if let Some(section) = item.section.as_ref() {
-                                    // for some reason some lsps send an empty string (observed in 'vscode-eslint-language-server')
-                                    if !section.is_empty() {
-                                        for part in section.split('.') {
-                                            config = config.get(part)?;
-                                        }
-                                    }
-                                }
-                                Some(config)
-                            })
-                            .collect();
-                        Ok(json!(result))
+                        Ok(json!(language_server!().configuration(&params)))
                     }
                     Ok(MethodCall::RegisterCapability(params)) => {
-                        if let Some(client) = self.editor.language_servers.get_by_id(server_id) {
-                            for reg in params.registrations {
-                                match reg.method.as_str() {
-                                    lsp::notification::DidChangeWatchedFiles::METHOD => {
-                                        let Some(options) = reg.register_options else {
-                                            continue;
-                                        };
-                                        let ops: lsp::DidChangeWatchedFilesRegistrationOptions =
-                                            match serde_json::from_value(options) {
-                                                Ok(ops) => ops,
-                                                Err(err) => {
-                                                    log::warn!("Failed to deserialize DidChangeWatchedFilesRegistrationOptions: {err}");
-                                                    continue;
-                                                }
-                                            };
-                                        for watch in &ops.watchers {
-                                            if let lsp::GlobPattern::Relative(pattern) =
-                                                &watch.glob_pattern
-                                            {
-                                                let base_url = match &pattern.base_uri {
-                                                    lsp::OneOf::Left(folder) => &folder.uri,
-                                                    lsp::OneOf::Right(url) => url,
-                                                };
-                                                let Ok(base_dir) = base_url.to_file_path() else {
-                                                    continue;
-                                                };
-                                                self.editor.file_watcher.add_root(&base_dir);
-                                            }
-                                        }
-                                        self.editor.language_servers.file_event_handler.register(
-                                            Arc::downgrade(client),
-                                            reg.id,
-                                            ops,
-                                        )
-                                    }
-                                    _ => {
-                                        // Language Servers based on the `vscode-languageserver-node` library often send
-                                        // client/registerCapability even though we do not enable dynamic registration
-                                        // for most capabilities. We should send a MethodNotFound JSONRPC error in this
-                                        // case but that rejects the registration promise in the server which causes an
-                                        // exit. So we work around this by ignoring the request and sending back an OK
-                                        // response.
-                                        log::warn!("Ignoring a client/registerCapability request because dynamic capability registration is not enabled. Please report this upstream to the language server");
-                                    }
-                                }
-                            }
-                        }
-
+                        self.editor
+                            .register_language_server_capabilities(server_id, params);
                         Ok(serde_json::Value::Null)
                     }
                     Ok(MethodCall::UnregisterCapability(params)) => {
-                        for unreg in params.unregisterations {
-                            match unreg.method.as_str() {
-                                lsp::notification::DidChangeWatchedFiles::METHOD => {
-                                    self.editor
-                                        .language_servers
-                                        .file_event_handler
-                                        .unregister(server_id, unreg.id);
-                                }
-                                _ => {
-                                    log::warn!("Received unregistration request for unsupported method: {}", unreg.method);
-                                }
-                            }
-                        }
+                        self.editor
+                            .unregister_language_server_capabilities(server_id, params);
                         Ok(serde_json::Value::Null)
                     }
                     Ok(MethodCall::ShowDocument(params)) => {

@@ -379,3 +379,23 @@ async fn exited_servers_cannot_publish_queued_reports() -> anyhow::Result<()> {
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_refresh_request_targets_only_the_requesting_provider() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha", "beta"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let alpha = f.server("alpha");
+    let call = serde_json::from_value(serde_json::json!({
+        "jsonrpc": "2.0", "id": "refresh", "method": "workspace/diagnostic/refresh"
+    }))?;
+    f.app.handle_language_server_message(call, alpha).await;
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 original", "beta: 😀 original"]);
+    assert_eq!(f.requests(0)?.len(), 2);
+    assert_eq!(f.requests(1)?.len(), 1);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

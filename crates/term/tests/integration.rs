@@ -22,6 +22,7 @@ mod test {
     mod commands;
     mod document_features;
     mod lsp_lifecycle;
+    mod lsp_workspace;
     mod movement;
     mod pull_diagnostics;
     mod spelling;
