@@ -1231,7 +1231,7 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
 
 /// A formatter that calls back into the client must work for every save/close path.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_save_close_services_formatter_requests() -> anyhow::Result<()> {
+async fn test_save_close_services_formatter_requests_and_uses_indent_size() -> anyhow::Result<()> {
     use lsp_client::{Call, Notification};
     use std::time::Duration;
     use tokio_stream::StreamExt;
@@ -1317,7 +1317,7 @@ async fn test_save_close_services_formatter_requests() -> anyhow::Result<()> {
         }
         assert_eq!(
             std::fs::read_to_string(&file)?,
-            "    formatted\n",
+            "  formatted\n",
             "{command}"
         );
     }

@@ -54,7 +54,7 @@ pub(super) fn format_selections(cx: &mut Context) {
             doc.identifier(),
             range,
             lsp::FormattingOptions {
-                tab_size: doc.tab_width() as u32,
+                tab_size: doc.indent_width() as u32,
                 insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
                 ..Default::default()
             },

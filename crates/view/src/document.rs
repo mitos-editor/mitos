@@ -1010,7 +1010,7 @@ impl Document {
         let request = language_server.text_document_formatting(
             self.identifier(),
             lsp::FormattingOptions {
-                tab_size: self.tab_width() as u32,
+                tab_size: self.indent_width() as u32,
                 insert_spaces: matches!(self.indent_style, IndentStyle::Spaces(_)),
                 ..Default::default()
             },
