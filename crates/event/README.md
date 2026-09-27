@@ -1,3 +1,3 @@
 # `event`
 
-`event` provides typed synchronous hooks and lightweight asynchronous coordination between otherwise independent Mitos components.
+Provides shared primitives for typed events, hooks, cancellation, and debounced asynchronous work.

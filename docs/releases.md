@@ -1,22 +1,46 @@
-# Release checklist
+# Releases
 
-Mitos uses calendar versions in the form `YY.0M(.MICRO)`. Cargo package
-versions must use the semver-compatible equivalent, such as `26.8.0` for an
-August 2026 release.
+[release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
+to `main`. Merging that PR creates a GitHub release and a numeric version tag;
+the tag triggers `.github/workflows/release.yml` to build and upload the binary
+archives, Debian package, and provenance attestations.
 
-Before tagging a release:
+Releases use Git tags only; release-plz does not publish crates to crates.io.
+The `term` package owns the release and root changelog. Its version is inherited
+from `workspace.package.version`, so the editor's internal workspace crates
+remain on the same version. `lsp-types` retains its independent vendored version.
 
-1. Update `workspace.package.version` in `Cargo.toml`.
-2. Run `cargo check --workspace --all-targets` and commit `Cargo.lock`.
-3. Add release notes to `CHANGELOG.md`.
-4. Add a release entry to `contrib/Mitos.appdata.xml` following the
+## Version baseline
+
+The initial Mitos version is **25.7.1**, the Cargo workspace version at Helix
+fork commit `f9928f57f`. The latest Helix release tag at that commit was `25.07`,
+but the source version had already advanced to `25.7.1`.
+
+There is no Mitos `25.7.1` tag to bootstrap: release-plz treats it as the initial
+release and keeps that version in its first release PR. Subsequent versions
+follow release-plz's semantic version bumps from commit messages, rather than
+automatically advancing with the calendar. Tags use `25.7.1` format, without a
+`v` prefix or zero-padded month.
+
+## Repository setup
+
+Create a fine-grained personal access token (PAT) for `mitos-editor/mitos`
+from an account with write access to the repository. Grant repository
+**Contents: read and write** and **Pull requests: read and write** permissions,
+and save the token as the repository Actions secret `RELEASE_PAT`.
+
+The PAT allows release PRs to trigger CI and version tags to trigger the binary
+build workflow. See the [release-plz token setup guide](https://release-plz.dev/docs/github/token).
+
+## Release checklist
+
+1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. Curate the
+   notes, including runtime, grammar, and theme changes outside Rust packages.
+2. Add a release entry to `contrib/Mitos.appdata.xml` following the
    [AppStream release metadata specification](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html).
-5. Tag the release and push the tag.
-6. Verify the release workflow and its provenance attestations.
-7. Publish the generated archives and Debian package from the GitHub release.
+3. Wait for CI and merge the release PR.
+4. Verify the Release-plz and Release workflows finish, and check the uploaded
+   archives, Debian package, and provenance attestations on the GitHub release.
 
-Use GitHub's compare view to curate release notes:
-
-```text
-https://github.com/mitos-editor/mitos/compare/<previous-tag>...<new-tag>
-```
+Manual dispatch of the Release workflow remains a preview build and uploads CI
+artifacts. Manual dispatch of Release-plz on `main` reruns release automation.

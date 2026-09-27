@@ -1,3 +1,3 @@
-# snippets
+# `snippets`
 
-LSP-style snippet parsing, rendering, and active-tabstop editing for Mitos.
+Owns snippet parsing, rendering, tabstop tracking, and snippet editing behavior.

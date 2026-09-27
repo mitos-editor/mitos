@@ -1,3 +1,3 @@
-# command-line
+# `command-line`
 
-Command-line tokenization, expansion syntax, signatures, and argument parsing for Mitos.
+Owns command syntax, tokenization, expansion syntax, signatures, and argument parsing.
