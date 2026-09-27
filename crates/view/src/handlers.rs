@@ -28,7 +28,6 @@ pub struct Handlers {
     pub document_links: document_links::DocumentLinksHandler,
     pub document_colors: document_colors::DocumentColorsHandler,
     pub syntax: syntax::SyntaxHandler,
-    // only public because most of the actual implementation is in term right now :/
     pub completions: CompletionHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
@@ -62,6 +61,7 @@ pub fn register_hooks(handlers: &Handlers) {
     auto_reload::register_hooks();
     auto_save::register_hooks();
     signature_help::register_hooks();
+    completion::register_hooks();
     lsp::register_hooks(handlers);
     word_index::register_hooks(handlers);
     // must be done here because the file watcher is in helix-core

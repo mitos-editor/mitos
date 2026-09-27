@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use event::AsyncHook;
 
 use crate::config::Config;
 use crate::events;
@@ -23,7 +22,10 @@ pub fn setup(
 ) -> Handlers {
     events::register();
 
-    let event_tx = completion::CompletionHandler::new(config.clone()).spawn();
+    let completions = view::handlers::completion::CompletionHandler::new(
+        callbacks.clone(),
+        &config.load().editor,
+    );
     let signature_hints =
         view::handlers::signature_help::SignatureHelpHandler::new(callbacks.clone());
     let auto_save = view::handlers::auto_save::AutoSaveHandler::new(callbacks.clone());
@@ -47,7 +49,7 @@ pub fn setup(
             callbacks.clone(),
         ),
         syntax: view::handlers::syntax::SyntaxHandler::new(callbacks.clone()),
-        completions: view::handlers::completion::CompletionHandler::new(event_tx),
+        completions,
         signature_hints,
         auto_save,
         auto_reload,
@@ -62,7 +64,7 @@ pub fn setup(
     };
 
     view::handlers::register_hooks(&handlers);
-    completion::register_hooks(&handlers);
+    completion::register_hooks();
     signature_help::register_hooks();
     view::handlers::document_highlight::register_hooks();
     view::handlers::code_action_hint::register_hooks();

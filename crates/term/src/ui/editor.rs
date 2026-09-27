@@ -1462,8 +1462,7 @@ impl EditorView {
     pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
         self.completion = None;
         let mut on_next_key: Option<OnKeyCallback> = None;
-        editor.handlers.completions.request_controller.restart();
-        editor.handlers.completions.active_completions.clear();
+        editor.handlers.completions.dismiss();
         if let Some(last_completion) = editor.last_completion.take() {
             match last_completion {
                 CompleteAction::Triggered => (),
@@ -1800,6 +1799,12 @@ impl Component for EditorView {
             on_next_key_callback: None,
             jobs: context.jobs,
         };
+
+        // Lifecycle updates may be queued while input is already ready. Never let
+        // a stale menu consume input after its shared session was invalidated.
+        if self.completion.is_some() && !view::handlers::completion::is_active(cx.editor) {
+            self.clear_completion(cx.editor);
+        }
 
         match event {
             Event::Paste(contents) => {

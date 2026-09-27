@@ -1,11 +1,5 @@
-use crate::handlers::completion::LspCompletionItem;
+use crate::compositor::{Component, Context, Event, EventResult};
 use crate::ui::{menu, panel, Markdown, Menu, Popup, PromptEvent};
-use crate::{
-    compositor::{Component, Context, Event, EventResult},
-    handlers::completion::{
-        trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler,
-    },
-};
 use editor_core::{self as core, chars, fuzzy::MATCHER, Change, Transaction};
 use lsp_client::{lsp, util, OffsetEncoding};
 use nucleo::{
@@ -15,6 +9,10 @@ use nucleo::{
 use snippets::{ActiveSnippet, RenderedSnippet, Snippet};
 use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
+use view::handlers::completion::LspCompletionItem;
+use view::handlers::completion::{
+    trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler,
+};
 use view::{
     editor::CompleteAction,
     handlers::signature_help::SignatureHelpInvoked,
@@ -242,10 +240,11 @@ impl Completion {
 
                             // resolve item if not yet resolved
                             if !item.resolved
-                                && let Some(resolved_item) = Self::resolve_completion_item(
-                                    language_server,
-                                    item.item.clone(),
-                                )
+                                && let Some(resolved_item) =
+                                    view::handlers::completion::resolve_item(
+                                        language_server,
+                                        item.item.clone(),
+                                    )
                             {
                                 item.item = resolved_item;
                             };
@@ -400,32 +399,6 @@ impl Completion {
                 i,
             )
         });
-    }
-
-    /// Synchronously resolve the given completion item. This is used when
-    /// accepting a completion.
-    fn resolve_completion_item(
-        language_server: &lsp_client::Client,
-        completion_item: lsp::CompletionItem,
-    ) -> Option<lsp::CompletionItem> {
-        if !matches!(
-            language_server.capabilities().completion_provider,
-            Some(lsp::CompletionOptions {
-                resolve_provider: Some(true),
-                ..
-            })
-        ) {
-            return None;
-        }
-        let future = language_server.resolve_completion_item(&completion_item);
-        let response = lsp_client::block_on(future);
-        match response {
-            Ok(item) => Some(item),
-            Err(err) => {
-                log::error!("Failed to resolve completion item: {}", err);
-                None
-            }
-        }
     }
 
     /// Appends (`c: Some(c)`) or removes (`c: None`) a character to/from the filter

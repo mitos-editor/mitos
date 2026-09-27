@@ -30,12 +30,14 @@ fn main() -> anyhow::Result<()> {
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
+    let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
-    let mut request_log = if diagnostics || code_actions || lifecycle || signature_help {
-        Some(std::fs::File::create(&args[2])?)
-    } else {
-        None
-    };
+    let mut request_log =
+        if diagnostics || code_actions || lifecycle || signature_help || completion {
+            Some(std::fs::File::create(&args[2])?)
+        } else {
+            None
+        };
     loop {
         let mut length = None;
         loop {
@@ -208,8 +210,46 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/completion" && completion {
+            writeln!(request_log.as_mut().unwrap(), "{params}")?;
+            request_log.as_mut().unwrap().flush()?;
+            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            let end = params["position"]["character"].as_u64().unwrap() as usize;
+            let line = params["position"]["line"].as_u64().unwrap();
+            let mut edit_range = range(end.saturating_sub(2), end);
+            edit_range["start"]["line"] = json!(line);
+            edit_range["end"]["line"] = json!(line);
+            let result = json!({"isIncomplete": text.contains("incomplete"), "items": [
+                {"label": "apple", "sortText": "2", "detail": args[1],
+                    "textEdit": {"range": edit_range, "newText": "apple"}},
+                {"label": "apricot", "sortText": "1", "detail": args[1],
+                    "textEdit": {"range": edit_range, "newText": "apricot"}}
+            ]});
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if method == "completionItem/resolve" && completion {
+            let mut item = params.clone();
+            item["documentation"] = json!("resolved documentation");
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": item}),
+            )?;
+            continue;
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if completion => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}
+            }}),
             "initialize" if signature_help => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "signatureHelpProvider": {"triggerCharacters": ["(", ","]}

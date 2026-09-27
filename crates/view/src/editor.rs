@@ -181,6 +181,7 @@ pub enum EditorEvent {
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
     SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
+    Completion(crate::handlers::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
     IdleTimer,
@@ -1361,6 +1362,9 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
+        if let Some(update) = crate::handlers::completion::next_update(self) {
+            return EditorEvent::Completion(update);
+        }
         if let Some(update) = crate::handlers::signature_help::next_update(self) {
             return EditorEvent::SignatureHelp(update);
         }

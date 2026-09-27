@@ -4,12 +4,11 @@ use lsp_client::lsp;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration, Instant};
 
+use crate::Editor;
 use event::{send_blocking, AsyncHook, TaskController, TaskHandle};
-use view::Editor;
 
 use super::LspCompletionItem;
-use crate::handlers::completion::CompletionItem;
-use crate::job;
+use super::{deliver, CompletionItem, Payload, Session};
 
 /// A hook for resolving incomplete completion items.
 ///
@@ -25,6 +24,13 @@ use crate::job;
 pub struct ResolveHandler {
     last_request: Option<Arc<LspCompletionItem>>,
     resolver: Sender<ResolveRequest>,
+    controller: TaskController,
+}
+
+impl Default for ResolveHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ResolveHandler {
@@ -32,10 +38,20 @@ impl ResolveHandler {
         ResolveHandler {
             last_request: None,
             resolver: ResolveTimeout::default().spawn(),
+            controller: TaskController::new(),
         }
     }
 
     pub fn ensure_item_resolved(&mut self, editor: &mut Editor, item: &mut LspCompletionItem) {
+        let Some(session) = editor
+            .handlers
+            .completions
+            .session
+            .clone()
+            .filter(|session| session.is_current(editor))
+        else {
+            return;
+        };
         if item.resolved {
             return;
         }
@@ -82,7 +98,16 @@ impl ResolveHandler {
         ) {
             let item = Arc::new(item.clone());
             self.last_request = Some(item.clone());
-            send_blocking(&self.resolver, ResolveRequest { item, ls })
+            let cancel = self.controller.restart();
+            send_blocking(
+                &self.resolver,
+                ResolveRequest {
+                    item,
+                    ls,
+                    session,
+                    cancel,
+                },
+            )
         } else {
             item.resolved = true;
         }
@@ -92,12 +117,13 @@ impl ResolveHandler {
 struct ResolveRequest {
     item: Arc<LspCompletionItem>,
     ls: Arc<lsp_client::Client>,
+    session: Session,
+    cancel: TaskHandle,
 }
 
 #[derive(Default)]
 struct ResolveTimeout {
     next_request: Option<ResolveRequest>,
-    in_flight: Option<Arc<LspCompletionItem>>,
     task_controller: TaskController,
 }
 
@@ -107,25 +133,10 @@ impl AsyncHook for ResolveTimeout {
     fn handle_event(
         &mut self,
         request: Self::Event,
-        timeout: Option<tokio::time::Instant>,
+        _timeout: Option<tokio::time::Instant>,
     ) -> Option<tokio::time::Instant> {
-        if self
-            .next_request
-            .as_ref()
-            .is_some_and(|old_request| old_request.item == request.item)
-        {
-            timeout
-        } else if self
-            .in_flight
-            .as_ref()
-            .is_some_and(|old_request| old_request.item == request.item.item)
-        {
-            self.next_request = None;
-            None
-        } else {
-            self.next_request = Some(request);
-            Some(Instant::now() + Duration::from_millis(150))
-        }
+        self.next_request = Some(request);
+        Some(Instant::now() + Duration::from_millis(150))
     }
 
     fn finish_debounce(&mut self) {
@@ -133,41 +144,76 @@ impl AsyncHook for ResolveTimeout {
             return;
         };
         let token = self.task_controller.restart();
-        self.in_flight = Some(request.item.clone());
         tokio::spawn(request.execute(token));
     }
 }
 
 impl ResolveRequest {
     async fn execute(self, cancel: TaskHandle) {
+        if self.cancel.is_canceled() || self.session.cancel.is_canceled() {
+            return;
+        }
         let future = self.ls.resolve_completion_item(&self.item.item);
-        let Some(resolved_item) = event::cancelable_future(future, cancel).await else {
+        let Some(Some(Some(resolved_item))) = event::cancelable_future(
+            event::cancelable_future(
+                event::cancelable_future(future, &self.cancel),
+                &self.session.cancel,
+            ),
+            cancel,
+        )
+        .await
+        else {
             return;
         };
-        job::dispatch(move |_, compositor| {
-            if let Some(completion) = &mut compositor
-                .find::<crate::ui::EditorView>()
-                .unwrap()
-                .completion
-            {
-                let resolved_item = CompletionItem::Lsp(match resolved_item {
-                    Ok(item) => LspCompletionItem {
-                        item,
-                        resolved: true,
-                        ..*self.item
-                    },
-                    Err(err) => {
-                        log::error!("completion resolve request failed: {err}");
-                        // set item to resolved so we don't request it again
-                        // we could also remove it but that oculd be odd ui
-                        let mut item = (*self.item).clone();
-                        item.resolved = true;
-                        item
-                    }
-                });
-                completion.replace_item(&*self.item, resolved_item);
-            };
+        let resolved_item = CompletionItem::Lsp(match resolved_item {
+            Ok(item) => LspCompletionItem {
+                item,
+                resolved: true,
+                ..*self.item
+            },
+            Err(err) => {
+                log::error!("completion resolve request failed: {err}");
+                // set item to resolved so we don't request it again
+                // we could also remove it but that oculd be odd ui
+                let mut item = (*self.item).clone();
+                item.resolved = true;
+                item
+            }
+        });
+        deliver(
+            self.session,
+            Some(self.cancel),
+            Payload::Resolved {
+                old: self.item,
+                item: Box::new(resolved_item),
+            },
+        )
+        .await;
+    }
+}
+
+/// Synchronously resolve the given completion item. This is used when
+/// accepting a completion.
+pub fn resolve_item(
+    language_server: &lsp_client::Client,
+    completion_item: lsp::CompletionItem,
+) -> Option<lsp::CompletionItem> {
+    if !matches!(
+        language_server.capabilities().completion_provider,
+        Some(lsp::CompletionOptions {
+            resolve_provider: Some(true),
+            ..
         })
-        .await
+    ) {
+        return None;
+    }
+    let future = language_server.resolve_completion_item(&completion_item);
+    let response = lsp_client::block_on(future);
+    match response {
+        Ok(item) => Some(item),
+        Err(err) => {
+            log::error!("Failed to resolve completion item: {}", err);
+            None
+        }
     }
 }

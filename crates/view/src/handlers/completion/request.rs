@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use arc_swap::ArcSwap;
+use crate::document::{Mode, SavePoint};
+use crate::{Document, DocumentId, Editor, ViewId};
 use editor_core::completion::CompletionProvider;
 use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, TaskController, TaskHandle};
@@ -13,22 +14,13 @@ use lsp_client::util::pos_to_lsp_pos;
 use stdx::rope::RopeSliceExt;
 use tokio::task::JoinSet;
 use tokio::time::{timeout_at, Instant};
-use view::document::{Mode, SavePoint};
-use view::handlers::completion::{CompletionEvent, ResponseContext};
-use view::{Document, DocumentId, Editor, ViewId};
 
-use crate::compositor::Compositor;
-use crate::config::Config;
-use crate::handlers::completion::item::CompletionResponse;
-use crate::handlers::completion::path::path_completion;
-use crate::handlers::completion::{
-    handle_response, replace_completions, show_completion, CompletionItems,
+use super::{
+    dispatch, handle_response, path::path_completion, replace_completions, word, CompletionEvent,
+    CompletionItems, CompletionResponse, CompletionUpdate, Payload, ResponseContext, Session,
+    Shared,
 };
-use crate::job::{dispatch, dispatch_blocking};
-use crate::ui;
-use crate::ui::editor::InsertEvent;
-
-use super::word;
+use std::sync::Weak;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) enum TriggerKind {
@@ -45,19 +37,20 @@ pub(super) struct Trigger {
     pub(super) kind: TriggerKind,
 }
 
-#[derive(Debug)]
-pub struct CompletionHandler {
+pub(super) struct Debounce {
     /// The currently active trigger which will cause a completion request after the timeout.
     trigger: Option<Trigger>,
     in_flight: Option<Trigger>,
     task_controller: TaskController,
-    config: Arc<ArcSwap<Config>>,
+    owner: Weak<Shared>,
+    epoch: u64,
 }
 
-impl CompletionHandler {
-    pub fn new(config: Arc<ArcSwap<Config>>) -> CompletionHandler {
+impl Debounce {
+    pub(super) fn new(owner: Weak<Shared>) -> Self {
         Self {
-            config,
+            owner,
+            epoch: 0,
             task_controller: TaskController::new(),
             trigger: None,
             in_flight: None,
@@ -65,14 +58,15 @@ impl CompletionHandler {
     }
 }
 
-impl event::AsyncHook for CompletionHandler {
-    type Event = CompletionEvent;
+impl event::AsyncHook for Debounce {
+    type Event = (CompletionEvent, u64);
 
     fn handle_event(
         &mut self,
-        event: Self::Event,
+        (event, epoch): Self::Event,
         _old_timeout: Option<Instant>,
     ) -> Option<Instant> {
+        self.epoch = epoch;
         if self.in_flight.is_some() && !self.task_controller.is_running() {
             self.in_flight = None;
         }
@@ -136,7 +130,10 @@ impl event::AsyncHook for CompletionHandler {
             // if the current request was closed forget about it
             // otherwise immediately restart the completion request
             let timeout = if trigger.kind == TriggerKind::Auto {
-                self.config.load().editor.completion_timeout
+                self.owner
+                    .upgrade()
+                    .map(|owner| *owner.timeout.lock())
+                    .unwrap_or_default()
             } else {
                 // we want almost instant completions for trigger chars
                 // and restarting completion requests. The small timeout here mainly
@@ -152,34 +149,49 @@ impl event::AsyncHook for CompletionHandler {
         let trigger = self.trigger.take().expect("debounce always has a trigger");
         self.in_flight = Some(trigger);
         let handle = self.task_controller.restart();
-        dispatch_blocking(move |editor, compositor| {
-            request_completions(trigger, handle, editor, compositor)
+        let owner = self.owner.clone();
+        let epoch = self.epoch;
+        dispatch(&self.owner, move |editor| {
+            if super::belongs_to(&owner, editor, epoch) && !handle.is_canceled() {
+                editor
+                    .handlers
+                    .completions
+                    .updates
+                    .push_back(CompletionUpdate::start(
+                        owner.clone(),
+                        epoch,
+                        trigger,
+                        handle,
+                    ));
+                event::request_redraw();
+            }
         });
     }
 }
 
-fn request_completions(
+pub(super) fn request_completions(
     mut trigger: Trigger,
     handle: TaskHandle,
     editor: &mut Editor,
-    compositor: &mut Compositor,
-) {
-    let (view, doc) = current_ref!(editor);
-
-    if compositor
-        .find::<ui::EditorView>()
-        .unwrap()
-        .completion
-        .is_some()
+    epoch: u64,
+) -> bool {
+    if handle.is_canceled()
         || editor.mode != Mode::Insert
+        || editor.last_completion.is_some()
+        || (trigger.kind != TriggerKind::Manual && !editor.config().auto_completion)
     {
-        return;
+        return false;
     }
-
+    let Some(view) = editor.tree.try_get(editor.tree.focus) else {
+        return false;
+    };
+    let Some(doc) = editor.document(view.doc) else {
+        return false;
+    };
     let text = doc.text();
     let cursor = doc.selection(view.id).primary().cursor(text.slice(..));
     if trigger.view != view.id || trigger.doc != doc.id() || cursor < trigger.pos {
-        return;
+        return false;
     }
     // This looks odd... Why are we not using the trigger position from the `trigger` here? Won't
     // that mean that the trigger char doesn't get send to the language server if we type fast
@@ -254,9 +266,9 @@ fn request_completions(
         requests.spawn_blocking(word_completion_request);
     }
 
-    let ui = compositor.find::<ui::EditorView>().unwrap();
-    ui.record_insert_event(InsertEvent::RequestCompletion);
-    let handle_ = handle.clone();
+    let session = Session::new(editor, trigger, epoch);
+    editor.handlers.completions.session = Some(session.clone());
+    let stream_session = session.clone();
     let request_completions = async move {
         let mut context = HashMap::new();
         let Some(mut response) = handle_response(&mut requests, false).await else {
@@ -278,15 +290,26 @@ fn request_completions(
             response.take_items(&mut items);
             context.insert(response.provider, response.context);
         }
-        dispatch(move |editor, compositor| {
-            show_completion(editor, compositor, items, context, trigger)
-        })
+        let initial = session.clone();
+        super::deliver(
+            initial,
+            None,
+            Payload::Show {
+                items,
+                context,
+                trigger,
+            },
+        )
         .await;
         if !requests.is_empty() {
-            replace_completions(handle_, requests, false).await;
+            replace_completions(session, requests, false, None).await;
         }
     };
-    tokio::spawn(cancelable_future(request_completions, handle));
+    tokio::spawn(cancelable_future(
+        cancelable_future(request_completions, stream_session.cancel),
+        handle,
+    ));
+    true
 }
 
 fn request_completions_from_language_server(
@@ -338,7 +361,17 @@ fn request_completions_from_language_server(
     }
 }
 
-pub fn request_incomplete_completion_list(editor: &mut Editor, handle: TaskHandle) {
+pub fn request_incomplete_completion_list(editor: &mut Editor) {
+    let Some(session) = editor
+        .handlers
+        .completions
+        .session
+        .clone()
+        .filter(|session| session.is_current(editor))
+    else {
+        return;
+    };
+    let handle = editor.handlers.completions.request_controller.restart();
     let handler = &mut editor.handlers.completions;
     let mut requests = JoinSet::new();
     let mut savepoint = None;
@@ -369,6 +402,9 @@ pub fn request_incomplete_completion_list(editor: &mut Editor, handle: TaskHandl
         requests.spawn(request);
     }
     if !requests.is_empty() {
-        tokio::spawn(replace_completions(handle, requests, true));
+        tokio::spawn(cancelable_future(
+            replace_completions(session, requests, true, Some(handle.clone())),
+            handle,
+        ));
     }
 }
