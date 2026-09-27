@@ -24,7 +24,9 @@ fn isolated(name: &str) -> anyhow::Result<Option<PathBuf>> {
         return Ok(Some(root));
     }
     let dir = tempfile::tempdir()?;
-    let root = dir.path().canonicalize()?;
+    // Resolve temporary-directory symlinks, then use the same path spelling as
+    // documents (including removal of Windows' verbatim prefix).
+    let root = stdx::path::normalize(dir.path().canonicalize()?);
     for path in ["workspace/.mitos", "config/mitos", "data", "cache"] {
         std::fs::create_dir_all(root.join(path))?;
     }
