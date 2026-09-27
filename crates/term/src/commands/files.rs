@@ -984,7 +984,7 @@ pub(super) mod typed {
             cx.editor
                 .language_servers
                 .file_event_handler
-                .file_changed(path, editor_core::file_watcher::EventType::Modified);
+                .file_changed(path, lsp_client::lsp::FileChangeType::CHANGED);
         }
         Ok(())
     }
@@ -1046,7 +1046,7 @@ pub(super) mod typed {
                 cx.editor
                     .language_servers
                     .file_event_handler
-                    .file_changed(path, editor_core::file_watcher::EventType::Modified);
+                    .file_changed(path, lsp_client::lsp::FileChangeType::CHANGED);
             }
 
             for view_id in view_ids {

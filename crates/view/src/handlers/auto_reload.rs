@@ -11,8 +11,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use editor_core::file_watcher::{canonicalize_path, EventType, Events, FileSystemDidChange};
+use crate::file_watcher::{EventType, Events};
 use event::{register_hook, send_blocking, AsyncHook};
+use stdx::path::canonicalize_existing;
 use tokio::{sync::mpsc::Sender, time::Instant};
 
 use crate::{
@@ -39,13 +40,6 @@ impl AutoReloadHandler {
             callbacks: weak.clone(),
         }
         .spawn();
-        // Filesystem events have no Editor; each live handler routes them to its
-        // own destination. Global hooks must not keep closed editors' queues alive.
-        register_hook!(move |event: &mut FileSystemDidChange| {
-            let events = event.fs_events.clone();
-            dispatch(&weak, move |editor| handle_file_events(editor, &events));
-            Ok(())
-        });
         let handler = Self {
             callbacks,
             events,
@@ -217,7 +211,7 @@ pub fn check_unwatched(editor: &mut Editor) {
                 editor
                     .language_servers
                     .file_event_handler
-                    .file_changed(path.to_path_buf(), EventType::Modified);
+                    .file_changed(path.to_path_buf(), lsp_client::lsp::FileChangeType::CHANGED);
             }
             handle_document_change(editor, id);
         }
@@ -315,7 +309,7 @@ fn reload_vcs(editor: &mut Editor) {
 }
 
 /// Apply filesystem changes using the editor's current settings.
-pub fn handle_file_events(editor: &mut Editor, events: &Events) {
+pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
     let auto_reload = editor.config().auto_reload.enable;
     let watch_vcs = editor.config().file_watcher.watch_vcs;
     let mut vcs_changed = false;
@@ -340,7 +334,7 @@ pub fn handle_file_events(editor: &mut Editor, events: &Events) {
             .documents()
             .filter(|doc| {
                 doc.path()
-                    .is_some_and(|path| changed.contains(canonicalize_path(path).as_path()))
+                    .is_some_and(|path| changed.contains(canonicalize_existing(path).as_path()))
             })
             .map(|doc| doc.id())
             .collect();
