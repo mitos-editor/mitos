@@ -1,6 +1,7 @@
 mod completion;
 mod document;
 pub(crate) mod editor;
+mod icons;
 mod image;
 mod info;
 mod layout;
@@ -23,6 +24,7 @@ use crate::filter_picker_entry;
 use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
+pub(crate) use icons::icon_span;
 pub use markdown::Markdown;
 pub use menu::Menu;
 pub use picker::{Column as PickerColumn, FileLocation, Picker};
@@ -278,7 +280,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
             if data.icons {
                 let icons = ICONS.load();
                 if let Some(file) = icons.fs().file() {
-                    spans.push(Span::from(file.get_with_style_or_default(item, theme)));
+                    spans.push(icon_span(file.get_with_style_or_default(item, theme)));
                 }
             }
 
@@ -339,7 +341,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
                 if *show_icons {
                     let icons = ICONS.load();
                     if let Some(directory) = icons.fs().directory() {
-                        spans.push(Span::from(directory.get_with_style_or_default(
+                        spans.push(icon_span(directory.get_with_style_or_default(
                             &name,
                             is_open,
                             theme,
@@ -354,7 +356,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
                 if *show_icons {
                     let icons = ICONS.load();
                     if let Some(file) = icons.fs().file() {
-                        spans.push(Span::from(file.get_with_style_or_default(path, theme)));
+                        spans.push(icon_span(file.get_with_style_or_default(path, theme)));
                     }
                 }
                 spans.push(Span::raw(name.into_owned()));

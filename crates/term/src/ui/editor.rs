@@ -925,7 +925,7 @@ impl EditorView {
                         let icon =
                             file.get_with_active_style_or_default(path, &editor.theme, style);
                         return Line::from(vec![
-                            Span::styled(icon.glyph().to_string(), icon.style()),
+                            super::icon_span(icon),
                             Span::styled(format!("{fname}{modified} "), style),
                         ]);
                     }

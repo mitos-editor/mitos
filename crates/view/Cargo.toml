@@ -34,7 +34,6 @@ lsp.workspace = true
 snippets.workspace = true
 dap.workspace = true
 vcs.workspace = true
-ratatui.workspace = true
 
 foldhash.workspace = true
 anyhow.workspace = true

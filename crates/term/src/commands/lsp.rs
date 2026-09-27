@@ -205,7 +205,7 @@ fn symbol_kind_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerD
     if data.show_icons {
         let icons = ICONS.load();
         if let Some(icon) = icons.kind().get(item.symbol.kind.as_str()) {
-            spans.push(Span::from(icon));
+            spans.push(ui::icon_span(icon));
         }
     }
     spans.push(Span::styled(

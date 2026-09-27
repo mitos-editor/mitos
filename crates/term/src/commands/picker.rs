@@ -1,5 +1,6 @@
 //! Path styling shared by feature-owned pickers.
 
+use crate::ui::icon_span;
 use std::path::Path;
 use tui::{
     text::{Line, Span},
@@ -33,7 +34,7 @@ impl PathStyleConfig {
             if self.icons {
                 let icons = ICONS.load();
                 if let Some(file) = icons.fs().file() {
-                    spans.push(Span::from(
+                    spans.push(icon_span(
                         file.get_with_style_or_default(path, self.theme.as_ref()),
                     ));
                 }

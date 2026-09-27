@@ -4,7 +4,6 @@ use crate::{
 };
 use arrayvec::ArrayString;
 use editor_core::unicode::width::UnicodeWidthStr;
-use ratatui::text::Span;
 use std::{
     collections::HashMap,
     fmt::{Display, Write},
@@ -217,12 +216,6 @@ impl Display for Icon {
         }
 
         Ok(())
-    }
-}
-
-impl From<Icon> for Span<'static> {
-    fn from(icon: Icon) -> Self {
-        Span::styled(icon.to_string(), icon.style())
     }
 }
 

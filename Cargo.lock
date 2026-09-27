@@ -4301,7 +4301,6 @@ dependencies = [
  "lsp",
  "parking_lot",
  "quickcheck",
- "ratatui",
  "serde",
  "serde_json",
  "slotmap",
