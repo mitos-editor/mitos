@@ -317,64 +317,59 @@ impl Editor {
     }
 }
 
-/// Register spelling hooks once; each event supplies its owning editor or document queue.
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            let doc = doc!(event.editor, &event.doc);
-            if !doc.spelling_languages.is_empty() {
-                send_blocking(
-                    &event.editor.handlers.spelling.event_tx,
-                    SpellingEvent::CheckRequested { doc: event.doc },
-                );
-            }
-            Ok(())
-        });
-
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            // Mirror the word index: ignore synthetic edits so they don't churn the diagnostics.
-            if !event.ghost_transaction
-                && !event.doc.spelling_languages.is_empty()
-                && let Some(tx) = &event.doc.spelling_events
-            {
-                send_blocking(
-                    tx,
-                    SpellingEvent::DocumentChanged {
-                        doc: event.doc.id(),
-                        changes: event.changes.clone(),
-                        version: event.doc.version(),
-                    },
-                );
-            }
-            Ok(())
-        });
-
-        register_hook!(move |event: &mut DocumentDidClose<'_>| {
-            // Cancel any in-flight full check for the closed document.
-            event
-                .editor
-                .handlers
-                .spelling
-                .requests
-                .remove(&event.doc.id());
+/// Each event supplies its owning editor or document queue.
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        let doc = doc!(event.editor, &event.doc);
+        if !doc.spelling_languages.is_empty() {
             send_blocking(
                 &event.editor.handlers.spelling.event_tx,
-                SpellingEvent::DocumentClosed {
+                SpellingEvent::CheckRequested { doc: event.doc },
+            );
+        }
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        // Mirror the word index: ignore synthetic edits so they don't churn the diagnostics.
+        if !event.ghost_transaction
+            && !event.doc.spelling_languages.is_empty()
+            && let Some(tx) = &event.doc.spelling_events
+        {
+            send_blocking(
+                tx,
+                SpellingEvent::DocumentChanged {
                     doc: event.doc.id(),
+                    changes: event.changes.clone(),
+                    version: event.doc.version(),
                 },
             );
-            Ok(())
-        });
+        }
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-            for doc_id in doc_ids {
-                event.editor.refresh_spelling(doc_id);
-            }
-            Ok(())
-        });
+    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+        // Cancel any in-flight full check for the closed document.
+        event
+            .editor
+            .handlers
+            .spelling
+            .requests
+            .remove(&event.doc.id());
+        send_blocking(
+            &event.editor.handlers.spelling.event_tx,
+            SpellingEvent::DocumentClosed {
+                doc: event.doc.id(),
+            },
+        );
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+        for doc_id in doc_ids {
+            event.editor.refresh_spelling(doc_id);
+        }
+        Ok(())
     });
 }

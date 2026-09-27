@@ -160,58 +160,53 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     doc.document_links = links;
 }
 
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            request_document_links(event.editor, event.doc, None);
-            Ok(())
-        });
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        request_document_links(event.editor, event.doc, None);
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            event
-                .changes
-                .update_positions(event.doc.document_links.iter_mut().flat_map(|link| {
-                    std::iter::once((&mut link.start, Assoc::After))
-                        .chain(std::iter::once((&mut link.end, Assoc::After)))
-                }));
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        event
+            .changes
+            .update_positions(event.doc.document_links.iter_mut().flat_map(|link| {
+                std::iter::once((&mut link.start, Assoc::After))
+                    .chain(std::iter::once((&mut link.end, Assoc::After)))
+            }));
 
-            if !event.ghost_transaction {
-                event.doc.document_link_controller.cancel();
-                if let Some(handler) = &event.doc.document_links_handler {
-                    event::send_blocking(&handler.events, DocumentLinksEvent(event.doc.id()));
-                }
+        if !event.ghost_transaction {
+            event.doc.document_link_controller.cancel();
+            if let Some(handler) = &event.doc.document_links_handler {
+                event::send_blocking(&handler.events, DocumentLinksEvent(event.doc.id()));
             }
+        }
 
-            Ok(())
-        });
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
-            for doc_id in doc_ids {
-                request_document_links(event.editor, doc_id, None);
+        for doc_id in doc_ids {
+            request_document_links(event.editor, doc_id, None);
+        }
+
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        for doc in event.editor.documents_mut() {
+            if doc.supports_language_server(event.server_id) {
+                doc.document_links.clear();
             }
+        }
 
-            Ok(())
-        });
+        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
-            for doc in event.editor.documents_mut() {
-                if doc.supports_language_server(event.server_id) {
-                    doc.document_links.clear();
-                }
-            }
+        for doc_id in doc_ids {
+            request_document_links(event.editor, doc_id, Some(event.server_id));
+        }
 
-            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-            for doc_id in doc_ids {
-                request_document_links(event.editor, doc_id, Some(event.server_id));
-            }
-
-            Ok(())
-        });
+        Ok(())
     });
 }

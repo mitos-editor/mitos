@@ -178,103 +178,98 @@ fn apply_document_highlights(
     doc.set_document_highlights(view_id, ranges);
 }
 
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut SelectionDidChange<'_>| {
-            if event.doc.config.load().lsp.auto_document_highlight
-                && event
-                    .doc
-                    .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
-            {
-                let doc_id = event.doc.id();
-                let view_id = event.view;
-                event.doc.document_highlight_controller(view_id).cancel();
-                if let Some(handler) = &event.doc.document_highlight_handler {
-                    handler.callbacks.send_blocking(move |editor| {
-                        request_document_highlights(editor, doc_id, view_id);
-                    });
-                }
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+        if event.doc.config.load().lsp.auto_document_highlight
+            && event
+                .doc
+                .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
+        {
+            let doc_id = event.doc.id();
+            let view_id = event.view;
+            event.doc.document_highlight_controller(view_id).cancel();
+            if let Some(handler) = &event.doc.document_highlight_handler {
+                handler.callbacks.send_blocking(move |editor| {
+                    request_document_highlights(editor, doc_id, view_id);
+                });
             }
-            Ok(())
-        });
+        }
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            if !event.editor.config().lsp.auto_document_highlight {
-                return Ok(());
-            }
-            let view_id = event.editor.tree.focus;
-            if event.editor.tree.try_get(view_id).is_none() {
-                return Ok(());
-            }
-            request_document_highlights(event.editor, event.doc, view_id);
-            Ok(())
-        });
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        if !event.editor.config().lsp.auto_document_highlight {
+            return Ok(());
+        }
+        let view_id = event.editor.tree.focus;
+        if event.editor.tree.try_get(view_id).is_none() {
+            return Ok(());
+        }
+        request_document_highlights(event.editor, event.doc, view_id);
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            if event.doc.config.load().lsp.auto_document_highlight
-                && !event.ghost_transaction
-                && event
-                    .doc
-                    .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
-            {
-                let doc_id = event.doc.id();
-                let view_id = event.view;
-                event.doc.document_highlight_controller(view_id).cancel();
-                if let Some(handler) = &event.doc.document_highlight_handler {
-                    handler.callbacks.send_blocking(move |editor| {
-                        request_document_highlights(editor, doc_id, view_id);
-                    });
-                }
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        if event.doc.config.load().lsp.auto_document_highlight
+            && !event.ghost_transaction
+            && event
+                .doc
+                .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
+        {
+            let doc_id = event.doc.id();
+            let view_id = event.view;
+            event.doc.document_highlight_controller(view_id).cancel();
+            if let Some(handler) = &event.doc.document_highlight_handler {
+                handler.callbacks.send_blocking(move |editor| {
+                    request_document_highlights(editor, doc_id, view_id);
+                });
             }
-            Ok(())
-        });
+        }
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-            if !event.editor.config().lsp.auto_document_highlight {
-                return Ok(());
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        if !event.editor.config().lsp.auto_document_highlight {
+            return Ok(());
+        }
+        let view_id = event.editor.tree.focus;
+        let Some(view) = event.editor.tree.try_get(view_id) else {
+            return Ok(());
+        };
+        let doc_id = view.doc;
+        request_document_highlights(event.editor, doc_id, view_id);
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        for doc in event.editor.documents_mut() {
+            if doc.supports_language_server(event.server_id) {
+                doc.clear_all_document_highlights();
             }
+        }
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        // When auto document highlight is turned on, request highlights immediately
+        // for the focused view instead of waiting for the next selection change.
+        if !event.old.lsp.auto_document_highlight && event.new.lsp.auto_document_highlight {
             let view_id = event.editor.tree.focus;
             let Some(view) = event.editor.tree.try_get(view_id) else {
                 return Ok(());
             };
-            let doc_id = view.doc;
-            request_document_highlights(event.editor, doc_id, view_id);
-            Ok(())
-        });
 
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
+            request_document_highlights(event.editor, view.doc, view_id);
+            return Ok(());
+        }
+
+        // When auto document highlight is turned off, clear any highlights that were
+        // previously rendered across open documents.
+        if event.old.lsp.auto_document_highlight && !event.new.lsp.auto_document_highlight {
             for doc in event.editor.documents_mut() {
-                if doc.supports_language_server(event.server_id) {
-                    doc.clear_all_document_highlights();
-                }
+                doc.clear_all_document_highlights();
             }
-            Ok(())
-        });
-
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            // When auto document highlight is turned on, request highlights immediately
-            // for the focused view instead of waiting for the next selection change.
-            if !event.old.lsp.auto_document_highlight && event.new.lsp.auto_document_highlight {
-                let view_id = event.editor.tree.focus;
-                let Some(view) = event.editor.tree.try_get(view_id) else {
-                    return Ok(());
-                };
-
-                request_document_highlights(event.editor, view.doc, view_id);
-                return Ok(());
-            }
-
-            // When auto document highlight is turned off, clear any highlights that were
-            // previously rendered across open documents.
-            if event.old.lsp.auto_document_highlight && !event.new.lsp.auto_document_highlight {
-                for doc in event.editor.documents_mut() {
-                    doc.clear_all_document_highlights();
-                }
-            }
-            Ok(())
-        });
+        }
+        Ok(())
     });
 }

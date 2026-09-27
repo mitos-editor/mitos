@@ -495,50 +495,47 @@ fn invalidate(editor: &mut Editor) {
     editor.handlers.completions.invalidate();
 }
 
-pub fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+        invalidate(event.editor);
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+        let handler = &mut event.editor.handlers.completions;
+        let active = handler
+            .shared
+            .trigger
+            .lock()
+            .is_some_and(|trigger| trigger.doc == event.doc.id());
+        if active {
             invalidate(event.editor);
-            Ok(())
-        });
-        register_hook!(move |event: &mut DocumentDidClose<'_>| {
-            let handler = &mut event.editor.handlers.completions;
-            let active = handler
-                .shared
-                .trigger
-                .lock()
-                .is_some_and(|trigger| trigger.doc == event.doc.id());
-            if active {
-                invalidate(event.editor);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
-            let handler = &mut event.editor.handlers.completions;
-            if handler
-                .active_completions
-                .contains_key(&CompletionProvider::Lsp(event.server_id))
-            {
-                invalidate(event.editor);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            let handler = &mut event.editor.handlers.completions;
-            *handler.shared.timeout.lock() = event.new.completion_timeout;
-            let automatic = handler
-                .shared
-                .trigger
-                .lock()
-                .is_some_and(|trigger| trigger.kind != TriggerKind::Manual);
-            if (event.old.lsp.enable && !event.new.lsp.enable)
-                || (automatic && !event.new.auto_completion)
-            {
-                invalidate(event.editor);
-            }
-            Ok(())
-        });
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        let handler = &mut event.editor.handlers.completions;
+        if handler
+            .active_completions
+            .contains_key(&CompletionProvider::Lsp(event.server_id))
+        {
+            invalidate(event.editor);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        let handler = &mut event.editor.handlers.completions;
+        *handler.shared.timeout.lock() = event.new.completion_timeout;
+        let automatic = handler
+            .shared
+            .trigger
+            .lock()
+            .is_some_and(|trigger| trigger.kind != TriggerKind::Manual);
+        if (event.old.lsp.enable && !event.new.lsp.enable)
+            || (automatic && !event.new.auto_completion)
+        {
+            invalidate(event.editor);
+        }
+        Ok(())
     });
 }
 #[derive(Clone)]
