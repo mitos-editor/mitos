@@ -32,4 +32,5 @@ mod test {
     mod spelling;
     mod splits;
     mod startup;
+    mod workspace_trust;
 }

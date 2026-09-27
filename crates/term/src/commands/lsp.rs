@@ -1545,11 +1545,10 @@ pub(super) mod typed {
         ui::{self, overlay::overlaid, PromptEvent},
     };
     use ::command_line::Args;
-    use anyhow::{anyhow, bail, Context as _};
-    use arc_swap::access::DynAccess;
+    use anyhow::{anyhow, bail};
     use editor_core::syntax::config::LanguageServerFeature;
     use serde_json::Value;
-    use view::{DocumentId, Editor};
+    use view::Editor;
 
     #[cold]
     pub(in crate::commands) fn lsp_workspace_command(
@@ -1662,84 +1661,9 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let editor_config = cx.editor.config.load();
-        let doc = doc!(cx.editor);
-        let config = doc
-            .language_config()
-            .context("LSP not defined for the current document")?;
-
-        let language_servers: Vec<_> = config
-            .language_servers
-            .iter()
-            .map(|ls| ls.name.as_str())
-            .collect();
-        let language_servers = if args.is_empty() {
-            language_servers
-        } else {
-            let (valid, invalid): (Vec<_>, Vec<_>) = args
-                .iter()
-                .map(|arg| arg.as_ref())
-                .partition(|name| language_servers.contains(name));
-            if !invalid.is_empty() {
-                let s = if invalid.len() == 1 { "" } else { "s" };
-                bail!("Unknown language server{s}: {}", invalid.join(", "));
-            }
-            valid
-        };
-
-        let mut errors = Vec::new();
-        for server in language_servers.iter() {
-            match cx
-                .editor
-                .language_servers
-                .restart_server(
-                    server,
-                    config,
-                    doc.path(),
-                    &editor_config.workspace_lsp_roots,
-                    editor_config.lsp.snippets,
-                )
-                .transpose()
-            {
-                // Ignore the executable-not-found error unless the server was explicitly requested
-                // in the arguments.
-                Err(lsp_client::Error::ExecutableNotFound(_))
-                    if !args.iter().any(|arg| arg == server) => {}
-                Err(err) => errors.push(err.to_string()),
-                _ => (),
-            }
-        }
-
-        // This collect is needed because refresh_language_server would need to re-borrow editor.
-        let document_ids_to_refresh: Vec<DocumentId> = cx
-            .editor
-            .documents()
-            .filter_map(|doc| match doc.language_config() {
-                Some(config)
-                    if config.language_servers.iter().any(|ls| {
-                        language_servers
-                            .iter()
-                            .any(|restarted_ls| restarted_ls == &ls.name)
-                    }) =>
-                {
-                    Some(doc.id())
-                }
-                _ => None,
-            })
-            .collect();
-
-        for document_id in document_ids_to_refresh {
-            cx.editor.refresh_language_servers(document_id);
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Error restarting language servers: {}",
-                errors.join(", ")
-            ))
-        }
+        let document = doc!(cx.editor).id();
+        let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
+        cx.editor.restart_language_servers(document, &servers)
     }
 
     #[cold]

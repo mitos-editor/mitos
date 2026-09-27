@@ -738,6 +738,14 @@ impl Application {
                 self.handle_document_write(event);
                 self.render().await;
             }
+            EditorEvent::WorkspaceTrust(request) => {
+                crate::handlers::workspace_trust::prompt(
+                    &self.editor,
+                    &mut self.compositor,
+                    request,
+                );
+                self.render().await;
+            }
             EditorEvent::ReloadConfirmation(request) => {
                 crate::handlers::auto_reload::prompt_reload_modified(&mut self.compositor, request);
                 self.render().await;

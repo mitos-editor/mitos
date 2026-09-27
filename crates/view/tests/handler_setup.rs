@@ -1,4 +1,6 @@
 //! Shared services run through the public view API without a terminal or compositor.
+#[path = "handler_setup/workspace_trust.rs"]
+mod workspace_trust;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Context as _;

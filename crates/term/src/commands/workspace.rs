@@ -1,10 +1,11 @@
 //! Working-directory, directory-stack, and workspace-trust commands.
 
-use crate::{commands::lsp::typed::lsp_restart, compositor, config::ConfigEvent, ui::PromptEvent};
+use crate::{compositor, ui::PromptEvent};
 use ::command_line::Args;
 use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use stdx::path::home_dir;
+use view::handlers::workspace_trust::{apply_decision, trust_and_restart, TrustDecision};
 
 /// Helper function to parse the first argument as a directory
 #[inline]
@@ -166,12 +167,9 @@ pub(super) fn trust_workspace(
         return Ok(());
     }
 
-    let workspace = current_workspace(cx);
-    cx.editor.workspace_trust.trust(&workspace);
-
-    cx.config.updates.send(ConfigEvent::Refresh)?;
-    // Restart any LSPs that didn't start because trust was missing.
-    lsp_restart(cx, args, event)
+    let document = current_ref!(cx.editor).1.id();
+    let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
+    trust_and_restart(cx.editor, document, &servers)
 }
 
 #[cold]
@@ -185,12 +183,7 @@ pub(super) fn untrust_workspace(
     }
 
     let workspace = current_workspace(cx);
-    cx.editor.workspace_trust.untrust(&workspace);
-    // Drop any workspace overrides that were merged into the live editor config while trust was
-    // granted. Running LSPs are not stopped here (use `:lsp-stop` for that); this only handles
-    // in-memory config.
-    cx.config.updates.send(ConfigEvent::Refresh)?;
-    Ok(())
+    apply_decision(cx.editor, &workspace, TrustDecision::Untrust)
 }
 
 #[cold]
@@ -204,7 +197,5 @@ pub(super) fn exclude_workspace(
     }
 
     let workspace = current_workspace(cx);
-    cx.editor.workspace_trust.exclude(&workspace);
-    cx.config.updates.send(ConfigEvent::Refresh)?;
-    Ok(())
+    apply_decision(cx.editor, &workspace, TrustDecision::Exclude)
 }
