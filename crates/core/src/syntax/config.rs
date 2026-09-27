@@ -458,6 +458,9 @@ pub struct LanguageServerConfiguration {
 #[serde(rename_all = "kebab-case")]
 pub struct FormatterConfiguration {
     pub command: String,
+    /// Maximum formatter runtime in seconds.
+    #[serde(default = "default_timeout")]
+    pub timeout: u64,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,

@@ -27,10 +27,21 @@ fn main() -> anyhow::Result<()> {
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--echo") {
+        io::copy(&mut input, &mut output)?;
+        return Ok(());
+    }
+    if args.first().is_some_and(|arg| arg == "--hang") {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+    }
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
+    let formatting = args.first().is_some_and(|arg| arg == "--formatting");
+    let mut pending_format = None;
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
     let mut request_log =
         if diagnostics || code_actions || lifecycle || signature_help || completion {
@@ -113,6 +124,30 @@ fn main() -> anyhow::Result<()> {
             }
             "exit" => return Ok(()),
             _ => {}
+        }
+        if formatting && message["id"] == "format-config" && !message["method"].is_string() {
+            let (id, indent) = pending_format.take().unwrap();
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id,
+                "result": [{"range": {"start": {"line": 0, "character": 0},
+                    "end": {"line": 1, "character": 0}},
+                    "newText": format!("{}formatted\n", " ".repeat(indent))}]}),
+            )?;
+            continue;
+        }
+        if formatting && method == "textDocument/formatting" {
+            pending_format = Some((
+                message["id"].clone(),
+                params["options"]["tabSize"].as_u64().unwrap() as usize,
+            ));
+            // Like yaml-language-server, do not finish until the editor replies.
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": "format-config",
+                "method": "workspace/configuration", "params": {"items": [{"section": "[yaml]", "scopeUri": uri}]}}),
+            )?;
+            continue;
         }
         // Client replies to server requests are logged, but need no response.
         if !message["method"].is_string() {
@@ -246,6 +281,9 @@ fn main() -> anyhow::Result<()> {
         }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if formatting => json!({"capabilities": {
+                "textDocumentSync": 1, "documentFormattingProvider": true
+            }}),
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}
