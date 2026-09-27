@@ -179,6 +179,7 @@ pub type Motion = Box<dyn Fn(&mut Editor)>;
 pub enum EditorEvent {
     DocumentSaved(DocumentSavedEventResult),
     ConfigEvent(ConfigEvent),
+    ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
     IdleTimer,
@@ -1357,6 +1358,9 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
+        if let Some(request) = crate::handlers::auto_reload::next_reload_request(self) {
+            return EditorEvent::ReloadConfirmation(request);
+        }
         // the loop only runs once or twice and would be better implemented with a recursion + const generic
         // however due to limitations with async functions that can not be implemented right now
         loop {
