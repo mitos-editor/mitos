@@ -21,6 +21,7 @@ mod test {
     mod commands;
     mod document_features;
     mod movement;
+    mod pull_diagnostics;
     mod spelling;
     mod splits;
     mod startup;

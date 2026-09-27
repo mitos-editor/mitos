@@ -1,3 +1,7 @@
+//! Diagnostic presentation state and shared LSP pull coordination.
+
+pub mod pull;
+
 use std::cell::Cell;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{self, AtomicUsize};

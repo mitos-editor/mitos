@@ -231,6 +231,8 @@ pub struct Document {
         Option<crate::handlers::document_highlight::DocumentHighlightHandler>,
     pub(crate) document_symbols_handler:
         Option<crate::handlers::document_symbols::DocumentSymbolsHandler>,
+    pub(crate) pull_diagnostics_handler:
+        Option<crate::handlers::diagnostics::pull::PullDiagnosticsHandler>,
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
@@ -274,7 +276,7 @@ pub struct Document {
 
     pub readonly: bool,
 
-    pub previous_diagnostic_ids: HashMap<LanguageServerId, String>,
+    pub(crate) pull_diagnostics: crate::handlers::diagnostics::pull::DocumentDiagnostics,
 
     /// Annotations for LSP document color swatches
     pub color_swatches: Option<DocumentColorSwatches>,
@@ -286,7 +288,6 @@ pub struct Document {
     pub(crate) document_highlight_controllers: HashMap<ViewId, TaskController>,
     /// Per-view task controllers for canceling in-flight code action requests.
     pub code_action_controllers: HashMap<ViewId, TaskController>,
-    pub pull_diagnostic_controller: TaskController,
     pub(crate) document_link_controller: TaskController,
     pub(crate) document_symbols_controller: TaskController,
 
@@ -886,6 +887,7 @@ impl Document {
             document_links_handler: None,
             document_highlight_handler: None,
             document_symbols_handler: None,
+            pull_diagnostics_handler: None,
             syntax_handler: None,
             spelling_events: None,
             language: None,
@@ -914,8 +916,7 @@ impl Document {
             document_highlight_controllers: HashMap::new(),
             code_action_controllers: HashMap::new(),
             syn_loader,
-            previous_diagnostic_ids: HashMap::new(),
-            pull_diagnostic_controller: TaskController::new(),
+            pull_diagnostics: Default::default(),
             document_link_controller: TaskController::new(),
             is_welcome: false,
             symbols: None,

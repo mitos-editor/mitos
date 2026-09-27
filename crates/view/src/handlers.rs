@@ -43,8 +43,7 @@ pub struct Handlers {
     pub auto_save: Sender<AutoSaveEvent>,
     pub auto_reload: Sender<AutoReloadEvent>,
     pub word_index: word_index::Handler,
-    pub pull_diagnostics: Sender<lsp::PullDiagnosticsEvent>,
-    pub pull_all_documents_diagnostics: Sender<lsp::PullAllDocumentsDiagnosticsEvent>,
+    pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
     pub code_action_hint: Sender<lsp::CodeActionHintEvent>,
     pub spelling: SpellingHandler,
 }
