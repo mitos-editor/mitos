@@ -15,6 +15,7 @@ extern crate view;
 
 pub mod application;
 pub mod args;
+mod clipboard;
 pub mod commands;
 pub mod compositor;
 pub mod config;

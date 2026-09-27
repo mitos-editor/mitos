@@ -283,9 +283,10 @@ impl Editor {
             last_theme: None,
             last_selection: None,
             quicklist: Quicklist::default(),
-            registers: Registers::new(Box::new(arc_swap::access::Map::new(
-                Arc::clone(&config),
-                |config: &Config| &config.clipboard_provider,
+            registers: Registers::new(crate::clipboard::Clipboard::native(Box::new(
+                arc_swap::access::Map::new(Arc::clone(&config), |config: &Config| {
+                    &config.clipboard_provider
+                }),
             ))),
             status_msg: None,
             autoinfo: None,

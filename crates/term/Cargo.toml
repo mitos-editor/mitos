@@ -51,7 +51,7 @@ command-line.workspace = true
 stdx.workspace = true
 core.workspace = true
 event.workspace = true
-view = { workspace = true, features = ["term"] }
+view.workspace = true
 lsp.workspace = true
 snippets.workspace = true
 dap.workspace = true
