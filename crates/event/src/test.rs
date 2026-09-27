@@ -5,8 +5,8 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use crate::{dispatch, events, register_dynamic_hook, register_event, register_hook};
-#[test]
-fn smoke_test() {
+#[tokio::test]
+async fn smoke_test() {
     events! {
         Event1 { content: String }
         Event2 { content: usize }
@@ -29,7 +29,10 @@ fn smoke_test() {
     });
 
     // triggers events
-    let thread = std::thread::spawn(|| {
+    let runtime = tokio::runtime::Handle::current();
+    let thread = std::thread::spawn(move || {
+        // Use the same event registry when integration tests isolate it by runtime.
+        let _guard = runtime.enter();
         for i in 0..1000 {
             dispatch(Event2 { content: i });
         }
@@ -55,9 +58,9 @@ fn smoke_test() {
     );
 }
 
-#[test]
+#[tokio::test]
 #[allow(dead_code)]
-fn dynamic() {
+async fn dynamic() {
     events! {
         Event3 {}
         Event4 { count: usize }

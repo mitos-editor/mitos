@@ -51,8 +51,8 @@ mod tests {
         (doc, view)
     }
 
-    #[test]
-    fn replacement_preserves_selections_and_undo_without_a_frontend() {
+    #[tokio::test]
+    async fn replacement_preserves_selections_and_undo_without_a_frontend() {
         for (input, replacement, line_ending, expected) in [
             (
                 "#(e\u{301}|)# #[|界]#\n",
@@ -95,8 +95,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn successive_replacements_have_separate_history_checkpoints() {
+    #[tokio::test]
+    async fn successive_replacements_have_separate_history_checkpoints() {
         let (mut doc, mut view) = document_and_view("#[original|]#\n");
 
         replace_selections(&mut doc, &mut view, "first");

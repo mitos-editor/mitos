@@ -70,6 +70,8 @@ clipboard-win = { workspace = true, features = ["std"] }
 libc.workspace = true
 
 [dev-dependencies]
+# Headless editor tests run independent Tokio runtimes in parallel.
+event = { workspace = true, features = ["integration_test"] }
 criterion.workspace = true
 quickcheck.workspace = true
 

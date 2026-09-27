@@ -2972,8 +2972,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn document_symbols_refresh_breadcrumbs_without_reallocating_names() {
+    #[tokio::test]
+    async fn document_symbols_refresh_breadcrumbs_without_reallocating_names() {
         let text = Rope::from("impl A {\n fn b() {}\n}\n");
         let mut config = Config::default();
         config.breadcrumb.enable = true;
@@ -3035,8 +3035,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn changeset_to_changes_ignore_line_endings() {
+    #[tokio::test]
+    async fn changeset_to_changes_ignore_line_endings() {
         use lsp_client::{lsp, Client, OffsetEncoding};
         let text = Rope::from("hello\r\nworld");
         let mut doc = Document::from(
@@ -3074,8 +3074,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn changeset_to_changes() {
+    #[tokio::test]
+    async fn changeset_to_changes() {
         use lsp_client::{lsp, Client, OffsetEncoding};
         let text = Rope::from("hello");
         let mut doc = Document::from(

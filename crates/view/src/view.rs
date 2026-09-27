@@ -795,8 +795,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_text_pos_at_screen_coords() {
+    #[tokio::test]
+    async fn test_text_pos_at_screen_coords() {
         let mut view = View::new(DocumentId::default(), GutterConfig::default());
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("abc\n\tdef");
@@ -965,8 +965,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_text_pos_at_screen_coords_without_line_numbers_gutter() {
+    #[tokio::test]
+    async fn test_text_pos_at_screen_coords_without_line_numbers_gutter() {
         let mut view = View::new(
             DocumentId::default(),
             GutterConfig {
@@ -996,8 +996,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_text_pos_at_screen_coords_without_any_gutters() {
+    #[tokio::test]
+    async fn test_text_pos_at_screen_coords_without_any_gutters() {
         let mut view = View::new(
             DocumentId::default(),
             GutterConfig {
@@ -1027,8 +1027,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_text_pos_at_screen_coords_cjk() {
+    #[tokio::test]
+    async fn test_text_pos_at_screen_coords_cjk() {
         let mut view = View::new(DocumentId::default(), GutterConfig::default());
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("Hi! こんにちは皆さん");
@@ -1112,8 +1112,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_text_pos_at_screen_coords_graphemes() {
+    #[tokio::test]
+    async fn test_text_pos_at_screen_coords_graphemes() {
         let mut view = View::new(DocumentId::default(), GutterConfig::default());
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("Hèl̀l̀ò world!");
@@ -1268,8 +1268,8 @@ mod tests {
     /// `doc_revisions`, while `view1`'s `doc_revisions` is left pointing at the
     /// pre-edit revision. Pushing a jump into `view1` afterwards reproduces the
     /// exact situation `push` fails to guard against.
-    #[test]
-    fn jumplist_push_keeps_doc_revisions_in_sync() {
+    #[tokio::test]
+    async fn jumplist_push_keeps_doc_revisions_in_sync() {
         let config = Arc::new(ArcSwap::new(Arc::new(Config::default())));
         let loader = Arc::new(ArcSwap::from_pointee(syntax::Loader::default()));
 
