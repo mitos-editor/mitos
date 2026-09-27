@@ -1,4 +1,8 @@
 pub mod config;
+pub mod queries;
+
+#[cfg(test)]
+mod resource_tests;
 
 use std::{
     borrow::Cow,
@@ -10,11 +14,11 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use arc_swap::{ArcSwap, Guard};
 use config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
 use foldhash::HashSet;
-use loader::grammar::get_language;
+use loader::syntax::Resources;
 use ropey::RopeSlice;
 use stdx::rope::RopeSliceExt as _;
 use tree_house::{
@@ -63,38 +67,28 @@ impl LanguageData {
         &self.config
     }
 
-    /// Loads the grammar and compiles the highlights, injections and locals for the language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_syntax_config(
-        config: &LanguageConfiguration,
-        loader: &Loader,
-    ) -> Result<Option<SyntaxConfig>> {
-        let name = &config.language_id;
-        let parser_name = config.grammar.as_deref().unwrap_or(name);
-        let Some(grammar) = get_language(parser_name)? else {
+    fn load_syntax_config(&self, loader: &Loader) -> Result<Option<SyntaxConfig>> {
+        let name = &self.config.language_id;
+        let parser_name = self.config.grammar.as_deref().unwrap_or(name);
+        let Some(grammar) = loader.resources.grammar(parser_name)? else {
             log::info!("Skipping syntax config for '{name}' because the parser's shared library does not exist");
             return Ok(None);
         };
-        let highlight_query_text = read_query(name, "highlights.scm");
-        let injection_query_text = read_query(name, "injections.scm");
-        let local_query_text = read_query(name, "locals.scm");
-        let config = SyntaxConfig::new(
+        queries::compile_syntax_config(
             grammar,
-            &highlight_query_text,
-            &injection_query_text,
-            &local_query_text,
+            name,
+            &loader.resources.query(name, "highlights.scm"),
+            &loader.resources.query(name, "injections.scm"),
+            &loader.resources.query(name, "locals.scm"),
+            &loader.scopes(),
         )
-        .with_context(|| format!("Failed to compile highlights for '{name}'"))?;
-
-        reconfigure_highlights(&config, &loader.scopes());
-
-        Ok(Some(config))
+        .map(Some)
     }
 
     fn syntax_config(&self, loader: &Loader) -> Option<&SyntaxConfig> {
         self.syntax
             .get_or_init(|| {
-                Self::compile_syntax_config(&self.config, loader)
+                self.load_syntax_config(loader)
                     .map_err(|err| {
                         log::error!("{err:#}");
                     })
@@ -104,27 +98,16 @@ impl LanguageData {
             .as_ref()
     }
 
-    /// Compiles the indents.scm query for a language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_indent_query(
-        grammar: Grammar,
-        config: &LanguageConfiguration,
-    ) -> Result<Option<IndentQuery>> {
-        let name = &config.language_id;
-        let text = read_query(name, "indents.scm");
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let indent_query = IndentQuery::new(grammar, &text)
-            .with_context(|| format!("Failed to compile indents.scm query for '{name}'"))?;
-        Ok(Some(indent_query))
+    fn load_indent_query(&self, grammar: Grammar, loader: &Loader) -> Result<Option<IndentQuery>> {
+        let name = &self.config.language_id;
+        queries::compile_indent_query(grammar, name, &loader.resources.query(name, "indents.scm"))
     }
 
     fn indent_query(&self, loader: &Loader) -> Option<&IndentQuery> {
         self.indent_query
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                Self::compile_indent_query(grammar, &self.config)
+                self.load_indent_query(grammar, loader)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -134,27 +117,24 @@ impl LanguageData {
             .as_ref()
     }
 
-    /// Compiles the textobjects.scm query for a language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_textobject_query(
+    fn load_textobject_query(
+        &self,
         grammar: Grammar,
-        config: &LanguageConfiguration,
+        loader: &Loader,
     ) -> Result<Option<TextObjectQuery>> {
-        let name = &config.language_id;
-        let text = read_query(name, "textobjects.scm");
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let query = Query::new(grammar, &text, |_, _| Ok(()))
-            .with_context(|| format!("Failed to compile textobjects.scm queries for '{name}'"))?;
-        Ok(Some(TextObjectQuery::new(query)))
+        let name = &self.config.language_id;
+        queries::compile_textobject_query(
+            grammar,
+            name,
+            &loader.resources.query(name, "textobjects.scm"),
+        )
     }
 
     fn textobject_query(&self, loader: &Loader) -> Option<&TextObjectQuery> {
         self.textobject_query
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                Self::compile_textobject_query(grammar, &self.config)
+                self.load_textobject_query(grammar, loader)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -164,35 +144,16 @@ impl LanguageData {
             .as_ref()
     }
 
-    /// Compiles the tags.scm query for a language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_tag_query(
-        grammar: Grammar,
-        config: &LanguageConfiguration,
-    ) -> Result<Option<TagQuery>> {
-        let name = &config.language_id;
-        let text = read_query(name, "tags.scm");
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let query = Query::new(grammar, &text, |_pattern, predicate| match predicate {
-            // TODO: these predicates are allowed in tags.scm queries but not yet used.
-            UserPredicate::IsPropertySet { key: "local", .. } => Ok(()),
-            UserPredicate::Other(pred) => match pred.name() {
-                "strip!" | "select-adjacent!" => Ok(()),
-                _ => Err(InvalidPredicateError::unknown(predicate)),
-            },
-            _ => Err(InvalidPredicateError::unknown(predicate)),
-        })
-        .with_context(|| format!("Failed to compile tags.scm query for '{name}'"))?;
-        Ok(Some(TagQuery { query }))
+    fn load_tag_query(&self, grammar: Grammar, loader: &Loader) -> Result<Option<TagQuery>> {
+        let name = &self.config.language_id;
+        queries::compile_tag_query(grammar, name, &loader.resources.query(name, "tags.scm"))
     }
 
     fn tag_query(&self, loader: &Loader) -> Option<&TagQuery> {
         self.tag_query
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                Self::compile_tag_query(grammar, &self.config)
+                self.load_tag_query(grammar, loader)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -202,27 +163,20 @@ impl LanguageData {
             .as_ref()
     }
 
-    /// Compiles the rainbows.scm query for a language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_rainbow_query(
+    fn load_rainbow_query(
+        &self,
         grammar: Grammar,
-        config: &LanguageConfiguration,
+        loader: &Loader,
     ) -> Result<Option<RainbowQuery>> {
-        let name = &config.language_id;
-        let text = read_query(name, "rainbows.scm");
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let rainbow_query = RainbowQuery::new(grammar, &text)
-            .with_context(|| format!("Failed to compile rainbows.scm query for '{name}'"))?;
-        Ok(Some(rainbow_query))
+        let name = &self.config.language_id;
+        queries::compile_rainbow_query(grammar, name, &loader.resources.query(name, "rainbows.scm"))
     }
 
     fn rainbow_query(&self, loader: &Loader) -> Option<&RainbowQuery> {
         self.rainbow_query
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                Self::compile_rainbow_query(grammar, &self.config)
+                self.load_rainbow_query(grammar, loader)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -232,27 +186,24 @@ impl LanguageData {
             .as_ref()
     }
 
-    /// Compiles the spellcheck.scm query for a language.
-    /// This function should only be used by this module or the xtask crate.
-    pub fn compile_spellcheck_query(
+    fn load_spellcheck_query(
+        &self,
         grammar: Grammar,
-        config: &LanguageConfiguration,
+        loader: &Loader,
     ) -> Result<Option<SpellcheckQuery>> {
-        let name = &config.language_id;
-        let text = read_query(name, "spellcheck.scm");
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let spellcheck_query = SpellcheckQuery::new(grammar, &text)
-            .with_context(|| format!("Failed to compile spellcheck.scm query for '{name}'"))?;
-        Ok(Some(spellcheck_query))
+        let name = &self.config.language_id;
+        queries::compile_spellcheck_query(
+            grammar,
+            name,
+            &loader.resources.query(name, "spellcheck.scm"),
+        )
     }
 
     fn spellcheck_query(&self, loader: &Loader) -> Option<&SpellcheckQuery> {
         self.spellcheck_query
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                Self::compile_spellcheck_query(grammar, &self.config)
+                self.load_spellcheck_query(grammar, loader)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -296,14 +247,9 @@ fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
     });
 }
 
-pub fn read_query(lang: &str, query_filename: &str) -> String {
-    tree_house::read_query(lang, |language| {
-        loader::grammar::load_runtime_file(language, query_filename).unwrap_or_default()
-    })
-}
-
 #[derive(Debug, Default)]
 pub struct Loader {
+    resources: Resources,
     languages: Vec<LanguageData>,
     languages_by_extension: HashMap<String, Language>,
     languages_by_shebang: HashMap<String, Language>,
@@ -315,7 +261,7 @@ pub struct Loader {
 pub type LoaderError = globset::Error;
 
 impl Loader {
-    pub fn new(config: Configuration) -> Result<Self, LoaderError> {
+    pub fn new(config: Configuration, resources: Resources) -> Result<Self, LoaderError> {
         let mut languages = Vec::with_capacity(config.language.len());
         let mut languages_by_extension = HashMap::new();
         let mut languages_by_shebang = HashMap::new();
@@ -343,6 +289,7 @@ impl Loader {
         }
 
         Ok(Self {
+            resources,
             languages,
             languages_by_extension,
             languages_by_shebang,
@@ -350,6 +297,27 @@ impl Loader {
             language_server_configs: config.language_server,
             scopes: ArcSwap::from_pointee(Vec::new()),
         })
+    }
+
+    /// Resource paths selected for this loader. Reloads retain the same source.
+    pub fn resources(&self) -> &Resources {
+        &self.resources
+    }
+
+    /// Compile every query kind through the editor's loading path, returning errors
+    /// instead of logging and caching them. Used by repository query validation.
+    pub fn validate_queries(&self, language: Language) -> Result<()> {
+        let data = self.language(language);
+        let Some(syntax) = data.load_syntax_config(self)? else {
+            return Ok(());
+        };
+        let grammar = syntax.grammar;
+        data.load_indent_query(grammar, self)?;
+        data.load_textobject_query(grammar, self)?;
+        data.load_tag_query(grammar, self)?;
+        data.load_rainbow_query(grammar, self)?;
+        data.load_spellcheck_query(grammar, self)?;
+        Ok(())
     }
 
     pub fn languages(&self) -> impl ExactSizeIterator<Item = (Language, &LanguageData)> {
@@ -1348,7 +1316,8 @@ mod test {
     use super::*;
     use crate::{Rope, Transaction};
 
-    static LOADER: LazyLock<Loader> = LazyLock::new(crate::config::default_lang_loader);
+    static LOADER: LazyLock<Loader> =
+        LazyLock::new(|| crate::config::default_lang_loader(loader::syntax::Resources::default()));
 
     #[test]
     fn test_textobject_queries() {

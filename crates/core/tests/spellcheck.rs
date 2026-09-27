@@ -2,7 +2,10 @@ use std::sync::LazyLock;
 
 use editor_core::{syntax::Loader, Rope, Syntax};
 
-static LOADER: LazyLock<Loader> = LazyLock::new(editor_core::config::default_lang_loader);
+static LOADER: LazyLock<Loader> =
+    LazyLock::new(
+        || editor_core::config::default_lang_loader(loader::syntax::Resources::default()),
+    );
 
 /// Check complete spans, not just their first byte: exclusions must not leak
 /// part of a code token into the spell checker.

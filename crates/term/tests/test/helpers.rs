@@ -253,7 +253,11 @@ pub fn test_syntax_loader(overrides: Option<String>) -> editor_core::syntax::Loa
         lang = loader::merge_toml_values(lang, override_toml, 3);
     }
 
-    editor_core::syntax::Loader::new(lang.try_into().unwrap()).unwrap()
+    editor_core::syntax::Loader::new(
+        lang.try_into().unwrap(),
+        loader::syntax::Resources::default(),
+    )
+    .unwrap()
 }
 
 /// Use this for very simple test cases where there is one input
