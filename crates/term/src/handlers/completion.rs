@@ -7,11 +7,11 @@ use crate::{
 };
 use editor_core::chars::char_is_word;
 use event::register_hook;
-pub use view::handlers::completion::{trigger_auto_completion, CompletionItem};
 use view::{
     document::Mode,
     handlers::completion::{
-        request_incomplete_completion_list, CompletionChange, CompletionEvent, CompletionUpdate,
+        request_incomplete_completion_list, trigger_auto_completion, CompletionChange,
+        CompletionEvent, CompletionUpdate,
     },
     Editor,
 };

@@ -2,7 +2,6 @@ use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Event, EventResult},
     events::{OnModeSwitch, PostCommand},
-    handlers::completion::CompletionItem,
     key,
     keymap::{KeymapResult, Keymaps},
     ui::{
@@ -38,6 +37,7 @@ use view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
     editor::CompleteAction,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
+    handlers::completion::CompletionItem,
     icons::ICONS,
     Document, Editor, Theme, View, ViewId,
 };
