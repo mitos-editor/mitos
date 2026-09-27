@@ -198,15 +198,12 @@ impl Fixture {
         let highlights = doc.document_highlights(view.id).unwrap();
         assert_eq!(highlights.len(), 1);
         assert_eq!(highlights[0], 2..text.chars().count());
-        assert_eq!(doc.document_links.len(), 1);
+        assert_eq!(doc.document_links().len(), 1);
         assert_eq!(
-            (doc.document_links[0].start, doc.document_links[0].end),
+            (doc.document_links()[0].start, doc.document_links()[0].end),
             (2, text.chars().count())
         );
-        assert_eq!(
-            doc.color_swatches.as_ref().unwrap().color_swatches[0].char_idx,
-            2
-        );
+        assert_eq!(doc.color_swatches().unwrap().color_swatches[0].char_idx, 2);
     }
 
     fn assert_empty(&self) {
@@ -215,8 +212,8 @@ impl Fixture {
             .breadcrumbs(view.id)
             .is_none_or(|b| b.iter().next().is_none()));
         assert!(doc.document_highlights(view.id).is_none());
-        assert!(doc.document_links.is_empty());
-        assert!(doc.color_swatches.is_none());
+        assert!(doc.document_links().is_empty());
+        assert!(doc.color_swatches().is_none());
     }
 }
 
@@ -329,7 +326,7 @@ async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::R
     )?;
     let initial = fixture.initialize().await?;
     fixture.apply(initial);
-    assert_eq!(current_ref!(fixture.app.editor).1.document_links.len(), 2);
+    assert_eq!(current_ref!(fixture.app.editor).1.document_links().len(), 2);
     fixture.edit("updated");
     let old = fixture.batch(ALL).await?;
     let server_id = current_ref!(fixture.app.editor)
@@ -347,8 +344,8 @@ async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::R
     let responses = fixture.batch(&[Feature::Colors, Feature::Links]).await?;
     fixture.apply(responses);
     let (_, doc) = current_ref!(fixture.app.editor);
-    assert_eq!(doc.document_links.len(), 1);
-    assert_eq!(doc.color_swatches.as_ref().unwrap().color_swatches.len(), 1);
+    assert_eq!(doc.document_links().len(), 1);
+    assert_eq!(doc.color_swatches().unwrap().color_swatches.len(), 1);
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }

@@ -48,7 +48,7 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
     let Some(future) = language_server.document_symbols(doc.identifier()) else {
         return;
     };
-    let cancel = doc.document_symbols_controller.restart();
+    let cancel = doc.document_symbols.request.restart();
 
     let request = DocumentRequest::new(doc, cancel, vec![server_id]);
 
@@ -91,12 +91,12 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if !event.ghost_transaction {
             // Cancel the ongoing request, if present.
-            event.doc.document_symbols_controller.cancel();
+            event.doc.document_symbols.request.cancel();
             let view_id = event.view;
             let doc_id = event.doc.id();
             // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
             // feedback. If insert-mode latency regresses, debounce this request path.
-            if let Some(handler) = &event.doc.document_symbols_handler {
+            if let Some(handler) = &event.doc.document_symbols.handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_symbols(editor, doc_id);
                     if let Some(doc) = editor.document_mut(doc_id) {
@@ -123,8 +123,7 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.document_symbols_controller.cancel();
-                doc.clear_document_symbols();
+                doc.document_symbols.clear();
             }
         }
         Ok(())
@@ -145,8 +144,7 @@ pub(super) fn register_hooks() {
 
         if event.old.breadcrumb.enable && !event.new.breadcrumb.enable {
             for doc in event.editor.documents_mut() {
-                doc.document_symbols_controller.cancel();
-                doc.clear_document_symbols();
+                doc.document_symbols.clear();
             }
         }
 

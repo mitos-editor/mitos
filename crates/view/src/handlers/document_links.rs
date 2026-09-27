@@ -41,7 +41,7 @@ fn request_document_links(
         return;
     };
 
-    let cancel = doc.document_link_controller.restart();
+    let cancel = doc.document_links.request.restart();
 
     // Exit hooks run before the server is removed from the registry.
     let mut seen_language_servers = HashSet::new();
@@ -119,12 +119,12 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     };
 
     if links.is_empty() {
-        doc.document_links.clear();
+        doc.document_links.clear_cache();
         return;
     }
 
     links.sort_by_key(|link| (link.start, link.end));
-    doc.document_links = links;
+    doc.document_links.cache = links;
 }
 
 pub(super) fn register_hooks() {
@@ -136,14 +136,14 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         event
             .changes
-            .update_positions(event.doc.document_links.iter_mut().flat_map(|link| {
+            .update_positions(event.doc.document_links.cache.iter_mut().flat_map(|link| {
                 std::iter::once((&mut link.start, Assoc::After))
                     .chain(std::iter::once((&mut link.end, Assoc::After)))
             }));
 
         if !event.ghost_transaction {
-            event.doc.document_link_controller.cancel();
-            if let Some(handler) = &event.doc.document_links_handler {
+            event.doc.document_links.request.cancel();
+            if let Some(handler) = &event.doc.document_links.handler {
                 event::send_blocking(&handler.events, event.doc.id());
             }
         }
@@ -164,7 +164,7 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.document_links.clear();
+                doc.document_links.clear_cache();
             }
         }
 
