@@ -1,14 +1,13 @@
 //! Shared coordination for LSP document colors results.
 
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use editor_core::{syntax::config::LanguageServerFeature, text_annotations::InlineAnnotation};
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::lsp;
-use tokio::time::Instant;
 
-use super::lsp::DocumentRequest;
+use super::{document_debounce::debounce_documents, lsp::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
     document::DocumentColorSwatches,
@@ -16,51 +15,19 @@ use crate::{
     DocumentId, Editor, Theme,
 };
 
-struct DocumentColorsEvent(DocumentId);
-
 /// Scheduling handle attached to documents owned by this editor.
 #[derive(Clone)]
 pub struct DocumentColorsHandler {
     callbacks: EditorCallbackSender,
-    events: tokio::sync::mpsc::Sender<DocumentColorsEvent>,
+    events: tokio::sync::mpsc::Sender<DocumentId>,
 }
 
 impl DocumentColorsHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        use event::AsyncHook as _;
-        let events = Debounce {
-            callbacks: callbacks.clone(),
-            docs: HashSet::new(),
-        }
-        .spawn();
-        Self { callbacks, events }
-    }
-}
-
-struct Debounce {
-    callbacks: EditorCallbackSender,
-    docs: HashSet<DocumentId>,
-}
-
-const DOCUMENT_CHANGE_DEBOUNCE: Duration = Duration::from_millis(250);
-
-impl event::AsyncHook for Debounce {
-    type Event = DocumentColorsEvent;
-
-    fn handle_event(&mut self, event: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
-        let DocumentColorsEvent(doc_id) = event;
-        self.docs.insert(doc_id);
-        Some(Instant::now() + DOCUMENT_CHANGE_DEBOUNCE)
-    }
-
-    fn finish_debounce(&mut self) {
-        let docs = std::mem::take(&mut self.docs);
-
-        self.callbacks.send_blocking(move |editor| {
-            for doc in docs {
-                request_document_colors(editor, doc, None);
-            }
+        let events = debounce_documents(callbacks.clone(), |editor, doc| {
+            request_document_colors(editor, doc, None);
         });
+        Self { callbacks, events }
     }
 }
 
@@ -215,7 +182,7 @@ pub(super) fn register_hooks() {
             // Cancel the ongoing request, if present.
             event.doc.color_swatch_controller.cancel();
             if let Some(handler) = &event.doc.document_colors_handler {
-                event::send_blocking(&handler.events, DocumentColorsEvent(event.doc.id()));
+                event::send_blocking(&handler.events, event.doc.id());
             }
         }
 

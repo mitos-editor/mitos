@@ -14,7 +14,7 @@ use tokio::{sync::mpsc::Sender, time::Instant};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
-    handlers::lsp::DocumentRequest,
+    handlers::{document_debounce::debounce_documents, lsp::DocumentRequest},
     DocumentId, Editor,
 };
 
@@ -35,11 +35,7 @@ pub struct PullDiagnosticsHandler {
 
 impl PullDiagnosticsHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let documents = DocumentDebounce {
-            callbacks: callbacks.clone(),
-            documents: HashSet::new(),
-        }
-        .spawn();
+        let documents = debounce_documents(callbacks.clone(), request_document_diagnostics);
         let inter_file = InterFileDebounce {
             callbacks: callbacks.clone(),
             servers: HashSet::new(),
@@ -50,29 +46,6 @@ impl PullDiagnosticsHandler {
             documents,
             inter_file,
         }
-    }
-}
-
-struct DocumentDebounce {
-    callbacks: EditorCallbackSender,
-    documents: HashSet<DocumentId>,
-}
-
-impl AsyncHook for DocumentDebounce {
-    type Event = DocumentId;
-
-    fn handle_event(&mut self, document: DocumentId, _: Option<Instant>) -> Option<Instant> {
-        self.documents.insert(document);
-        Some(Instant::now() + Duration::from_millis(250))
-    }
-
-    fn finish_debounce(&mut self) {
-        let documents = mem::take(&mut self.documents);
-        self.callbacks.send_blocking(move |editor| {
-            for document in documents {
-                request_document_diagnostics(editor, document);
-            }
-        });
     }
 }
 

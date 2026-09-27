@@ -13,6 +13,7 @@ pub mod completion;
 pub mod dap;
 pub mod diagnostics;
 pub mod document_colors;
+mod document_debounce;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
