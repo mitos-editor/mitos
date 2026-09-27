@@ -1027,11 +1027,15 @@ impl Document {
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
-        if let Some((fmt_cmd, fmt_args)) = self
+        if let Some((fmt_cmd, fmt_args, timeout)) = self
             .language_config()
             .and_then(|c| c.formatter.as_ref())
             .and_then(|formatter| {
-                Some((stdx::env::which(&formatter.command).ok()?, &formatter.args))
+                Some((
+                    stdx::env::which(&formatter.command).ok()?,
+                    &formatter.args,
+                    formatter.timeout,
+                ))
             })
         {
             log::debug!(
@@ -1064,50 +1068,55 @@ impl Document {
                 .args(args.iter().map(AsRef::as_ref))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
 
             let formatting_future = async move {
-                let mut process = process
-                    .spawn()
-                    .map_err(|e| FormatterError::SpawningFailed {
-                        command: fmt_cmd.to_string_lossy().into(),
-                        error: e.kind(),
-                    })?;
+                tokio::time::timeout(std::time::Duration::from_secs(timeout), async move {
+                    let mut process =
+                        process
+                            .spawn()
+                            .map_err(|e| FormatterError::SpawningFailed {
+                                command: fmt_cmd.to_string_lossy().into(),
+                                error: e.kind(),
+                            })?;
 
-                let mut stdin = process.stdin.take().ok_or(FormatterError::BrokenStdin)?;
-                let input_text = text.clone();
-                let input_task = tokio::spawn(async move {
-                    to_writer(&mut stdin, (encoding::UTF_8, false), &input_text).await
-                    // Note that `stdin` is dropped here, causing the pipe to close. This can
-                    // avoid a deadlock with `wait_with_output` below if the process is waiting on
-                    // stdin to close before exiting.
-                });
-                let (input_result, output_result) = tokio::join! {
-                    input_task,
-                    process.wait_with_output(),
-                };
-                let _ = input_result.map_err(|_| FormatterError::BrokenStdin)?;
-                let output = output_result.map_err(|_| FormatterError::WaitForOutputFailed)?;
+                    let mut stdin = process.stdin.take().ok_or(FormatterError::BrokenStdin)?;
+                    let input_task = async {
+                        let result = to_writer(&mut stdin, (encoding::UTF_8, false), &text).await;
+                        // Signal EOF before waiting for a formatter that reads to the end.
+                        drop(stdin);
+                        result
+                    };
+                    let (input_result, output_result) = tokio::join! {
+                        input_task,
+                        process.wait_with_output(),
+                    };
+                    input_result.map_err(|_| FormatterError::BrokenStdin)?;
+                    let output = output_result.map_err(|_| FormatterError::WaitForOutputFailed)?;
 
-                if !output.status.success() {
-                    if !output.stderr.is_empty() {
-                        let err = String::from_utf8_lossy(&output.stderr).to_string();
-                        log::error!("Formatter error: {}", err);
-                        return Err(FormatterError::NonZeroExitStatus(Some(err)));
+                    if !output.status.success() {
+                        if !output.stderr.is_empty() {
+                            let err = String::from_utf8_lossy(&output.stderr).to_string();
+                            log::error!("Formatter error: {}", err);
+                            return Err(FormatterError::NonZeroExitStatus(Some(err)));
+                        }
+
+                        return Err(FormatterError::NonZeroExitStatus(None));
+                    } else if !output.stderr.is_empty() {
+                        log::debug!(
+                            "Formatter printed to stderr: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
 
-                    return Err(FormatterError::NonZeroExitStatus(None));
-                } else if !output.stderr.is_empty() {
-                    log::debug!(
-                        "Formatter printed to stderr: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                }
+                    let str = std::str::from_utf8(&output.stdout)
+                        .map_err(|_| FormatterError::InvalidUtf8Output)?;
 
-                let str = std::str::from_utf8(&output.stdout)
-                    .map_err(|_| FormatterError::InvalidUtf8Output)?;
-
-                Ok(editor_core::diff::compare_ropes(&text, &Rope::from(str)))
+                    Ok(editor_core::diff::compare_ropes(&text, &Rope::from(str)))
+                })
+                .await
+                .map_err(|_| FormatterError::Timeout(timeout))?
             };
             return Some(formatting_future.boxed());
         };
@@ -2922,6 +2931,7 @@ pub enum FormatterError {
         command: String,
         error: std::io::ErrorKind,
     },
+    Timeout(u64),
     BrokenStdin,
     WaitForOutputFailed,
     InvalidUtf8Output,
@@ -2936,6 +2946,7 @@ impl Display for FormatterError {
             Self::SpawningFailed { command, error } => {
                 write!(f, "Failed to spawn formatter {}: {:?}", command, error)
             }
+            Self::Timeout(seconds) => write!(f, "Formatter timed out after {seconds} seconds"),
             Self::BrokenStdin => write!(f, "Could not write to formatter stdin"),
             Self::WaitForOutputFailed => write!(f, "Waiting for formatter output failed"),
             Self::InvalidUtf8Output => write!(f, "Invalid UTF-8 formatter output"),

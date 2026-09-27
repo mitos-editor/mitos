@@ -1323,3 +1323,34 @@ async fn test_save_close_services_formatter_requests_and_uses_indent_size() -> a
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_quit_external_formatter_timeout_still_saves() -> anyhow::Result<()> {
+    use std::time::Duration;
+    let mut file = tempfile::Builder::new().suffix(".toml").tempfile()?;
+    let binary = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+    let loader = helpers::test_syntax_loader(Some(format!(
+        r#"
+        [[language]]
+        name = "toml"
+        auto-format = true
+        formatter = {{ command = {binary}, args = ["--hang"], timeout = 1 }}
+    "#
+    )));
+    let mut app = AppBuilder::new()
+        .with_file(file.path(), None)
+        .with_lang_loader(loader)
+        .build()?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        test_key_sequence(
+            &mut app,
+            Some("ikeep my edits<esc>:wq<ret>ggItyped while waiting: <esc>"),
+            None,
+            true,
+        ),
+    )
+    .await??;
+    helpers::assert_file_has_content(&mut file, "typed while waiting: keep my edits\n")?;
+    Ok(())
+}
