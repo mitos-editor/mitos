@@ -1228,3 +1228,98 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
     }
     Ok(())
 }
+
+/// A formatter that calls back into the client must work for every save/close path.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_save_close_services_formatter_requests() -> anyhow::Result<()> {
+    use lsp_client::{Call, Notification};
+    use std::time::Duration;
+    use tokio_stream::StreamExt;
+
+    for (command, exits) in [
+        (":wq", true),
+        (":wq!", true),
+        (":x", true),
+        (":x!", true),
+        (":wqa", true),
+        (":wqa!", true),
+        (":w<ret>:q", true),
+        (":w<ret>:qa", true),
+        (":wbc", false),
+        (":wbc!", false),
+        (":w", false), // shutdown with a save still queued
+    ] {
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("workflow.format-test");
+        std::fs::write(&file, "original\n")?;
+        std::fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n[*]\nindent_style = space\nindent_size = 2\ntab_width = 4\n",
+        )?;
+        let gate = dir.path().join("ready");
+        let binary = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+        let gate_arg = toml::Value::String(gate.to_str().unwrap().into());
+        let loader = helpers::test_syntax_loader(Some(format!(
+            r#"
+            [language-server.format-test]
+            command = {binary}
+            args = ["--formatting", "--initialize-gate", {gate_arg}]
+            [[language]]
+            name = "format-test"
+            scope = "source.format-test"
+            file-types = ["format-test"]
+            roots = []
+            auto-format = true
+            language-servers = ["format-test"]
+        "#
+        )));
+        let mut config = helpers::test_config();
+        config.editor.lsp.enable = true;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_lang_loader(loader)
+            .with_file(&file, None)
+            .build()?;
+        std::fs::write(gate, "ready")?;
+        let (id, Call::Notification(notification)) = tokio::time::timeout(
+            Duration::from_secs(5),
+            app.editor.language_servers.incoming.next(),
+        )
+        .await?
+        .unwrap() else {
+            panic!("expected initialization")
+        };
+        assert!(matches!(
+            Notification::parse(&notification.method, notification.params)?,
+            Notification::Initialized
+        ));
+        app.editor.handle_language_server_initialized(id);
+        assert_eq!(doc!(app.editor).indent_width(), 2);
+        assert_eq!(doc!(app.editor).tab_width(), 4);
+        let keys = format!("iupdated <esc>{command}<ret>");
+        if command == ":w" {
+            #[cfg(windows)]
+            use crossterm::event::{Event, KeyEvent};
+            #[cfg(not(windows))]
+            use termina::event::{Event, KeyEvent};
+            for key in ui_core::input::parse_macro(&keys)? {
+                app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+                    .await;
+            }
+            let errors = tokio::time::timeout(Duration::from_secs(5), app.close()).await?;
+            assert!(errors.is_empty(), "{errors:?}");
+        } else {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                test_key_sequence(&mut app, Some(&keys), None, exits),
+            )
+            .await??;
+        }
+        assert_eq!(
+            std::fs::read_to_string(&file)?,
+            "    formatted\n",
+            "{command}"
+        );
+    }
+    Ok(())
+}

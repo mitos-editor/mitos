@@ -514,7 +514,7 @@ pub(super) mod typed {
                 if fmt_job.is_none()
                     && let Err(err) = editor.save(doc_id, path, force)
                 {
-                    editor.set_error(|| format!("Error saving: {}", err));
+                    return Some(Job::new(async move { Err(err) }).wait_before_exiting());
                 }
                 fmt_job
             }));
