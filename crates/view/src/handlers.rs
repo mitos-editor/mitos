@@ -89,6 +89,8 @@ impl Handlers {
     }
 }
 
+// This is the only entry point for shared hook registration. Keep the guard scoped
+// to the event registry so separate test runtimes each install their own hooks.
 fn register_hooks() {
     event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
     REGISTER.call_once(|| {

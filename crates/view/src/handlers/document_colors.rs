@@ -179,78 +179,73 @@ fn attach_document_colors(
     });
 }
 
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            // when a document is initially opened, request colors for it
-            request_document_colors(event.editor, event.doc, None);
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        // when a document is initially opened, request colors for it
+        request_document_colors(event.editor, event.doc, None);
 
-            Ok(())
-        });
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            // Update the color swatch' positions, helping ensure they are displayed in the
-            // proper place.
-            let apply_color_swatch_changes = |annotations: &mut Vec<InlineAnnotation>| {
-                event.changes.update_positions(
-                    annotations
-                        .iter_mut()
-                        .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
-                );
-            };
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        // Update the color swatch' positions, helping ensure they are displayed in the
+        // proper place.
+        let apply_color_swatch_changes = |annotations: &mut Vec<InlineAnnotation>| {
+            event.changes.update_positions(
+                annotations
+                    .iter_mut()
+                    .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
+            );
+        };
 
-            if let Some(DocumentColorSwatches {
-                color_swatches,
-                colors: _colors,
-                color_swatches_padding,
-            }) = &mut event.doc.color_swatches
-            {
-                apply_color_swatch_changes(color_swatches);
-                apply_color_swatch_changes(color_swatches_padding);
+        if let Some(DocumentColorSwatches {
+            color_swatches,
+            colors: _colors,
+            color_swatches_padding,
+        }) = &mut event.doc.color_swatches
+        {
+            apply_color_swatch_changes(color_swatches);
+            apply_color_swatch_changes(color_swatches_padding);
+        }
+
+        // Avoid re-requesting document colors if the change is a ghost transaction (completion)
+        // because the language server will not know about the updates to the document and will
+        // give out-of-date locations.
+        if !event.ghost_transaction {
+            // Cancel the ongoing request, if present.
+            event.doc.color_swatch_controller.cancel();
+            if let Some(handler) = &event.doc.document_colors_handler {
+                event::send_blocking(&handler.events, DocumentColorsEvent(event.doc.id()));
             }
+        }
 
-            // Avoid re-requesting document colors if the change is a ghost transaction (completion)
-            // because the language server will not know about the updates to the document and will
-            // give out-of-date locations.
-            if !event.ghost_transaction {
-                // Cancel the ongoing request, if present.
-                event.doc.color_swatch_controller.cancel();
-                if let Some(handler) = &event.doc.document_colors_handler {
-                    event::send_blocking(&handler.events, DocumentColorsEvent(event.doc.id()));
-                }
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+
+        for doc_id in doc_ids {
+            request_document_colors(event.editor, doc_id, None);
+        }
+
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        // Clear and re-request all color swatches when a server exits.
+        for doc in event.editor.documents_mut() {
+            if doc.supports_language_server(event.server_id) {
+                doc.color_swatches.take();
             }
+        }
 
-            Ok(())
-        });
+        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
-        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+        for doc_id in doc_ids {
+            request_document_colors(event.editor, doc_id, Some(event.server_id));
+        }
 
-            for doc_id in doc_ids {
-                request_document_colors(event.editor, doc_id, None);
-            }
-
-            Ok(())
-        });
-
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
-            // Clear and re-request all color swatches when a server exits.
-            for doc in event.editor.documents_mut() {
-                if doc.supports_language_server(event.server_id) {
-                    doc.color_swatches.take();
-                }
-            }
-
-            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-            for doc_id in doc_ids {
-                request_document_colors(event.editor, doc_id, Some(event.server_id));
-            }
-
-            Ok(())
-        });
+        Ok(())
     });
 }

@@ -163,24 +163,21 @@ pub fn focus_lost(editor: &mut Editor) {
     }
 }
 
-pub fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            let config = event.doc.config.load();
-            if config.auto_save.after_delay.enable
-                && let Some(trigger) = &event.doc.auto_save_trigger
-            {
-                trigger.changed(config.auto_save.after_delay.timeout);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            if !event.new.auto_save.after_delay.enable {
-                event.editor.handlers.auto_save.cancel();
-            }
-            Ok(())
-        });
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        let config = event.doc.config.load();
+        if config.auto_save.after_delay.enable
+            && let Some(trigger) = &event.doc.auto_save_trigger
+        {
+            trigger.changed(config.auto_save.after_delay.timeout);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        if !event.new.auto_save.after_delay.enable {
+            event.editor.handlers.auto_save.cancel();
+        }
+        Ok(())
     });
 }
 

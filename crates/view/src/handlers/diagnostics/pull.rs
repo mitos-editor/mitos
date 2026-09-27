@@ -248,66 +248,63 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
     request_document_diagnostics_for_language_servers(editor, doc_id, &servers);
 }
 
-/// Register once; each event routes work through its owning editor or document.
-pub fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            if event.ghost_transaction {
-                return Ok(());
-            }
-            for controller in event.doc.pull_diagnostics.requests.values_mut() {
-                controller.cancel();
-            }
-            if !event
-                .doc
-                .has_language_server_with_feature(LanguageServerFeature::PullDiagnostics)
-            {
-                return Ok(());
-            }
-            let Some(handler) = &event.doc.pull_diagnostics_handler else {
-                return Ok(());
-            };
-            send_blocking(&handler.documents, event.doc.id());
-            let servers: HashSet<_> = event
-                .doc
-                .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
-                .filter(|server| {
-                    server
-                        .capabilities()
-                        .diagnostic_provider
-                        .as_ref()
-                        .is_some_and(|provider| match provider {
-                            lsp::DiagnosticServerCapabilities::Options(options) => {
-                                options.inter_file_dependencies
-                            }
-                            lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
-                                options.diagnostic_options.inter_file_dependencies
-                            }
-                        })
-                })
-                .map(|server| server.id())
-                .collect();
-            if !servers.is_empty() {
-                send_blocking(&handler.inter_file, servers);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            request_document_diagnostics(event.editor, event.doc);
-            Ok(())
-        });
-        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-            request_all_document_diagnostics_for_language_server(event.editor, event.server_id);
-            Ok(())
-        });
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
-            for doc in event.editor.documents_mut() {
-                doc.pull_diagnostics.requests.remove(&event.server_id);
-                doc.pull_diagnostics.result_ids.remove(&event.server_id);
-            }
-            Ok(())
-        });
+/// Each event routes work through its owning editor or document.
+pub(in crate::handlers) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        if event.ghost_transaction {
+            return Ok(());
+        }
+        for controller in event.doc.pull_diagnostics.requests.values_mut() {
+            controller.cancel();
+        }
+        if !event
+            .doc
+            .has_language_server_with_feature(LanguageServerFeature::PullDiagnostics)
+        {
+            return Ok(());
+        }
+        let Some(handler) = &event.doc.pull_diagnostics_handler else {
+            return Ok(());
+        };
+        send_blocking(&handler.documents, event.doc.id());
+        let servers: HashSet<_> = event
+            .doc
+            .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
+            .filter(|server| {
+                server
+                    .capabilities()
+                    .diagnostic_provider
+                    .as_ref()
+                    .is_some_and(|provider| match provider {
+                        lsp::DiagnosticServerCapabilities::Options(options) => {
+                            options.inter_file_dependencies
+                        }
+                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
+                            options.diagnostic_options.inter_file_dependencies
+                        }
+                    })
+            })
+            .map(|server| server.id())
+            .collect();
+        if !servers.is_empty() {
+            send_blocking(&handler.inter_file, servers);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        request_document_diagnostics(event.editor, event.doc);
+        Ok(())
+    });
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        request_all_document_diagnostics_for_language_server(event.editor, event.server_id);
+        Ok(())
+    });
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        for doc in event.editor.documents_mut() {
+            doc.pull_diagnostics.requests.remove(&event.server_id);
+            doc.pull_diagnostics.result_ids.remove(&event.server_id);
+        }
+        Ok(())
     });
 }
 fn handle_pull_diagnostics_response(

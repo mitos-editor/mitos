@@ -350,14 +350,9 @@ pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
     }
 }
 
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            event.editor.handlers.auto_reload.configure(event.new);
-            Ok(())
-        });
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        event.editor.handlers.auto_reload.configure(event.new);
+        Ok(())
     });
 }

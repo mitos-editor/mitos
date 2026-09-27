@@ -172,67 +172,62 @@ fn apply_code_action_hint(doc: &mut Document, view: ViewId, available: bool) {
     }
 }
 
-pub fn register_hooks() {
-    event::runtime_local! {
-        static REGISTER: std::sync::Once = std::sync::Once::new();
-    }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut SelectionDidChange<'_>| {
-            schedule(event.doc, event.view);
-            Ok(())
-        });
-        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-            let view = event.editor.tree.focus;
-            if let Some(doc) = event.editor.document_mut(event.doc) {
-                schedule(doc, view);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut DocumentDidChange<'_>| {
-            if !event.ghost_transaction {
-                schedule_document(event.doc);
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut DiagnosticsDidChange<'_>| {
-            if let Some(doc) = event.editor.document_mut(event.doc) {
+pub(super) fn register_hooks() {
+    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+        schedule(event.doc, event.view);
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+        let view = event.editor.tree.focus;
+        if let Some(doc) = event.editor.document_mut(event.doc) {
+            schedule(doc, view);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        if !event.ghost_transaction {
+            schedule_document(event.doc);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut DiagnosticsDidChange<'_>| {
+        if let Some(doc) = event.editor.document_mut(event.doc) {
+            schedule_document(doc);
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        for doc in event.editor.documents_mut() {
+            if doc.supports_language_server(event.server_id) {
                 schedule_document(doc);
             }
-            Ok(())
-        });
-        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        for doc in event.editor.documents_mut() {
+            if doc.supports_language_server(event.server_id) {
+                doc.clear_all_code_action_hints();
+                // Debounced work runs after removal from the registry and
+                // recomputes availability from the remaining providers.
+                schedule_document(doc);
+            }
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        if event.old.code_action_hint() && !event.new.code_action_hint() {
             for doc in event.editor.documents_mut() {
-                if doc.supports_language_server(event.server_id) {
-                    schedule_document(doc);
-                }
+                doc.clear_all_code_action_hints();
             }
-            Ok(())
-        });
-        register_hook!(move |event: &mut LanguageServerExited<'_>| {
-            for doc in event.editor.documents_mut() {
-                if doc.supports_language_server(event.server_id) {
-                    doc.clear_all_code_action_hints();
-                    // Debounced work runs after removal from the registry and
-                    // recomputes availability from the remaining providers.
-                    schedule_document(doc);
-                }
+        } else if !event.old.code_action_hint() && event.new.code_action_hint() {
+            let view = event.editor.tree.focus;
+            if let Some(doc_id) = event.editor.tree.try_get(view).map(|view| view.doc)
+                && let Some(doc) = event.editor.document_mut(doc_id)
+            {
+                schedule(doc, view);
             }
-            Ok(())
-        });
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            if event.old.code_action_hint() && !event.new.code_action_hint() {
-                for doc in event.editor.documents_mut() {
-                    doc.clear_all_code_action_hints();
-                }
-            } else if !event.old.code_action_hint() && event.new.code_action_hint() {
-                let view = event.editor.tree.focus;
-                if let Some(doc_id) = event.editor.tree.try_get(view).map(|view| view.doc)
-                    && let Some(doc) = event.editor.document_mut(doc_id)
-                {
-                    schedule(doc, view);
-                }
-            }
-            Ok(())
-        });
+        }
+        Ok(())
     });
 }
