@@ -1,3 +1,4 @@
+use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::{coords_at_pos, encoding, Position};
 use lsp_client::lsp::DiagnosticSeverity;
@@ -499,7 +500,7 @@ where
     {
         write(
             context,
-            Span::from(file.get_with_style_or_default(path, &context.editor.theme)),
+            icon_span(file.get_with_style_or_default(path, &context.editor.theme)),
         );
         write(context, format!("{file_type} ").into());
         return;
@@ -612,7 +613,7 @@ where
         && !head.is_empty()
         && let Some(icon) = ICONS.load().vcs().branch()
     {
-        write(context, Span::from(icon));
+        write(context, icon_span(icon));
         write(context, format!("{head} ").into());
         return;
     }

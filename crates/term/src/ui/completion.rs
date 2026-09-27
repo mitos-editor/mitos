@@ -1,5 +1,5 @@
 use crate::compositor::{Component, Context, Event, EventResult};
-use crate::ui::{menu, panel, Markdown, Menu, Popup, PromptEvent};
+use crate::ui::{icon_span, menu, panel, Markdown, Menu, Popup, PromptEvent};
 use editor_core::{self as core, chars, fuzzy::MATCHER, Change, Transaction};
 use lsp_client::{lsp, util, OffsetEncoding};
 use nucleo::{
@@ -122,7 +122,7 @@ impl menu::Item for CompletionItem {
             let icons = ICONS.load();
             if let Some(icon) = icons.kind().get(kind_name) {
                 return menu::Row::new([
-                    menu::Cell::from(Span::from(icon.with_padding(0, 1))),
+                    menu::Cell::from(icon_span(icon.with_padding(0, 1))),
                     menu::Cell::from(label),
                     menu::Cell::from(kind),
                 ]);
