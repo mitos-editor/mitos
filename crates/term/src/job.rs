@@ -1,7 +1,7 @@
 use arc_swap::ArcSwapOption;
 use event::status::StatusMessage;
 use event::{runtime_local, send_blocking};
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 pub use view::callbacks::EditorCallback;
 use view::callbacks::EditorCallbackSender;
 use view::Editor;
@@ -9,7 +9,7 @@ use view::Editor;
 use crate::compositor::Compositor;
 
 use futures_util::future::{BoxFuture, Future, FutureExt};
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::stream::FuturesUnordered;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub type EditorCompositorCallback = Box<dyn FnOnce(&mut Editor, &mut Compositor) + Send>;
@@ -42,7 +42,10 @@ pub enum Callback {
     EditorCompositor(EditorCompositorCallback),
     Editor(EditorCallback),
     Followup(EditorCallbackFollowup),
+    TryEditor(AfterWrites),
 }
+
+pub type AfterWrites = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<()> + Send>;
 
 pub type JobFuture = BoxFuture<'static, anyhow::Result<Option<Callback>>>;
 
@@ -58,6 +61,7 @@ pub struct Jobs {
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
     pub status_messages: Receiver<StatusMessage>,
+    after_writes: VecDeque<AfterWrites>,
 }
 
 impl Job {
@@ -94,6 +98,7 @@ impl Jobs {
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             status_messages,
+            after_writes: VecDeque::new(),
         }
     }
 
@@ -130,7 +135,7 @@ impl Jobs {
     }
 
     pub fn handle_callback(
-        &self,
+        &mut self,
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
@@ -147,8 +152,16 @@ impl Jobs {
                     None
                 }
                 Callback::Followup(call) => call(editor),
+                Callback::TryEditor(call) => {
+                    if let Err(err) = call(editor) {
+                        self.after_writes.clear();
+                        editor.set_error(|| err.to_string());
+                    }
+                    None
+                }
             },
             Err(e) => {
+                self.after_writes.clear();
                 editor.set_error(|| format!("Async job failed: {}", e));
                 None
             }
@@ -174,50 +187,31 @@ impl Jobs {
         }
     }
 
-    /// Blocks until all the jobs that need to be waited on are done.
-    pub async fn finish(
-        &mut self,
-        editor: &mut Editor,
-        mut compositor: Option<&mut Compositor>,
-    ) -> anyhow::Result<()> {
-        log::debug!("waiting on jobs...");
-        let mut wait_futures = std::mem::take(&mut self.wait_futures);
+    /// Defer lifecycle operations without blocking LSP requests or UI events.
+    pub fn after_writes(&mut self, editor: &mut Editor, action: AfterWrites) -> anyhow::Result<()> {
+        if self.wait_futures.is_empty() && editor.write_count == 0 {
+            action(editor)
+        } else {
+            self.after_writes.push_back(action);
+            Ok(())
+        }
+    }
 
-        while let (Some(job), tail) = StreamExt::into_future(wait_futures).await {
-            match job {
-                Ok(callback) => {
-                    wait_futures = tail;
+    pub fn cancel_after_writes(&mut self) {
+        self.after_writes.clear();
+    }
 
-                    if let Some(callback) = callback {
-                        // clippy doesn't realize this is an error without the derefs
-                        #[allow(clippy::needless_option_as_deref)]
-                        if let Some(job) = match callback {
-                            Callback::EditorCompositor(call) if compositor.is_some() => {
-                                call(editor, compositor.as_deref_mut().unwrap());
-                                None
-                            }
-                            Callback::Editor(call) => {
-                                call(editor);
-                                None
-                            }
-                            Callback::Followup(call) => call(editor),
-
-                            // skip callbacks for which we don't have the necessary references
-                            _ => None,
-                        } && job.wait
-                        {
-                            wait_futures.push(job.future);
-                        }
-                    }
-                }
-                Err(e) => {
-                    self.wait_futures = tail;
-                    return Err(e);
-                }
+    pub fn run_after_writes(&mut self, editor: &mut Editor) {
+        while self.wait_futures.is_empty() && editor.write_count == 0 {
+            let Some(action) = self.after_writes.pop_front() else {
+                break;
+            };
+            if let Err(err) = action(editor) {
+                self.after_writes.clear();
+                editor.set_error(|| err.to_string());
+                break;
             }
         }
-
-        Ok(())
     }
 }
 

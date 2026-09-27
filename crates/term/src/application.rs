@@ -356,6 +356,7 @@ impl Application {
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         loop {
+            self.jobs.run_after_writes(&mut self.editor);
             if self.editor.should_close() {
                 return false;
             }
@@ -447,6 +448,7 @@ impl Application {
                         // Initial syntax must also settle before assertions; its completion can
                         // schedule spelling checks. Both success and failure complete via jobs.
                         if _idle_handled
+                            && self.jobs.wait_futures.is_empty()
                             && self.editor.write_count == 0
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                         {
@@ -665,6 +667,7 @@ impl Application {
         let doc_save_event = match doc_save_event {
             Ok(event) => event,
             Err(err) => {
+                self.jobs.cancel_after_writes();
                 self.editor.set_error(|| err.to_string());
                 return;
             }
@@ -1344,23 +1347,44 @@ impl Application {
     }
 
     pub async fn close(&mut self) -> Vec<anyhow::Error> {
+        use futures_util::StreamExt;
         // [NOTE] we intentionally do not return early for errors because we
         //        want to try to run as much cleanup as we can, regardless of
         //        errors along the way
         let mut errs = Vec::new();
 
-        if let Err(err) = self
-            .jobs
-            .finish(&mut self.editor, Some(&mut self.compositor))
-            .await
-        {
-            log::error!("Error executing job: {}", err);
-            errs.push(err);
-        };
-
-        if let Err(err) = self.editor.flush_writes().await {
-            log::error!("Error writing: {}", err);
-            errs.push(err);
+        // Shutdown must also serve requests made by formatters/code actions.
+        // Waiting on jobs alone can deadlock a server that calls back into us.
+        self.jobs.cancel_after_writes();
+        while !self.jobs.wait_futures.is_empty() || self.editor.write_count > 0 {
+            tokio::select! {
+                Some(result) = self.jobs.wait_futures.next() => {
+                    match result {
+                        Err(err) => errs.push(err),
+                        Ok(callback) => {
+                            if let Some(job) = self.jobs.handle_callback(
+                                &mut self.editor, &mut self.compositor, Ok(callback),
+                            ) {
+                                self.jobs.add(job);
+                            }
+                        }
+                    }
+                }
+                Some(callback) = self.jobs.callbacks.recv() => {
+                    if let Some(job) = self.jobs.handle_callback(
+                        &mut self.editor, &mut self.compositor, Ok(Some(callback)),
+                    ) {
+                        self.jobs.add(job);
+                    }
+                }
+                event = self.editor.wait_event() => {
+                    if let EditorEvent::DocumentSaved(Err(err)) = event {
+                        errs.push(err);
+                    } else {
+                        self.handle_editor_event(event).await;
+                    }
+                }
+            }
         }
 
         self.editor.close_language_servers(None).await;

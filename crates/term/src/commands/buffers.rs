@@ -108,32 +108,33 @@ pub(super) mod typed {
         doc_ids: &[DocumentId],
         force: bool,
     ) -> anyhow::Result<()> {
-        cx.block_try_flush_writes()?;
+        let doc_ids = doc_ids.to_vec();
+        cx.after_writes(move |editor| {
+            let (modified_ids, modified_names): (Vec<_>, Vec<_>) = doc_ids
+                .iter()
+                .filter_map(|&doc_id| match editor.close_document(doc_id, force) {
+                    Err(CloseError::BufferModified(name)) => Some((doc_id, name)),
+                    _ => None,
+                })
+                .unzip();
 
-        let (modified_ids, modified_names): (Vec<_>, Vec<_>) = doc_ids
-            .iter()
-            .filter_map(|&doc_id| match cx.editor.close_document(doc_id, force) {
-                Err(CloseError::BufferModified(name)) => Some((doc_id, name)),
-                _ => None,
-            })
-            .unzip();
-
-        if let Some(first) = modified_ids.first() {
-            let current = doc!(cx.editor);
-            // If the current document is unmodified, and there are modified
-            // documents, switch focus to the first modified doc.
-            if !modified_ids.contains(&current.id()) {
-                cx.editor.switch(*first, Action::Replace);
+            if let Some(first) = modified_ids.first() {
+                let current = doc!(editor);
+                // If the current document is unmodified, and there are modified
+                // documents, switch focus to the first modified doc.
+                if !modified_ids.contains(&current.id()) {
+                    editor.switch(*first, Action::Replace);
+                }
+                bail!(
+                    "{} unsaved buffer{} remaining: {:?}",
+                    modified_names.len(),
+                    if modified_names.len() == 1 { "" } else { "s" },
+                    modified_names,
+                );
             }
-            bail!(
-                "{} unsaved buffer{} remaining: {:?}",
-                modified_names.len(),
-                if modified_names.len() == 1 { "" } else { "s" },
-                modified_names,
-            );
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub(in crate::commands) fn buffer_gather_paths_impl(

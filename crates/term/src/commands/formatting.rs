@@ -103,9 +103,9 @@ pub(super) async fn make_format_callback(
 ) -> anyhow::Result<job::Callback> {
     let format = format.await;
 
-    let call: job::Callback = Callback::Editor(Box::new(move |editor| {
+    let call: job::Callback = Callback::TryEditor(Box::new(move |editor| {
         if !editor.documents.contains_key(&doc_id) || !editor.tree.contains(view_id) {
-            return;
+            return Ok(());
         }
 
         let scrolloff = editor.config().scrolloff;
@@ -126,7 +126,7 @@ pub(super) async fn make_format_callback(
             Err(err) => {
                 if write.is_none() {
                     editor.set_error(|| err.to_string());
-                    return;
+                    return Ok(());
                 }
                 log::info!("failed to format '{}': {err}", doc.display_name());
             }
@@ -134,10 +134,9 @@ pub(super) async fn make_format_callback(
 
         if let Some((path, force)) = write {
             let id = doc.id();
-            if let Err(err) = editor.save(id, path, force) {
-                editor.set_error(|| format!("Error saving: {}", err));
-            }
+            editor.save(id, path, force)?;
         }
+        Ok(())
     }));
 
     Ok(call)
