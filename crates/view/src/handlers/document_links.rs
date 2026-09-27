@@ -1,26 +1,49 @@
+//! Shared coordination for LSP document links results.
+
 use std::{collections::HashSet, time::Duration};
 
 use editor_core::{syntax::config::LanguageServerFeature, Assoc};
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use tokio::time::Instant;
-use view::{
+
+use super::lsp::DocumentRequest;
+use crate::{
+    callbacks::EditorCallbackSender,
     document::DocumentLink,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
-    handlers::{lsp::DocumentLinksEvent, Handlers},
     DocumentId, Editor,
 };
 
-use crate::job;
+struct DocumentLinksEvent(DocumentId);
 
-#[derive(Default)]
-pub(super) struct DocumentLinksHandler {
+/// Scheduling handle attached to documents owned by this editor.
+#[derive(Clone)]
+pub struct DocumentLinksHandler {
+    callbacks: EditorCallbackSender,
+    events: tokio::sync::mpsc::Sender<DocumentLinksEvent>,
+}
+
+impl DocumentLinksHandler {
+    pub fn new(callbacks: EditorCallbackSender) -> Self {
+        use event::AsyncHook as _;
+        let events = Debounce {
+            callbacks: callbacks.clone(),
+            docs: HashSet::new(),
+        }
+        .spawn();
+        Self { callbacks, events }
+    }
+}
+
+struct Debounce {
+    callbacks: EditorCallbackSender,
     docs: HashSet<DocumentId>,
 }
 
 const DOCUMENT_CHANGE_DEBOUNCE: Duration = Duration::from_millis(250);
 
-impl event::AsyncHook for DocumentLinksHandler {
+impl event::AsyncHook for Debounce {
     type Event = DocumentLinksEvent;
 
     fn handle_event(&mut self, event: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
@@ -32,25 +55,32 @@ impl event::AsyncHook for DocumentLinksHandler {
     fn finish_debounce(&mut self) {
         let docs = std::mem::take(&mut self.docs);
 
-        job::dispatch_blocking(move |editor, _compositor| {
+        self.callbacks.send_blocking(move |editor| {
             for doc in docs {
-                request_document_links(editor, doc);
+                request_document_links(editor, doc, None);
             }
         });
     }
 }
 
 /// Request document links for a specific document and cache them for navigation.
-fn request_document_links(editor: &mut Editor, doc_id: DocumentId) {
+fn request_document_links(
+    editor: &mut Editor,
+    doc_id: DocumentId,
+    exited_server: Option<lsp_client::LanguageServerId>,
+) {
+    let callbacks = editor.handlers.document_links.callbacks.clone();
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
 
     let cancel = doc.document_link_controller.restart();
 
+    // Exit hooks run before the server is removed from the registry.
     let mut seen_language_servers = HashSet::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
+        .filter(|ls| Some(ls.id()) != exited_server)
         .filter(|ls| seen_language_servers.insert(ls.id()))
         .filter_map(|language_server| {
             let text = doc.text().clone();
@@ -93,10 +123,12 @@ fn request_document_links(editor: &mut Editor, doc_id: DocumentId) {
         return;
     }
 
+    let request = DocumentRequest::new(doc, cancel, seen_language_servers.into_iter().collect());
+
     tokio::spawn(async move {
         let mut all_links = Vec::new();
         loop {
-            match cancelable_future(futures.next(), &cancel).await {
+            match cancelable_future(futures.next(), &request.cancel).await {
                 Some(Some(Ok(items))) => all_links.extend(items),
                 Some(Some(Err(err))) => log::error!("document link request failed: {err}"),
                 Some(None) => break,
@@ -104,7 +136,13 @@ fn request_document_links(editor: &mut Editor, doc_id: DocumentId) {
             }
         }
 
-        job::dispatch(move |editor, _| attach_document_links(editor, doc_id, all_links)).await;
+        callbacks
+            .send(move |editor| {
+                if request.is_current(editor) {
+                    attach_document_links(editor, doc_id, all_links);
+                }
+            })
+            .await;
     });
 }
 
@@ -122,52 +160,58 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     doc.document_links = links;
 }
 
-pub(super) fn register_hooks(handlers: &Handlers) {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        request_document_links(event.editor, event.doc);
-        Ok(())
-    });
+pub fn register_hooks() {
+    event::runtime_local! {
+        static REGISTER: std::sync::Once = std::sync::Once::new();
+    }
+    REGISTER.call_once(|| {
+        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+            request_document_links(event.editor, event.doc, None);
+            Ok(())
+        });
 
-    let tx = handlers.document_links.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event
-            .changes
-            .update_positions(event.doc.document_links.iter_mut().flat_map(|link| {
-                std::iter::once((&mut link.start, Assoc::After))
-                    .chain(std::iter::once((&mut link.end, Assoc::After)))
-            }));
+        register_hook!(move |event: &mut DocumentDidChange<'_>| {
+            event
+                .changes
+                .update_positions(event.doc.document_links.iter_mut().flat_map(|link| {
+                    std::iter::once((&mut link.start, Assoc::After))
+                        .chain(std::iter::once((&mut link.end, Assoc::After)))
+                }));
 
-        if !event.ghost_transaction {
-            event.doc.document_link_controller.cancel();
-            event::send_blocking(&tx, DocumentLinksEvent(event.doc.id()));
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id);
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.document_links.clear();
+            if !event.ghost_transaction {
+                event.doc.document_link_controller.cancel();
+                if let Some(handler) = &event.doc.document_links_handler {
+                    event::send_blocking(&handler.events, DocumentLinksEvent(event.doc.id()));
+                }
             }
-        }
 
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+            Ok(())
+        });
 
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id);
-        }
+        register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
-        Ok(())
+            for doc_id in doc_ids {
+                request_document_links(event.editor, doc_id, None);
+            }
+
+            Ok(())
+        });
+
+        register_hook!(move |event: &mut LanguageServerExited<'_>| {
+            for doc in event.editor.documents_mut() {
+                if doc.supports_language_server(event.server_id) {
+                    doc.document_links.clear();
+                }
+            }
+
+            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+
+            for doc_id in doc_ids {
+                request_document_links(event.editor, doc_id, Some(event.server_id));
+            }
+
+            Ok(())
+        });
     });
 }

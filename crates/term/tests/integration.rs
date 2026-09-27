@@ -19,6 +19,7 @@ mod test {
     mod auto_reload;
     mod command_line;
     mod commands;
+    mod document_features;
     mod movement;
     mod spelling;
     mod splits;
