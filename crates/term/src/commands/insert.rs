@@ -19,7 +19,7 @@ use editor_core::{
 use std::borrow::Cow;
 use stdx::rope::RopeSliceExt;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
-use view::{document::Mode, editor::SmartTabConfig, Document};
+use view::{config::SmartTabConfig, document::Mode, Document};
 
 pub type Hook = fn(&Rope, &Selection, char) -> Option<Transaction>;
 

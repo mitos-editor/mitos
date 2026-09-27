@@ -16,8 +16,9 @@ use tokio_stream::StreamExt;
 use view::{
     action::code_actions_for_range,
     callbacks::{EditorCallback, EditorCallbackSender},
+    config::StatusLineElement,
     current, current_ref,
-    editor::{Action, ConfigEvent, StatusLineElement},
+    editor::{Action, ConfigEvent},
     handlers::code_action_hint::CodeActionHintHandler,
 };
 

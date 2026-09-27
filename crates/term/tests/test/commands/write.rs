@@ -637,7 +637,7 @@ async fn test_write_trim_trailing_whitespace() -> anyhow::Result<()> {
     let mut file = tempfile::NamedTempFile::new()?;
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
-            editor: view::editor::Config {
+            editor: view::config::Config {
                 trim_trailing_whitespace: true,
                 ..helpers::test_editor_config()
             },
@@ -659,7 +659,7 @@ async fn test_write_trim_final_newlines() -> anyhow::Result<()> {
     let mut file = tempfile::NamedTempFile::new()?;
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
-            editor: view::editor::Config {
+            editor: view::config::Config {
                 trim_final_newlines: true,
                 ..helpers::test_editor_config()
             },
@@ -732,7 +732,7 @@ async fn test_write_insert_final_newline_unchanged_if_missing_and_false() -> any
     let mut file = tempfile::NamedTempFile::new()?;
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
-            editor: view::editor::Config {
+            editor: view::config::Config {
                 insert_final_newline: false,
                 ..helpers::test_editor_config()
             },
@@ -966,7 +966,7 @@ async fn edit_file_with_content(file_content: &[u8]) -> anyhow::Result<()> {
     helpers::test_key_sequence(
         &mut helpers::AppBuilder::new()
             .with_config(Config {
-                editor: view::editor::Config {
+                editor: view::config::Config {
                     insert_final_newline: false,
                     ..helpers::test_editor_config()
                 },

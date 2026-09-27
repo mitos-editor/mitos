@@ -12,10 +12,7 @@
 
 use std::{collections::HashMap, future::Future, ops::Range, sync::Arc, time::Duration};
 
-use crate::{
-    handlers::spelling::{IgnoredWordsFile, SpellingEvent},
-    Dictionary, DocumentId, Editor,
-};
+use crate::{handlers::spelling::SpellingEvent, DocumentId, Editor};
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
@@ -27,7 +24,7 @@ use tokio::time::Instant;
 
 use crate::callbacks::EditorCallbackSender;
 
-use ::spelling::{check_region, expand_check_window, SpellingFilter};
+use ::spelling::{check_region, expand_check_window, Dictionary, IgnoredWordsFile, SpellingFilter};
 
 pub(super) const PROVIDER: DiagnosticProvider = DiagnosticProvider::Spelling;
 

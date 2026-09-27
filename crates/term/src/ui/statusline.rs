@@ -19,7 +19,7 @@ use tui::buffer::Buffer as Surface;
 use tui::layout::{Constraint, Layout};
 use tui::text::{Line, Span};
 use tui::widgets::Widget;
-use view::editor::StatusLineElement as StatusLineElementID;
+use view::config::StatusLineElement as StatusLineElementID;
 
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
@@ -99,32 +99,30 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     match element_id {
-        view::editor::StatusLineElement::Mode => render_mode,
-        view::editor::StatusLineElement::Spinner => render_lsp_spinner,
-        view::editor::StatusLineElement::FileBaseName => render_file_base_name,
-        view::editor::StatusLineElement::FileName => render_file_name,
-        view::editor::StatusLineElement::FileAbsolutePath => render_file_absolute_path,
-        view::editor::StatusLineElement::FileModificationIndicator => {
-            render_file_modification_indicator
-        }
-        view::editor::StatusLineElement::ReadOnlyIndicator => render_read_only_indicator,
-        view::editor::StatusLineElement::FileEncoding => render_file_encoding,
-        view::editor::StatusLineElement::FileLineEnding => render_file_line_ending,
-        view::editor::StatusLineElement::FileIndentStyle => render_file_indent_style,
-        view::editor::StatusLineElement::FileType => render_file_type,
-        view::editor::StatusLineElement::Diagnostics => render_diagnostics,
-        view::editor::StatusLineElement::WorkspaceDiagnostics => render_workspace_diagnostics,
-        view::editor::StatusLineElement::Selections => render_selections,
-        view::editor::StatusLineElement::PrimarySelectionLength => render_primary_selection_length,
-        view::editor::StatusLineElement::Position => render_position,
-        view::editor::StatusLineElement::PositionPercentage => render_position_percentage,
-        view::editor::StatusLineElement::TotalLineNumbers => render_total_line_numbers,
-        view::editor::StatusLineElement::Separator => render_separator,
-        view::editor::StatusLineElement::Spacer => render_spacer,
-        view::editor::StatusLineElement::Branch => render_branch,
-        view::editor::StatusLineElement::Register => render_register,
-        view::editor::StatusLineElement::CurrentWorkingDirectory => render_cwd,
-        view::editor::StatusLineElement::CodeActionHint => render_code_action_hint,
+        StatusLineElementID::Mode => render_mode,
+        StatusLineElementID::Spinner => render_lsp_spinner,
+        StatusLineElementID::FileBaseName => render_file_base_name,
+        StatusLineElementID::FileName => render_file_name,
+        StatusLineElementID::FileAbsolutePath => render_file_absolute_path,
+        StatusLineElementID::FileModificationIndicator => render_file_modification_indicator,
+        StatusLineElementID::ReadOnlyIndicator => render_read_only_indicator,
+        StatusLineElementID::FileEncoding => render_file_encoding,
+        StatusLineElementID::FileLineEnding => render_file_line_ending,
+        StatusLineElementID::FileIndentStyle => render_file_indent_style,
+        StatusLineElementID::FileType => render_file_type,
+        StatusLineElementID::Diagnostics => render_diagnostics,
+        StatusLineElementID::WorkspaceDiagnostics => render_workspace_diagnostics,
+        StatusLineElementID::Selections => render_selections,
+        StatusLineElementID::PrimarySelectionLength => render_primary_selection_length,
+        StatusLineElementID::Position => render_position,
+        StatusLineElementID::PositionPercentage => render_position_percentage,
+        StatusLineElementID::TotalLineNumbers => render_total_line_numbers,
+        StatusLineElementID::Separator => render_separator,
+        StatusLineElementID::Spacer => render_spacer,
+        StatusLineElementID::Branch => render_branch,
+        StatusLineElementID::Register => render_register,
+        StatusLineElementID::CurrentWorkingDirectory => render_cwd,
+        StatusLineElementID::CodeActionHint => render_code_action_hint,
     }
 }
 

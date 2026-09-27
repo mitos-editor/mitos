@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn breadcrumbs_are_disabled_by_default_and_configurable() {
-        use view::editor::BreadcrumbPathOptions;
+        use view::config::BreadcrumbPathOptions;
 
         let default = Config::load_test("").editor.breadcrumb;
         assert!(!default.enable);

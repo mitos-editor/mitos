@@ -417,7 +417,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
 
 fn directory_content(
     root: &Path,
-    config: &view::editor::FileExplorerConfig,
+    config: &view::config::FileExplorerConfig,
 ) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
     use ignore::WalkBuilder;
 
@@ -865,7 +865,7 @@ mod tests {
     #[test]
     fn directory_content_preserves_each_directory_level() {
         let root = tempfile::tempdir().unwrap();
-        let config = view::editor::FileExplorerConfig::default();
+        let config = view::config::FileExplorerConfig::default();
         for service in ["authland", "portier"] {
             std::fs::create_dir_all(root.path().join(service).join("fleet").join("eu-west-1"))
                 .unwrap();

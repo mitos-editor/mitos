@@ -29,8 +29,7 @@ use crate::{
 
 mod worker;
 
-pub use ::spelling::IgnoredWordsFile;
-use ::spelling::{add_personal_word, suggestions};
+use ::spelling::{add_personal_word, suggestions, IgnoredWordsFile};
 
 #[derive(Debug)]
 pub struct SpellingHandler {
