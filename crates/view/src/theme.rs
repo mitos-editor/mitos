@@ -1,13 +1,9 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    str,
-    sync::LazyLock,
-};
+use std::{collections::HashMap, sync::LazyLock};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use editor_core::{hashmap, syntax::Highlight};
-use loader::merge_toml_values;
+use loader::theme::Resources;
+pub use loader::theme::{BASE16_DEFAULT_THEME_DATA, DEFAULT_THEME_DATA};
 use log::warn;
 use serde::{Deserialize, Deserializer};
 use toml::{map::Map, Value};
@@ -17,16 +13,6 @@ pub use ui_core::{
     graphics::{Color, Modifier, Style},
     theme::Mode,
 };
-
-pub static DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
-    let bytes = include_bytes!("../../../runtime/themes/base16_terminal.toml");
-    toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse default theme")
-});
-
-pub static BASE16_DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
-    let bytes = include_bytes!("../../../base16_theme.toml");
-    toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse base 16 default theme")
-});
 
 pub static DEFAULT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
     name: "default".into(),
@@ -114,18 +100,16 @@ impl Config {
 
 #[derive(Clone, Debug)]
 pub struct Loader {
-    /// Theme directories to search from highest to lowest priority
-    theme_dirs: Vec<PathBuf>,
+    resources: Resources,
 }
 impl Loader {
-    /// Creates a new loader that can load themes from multiple directories.
-    ///
-    /// The provided directories should be ordered from highest to lowest priority.
-    /// The directories will have their "themes" subdirectory searched.
-    pub fn new(dirs: &[PathBuf]) -> Self {
-        Self {
-            theme_dirs: dirs.iter().map(|p| p.join("themes")).collect(),
-        }
+    /// Interpret themes loaded from an explicit set of resource paths.
+    pub fn new(resources: Resources) -> Self {
+        Self { resources }
+    }
+
+    pub fn resources(&self) -> &Resources {
+        &self.resources
     }
 
     /// Loads a theme searching directories in priority order.
@@ -148,132 +132,13 @@ impl Loader {
             return Ok((self.base16_default(), Vec::new()));
         }
 
-        let mut visited_paths = HashSet::new();
-        let (theme, warnings) = self
-            .load_theme(name, &mut visited_paths)
-            .map(Theme::from_toml)?;
+        let (theme, warnings) = Theme::from_toml(self.resources.load(name)?);
 
         let theme = Theme {
             name: name.into(),
             ..theme
         };
         Ok((theme, warnings))
-    }
-
-    /// Recursively load a theme, merging with any inherited parent themes.
-    ///
-    /// The paths that have been visited in the inheritance hierarchy are tracked
-    /// to detect and avoid cycling.
-    ///
-    /// It is possible for one file to inherit from another file with the same name
-    /// so long as the second file is in a themes directory with lower priority.
-    /// However, it is not recommended that users do this as it will make tracing
-    /// errors more difficult.
-    fn load_theme(&self, name: &str, visited_paths: &mut HashSet<PathBuf>) -> Result<Value> {
-        let path = self.path(name, visited_paths)?;
-
-        let theme_toml = self.load_toml(path)?;
-
-        let inherits = theme_toml.get("inherits");
-
-        let theme_toml = if let Some(parent_theme_name) = inherits {
-            let parent_theme_name = parent_theme_name.as_str().ok_or_else(|| {
-                anyhow!("Expected 'inherits' to be a string: {}", parent_theme_name)
-            })?;
-
-            let parent_theme_toml = match parent_theme_name {
-                // load default themes's toml from const.
-                "default" => DEFAULT_THEME_DATA.clone(),
-                "base16_default" => BASE16_DEFAULT_THEME_DATA.clone(),
-                _ => self.load_theme(parent_theme_name, visited_paths)?,
-            };
-
-            self.merge_themes(parent_theme_toml, theme_toml)
-        } else {
-            theme_toml
-        };
-
-        Ok(theme_toml)
-    }
-
-    pub fn read_names(path: &Path) -> Vec<String> {
-        std::fs::read_dir(path)
-            .map(|entries| {
-                entries
-                    .filter_map(|entry| {
-                        let entry = entry.ok()?;
-                        let path = entry.path();
-                        (path.extension()? == "toml")
-                            .then(|| path.file_stem().unwrap().to_string_lossy().into_owned())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    // merge one theme into the parent theme
-    fn merge_themes(&self, parent_theme_toml: Value, theme_toml: Value) -> Value {
-        let parent_palette = parent_theme_toml.get("palette");
-        let palette = theme_toml.get("palette");
-
-        // handle the table separately since it needs a `merge_depth` of 2
-        // this would conflict with the rest of the theme merge strategy
-        let palette_values = match (parent_palette, palette) {
-            (Some(parent_palette), Some(palette)) => {
-                merge_toml_values(parent_palette.clone(), palette.clone(), 2)
-            }
-            (Some(parent_palette), None) => parent_palette.clone(),
-            (None, Some(palette)) => palette.clone(),
-            (None, None) => Map::new().into(),
-        };
-
-        // add the palette correctly as nested table
-        let mut palette = Map::new();
-        palette.insert(String::from("palette"), palette_values);
-
-        // merge the theme into the parent theme
-        let theme = merge_toml_values(parent_theme_toml, theme_toml, 1);
-        // merge the before specially handled palette into the theme
-        merge_toml_values(theme, palette.into(), 1)
-    }
-
-    // Loads the theme data as `toml::Value`
-    fn load_toml(&self, path: PathBuf) -> Result<Value> {
-        let data = std::fs::read_to_string(path)?;
-        let value = toml::from_str(&data)?;
-
-        Ok(value)
-    }
-
-    /// Returns the path to the theme with the given name
-    ///
-    /// Ignores paths already visited and follows directory priority order.
-    fn path(&self, name: &str, visited_paths: &mut HashSet<PathBuf>) -> Result<PathBuf> {
-        let filename = format!("{}.toml", name);
-
-        let mut cycle_found = false; // track if there was a path, but it was in a cycle
-        self.theme_dirs
-            .iter()
-            .find_map(|dir| {
-                let path = dir.join(&filename);
-                if !path.exists() {
-                    None
-                } else if visited_paths.contains(&path) {
-                    // Avoiding cycle, continuing to look in lower priority directories
-                    cycle_found = true;
-                    None
-                } else {
-                    visited_paths.insert(path.clone());
-                    Some(path)
-                }
-            })
-            .ok_or_else(|| {
-                if cycle_found {
-                    anyhow!("Cycle found in inheriting: {}", name)
-                } else {
-                    anyhow!("File not found for: {}", name)
-                }
-            })
     }
 
     pub fn default_theme(&self) -> Theme {
@@ -690,6 +555,70 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resources_compile_inherited_styles_and_return_warnings() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir(&themes).unwrap();
+        std::fs::write(
+            themes.join("parent.toml"),
+            r##"
+            inherits = "default"
+            keyword = { fg = "accent", bg = "black", modifiers = ["bold"] }
+            string = "base"
+            [palette]
+            accent = "#112233"
+            base = "#445566"
+        "##,
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("child.toml"),
+            r##"
+            inherits = "parent"
+            keyword = { fg = "accent" }
+            invalid = { nonexistent = "red" }
+            [palette]
+            accent = "#aabbcc"
+        "##,
+        )
+        .unwrap();
+        let loader = Loader::new(Resources::new(vec![dir.path().into()]));
+        let (theme, warnings) = loader.load_with_warnings("child").unwrap();
+        assert_eq!(theme.name(), "child");
+        assert_eq!(
+            theme.get("keyword"),
+            Style::default().fg(Color::Rgb(0xaa, 0xbb, 0xcc))
+        );
+        assert_eq!(
+            theme.get("string"),
+            Style::default().fg(Color::Rgb(0x44, 0x55, 0x66))
+        );
+        assert_eq!(
+            theme.get("ui.selection"),
+            loader.default_theme().get("ui.selection")
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("nonexistent"));
+        let highlight = theme.find_highlight_exact("keyword").unwrap();
+        assert_eq!(theme.highlight(highlight), theme.get("keyword"));
+    }
+
+    #[test]
+    fn builtin_themes_keep_names_styles_and_warning_behavior() {
+        let loader = Loader::new(Resources::new(vec![]));
+        for (name, expected) in [
+            ("default", loader.default()),
+            ("base16_default", loader.base16_default()),
+        ] {
+            let (theme, warnings) = loader.load_with_warnings(name).unwrap();
+            assert_eq!(theme.name(), name);
+            assert_eq!(theme.styles, expected.styles);
+            assert_eq!(theme.scopes(), expected.scopes());
+            assert!(warnings.is_empty());
+        }
+    }
 
     #[test]
     fn default_theme_follows_terminal_mode() {

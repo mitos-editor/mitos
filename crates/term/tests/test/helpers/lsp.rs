@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::Uri;
+use loader::workspace_trust::WorkspaceTrust;
 use lsp_client::{Call, LanguageServerId, Notification};
 use term::application::Application;
 use tokio_stream::StreamExt;
@@ -30,6 +31,19 @@ impl Fixture {
         dir: &Path,
         names: &[&str],
         config: impl Fn(&str) -> Option<String>,
+    ) -> anyhow::Result<Self> {
+        Self::with_config_and_trust(dir, names, config, WorkspaceTrust::fully_trusted())
+    }
+
+    pub fn with_trust(dir: &Path, names: &[&str], trust: WorkspaceTrust) -> anyhow::Result<Self> {
+        Self::with_config_and_trust(dir, names, |_| None, trust)
+    }
+
+    fn with_config_and_trust(
+        dir: &Path,
+        names: &[&str],
+        config: impl Fn(&str) -> Option<String>,
+        trust: WorkspaceTrust,
     ) -> anyhow::Result<Self> {
         let gate = dir.join("initialize-ready");
         let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
@@ -80,6 +94,7 @@ impl Fixture {
             .with_config(config)
             .with_lang_loader(loader)
             .build()?;
+        app.editor.workspace_trust = trust;
         let path = dir.join("document.lifecycle-test");
         std::fs::write(&path, "😀 original\n")?;
         app.editor.open(&path, Action::Replace)?;

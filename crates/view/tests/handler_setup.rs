@@ -1,4 +1,6 @@
 //! Shared services run through the public view API without a terminal or compositor.
+#[path = "handler_setup/workspace_trust.rs"]
+mod workspace_trust;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Context as _;
@@ -62,7 +64,7 @@ impl Fixture {
         let handlers = Handlers::new(&config.load(), callbacks_tx);
         let mut editor = Editor::new(
             Rect::new(0, 0, 80, 24),
-            Arc::new(theme::Loader::new(&[])),
+            Arc::new(theme::Loader::new(loader::theme::Resources::new(vec![]))),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::new(
                 toml::from_str(languages)?,
                 resources,
@@ -379,9 +381,10 @@ async fn language_reload_retains_each_editors_selected_runtime() -> anyhow::Resu
                 .query("resource-test", "highlights.scm"),
             expected
         );
-        fixture
-            .editor
-            .apply_language_config(language_loader, theme::Loader::new(&[]).default_theme())?;
+        fixture.editor.apply_language_config(
+            language_loader,
+            theme::Loader::new(loader::theme::Resources::new(vec![])).default_theme(),
+        )?;
         let installed = fixture.editor.syn_loader.load();
         assert_eq!(
             installed

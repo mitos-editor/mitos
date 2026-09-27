@@ -113,7 +113,7 @@ impl Application {
 
         let mut theme_parent_dirs = vec![loader::config_dir()];
         theme_parent_dirs.extend(loader::runtime_dirs().iter().cloned());
-        let theme_loader = theme::Loader::new(&theme_parent_dirs);
+        let theme_loader = theme::Loader::new(loader::theme::Resources::new(theme_parent_dirs));
 
         #[cfg(all(not(windows), not(feature = "integration")))]
         let backend = TerminaBackend::new(terminal_config(&config))
@@ -736,6 +736,14 @@ impl Application {
         match event {
             EditorEvent::DocumentSaved(event) => {
                 self.handle_document_write(event);
+                self.render().await;
+            }
+            EditorEvent::WorkspaceTrust(request) => {
+                crate::handlers::workspace_trust::prompt(
+                    &self.editor,
+                    &mut self.compositor,
+                    request,
+                );
                 self.render().await;
             }
             EditorEvent::ReloadConfirmation(request) => {

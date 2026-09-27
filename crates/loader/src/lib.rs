@@ -13,12 +13,14 @@
 //!
 //! [`syntax`] selects grammar and query sources from ordered runtime paths;
 //! [`grammar`] builds and loads native tree-sitter libraries.
+//! [`theme`] discovers theme sources and resolves their inheritance.
 //! [`workspace_trust`] keeps decisions about executing workspace-controlled
 //! programs separate from path discovery.
 
 pub mod config;
 pub mod grammar;
 pub mod syntax;
+pub mod theme;
 pub mod workspace_trust;
 
 use stdx::{env::current_working_dir, path};

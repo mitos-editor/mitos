@@ -1,4 +1,5 @@
 mod config;
+mod language_servers;
 
 use crate::{
     document::{
@@ -180,6 +181,7 @@ pub enum EditorEvent {
     DocumentSaved(DocumentSavedEventResult),
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
+    WorkspaceTrust(crate::handlers::workspace_trust::TrustRequest),
     SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
     Completion(crate::handlers::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
@@ -1372,6 +1374,9 @@ impl Editor {
         }
         if let Some(request) = crate::handlers::auto_reload::next_reload_request(self) {
             return EditorEvent::ReloadConfirmation(request);
+        }
+        if let Some(request) = crate::handlers::workspace_trust::next_request(self) {
+            return EditorEvent::WorkspaceTrust(request);
         }
         // the loop only runs once or twice and would be better implemented with a recursion + const generic
         // however due to limitations with async functions that can not be implemented right now

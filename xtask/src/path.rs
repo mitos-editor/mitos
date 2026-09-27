@@ -19,10 +19,6 @@ pub fn ts_queries() -> PathBuf {
     runtime().join("queries")
 }
 
-pub fn themes() -> PathBuf {
-    runtime().join("themes")
-}
-
 pub fn tests_indent() -> PathBuf {
     project_root().join("tests").join("indent")
 }

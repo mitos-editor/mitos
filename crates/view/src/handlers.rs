@@ -22,6 +22,7 @@ mod snippet;
 pub mod spelling;
 pub mod syntax;
 pub mod word_index;
+pub mod workspace_trust;
 
 pub struct Handlers {
     pub(crate) callbacks: EditorCallbackSender,
@@ -38,6 +39,7 @@ pub struct Handlers {
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
     pub code_action_hint: code_action_hint::CodeActionHintHandler,
     pub spelling: SpellingHandler,
+    pub workspace_trust: workspace_trust::WorkspaceTrustHandler,
 }
 
 impl Handlers {
@@ -64,6 +66,7 @@ impl Handlers {
             pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler::new(callbacks.clone()),
             code_action_hint: code_action_hint::CodeActionHintHandler::new(callbacks.clone()),
             spelling: SpellingHandler::new(callbacks.clone()),
+            workspace_trust: workspace_trust::WorkspaceTrustHandler::default(),
             callbacks,
         }
     }
@@ -109,5 +112,6 @@ fn register_hooks() {
         document_colors::register_hooks();
         document_links::register_hooks();
         spelling::register_hooks();
+        workspace_trust::register_hooks();
     });
 }

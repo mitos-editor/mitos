@@ -196,8 +196,7 @@ impl WorkspaceTrust {
     /// `compute_workspace_hash` would now produce a different digest). Used by `:config-reload`.
     ///
     /// Session-only decisions made via [`Self::deny_once`] are discarded as part of the cache
-    /// clear; the trust popup's `prompted` set (scoped to the hook closure) is what suppresses
-    /// re-prompting across the reload, not this cache.
+    /// clear; the editor-owned prompt history suppresses re-prompting across the reload.
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
         self.inner.lock().clear();
