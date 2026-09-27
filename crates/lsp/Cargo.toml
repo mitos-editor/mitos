@@ -16,7 +16,6 @@ name = "lsp_client"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-event.workspace = true
 stdx.workspace = true
 core.workspace = true
 loader.workspace = true

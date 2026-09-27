@@ -144,6 +144,9 @@ impl Application {
             handlers,
             workspace_trust,
         );
+        editor
+            .registers
+            .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
         let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
         let _ = editor.set_theme(theme);
 

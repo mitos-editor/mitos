@@ -17,7 +17,6 @@ bench = false
 
 [features]
 default = []
-term = ["termina", "ui-core/term"]
 unicode-lines = []
 # Exposes internals. Should not be enabled except for benchmarking.
 bench = []
@@ -39,7 +38,6 @@ ratatui.workspace = true
 
 foldhash.workspace = true
 anyhow.workspace = true
-termina = { workspace = true, optional = true }
 
 tempfile.workspace = true
 

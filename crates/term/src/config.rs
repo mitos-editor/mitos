@@ -34,12 +34,24 @@ pub struct TerminalConfig {
 
 /// The user-facing `[editor]` table, composed from editor and frontend settings.
 /// This compatibility representation is also used by `:get`, `:set`, and `:toggle`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EditorSettings {
     #[serde(flatten)]
     pub editor: view::config::Config,
     #[serde(flatten)]
     pub terminal: TerminalConfig,
+}
+
+impl Default for EditorSettings {
+    fn default() -> Self {
+        Self {
+            editor: view::config::Config {
+                clipboard_provider: crate::clipboard::default_provider(),
+                ..Default::default()
+            },
+            terminal: TerminalConfig::default(),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for EditorSettings {
@@ -55,6 +67,13 @@ impl<'de> Deserialize<'de> for EditorSettings {
             if let Some(value) = editor.remove(key) {
                 terminal.insert(key.to_owned(), value);
             }
+        }
+        if !editor.contains_key("clipboard-provider") {
+            editor.insert(
+                "clipboard-provider".into(),
+                serde_json::to_value(crate::clipboard::default_provider())
+                    .map_err(serde::de::Error::custom)?,
+            );
         }
         Ok(Self {
             editor: serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?,
@@ -112,7 +131,7 @@ impl Default for Config {
         Config {
             theme: None,
             keys: keymap::default(),
-            editor: view::config::Config::default(),
+            editor: EditorSettings::default().editor,
             terminal: TerminalConfig::default(),
         }
     }
@@ -470,5 +489,37 @@ completer = ":write"
         assert!(error
             .to_string()
             .contains("macro keybindings may not be used in command sequences"));
+    }
+
+    #[test]
+    fn clipboard_settings_roundtrip_and_local_override_preserve_schema() {
+        use view::clipboard::ClipboardProvider;
+        let global = "[editor]\nclipboard-provider = 'termcode'".to_owned();
+        let local = "[editor]\nclipboard-provider = 'none'".to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        assert_eq!(config.editor.clipboard_provider, ClipboardProvider::None);
+        let custom = Config::load_test(
+            r#"
+            [editor.clipboard-provider.custom]
+            yank = { command = "read-clipboard", args = ["--text"] }
+            paste = { command = "write-clipboard" }
+            paste-primary = { command = "write-primary" }
+        "#,
+        );
+        let settings = custom.editor_settings();
+        let serialized = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            serialized["clipboard-provider"]["custom"]["yank"]["command"],
+            "read-clipboard"
+        );
+        assert_eq!(
+            serialized["clipboard-provider"]["custom"]["paste"]["args"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            serde_json::from_value::<EditorSettings>(serialized).unwrap(),
+            settings
+        );
+        assert!(Config::load_test_result("[editor]\nclipboard-provider = 'unknown'").is_err());
     }
 }
