@@ -201,7 +201,7 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
             doc.identifier(),
             range,
             lsp::FormattingOptions {
-                tab_size: doc.tab_width() as u32,
+                tab_size: doc.indent_width() as u32,
                 insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
                 ..Default::default()
             },
