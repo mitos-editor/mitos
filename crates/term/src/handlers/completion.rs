@@ -37,7 +37,7 @@ pub(crate) fn apply_update(
         } => {
             let completion_area = ui.set_completion(editor, items, trigger_offset, size);
             if ui.completion.is_none() {
-                editor.handlers.completions.dismiss();
+                editor.dismiss_completions();
             }
             let signature_help_area = compositor
                 .find_id::<Popup<SignatureHelp>>(SignatureHelp::ID)
@@ -132,7 +132,7 @@ fn completion_post_command_hook(
                 } => return Ok(()),
                 _ => CompletionEvent::Cancel,
             };
-            cx.editor.handlers.completions.event(event);
+            cx.editor.handlers().completions.event(event);
         }
     }
     Ok(())
@@ -148,7 +148,7 @@ pub(super) fn register_hooks() {
                 event
                     .cx
                     .editor
-                    .handlers
+                    .handlers()
                     .completions
                     .event(CompletionEvent::Cancel);
                 clear_completions(event.cx);

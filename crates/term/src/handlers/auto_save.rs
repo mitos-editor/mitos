@@ -8,7 +8,7 @@ pub(super) fn register_hooks() {
     REGISTER.call_once(|| {
         register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
             if event.old_mode == Mode::Insert {
-                event.cx.editor.handlers.auto_save.left_insert_mode();
+                event.cx.editor.handlers().auto_save.left_insert_mode();
             }
             Ok(())
         });

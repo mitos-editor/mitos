@@ -106,6 +106,17 @@ impl Application {
         lang_loader: syntax::Loader,
         workspace_trust: loader::workspace_trust::WorkspaceTrust,
     ) -> Result<Self, Error> {
+        Self::new_with_handler_setup(args, config, lang_loader, workspace_trust, |_, _| {})
+    }
+
+    /// Configure shared services before the editor owns them or opens any documents.
+    pub fn new_with_handler_setup(
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        workspace_trust: loader::workspace_trust::WorkspaceTrust,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &view::config::Config),
+    ) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
         setup_integration_logging();
 
@@ -131,8 +142,9 @@ impl Application {
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
         jobs.set_current();
-        let handlers =
+        let mut handlers =
             view::handlers::Handlers::new(&config.load().editor, jobs.editor_callback_sender());
+        setup(&mut handlers, &config.load().editor);
         handlers::register_hooks();
         let mut editor = Editor::new(
             area,

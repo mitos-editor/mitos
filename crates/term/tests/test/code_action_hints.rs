@@ -48,16 +48,18 @@ impl Fixture {
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.statusline.right = vec![StatusLineElement::CodeActionHint];
+        let (tx, callbacks) = mpsc::channel(64);
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
+            .with_handler_setup(move |handlers, _| {
+                handlers.code_action_hint = CodeActionHintHandler::new(
+                    super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
+                        (blocking, callback)
+                    }),
+                );
+            })
             .build()?;
-        let (tx, callbacks) = mpsc::channel(64);
-        app.editor.handlers.code_action_hint = CodeActionHintHandler::new(
-            super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
-                (blocking, callback)
-            }),
-        );
         let path = dir.join("document.action-test");
         std::fs::write(&path, format!("😀 {word}\n"))?;
         app.editor.open(&path, Action::Replace)?;

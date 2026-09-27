@@ -5,9 +5,7 @@ use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
     events::DocumentDidOpen,
-    handlers::workspace_trust::{
-        dismiss_request, next_request, resolve_request, TrustDecision, WorkspaceTrustHandler,
-    },
+    handlers::workspace_trust::{dismiss_request, next_request, resolve_request, TrustDecision},
 };
 
 use super::Fixture;
@@ -104,7 +102,7 @@ async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -
                     prompt: false,
                     ..Config::default()
                 }),
-                "handler" => f.editor.handlers.workspace_trust = WorkspaceTrustHandler::default(),
+                "handler" => f.editor.reset_workspace_trust_prompts(),
                 "implicit" => {
                     f.editor.workspace_trust =
                         loader::workspace_trust::WorkspaceTrust::fully_trusted()

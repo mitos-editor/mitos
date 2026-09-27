@@ -374,11 +374,15 @@ pub fn new_readonly_tempfile_in_dir(
     file.as_file_mut().set_permissions(perms)?;
     Ok(file)
 }
+
+type HandlerSetup = Box<dyn FnOnce(&mut view::handlers::Handlers, &view::config::Config)>;
+
 pub struct AppBuilder {
     args: Args,
     config: Config,
     syn_loader: editor_core::syntax::Loader,
     input: Option<(String, Selection)>,
+    handler_setup: HandlerSetup,
 }
 
 impl Default for AppBuilder {
@@ -388,6 +392,7 @@ impl Default for AppBuilder {
             config: test_config(),
             syn_loader: test_syntax_loader(None),
             input: None,
+            handler_setup: Box::new(|_, _| {}),
         }
     }
 }
@@ -428,6 +433,14 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_handler_setup(
+        mut self,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &view::config::Config) + 'static,
+    ) -> Self {
+        self.handler_setup = Box::new(setup);
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<Application> {
         if let Some(path) = &self.args.working_directory {
             bail!("Changing the working directory to {path:?} is not yet supported for integration tests");
@@ -437,11 +450,12 @@ impl AppBuilder {
             bail!("Having the directory {path:?} in args.files[0] is not yet supported for integration tests");
         }
 
-        let mut app = Application::new(
+        let mut app = Application::new_with_handler_setup(
             self.args,
             self.config,
             self.syn_loader,
             WorkspaceTrust::fully_trusted(),
+            self.handler_setup,
         )?;
 
         if let Some((text, selection)) = self.input {

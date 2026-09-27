@@ -25,6 +25,8 @@ pub mod syntax;
 pub mod word_index;
 pub mod workspace_trust;
 
+/// Services configured before an editor takes ownership. Access owned services through
+/// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
     pub(crate) callbacks: EditorCallbackSender,
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
@@ -72,6 +74,21 @@ impl Handlers {
         }
     }
 
+    /// Attach every document-scoped service before opening or initializing a document.
+    pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
+        doc.document_colors.handler = Some(self.document_colors.clone());
+        doc.document_links.handler = Some(self.document_links.clone());
+        doc.document_highlights.handler = Some(self.document_highlight.clone());
+        doc.document_symbols.handler = Some(self.document_symbols.clone());
+        doc.pull_diagnostics.handler = Some(self.pull_diagnostics.clone());
+        doc.code_action_hints.handler = Some(self.code_action_hint.clone());
+        doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
+        doc.auto_save_trigger = Some(self.auto_save.trigger());
+        doc.word_index_trigger = Some(self.word_index.document_trigger());
+        doc.syntax_handler = Some(self.syntax.clone());
+        doc.spelling_events = Some(self.spelling.event_tx.clone());
+    }
+
     /// Manually trigger completion (c-x)
     pub fn trigger_completions(&self, trigger_pos: usize, doc: DocumentId, view: ViewId) {
         self.completions.event(CompletionEvent::ManualTrigger {
@@ -87,6 +104,60 @@ impl Handlers {
 
     pub fn word_index(&self) -> &word_index::WordIndex {
         &self.word_index.index
+    }
+}
+
+impl Editor {
+    /// Read or schedule editor services without replacing their document bindings.
+    pub fn handlers(&self) -> &Handlers {
+        &self.handlers
+    }
+
+    /// Dismiss the displayed completion session without canceling a new trigger.
+    pub fn dismiss_completions(&mut self) {
+        self.handlers.completions.dismiss();
+    }
+
+    /// Replace autosave coordination, rejecting queued saves from its previous owner.
+    /// Existing documents schedule subsequent edits through the new handler.
+    pub fn replace_auto_save_handler(&mut self, handler: auto_save::AutoSaveHandler) {
+        self.handlers.auto_save = handler;
+        for doc in self.documents.values_mut() {
+            doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
+        }
+    }
+
+    /// Replace signature help and rebind existing documents. Pending results from
+    /// the previous handler retain its owner identity and cannot publish.
+    pub fn replace_signature_help_handler(
+        &mut self,
+        handler: signature_help::SignatureHelpHandler,
+    ) {
+        self.handlers.signature_hints.cancel();
+        self.handlers.signature_hints = handler;
+        self.handlers.signature_hints.dismiss_replaced();
+        for doc in self.documents.values_mut() {
+            doc.signature_help_trigger = Some(self.handlers.signature_hints.document_trigger());
+        }
+    }
+
+    /// Replace completion coordination and cancel its pending and displayed work.
+    pub fn replace_completion_handler(&mut self, handler: CompletionHandler) {
+        self.handlers.completions.event(CompletionEvent::Cancel);
+        self.handlers.completions.dismiss();
+        self.handlers.completions = handler;
+        self.handlers.completions.invalidate();
+    }
+
+    /// Replace reload coordination, invalidating prompts and results from the old owner.
+    /// File-watcher delivery remains independent of the reload handler's callback queue.
+    pub fn replace_auto_reload_handler(&mut self, handler: auto_reload::AutoReloadHandler) {
+        self.handlers.auto_reload = handler;
+    }
+
+    /// Forget queued trust prompts and their decisions without changing trust policy.
+    pub fn reset_workspace_trust_prompts(&mut self) {
+        self.handlers.workspace_trust = workspace_trust::WorkspaceTrustHandler::default();
     }
 }
 

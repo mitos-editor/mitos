@@ -14,7 +14,7 @@ async fn headless_setup_runs_completion_through_its_callback_destination() -> an
     f.editor.mode = Mode::Insert;
     let (view, doc) = current_ref!(f.editor);
     f.editor
-        .handlers
+        .handlers()
         .trigger_completions(cursor, doc.id(), view.id);
     let items = tokio::time::timeout(Duration::from_secs(5), async {
         loop {

@@ -55,13 +55,15 @@ impl Fixture {
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.lsp.auto_signature_help = true;
+        let (sender, callbacks) =
+            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
+            .with_handler_setup(move |handlers, _| {
+                handlers.signature_hints = SignatureHelpHandler::new(sender);
+            })
             .build()?;
-        let (sender, callbacks) =
-            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
-        app.editor.handlers.signature_hints = SignatureHelpHandler::new(sender);
         let path = dir.join("document.signature-test");
         std::fs::write(&path, text)?;
         app.editor.open(&path, Action::Replace)?;
@@ -85,7 +87,7 @@ impl Fixture {
     fn trigger(&self, invoked: SignatureHelpInvoked) {
         self.app
             .editor
-            .handlers
+            .handlers()
             .signature_hints
             .trigger(&self.app.editor, invoked);
     }
@@ -315,7 +317,7 @@ async fn cancellation_stops_inflight_work_and_later_requests_still_succeed() -> 
         }
     })
     .await?;
-    f.app.editor.handlers.signature_hints.cancel();
+    f.app.editor.handlers().signature_hints.cancel();
     f.edit("😀 fresh(\n");
     f.trigger(SignatureHelpInvoked::Manual);
     std::fs::write(&f.response_gate, "ready")?;
@@ -344,15 +346,25 @@ async fn server_exit_replacement_and_drop_invalidate_work() -> anyhow::Result<()
     let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
     f.trigger(SignatureHelpInvoked::Manual);
     let old = f.response().await?;
-    f.app.editor.handlers.signature_hints =
-        SignatureHelpHandler::new(EditorCallbackSender::new(|_| async {}, |_| {}));
+    let (sender, callbacks) =
+        super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+    f.app
+        .editor
+        .replace_signature_help_handler(SignatureHelpHandler::new(sender));
     old(&mut f.app.editor);
-    assert!(f.take_change().is_none());
+    assert!(matches!(f.take_change(), Some(SignatureHelpChange::Hide)));
     assert!(
         tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
             .await?
             .is_none()
     );
+    f.callbacks = callbacks;
+    f.app.editor.mode = Mode::Insert;
+    f.trigger(SignatureHelpInvoked::Manual);
+    assert_eq!(f.label().await?, "alpha: 😀 call(");
+    // Document edits must retrigger the replacement handler without a manual request.
+    f.edit("😀 rebound(\n");
+    assert_eq!(f.label().await?, "alpha: 😀 rebound(");
     assert!(f.app.close().await.is_empty());
     let f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
     let Fixture {
@@ -434,6 +446,33 @@ async fn missing_provider_is_reported_only_manually_and_retries_after_startup() 
     f.initialize().await?;
     f.edit("😀 ready(\n");
     assert_eq!(f.label().await?, "alpha: 😀 ready(");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacing_signature_help_dismisses_presented_popup() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
+    f.trigger(SignatureHelpInvoked::Manual);
+    let update = f.update().await?;
+    f.app
+        .handle_editor_event(EditorEvent::SignatureHelp(update))
+        .await;
+    assert_eq!(f.popup_selection().await?, Some(0));
+    f.app
+        .editor
+        .replace_signature_help_handler(SignatureHelpHandler::new(EditorCallbackSender::new(
+            |_| async {},
+            |_| {},
+        )));
+    let update = signature_help::next_update(&f.app.editor).unwrap();
+    f.app
+        .handle_editor_event(EditorEvent::SignatureHelp(update))
+        .await;
+    assert_eq!(f.popup_selection().await?, None);
+    f.key("<A-n>").await?;
+    assert_eq!(f.popup_selection().await?, None);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

@@ -92,6 +92,11 @@ pub enum SpellingEvent {
 const SPELLING_ACTION_PRIORITY: u8 = 0;
 
 impl Editor {
+    /// Register a full-document spelling task, canceling the previous task for this document.
+    pub fn open_spelling_request(&mut self, document: DocumentId) -> TaskHandle {
+        self.handlers.spelling.open_request(document)
+    }
+
     /// Resolve spelling settings for a document, including session and persistent ignores.
     /// Both full and incremental scans use this snapshot without changing persisted settings.
     pub fn spelling_config(&self, doc: &Document) -> SpellingConfig {

@@ -1463,7 +1463,7 @@ impl EditorView {
     pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
         self.completion = None;
         let mut on_next_key: Option<OnKeyCallback> = None;
-        editor.handlers.completions.dismiss();
+        editor.dismiss_completions();
         if let Some(last_completion) = editor.last_completion.take() {
             match last_completion {
                 CompleteAction::Triggered => (),

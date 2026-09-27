@@ -59,13 +59,15 @@ impl Fixture {
         config.editor.lsp.enable = true;
         config.editor.auto_completion = false;
         config.editor.path_completion = false;
+        let (sender, callbacks) =
+            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
+            .with_handler_setup(move |handlers, config| {
+                handlers.completions = CompletionHandler::new(sender, config);
+            })
             .build()?;
-        let (sender, callbacks) =
-            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
-        app.editor.handlers.completions = CompletionHandler::new(sender, &app.editor.config());
         let path = dir.join("document.completion-test");
         std::fs::write(&path, text)?;
         app.editor.open(&path, Action::Replace)?;
@@ -92,7 +94,7 @@ impl Fixture {
         let (view, doc) = current_ref!(self.app.editor);
         self.app
             .editor
-            .handlers
+            .handlers()
             .completions
             .event(CompletionEvent::ManualTrigger {
                 cursor: doc
@@ -124,8 +126,17 @@ impl Fixture {
     }
 
     async fn update(&mut self) -> anyhow::Result<CompletionUpdate> {
-        self.response().await?(&mut self.app.editor);
-        completion::next_update(&mut self.app.editor).context("completion update missing")
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                self.response().await?(&mut self.app.editor);
+                if let Some(update) = completion::next_update(&mut self.app.editor) {
+                    return Ok(update);
+                }
+                // A reply queued before cancellation can legitimately publish nothing.
+            }
+        })
+        .await
+        .context("completion update missing")?
     }
 
     async fn items(&mut self) -> anyhow::Result<Vec<CompletionItem>> {
@@ -215,7 +226,7 @@ async fn typing_survives_but_cancel_mode_rename_and_focus_reject_old_results() -
     let old = f.update().await?;
     f.app
         .editor
-        .handlers
+        .handlers()
         .completions
         .event(CompletionEvent::Cancel);
     assert!(old.apply(&mut f.app.editor).is_none());
@@ -256,11 +267,19 @@ async fn editor_ownership_and_handler_replacement_reject_queued_work() -> anyhow
     assert_eq!(second.items().await?.len(), 2);
     first.trigger();
     let old = first.response().await?;
-    first.app.editor.handlers.completions = CompletionHandler::new(
-        EditorCallbackSender::new(|_| async {}, |_| {}),
-        &first.app.editor.config(),
-    );
+    first
+        .app
+        .editor
+        .replace_completion_handler(CompletionHandler::new(
+            EditorCallbackSender::new(|_| async {}, |_| {}),
+            &first.app.editor.config(),
+        ));
     old(&mut first.app.editor);
+    let update = completion::next_update(&mut first.app.editor).unwrap();
+    assert!(matches!(
+        update.apply(&mut first.app.editor),
+        Some(CompletionChange::Hide)
+    ));
     assert!(completion::next_update(&mut first.app.editor).is_none());
     assert!(
         tokio::time::timeout(Duration::from_secs(5), first.callbacks.recv())
@@ -315,6 +334,31 @@ async fn focus_change_restores_preview_in_original_document() -> anyhow::Result<
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn queued_stale_response_does_not_hide_fresh_completions() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.trigger();
+    let stale = f.response().await?;
+    f.trigger();
+    let fresh = f.response().await?;
+
+    // Replay real replies in a fixed order after the new trigger invalidates the first.
+    let stale: EditorCallback = Box::new(move |editor| {
+        stale(editor);
+        assert!(completion::next_update(editor).is_none());
+    });
+    let (sender, callbacks) = mpsc::unbounded_channel();
+    assert!(sender.send((false, stale)).is_ok());
+    assert!(sender.send((false, fresh)).is_ok());
+    drop(sender);
+    f.callbacks = callbacks;
+
+    assert_eq!(f.items().await?.len(), 2);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn canceled_inflight_requests_and_late_providers_keep_their_session() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha", "beta"]).await?;
@@ -323,7 +367,7 @@ async fn canceled_inflight_requests_and_late_providers_keep_their_session() -> a
     std::fs::remove_file(&beta_gate)?;
     f.show().await?;
     assert_eq!(
-        f.app.editor.handlers.completions.active_completions.len(),
+        f.app.editor.handlers().completions.active_completions.len(),
         1
     );
     std::fs::write(&beta_gate, "ready")?;
@@ -361,7 +405,7 @@ async fn canceled_inflight_requests_and_late_providers_keep_their_session() -> a
     .await?;
     f.app
         .editor
-        .handlers
+        .handlers()
         .completions
         .event(CompletionEvent::Cancel);
     f.trigger();
@@ -391,7 +435,7 @@ async fn resolved_items_and_incomplete_refreshes_expire_with_the_menu() -> anyho
     completion::request_incomplete_completion_list(&mut f.app.editor);
     assert!(old.apply(&mut f.app.editor).is_none());
     let old = f.update().await?;
-    f.app.editor.handlers.completions.dismiss();
+    f.app.editor.dismiss_completions();
     assert!(old.apply(&mut f.app.editor).is_none());
     assert!(f.app.close().await.is_empty());
     Ok(())
@@ -431,7 +475,7 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
     doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
     while completion::next_update(&mut f.app.editor).is_some() {}
     tokio::time::timeout(Duration::from_secs(5), async {
-        while f.app.editor.handlers.word_index().matches("ap").len() < 2 {
+        while f.app.editor.handlers().word_index().matches("ap").len() < 2 {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
@@ -491,5 +535,61 @@ async fn terminal_insert_repeat_uses_the_original_request_savepoint() -> anyhow:
     f.key(".").await?;
     assert_eq!(f.text(), "apricot\napricot\n");
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacing_completion_dismisses_presented_menu_and_restores_preview() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.show().await?;
+    f.key("<C-n>").await?;
+    assert_eq!(f.text(), "😀 apricot\n");
+    f.app
+        .editor
+        .replace_completion_handler(CompletionHandler::new(
+            EditorCallbackSender::new(|_| async {}, |_| {}),
+            &f.app.editor.config(),
+        ));
+    let update = completion::next_update(&mut f.app.editor).unwrap();
+    f.app
+        .handle_editor_event(EditorEvent::Completion(update))
+        .await;
+    assert_eq!(f.text(), "😀 ap\n");
+    assert!(f.app.editor.last_completion.is_none());
+    // Input after dismissal must not select an item whose provider state was retired.
+    f.key("<C-n>").await?;
+    f.key("<ret>").await?;
+    assert!(!f.text().contains("apricot"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyhow::Result<()> {
+    for key in ["<C-n>", "<ret>"] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+        f.show().await?;
+        f.key("<C-n>").await?;
+        assert_eq!(f.text(), "😀 apricot\n");
+        f.app
+            .editor
+            .replace_completion_handler(CompletionHandler::new(
+                EditorCallbackSender::new(|_| async {}, |_| {}),
+                &f.app.editor.config(),
+            ));
+        let hide = completion::next_update(&mut f.app.editor).unwrap();
+        // Input can arrive before the event loop processes the replacement's Hide update.
+        f.key(key).await?;
+        assert!(!f.text().contains("apricot"));
+        assert!(f.app.editor.last_completion.is_none());
+        f.app
+            .handle_editor_event(EditorEvent::Completion(hide))
+            .await;
+        assert!(!f.text().contains("apricot"));
+        assert!(f.app.close().await.is_empty());
+    }
     Ok(())
 }

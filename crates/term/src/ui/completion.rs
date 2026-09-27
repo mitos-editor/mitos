@@ -157,6 +157,26 @@ impl Completion {
 
         // Then create the menu
         let menu = Menu::new(items, data, move |editor: &mut Editor, item, event| {
+            let needs_savepoint = match event {
+                PromptEvent::Validate => true,
+                PromptEvent::Update => preview_completion_insert,
+                PromptEvent::Abort => false,
+            };
+            let savepoint = if needs_savepoint {
+                let Some(context) = item.and_then(|item| {
+                    editor
+                        .handlers()
+                        .completions
+                        .active_completions
+                        .get(&item.provider())
+                }) else {
+                    // The service may have been replaced before the menu receives its Hide update.
+                    return;
+                };
+                Some(context.savepoint.clone())
+            } else {
+                None
+            };
             let (view, doc) = current!(editor);
 
             macro_rules! language_server {
@@ -196,9 +216,8 @@ impl Completion {
                         })
                     }
                     let item = item.unwrap();
-                    let context = &editor.handlers.completions.active_completions[&item.provider()];
                     // if more text was entered, remove it
-                    doc.restore(view, &context.savepoint, false);
+                    doc.restore(view, savepoint.as_ref().unwrap(), false);
                     // always present here
 
                     match item {
@@ -227,9 +246,8 @@ impl Completion {
                     }
 
                     let item = item.unwrap();
-                    let context = &editor.handlers.completions.active_completions[&item.provider()];
                     // if more text was entered, remove it
-                    doc.restore(view, &context.savepoint, true);
+                    doc.restore(view, savepoint.as_ref().unwrap(), true);
                     // save an undo checkpoint before the completion
                     doc.append_changes_to_history(view);
 
@@ -306,7 +324,7 @@ impl Completion {
             // In case the popup was deleted because of an intersection w/ the auto-complete menu.
             if event != PromptEvent::Update {
                 editor
-                    .handlers
+                    .handlers()
                     .trigger_signature_help(SignatureHelpInvoked::Automatic, editor);
             }
         });

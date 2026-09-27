@@ -89,15 +89,20 @@ impl SignatureHelpHandler {
         schedule(&self.shared, &self.events, doc, view.id, invoked);
     }
 
+    /// Dismiss UI belonging to a retired handler using this handler's owner identity.
+    pub(super) fn dismiss_replaced(&self) {
+        close(&self.shared, &self.events, true);
+    }
+
     /// Invalidate requests and queued results, and ask the frontend to dismiss help.
     pub fn cancel(&self) {
-        close(&self.shared, &self.events);
+        close(&self.shared, &self.events, false);
     }
 }
 
-fn close(shared: &Arc<Shared>, events: &Sender<Option<Request>>) {
+fn close(shared: &Arc<Shared>, events: &Sender<Option<Request>>, force: bool) {
     let mut session = shared.session.lock().unwrap();
-    if session.target.is_none() && session.pending.is_none() {
+    if !force && session.target.is_none() && session.pending.is_none() {
         return;
     }
     let cancel = session.controller.restart();
@@ -165,7 +170,7 @@ impl SignatureHelpTrigger {
                 SignatureHelpInvoked::Automatic,
             );
         } else {
-            close(&shared, &self.events);
+            close(&shared, &self.events, false);
         }
     }
 }

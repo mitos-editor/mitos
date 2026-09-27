@@ -1106,7 +1106,7 @@ pub fn goto_reference(cx: &mut Context) {
 
 pub fn signature_help(cx: &mut Context) {
     cx.editor
-        .handlers
+        .handlers()
         .trigger_signature_help(SignatureHelpInvoked::Manual, cx.editor)
 }
 

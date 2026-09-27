@@ -6,7 +6,7 @@ use super::Fixture;
 
 impl Fixture {
     pub(super) fn words(&self) -> Vec<String> {
-        let mut words = self.editor.handlers.word_index().matches("");
+        let mut words = self.editor.handlers().word_index().matches("");
         words.sort();
         words
     }

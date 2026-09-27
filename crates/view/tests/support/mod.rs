@@ -44,6 +44,16 @@ impl Fixture {
         resources: loader::syntax::Resources,
         configure: impl FnOnce(&mut Config),
     ) -> anyhow::Result<Self> {
+        Self::with_handler_setup(text, languages, resources, configure, |_, _| {})
+    }
+
+    pub fn with_handler_setup(
+        text: &str,
+        languages: &str,
+        resources: loader::syntax::Resources,
+        configure: impl FnOnce(&mut Config),
+        setup: impl FnOnce(&mut Handlers, &Config),
+    ) -> anyhow::Result<Self> {
         let mut config = Config::default();
         config.file_watcher.enable = false;
         config.auto_reload.enable = false;
@@ -55,7 +65,8 @@ impl Fixture {
         configure(&mut config);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let (callbacks_tx, callbacks) = callback_channel();
-        let handlers = Handlers::new(&config.load(), callbacks_tx);
+        let mut handlers = Handlers::new(&config.load(), callbacks_tx);
+        setup(&mut handlers, &config.load());
         let mut editor = Editor::new(
             Rect::new(0, 0, 80, 24),
             Arc::new(theme::Loader::new(loader::theme::Resources::new(vec![]))),
