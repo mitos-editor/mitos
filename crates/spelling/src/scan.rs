@@ -3,18 +3,91 @@
 //! Adapted from Michael Davis's [Helix PR #15910](https://github.com/helix-editor/helix/pull/15910),
 //! revision `1849ccc29792484a1e00bcc48ee8018ca058cf33`.
 
-use std::{borrow::Cow, ops::Range, sync::LazyLock};
+use std::{borrow::Cow, collections::HashSet, ops::Range, sync::LazyLock};
 
 use crate::Dictionary;
 use editor_core::{
     chars::char_is_word,
-    diagnostic::{Diagnostic, Range as DiagnosticRange, Severity},
-    syntax::{config::SpellingFilter, Loader},
+    diagnostic::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity},
+    syntax::{config::SpellingConfig, Loader},
     RopeSlice, Syntax,
 };
 use stdx::rope::{Regex, RopeSliceExt as _};
 
-use super::worker::{MAX_INCREMENTAL_CHARS, PROVIDER};
+/// The compiled form of a [`SpellingConfig`]'s token filters: words to accept and regexes to skip,
+/// resolved once so the checker can apply them per word.
+#[derive(Debug)]
+pub struct SpellingFilter {
+    min_word_length: usize,
+    /// Lowercased for case-insensitive matching.
+    words: HashSet<String>,
+    ignore: Vec<regex::Regex>,
+}
+
+impl SpellingFilter {
+    pub fn new(config: &SpellingConfig) -> Self {
+        let words = config
+            .words
+            .iter()
+            .map(|word| word.to_lowercase())
+            .collect();
+        let ignore = config
+            .ignore_regexes
+            .iter()
+            .filter_map(|pattern| {
+                regex::Regex::new(pattern)
+                    .map_err(|err| {
+                        log::error!("ignoring invalid spelling ignore-regex {pattern:?}: {err}")
+                    })
+                    .ok()
+            })
+            .collect();
+        Self {
+            min_word_length: config.min_word_length(),
+            words,
+            ignore,
+        }
+    }
+
+    /// Whether `word` should be skipped rather than spell-checked.
+    pub fn ignores(&self, word: &str) -> bool {
+        word.chars().count() < self.min_word_length
+            || self.words.contains(&word.to_lowercase())
+            || self.ignore.iter().any(|regex| regex.is_match(word))
+    }
+}
+
+/// Scan all natural-language regions in a text snapshot, or the entire text when
+/// no syntax is supplied. Cancellation can return partial findings; callers must
+/// discard results from canceled or superseded snapshots before publishing them.
+pub fn check_text(
+    dictionaries: &[&Dictionary],
+    text: RopeSlice,
+    syntax: Option<&Syntax>,
+    loader: &Loader,
+    config: &SpellingConfig,
+    mut is_canceled: impl FnMut() -> bool,
+) -> Vec<Diagnostic> {
+    if is_canceled() {
+        return Vec::new();
+    }
+    let filter = SpellingFilter::new(config);
+    let mut diagnostics = Vec::new();
+    for region in spell_check_regions(syntax, loader, text, 0..text.len_chars()) {
+        if is_canceled() {
+            break;
+        }
+        check_region(
+            dictionaries,
+            &filter,
+            text,
+            region,
+            &mut diagnostics,
+            &mut is_canceled,
+        );
+    }
+    diagnostics
+}
 
 /// The char ranges within `region` to spell-check. With a syntax tree, checking is restricted to
 /// the natural-language regions selected by each layer's `spellcheck.scm` query (comments, prose,
@@ -23,7 +96,7 @@ use super::worker::{MAX_INCREMENTAL_CHARS, PROVIDER};
 // `Syntax::spell_regions` works in byte offsets (tree-sitter's native unit) while the spelling
 // diagnostics, like all diagnostics, are in char offsets, so we convert at this boundary. The
 // conversions go away once diagnostics move to byte offsets.
-pub(super) fn spell_check_regions(
+fn spell_check_regions(
     syntax: Option<&Syntax>,
     loader: &Loader,
     text: RopeSlice,
@@ -41,22 +114,23 @@ pub(super) fn spell_check_regions(
 }
 
 /// Include whole tokens and URL/email spans at incremental window edges. Very long tokens
-/// must be scanned off the editor thread, even if the edit itself was small.
-pub(super) fn expand_check_window(
+/// return `None` when expansion exceeds the caller's character budget.
+pub fn expand_check_window(
     text: RopeSlice,
     mut range: Range<usize>,
+    max_chars: usize,
 ) -> Option<Range<usize>> {
-    if range.len() > MAX_INCREMENTAL_CHARS {
+    if range.len() > max_chars {
         return None;
     }
     while range.start > 0 && !text.char(range.start - 1).is_whitespace() {
-        if range.len() == MAX_INCREMENTAL_CHARS {
+        if range.len() == max_chars {
             return None;
         }
         range.start -= 1;
     }
     while range.end < text.len_chars() && !text.char(range.end).is_whitespace() {
-        if range.len() == MAX_INCREMENTAL_CHARS {
+        if range.len() == max_chars {
             return None;
         }
         range.end += 1;
@@ -67,7 +141,7 @@ pub(super) fn expand_check_window(
 /// Tokenizes the `region` (a char range) of `text` and appends a diagnostic for each word that
 /// every dictionary rejects (a word known to any one of them is accepted). Match offsets from
 /// `regex_input_at` are absolute byte offsets in `text`.
-pub(super) fn check_region(
+pub fn check_region(
     dictionaries: &[&Dictionary],
     filter: &SpellingFilter,
     text: RopeSlice,
@@ -135,7 +209,7 @@ fn spelling_diagnostic(text: RopeSlice, start: usize, end: usize, word: &str) ->
         message: format!("Possible spelling mistake: '{word}'").into(),
         severity: Some(Severity::Hint),
         code: None,
-        provider: PROVIDER,
+        provider: DiagnosticProvider::Spelling,
         tags: Vec::new(),
         source: Some("spelling".into()),
         data: None,
@@ -145,7 +219,7 @@ fn spelling_diagnostic(text: RopeSlice, start: usize, end: usize, word: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use editor_core::{diagnostic::DiagnosticProvider, syntax::config::SpellingConfig, Rope};
+    use editor_core::Rope;
 
     /// The `en_US` dictionary vendored under `runtime/dictionaries/`.
     fn en_us() -> Dictionary {
@@ -292,20 +366,14 @@ mod tests {
         let language = loader.language_for_name(language).unwrap();
         let syntax = Syntax::new(rope.slice(..), language, &loader).unwrap();
         let dictionary = en_us();
-        let mut out = Vec::new();
-        for region in
-            spell_check_regions(Some(&syntax), &loader, rope.slice(..), 0..rope.len_chars())
-        {
-            check_region(
-                &[&dictionary],
-                &no_filter(),
-                rope.slice(..),
-                region,
-                &mut out,
-                || false,
-            );
-        }
-        out
+        check_text(
+            &[&dictionary],
+            rope.slice(..),
+            Some(&syntax),
+            &loader,
+            &SpellingConfig::default(),
+            || false,
+        )
     }
 
     #[test]
@@ -342,7 +410,7 @@ mod tests {
     fn incremental_window_includes_complete_urls_and_words() {
         let source = format!("hello https://exampel.org/{} quik", "x".repeat(100));
         let text = Rope::from_str(&source);
-        let region = expand_check_window(text.slice(..), 50..text.len_chars()).unwrap();
+        let region = expand_check_window(text.slice(..), 50..text.len_chars(), 1000).unwrap();
         assert_eq!(region.start, 6);
         let mut diagnostics = Vec::new();
         check_region(
@@ -360,10 +428,11 @@ mod tests {
 
     #[test]
     fn oversized_windows_require_a_background_scan() {
-        let text = Rope::from_str(&"x".repeat(MAX_INCREMENTAL_CHARS * 3));
-        assert!(expand_check_window(text.slice(..), 0..50).is_none());
-        assert!(expand_check_window(text.slice(..), 1500..1550).is_none());
-        assert!(expand_check_window(text.slice(..), 0..text.len_chars()).is_none());
+        let max_chars = 1000;
+        let text = Rope::from_str(&"x".repeat(max_chars * 3));
+        assert!(expand_check_window(text.slice(..), 0..50, max_chars).is_none());
+        assert!(expand_check_window(text.slice(..), 1500..1550, max_chars).is_none());
+        assert!(expand_check_window(text.slice(..), 0..text.len_chars(), max_chars).is_none());
     }
 
     #[test]

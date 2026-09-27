@@ -621,50 +621,6 @@ impl SpellingConfig {
     }
 }
 
-/// The compiled form of a [`SpellingConfig`]'s token filters: words to accept and regexes to skip,
-/// resolved once so the checker can apply them per word. Lives here (rather than in the term-side
-/// handler) to keep the regex compilation next to the config.
-#[derive(Debug)]
-pub struct SpellingFilter {
-    min_word_length: usize,
-    /// Lowercased for case-insensitive matching.
-    words: HashSet<String>,
-    ignore: Vec<regex::Regex>,
-}
-
-impl SpellingFilter {
-    pub fn new(config: &SpellingConfig) -> Self {
-        let words = config
-            .words
-            .iter()
-            .map(|word| word.to_lowercase())
-            .collect();
-        let ignore = config
-            .ignore_regexes
-            .iter()
-            .filter_map(|pattern| {
-                regex::Regex::new(pattern)
-                    .map_err(|err| {
-                        log::error!("ignoring invalid spelling ignore-regex {pattern:?}: {err}")
-                    })
-                    .ok()
-            })
-            .collect();
-        Self {
-            min_word_length: config.min_word_length(),
-            words,
-            ignore,
-        }
-    }
-
-    /// Whether `word` should be skipped rather than spell-checked.
-    pub fn ignores(&self, word: &str) -> bool {
-        word.chars().count() < self.min_word_length
-            || self.words.contains(&word.to_lowercase())
-            || self.ignore.iter().any(|regex| regex.is_match(word))
-    }
-}
-
 fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<rope::Regex>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -729,11 +685,9 @@ mod spelling_tests {
         };
         let merged = global.merged(Some(&local));
         assert!(merged.languages().is_empty());
-        let filter = SpellingFilter::new(&merged);
-        for word in ["mitos", "TOKIO", "CONSTANT_NAME", "v123", "ab"] {
-            assert!(filter.ignores(word), "{word}");
-        }
-        assert!(!filter.ignores("teh"));
+        assert_eq!(merged.words, ["Mitos", "Tokio"]);
+        assert_eq!(merged.ignore_regexes, ["^[A-Z_]+$", "^v[0-9]+$"]);
+        assert_eq!(merged.min_word_length(), 3);
         assert_eq!(global.merged(None), global);
     }
 

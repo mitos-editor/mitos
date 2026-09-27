@@ -19,10 +19,7 @@ use crate::{
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
-    syntax::{
-        config::{SpellingConfig, SpellingFilter},
-        Loader,
-    },
+    syntax::{config::SpellingConfig, Loader},
     ChangeSet, Operation, Rope, SpellingLanguage, Syntax,
 };
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
@@ -30,7 +27,7 @@ use tokio::time::Instant;
 
 use crate::callbacks::EditorCallbackSender;
 
-use super::scan::{check_region, expand_check_window, spell_check_regions};
+use ::spelling::{check_region, expand_check_window, SpellingFilter};
 
 pub(super) const PROVIDER: DiagnosticProvider = DiagnosticProvider::Spelling;
 
@@ -155,7 +152,8 @@ fn recheck_document(editor: &mut Editor, doc_id: DocumentId, changes: ChangeSet,
     // merging overlapping windows so no word is checked (or emitted) twice.
     let mut regions: Vec<Range<usize>> = Vec::new();
     for (_, new_range) in changes.changed_ranges(WINDOW_PADDING) {
-        let Some(new_range) = expand_check_window(text.slice(..), new_range) else {
+        let Some(new_range) = expand_check_window(text.slice(..), new_range, MAX_INCREMENTAL_CHARS)
+        else {
             check_document(editor, doc_id);
             return;
         };
@@ -296,17 +294,9 @@ fn lookup_dictionary(editor: &mut Editor, language: SpellingLanguage) -> Option<
 fn load_dictionary(language: SpellingLanguage, callbacks: EditorCallbackSender) {
     tokio::task::spawn_blocking(move || {
         let load = || -> anyhow::Result<(Dictionary, IgnoredWordsFile)> {
-            let aff = std::fs::read_to_string(loader::runtime_file(format!(
-                "dictionaries/{language}/{language}.aff"
-            )))?;
-            let dic = std::fs::read_to_string(loader::runtime_file(format!(
-                "dictionaries/{language}/{language}.dic"
-            )))?;
-            let mut dictionary = Dictionary::new(&aff, &dic)
-                .map_err(|err| anyhow::anyhow!("could not parse dictionary: {err:?}"))?;
-
-            crate::handlers::spelling::load_personal_dictionary(
-                &mut dictionary,
+            let dictionary = ::spelling::load_dictionary(
+                &loader::runtime_file(format!("dictionaries/{language}/{language}.aff")),
+                &loader::runtime_file(format!("dictionaries/{language}/{language}.dic")),
                 &loader::personal_dictionary_file(language.as_str()),
             )?;
 
@@ -365,33 +355,17 @@ fn check_text(
     cancel: TaskHandle,
 ) -> impl Future<Output = Result<Vec<Diagnostic>, tokio::task::JoinError>> {
     tokio::task::spawn_blocking(move || {
-        // Dropping a spawn_blocking JoinHandle does not stop its worker. Check cancellation here
-        // and during tokenization so superseded scans also release their CPU and snapshots.
-        if cancel.is_canceled() {
-            return Vec::new();
-        }
-        let filter = SpellingFilter::new(&config);
+        // Dropping a spawn_blocking JoinHandle does not stop its worker. The scanner
+        // checks cancellation before and during tokenization to release snapshots promptly.
         let dictionaries: Vec<&Dictionary> = dictionaries.iter().map(AsRef::as_ref).collect();
-        let mut diagnostics = Vec::new();
-        for region in spell_check_regions(
+        ::spelling::check_text(
+            &dictionaries,
+            text.slice(..),
             syntax.as_ref(),
             &loader,
-            text.slice(..),
-            0..text.len_chars(),
-        ) {
-            if cancel.is_canceled() {
-                break;
-            }
-            check_region(
-                &dictionaries,
-                &filter,
-                text.slice(..),
-                region,
-                &mut diagnostics,
-                || cancel.is_canceled(),
-            );
-        }
-        diagnostics
+            &config,
+            || cancel.is_canceled(),
+        )
     })
 }
 

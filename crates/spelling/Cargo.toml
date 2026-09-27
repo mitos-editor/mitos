@@ -1,0 +1,24 @@
+[package]
+name = "spelling"
+description = "Spelling dictionaries, scanning, suggestions, and word persistence for Mitos"
+include = ["src/**/*", "README.md", "LICENSE"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+core.workspace = true
+stdx.workspace = true
+anyhow.workspace = true
+log.workspace = true
+regex.workspace = true
+spellbook.workspace = true
+
+[dev-dependencies]
+loader.workspace = true
+tempfile.workspace = true
