@@ -3,9 +3,9 @@
 //! Adapted from Michael Davis's [Helix PR #15910](https://github.com/helix-editor/helix/pull/15910),
 //! revision `1849ccc29792484a1e00bcc48ee8018ca058cf33`.
 //!
-//! This is the editor-side state for the spell checker. The detection logic (the debounced hook,
-//! dictionary loading and the word checking itself) lives in `term`'s spelling handler, which
-//! drives this state through [`SpellingEvent`]s and the editor's dictionaries.
+//! Owns spelling state, dictionary loading, debounced checks, and result publication.
+//! Scanning and background coordination live in this feature's private modules;
+//! frontends supply an editor-bound completion sender and present actions and diagnostics.
 
 use std::{
     borrow::Cow,
@@ -19,23 +19,31 @@ use editor_core::{
     diagnostic::DiagnosticProvider, syntax::config::SpellingConfig, ChangeSet, SpellingLanguage,
     Tendril, Transaction,
 };
-use event::{send_blocking, TaskController, TaskHandle};
+use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
 use tokio::sync::mpsc::Sender;
 
-use crate::{action::Action, Dictionary, Document, DocumentId, Editor};
+use crate::{
+    action::Action,
+    callbacks::EditorCallbackSender,
+    events::{ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen},
+    Dictionary, Document, DocumentId, Editor,
+};
 
 mod ignore;
+mod scan;
+mod worker;
 pub use ignore::IgnoredWordsFile;
 
 #[derive(Debug)]
 pub struct SpellingHandler {
-    pub event_tx: Sender<SpellingEvent>,
+    pub(crate) event_tx: Sender<SpellingEvent>,
+    callbacks: EditorCallbackSender,
     /// In-flight full-document checks, keyed by document. Starting a new full check for a document
     /// cancels the previous one (incremental checks run synchronously and need no cancellation).
-    pub requests: HashMap<DocumentId, TaskController>,
+    requests: HashMap<DocumentId, TaskController>,
     /// Languages whose dictionary is currently being loaded, so the same one isn't loaded twice
     /// concurrently.
-    pub loading_dictionaries: HashSet<SpellingLanguage>,
+    loading_dictionaries: HashSet<SpellingLanguage>,
     /// Lowercased words ignored for this editor session, scoped to each spelling language.
     /// Ignoring a word does not add it to dictionary suggestions or persistence.
     ignored_words: HashMap<SpellingLanguage, HashSet<String>>,
@@ -44,9 +52,11 @@ pub struct SpellingHandler {
 }
 
 impl SpellingHandler {
-    pub fn new(event_tx: Sender<SpellingEvent>) -> Self {
+    pub fn new(callbacks: EditorCallbackSender) -> Self {
+        let event_tx = worker::SpellingHook::new(callbacks.clone()).spawn();
         Self {
             event_tx,
+            callbacks,
             requests: HashMap::new(),
             loading_dictionaries: HashSet::new(),
             ignored_words: HashMap::new(),
@@ -72,8 +82,8 @@ pub enum SpellingEvent {
     CheckRequested { doc: DocumentId },
     /// A document was closed; discard its pending edits.
     DocumentClosed { doc: DocumentId },
-    /// A document changed; re-check the regions around the change (or rescan, see the term-side
-    /// handler). The version identifies the text these ranges apply to.
+    /// A document changed; re-check the regions around the change or rescan in full.
+    /// The version identifies the text these ranges apply to.
     DocumentChanged {
         doc: DocumentId,
         changes: ChangeSet,
@@ -361,6 +371,68 @@ impl Editor {
             .await?)
         }
     }
+}
+
+/// Register spelling hooks once; each event supplies its owning editor or document queue.
+pub fn register_hooks() {
+    event::runtime_local! {
+        static REGISTER: std::sync::Once = std::sync::Once::new();
+    }
+    REGISTER.call_once(|| {
+        register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+            let doc = doc!(event.editor, &event.doc);
+            if !doc.spelling_languages.is_empty() {
+                send_blocking(
+                    &event.editor.handlers.spelling.event_tx,
+                    SpellingEvent::CheckRequested { doc: event.doc },
+                );
+            }
+            Ok(())
+        });
+
+        register_hook!(move |event: &mut DocumentDidChange<'_>| {
+            // Mirror the word index: ignore synthetic edits so they don't churn the diagnostics.
+            if !event.ghost_transaction
+                && !event.doc.spelling_languages.is_empty()
+                && let Some(tx) = &event.doc.spelling_events
+            {
+                send_blocking(
+                    tx,
+                    SpellingEvent::DocumentChanged {
+                        doc: event.doc.id(),
+                        changes: event.changes.clone(),
+                        version: event.doc.version(),
+                    },
+                );
+            }
+            Ok(())
+        });
+
+        register_hook!(move |event: &mut DocumentDidClose<'_>| {
+            // Cancel any in-flight full check for the closed document.
+            event
+                .editor
+                .handlers
+                .spelling
+                .requests
+                .remove(&event.doc.id());
+            send_blocking(
+                &event.editor.handlers.spelling.event_tx,
+                SpellingEvent::DocumentClosed {
+                    doc: event.doc.id(),
+                },
+            );
+            Ok(())
+        });
+
+        register_hook!(move |event: &mut ConfigDidChange<'_>| {
+            let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
+            for doc_id in doc_ids {
+                event.editor.refresh_spelling(doc_id);
+            }
+            Ok(())
+        });
+    });
 }
 
 #[cfg(test)]

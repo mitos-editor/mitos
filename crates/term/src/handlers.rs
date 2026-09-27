@@ -28,7 +28,6 @@ mod document_symbols;
 mod prompt;
 mod signature_help;
 mod snippet;
-mod spelling;
 mod workspace_trust;
 
 pub fn setup(
@@ -47,10 +46,9 @@ pub fn setup(
     let word_index = word_index::Handler::spawn();
     let pull_diagnostics = PullDiagnosticsHandler::default().spawn();
     let pull_all_documents_diagnostics = PullAllDocumentsDiagnosticHandler::default().spawn();
-    let spelling = spelling::SpellingHook::default().spawn();
 
     let handlers = Handlers {
-        syntax: view::handlers::syntax::SyntaxHandler::new(callbacks),
+        syntax: view::handlers::syntax::SyntaxHandler::new(callbacks.clone()),
         completions: view::handlers::completion::CompletionHandler::new(event_tx),
         signature_hints,
         auto_save,
@@ -61,7 +59,7 @@ pub fn setup(
         pull_diagnostics,
         pull_all_documents_diagnostics,
         code_action_hint,
-        spelling: view::handlers::spelling::SpellingHandler::new(spelling),
+        spelling: view::handlers::spelling::SpellingHandler::new(callbacks),
     };
 
     view::handlers::register_hooks(&handlers);
@@ -77,7 +75,7 @@ pub fn setup(
     document_links::register_hooks(&handlers);
     prompt::register_hooks(&handlers);
     workspace_trust::register_hooks(&handlers);
-    spelling::register_hooks(&handlers);
+    view::handlers::spelling::register_hooks();
     auto_reload::register_hooks(&handlers, &config.load().editor);
     handlers
 }

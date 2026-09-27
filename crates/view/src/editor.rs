@@ -903,6 +903,7 @@ impl Editor {
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
         doc.syntax_handler = Some(self.handlers.syntax.clone());
+        doc.spelling_events = Some(self.handlers.spelling.event_tx.clone());
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);

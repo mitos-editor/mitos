@@ -5,6 +5,7 @@
 
 use std::{borrow::Cow, ops::Range, sync::LazyLock};
 
+use crate::Dictionary;
 use editor_core::{
     chars::char_is_word,
     diagnostic::{Diagnostic, Range as DiagnosticRange, Severity},
@@ -12,9 +13,8 @@ use editor_core::{
     RopeSlice, Syntax,
 };
 use stdx::rope::{Regex, RopeSliceExt as _};
-use view::Dictionary;
 
-use super::{MAX_INCREMENTAL_CHARS, PROVIDER};
+use super::worker::{MAX_INCREMENTAL_CHARS, PROVIDER};
 
 /// The char ranges within `region` to spell-check. With a syntax tree, checking is restricted to
 /// the natural-language regions selected by each layer's `spellcheck.scm` query (comments, prose,

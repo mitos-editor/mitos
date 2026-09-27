@@ -13,12 +13,16 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
     std::fs::write(&path, "{}\n")?;
     let mut app = AppBuilder::new().build()?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-    let sender = view::callbacks::EditorCallbackSender::new(move |callback| {
-        let tx = tx.clone();
-        async move {
-            let _ = tx.send(callback).await;
-        }
-    });
+    let blocking_tx = tx.clone();
+    let sender = view::callbacks::EditorCallbackSender::new(
+        move |callback| {
+            let tx = tx.clone();
+            async move {
+                let _ = tx.send(callback).await;
+            }
+        },
+        move |callback| event::send_blocking(&blocking_tx, callback),
+    );
     app.editor.handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
     app.editor.open(&path, view::editor::Action::Replace)?;
     let id = doc!(app.editor).id();

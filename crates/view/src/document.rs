@@ -224,6 +224,8 @@ pub struct Document {
     pending_syntax: Option<PendingSyntax>,
     // Assigned when the document joins an editor; standalone documents can drive requests manually.
     pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
+    pub(crate) spelling_events:
+        Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub language: Option<Arc<LanguageConfiguration>>,
 
@@ -874,6 +876,7 @@ impl Document {
             syntax: None,
             pending_syntax: None,
             syntax_handler: None,
+            spelling_events: None,
             language: None,
             changes,
             old_state,

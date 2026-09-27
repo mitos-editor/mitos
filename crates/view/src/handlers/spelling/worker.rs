@@ -12,6 +12,10 @@
 
 use std::{collections::HashMap, future::Future, ops::Range, sync::Arc, time::Duration};
 
+use crate::{
+    handlers::spelling::{IgnoredWordsFile, SpellingEvent},
+    Dictionary, DocumentId, Editor,
+};
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
@@ -21,30 +25,21 @@ use editor_core::{
     },
     ChangeSet, Operation, Rope, SpellingLanguage, Syntax,
 };
-use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskHandle};
+use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
 use tokio::time::Instant;
-use view::{
-    events::{ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen},
-    handlers::{
-        spelling::{IgnoredWordsFile, SpellingEvent},
-        Handlers,
-    },
-    Dictionary, DocumentId, Editor,
-};
 
-use crate::job;
+use crate::callbacks::EditorCallbackSender;
 
-mod scan;
-use scan::{check_region, expand_check_window, spell_check_regions};
+use super::scan::{check_region, expand_check_window, spell_check_regions};
 
-const PROVIDER: DiagnosticProvider = DiagnosticProvider::Spelling;
+pub(super) const PROVIDER: DiagnosticProvider = DiagnosticProvider::Spelling;
 
 /// How long to wait after the last change before re-checking.
 const DEBOUNCE: Duration = Duration::from_secs(1);
 /// Char padding around each edit; windows are then expanded to include complete tokens.
 const WINDOW_PADDING: usize = 50;
 /// Maximum edited or scanned characters for work on the editor thread.
-const MAX_INCREMENTAL_CHARS: usize = 1000;
+pub(super) const MAX_INCREMENTAL_CHARS: usize = 1000;
 /// A change with more separate edits than this (e.g. a multi-cursor edit) would blanket the
 /// document in re-check windows; it is cheaper to rescan wholesale once.
 const MANY_EDIT_OPS: usize = 64;
@@ -57,9 +52,19 @@ struct Change {
     version: i32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct SpellingHook {
+    callbacks: EditorCallbackSender,
     changes: HashMap<DocumentId, Change>,
+}
+
+impl SpellingHook {
+    pub(super) fn new(callbacks: EditorCallbackSender) -> Self {
+        Self {
+            callbacks,
+            changes: HashMap::new(),
+        }
+    }
 }
 
 impl AsyncHook for SpellingHook {
@@ -68,7 +73,7 @@ impl AsyncHook for SpellingHook {
     fn handle_event(&mut self, event: Self::Event, timeout: Option<Instant>) -> Option<Instant> {
         match event {
             SpellingEvent::DictionaryLoaded { language } => {
-                job::dispatch_blocking(move |editor, _| {
+                self.callbacks.send_blocking(move |editor| {
                     let docs: Vec<_> = editor
                         .documents()
                         .filter(|doc| doc.spelling_languages.contains(&language))
@@ -82,7 +87,8 @@ impl AsyncHook for SpellingHook {
             }
             SpellingEvent::CheckRequested { doc } => {
                 self.changes.remove(&doc);
-                job::dispatch_blocking(move |editor, _| check_document(editor, doc));
+                self.callbacks
+                    .send_blocking(move |editor| check_document(editor, doc));
                 timeout
             }
             SpellingEvent::DocumentClosed { doc } => {
@@ -113,10 +119,11 @@ impl AsyncHook for SpellingHook {
 
     fn finish_debounce(&mut self) {
         for (doc, change) in self.changes.drain() {
-            job::dispatch_blocking(move |editor, _| match change.changes {
-                Some(changes) => recheck_document(editor, doc, changes, change.version),
-                None => check_document(editor, doc),
-            });
+            self.callbacks
+                .send_blocking(move |editor| match change.changes {
+                    Some(changes) => recheck_document(editor, doc, changes, change.version),
+                    None => check_document(editor, doc),
+                });
         }
     }
 }
@@ -184,7 +191,7 @@ fn recheck_document(editor: &mut Editor, doc_id: DocumentId, changes: ChangeSet,
 
     let doc = editor.documents.get_mut(&doc_id).unwrap();
     doc.splice_diagnostics(diagnostics, &regions, &PROVIDER);
-    event::dispatch(view::events::DiagnosticsDidChange {
+    event::dispatch(crate::events::DiagnosticsDidChange {
         editor,
         doc: doc_id,
     });
@@ -211,13 +218,14 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
     };
 
     let cancel = editor.handlers.spelling.open_request(doc_id);
+    let callbacks = editor.handlers.spelling.callbacks.clone();
     let future = check_text(dictionaries, text, syntax, loader, config, cancel.clone());
 
     tokio::spawn(async move {
         let Some(result) = cancelable_future(future, &cancel).await else {
             return;
         };
-        job::dispatch_blocking(move |editor, _| {
+        callbacks.send_blocking(move |editor| {
             // Cancellation can happen after the worker finishes but before this callback.
             if cancel.is_canceled() {
                 return;
@@ -242,7 +250,7 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
                 return;
             }
             doc.replace_diagnostics(diagnostics, &[], Some(&PROVIDER));
-            event::dispatch(view::events::DiagnosticsDidChange {
+            event::dispatch(crate::events::DiagnosticsDidChange {
                 editor,
                 doc: doc_id,
             });
@@ -280,12 +288,12 @@ fn lookup_dictionary(editor: &mut Editor, language: SpellingLanguage) -> Option<
         .loading_dictionaries
         .insert(language.clone())
     {
-        load_dictionary(language);
+        load_dictionary(language, editor.handlers.spelling.callbacks.clone());
     }
     None
 }
 
-fn load_dictionary(language: SpellingLanguage) {
+fn load_dictionary(language: SpellingLanguage, callbacks: EditorCallbackSender) {
     tokio::task::spawn_blocking(move || {
         let load = || -> anyhow::Result<(Dictionary, IgnoredWordsFile)> {
             let aff = std::fs::read_to_string(loader::runtime_file(format!(
@@ -297,7 +305,7 @@ fn load_dictionary(language: SpellingLanguage) {
             let mut dictionary = Dictionary::new(&aff, &dic)
                 .map_err(|err| anyhow::anyhow!("could not parse dictionary: {err:?}"))?;
 
-            view::handlers::spelling::load_personal_dictionary(
+            crate::handlers::spelling::load_personal_dictionary(
                 &mut dictionary,
                 &loader::personal_dictionary_file(language.as_str()),
             )?;
@@ -311,7 +319,7 @@ fn load_dictionary(language: SpellingLanguage) {
         };
 
         match load() {
-            Ok((dictionary, ignored_words)) => job::dispatch_blocking(move |editor, _| {
+            Ok((dictionary, ignored_words)) => callbacks.send_blocking(move |editor| {
                 editor
                     .handlers
                     .spelling
@@ -333,7 +341,7 @@ fn load_dictionary(language: SpellingLanguage) {
             Err(err) => {
                 log::error!("could not load spelling dictionary '{language}': {err:#}");
                 // Allow a later check to retry the load.
-                job::dispatch_blocking(move |editor, _| {
+                callbacks.send_blocking(move |editor| {
                     editor
                         .handlers
                         .spelling
@@ -399,57 +407,4 @@ fn needs_full_scan(changes: &ChangeSet) -> bool {
         }
     }
     edited_chars > MAX_INCREMENTAL_CHARS || edit_ops > MANY_EDIT_OPS
-}
-
-pub(super) fn register_hooks(handlers: &Handlers) {
-    let tx = handlers.spelling.event_tx.clone();
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        let doc = doc!(event.editor, &event.doc);
-        if !doc.spelling_languages.is_empty() {
-            send_blocking(&tx, SpellingEvent::CheckRequested { doc: event.doc });
-        }
-        Ok(())
-    });
-
-    let tx = handlers.spelling.event_tx.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Mirror the word index: ignore synthetic edits so they don't churn the diagnostics.
-        if !event.ghost_transaction && !event.doc.spelling_languages.is_empty() {
-            send_blocking(
-                &tx,
-                SpellingEvent::DocumentChanged {
-                    doc: event.doc.id(),
-                    changes: event.changes.clone(),
-                    version: event.doc.version(),
-                },
-            );
-        }
-        Ok(())
-    });
-
-    let tx = handlers.spelling.event_tx.clone();
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        // Cancel any in-flight full check for the closed document.
-        event
-            .editor
-            .handlers
-            .spelling
-            .requests
-            .remove(&event.doc.id());
-        send_blocking(
-            &tx,
-            SpellingEvent::DocumentClosed {
-                doc: event.doc.id(),
-            },
-        );
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-        for doc_id in doc_ids {
-            event.editor.refresh_spelling(doc_id);
-        }
-        Ok(())
-    });
 }
