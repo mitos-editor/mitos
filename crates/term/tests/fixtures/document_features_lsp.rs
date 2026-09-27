@@ -27,6 +27,11 @@ fn main() -> anyhow::Result<()> {
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--hang") {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+    }
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
