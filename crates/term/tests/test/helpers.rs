@@ -332,14 +332,7 @@ pub fn test_editor_config() -> view::editor::Config {
             auto_document_highlight: false,
             ..Default::default()
         },
-        // The word-index hook accumulates per-document pending changes across
-        // every `DocumentDidChange` and composes them on the next event for the
-        // same doc id. Each test builds a fresh `Application` that reuses
-        // `DocumentId(1)`, so the previous test's pending change tries to
-        // compose with the next test's `set_input` change (different lengths,
-        // hits the `len_after == len` assertion).
-        // Until hooks can be unregistered, keep the hook quiet by turning the
-        // feature off here.
+        // Word-completion tests opt in to indexing and its background updates.
         word_completion: WordCompletion {
             enable: false,
             ..Default::default()

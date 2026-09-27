@@ -6,13 +6,13 @@ use std::{
 
 use event::register_hook;
 use loader::workspace_trust::TrustStatus;
-use view::{events::DocumentDidOpen, handlers::Handlers, DocumentId};
+use view::{events::DocumentDidOpen, DocumentId};
 
 use crate::{compositor::Compositor, job, ui};
 
 const ID: &str = "workspace-trust-select";
 
-pub(super) fn register_hooks(_handlers: &Handlers) {
+pub(super) fn register_hooks() {
     // Tracks which workspaces have already been prompted (or auto-dismissed) during this session.
     // Without this, every document opened in an untrusted workspace would re-dispatch the modal —
     // `deny_once` writes `Untrusted` to the trust cache but `restricted_for_doc` returns `true`
