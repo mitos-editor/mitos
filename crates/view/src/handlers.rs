@@ -7,6 +7,7 @@ use crate::events::ConfigDidChange;
 use crate::handlers::lsp::SignatureHelpInvoked;
 use crate::{DocumentId, Editor, ViewId};
 
+pub mod code_action_hint;
 pub mod completion;
 pub mod dap;
 pub mod diagnostics;
@@ -44,7 +45,7 @@ pub struct Handlers {
     pub auto_reload: Sender<AutoReloadEvent>,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
-    pub code_action_hint: Sender<lsp::CodeActionHintEvent>,
+    pub code_action_hint: code_action_hint::CodeActionHintHandler,
     pub spelling: SpellingHandler,
 }
 

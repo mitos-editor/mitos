@@ -25,10 +25,11 @@ fn main() -> anyhow::Result<()> {
     let mut documents = HashMap::<String, String>::new();
     let mut versions = HashMap::<String, i64>::new();
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
-    // Optional pull-diagnostic mode leaves the document-feature fixture unchanged.
+    // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
-    let mut request_log = if diagnostics {
+    let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
+    let mut request_log = if diagnostics || code_actions {
         Some(std::fs::File::create(&args[2])?)
     } else {
         None
@@ -130,8 +131,29 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/codeAction" && code_actions {
+            writeln!(request_log.as_mut().unwrap(), "{params}")?;
+            request_log.as_mut().unwrap().flush()?;
+            let result = if text.contains("disabled") {
+                json!([{"title": "disabled", "disabled": {"reason": "unavailable"}}])
+            } else if text.contains("empty") {
+                Value::Null
+            } else if text.contains("command") {
+                json!([{"title": "command", "command": "fixture.command"}])
+            } else {
+                json!([{"title": format!("{}: {text}", args[1]), "kind": "quickfix"}])
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if code_actions => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "codeActionProvider": true
+            }}),
             "initialize" if diagnostics => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "diagnosticProvider": {"identifier": args[1], "workspaceDiagnostics": false,

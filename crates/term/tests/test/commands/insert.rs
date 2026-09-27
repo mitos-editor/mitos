@@ -605,7 +605,7 @@ async fn test_jump_undo_redo() -> anyhow::Result<()> {
     use term::keymap;
     use view::document::Mode;
 
-    let mut config = Config::default();
+    let mut config = helpers::test_config();
     config.keys.insert(
         Mode::Insert,
         keymap!({"Insert Mode"
