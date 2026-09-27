@@ -6,9 +6,8 @@ use lsp_client::LanguageServerId;
 use serde_json::Value;
 use term::application::Application;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
-    callbacks::{EditorCallback, EditorCallbackSender},
+    callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
     handlers::diagnostics::pull::{self, PullDiagnosticsHandler},
@@ -72,17 +71,11 @@ impl Fixture {
             .with_lang_loader(loader)
             .build()?;
         let (tx, callbacks) = mpsc::channel(64);
-        let blocking = tx.clone();
-        app.editor.handlers.pull_diagnostics =
-            PullDiagnosticsHandler::new(EditorCallbackSender::new(
-                move |callback| {
-                    let tx = tx.clone();
-                    async move {
-                        let _ = tx.send((false, callback)).await;
-                    }
-                },
-                move |callback| event::send_blocking(&blocking, (true, callback)),
-            ));
+        app.editor.handlers.pull_diagnostics = PullDiagnosticsHandler::new(
+            super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
+                (blocking, callback)
+            }),
+        );
         let mut fixture = Self {
             app,
             callbacks,
@@ -100,31 +93,7 @@ impl Fixture {
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
         std::fs::write(&self.gate, "ready")?;
-        tokio::time::timeout(Duration::from_secs(10), async {
-            // Client capabilities become available before the editor processes
-            // initialization. Handle every notification before consuming responses.
-            for _ in 0..self.logs.len() {
-                let (server_id, call) = self
-                    .app
-                    .editor
-                    .language_servers
-                    .incoming
-                    .next()
-                    .await
-                    .context("LSP message stream closed")?;
-                anyhow::ensure!(
-                    matches!(&call, lsp_client::Call::Notification(message)
-                    if message.method == "initialized"),
-                    "expected initialization notification"
-                );
-                self.app
-                    .handle_language_server_message(call, server_id)
-                    .await;
-            }
-            anyhow::Ok(())
-        })
-        .await
-        .context("pull diagnostic initialization did not complete")?
+        super::helpers::lsp::initialize(&mut self.app, self.logs.len()).await
     }
 
     /// Debounce callbacks start work. Keep publication/retry callbacks under the

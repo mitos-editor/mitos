@@ -14,6 +14,30 @@ use view::{current_ref, editor::Action};
 
 use super::{test_config, test_syntax_loader, AppBuilder};
 
+/// Wait for editor-side initialization, not just transport readiness. Processing
+/// the notifications sends didOpen before a test starts observing feature requests.
+pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        for _ in 0..servers {
+            let (server, call) = app
+                .editor
+                .language_servers
+                .incoming
+                .next()
+                .await
+                .context("LSP message stream closed during initialization")?;
+            anyhow::ensure!(
+                matches!(&call, Call::Notification(message) if message.method == "initialized"),
+                "expected initialization notification from {server:?}, got {call:?}"
+            );
+            app.handle_language_server_message(call, server).await;
+        }
+        anyhow::Ok(())
+    })
+    .await
+    .context("test language servers did not initialize")?
+}
+
 pub(crate) struct Fixture {
     pub app: Application,
     gate: PathBuf,

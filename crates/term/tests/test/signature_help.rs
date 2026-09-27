@@ -7,7 +7,6 @@ use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
 use term::{application::Application, ui::lsp::signature_help::SignatureHelp};
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
@@ -89,19 +88,9 @@ impl Fixture {
             .with_config(config)
             .with_lang_loader(loader)
             .build()?;
-        let (tx, callbacks) = mpsc::unbounded_channel();
-        let blocking = tx.clone();
-        app.editor.handlers.signature_hints = SignatureHelpHandler::new(EditorCallbackSender::new(
-            move |callback| {
-                let tx = tx.clone();
-                async move {
-                    let _ = tx.send((false, callback));
-                }
-            },
-            move |callback| {
-                let _ = blocking.send((true, callback));
-            },
-        ));
+        let (sender, callbacks) =
+            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+        app.editor.handlers.signature_hints = SignatureHelpHandler::new(sender);
         let path = dir.join("document.signature-test");
         std::fs::write(&path, text)?;
         app.editor.open(&path, Action::Replace)?;
@@ -119,19 +108,7 @@ impl Fixture {
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
         std::fs::write(&self.initialize_gate, "ready")?;
-        for _ in 0..self.server_count {
-            let (server, call) = tokio::time::timeout(
-                Duration::from_secs(10),
-                self.app.editor.language_servers.incoming.next(),
-            )
-            .await?
-            .context("server initialization")?;
-            anyhow::ensure!(
-                matches!(&call, lsp_client::Call::Notification(message) if message.method == "initialized")
-            );
-            self.app.handle_language_server_message(call, server).await;
-        }
-        Ok(())
+        super::helpers::lsp::initialize(&mut self.app, self.server_count).await
     }
 
     fn trigger(&self, invoked: SignatureHelpInvoked) {

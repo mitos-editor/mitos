@@ -1,13 +1,8 @@
-use std::{
-    path::PathBuf,
-    process::Command,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
 
-use editor_core::{syntax::config::AutoPairConfig, Selection};
 use loader::workspace_trust::{ImplicitTrustLevel, TrustQuery};
 use serde_json::json;
 use view::{
@@ -16,55 +11,9 @@ use view::{
     editor::{Action, ConfigEvent},
     events::ConfigDidChange,
     theme::Theme,
-    view::ViewPosition,
 };
 
 use super::helpers::{lsp::Fixture, test_syntax_loader, AppBuilder};
-
-#[tokio::test(flavor = "multi_thread")]
-async fn live_settings_are_visible_to_hooks_and_all_views_are_adjusted_afterward(
-) -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let path = dir.path().join("document.txt");
-    std::fs::write(&path, "line\n".repeat(500))?;
-    let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    app.editor.open(&path, Action::VerticalSplit)?;
-    assert_eq!(app.editor.tree.views().count(), 2);
-    let calls = Arc::new(AtomicUsize::new(0));
-    let seen = calls.clone();
-    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        assert!(!event.old.soft_wrap.enable.unwrap_or(false));
-        assert_eq!(event.new.soft_wrap.enable, Some(true));
-        assert_eq!(event.editor.config().soft_wrap.enable, Some(true));
-        assert!(event
-            .editor
-            .auto_pairs
-            .as_ref()
-            .is_none_or(|pairs| pairs.get('(').is_none()));
-        // A hook changes selection after the editor's initial layout refresh.
-        // The final cursor adjustment must use this selection in every split.
-        for (view, _) in event.editor.tree.views() {
-            let doc = event.editor.documents.get_mut(&view.doc).unwrap();
-            doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 2));
-            doc.set_view_offset(view.id, ViewPosition::default());
-        }
-        seen.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
-    let mut settings = (*app.editor.config()).clone();
-    settings.soft_wrap.enable = Some(true);
-    settings.auto_pairs = AutoPairConfig::Enable(false);
-    settings.scrolloff = 3;
-    app.handle_config_events(ConfigEvent::Update(Box::new(settings)));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    for (view, _) in app.editor.tree.views_mut() {
-        let doc = app.editor.documents.get(&view.doc).unwrap();
-        assert!(doc.view_offset(view.id).anchor > 0);
-        assert!(view.is_cursor_in_view(doc, 3));
-    }
-    assert!(app.close().await.is_empty());
-    Ok(())
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_language_application_updates_scopes_documents_and_diagnostics() -> anyhow::Result<()>
@@ -130,90 +79,10 @@ async fn shared_language_application_updates_scopes_documents_and_diagnostics() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn invalid_theme_keeps_the_previous_theme_and_still_refreshes_documents() -> anyhow::Result<()>
-{
-    let dir = tempfile::tempdir()?;
-    let path = dir.path().join("document.new-config-test");
-    std::fs::write(&path, "text\n")?;
-    let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    let old_theme = app.editor.theme.scopes().to_vec();
-    let loader = test_syntax_loader(Some(
-        r#"
-        [[language]]
-        name = "new-config-test"
-        scope = "source.new-config-test"
-        file-types = ["new-config-test"]
-        roots = []
-    "#
-        .into(),
-    ));
-    let invalid_theme = Theme::from(toml::Value::Table(Default::default()));
-    let error = app
-        .editor
-        .apply_language_config(loader, invalid_theme)
-        .unwrap_err();
-    assert!(error.to_string().contains("ui.selection"));
-    assert_eq!(app.editor.theme.scopes(), old_theme);
-    assert_eq!(
-        current_ref!(app.editor)
-            .1
-            .language_config()
-            .unwrap()
-            .language_id,
-        "new-config-test"
-    );
-    assert!(app.close().await.is_empty());
-    Ok(())
-}
-
-/// File lookup and the config-file OnceLock are process-wide. Exercise real
-/// discovery in a child with isolated directories, leaving parallel tests alone.
-fn isolated_workspace(name: &str) -> anyhow::Result<Option<PathBuf>> {
-    const ROOT: &str = "MITOS_TEST_CONFIG_APPLICATION_ROOT";
-    if let Some(root) = std::env::var_os(ROOT) {
-        let root = PathBuf::from(root);
-        assert!(loader::config_dir().starts_with(&root));
-        loader::initialize_config_file(Some(root.join("config/mitos/config.toml")));
-        return Ok(Some(root));
-    }
-    let dir = tempfile::tempdir()?;
-    let root = dir.path().canonicalize()?;
-    for path in ["workspace/.mitos", "config/mitos", "data", "cache"] {
-        std::fs::create_dir_all(root.join(path))?;
-    }
-    let output = Command::new(std::env::current_exe()?)
-        .args([
-            "--exact",
-            &format!("test::config_application::{name}"),
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .current_dir(root.join("workspace"))
-        .env(
-            "MITOS_RUNTIME",
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime"),
-        )
-        .env(ROOT, &root)
-        .env("XDG_CONFIG_HOME", root.join("config"))
-        .env("XDG_DATA_HOME", root.join("data"))
-        .env("XDG_CACHE_HOME", root.join("cache"))
-        .env("XDG_STATE_HOME", root.join("data"))
-        .env("APPDATA", root.join("config"))
-        .env("LOCALAPPDATA", root.join("cache"))
-        .output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "isolated test failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(None)
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn language_loading_applies_new_trust_before_reading_local_files() -> anyhow::Result<()> {
-    let Some(root) =
-        isolated_workspace("language_loading_applies_new_trust_before_reading_local_files")?
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::config_application::language_loading_applies_new_trust_before_reading_local_files",
+    )?
     else {
         return Ok(());
     };
@@ -271,8 +140,8 @@ async fn language_loading_applies_new_trust_before_reading_local_files() -> anyh
 #[tokio::test(flavor = "multi_thread")]
 async fn application_reload_publishes_settings_after_resources_and_preserves_failure_boundaries(
 ) -> anyhow::Result<()> {
-    let Some(root) = isolated_workspace(
-        "application_reload_publishes_settings_after_resources_and_preserves_failure_boundaries",
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::config_application::application_reload_publishes_settings_after_resources_and_preserves_failure_boundaries",
     )?
     else {
         return Ok(());

@@ -209,18 +209,8 @@ impl SharedReload {
     }
 
     fn replace_handler(&mut self) {
-        use view::{callbacks::EditorCallbackSender, handlers::auto_reload::AutoReloadHandler};
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let blocking = tx.clone();
-        let callbacks = EditorCallbackSender::new(
-            move |callback| {
-                let _ = tx.send(callback);
-                async {}
-            },
-            move |callback| {
-                let _ = blocking.send(callback);
-            },
-        );
+        use view::handlers::auto_reload::AutoReloadHandler;
+        let (callbacks, rx) = super::helpers::callbacks::channel();
         self.app.editor.handlers.auto_reload =
             AutoReloadHandler::new(callbacks.clone(), &self.app.editor.config());
         self.app.editor.file_watcher =

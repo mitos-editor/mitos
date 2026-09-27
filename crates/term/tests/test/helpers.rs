@@ -1,3 +1,5 @@
+pub(crate) mod callbacks;
+pub(crate) mod isolation;
 pub(crate) mod lsp;
 
 use std::{
