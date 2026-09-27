@@ -287,7 +287,7 @@ mod tests {
     /// Runs the full-document check path's logic (region selection + tokenization) against a real
     /// syntax tree, the way `check_text` does off-thread.
     fn check_scoped(language: &str, text: &str) -> Vec<Diagnostic> {
-        let loader = editor_core::config::default_lang_loader();
+        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
         let rope = Rope::from_str(text);
         let language = loader.language_for_name(language).unwrap();
         let syntax = Syntax::new(rope.slice(..), language, &loader).unwrap();

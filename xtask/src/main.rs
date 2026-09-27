@@ -26,26 +26,15 @@ pub mod tasks {
     }
 
     pub fn querycheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
-        use editor_core::syntax::LanguageData;
-
         let languages_to_check: HashSet<_> = languages.collect();
-        let loader = editor_core::config::default_lang_loader();
-        for (_language, lang_data) in loader.languages() {
+        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
+        for (language, lang_data) in loader.languages() {
             if !languages_to_check.is_empty()
                 && !languages_to_check.contains(&lang_data.config().language_id)
             {
                 continue;
             }
-            let config = lang_data.config();
-            let Some(syntax_config) = LanguageData::compile_syntax_config(config, &loader)? else {
-                continue;
-            };
-            let grammar = syntax_config.grammar;
-            LanguageData::compile_indent_query(grammar, config)?;
-            LanguageData::compile_textobject_query(grammar, config)?;
-            LanguageData::compile_tag_query(grammar, config)?;
-            LanguageData::compile_rainbow_query(grammar, config)?;
-            LanguageData::compile_spellcheck_query(grammar, config)?;
+            loader.validate_queries(language)?;
         }
 
         println!("Query check succeeded");
@@ -64,7 +53,7 @@ pub mod tasks {
         use stdx::rope::RopeSliceExt;
 
         let filter: HashSet<String> = languages.collect();
-        let loader = editor_core::config::default_lang_loader();
+        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
         let corpus = crate::path::tests_indent();
         let tab_width = 4;
         let mut errors = 0usize;
@@ -379,7 +368,7 @@ pub mod tasks {
         }
 
         let scopes = capture_scopes();
-        let loader = editor_core::config::default_lang_loader();
+        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
         loader.set_scopes(scopes.clone());
 
         let args: Vec<String> = args.collect();

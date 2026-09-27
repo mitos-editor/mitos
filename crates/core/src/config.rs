@@ -1,4 +1,4 @@
-use loader::workspace_trust::WorkspaceTrust;
+use loader::{syntax::Resources, workspace_trust::WorkspaceTrust};
 
 use crate::syntax::{
     config::{Configuration, LanguageConfiguration},
@@ -13,8 +13,9 @@ pub fn default_lang_config() -> Configuration {
 }
 
 /// Language configuration loader based on built-in languages.toml.
-pub fn default_lang_loader() -> Loader {
-    Loader::new(default_lang_config()).expect("Could not compile loader for default config")
+pub fn default_lang_loader(resources: Resources) -> Loader {
+    Loader::new(default_lang_config(), resources)
+        .expect("Could not compile loader for default config")
 }
 
 #[derive(Debug)]
@@ -44,7 +45,10 @@ pub fn user_lang_config(trust: &WorkspaceTrust) -> Result<Configuration, toml::d
 }
 
 /// Language configuration loader based on user configured languages.toml.
-pub fn user_lang_loader(trust: &WorkspaceTrust) -> Result<Loader, LanguageLoaderError> {
+pub fn user_lang_loader(
+    trust: &WorkspaceTrust,
+    resources: Resources,
+) -> Result<Loader, LanguageLoaderError> {
     let config_val =
         loader::config::user_lang_config(trust).map_err(LanguageLoaderError::DeserializeError)?;
     let config = config_val.clone().try_into().map_err(|e| {
@@ -62,5 +66,5 @@ pub fn user_lang_loader(trust: &WorkspaceTrust) -> Result<Loader, LanguageLoader
         }
         LanguageLoaderError::ConfigError(e, String::new())
     })?;
-    Loader::new(config).map_err(LanguageLoaderError::LoaderError)
+    Loader::new(config, resources).map_err(LanguageLoaderError::LoaderError)
 }
