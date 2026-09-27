@@ -37,7 +37,10 @@ async fn range_formatting_converts_utf16_positions_and_preserves_surrounding_tex
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut app = application(dir.path()).await?;
-    let view = current_ref!(app.editor).0.id;
+    let (view, doc) = current!(app.editor);
+    doc.indent_style = editor_core::indent::IndentStyle::Spaces(2);
+    assert_ne!(doc.tab_width(), doc.indent_width());
+    let view = view.id;
     let update = formatting::prepare_selections(&app.editor, view)?
         .run()
         .await;
@@ -52,6 +55,7 @@ async fn range_formatting_converts_utf16_positions_and_preserves_surrounding_tex
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .find(|message| message["method"] == "textDocument/rangeFormatting")
         .unwrap();
+    assert_eq!(request["params"]["options"]["tabSize"], 2);
     assert_eq!(request["params"]["range"]["start"]["character"], 3);
     assert_eq!(request["params"]["range"]["end"]["character"], 6);
     assert!(app.close().await.is_empty());

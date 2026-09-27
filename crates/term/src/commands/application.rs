@@ -103,9 +103,14 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let view_id = view!(cx.editor).id;
+        let view = view!(cx.editor);
+        let (view_id, binding) = (view.id, view.binding_revision());
         cx.after_writes(move |editor| {
-            if !editor.tree.contains(view_id) {
+            if editor
+                .tree
+                .try_get(view_id)
+                .is_none_or(|view| view.binding_revision() != binding)
+            {
                 return Ok(());
             }
             if editor.tree.views().count() == 1 {
@@ -126,9 +131,14 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let view_id = view!(cx.editor).id;
+        let view = view!(cx.editor);
+        let (view_id, binding) = (view.id, view.binding_revision());
         cx.after_writes(move |editor| {
-            if editor.tree.contains(view_id) {
+            if editor
+                .tree
+                .try_get(view_id)
+                .is_some_and(|view| view.binding_revision() == binding)
+            {
                 editor.close(view_id);
             }
             Ok(())
@@ -176,7 +186,25 @@ pub(super) mod typed {
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
         )?;
-        force_quit(cx, Args::default(), event)
+        let view = view!(cx.editor);
+        let (view_id, binding) = (view.id, view.binding_revision());
+        let doc_id = doc!(cx.editor).id();
+        cx.after_writes(move |editor| {
+            if editor
+                .tree
+                .try_get(view_id)
+                .is_none_or(|view| view.binding_revision() != binding)
+            {
+                return Ok(());
+            }
+            if editor.document(doc_id).is_some_and(|doc| doc.is_modified()) {
+                anyhow::bail!("Buffer changed while saving; write again before quitting");
+            }
+            if editor.tree.contains(view_id) {
+                editor.close(view_id);
+            }
+            Ok(())
+        })
     }
 
     #[cold]
@@ -210,7 +238,7 @@ pub(super) mod typed {
         if event != PromptEvent::Validate {
             return Ok(());
         }
-        let _ = write_all_impl(
+        write_all_impl(
             cx.editor,
             cx.jobs,
             WriteAllOptions {
@@ -219,8 +247,8 @@ pub(super) mod typed {
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
-        );
-        quit_all_impl(cx, true)
+        )?;
+        quit_all_impl(cx, false)
     }
 
     fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()> {

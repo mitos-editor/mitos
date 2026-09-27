@@ -66,7 +66,11 @@ impl Document {
             .language_config()
             .and_then(|c| c.formatter.as_ref())
             .and_then(|formatter| {
-                Some((stdx::env::which(&formatter.command).ok()?, &formatter.args, formatter.timeout))
+                Some((
+                    stdx::env::which(&formatter.command).ok()?,
+                    &formatter.args,
+                    formatter.timeout,
+                ))
             })
         {
             log::debug!(
@@ -133,11 +137,14 @@ impl Document {
 
                 Ok(text_diff::compare_ropes(&text, &Rope::from(str)))
             };
-            return Some(async move {
-                tokio::time::timeout(std::time::Duration::from_secs(timeout), formatting_future)
-                    .await
-                    .map_err(|_| FormatterError::Timeout(timeout))?
-            }.boxed());
+            return Some(
+                async move {
+                    tokio::time::timeout(std::time::Duration::from_secs(timeout), formatting_future)
+                        .await
+                        .map_err(|_| FormatterError::Timeout(timeout))?
+                }
+                .boxed(),
+            );
         };
 
         // finds first language server that supports formatting and then formats

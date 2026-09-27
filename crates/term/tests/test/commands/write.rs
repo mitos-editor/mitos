@@ -453,6 +453,7 @@ async fn test_write_auto_format_fails_still_writes() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_auto_format_uses_editor_default() -> anyhow::Result<()> {
+    let binary = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
     for (language_auto_format, expected) in
         [(None, "new content\n"), (Some(false), "let foo = 0;\n")]
     {
@@ -465,7 +466,7 @@ async fn test_write_auto_format_uses_editor_default() -> anyhow::Result<()> {
                 [[language]]
                 name = "toml"
                 {auto_format}
-                formatter = {{ command = "bash", args = [ "-c", "echo new content" ] }}
+                formatter = {{ command = {binary}, args = ["--format"] }}
             "#
         );
 
@@ -486,17 +487,20 @@ async fn test_write_auto_format_uses_editor_default() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_quit_auto_format_exits_after_format() -> anyhow::Result<()> {
     let mut file = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    let binary = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
 
-    let lang_conf = indoc! {r#"
+    let lang_conf = format!(
+        r#"
             [[language]]
             name = "rust"
-            formatter = { command = "bash", args = [ "-c", "echo new content" ] }
-        "#};
+            formatter = {{ command = {binary}, args = ["--format"] }}
+        "#
+    );
 
     let mut app = helpers::AppBuilder::new()
         .with_file(file.path(), None)
         .with_input_text("#[l|]#et foo = 0;\n")
-        .with_lang_loader(helpers::test_syntax_loader(Some(lang_conf.into())))
+        .with_lang_loader(helpers::test_syntax_loader(Some(lang_conf)))
         .build()?;
 
     test_key_sequences(&mut app, vec![(Some(":x<ret>"), None)], true).await?;
@@ -1238,9 +1242,7 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
 /// A formatter that calls back into the client must work for every save/close path.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_save_close_services_formatter_requests_and_uses_indent_size() -> anyhow::Result<()> {
-    use lsp_client::{Call, Notification};
     use std::time::Duration;
-    use tokio_stream::StreamExt;
 
     for (command, exits) in [
         (":wq", true),
@@ -1287,19 +1289,7 @@ async fn test_save_close_services_formatter_requests_and_uses_indent_size() -> a
             .with_file(&file, None)
             .build()?;
         std::fs::write(gate, "ready")?;
-        let (id, Call::Notification(notification)) = tokio::time::timeout(
-            Duration::from_secs(5),
-            app.editor.language_servers.incoming.next(),
-        )
-        .await?
-        .unwrap() else {
-            panic!("expected initialization")
-        };
-        assert!(matches!(
-            Notification::parse(&notification.method, notification.params)?,
-            Notification::Initialized
-        ));
-        app.editor.handle_language_server_initialized(id);
+        helpers::lsp::initialize(&mut app, 1).await?;
         assert_eq!(doc!(app.editor).indent_width(), 2);
         assert_eq!(doc!(app.editor).tab_width(), 4);
         let keys = format!("iupdated <esc>{command}<ret>");
@@ -1357,6 +1347,47 @@ async fn test_write_quit_external_formatter_timeout_still_saves() -> anyhow::Res
         ),
     )
     .await??;
-    helpers::assert_file_has_content(&mut file, "typed while waiting: keep my edits\n")?;
+    helpers::assert_file_has_content(
+        &mut file,
+        &LineFeedHandling::Native.apply("typed while waiting: keep my edits\n"),
+    )?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_force_write_quit_save_error_keeps_buffer_open() -> anyhow::Result<()> {
+    for formatted in [false, true] {
+        for command in ["wq!", "wqa!", "wbc!", "x!"] {
+            let dir = tempfile::tempdir()?;
+            let file = dir.path().join("file.toml");
+            std::fs::write(&file, "original\n")?;
+            let binary = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+            let loader = helpers::test_syntax_loader(Some(format!(
+                r#"
+                [[language]]
+                name = "toml"
+                auto-format = {formatted}
+                formatter = {{ command = {binary}, args = ["--echo"] }}
+            "#
+            )));
+            let mut app = AppBuilder::new()
+                .with_file(&file, None)
+                .with_lang_loader(loader)
+                .build()?;
+            // A directory cannot be overwritten, even by a forced save.
+            std::fs::remove_file(&file)?;
+            std::fs::create_dir(&file)?;
+            test_key_sequence(
+                &mut app,
+                Some(&format!("ikeep my edits<esc>:{command}<ret>")),
+                Some(&|app| {
+                    assert!(app.editor.is_err());
+                    assert!(doc!(app.editor).is_modified());
+                }),
+                false,
+            )
+            .await?;
+        }
+    }
     Ok(())
 }

@@ -47,12 +47,15 @@ fn close_selected_buffer(
     match action {
         PickerItemAction::CloseBuffer => {
             let doc_id = meta.id;
-            if let Err(error) = cx.after_writes(move |editor| {
-                match editor.close_document(doc_id, false) {
+            if let Err(error) =
+                cx.after_writes(move |editor| match editor.close_document(doc_id, false) {
                     Ok(()) | Err(view::editor::CloseError::DoesNotExist) => Ok(()),
-                    Err(error) => Err(error.into()),
-                }
-            }) {
+                    Err(view::editor::CloseError::BufferModified(name)) => {
+                        anyhow::bail!("Buffer '{name}' has unsaved changes")
+                    }
+                    Err(view::editor::CloseError::SaveError(error)) => Err(error),
+                })
+            {
                 cx.editor.set_error(|| error.to_string());
                 return PickerCallbackResult::KeepOpen;
             }

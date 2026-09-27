@@ -368,25 +368,19 @@ impl Application {
             use futures_util::StreamExt;
             use view::editor::EditorEvent;
             tokio::select! {
-                Some(result) = self.jobs.wait_futures.next() => {
-                    match result {
-                        Err(error) => errs.push(error),
-                        Ok(callback) => {
-                            if let Some(job) = self.jobs.handle_callback(
-                                crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 },
-                                &mut self.editor, &mut self.compositor, Ok(callback),
-                            ) {
-                                self.jobs.add(job);
-                            }
-                        }
+                result = async {
+                    tokio::select! {
+                        Some(result) = self.jobs.wait_futures.next() => result,
+                        Some(callback) = self.jobs.callbacks.recv() => Ok(Some(callback)),
                     }
-                }
-                Some(callback) = self.jobs.callbacks.recv() => {
-                    if let Some(job) = self.jobs.handle_callback(
+                } => {
+                    match self.jobs.try_handle_callback(
                         crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 },
-                        &mut self.editor, &mut self.compositor, Ok(Some(callback)),
+                        &mut self.editor, &mut self.compositor, result,
                     ) {
-                        self.jobs.add(job);
+                        Ok(Some(job)) => self.jobs.add(job),
+                        Ok(None) => (),
+                        Err(error) => errs.push(error),
                     }
                 }
                 event = self.editor.wait_event() => {
@@ -404,3 +398,6 @@ impl Application {
         errs
     }
 }
+
+#[cfg(all(test, feature = "integration"))]
+mod save_tests;
