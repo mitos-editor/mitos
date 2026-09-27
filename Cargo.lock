@@ -4939,6 +4939,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "core",
+ "loader",
  "ropey",
  "stdx",
  "term",

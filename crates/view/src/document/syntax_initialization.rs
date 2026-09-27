@@ -163,6 +163,7 @@ mod tests {
         "#,
                 )
                 .unwrap(),
+                loader::syntax::Resources::default(),
             )
             .unwrap(),
         )

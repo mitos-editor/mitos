@@ -14,16 +14,16 @@ use tempfile::TempPath;
 use tree_house::tree_sitter::Grammar;
 
 #[cfg(target_os = "macos")]
-const DYLIB_EXTENSION: &str = "dylib";
+pub(crate) const DYLIB_EXTENSION: &str = "dylib";
 
 #[cfg(all(unix, not(target_os = "macos")))]
-const DYLIB_EXTENSION: &str = "so";
+pub(crate) const DYLIB_EXTENSION: &str = "so";
 
 #[cfg(windows)]
-const DYLIB_EXTENSION: &str = "dll";
+pub(crate) const DYLIB_EXTENSION: &str = "dll";
 
 #[cfg(target_arch = "wasm32")]
-const DYLIB_EXTENSION: &str = "wasm";
+pub(crate) const DYLIB_EXTENSION: &str = "wasm";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Configuration {
@@ -65,21 +65,22 @@ pub enum GrammarSource {
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
-#[cfg(target_arch = "wasm32")]
+/// Load a grammar from the process-default runtime directories.
 pub fn get_language(name: &str) -> Result<Option<Grammar>> {
+    crate::syntax::Resources::default().grammar(name)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn load_language(_name: &str, _path: &Path) -> Result<Option<Grammar>> {
     unimplemented!()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn get_language(name: &str) -> Result<Option<Grammar>> {
-    let mut rel_library_path = PathBuf::new().join("grammars").join(name);
-    rel_library_path.set_extension(DYLIB_EXTENSION);
-    let library_path = crate::runtime_file(&rel_library_path);
+pub(crate) fn load_language(name: &str, library_path: &Path) -> Result<Option<Grammar>> {
     if !library_path.exists() {
         return Ok(None);
     }
-
-    let grammar = unsafe { Grammar::new(name, &library_path) }?;
+    let grammar = unsafe { Grammar::new(name, library_path) }?;
     Ok(Some(grammar))
 }
 
@@ -746,6 +747,5 @@ fn mtime(path: &Path) -> Result<SystemTime> {
 /// Gives the contents of a file from a language's `runtime/queries/<lang>`
 /// directory
 pub fn load_runtime_file(language: &str, filename: &str) -> Result<String, std::io::Error> {
-    let path = crate::runtime_file(PathBuf::new().join("queries").join(language).join(filename));
-    std::fs::read_to_string(path)
+    crate::syntax::Resources::default().query_file(language, filename)
 }

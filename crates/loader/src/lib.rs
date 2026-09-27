@@ -11,12 +11,14 @@
 //! first-write-wins so later application components cannot silently change the
 //! paths selected from command-line arguments.
 //!
-//! [`grammar`] handles native tree-sitter grammar discovery/loading, while
+//! [`syntax`] selects grammar and query sources from ordered runtime paths;
+//! [`grammar`] builds and loads native tree-sitter libraries.
 //! [`workspace_trust`] keeps decisions about executing workspace-controlled
 //! programs separate from path discovery.
 
 pub mod config;
 pub mod grammar;
+pub mod syntax;
 pub mod workspace_trust;
 
 use stdx::{env::current_working_dir, path};
@@ -117,35 +119,23 @@ pub fn runtime_dirs() -> &'static [PathBuf] {
     &RUNTIME_DIRS
 }
 
-/// Find file with path relative to runtime directory
-///
-/// `rel_path` should be the relative path from within the `runtime/` directory.
-/// The valid runtime directories are searched in priority order and the first
-/// file found to exist is returned, otherwise None.
-fn find_runtime_file(rel_path: &Path) -> Option<PathBuf> {
-    RUNTIME_DIRS.iter().find_map(|rt_dir| {
-        let path = rt_dir.join(rel_path);
-        if path.exists() {
-            Some(path)
-        } else {
-            None
-        }
-    })
+/// Find a runtime file in process-default priority order, retaining the final
+/// attempted path when no file exists.
+pub fn runtime_file(rel_path: impl AsRef<Path>) -> PathBuf {
+    runtime_file_in(runtime_dirs(), rel_path.as_ref())
 }
 
-/// Find file with path relative to runtime directory
-///
-/// `rel_path` should be the relative path from within the `runtime/` directory.
-/// The valid runtime directories are searched in priority order and the first
-/// file found to exist is returned, otherwise the path to the final attempt
-/// that failed.
-pub fn runtime_file(rel_path: impl AsRef<Path>) -> PathBuf {
-    find_runtime_file(rel_path.as_ref()).unwrap_or_else(|| {
-        RUNTIME_DIRS
-            .last()
-            .map(|dir| dir.join(rel_path))
-            .unwrap_or_default()
-    })
+pub(crate) fn runtime_file_in(directories: &[PathBuf], relative: &Path) -> PathBuf {
+    directories
+        .iter()
+        .map(|dir| dir.join(relative))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| {
+            directories
+                .last()
+                .map(|dir| dir.join(relative))
+                .unwrap_or_default()
+        })
 }
 
 pub fn config_dir() -> PathBuf {

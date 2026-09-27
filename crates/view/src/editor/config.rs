@@ -17,7 +17,10 @@ impl Editor {
     ) -> Result<syntax::Loader, LanguageLoaderError> {
         self.workspace_trust
             .set_config((&config.workspace_trust).into());
-        editor_core::config::user_lang_loader(&self.workspace_trust)
+        editor_core::config::user_lang_loader(
+            &self.workspace_trust,
+            self.syn_loader.load().resources().clone(),
+        )
     }
 
     /// Install a language loader and the frontend-selected theme, then refresh

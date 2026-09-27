@@ -29,6 +29,14 @@ impl Fixture {
     }
 
     fn with_languages(text: &str, languages: &str) -> anyhow::Result<Self> {
+        Self::with_resources(text, languages, loader::syntax::Resources::default())
+    }
+
+    fn with_resources(
+        text: &str,
+        languages: &str,
+        resources: loader::syntax::Resources,
+    ) -> anyhow::Result<Self> {
         let mut config = Config::default();
         config.file_watcher.enable = false;
         config.auto_reload.enable = false;
@@ -55,9 +63,10 @@ impl Fixture {
         let mut editor = Editor::new(
             Rect::new(0, 0, 80, 24),
             Arc::new(theme::Loader::new(&[])),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::new(toml::from_str(
-                languages,
-            )?)?)),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::new(
+                toml::from_str(languages)?,
+                resources,
+            )?)),
             config.clone(),
             handlers,
             loader::workspace_trust::WorkspaceTrust::fully_trusted(),
@@ -342,5 +351,49 @@ async fn native_file_watching_reloads_without_terminal_setup() -> anyhow::Result
     .await
     .context("native change did not reach its headless editor")??;
     assert!(!current_ref!(f.editor).1.is_modified());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn language_reload_retains_each_editors_selected_runtime() -> anyhow::Result<()> {
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    for (dir, content) in [(&first, "; first source"), (&second, "; second source")] {
+        let path = dir.path().join("queries/resource-test");
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("highlights.scm"), content)?;
+    }
+    let mut a = Fixture::with_resources(
+        "first\n",
+        "language = []",
+        loader::syntax::Resources::new(vec![first.path().into()]),
+    )?;
+    let mut b = Fixture::with_resources(
+        "second\n",
+        "language = []",
+        loader::syntax::Resources::new(vec![second.path().into()]),
+    )?;
+    for (fixture, expected) in [(&mut a, "; first source"), (&mut b, "; second source")] {
+        let config = (*fixture.editor.config()).clone();
+        let language_loader = fixture.editor.load_language_config(&config)?;
+        assert_eq!(
+            language_loader
+                .resources()
+                .query("resource-test", "highlights.scm"),
+            expected
+        );
+        fixture
+            .editor
+            .apply_language_config(language_loader, theme::Loader::new(&[]).default_theme())?;
+        let installed = fixture.editor.syn_loader.load();
+        assert_eq!(
+            installed
+                .resources()
+                .query("resource-test", "highlights.scm"),
+            expected
+        );
+        // These isolated roots deliberately exclude the process-default native grammars.
+        assert!(installed.resources().grammar("json")?.is_none());
+    }
     Ok(())
 }

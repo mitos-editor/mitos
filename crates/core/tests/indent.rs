@@ -165,7 +165,7 @@ fn test_treesitter_indent(
     lang_scope: &str,
     ignored_lines: Vec<std::ops::Range<usize>>,
 ) {
-    let loader = Loader::new(indent_tests_config()).unwrap();
+    let loader = Loader::new(indent_tests_config(), loader::syntax::Resources::default()).unwrap();
 
     let language = loader.language_for_scope(lang_scope).unwrap();
     let language_config = loader.language(language).config();
