@@ -180,6 +180,7 @@ pub enum EditorEvent {
     DocumentSaved(DocumentSavedEventResult),
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
+    SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
     IdleTimer,
@@ -897,6 +898,7 @@ impl Editor {
         doc.document_symbols_handler = Some(self.handlers.document_symbols.clone());
         doc.pull_diagnostics_handler = Some(self.handlers.pull_diagnostics.clone());
         doc.code_action_hint_handler = Some(self.handlers.code_action_hint.clone());
+        doc.signature_help_trigger = Some(self.handlers.signature_hints.document_trigger());
         doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
         doc.syntax_handler = Some(self.handlers.syntax.clone());
         doc.spelling_events = Some(self.handlers.spelling.event_tx.clone());
@@ -1359,6 +1361,9 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
+        if let Some(update) = crate::handlers::signature_help::next_update(self) {
+            return EditorEvent::SignatureHelp(update);
+        }
         if let Some(request) = crate::handlers::auto_reload::next_reload_request(self) {
             return EditorEvent::ReloadConfirmation(request);
         }

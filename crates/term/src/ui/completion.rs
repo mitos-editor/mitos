@@ -17,7 +17,7 @@ use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
 use view::{
     editor::CompleteAction,
-    handlers::lsp::SignatureHelpInvoked,
+    handlers::signature_help::SignatureHelpInvoked,
     icons::ICONS,
     theme::{Color, Modifier, Style},
     ViewId,

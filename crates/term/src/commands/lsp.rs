@@ -32,7 +32,7 @@ use view::{
     align_view,
     document::{DocumentInlayHints, DocumentInlayHintsId},
     editor::Action,
-    handlers::lsp::SignatureHelpInvoked,
+    handlers::signature_help::SignatureHelpInvoked,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     theme::{symbol_kind_scope, Theme},

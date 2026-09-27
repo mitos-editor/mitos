@@ -55,20 +55,6 @@ impl DocumentRequest {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum SignatureHelpInvoked {
-    Automatic,
-    Manual,
-}
-
-pub enum SignatureHelpEvent {
-    Invoked,
-    Trigger,
-    ReTrigger,
-    Cancel,
-    RequestComplete { open: bool },
-}
-
 #[derive(Debug)]
 pub struct ApplyEditError {
     pub kind: ApplyEditErrorKind,
