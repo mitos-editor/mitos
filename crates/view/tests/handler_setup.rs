@@ -207,6 +207,7 @@ async fn language_override_survives_global_word_completion_changes() -> anyhow::
         word-completion = { enable = true }
     "#,
     )?;
+    let language_doc = current_ref!(f.editor).1.id();
     let other = f.dir.path().join("other.txt");
     std::fs::write(&other, "globalword\n")?;
     f.editor.open(&other, Action::Replace)?;
@@ -217,10 +218,6 @@ async fn language_override_survives_global_word_completion_changes() -> anyhow::
     f.expect_words(&["globalword", "languageword"]).await?;
     f.close_current()?;
     f.expect_words(&["languageword"]).await?;
-    let language_doc = f
-        .editor
-        .document_id_by_path(&f.dir.path().join("document.words"))
-        .unwrap();
     assert!(f.editor.close_document(language_doc, true).is_ok());
     f.expect_words(&[]).await?;
     Ok(())
