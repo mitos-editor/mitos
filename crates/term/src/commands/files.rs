@@ -88,12 +88,12 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
     let mut resolve_requests = Vec::new();
     let mut fallback_ranges = Vec::new();
 
-    if doc.document_links.is_empty() {
+    if doc.document_links().is_empty() {
         fallback_ranges.extend_from_slice(&selections);
     } else {
         for selection in &selections {
             let mut matched = false;
-            for link in &doc.document_links {
+            for link in doc.document_links() {
                 if !selection_overlaps_document_link(selection, link) {
                     continue;
                 }

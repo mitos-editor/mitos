@@ -188,7 +188,7 @@ pub(super) fn register_hooks() {
             let doc_id = event.doc.id();
             let view_id = event.view;
             event.doc.document_highlight_controller(view_id).cancel();
-            if let Some(handler) = &event.doc.document_highlight_handler {
+            if let Some(handler) = &event.doc.document_highlights.handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_highlights(editor, doc_id, view_id);
                 });
@@ -219,7 +219,7 @@ pub(super) fn register_hooks() {
             let doc_id = event.doc.id();
             let view_id = event.view;
             event.doc.document_highlight_controller(view_id).cancel();
-            if let Some(handler) = &event.doc.document_highlight_handler {
+            if let Some(handler) = &event.doc.document_highlights.handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_highlights(editor, doc_id, view_id);
                 });

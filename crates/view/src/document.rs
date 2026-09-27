@@ -1,3 +1,14 @@
+mod code_action_hints;
+mod colors;
+mod highlights;
+mod links;
+mod symbols;
+
+pub use colors::DocumentColorSwatches;
+pub use highlights::DocumentHighlights;
+pub use links::DocumentLink;
+pub use symbols::{Breadcrumbs, Crumb};
+
 mod syntax_initialization;
 
 use syntax_initialization::PendingSyntax;
@@ -14,10 +25,8 @@ use editor_core::doc_formatter::TextFormat;
 use editor_core::encoding::Encoding;
 use editor_core::syntax::config::LanguageServerFeature;
 use editor_core::text_annotations::{InlineAnnotation, Overlay};
-use event::TaskController;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
-use lsp_client::lsp::DocumentSymbol;
 use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
 use stdx::faccess::{copy_metadata, readonly};
@@ -180,15 +189,13 @@ pub struct Document {
     /// Jump label overlays for each view.
     pub(crate) jump_labels: HashMap<ViewId, Vec<Overlay>>,
 
-    /// LSP document highlights for each view, stored as char ranges.
-    pub(crate) document_highlights: HashMap<ViewId, DocumentHighlights>,
-    /// LSP code action hints for each view.
-    pub(crate) code_action_hints: HashSet<ViewId>,
-
-    /// Cached symbol tree used to resolve breadcrumb trails.
-    symbols: Option<DocumentSymbolCache>,
-    /// Breadcrumb trail for each view showing this document.
-    breadcrumbs: HashMap<ViewId, Breadcrumbs>,
+    // Each feature owns its cache, scheduling handle, and request controllers.
+    // Dropping the document drops those controllers and cancels in-flight work.
+    pub(crate) document_colors: colors::DocumentColors,
+    pub(crate) document_links: links::DocumentLinks,
+    pub(crate) document_highlights: highlights::DocumentHighlightsState,
+    pub(crate) code_action_hints: code_action_hints::CodeActionHints,
+    pub(crate) document_symbols: symbols::DocumentSymbols,
 
     path: Option<PathBuf>,
     relative_path: OnceLock<Option<PathBuf>>,
@@ -223,18 +230,6 @@ pub struct Document {
     pub syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
     // Assigned when the document joins an editor so its events return to that editor.
-    pub(crate) document_colors_handler:
-        Option<crate::handlers::document_colors::DocumentColorsHandler>,
-    pub(crate) document_links_handler:
-        Option<crate::handlers::document_links::DocumentLinksHandler>,
-    pub(crate) document_highlight_handler:
-        Option<crate::handlers::document_highlight::DocumentHighlightHandler>,
-    pub(crate) document_symbols_handler:
-        Option<crate::handlers::document_symbols::DocumentSymbolsHandler>,
-    pub(crate) pull_diagnostics_handler:
-        Option<crate::handlers::diagnostics::pull::PullDiagnosticsHandler>,
-    pub(crate) code_action_hint_handler:
-        Option<crate::handlers::code_action_hint::CodeActionHintHandler>,
     pub(crate) signature_help_trigger:
         Option<crate::handlers::signature_help::SignatureHelpTrigger>,
     pub(crate) word_index_trigger: Option<crate::handlers::word_index::WordIndexTrigger>,
@@ -284,19 +279,6 @@ pub struct Document {
 
     pub(crate) pull_diagnostics: crate::handlers::diagnostics::pull::DocumentDiagnostics,
 
-    /// Annotations for LSP document color swatches
-    pub color_swatches: Option<DocumentColorSwatches>,
-    /// Cached LSP document links for navigation (e.g. goto_file).
-    pub document_links: Vec<DocumentLink>,
-    // Controllers follow the document lifetime and cancel requests when it closes.
-    pub(crate) color_swatch_controller: TaskController,
-    /// Per-view task controllers for canceling in-flight document highlight requests.
-    pub(crate) document_highlight_controllers: HashMap<ViewId, TaskController>,
-    /// Per-view task controllers for canceling in-flight code action requests.
-    pub(crate) code_action_controllers: HashMap<ViewId, TaskController>,
-    pub(crate) document_link_controller: TaskController,
-    pub(crate) document_symbols_controller: TaskController,
-
     /// Whether this document owns the startup welcome screen.
     pub is_welcome: bool,
 
@@ -304,94 +286,6 @@ pub struct Document {
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.
     syn_loader: Arc<ArcSwap<syntax::Loader>>,
-}
-
-struct DocumentSymbolCache {
-    tree: Vec<ThinDocumentSymbol>,
-    offset_encoding: OffsetEncoding,
-}
-
-#[derive(Debug, Clone)]
-struct ThinDocumentSymbol {
-    /// Shared with active crumbs so cursor movement never reallocates symbol names.
-    name: Arc<str>,
-    kind: lsp::SymbolKind,
-    range: lsp::Range,
-    children: Option<Box<[Self]>>,
-}
-
-impl From<DocumentSymbol> for ThinDocumentSymbol {
-    #[inline]
-    fn from(symbol: DocumentSymbol) -> Self {
-        Self {
-            name: symbol.name.into(),
-            kind: symbol.kind,
-            range: symbol.range,
-            children: symbol.children.map(|children| {
-                let mut vec = Vec::with_capacity(children.len());
-                vec.extend(children.into_iter().map(Self::from));
-                vec.into_boxed_slice()
-            }),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Breadcrumbs(Vec<Crumb>);
-
-impl Breadcrumbs {
-    #[inline]
-    pub fn push(&mut self, crumb: Crumb) {
-        self.0.push(crumb);
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &Crumb> {
-        self.0.iter()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Crumb {
-    pub name: Arc<str>,
-    pub kind: lsp::SymbolKind,
-}
-
-impl From<&ThinDocumentSymbol> for Crumb {
-    #[inline]
-    fn from(symbol: &ThinDocumentSymbol) -> Self {
-        Self {
-            name: symbol.name.clone(),
-            kind: symbol.kind,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DocumentColorSwatches {
-    pub color_swatches: Vec<InlineAnnotation>,
-    pub colors: Vec<syntax::Highlight>,
-    pub color_swatches_padding: Vec<InlineAnnotation>,
-}
-
-/// Highlight ranges returned by LSP `textDocument/documentHighlight` for a view.
-#[derive(Debug, Clone, Default)]
-pub struct DocumentHighlights {
-    pub ranges: Vec<std::ops::Range<usize>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DocumentLink {
-    /// Character offsets in the document for the link range.
-    pub start: usize,
-    pub end: usize,
-    pub link: lsp::DocumentLink,
-    pub language_server_id: LanguageServerId,
 }
 
 /// Inlay hints for a single `(Document, View)` combo.
@@ -851,7 +745,7 @@ where
     *mut_ref = f(mem::take(mut_ref));
 }
 
-use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName, OffsetEncoding};
+use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName};
 use stdx::Url;
 
 impl Document {
@@ -889,12 +783,6 @@ impl Document {
             restore_cursor: false,
             syntax: None,
             pending_syntax: None,
-            document_colors_handler: None,
-            document_links_handler: None,
-            document_highlight_handler: None,
-            document_symbols_handler: None,
-            pull_diagnostics_handler: None,
-            code_action_hint_handler: None,
             syntax_handler: None,
             auto_save_trigger: None,
             word_index_trigger: None,
@@ -918,20 +806,14 @@ impl Document {
             focused_at: std::time::Instant::now(),
             readonly: false,
             jump_labels: HashMap::new(),
-            document_highlights: HashMap::new(),
-            code_action_hints: HashSet::new(),
-            color_swatches: None,
-            document_links: Vec::new(),
-            color_swatch_controller: TaskController::new(),
-            document_highlight_controllers: HashMap::new(),
-            code_action_controllers: HashMap::new(),
+            document_highlights: Default::default(),
+            code_action_hints: Default::default(),
+            document_links: Default::default(),
+            document_colors: Default::default(),
+            document_symbols: Default::default(),
             syn_loader,
             pull_diagnostics: Default::default(),
-            document_link_controller: TaskController::new(),
             is_welcome: false,
-            symbols: None,
-            document_symbols_controller: TaskController::new(),
-            breadcrumbs: HashMap::new(),
         }
     }
 
@@ -1667,11 +1549,9 @@ impl Document {
         self.view_data.remove(&view_id);
         self.inlay_hints.remove(&view_id);
         self.jump_labels.remove(&view_id);
-        self.breadcrumbs.remove(&view_id);
-        self.document_highlights.remove(&view_id);
-        self.document_highlight_controllers.remove(&view_id);
-        self.code_action_hints.remove(&view_id);
-        self.code_action_controllers.remove(&view_id);
+        self.document_symbols.remove_view(view_id);
+        self.document_highlights.remove_view(view_id);
+        self.code_action_hints.remove_view(view_id);
     }
 
     /// Apply a [`Transaction`] to the [`Document`] to change its text.
@@ -1826,27 +1706,8 @@ impl Document {
             apply_inlay_hint_changes(padding_after_inlay_hints);
         }
 
-        for highlights in self.document_highlights.values_mut() {
-            let text_len = self.text.len_chars();
-            let mut updated = Vec::with_capacity(highlights.ranges.len());
-            for mut range in highlights.ranges.drain(..) {
-                changes.update_positions(
-                    [
-                        (&mut range.start, Assoc::After),
-                        (&mut range.end, Assoc::After),
-                    ]
-                    .into_iter(),
-                );
-                if range.start >= text_len {
-                    continue;
-                }
-                let end = range.end.min(text_len);
-                if range.start < end {
-                    updated.push(range.start..end);
-                }
-            }
-            highlights.ranges = updated;
-        }
+        self.document_highlights
+            .apply_changes(changes, self.text.len_chars());
 
         event::dispatch(DocumentDidChange {
             doc: self,
@@ -2718,183 +2579,6 @@ impl Document {
         self.jump_labels.remove(&view_id);
     }
 
-    #[cold]
-    pub fn set_document_symbols(
-        &mut self,
-        symbols: Vec<DocumentSymbol>,
-        offset_encoding: OffsetEncoding,
-    ) {
-        if !self.breadcrumb_enabled() {
-            self.clear_document_symbols();
-            return;
-        }
-
-        self.symbols = Some(DocumentSymbolCache {
-            tree: {
-                let mut tree = Vec::with_capacity(symbols.len());
-                tree.extend(symbols.into_iter().map(ThinDocumentSymbol::from));
-                tree
-            },
-            offset_encoding,
-        });
-
-        // PERF: Symbol responses are cold. Collecting the usually tiny view-id set here avoids
-        // allocations on cursor movement while ensuring every split is refreshed immediately.
-        let view_ids: Vec<_> = self.selections.keys().copied().collect();
-        for view_id in view_ids {
-            self.update_breadcrumbs_for_view(view_id);
-        }
-    }
-
-    #[inline]
-    pub fn clear_document_symbols(&mut self) {
-        self.symbols = None;
-        self.clear_breadcrumbs();
-    }
-
-    #[inline]
-    fn clear_breadcrumbs(&mut self) {
-        self.breadcrumbs.clear();
-    }
-
-    #[inline]
-    pub fn breadcrumbs(&self, view_id: ViewId) -> Option<&Breadcrumbs> {
-        self.breadcrumbs.get(&view_id)
-    }
-
-    // For all non-hotpaths, we use this function to prevent code bloat.
-    #[inline(never)]
-    pub fn update_breadcrumbs_for_view(&mut self, view_id: ViewId) {
-        self.update_breadcrumbs_for_view_inlined(view_id);
-    }
-
-    // We want to make sure this is inlined in the hotpath (cursor position change).
-    #[inline(always)]
-    pub fn update_breadcrumbs_for_view_inlined(&mut self, view_id: ViewId) {
-        if !self.breadcrumb_enabled() {
-            self.breadcrumbs.remove(&view_id);
-            return;
-        }
-
-        #[inline(always)]
-        const fn in_range(pos: lsp::Position, range: lsp::Range) -> bool {
-            // PERF:
-            // Line-based filtering is the most effective early exit indicator,
-            // so do first, before other evaluations; this should be friendly to
-            // the CPU branch predictor.
-            if pos.line < range.start.line || pos.line > range.end.line {
-                return false;
-            }
-
-            // Check if the cursor position is "in" the symbols "depth".
-            //
-            // In the context of breadcrumbs, this would be the difference between
-            // if the cursor is in an impl block or in an impl block and in a
-            // function of the impl block (`|` is the cursor):
-            //
-            // ```rust
-            // impl Foo {
-            //     f|n bar() {} // In `bar`: impl Foo > bar
-            //
-            //   | fn baz() {} // Not in `baz`: impl Foo
-            //
-            //     fn quux() {} | // Not in `quux`: impl Foo
-            // }
-            // ```
-            if pos.line == range.start.line && pos.character < range.start.character {
-                return false;
-            }
-            if pos.line == range.end.line && pos.character >= range.end.character {
-                return false;
-            }
-
-            true
-        }
-
-        let Some(symbols) = self.symbols.as_ref() else {
-            return;
-        };
-
-        let position = self.position(view_id, symbols.offset_encoding);
-
-        let breadcrumb = {
-            let breadcrumb = self.breadcrumbs.entry(view_id).or_default();
-            breadcrumb.clear();
-            breadcrumb
-        };
-
-        let mut current = symbols.tree.as_slice();
-
-        while let Some(symbol) = current
-            .iter()
-            .find(|&symbol| in_range(position, symbol.range))
-        {
-            breadcrumb.push(Crumb::from(symbol));
-            match symbol.children.as_deref() {
-                Some(children) => current = children,
-                _ => break,
-            }
-        }
-    }
-
-    pub fn set_document_highlights(
-        &mut self,
-        view_id: ViewId,
-        ranges: Vec<std::ops::Range<usize>>,
-    ) {
-        if ranges.is_empty() {
-            self.document_highlights.remove(&view_id);
-        } else {
-            self.document_highlights
-                .insert(view_id, DocumentHighlights { ranges });
-        }
-    }
-
-    pub fn clear_document_highlights(&mut self, view_id: ViewId) {
-        self.document_highlights.remove(&view_id);
-    }
-
-    pub fn clear_all_document_highlights(&mut self) {
-        self.document_highlights.clear();
-        self.document_highlight_controllers.clear();
-    }
-
-    pub fn document_highlights(&self, view_id: ViewId) -> Option<&[std::ops::Range<usize>]> {
-        self.document_highlights
-            .get(&view_id)
-            .map(|highlights| highlights.ranges.as_slice())
-    }
-
-    pub(crate) fn document_highlight_controller(&mut self, view_id: ViewId) -> &mut TaskController {
-        self.document_highlight_controllers
-            .entry(view_id)
-            .or_default()
-    }
-
-    pub(crate) fn set_code_action_hints(&mut self, view_id: ViewId) {
-        self.code_action_hints.insert(view_id);
-    }
-
-    pub(crate) fn clear_code_action_hints(&mut self, view_id: ViewId) {
-        self.code_action_hints.remove(&view_id);
-        if let Some(controller) = self.code_action_controllers.get_mut(&view_id) {
-            controller.cancel();
-        }
-    }
-
-    pub(crate) fn clear_all_code_action_hints(&mut self) {
-        self.code_action_hints.clear();
-        self.code_action_controllers.clear();
-    }
-
-    pub fn code_action_hints(&self, view_id: ViewId) -> bool {
-        self.code_action_hints.contains(&view_id)
-    }
-
-    pub(crate) fn code_action_controller(&mut self, view_id: ViewId) -> &mut TaskController {
-        self.code_action_controllers.entry(view_id).or_default()
-    }
-
     /// Get the inlay hints for this document and `view_id`.
     pub fn inlay_hints(&self, view_id: ViewId) -> Option<&DocumentInlayHints> {
         self.inlay_hints.get(&view_id)
@@ -2953,86 +2637,97 @@ mod test {
 
     use super::*;
 
-    #[allow(deprecated)]
-    fn document_symbol(
-        name: &str,
-        kind: lsp::SymbolKind,
-        range: lsp::Range,
-        children: Option<Vec<DocumentSymbol>>,
-    ) -> DocumentSymbol {
-        DocumentSymbol {
-            name: name.to_owned(),
-            detail: None,
-            kind,
-            tags: None,
-            deprecated: None,
-            range,
-            selection_range: range,
-            children,
-        }
+    fn feature_document() -> Document {
+        Document::from(
+            Rope::from("sample text"),
+            None,
+            Arc::new(ArcSwap::from_pointee(Config::default())),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+        )
     }
 
     #[tokio::test]
-    async fn document_symbols_refresh_breadcrumbs_without_reallocating_names() {
-        let text = Rope::from("impl A {\n fn b() {}\n}\n");
-        let mut config = Config::default();
-        config.breadcrumb.enable = true;
-        let mut doc = Document::from(
-            text,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(config))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
-        );
-        doc.set_path(Some(Path::new("test.rs")));
+    async fn removing_a_view_cancels_only_its_feature_requests() {
+        let mut doc = feature_document();
+        let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
+        let first = views.insert(());
+        let second = views.insert(());
+        doc.set_document_highlights(first, std::iter::once(0..2).collect());
+        doc.set_document_highlights(second, std::iter::once(3..5).collect());
+        doc.set_code_action_hints(first);
+        doc.set_code_action_hints(second);
+        let first_highlight = doc.document_highlight_controller(first).restart();
+        let second_highlight = doc.document_highlight_controller(second).restart();
+        let first_hint = doc.code_action_controller(first).restart();
+        let second_hint = doc.code_action_controller(second).restart();
+        let symbols = doc.document_symbols.request.restart();
+        let colors = doc.document_colors.request.restart();
+        let links = doc.document_links.request.restart();
+
+        doc.remove_view(first);
+
+        assert!(doc.document_highlights(first).is_none());
+        assert!(!doc.code_action_hints(first));
+        assert!(first_highlight.is_canceled());
+        assert!(first_hint.is_canceled());
+        let remaining = doc.document_highlights(second).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0], 3..5);
+        assert!(doc.code_action_hints(second));
+        assert!(!second_highlight.is_canceled());
+        assert!(!second_hint.is_canceled());
+        assert!(!symbols.is_canceled());
+        assert!(!colors.is_canceled());
+        assert!(!links.is_canceled());
+
+        doc.clear_all_document_highlights();
+        doc.clear_all_code_action_hints();
+        assert!(doc.document_highlights(second).is_none());
+        assert!(!doc.code_action_hints(second));
+        assert!(second_highlight.is_canceled());
+        assert!(second_hint.is_canceled());
+    }
+
+    #[tokio::test]
+    async fn clearing_render_caches_keeps_replacement_requests_alive() {
+        let mut doc = feature_document();
         let view = ViewId::default();
-        let cursor = doc.text().line_to_char(1) + 5;
-        doc.set_selection(view, Selection::single(cursor, cursor));
+        doc.set_document_highlights(view, std::iter::once(0..2).collect());
+        let highlight = doc.document_highlight_controller(view).restart();
+        let symbols = doc.document_symbols.request.restart();
+        let colors = doc.document_colors.request.restart();
+        let links = doc.document_links.request.restart();
 
-        let child = document_symbol(
-            "b",
-            lsp::SymbolKind::FUNCTION,
-            lsp::Range::new(lsp::Position::new(1, 1), lsp::Position::new(1, 10)),
-            None,
-        );
-        let parent = document_symbol(
-            "A",
-            lsp::SymbolKind::OBJECT,
-            lsp::Range::new(lsp::Position::new(0, 0), lsp::Position::new(2, 1)),
-            Some(vec![child]),
-        );
-        doc.set_document_symbols(vec![parent], OffsetEncoding::Utf8);
+        doc.clear_document_highlights(view);
+        doc.clear_document_symbols();
+        doc.document_colors.clear_cache();
+        doc.document_links.clear_cache();
 
-        let breadcrumb = &doc.breadcrumbs[&view];
-        assert_eq!(
-            breadcrumb
-                .iter()
-                .map(|crumb| crumb.name.as_ref())
-                .collect::<Vec<_>>(),
-            ["A", "b"]
-        );
-        let cached_parent_name = &doc.symbols.as_ref().unwrap().tree[0].name;
-        assert!(Arc::ptr_eq(cached_parent_name, &breadcrumb.0[0].name));
+        assert!(doc.document_highlights(view).is_none());
+        assert!(!highlight.is_canceled());
+        assert!(!symbols.is_canceled());
+        assert!(!colors.is_canceled());
+        assert!(!links.is_canceled());
 
-        let child_end = doc.text().line_to_char(1) + 10;
-        doc.set_selection(view, Selection::single(child_end, child_end));
-        doc.update_breadcrumbs_for_view_inlined(view);
-        assert_eq!(
-            doc.breadcrumbs[&view]
-                .iter()
-                .map(|crumb| crumb.name.as_ref())
-                .collect::<Vec<_>>(),
-            ["A"]
-        );
+        // Code-action invalidation intentionally cancels the current request.
+        let hint = doc.code_action_controller(view).restart();
+        doc.clear_code_action_hints(view);
+        assert!(hint.is_canceled());
+    }
 
-        doc.set_selection(view, Selection::single(1, 1));
-        doc.update_breadcrumbs_for_view_inlined(view);
-        assert_eq!(
-            doc.breadcrumbs[&view]
-                .iter()
-                .map(|crumb| crumb.name.as_ref())
-                .collect::<Vec<_>>(),
-            ["A"]
-        );
+    #[tokio::test]
+    async fn dropping_a_document_cancels_all_feature_requests() {
+        let mut doc = feature_document();
+        let view = ViewId::default();
+        let requests = [
+            doc.document_highlight_controller(view).restart(),
+            doc.code_action_controller(view).restart(),
+            doc.document_symbols.request.restart(),
+            doc.document_colors.request.restart(),
+            doc.document_links.request.restart(),
+        ];
+        drop(doc);
+        assert!(requests.iter().all(event::TaskHandle::is_canceled));
     }
 
     #[tokio::test]

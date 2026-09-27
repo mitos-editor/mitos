@@ -712,12 +712,12 @@ impl EditorView {
             .find_highlight_exact("markup.link.url")
             .or_else(|| theme.find_highlight_exact("markup.link"))?;
 
-        if doc.document_links.is_empty() {
+        if doc.document_links().is_empty() {
             return None;
         }
 
         let mut ranges: Vec<ops::Range<usize>> = Vec::new();
-        for link in &doc.document_links {
+        for link in doc.document_links() {
             if link.start >= link.end {
                 continue;
             }

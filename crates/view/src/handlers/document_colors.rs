@@ -45,7 +45,7 @@ fn request_document_colors(
         return;
     };
 
-    let cancel = doc.color_swatch_controller.restart();
+    let cancel = doc.document_colors.request.restart();
 
     // Exit hooks run before the server is removed from the registry.
     let mut seen_language_servers = HashSet::new();
@@ -119,7 +119,7 @@ fn attach_document_colors(
     };
 
     if doc_colors.is_empty() {
-        doc.color_swatches.take();
+        doc.document_colors.clear_cache();
         return;
     }
 
@@ -139,7 +139,7 @@ fn attach_document_colors(
         ));
     }
 
-    doc.color_swatches = Some(DocumentColorSwatches {
+    doc.document_colors.cache = Some(DocumentColorSwatches {
         color_swatches,
         colors,
         color_swatches_padding,
@@ -169,7 +169,7 @@ pub(super) fn register_hooks() {
             color_swatches,
             colors: _colors,
             color_swatches_padding,
-        }) = &mut event.doc.color_swatches
+        }) = &mut event.doc.document_colors.cache
         {
             apply_color_swatch_changes(color_swatches);
             apply_color_swatch_changes(color_swatches_padding);
@@ -180,8 +180,8 @@ pub(super) fn register_hooks() {
         // give out-of-date locations.
         if !event.ghost_transaction {
             // Cancel the ongoing request, if present.
-            event.doc.color_swatch_controller.cancel();
-            if let Some(handler) = &event.doc.document_colors_handler {
+            event.doc.document_colors.request.cancel();
+            if let Some(handler) = &event.doc.document_colors.handler {
                 event::send_blocking(&handler.events, event.doc.id());
             }
         }
@@ -203,7 +203,7 @@ pub(super) fn register_hooks() {
         // Clear and re-request all color swatches when a server exits.
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.color_swatches.take();
+                doc.document_colors.clear_cache();
             }
         }
 

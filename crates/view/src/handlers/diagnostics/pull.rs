@@ -21,6 +21,7 @@ use crate::{
 /// Cancellation and result IDs follow the document and are independent per server.
 #[derive(Default)]
 pub(crate) struct DocumentDiagnostics {
+    pub(crate) handler: Option<PullDiagnosticsHandler>,
     result_ids: HashMap<LanguageServerId, String>,
     requests: HashMap<LanguageServerId, TaskController>,
 }
@@ -236,7 +237,7 @@ pub(in crate::handlers) fn register_hooks() {
         {
             return Ok(());
         }
-        let Some(handler) = &event.doc.pull_diagnostics_handler else {
+        let Some(handler) = &event.doc.pull_diagnostics.handler else {
             return Ok(());
         };
         send_blocking(&handler.documents, event.doc.id());
