@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::Path, time::Duration};
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
@@ -18,7 +15,8 @@ use view::{
     },
 };
 
-use super::helpers::{test_config, test_syntax_loader, AppBuilder};
+use super::helpers::lsp::{self, Gate, ServerConfig};
+use super::helpers::{test_config, AppBuilder};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Feature {
@@ -30,7 +28,7 @@ enum Feature {
 
 struct Fixture {
     app: Application,
-    gates: Vec<PathBuf>,
+    gates: Vec<Gate>,
     callbacks: mpsc::Receiver<(Feature, bool, EditorCallback)>,
 }
 
@@ -54,41 +52,21 @@ impl Fixture {
         config.editor.lsp.enable = true;
         config.editor.lsp.auto_document_highlight = true;
         config.editor.breadcrumb.enable = true;
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
         let gates: Vec<_> = servers
             .iter()
-            .map(|name| path.with_extension(format!("{name}.initialize-ready")))
+            .map(|name| Gate::new(path.with_extension(format!("{name}.initialize-ready"))))
             .collect();
         let server_config = servers
             .iter()
             .zip(&gates)
-            .map(|(name, gate)| {
-                let args = toml::Value::Array(
-                    ["--initialize-gate", gate.to_str().unwrap()]
-                        .into_iter()
-                        .map(|arg| toml::Value::String(arg.into()))
-                        .collect(),
-                );
-                format!("[language-server.{name}]\ncommand = {command}\nargs = {args}\n")
-            })
+            .map(|(name, gate)| ServerConfig::new(name).initialize_gate(gate).toml())
             .collect::<String>();
-        let servers = toml::Value::Array(
-            servers
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
+        let loader = lsp::syntax_loader(
+            "document-feature-test",
+            "feature-test",
+            servers,
+            &server_config,
         );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {server_config}
-            [[language]]
-            name = "document-feature-test"
-            scope = "source.document-feature-test"
-            file-types = ["feature-test"]
-            roots = []
-            language-servers = {servers}
-        "#
-        )));
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
@@ -112,11 +90,11 @@ impl Fixture {
 
     async fn initialize(&mut self) -> anyhow::Result<Vec<EditorCallback>> {
         let mut responses = Vec::new();
-        for gate in self.gates.clone() {
+        for index in 0..self.gates.len() {
             // Opening a document and each server initialization can restart feature
             // requests. Release one server only after the preceding batch has arrived,
             // so no startup response can leak into a later edit's batch.
-            std::fs::write(gate, "ready")?;
+            self.gates[index].release()?;
             let (server_id, call) = tokio::time::timeout(
                 Duration::from_secs(10),
                 self.app.editor.language_servers.incoming.next(),

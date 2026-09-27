@@ -21,56 +21,30 @@ use view::{
     handlers::code_action_hint::CodeActionHintHandler,
 };
 
-use super::helpers::{test_config, test_syntax_loader, AppBuilder};
+use super::helpers::lsp::{self, Gate, ServerConfig};
+use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
     app: Application,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
     log: PathBuf,
-    gate: PathBuf,
+    gate: Gate,
     server_count: usize,
 }
 
 impl Fixture {
     fn new(dir: &Path, word: &str, servers: &[&str]) -> anyhow::Result<Self> {
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
-        let log = dir.join("alpha.jsonl");
-        let gate = dir.join("initialize-ready");
+        let log = lsp::log_path(dir, "alpha");
+        let gate = Gate::new(dir.join("initialize-ready"));
         let server_config = servers
             .iter()
             .map(|name| {
-                let args = toml::Value::Array(
-                    [
-                        "--code-actions".to_owned(),
-                        (*name).into(),
-                        dir.join(format!("{name}.jsonl")).to_str().unwrap().into(),
-                        "--initialize-gate".into(),
-                        gate.to_str().unwrap().into(),
-                    ]
-                    .into_iter()
-                    .map(toml::Value::String)
-                    .collect(),
-                );
-                format!("[language-server.{name}]\ncommand = {command}\nargs = {args}\n")
+                ServerConfig::feature(name, "--code-actions", dir)
+                    .initialize_gate(&gate)
+                    .toml()
             })
             .collect::<String>();
-        let names = toml::Value::Array(
-            servers
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
-        );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {server_config}
-            [[language]]
-            name = "code-action-test"
-            scope = "source.code-action-test"
-            file-types = ["action-test"]
-            roots = []
-            language-servers = {names}
-        "#
-        )));
+        let loader = lsp::syntax_loader("code-action-test", "action-test", servers, &server_config);
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.statusline.right = vec![StatusLineElement::CodeActionHint];
@@ -99,8 +73,8 @@ impl Fixture {
     }
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
-        std::fs::write(&self.gate, "ready")?;
-        super::helpers::lsp::initialize(&mut self.app, self.server_count).await
+        self.gate.release()?;
+        lsp::initialize(&mut self.app, self.server_count).await
     }
 
     async fn next(&mut self) -> anyhow::Result<(bool, EditorCallback)> {

@@ -14,56 +14,31 @@ use view::{
     DocumentId,
 };
 
-use super::helpers::{test_config, test_syntax_loader, AppBuilder};
+use super::helpers::lsp::{self, Gate, ServerConfig};
+use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
     app: Application,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
     logs: Vec<std::path::PathBuf>,
-    gate: std::path::PathBuf,
+    gate: Gate,
 }
 
 impl Fixture {
     fn new(directory: &Path, word: &str, names: &[&str], inter_file: bool) -> anyhow::Result<Self> {
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
-        let gate = directory.join("initialize-ready");
+        let gate = Gate::new(directory.join("initialize-ready"));
         let mut servers = String::new();
         let mut logs = Vec::new();
         for name in names {
-            let log = directory.join(format!("{name}.jsonl"));
-            let mut args = vec![
-                "--diagnostics".into(),
-                (*name).to_owned(),
-                log.to_str().unwrap().to_owned(),
-                "--initialize-gate".into(),
-                gate.to_str().unwrap().to_owned(),
-            ];
+            let mut server =
+                ServerConfig::feature(name, "--diagnostics", directory).initialize_gate(&gate);
             if inter_file {
-                args.push("--inter-file".into());
+                server = server.arg("--inter-file");
             }
-            let args = toml::Value::Array(args.into_iter().map(toml::Value::String).collect());
-            servers.push_str(&format!(
-                "[language-server.{name}]\ncommand = {command}\nargs = {args}\n"
-            ));
-            logs.push(log);
+            servers.push_str(&server.toml());
+            logs.push(lsp::log_path(directory, name));
         }
-        let names = toml::Value::Array(
-            names
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
-        );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {servers}
-            [[language]]
-            name = "pull-diagnostic-test"
-            scope = "source.pull-diagnostic-test"
-            file-types = ["pull-test"]
-            roots = []
-            language-servers = {names}
-        "#
-        )));
+        let loader = lsp::syntax_loader("pull-diagnostic-test", "pull-test", names, &servers);
         let mut config = test_config();
         config.editor.lsp.enable = true;
         let mut app = AppBuilder::new()
@@ -92,8 +67,8 @@ impl Fixture {
     }
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
-        std::fs::write(&self.gate, "ready")?;
-        super::helpers::lsp::initialize(&mut self.app, self.logs.len()).await
+        self.gate.release()?;
+        lsp::initialize(&mut self.app, self.logs.len()).await
     }
 
     /// Debounce callbacks start work. Keep publication/retry callbacks under the
