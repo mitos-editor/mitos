@@ -25,10 +25,12 @@ events! {
     // called **after** a document loses focus (but not when its closed)
     DocumentFocusLost<'a> { editor: &'a mut Editor, doc: DocumentId }
 
+    // Configuration is queued before dispatch; document-open hooks precede feature requests.
     LanguageServerInitialized<'a> {
         editor: &'a mut Editor,
         server_id: LanguageServerId
     }
+    // Diagnostics are cleared, but the server is still registered during dispatch.
     LanguageServerExited<'a> {
         editor: &'a mut Editor,
         server_id: LanguageServerId

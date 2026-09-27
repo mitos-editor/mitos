@@ -29,7 +29,8 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
-    let mut request_log = if diagnostics || code_actions {
+    let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
+    let mut request_log = if diagnostics || code_actions || lifecycle {
         Some(std::fs::File::create(&args[2])?)
     } else {
         None
@@ -63,6 +64,18 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
+        if lifecycle {
+            writeln!(request_log.as_mut().unwrap(), "{message}")?;
+            request_log.as_mut().unwrap().flush()?;
+            // Tests can hold initialization until a pre-initialization notification is checked.
+            if method == "initialize"
+                && let Some(gate) = args.get(3)
+            {
+                while !std::path::Path::new(gate).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+        }
         match method {
             "textDocument/didOpen" => {
                 versions.insert(
@@ -73,6 +86,15 @@ fn main() -> anyhow::Result<()> {
                     uri.into(),
                     params["textDocument"]["text"].as_str().unwrap().into(),
                 );
+                if lifecycle {
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                            "params": {"uri": uri, "version": params["textDocument"]["version"],
+                                "diagnostics": [{"range": range(3, 6), "severity": 2, "message": args[1]}]}
+                        }),
+                    )?;
+                }
                 continue;
             }
             "textDocument/didChange" => {
@@ -151,6 +173,9 @@ fn main() -> anyhow::Result<()> {
         }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if lifecycle => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "documentSymbolProvider": true
+            }}),
             "initialize" if code_actions => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1, "codeActionProvider": true
             }}),

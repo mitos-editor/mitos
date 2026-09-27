@@ -3,7 +3,8 @@ use std::fmt::Display;
 
 use crate::editor::Action;
 use crate::events::{
-    DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, LanguageServerInitialized,
+    DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, LanguageServerExited,
+    LanguageServerInitialized,
 };
 use crate::{DocumentId, Editor};
 use editor_core::diagnostic::DiagnosticProvider;
@@ -305,6 +306,78 @@ impl Editor {
             }
         }
         Ok(())
+    }
+
+    /// Queue configuration before the initialization hooks open documents and request features.
+    pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
+        let Some(language_server) = self.language_server_by_id(server_id) else {
+            log::warn!("can't find language server with id `{server_id}`");
+            return;
+        };
+
+        // Some servers expect configuration after initialization even though the
+        // protocol does not require it. Keep this ahead of the document hooks.
+        if let Some(config) = language_server.config() {
+            language_server.did_change_configuration(config.clone());
+        }
+        event::dispatch(LanguageServerInitialized {
+            editor: self,
+            server_id,
+        });
+    }
+
+    /// Validate a push notification before applying the shared diagnostic update policy.
+    pub fn handle_publish_diagnostics(
+        &mut self,
+        server_id: LanguageServerId,
+        params: lsp::PublishDiagnosticsParams,
+    ) {
+        let uri = match Uri::try_from(params.uri) {
+            Ok(uri) => uri,
+            Err(err) => {
+                log::error!("{err}");
+                return;
+            }
+        };
+        let Some(language_server) = self.language_server_by_id(server_id) else {
+            log::warn!("can't find language server with id `{server_id}`");
+            return;
+        };
+        if !language_server.is_initialized() {
+            log::error!(
+                "Discarding publishDiagnostic notification sent by an uninitialized server: {}",
+                language_server.name()
+            );
+            return;
+        }
+        let provider = DiagnosticProvider::Lsp {
+            server_id,
+            identifier: None,
+        };
+        self.handle_lsp_diagnostics(&provider, uri, params.version, params.diagnostics);
+    }
+
+    /// Clear this server's diagnostics, notify features, then remove its registry entry.
+    /// Exit hooks still need the registered server and its document attachments.
+    pub fn handle_language_server_exit(&mut self, server_id: LanguageServerId) {
+        if self.language_server_by_id(server_id).is_none() {
+            log::warn!("can't find language server with id `{server_id}`");
+            return;
+        }
+        // Servers can publish diagnostics for files that were never opened.
+        for diagnostics in self.diagnostics.values_mut() {
+            diagnostics.retain(|(_, provider)| provider.language_server_id() != Some(server_id));
+        }
+        self.diagnostics
+            .retain(|_, diagnostics| !diagnostics.is_empty());
+        for doc in self.documents_mut() {
+            doc.clear_diagnostics_for_language_server(server_id);
+        }
+        event::dispatch(LanguageServerExited {
+            editor: self,
+            server_id,
+        });
+        self.language_servers.remove_by_id(server_id);
     }
 
     pub fn handle_lsp_diagnostics(
