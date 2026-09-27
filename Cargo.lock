@@ -3816,6 +3816,7 @@ dependencies = [
  "signal-hook 0.4.4",
  "signal-hook-tokio",
  "snippets",
+ "spelling",
  "stdx",
  "tempfile",
  "termina",

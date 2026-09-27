@@ -19,8 +19,9 @@ use tokio::{sync::mpsc::Sender, task::JoinSet};
 
 use crate::{
     callbacks::EditorCallbackSender,
+    config::Config,
     document::{Mode, SavePoint},
-    editor::{CompleteAction, Config},
+    editor::CompleteAction,
     events::{ConfigDidChange, DocumentDidClose, DocumentFocusLost, LanguageServerExited},
     DocumentId, Editor, ViewId,
 };

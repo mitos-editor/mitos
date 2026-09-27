@@ -1,14 +1,12 @@
 use std::{fs, time::Duration};
 
 use editor_core::{diagnostic::DiagnosticProvider, Range, Selection, Transaction};
+use spelling::{Dictionary, IgnoredWordsFile};
 use term::{
     application::Application,
     ui::{Menu, Popup},
 };
-use view::{
-    action::Action, current, current_ref, handlers::spelling::IgnoredWordsFile,
-    quicklist::QuicklistTarget,
-};
+use view::{action::Action, current, current_ref, quicklist::QuicklistTarget};
 
 use super::helpers::*;
 
@@ -234,7 +232,7 @@ async fn opt_in_commands_corrections_and_undo() -> anyhow::Result<()> {
     let second = "second_dictionary".parse()?;
     app.editor.dictionaries.insert(
         second,
-        std::sync::Arc::new(view::Dictionary::new("SET UTF-8\n", "1\nworld\n").unwrap()),
+        std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nworld\n").unwrap()),
     );
     current!(app.editor)
         .1
@@ -419,7 +417,7 @@ async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow
     for language in ["session_a", "session_b"] {
         app.editor.dictionaries.insert(
             language.parse()?,
-            std::sync::Arc::new(view::Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
+            std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
         );
     }
     keys(&mut app, ":spelling session_a session_b<ret>").await?;
@@ -468,7 +466,7 @@ async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<Applicat
     let language: editor_core::SpellingLanguage = "en_US".parse()?;
     app.editor.dictionaries.insert(
         language.clone(),
-        std::sync::Arc::new(view::Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
+        std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
     );
     app.editor
         .handlers

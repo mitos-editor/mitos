@@ -10,7 +10,7 @@ use editor_core::text_annotations::TextAnnotations;
 use editor_core::{visual_offset_from_block, Position, RopeSlice};
 use stdx::rope::RopeSliceExt;
 use tui::buffer::Buffer as Surface;
-use view::editor::{WhitespaceConfig, WhitespaceRenderValue};
+use view::config::{WhitespaceConfig, WhitespaceRenderValue};
 use view::graphics::Rect;
 use view::theme::Style;
 use view::view::ViewPosition;

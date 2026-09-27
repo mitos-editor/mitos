@@ -7,7 +7,7 @@ use tui::{buffer::Buffer as Surface, scrollbar, widgets::Table};
 pub use tui::widgets::{Cell, Row};
 
 use tui::layout::Constraint;
-use view::{editor::SmartTabConfig, graphics::Rect, Editor};
+use view::{config::SmartTabConfig, graphics::Rect, Editor};
 
 pub trait Item: Sync + Send + 'static {
     /// Additional editor state that is used for label calculation.

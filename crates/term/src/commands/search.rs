@@ -402,7 +402,7 @@ pub(super) fn global_search(cx: &mut Context) {
 
     struct GlobalSearchConfig {
         smart_case: bool,
-        file_picker_config: view::editor::FilePickerConfig,
+        file_picker_config: view::config::FilePickerConfig,
         style: PathStyleConfig,
     }
 

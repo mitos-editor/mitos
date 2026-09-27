@@ -289,7 +289,7 @@ mod tests {
             path,
             None,
             true,
-            Arc::new(ArcSwap::from_pointee(view::editor::Config::default())),
+            Arc::new(ArcSwap::from_pointee(view::config::Config::default())),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         )
         .unwrap()

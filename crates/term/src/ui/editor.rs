@@ -34,8 +34,9 @@ use ui_core::{
 };
 use view::{
     annotations::diagnostics::DiagnosticFilter,
+    config::{BufferLine, CursorShapeConfig},
     document::{Mode, SCRATCH_BUFFER_NAME},
-    editor::{BufferLine, CompleteAction, CursorShapeConfig},
+    editor::CompleteAction,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     icons::ICONS,
     Document, Editor, Theme, View, ViewId,
@@ -951,7 +952,7 @@ impl EditorView {
         viewport: Rect,
         surface: &mut Surface,
     ) {
-        use view::editor::BreadcrumbPathOptions::{File, Full};
+        use view::config::BreadcrumbPathOptions::{File, Full};
 
         #[inline]
         #[must_use]
@@ -2056,7 +2057,7 @@ impl Component for EditorView {
 
         // render status msg
         if let Some((status_msg, severity)) = &cx.editor.status_msg {
-            use view::editor::Severity;
+            use editor_core::diagnostic::Severity;
             let style = if *severity == Severity::Error {
                 cx.editor.theme.get("error")
             } else if *severity == Severity::Warning {

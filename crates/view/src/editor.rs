@@ -2,6 +2,7 @@ mod config;
 mod language_servers;
 
 use crate::{
+    config::Config,
     document::{
         DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
     },
@@ -46,7 +47,7 @@ use anyhow::{anyhow, bail, Error};
 
 use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
-pub use editor_core::diagnostic::Severity;
+use editor_core::diagnostic::Severity;
 use editor_core::{
     auto_pairs::AutoPairs,
     diagnostic::DiagnosticProvider,
@@ -61,21 +62,6 @@ use arc_swap::{
     access::{DynAccess, DynGuard},
     ArcSwap,
 };
-
-// Preserve existing configuration import paths; new code should use `crate::config`.
-#[cfg(any(windows, not(target_arch = "wasm32")))]
-pub use crate::config::get_terminal_provider;
-pub use crate::config::{
-    AutoReloadConfig, AutoReloadPoll, AutoSave, AutoSaveAfterDelay, BreadcrumbConfig,
-    BreadcrumbPathOptions, BufferLine, BufferPickerConfig, Config, CursorShapeConfig,
-    FileExplorerConfig, FilePickerConfig, GutterConfig, GutterLineNumbersConfig, GutterType,
-    ImplicitTrustLevelConfig, IndentGuidesConfig, LineEndingConfig, LineNumber, LspConfig,
-    ModeConfig, PickerStartPosition, SearchConfig, SmartTabConfig, StatusLineConfig,
-    StatusLineElement, TerminalConfig, WhitespaceCharacters, WhitespaceConfig, WhitespaceRender,
-    WhitespaceRenderValue, WordCompletion, WorkspaceTrustConfig, DEFAULT_AUTO_SAVE_DELAY,
-};
-
-pub use ui_core::terminal::KittyKeyboardProtocolConfig;
 
 pub const DIR_STACK_CAP: usize = 10;
 
@@ -169,7 +155,7 @@ pub struct Editor {
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
     /// Loaded spelling dictionaries keyed by language.
-    pub dictionaries: HashMap<SpellingLanguage, Arc<crate::Dictionary>>,
+    pub dictionaries: HashMap<SpellingLanguage, Arc<spelling::Dictionary>>,
     pub file_watcher: Watcher,
     pub workspace_trust: WorkspaceTrust,
 }

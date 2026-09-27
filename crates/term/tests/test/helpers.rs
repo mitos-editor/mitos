@@ -15,9 +15,8 @@ use term::{application::Application, args::Args, config::Config, keymap::merge_k
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 use view::{
-    current_ref, doc,
-    editor::{ImplicitTrustLevelConfig, LspConfig, WordCompletion, WorkspaceTrustConfig},
-    Editor,
+    config::{ImplicitTrustLevelConfig, LspConfig, WordCompletion, WorkspaceTrustConfig},
+    current_ref, doc, Editor,
 };
 
 #[cfg(windows)]
@@ -315,17 +314,17 @@ pub fn test_config() -> Config {
     }
 }
 
-pub fn test_editor_config() -> view::editor::Config {
-    view::editor::Config {
+pub fn test_editor_config() -> view::config::Config {
+    view::config::Config {
         // Watcher tests opt in; unrelated tests should not crawl the source tree.
         file_watcher: view::file_watcher::Config {
             enable: false,
             watch_vcs: false,
             ..Default::default()
         },
-        auto_reload: view::editor::AutoReloadConfig {
+        auto_reload: view::config::AutoReloadConfig {
             enable: false,
-            poll: view::editor::AutoReloadPoll {
+            poll: view::config::AutoReloadPoll {
                 enable: false,
                 ..Default::default()
             },
