@@ -329,14 +329,10 @@ pub(super) mod typed {
         Job::with_callback(async move {
             let update = task.run().await?;
             Ok(Callback::Followup(Box::new(move |editor| {
-                match update.apply(editor) {
-                    Ok(save::SaveProgress::Pending(task)) => Some(save_job(task)),
-                    Ok(_) => None,
-                    Err(error) => {
-                        editor.set_error(|| format!("Error saving: {error}"));
-                        None
-                    }
-                }
+                Ok(match update.apply(editor)? {
+                    save::SaveProgress::Pending(task) => Some(save_job(task)),
+                    _ => None,
+                })
             })))
         })
         .wait_before_exiting()

@@ -29,6 +29,7 @@ impl Application {
         let doc_save_event = match doc_save_event {
             Ok(event) => event,
             Err(err) => {
+                self.jobs.cancel_after_writes();
                 self.editor.set_error(|| err.to_string());
                 return;
             }

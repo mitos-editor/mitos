@@ -1,4 +1,5 @@
 use event::send_blocking;
+use std::collections::VecDeque;
 use view::callbacks::{EditorCallback, EditorCallbackSender};
 use view::Editor;
 
@@ -9,7 +10,7 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub type EditorCompositorCallback = Box<dyn FnOnce(&mut Editor, &mut Compositor) + Send>;
-pub type EditorCallbackFollowup = Box<dyn FnOnce(&mut Editor) -> Option<Job> + Send>;
+pub type EditorCallbackFollowup = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<Option<Job>> + Send>;
 
 /// A bounded callback destination belonging to one application.
 #[derive(Clone)]
@@ -42,6 +43,8 @@ pub enum Callback {
     Followup(EditorCallbackFollowup),
 }
 
+pub type AfterWrites = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<()> + Send>;
+
 pub type JobFuture = BoxFuture<'static, anyhow::Result<Option<Callback>>>;
 
 pub struct Job {
@@ -57,6 +60,7 @@ pub struct Jobs {
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
+    after_writes: VecDeque<AfterWrites>,
 }
 
 impl Job {
@@ -105,6 +109,7 @@ impl Jobs {
             command_expansion: event::TaskController::new(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
+            after_writes: VecDeque::new(),
         }
     }
 
@@ -160,9 +165,17 @@ impl Jobs {
                     call(editor);
                     None
                 }
-                Callback::Followup(call) => call(editor),
+                Callback::Followup(call) => match call(editor) {
+                    Ok(job) => job,
+                    Err(error) => {
+                        self.cancel_after_writes();
+                        editor.set_error(|| format!("Error saving: {error}"));
+                        None
+                    }
+                },
             },
             Err(e) => {
+                self.cancel_after_writes();
                 editor.set_error(|| format!("Async job failed: {}", e));
                 None
             }
@@ -193,7 +206,33 @@ impl Jobs {
         }
     }
 
+    /// Defer lifecycle operations without blocking LSP requests or UI events.
+    pub fn after_writes(&mut self, editor: &mut Editor, action: AfterWrites) -> anyhow::Result<()> {
+        if self.wait_futures.is_empty() && !editor.has_pending_writes() {
+            action(editor)
+        } else {
+            self.after_writes.push_back(action);
+            Ok(())
+        }
+    }
+
+    pub fn cancel_after_writes(&mut self) {
+        self.after_writes.clear();
+    }
+
+    pub fn run_after_writes(&mut self, editor: &mut Editor) {
+        while self.wait_futures.is_empty() && !editor.has_pending_writes() {
+            let Some(action) = self.after_writes.pop_front() else { break };
+            if let Err(error) = action(editor) {
+                self.cancel_after_writes();
+                editor.set_error(|| error.to_string());
+                break;
+            }
+        }
+    }
+
     /// Blocks until all the jobs that need to be waited on are done.
+    #[cfg(test)]
     pub async fn finish(
         &mut self,
         editor: &mut Editor,
@@ -218,7 +257,7 @@ impl Jobs {
                                 call(editor);
                                 None
                             }
-                            Callback::Followup(call) => call(editor),
+                            Callback::Followup(call) => call(editor)?,
 
                             // skip callbacks for which we don't have the necessary references
                             _ => None,
@@ -341,7 +380,7 @@ mod completion_tests {
             })))
         })
         .wait_before_exiting();
-        let followup = Callback::Followup(Box::new(move |_| Some(continuation)));
+        let followup = Callback::Followup(Box::new(move |_| Ok(Some(continuation))));
         jobs.add(Job::with_callback(async { Ok(followup) }).wait_before_exiting());
         let error = jobs.finish(&mut app.editor, None).await.unwrap_err();
         assert_eq!(error.to_string(), "first failure");
