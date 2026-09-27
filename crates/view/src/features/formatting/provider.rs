@@ -62,11 +62,11 @@ impl Document {
         origin: Option<ViewId>,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
         let text = snapshot.text().clone();
-        if let Some((fmt_cmd, fmt_args)) = self
+        if let Some((fmt_cmd, fmt_args, timeout)) = self
             .language_config()
             .and_then(|c| c.formatter.as_ref())
             .and_then(|formatter| {
-                Some((stdx::env::which(&formatter.command).ok()?, &formatter.args))
+                Some((stdx::env::which(&formatter.command).ok()?, &formatter.args, formatter.timeout))
             })
         {
             log::debug!(
@@ -133,7 +133,11 @@ impl Document {
 
                 Ok(text_diff::compare_ropes(&text, &Rope::from(str)))
             };
-            return Some(formatting_future.boxed());
+            return Some(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(timeout), formatting_future)
+                    .await
+                    .map_err(|_| FormatterError::Timeout(timeout))?
+            }.boxed());
         };
 
         // finds first language server that supports formatting and then formats
@@ -178,6 +182,7 @@ pub enum FormatterError {
         command: String,
         error: std::io::ErrorKind,
     },
+    Timeout(u64),
     BrokenStdin,
     WaitForOutputFailed,
     InvalidUtf8Output,
@@ -203,6 +208,7 @@ impl Display for FormatterError {
             Self::SpawningFailed { command, error } => {
                 write!(f, "Failed to spawn formatter {}: {:?}", command, error)
             }
+            Self::Timeout(seconds) => write!(f, "Formatter timed out after {seconds} seconds"),
             Self::BrokenStdin => write!(f, "Could not write to formatter stdin"),
             Self::WaitForOutputFailed => write!(f, "Waiting for formatter output failed"),
             Self::InvalidUtf8Output => write!(f, "Invalid UTF-8 formatter output"),
