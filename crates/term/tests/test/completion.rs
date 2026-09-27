@@ -355,6 +355,7 @@ async fn focus_change_restores_preview_in_original_document() -> anyhow::Result<
     f.key("<C-n>").await?;
     let doc = current_ref!(f.app.editor).1.id();
     f.app.editor.new_file(Action::Replace);
+    let scratch = f.text();
     let update = completion::next_update(&mut f.app.editor).unwrap();
     f.app
         .handle_editor_event(EditorEvent::Completion(update))
@@ -363,7 +364,7 @@ async fn focus_change_restores_preview_in_original_document() -> anyhow::Result<
         f.app.editor.document(doc).unwrap().text().to_string(),
         "😀 ap\n"
     );
-    assert_eq!(f.text(), "\n");
+    assert_eq!(f.text(), scratch);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
