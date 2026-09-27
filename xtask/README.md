@@ -1,3 +1,3 @@
 # `xtask`
 
-`xtask` contains development-only commands for maintaining and validating the Mitos repository.
+Owns repository maintenance, code and documentation generation, and development validation commands.

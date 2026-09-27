@@ -1,3 +1,3 @@
 # `loader`
 
-`loader` discovers Mitos runtime and configuration files, loads language definitions and grammars, manages workspace trust, and supports grammar build tooling.
+Owns configuration and runtime path discovery, grammar/query/theme resource loading and inheritance, workspace trust policy and persistence, and grammar build tooling.

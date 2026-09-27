@@ -1,3 +1,3 @@
 # `dap`
 
-`dap` implements Mitos's asynchronous Debug Adapter Protocol client, including adapter discovery, process transport, request tracking, and message decoding.
+Owns Debug Adapter Protocol communication, adapter lifecycle, transports, and request handling.
