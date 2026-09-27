@@ -228,6 +228,16 @@ impl SharedReload {
         self.callbacks = rx;
     }
 
+    async fn wait_for_watch(&self, path: &Path) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !self.app.editor.file_watcher.is_watching(path) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
     async fn callback(&mut self) -> anyhow::Result<view::callbacks::EditorCallback> {
         tokio::time::timeout(Duration::from_secs(5), self.callbacks.recv())
             .await?
@@ -273,12 +283,7 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
         .file_watcher
         .reload(&view::file_watcher::Config::default());
     first.app.editor.file_watcher.add_root(dir.path());
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !first.app.editor.file_watcher.is_watching(&path) {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await?;
+    first.wait_for_watch(&path).await?;
     changed(&path, "first update\n", 2)?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while text(&first.app) != "first update\n" {
@@ -321,6 +326,8 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
         .editor
         .file_watcher
         .reload(&view::file_watcher::Config::default());
+    // Restarting a native watcher installs its watches asynchronously.
+    first.wait_for_watch(&path).await?;
     changed(&path, "replacement watcher\n", 5)?;
     let stale = first.callback().await?;
     first.replace_handler();
