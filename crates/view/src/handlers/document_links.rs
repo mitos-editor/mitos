@@ -1,13 +1,12 @@
 //! Shared coordination for LSP document links results.
 
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use editor_core::{syntax::config::LanguageServerFeature, Assoc};
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use tokio::time::Instant;
 
-use super::lsp::DocumentRequest;
+use super::{document_debounce::debounce_documents, lsp::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
     document::DocumentLink,
@@ -15,51 +14,19 @@ use crate::{
     DocumentId, Editor,
 };
 
-struct DocumentLinksEvent(DocumentId);
-
 /// Scheduling handle attached to documents owned by this editor.
 #[derive(Clone)]
 pub struct DocumentLinksHandler {
     callbacks: EditorCallbackSender,
-    events: tokio::sync::mpsc::Sender<DocumentLinksEvent>,
+    events: tokio::sync::mpsc::Sender<DocumentId>,
 }
 
 impl DocumentLinksHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        use event::AsyncHook as _;
-        let events = Debounce {
-            callbacks: callbacks.clone(),
-            docs: HashSet::new(),
-        }
-        .spawn();
-        Self { callbacks, events }
-    }
-}
-
-struct Debounce {
-    callbacks: EditorCallbackSender,
-    docs: HashSet<DocumentId>,
-}
-
-const DOCUMENT_CHANGE_DEBOUNCE: Duration = Duration::from_millis(250);
-
-impl event::AsyncHook for Debounce {
-    type Event = DocumentLinksEvent;
-
-    fn handle_event(&mut self, event: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
-        let DocumentLinksEvent(doc_id) = event;
-        self.docs.insert(doc_id);
-        Some(Instant::now() + DOCUMENT_CHANGE_DEBOUNCE)
-    }
-
-    fn finish_debounce(&mut self) {
-        let docs = std::mem::take(&mut self.docs);
-
-        self.callbacks.send_blocking(move |editor| {
-            for doc in docs {
-                request_document_links(editor, doc, None);
-            }
+        let events = debounce_documents(callbacks.clone(), |editor, doc| {
+            request_document_links(editor, doc, None);
         });
+        Self { callbacks, events }
     }
 }
 
@@ -177,7 +144,7 @@ pub(super) fn register_hooks() {
         if !event.ghost_transaction {
             event.doc.document_link_controller.cancel();
             if let Some(handler) = &event.doc.document_links_handler {
-                event::send_blocking(&handler.events, DocumentLinksEvent(event.doc.id()));
+                event::send_blocking(&handler.events, event.doc.id());
             }
         }
 
