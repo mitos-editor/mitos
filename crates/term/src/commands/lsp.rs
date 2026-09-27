@@ -1,4 +1,3 @@
-pub use super::diagnostics::{diagnostics_picker, workspace_diagnostics_picker};
 use super::{context::make_job_callback, navigation::push_jump, Context};
 use crate::{
     compositor::{self, Compositor},
@@ -17,7 +16,6 @@ use lsp_client::{
 };
 use std::{
     collections::{HashSet, VecDeque},
-    fmt::Display,
     future::Future,
     path::Path,
 };
@@ -898,33 +896,6 @@ fn resolve_and_apply_code_actions_of_kind(
         Ok(Callback::Followup(Box::new(apply)))
     };
     Some(Job::with_callback(future).wait_before_exiting())
-}
-
-#[derive(Debug)]
-pub struct ApplyEditError {
-    pub kind: ApplyEditErrorKind,
-    pub failed_change_idx: usize,
-}
-
-#[derive(Debug)]
-pub enum ApplyEditErrorKind {
-    DocumentChanged,
-    FileNotFound,
-    UnknownURISchema,
-    IoError(std::io::Error),
-    // TODO: check edits before applying and propagate failure
-    // InvalidEdit,
-}
-
-impl Display for ApplyEditErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ApplyEditErrorKind::DocumentChanged => f.write_str("document has changed"),
-            ApplyEditErrorKind::FileNotFound => f.write_str("file not found"),
-            ApplyEditErrorKind::UnknownURISchema => f.write_str("URI schema not supported"),
-            ApplyEditErrorKind::IoError(err) => f.write_str(&format!("{err}")),
-        }
-    }
 }
 
 /// Precondition: `locations` should be non-empty.

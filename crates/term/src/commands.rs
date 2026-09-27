@@ -1,4 +1,4 @@
-//! Terminal command wiring and compatibility exports. Implementations live in feature modules.
+//! Terminal command facade. Implementations and metadata live in their owning modules.
 
 mod application;
 mod buffers;
@@ -32,11 +32,15 @@ mod spelling;
 mod symbols;
 pub(crate) mod syntax;
 mod textobjects;
-pub(crate) mod typed;
 mod vcs;
 mod windows;
 mod workspace;
 
+pub use catalog::{
+    CommandCompleter, TypableCommand, SHELL_COMPLETER, SHELL_SIGNATURE, TYPABLE_COMMAND_LIST,
+    TYPABLE_COMMAND_MAP,
+};
+pub use command_line::complete_command_args;
 pub use completion::completion;
 pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub use dap::{
@@ -45,13 +49,15 @@ pub use dap::{
     dap_switch_stack_frame, dap_switch_thread, dap_terminate, dap_toggle_breakpoints,
     dap_toggle_breakpoints_impl, dap_variables,
 };
+pub use diagnostics::{diagnostics_picker, workspace_diagnostics_picker};
 pub(crate) use editing::replace_selections;
+pub use files::typed::{write_all_impl, MoveBufferOptions};
 pub use insert::{CommentContinuation, Open};
 pub use lsp::{
-    code_action, code_actions_on_save, compute_inlay_hints_for_all_views, diagnostics_picker,
-    goto_declaration, goto_definition, goto_implementation, goto_reference, goto_type_definition,
-    hover, rename_symbol, select_references_to_symbol_under_cursor, signature_help, symbol_picker,
-    workspace_diagnostics_picker, workspace_symbol_picker, ApplyEditError, ApplyEditErrorKind,
+    code_action, code_actions_on_save, compute_inlay_hints_for_all_views, goto_declaration,
+    goto_definition, goto_implementation, goto_reference, goto_type_definition, hover,
+    rename_symbol, select_references_to_symbol_under_cursor, signature_help, symbol_picker,
+    workspace_symbol_picker,
 };
 pub use mappable::MappableCommand;
 pub use movement::scroll;
@@ -64,8 +70,4 @@ pub use syntax::{
     extend_parent_node_end, extend_parent_node_start, move_parent_node_end, move_parent_node_start,
     syntax_symbol_picker, syntax_workspace_symbol_picker,
 };
-pub use typed::{
-    complete_command_args, write_all_impl, CommandCompleter, MoveBufferOptions, TypableCommand,
-    WriteAllOptions, WriteOptions, SHELL_COMPLETER, SHELL_SIGNATURE, TYPABLE_COMMAND_LIST,
-    TYPABLE_COMMAND_MAP,
-};
+pub use view::save::{WriteAllOptions, WriteOptions};

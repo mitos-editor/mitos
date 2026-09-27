@@ -2,8 +2,7 @@ use arc_swap::ArcSwapOption;
 use event::status::StatusMessage;
 use event::{runtime_local, send_blocking};
 use std::sync::Arc;
-pub use view::callbacks::EditorCallback;
-use view::callbacks::EditorCallbackSender;
+use view::callbacks::{EditorCallback, EditorCallbackSender};
 use view::Editor;
 
 use crate::compositor::Compositor;

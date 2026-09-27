@@ -378,7 +378,7 @@ pub(super) mod typed {
     //! Typable files commands.
 
     use view::save::{self, PreparedSave};
-    pub use view::save::{WriteAllOptions, WriteOptions};
+    use view::save::{WriteAllOptions, WriteOptions};
 
     use crate::{
         commands::{

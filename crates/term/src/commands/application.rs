@@ -27,13 +27,16 @@ pub(super) mod typed {
         commands::{
             buffers::typed::buffers_remaining_impl,
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
-            files::typed::{write_all_impl, write_impl, WriteAllOptions, WriteOptions},
+            files::typed::{write_all_impl, write_impl},
         },
         compositor, job,
         ui::PromptEvent,
     };
     use ::command_line::Args;
-    use view::editor::Action;
+    use view::{
+        editor::Action,
+        save::{WriteAllOptions, WriteOptions},
+    };
 
     #[cold]
     pub(in crate::commands) fn exit(
