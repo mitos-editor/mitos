@@ -1,5 +1,3 @@
-use std::{path::PathBuf, process::Command};
-
 use loader::workspace_trust::{Config, TrustStatus, WorkspaceTrust};
 use view::{
     current_ref,
@@ -11,53 +9,6 @@ use view::{
 };
 
 use super::helpers::{lsp::Fixture, test_key_sequence, test_key_sequences, AppBuilder};
-
-// Trust persistence and config discovery use process-wide paths. Each child gets
-// its own data and configuration directories, never the developer's trust store.
-fn isolated(name: &str) -> anyhow::Result<Option<PathBuf>> {
-    const ROOT: &str = "MITOS_TEST_WORKSPACE_TRUST_ROOT";
-    if let Some(root) = std::env::var_os(ROOT) {
-        let root = PathBuf::from(root);
-        assert!(loader::data_dir().starts_with(&root));
-        assert!(loader::config_dir().starts_with(&root));
-        loader::initialize_config_file(Some(root.join("config/mitos/config.toml")));
-        return Ok(Some(root));
-    }
-    let dir = tempfile::tempdir()?;
-    // Resolve temporary-directory symlinks, then use the same path spelling as
-    // documents (including removal of Windows' verbatim prefix).
-    let root = stdx::path::normalize(dir.path().canonicalize()?);
-    for path in ["workspace/.mitos", "config/mitos", "data", "cache"] {
-        std::fs::create_dir_all(root.join(path))?;
-    }
-    let output = Command::new(std::env::current_exe()?)
-        .args([
-            "--exact",
-            &format!("test::workspace_trust::{name}"),
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .current_dir(root.join("workspace"))
-        .env(
-            "MITOS_RUNTIME",
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime"),
-        )
-        .env(ROOT, &root)
-        .env("XDG_CONFIG_HOME", root.join("config"))
-        .env("XDG_DATA_HOME", root.join("data"))
-        .env("XDG_CACHE_HOME", root.join("cache"))
-        .env("XDG_STATE_HOME", root.join("data"))
-        .env("APPDATA", root.join("config"))
-        .env("LOCALAPPDATA", root.join("cache"))
-        .output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "isolated test failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(None)
-}
 
 fn opened(editor: &mut view::Editor) {
     let doc = current_ref!(editor).1.id();
@@ -116,7 +67,9 @@ fn app(root: &std::path::Path) -> anyhow::Result<term::application::Application>
 
 #[tokio::test(flavor = "multi_thread")]
 async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> anyhow::Result<()> {
-    let Some(root) = isolated("modal_and_commands_apply_trust_and_reload_workspace_configuration")?
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::workspace_trust::modal_and_commands_apply_trust_and_reload_workspace_configuration",
+    )?
     else {
         return Ok(());
     };
@@ -181,7 +134,10 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn modal_never_persists_exclusion() -> anyhow::Result<()> {
-    let Some(root) = isolated("modal_never_persists_exclusion")? else {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::workspace_trust::modal_never_persists_exclusion",
+    )?
+    else {
         return Ok(());
     };
     let mut app = app(&root)?;
@@ -210,7 +166,10 @@ async fn modal_never_persists_exclusion() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn modal_escape_dismisses_without_persisting() -> anyhow::Result<()> {
-    let Some(root) = isolated("modal_escape_dismisses_without_persisting")? else {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::workspace_trust::modal_escape_dismisses_without_persisting",
+    )?
+    else {
         return Ok(());
     };
     let mut app = app(&root)?;
@@ -238,7 +197,7 @@ async fn modal_escape_dismisses_without_persisting() -> anyhow::Result<()> {
 async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics(
 ) -> anyhow::Result<()> {
     let Some(root) =
-        isolated("shared_decisions_preserve_launch_restart_revocation_and_stale_semantics")?
+        super::helpers::isolation::workspace("test::workspace_trust::shared_decisions_preserve_launch_restart_revocation_and_stale_semantics")?
     else {
         return Ok(());
     };
@@ -343,7 +302,10 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
 
 #[tokio::test(flavor = "multi_thread")]
 async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::Result<()> {
-    let Some(root) = isolated("explicit_decisions_invalidate_queued_and_visible_prompts")? else {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::workspace_trust::explicit_decisions_invalidate_queued_and_visible_prompts",
+    )?
+    else {
         return Ok(());
     };
     let workspace = root.join("workspace");
@@ -381,7 +343,7 @@ async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::R
 async fn accepting_trust_launches_previously_blocked_servers_for_open_documents(
 ) -> anyhow::Result<()> {
     let Some(root) =
-        isolated("accepting_trust_launches_previously_blocked_servers_for_open_documents")?
+        super::helpers::isolation::workspace("test::workspace_trust::accepting_trust_launches_previously_blocked_servers_for_open_documents")?
     else {
         return Ok(());
     };

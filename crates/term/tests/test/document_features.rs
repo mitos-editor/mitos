@@ -38,17 +38,9 @@ fn sender(
     feature: Feature,
     tx: &mpsc::Sender<(Feature, bool, EditorCallback)>,
 ) -> EditorCallbackSender {
-    let tx = tx.clone();
-    let blocking = tx.clone();
-    EditorCallbackSender::new(
-        move |callback| {
-            let tx = tx.clone();
-            async move {
-                let _ = tx.send((feature, false, callback)).await;
-            }
-        },
-        move |callback| event::send_blocking(&blocking, (feature, true, callback)),
-    )
+    super::helpers::callbacks::bounded_sender(tx, move |blocking, callback| {
+        (feature, blocking, callback)
+    })
 }
 
 impl Fixture {

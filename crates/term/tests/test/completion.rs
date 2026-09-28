@@ -7,7 +7,6 @@ use anyhow::Context as _;
 use editor_core::Selection;
 use term::application::Application;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
@@ -93,22 +92,9 @@ impl Fixture {
             .with_config(config)
             .with_lang_loader(loader)
             .build()?;
-        let (tx, callbacks) = mpsc::unbounded_channel();
-        let blocking = tx.clone();
-        app.editor.handlers.completions = CompletionHandler::new(
-            EditorCallbackSender::new(
-                move |callback| {
-                    let tx = tx.clone();
-                    async move {
-                        let _ = tx.send((false, callback));
-                    }
-                },
-                move |callback| {
-                    let _ = blocking.send((true, callback));
-                },
-            ),
-            &app.editor.config(),
-        );
+        let (sender, callbacks) =
+            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+        app.editor.handlers.completions = CompletionHandler::new(sender, &app.editor.config());
         let path = dir.join("document.completion-test");
         std::fs::write(&path, text)?;
         app.editor.open(&path, Action::Replace)?;
@@ -128,19 +114,7 @@ impl Fixture {
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
         std::fs::write(&self.initialize_gate, "ready")?;
-        for _ in 0..self.server_count {
-            let (server, call) = tokio::time::timeout(
-                Duration::from_secs(10),
-                self.app.editor.language_servers.incoming.next(),
-            )
-            .await?
-            .context("server initialization")?;
-            anyhow::ensure!(
-                matches!(&call, lsp_client::Call::Notification(message) if message.method == "initialized")
-            );
-            self.app.handle_language_server_message(call, server).await;
-        }
-        Ok(())
+        super::helpers::lsp::initialize(&mut self.app, self.server_count).await
     }
 
     fn trigger(&self) {

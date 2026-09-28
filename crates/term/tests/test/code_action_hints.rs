@@ -12,10 +12,9 @@ use lsp_client::lsp::{CodeActionKind, CodeActionTriggerKind};
 use serde_json::Value;
 use term::application::Application;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     action::code_actions_for_range,
-    callbacks::{EditorCallback, EditorCallbackSender},
+    callbacks::EditorCallback,
     config::StatusLineElement,
     current, current_ref,
     editor::{Action, ConfigEvent},
@@ -80,17 +79,11 @@ impl Fixture {
             .with_lang_loader(loader)
             .build()?;
         let (tx, callbacks) = mpsc::channel(64);
-        let blocking = tx.clone();
-        app.editor.handlers.code_action_hint =
-            CodeActionHintHandler::new(EditorCallbackSender::new(
-                move |callback| {
-                    let tx = tx.clone();
-                    async move {
-                        let _ = tx.send((false, callback)).await;
-                    }
-                },
-                move |callback| event::send_blocking(&blocking, (true, callback)),
-            ));
+        app.editor.handlers.code_action_hint = CodeActionHintHandler::new(
+            super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
+                (blocking, callback)
+            }),
+        );
         let path = dir.join("document.action-test");
         std::fs::write(&path, format!("😀 {word}\n"))?;
         app.editor.open(&path, Action::Replace)?;
@@ -107,31 +100,7 @@ impl Fixture {
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
         std::fs::write(&self.gate, "ready")?;
-        tokio::time::timeout(Duration::from_secs(10), async {
-            // Transport readiness alone does not mean the editor has sent didOpen.
-            // Process initialization for every server before requesting hints.
-            for _ in 0..self.server_count {
-                let (server_id, call) = self
-                    .app
-                    .editor
-                    .language_servers
-                    .incoming
-                    .next()
-                    .await
-                    .context("LSP message stream closed")?;
-                anyhow::ensure!(
-                    matches!(&call, lsp_client::Call::Notification(message)
-                    if message.method == "initialized"),
-                    "expected initialization notification"
-                );
-                self.app
-                    .handle_language_server_message(call, server_id)
-                    .await;
-            }
-            anyhow::Ok(())
-        })
-        .await
-        .context("code-action server initialization timed out")?
+        super::helpers::lsp::initialize(&mut self.app, self.server_count).await
     }
 
     async fn next(&mut self) -> anyhow::Result<(bool, EditorCallback)> {
