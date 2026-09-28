@@ -1,23 +1,49 @@
+# Architecture
 
-| Crate           | Description                                                      |
-| -----------     | -----------                                                      |
-| stdx      | Extensions to the standard library (similar to [`rust-analyzer`'s](https://github.com/rust-lang/rust-analyzer/blob/ea413f67a8f730b4211c09e103f8207c62e7dbc3/crates/stdx/Cargo.toml#L5)) |
-| core      | Core editing primitives, functional.                             |
-| lsp       | Language server client                                           |
-| lsp-types | Language Server Protocol type definitions                        |
-| dap       | Debug Adapter Protocol (DAP) client                              |
-| event     | Primitives for defining and handling events within the editor    |
-| loader    | Functions for building, fetching, and loading external resources |
-| spelling  | Dictionary operations, scanning, suggestions, and word persistence |
-| view      | UI abstractions for use in backends, imperative shell.           |
-| term      | Terminal UI                                                      |
-| tui       | Ratatui integration and Mitos-specific terminal rendering         |
+Mitos separates text algorithms, shared editor behavior, and terminal interaction.
+Features live with the state they change; frontends adapt input and present results.
 
+| Crate | Responsibility |
+| --- | --- |
+| `core` | Ropes, selections, transactions, history, syntax analysis, and editing algorithms |
+| `view` | Documents, views, editor operations, configuration application, and feature coordination |
+| `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
+| `ui-core` | Shared geometry, input, colors, and styles |
+| `tui` | Terminal backends, capability handling, and Ratatui integration |
+| `loader` | Resource paths, grammar/query/theme sources, workspace trust policy and persistence |
+| `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
+| `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
+| `lsp-types`, `dap-types` | Protocol data types |
+| `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
+| `event` | Event registration, cancellation, and debounced task primitives |
+| `stdx` | Shared standard-library utilities |
+| `xtask` | Repository maintenance, validation, and generated documentation |
 
-This document contains a high-level overview of Mitos internals.
+`term` composes `view` with `tui`; shared editor behavior does not depend on either
+terminal crate. `view` coordinates feature and protocol crates. For example,
+`view` → `spelling` → `core` keeps dictionary algorithms independent of editor
+state. `ui-core` supplies UI value types without owning editor services.
 
-> NOTE: Use `cargo doc --open` for API documentation as well as dependency
-> documentation.
+Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
+this guide explains how those owners cooperate.
+
+## Where new code belongs
+
+| Change | Home |
+| --- | --- |
+| Text transformation independent of open buffers | `core` |
+| Operation on documents, selections, history, or editor services | `view` |
+| Document feature cache and request lifetime | `view/src/document/<feature>.rs` |
+| Feature scheduling, event hooks, and result publication | `view/src/handlers/<feature>.rs` |
+| Resource discovery or source inheritance | `loader` |
+| Protocol request/response transport | Its protocol crate; editor effects belong in `view` |
+| Keybinding, prompt, picker, popup, or terminal rendering | `term` |
+| Backend output or terminal capabilities | `tui` |
+
+Keep helpers beside their callers and share them when concrete consumers need
+the same policy. Introduce a feature crate when it has useful explicit inputs and
+outputs independent of editor coordination, as `spelling` does. Existing command
+catalogs and feature wiring are static; this organization does not require a plugin API.
 
 ## Core
 
@@ -50,15 +76,16 @@ highlighting and other features.
 
 ## View
 
-The `view` layer was supposed to be a frontend-agnostic imperative library that
-would build on top of `core` to provide the common editor logic. Currently it's
-tied to the terminal UI.
+`view` owns the shared editor model and operations. It can run without a terminal
+compositor; frontends supply callback delivery and presentation. Presentation-related
+model data, such as view geometry, theme styles, and gutter settings, remains shared.
+
+### Configuration application
 
 `view::config` defines editor configuration types, defaults, and serialization.
 `term::config` loads and merges configuration files, while `view::editor` owns
-editor state and applies configuration updates. Configuration types remain
-re-exported from `view::editor` for compatibility; new code should use
-`view::config`.
+editor state and applies configuration updates. Import shared settings from
+`view::config`, their owning module.
 
 Terminal capability overrides live in `term::config::TerminalConfig`. The
 terminal application composes them with `view::config::Config` through an
@@ -84,6 +111,8 @@ error retains the trust update but leaves the active loader intact. Theme errors
 still allow document refresh. Configuration-event reloads still run change hooks
 after failure, using the currently installed settings.
 
+### Documents and views
+
 A `Document` ties together the `Rope`, `Selection`(s), `Syntax`, document
 `History`, language server (etc.) into a comprehensive representation of an open
 file.
@@ -99,30 +128,11 @@ diagnostics, and the inner area where the code is displayed.
 `Info` is the autoinfo box that shows hints when awaiting another key with bindings
 like `g` and `m`. It is attached to the viewport as a whole.
 
-`Surface` is like a buffer to which widgets draw themselves to, and the
-surface is then rendered on the screen on each cycle.
-
-`Rect`s are areas (simply an x and y coordinate with the origin at the
-screen top left and then a height and width) which are part of a
-`Surface`. They can be used to limit the area to which a `Component` can
-render. For example if we wrap a `Markdown` component in a `Popup`
-(think the documentation popup with space+k), Markdown's render method
-will get a Rect that is the exact size of the popup.
-
-Widgets are called `Component`s internally, and you can see most of them
-in `crates/term/src/ui`. Some components like `Popup` and `Overlay` can take
-other components as children.
-
-`Layer`s are how multiple components are displayed, and is simply a
-`Vec<Component>`. Layers are managed by the `Compositor`. On each top
-level render call, the compositor renders each component in the order
-they were pushed into the stack. This makes multiple components "layer"
-on top of one another. Hence we get a file picker displayed over the
-editor, etc.
-
 The `Editor` holds the global state: all the open documents, a tree
 representation of all the view splits, the configuration, and a registry of 
 language servers. To open or close files, interact with the editor.
+
+### Resources and feature coordination
 
 `loader::syntax::Resources` owns the ordered runtime paths used to load native
 grammars and query sources, including inheritance. Reads stay lazy and resolve
@@ -168,6 +178,19 @@ document version and URI, and server attachment when queued results are applied.
 Highlights also validate the view's document and selection. Cached data and
 request controllers follow the document lifetime; rendering and interactive
 commands remain in the frontend.
+
+Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
+have state modules under `view/src/document/`. Each groups its cache, request
+controllers, and attached scheduling handle. Pull diagnostics keeps its handle
+with its diagnostic state. Removing a view cancels its per-view work; dropping a
+document drops its request controllers. Cache-only clearing preserves replacement
+requests for colors, links, highlights, and symbols. Clearing code-action hints
+also invalidates their requests. Each feature makes that distinction explicit.
+
+Colors, links, and pull diagnostics share the internal `document_debounce` helper.
+Each keeps its own queue and request policy; inter-file diagnostic refresh retains
+its separate timing. `DocumentRequest` validates cancellation, document version,
+URI, and server attachment before queued results mutate editor state.
 
 `Editor::handle_language_server_initialized`, `handle_publish_diagnostics`, and
 `handle_language_server_exit` in `view::handlers::lsp` own editor-side lifecycle
@@ -248,6 +271,15 @@ publication also checks the view, document snapshot, and server attachment.
 Spelling findings provide hints even without an LSP server. Statusline and gutter
 indicators, the picker, and save-job sequencing remain in `term`.
 
+`view::action::Action` executes local actions synchronously. LSP actions retain
+an `LspActionContext` from the document snapshot used to request them, including
+server instance identity. Resolution runs asynchronously and returns through the
+editor callback queue. Applying the result rechecks the document version, URI,
+and server attachment; switching focus alone does not change the target. A resolve
+or workspace-edit failure is reported and prevents the follow-up command. Existing
+workspace-edit application can partially succeed before an error; it does not
+roll back already-applied changes.
+
 `view::handlers::signature_help` owns manual and automatic triggers, debounce
 timing, server selection, cancellation, and response validation. Documents hold
 weak scheduling handles to their editor's coordinator. Requests retain document,
@@ -303,12 +335,30 @@ preserves the existing detection order and fallback. The `[editor.clipboard-prov
 schema, provider names, and command behavior remain unchanged. `view` has no direct
 terminal-output dependency or terminal feature flag for clipboard access.
 
+### Service initialization and callbacks
+
 `view::handlers::Handlers::new` constructs shared editor services from editor
 configuration and an explicit callback destination. It registers editor events
-and feature hooks once per event registry, including LSP notifications, snippet
-range tracking, and filesystem configuration updates. A frontend can initialize
+and feature hooks through one central registration path, once per event registry.
+Feature registrars are private to the handler modules. Registration puts LSP document
+synchronization before feature requests and includes snippet range tracking and
+filesystem configuration updates. A frontend can initialize
 these services without terminal setup. `term::handlers::register_hooks` installs
 terminal input and presentation hooks separately.
+
+Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
+it and exposes `Editor::handlers()` for reading and scheduling work. All new
+documents receive their service bindings through `Handlers::attach_document`
+before syntax initialization or document-open events. A frontend cannot replace
+owned handler fields directly.
+
+Explicit editor methods replace running autosave, signature-help, completion,
+and reload services. Autosave and signature-help replacement rebind existing
+documents; their queued results retain the old owner identity and are rejected.
+Completion replacement cancels pending/displayed work. Trust prompt reset clears
+prompt ownership without changing trust policy. Terminal fixtures configure
+services through `AppBuilder::with_handler_setup`, which delegates to
+`Application::new_with_handler_setup` before the editor opens any documents.
 
 Word-index hooks route open/configuration events through the supplied editor and
 edit/close events through a weak document-bound sender. Each editor owns its
@@ -322,8 +372,10 @@ queue, which applies editor-only callbacks in the event loop. Async sends wait
 for capacity; synchronous sends retain the queue's bounded-wait policy. Syntax
 initialization, spelling, document features, pull diagnostics, code-action hints,
 automatic reload, autosave, signature help, and completion use explicit destinations.
-Other background features still use the existing terminal handlers and dispatch
-paths.
+Work that needs a compositor uses terminal job callbacks. Editor-only work uses
+its owning editor's callback destination. Cancellation must also be checked when
+a queued callback is applied, since canceling a request cannot retract a callback
+already delivered to the frontend.
 
 `view::editing::replace_selections` replaces a document's selections through one
 transaction and commits pending edits to history. It takes a `Document`, a `View`,
@@ -341,9 +393,12 @@ before submission, so an immediate error leaves later documents unprepared.
 `auto_save` uses this policy to enqueue writes without formatting or code actions,
 skipping scratch buffers. `Editor::save` owns the underlying write queue.
 
-## LSP
+## Protocol and repository integrations
 
-A language server protocol client.
+`lsp`, `dap`, and `vcs` own their transport or repository operations. They accept
+explicit inputs; editor-specific state changes belong in `view`. The terminal
+application decodes incoming protocol messages, delegates shared operations, and
+handles frontend requests such as progress display and interactive prompts.
 
 ## Term
 
@@ -383,9 +438,8 @@ Features keep typable handlers in the same file as their static commands and
 helpers. Mixed features use an inline `mod typed` to distinguish invocation
 signatures and avoid name collisions. Configuration and workspace handlers live
 directly in their feature modules. The catalog points at the owning feature and
-namespace.
-`commands/typed.rs` is a compatibility facade for metadata, completion, and shared
-save exports; it contains no handlers.
+namespace. Public command entry points are collected in `commands.rs`; consumers
+do not need to follow the feature modules' internal invocation namespaces.
 
 Helpers stay with their feature and use narrow visibility for sibling callers.
 For example, navigation owns jump recording, formatting owns its result callback,
@@ -408,9 +462,34 @@ errors. The command catalog remains static.
 `keymap.rs` links commands to key combinations.
 
 
-## TUI / Term
+## Terminal rendering
 
-TODO: document Component and rendering related stuff
+`term::compositor` owns components, layers, input dispatch, and render orchestration.
+`term::ui` owns widgets and conversions into Ratatui text and buffers. `tui` owns
+the backend and terminal rendering integration; `ui-core` supplies shared value
+types. A shared editor feature publishes state or a typed event, and the frontend
+chooses the widget, labels, layout, and interaction.
+
+`Surface` is like a buffer to which widgets draw themselves to, and the
+surface is then rendered on the screen on each cycle.
+
+`Rect`s are areas (simply an x and y coordinate with the origin at the
+screen top left and then a height and width) which are part of a
+`Surface`. They can be used to limit the area to which a `Component` can
+render. For example if we wrap a `Markdown` component in a `Popup`
+(think the documentation popup with space+k), Markdown's render method
+will get a Rect that is the exact size of the popup.
+
+Widgets are called `Component`s internally, and you can see most of them
+in `crates/term/src/ui`. Some components like `Popup` and `Overlay` can take
+other components as children.
+
+`Layer`s are how multiple components are displayed, and is simply a
+`Vec<Component>`. Layers are managed by the `Compositor`. On each top
+level render call, the compositor renders each component in the order
+they were pushed into the stack. This makes multiple components "layer"
+on top of one another. Hence we get a file picker displayed over the
+editor, etc.
 
 ## Event
 
@@ -425,3 +504,20 @@ for running cancellable tasks which run after events with _debouncing_.
 See the `AsyncHook` type for more information. Events can be created within the
 `events!` macro. Synchronous hooks can be created with `register_hook!`. And
 editor-wide events can be sent to hooks with `event::dispatch`.
+
+## Testing the boundaries
+
+Headless tests in `crates/view/tests` exercise shared editor coordination with an
+explicit callback queue. Use them for editor isolation, cancellation, stale
+publication, configuration application, and lifecycle behavior. Terminal integration
+tests in `crates/term/tests` exercise input, prompts, rendering adapters, and the
+application event loop. The fake LSP executable in `crates/term/tests/fixtures`
+provides controlled responses and gates for asynchronous protocol tests. Shared
+helpers configure its command arguments, TOML language definitions, log paths,
+and initialization gates; each feature suite keeps its response scenarios and
+assertions explicit.
+
+Place algorithm tests in the owning feature crate. Reuse existing fixtures and
+keep assertions about observable behavior; moving code alone does not require a
+new test. Changes to async ownership need coverage for queued callbacks as well
+as in-flight requests.
