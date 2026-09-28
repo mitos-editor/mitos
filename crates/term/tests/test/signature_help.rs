@@ -17,14 +17,15 @@ use view::{
     },
 };
 
-use super::helpers::{run_event_loop_until_idle, test_config, test_syntax_loader, AppBuilder};
+use super::helpers::lsp::{self, Gate, ServerConfig};
+use super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
 
 struct Fixture {
     app: Application,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
     response_gate: PathBuf,
-    initialize_gate: PathBuf,
+    initialize_gate: Gate,
     server_count: usize,
 }
 
@@ -36,51 +37,21 @@ impl Fixture {
     }
 
     fn uninitialized(dir: &Path, text: &str, names: &[&str]) -> anyhow::Result<Self> {
-        let gate = dir.join("initialize-ready");
-        if gate.exists() {
-            std::fs::remove_file(&gate)?;
-        }
+        let gate = Gate::new(dir.join("initialize-ready"));
+        gate.close()?;
         let response_gate = dir.join("respond-ready");
         std::fs::write(&response_gate, "ready")?;
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
         let mut servers = String::new();
         for name in names {
-            let log = dir.join(format!("{name}.jsonl"));
-            let args = toml::Value::Array(
-                [
-                    "--signature-help",
-                    name,
-                    log.to_str().unwrap(),
-                    "--initialize-gate",
-                    gate.to_str().unwrap(),
-                    "--response-gate",
-                    response_gate.to_str().unwrap(),
-                ]
-                .into_iter()
-                .map(|arg| toml::Value::String(arg.into()))
-                .collect(),
+            servers.push_str(
+                &ServerConfig::feature(name, "--signature-help", dir)
+                    .initialize_gate(&gate)
+                    .arg("--response-gate")
+                    .arg(&response_gate)
+                    .toml(),
             );
-            servers.push_str(&format!(
-                "[language-server.{name}]\ncommand = {command}\nargs = {args}\n"
-            ));
         }
-        let names_config = toml::Value::Array(
-            names
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
-        );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {servers}
-            [[language]]
-            name = "signature-test"
-            scope = "source.signature-test"
-            file-types = ["signature-test"]
-            roots = []
-            language-servers = {names_config}
-        "#
-        )));
+        let loader = lsp::syntax_loader("signature-test", "signature-test", names, &servers);
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.lsp.auto_signature_help = true;
@@ -99,7 +70,7 @@ impl Fixture {
         Ok(Self {
             app,
             callbacks,
-            log: dir.join("alpha.jsonl"),
+            log: lsp::log_path(dir, "alpha"),
             response_gate,
             initialize_gate: gate,
             server_count: names.len(),
@@ -107,8 +78,8 @@ impl Fixture {
     }
 
     async fn initialize(&mut self) -> anyhow::Result<()> {
-        std::fs::write(&self.initialize_gate, "ready")?;
-        super::helpers::lsp::initialize(&mut self.app, self.server_count).await
+        self.initialize_gate.release()?;
+        lsp::initialize(&mut self.app, self.server_count).await
     }
 
     fn trigger(&self, invoked: SignatureHelpInvoked) {

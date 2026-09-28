@@ -1,5 +1,6 @@
-//! Shared stdio fixture for server lifecycle and workspace requests.
+//! Shared fake-server configuration and fixtures for LSP integration tests.
 use std::{
+    ffi::OsStr,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -13,6 +14,113 @@ use tokio_stream::StreamExt;
 use view::{current_ref, editor::Action};
 
 use super::{test_config, test_syntax_loader, AppBuilder};
+
+/// A file gate keeps server startup under the test's control.
+pub struct Gate(PathBuf);
+
+impl Gate {
+    pub fn new(path: PathBuf) -> Self {
+        Self(path)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn close(&self) -> anyhow::Result<()> {
+        match std::fs::remove_file(&self.0) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn release(&self) -> anyhow::Result<()> {
+        std::fs::write(&self.0, "ready")?;
+        Ok(())
+    }
+}
+
+pub fn log_path(directory: &Path, name: &str) -> PathBuf {
+    directory.join(format!("{name}.jsonl"))
+}
+
+/// Configure the existing stdio test server. Feature modes require the mode,
+/// server name, and log path in that order; additional arguments stay explicit.
+pub struct ServerConfig<'a> {
+    name: &'a str,
+    args: Vec<String>,
+}
+
+impl<'a> ServerConfig<'a> {
+    pub fn new(name: &'a str) -> Self {
+        Self {
+            name,
+            args: Vec::new(),
+        }
+    }
+
+    pub fn feature(name: &'a str, mode: &str, directory: &Path) -> Self {
+        Self::new(name)
+            .arg(mode)
+            .arg(name)
+            .arg(log_path(directory, name))
+    }
+
+    pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
+        self.args.push(
+            arg.as_ref()
+                .to_str()
+                .expect("UTF-8 test server argument")
+                .into(),
+        );
+        self
+    }
+
+    pub fn initialize_gate(self, gate: &Gate) -> Self {
+        self.arg("--initialize-gate").arg(gate.path())
+    }
+
+    pub fn toml(self) -> String {
+        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+        let args = string_array(&self.args);
+        let name = toml::Value::String(self.name.into());
+        format!("[language-server.{name}]\ncommand = {command}\nargs = {args}\n")
+    }
+}
+
+fn string_array(values: &[impl AsRef<str>]) -> toml::Value {
+    toml::Value::Array(
+        values
+            .iter()
+            .map(|value| toml::Value::String(value.as_ref().into()))
+            .collect(),
+    )
+}
+
+/// Give each fixture its own language while sharing the fake-server wiring.
+pub fn syntax_loader(
+    language: &str,
+    file_type: &str,
+    names: &[&str],
+    servers: &str,
+) -> editor_core::syntax::Loader {
+    let name = toml::Value::String(language.into());
+    let scope = toml::Value::String(format!("source.{language}"));
+    let file_types = string_array(&[file_type]);
+    let names = string_array(names);
+    test_syntax_loader(Some(format!(
+        r#"
+        {servers}
+        [[language]]
+        name = {name}
+        scope = {scope}
+        file-types = {file_types}
+        roots = []
+        language-servers = {names}
+        "#
+    )))
+}
 
 /// Wait for editor-side initialization, not just transport readiness. Processing
 /// the notifications sends didOpen before a test starts observing feature requests.
@@ -40,7 +148,7 @@ pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result
 
 pub(crate) struct Fixture {
     pub app: Application,
-    gate: PathBuf,
+    gate: Gate,
     pub logs: Vec<PathBuf>,
 }
 
@@ -69,48 +177,22 @@ impl Fixture {
         config: impl Fn(&str) -> Option<String>,
         trust: WorkspaceTrust,
     ) -> anyhow::Result<Self> {
-        let gate = dir.join("initialize-ready");
-        let command = toml::Value::String(env!("CARGO_BIN_EXE_mitos-test-lsp").into());
+        let gate = Gate::new(dir.join("initialize-ready"));
         let mut servers = String::new();
         let mut logs = Vec::new();
         for name in names {
-            let log = dir.join(format!("{name}.jsonl"));
-            let args = toml::Value::Array(
-                [
-                    "--lifecycle",
-                    name,
-                    log.to_str().unwrap(),
-                    gate.to_str().unwrap(),
-                ]
-                .into_iter()
-                .map(|s| toml::Value::String(s.into()))
-                .collect(),
+            // Lifecycle mode logs initialize before waiting on its positional gate.
+            servers.push_str(
+                &ServerConfig::feature(name, "--lifecycle", dir)
+                    .arg(gate.path())
+                    .toml(),
             );
-            servers.push_str(&format!(
-                "[language-server.{name}]\ncommand = {command}\nargs = {args}\n"
-            ));
             if let Some(config) = config(name) {
                 servers.push_str(&format!("config = {config}\n"));
             }
-            logs.push(log);
+            logs.push(log_path(dir, name));
         }
-        let names = toml::Value::Array(
-            names
-                .iter()
-                .map(|name| toml::Value::String((*name).into()))
-                .collect(),
-        );
-        let loader = test_syntax_loader(Some(format!(
-            r#"
-            {servers}
-            [[language]]
-            name = "lifecycle-test"
-            scope = "source.lifecycle-test"
-            file-types = ["lifecycle-test"]
-            roots = []
-            language-servers = {names}
-        "#
-        )));
+        let loader = syntax_loader("lifecycle-test", "lifecycle-test", names, &servers);
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.breadcrumb.enable = true;
@@ -126,8 +208,7 @@ impl Fixture {
     }
 
     pub fn release(&self) -> anyhow::Result<()> {
-        std::fs::write(&self.gate, "ready")?;
-        Ok(())
+        self.gate.release()
     }
 
     pub async fn next(&mut self) -> anyhow::Result<(LanguageServerId, Call)> {
