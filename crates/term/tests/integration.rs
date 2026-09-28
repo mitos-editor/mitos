@@ -19,6 +19,7 @@ mod test {
     mod auto_reload;
     mod auto_save;
     mod code_action_hints;
+    mod code_actions;
     mod command_line;
     mod commands;
     mod completion;
