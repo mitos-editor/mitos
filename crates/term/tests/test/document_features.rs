@@ -67,19 +67,20 @@ impl Fixture {
             servers,
             &server_config,
         );
+        let (tx, callbacks) = mpsc::channel(64);
+        // Use independent queues so publication can be held while the editor changes.
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
+            .with_handler_setup(move |handlers, _| {
+                handlers.document_colors = DocumentColorsHandler::new(sender(Feature::Colors, &tx));
+                handlers.document_highlight =
+                    DocumentHighlightHandler::new(sender(Feature::Highlights, &tx));
+                handlers.document_links = DocumentLinksHandler::new(sender(Feature::Links, &tx));
+                handlers.document_symbols =
+                    DocumentSymbolsHandler::new(sender(Feature::Symbols, &tx));
+            })
             .build()?;
-        let (tx, callbacks) = mpsc::channel(64);
-        // Use independent queues so publication can be held while the editor changes.
-        app.editor.handlers.document_colors =
-            DocumentColorsHandler::new(sender(Feature::Colors, &tx));
-        app.editor.handlers.document_highlight =
-            DocumentHighlightHandler::new(sender(Feature::Highlights, &tx));
-        app.editor.handlers.document_links = DocumentLinksHandler::new(sender(Feature::Links, &tx));
-        app.editor.handlers.document_symbols =
-            DocumentSymbolsHandler::new(sender(Feature::Symbols, &tx));
         app.editor.open(path, Action::Replace)?;
         Ok(Self {
             app,

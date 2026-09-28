@@ -11,7 +11,6 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("queued.json");
     std::fs::write(&path, "{}\n")?;
-    let mut app = AppBuilder::new().build()?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let blocking_tx = tx.clone();
     let sender = view::callbacks::EditorCallbackSender::new(
@@ -23,8 +22,12 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
         },
         move |callback| event::send_blocking(&blocking_tx, callback),
     );
-    app.editor.handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
-    app.editor.open(&path, view::editor::Action::Replace)?;
+    let mut app = AppBuilder::new()
+        .with_file(&path, None)
+        .with_handler_setup(move |handlers, _| {
+            handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
+        })
+        .build()?;
     let id = doc!(app.editor).id();
 
     let callback = tokio::time::timeout(Duration::from_secs(10), rx.recv())

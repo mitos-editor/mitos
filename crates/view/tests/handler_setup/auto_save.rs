@@ -7,7 +7,8 @@ use super::{support::callback_channel, Fixture};
 
 impl Fixture {
     fn auto_save() -> anyhow::Result<Self> {
-        let mut fixture = Self::with_config(
+        let (sender, callbacks) = callback_channel();
+        let mut fixture = Self::with_handler_setup(
             "before\n",
             "language = []",
             loader::syntax::Resources::default(),
@@ -16,15 +17,12 @@ impl Fixture {
                 config.auto_save.after_delay.enable = true;
                 config.auto_save.after_delay.timeout = 10;
             },
+            move |handlers, _| {
+                handlers.auto_save = auto_save::AutoSaveHandler::new(sender);
+            },
         )?;
-        // Reopen after installing the dedicated handler so the document's trigger
-        // uses this queue. Other editor callbacks must not masquerade as autosaves.
-        let path = current_ref!(fixture.editor).1.path().unwrap().to_path_buf();
-        fixture.close_current()?;
-        let (sender, callbacks) = callback_channel();
-        fixture.editor.handlers.auto_save = auto_save::AutoSaveHandler::new(sender);
+        // Capture only autosaves; unrelated editor callbacks use the fixture's default queue.
         fixture.callbacks = callbacks;
-        fixture.editor.open(&path, view::editor::Action::Replace)?;
         Ok(fixture)
     }
 
@@ -108,7 +106,7 @@ async fn disabling_autosave_invalidates_queued_and_deferred_saves() -> anyhow::R
     f.replace("deferred\n");
     f.publish().await?;
     f.editor.mode = Mode::Normal;
-    f.editor.handlers.auto_save.left_insert_mode();
+    f.editor.handlers().auto_save.left_insert_mode();
     let deferred = f.next().await?;
     f.settings(false, false);
     f.settings(true, false);

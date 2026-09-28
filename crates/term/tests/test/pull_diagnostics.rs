@@ -41,16 +41,18 @@ impl Fixture {
         let loader = lsp::syntax_loader("pull-diagnostic-test", "pull-test", names, &servers);
         let mut config = test_config();
         config.editor.lsp.enable = true;
-        let mut app = AppBuilder::new()
+        let (tx, callbacks) = mpsc::channel(64);
+        let app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
+            .with_handler_setup(move |handlers, _| {
+                handlers.pull_diagnostics = PullDiagnosticsHandler::new(
+                    super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
+                        (blocking, callback)
+                    }),
+                );
+            })
             .build()?;
-        let (tx, callbacks) = mpsc::channel(64);
-        app.editor.handlers.pull_diagnostics = PullDiagnosticsHandler::new(
-            super::helpers::callbacks::bounded_sender(&tx, |blocking, callback| {
-                (blocking, callback)
-            }),
-        );
         let mut fixture = Self {
             app,
             callbacks,

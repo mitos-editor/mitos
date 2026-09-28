@@ -138,6 +138,10 @@ pub struct Editor {
 
     pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
     pub needs_redraw: bool,
+    /// Editor-owned services; replacements must preserve document bindings.
+    pub(crate) handlers: Handlers,
+
+    pub mouse_down_range: Option<Range>,
     /// Cached position of the cursor calculated during rendering.
     /// The content of `cursor_cache` is returned by `Editor::cursor` if
     /// set to `Some(_)`. The value will be cleared after it's used.
@@ -150,9 +154,6 @@ pub struct Editor {
     /// This cache is only a performance optimization to
     /// avoid calculating the cursor position multiple
     /// times during rendering and should not be set by other functions.
-    pub handlers: Handlers,
-
-    pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
     /// Loaded spelling dictionaries keyed by language.
     pub dictionaries: HashMap<SpellingLanguage, Arc<spelling::Dictionary>>,
@@ -882,17 +883,7 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
-        doc.document_colors.handler = Some(self.handlers.document_colors.clone());
-        doc.document_links.handler = Some(self.handlers.document_links.clone());
-        doc.document_highlights.handler = Some(self.handlers.document_highlight.clone());
-        doc.document_symbols.handler = Some(self.handlers.document_symbols.clone());
-        doc.pull_diagnostics.handler = Some(self.handlers.pull_diagnostics.clone());
-        doc.code_action_hints.handler = Some(self.handlers.code_action_hint.clone());
-        doc.signature_help_trigger = Some(self.handlers.signature_hints.document_trigger());
-        doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
-        doc.word_index_trigger = Some(self.handlers.word_index.document_trigger());
-        doc.syntax_handler = Some(self.handlers.syntax.clone());
-        doc.spelling_events = Some(self.handlers.spelling.event_tx.clone());
+        self.handlers.attach_document(&mut doc);
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);

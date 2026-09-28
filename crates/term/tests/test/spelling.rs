@@ -256,7 +256,7 @@ async fn opt_in_commands_corrections_and_undo() -> anyhow::Result<()> {
     assert_eq!(current_ref!(app.editor).1.text().to_string(), "teh quik\n");
     assert_eq!(mistakes(&app), ["teh", "quik"]);
     let id = current_ref!(app.editor).1.id();
-    let pending = app.editor.handlers.spelling.open_request(id);
+    let pending = app.editor.open_spelling_request(id);
     keys(&mut app, ":spelling off<ret>").await?;
     assert!(pending.is_canceled());
     wait_for_mistakes(&mut app, &[]).await?;
@@ -377,7 +377,7 @@ async fn session_ignore_survives_edits_and_settings_changes_without_persisting(
         (doc.id(), provider)
     };
     open_corrections(&mut app).await?;
-    let pending = app.editor.handlers.spelling.open_request(doc_id);
+    let pending = app.editor.open_spelling_request(doc_id);
     choose_correction(&mut app, "Ignore 'Zorblé' for this session (en_US)").await?;
     assert!(pending.is_canceled());
     wait_for_mistakes(&mut app, &["quik"]).await?;
@@ -459,20 +459,23 @@ async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow
 }
 
 async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<Application> {
+    // Install the loader's state with a temporary user ignore file before opening documents.
+    let language: editor_core::SpellingLanguage = "en_US".parse()?;
+    let ignored_words = IgnoredWordsFile::load(path.to_owned())?;
+    let ignored_language = language.clone();
     let mut app = AppBuilder::new()
         .with_input_text("#[Z|]#orblé ZORBLÉ quik\n")
+        .with_handler_setup(move |handlers, _| {
+            handlers
+                .spelling
+                .ignored_word_files
+                .insert(ignored_language, ignored_words);
+        })
         .build()?;
-    // Install the same state the dictionary loader publishes, with a temporary user ignore file.
-    let language: editor_core::SpellingLanguage = "en_US".parse()?;
     app.editor.dictionaries.insert(
-        language.clone(),
+        language,
         std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
     );
-    app.editor
-        .handlers
-        .spelling
-        .ignored_word_files
-        .insert(language, IgnoredWordsFile::load(path.to_owned())?);
     keys(&mut app, ":spelling en_US<ret>").await?;
     Ok(app)
 }

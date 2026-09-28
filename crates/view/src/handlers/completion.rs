@@ -133,7 +133,7 @@ impl CompletionHandler {
     }
 
     /// Cancel pending and displayed work and notify the frontend to dismiss its menu.
-    fn invalidate(&mut self) {
+    pub(super) fn invalidate(&mut self) {
         self.event(CompletionEvent::Cancel);
         self.dismiss();
         self.updates.clear();

@@ -8,10 +8,7 @@ use editor_core::Transaction;
 use term::application::Application;
 use tokio::sync::mpsc;
 use view::{
-    callbacks::{EditorCallback, EditorCallbackSender},
-    current, current_ref,
-    document::Mode,
-    editor::Action,
+    callbacks::EditorCallback, current, current_ref, document::Mode, editor::Action,
     handlers::auto_save::AutoSaveHandler,
 };
 
@@ -30,9 +27,13 @@ impl Fixture {
         let mut config = test_config();
         config.editor.auto_save.after_delay.enable = true;
         config.editor.auto_save.after_delay.timeout = 10;
-        let mut app = AppBuilder::new().with_config(config).build()?;
         let (sender, callbacks) = super::helpers::callbacks::channel();
-        app.editor.handlers.auto_save = AutoSaveHandler::new(sender);
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_handler_setup(move |handlers, _| {
+                handlers.auto_save = AutoSaveHandler::new(sender);
+            })
+            .build()?;
         app.editor.open(&path, Action::Replace)?;
         Ok(Self {
             app,
@@ -101,8 +102,10 @@ async fn replaced_handlers_and_closed_documents_reject_old_work() -> anyhow::Res
     f.app.editor.open(&f.path, Action::Replace)?;
     f.edit("replaced\n");
     let old = f.next().await?;
-    f.app.editor.handlers.auto_save =
-        AutoSaveHandler::new(EditorCallbackSender::new(|_| async {}, |_| {}));
+    let (sender, callbacks) = super::helpers::callbacks::channel();
+    f.app
+        .editor
+        .replace_auto_save_handler(AutoSaveHandler::new(sender));
     old(&mut f.app.editor);
     f.app.editor.flush_writes().await?;
     assert_eq!(f.disk(), "before\n");
@@ -111,6 +114,20 @@ async fn replaced_handlers_and_closed_documents_reject_old_work() -> anyhow::Res
             .await?
             .is_none()
     );
+
+    f.callbacks = callbacks;
+    // The existing document must no longer retain the retired autosave trigger.
+    f.edit("rebound\n");
+    f.publish().await?;
+    assert_eq!(f.disk(), "rebound\n");
+
+    // Documents opened after replacement use the same new handler.
+    let id = current_ref!(f.app.editor).1.id();
+    assert!(f.app.editor.close_document(id, true).is_ok());
+    f.app.editor.open(&f.path, Action::Replace)?;
+    f.edit("reopened\n");
+    f.publish().await?;
+    assert_eq!(f.disk(), "reopened\n");
 
     let fresh = Fixture::new(dir.path())?;
     let Fixture {

@@ -211,8 +211,12 @@ impl SharedReload {
     fn replace_handler(&mut self) {
         use view::handlers::auto_reload::AutoReloadHandler;
         let (callbacks, rx) = super::helpers::callbacks::channel();
-        self.app.editor.handlers.auto_reload =
-            AutoReloadHandler::new(callbacks.clone(), &self.app.editor.config());
+        self.app
+            .editor
+            .replace_auto_reload_handler(AutoReloadHandler::new(
+                callbacks.clone(),
+                &self.app.editor.config(),
+            ));
         self.app.editor.file_watcher =
             view::file_watcher::Watcher::new(&self.app.editor.config().file_watcher, callbacks);
         self.callbacks = rx;
