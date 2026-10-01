@@ -63,7 +63,8 @@ pub fn initialize_log_file(specified_file: Option<PathBuf>) {
 ///
 /// The priority is:
 ///
-/// 1. `runtime` directory in the Cargo workspace
+/// 1. `runtime` directory in the Cargo workspace (when `CARGO_MANIFEST_DIR` is
+///    set at run time)
 /// 2. subdirectory of user config directory (always included)
 /// 3. `MITOS_RUNTIME` (if environment variable is set)
 /// 4. `MITOS_DEFAULT_RUNTIME` (if environment variable is set *at build time*)
@@ -71,16 +72,22 @@ pub fn initialize_log_file(specified_file: Option<PathBuf>) {
 ///
 /// Postcondition: returns at least two paths (they might not exist).
 fn prioritize_runtime_dirs() -> Vec<PathBuf> {
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
+    runtime_dirs_for_manifest(manifest_dir.as_deref())
+}
+
+fn runtime_dirs_for_manifest(manifest_dir: Option<&Path>) -> Vec<PathBuf> {
     const RT_DIR: &str = "runtime";
     // Adding higher priority first
     let mut rt_dirs = Vec::new();
-    if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
-        // Product crates live under `crates/`, two levels below the workspace root.
-        let path = PathBuf::from(dir)
-            .parent()
-            .and_then(Path::parent)
-            .unwrap()
-            .join(RT_DIR);
+    // Cargo supplies the manifest directory for build scripts, runs, and tests.
+    if let Some(dir) = manifest_dir.and_then(|dir| {
+        // Product crates live under `crates/`, while xtask is directly in the workspace.
+        dir.ancestors().find(|ancestor| {
+            ancestor.join("Cargo.toml").is_file() && ancestor.join(RT_DIR).is_dir()
+        })
+    }) {
+        let path = dir.join(RT_DIR);
         log::debug!("runtime dir: {}", path.to_string_lossy());
         rt_dirs.push(path);
     }
@@ -346,6 +353,32 @@ fn ensure_parent_dir(path: &Path) {
 
 #[cfg(test)]
 mod directory_tests {
+    #[test]
+    fn installed_runtime_starts_with_user_config() {
+        let directories = super::runtime_dirs_for_manifest(None);
+        assert_eq!(directories[0], super::config_dir().join("runtime"));
+    }
+
+    #[test]
+    fn cargo_runtime_starts_with_current_workspace() {
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::write(workspace.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::fs::create_dir(workspace.path().join("runtime")).unwrap();
+        for package in ["crates/loader", "xtask", ""] {
+            let manifest = workspace.path().join(package);
+            let directories = super::runtime_dirs_for_manifest(Some(&manifest));
+            assert_eq!(directories[0], workspace.path().join("runtime"));
+            assert_eq!(directories[1], super::config_dir().join("runtime"));
+        }
+    }
+
+    #[test]
+    fn cargo_runtime_without_workspace_starts_with_user_config() {
+        let manifest = tempfile::tempdir().unwrap();
+        let directories = super::runtime_dirs_for_manifest(Some(manifest.path()));
+        assert_eq!(directories[0], super::config_dir().join("runtime"));
+    }
+
     #[test]
     fn state_directory_is_absolute_and_namespaced() {
         let path = super::state_dir();
