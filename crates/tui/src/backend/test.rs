@@ -21,7 +21,7 @@ impl BackendExt for TestBackend {
         Ok(())
     }
 
-    fn show_cursor_kind(&mut self, _kind: CursorKind) -> io::Result<()> {
+    fn set_cursor_kind(&mut self, _kind: CursorKind) -> io::Result<()> {
         Ok(())
     }
 

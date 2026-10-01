@@ -46,7 +46,7 @@ const fn byte_from_hex(mut h: [u8; 2]) -> Option<u8> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-/// UNSTABLE
+/// A visible cursor shape. Visibility and rendering ownership are separate.
 #[derive(Default)]
 pub enum CursorKind {
     /// █
@@ -56,8 +56,6 @@ pub enum CursorKind {
     Bar,
     /// _
     Underline,
-    /// Hidden cursor, can set cursor position with this to let IME have correct cursor position.
-    Hidden,
 }
 
 /// Mitos-specific rectangle conveniences layered on Ratatui's geometry type.

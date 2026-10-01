@@ -31,8 +31,8 @@ pub trait BackendExt {
     fn reconfigure(&mut self, config: Config) -> Result<(), io::Error>;
     /// Restores the terminal to its normal state, undoing [`Self::claim`].
     fn restore(&mut self) -> Result<(), io::Error>;
-    /// Sets the cursor to the given shape.
-    fn show_cursor_kind(&mut self, kind: CursorKind) -> Result<(), io::Error>;
+    /// Sets the cursor shape without changing its visibility.
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> Result<(), io::Error>;
     /// Begins a synchronized-output frame (if the terminal supports it), so the
     /// draw and cursor updates between `start_sync` and `end_sync` present as one
     /// frame instead of flickering.

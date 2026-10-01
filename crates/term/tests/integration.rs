@@ -24,6 +24,7 @@ mod test {
     mod commands;
     mod completion;
     mod config_application;
+    mod cursor;
     mod document_features;
     mod lsp_lifecycle;
     mod lsp_workspace;

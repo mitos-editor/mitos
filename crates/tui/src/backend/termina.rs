@@ -545,17 +545,15 @@ impl TerminaBackend {
         write!(self.terminal, "{}", decreset!(ShowCursor))
     }
 
-    fn show_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
         let style = match kind {
             CursorKind::Block => CursorStyle::SteadyBlock,
             CursorKind::Bar => CursorStyle::SteadyBar,
             CursorKind::Underline => CursorStyle::SteadyUnderline,
-            CursorKind::Hidden => unreachable!(),
         };
         write!(
             self.terminal,
-            "{}{}",
-            decset!(ShowCursor),
+            "{}",
             Csi::Cursor(csi::Cursor::CursorStyle(style)),
         )
     }
@@ -655,7 +653,7 @@ impl Backend for TerminaBackend {
     }
 
     fn show_cursor(&mut self) -> io::Result<()> {
-        TerminaBackend::show_cursor_kind(self, CursorKind::Block)
+        write!(self.terminal, "{}", decset!(ShowCursor))
     }
 
     fn get_cursor_position(&mut self) -> io::Result<Position> {
@@ -734,8 +732,8 @@ impl BackendExt for TerminaBackend {
         TerminaBackend::restore(self)
     }
 
-    fn show_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        TerminaBackend::show_cursor_kind(self, kind)
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
+        TerminaBackend::set_cursor_kind(self, kind)
     }
 
     fn start_sync(&mut self) -> io::Result<()> {

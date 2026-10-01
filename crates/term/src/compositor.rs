@@ -1,8 +1,8 @@
 // Each component declares its own size constraints and gets fitted based on its parent.
 // Q: how does this work with popups?
 // cursive does compositor.screen_mut().add_layer_at(pos::absolute(x, y), <component>)
-use editor_core::Position;
-use view::graphics::{CursorKind, Rect};
+pub use tui::terminal::Cursor;
+use view::graphics::Rect;
 
 use tui::buffer::Buffer as Surface;
 
@@ -27,6 +27,8 @@ pub struct Context<'a> {
     pub scroll: Option<usize>,
     pub jobs: &'a mut Jobs,
     pub image_picker: Option<&'a ratatui_image::picker::Picker>,
+    /// Whether the component being rendered owns the active cursor this frame.
+    pub is_cursor_owner: bool,
 }
 
 impl Context<'_> {
@@ -54,9 +56,15 @@ pub trait Component: Any + AnyComponent {
     /// Render the component onto the provided surface.
     fn render(&mut self, area: Rect, frame: &mut Surface, ctx: &mut Context);
 
-    /// Get cursor position and cursor kind.
-    fn cursor(&self, _area: Rect, _ctx: &Editor) -> (Option<Position>, CursorKind) {
-        (None, CursorKind::Hidden)
+    /// Claim the active cursor, even when it is offscreen or hidden. The topmost
+    /// claimant wins; decorative layers leave ownership with the layer below.
+    fn owns_cursor(&self) -> bool {
+        false
+    }
+
+    /// Resolve the owned cursor after rendering has established its position.
+    fn cursor(&self, _area: Rect, _ctx: &Editor) -> Cursor {
+        Cursor::Hidden
     }
 
     /// May be used by the parent component to compute the child area.
@@ -183,19 +191,16 @@ impl Compositor {
         consumed
     }
 
-    pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        for layer in &mut self.layers {
+    pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) -> Cursor {
+        let owner = self.layers.iter().rposition(|layer| layer.owns_cursor());
+        for (index, layer) in self.layers.iter_mut().enumerate() {
+            cx.is_cursor_owner = owner == Some(index);
             layer.render(area, surface, cx);
         }
-    }
-
-    pub fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        for layer in self.layers.iter().rev() {
-            if let (Some(pos), kind) = layer.cursor(area, editor) {
-                return (Some(pos), kind);
-            }
-        }
-        (None, CursorKind::Hidden)
+        cx.is_cursor_owner = false;
+        owner.map_or(Cursor::Hidden, |index| {
+            self.layers[index].cursor(area, cx.editor)
+        })
     }
 
     pub fn has_component(&self, type_name: &str) -> bool {
