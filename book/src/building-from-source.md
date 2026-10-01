@@ -107,16 +107,19 @@ Or, create a symlink in `%appdata%\mitos\` that links to the source code directo
 When Mitos finds multiple runtime directories it will search through them for files in the
 following order:
 
-1. The workspace's `runtime/` directory relative to `$CARGO_MANIFEST_DIR` (this is intended for
-  developing and testing mitos only).
+1. The workspace's `runtime/` directory when running through Cargo.
 2. `runtime/` subdirectory of OS-dependent mitos user config directory.
 3. `$MITOS_RUNTIME`
-4. Distribution-specific fallback directory (set at compile time—not run time—
-   with the `MITOS_DEFAULT_RUNTIME` environment variable)
+4. Distribution-specific fallback directory (set at build time with
+   `MITOS_DEFAULT_RUNTIME`).
 5. `runtime/` subdirectory of path to Mitos executable.
 
 This order also sets the priority for selecting which file will be used if multiple runtime
 directories have files with the same name.
+
+`ms --grammar fetch` and `ms --grammar build` write grammar sources and compiled
+grammars into the first runtime directory, normally the user config directory's
+`runtime/` subdirectory.
 
 #### Note to packagers
 
