@@ -4,7 +4,7 @@ mod query;
 use crate::ui::image::{cached_image, render_image, PreparedImage};
 use crate::{
     alt,
-    compositor::{self, Component, Compositor, Context, Event, EventResult},
+    compositor::{self, Component, Compositor, Context, Cursor, Event, EventResult},
     ctrl, key, shift,
     ui::{
         self,
@@ -46,11 +46,11 @@ use std::{
 use crate::ui::{Prompt, PromptEvent};
 use editor_core::{
     char_idx_at_visual_offset, fuzzy::MATCHER, movement::Direction,
-    text_annotations::TextAnnotations, unicode::segmentation::UnicodeSegmentation, Position,
+    text_annotations::TextAnnotations, unicode::segmentation::UnicodeSegmentation,
 };
 use view::{
     editor::Action,
-    graphics::{CursorKind, Modifier, Rect},
+    graphics::{Modifier, Rect},
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     view::ViewPosition,
@@ -1546,7 +1546,11 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         EventResult::Consumed(None)
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+    fn owns_cursor(&self) -> bool {
+        true
+    }
+
+    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
         let render_preview =
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);

@@ -311,14 +311,13 @@ where
         queue!(self.buffer, Hide)
     }
 
-    fn show_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
         let shape = match kind {
             CursorKind::Block => SetCursorStyle::SteadyBlock,
             CursorKind::Bar => SetCursorStyle::SteadyBar,
             CursorKind::Underline => SetCursorStyle::SteadyUnderScore,
-            CursorKind::Hidden => unreachable!(),
         };
-        queue!(self.buffer, Show, shape)
+        queue!(self.buffer, shape)
     }
 
     fn set_cursor(&mut self, x: u16, y: u16) -> io::Result<()> {
@@ -379,7 +378,7 @@ where
     }
 
     fn show_cursor(&mut self) -> io::Result<()> {
-        CrosstermBackend::show_cursor_kind(self, CursorKind::Block)
+        queue!(self.buffer, Show)
     }
 
     fn get_cursor_position(&mut self) -> io::Result<Position> {
@@ -439,8 +438,8 @@ where
         CrosstermBackend::restore(self)
     }
 
-    fn show_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        CrosstermBackend::show_cursor_kind(self, kind)
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
+        CrosstermBackend::set_cursor_kind(self, kind)
     }
 
     fn start_sync(&mut self) -> io::Result<()> {

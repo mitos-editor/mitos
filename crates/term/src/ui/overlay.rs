@@ -1,11 +1,7 @@
-use editor_core::Position;
 use tui::buffer::Buffer;
-use view::{
-    graphics::{CursorKind, Rect},
-    Editor,
-};
+use view::{graphics::Rect, Editor};
 
-use crate::compositor::{Component, Context, Event, EventResult};
+use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 use crate::ui::layout::ApplicationLayout;
 
 pub const FULL_OVERLAID_MAX_WIDTH: u16 = 200;
@@ -76,7 +72,11 @@ impl<T: Component + 'static> Component for Overlay<T> {
         self.content.handle_event(event, ctx)
     }
 
-    fn cursor(&self, area: Rect, ctx: &Editor) -> (Option<Position>, CursorKind) {
+    fn owns_cursor(&self) -> bool {
+        self.content.owns_cursor()
+    }
+
+    fn cursor(&self, area: Rect, ctx: &Editor) -> Cursor {
         let dimensions = (self.calc_child_size)(area);
         self.content.cursor(dimensions, ctx)
     }

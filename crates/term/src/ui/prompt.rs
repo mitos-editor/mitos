@@ -1,4 +1,4 @@
-use crate::compositor::{Component, Compositor, Context, Event, EventResult};
+use crate::compositor::{Component, Compositor, Context, Cursor, Event, EventResult};
 use crate::{alt, ctrl, key, shift, ui};
 use arc_swap::ArcSwap;
 use editor_core::syntax;
@@ -15,12 +15,8 @@ use view::document::Mode;
 use editor_core::{
     unicode::segmentation::{GraphemeCursor, UnicodeSegmentation},
     unicode::width::UnicodeWidthStr,
-    Position,
 };
-use view::{
-    graphics::{CursorKind, Rect},
-    Editor,
-};
+use view::{graphics::Rect, Editor};
 
 type PromptCharHandler = Box<dyn Fn(&mut Prompt, char, &Context)>;
 
@@ -793,7 +789,14 @@ impl Component for Prompt {
         self.render_prompt(area, surface, cx)
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+    fn owns_cursor(&self) -> bool {
+        true
+    }
+
+    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
+        if area.is_empty() {
+            return Cursor::Hidden;
+        }
         let area = area
             .clip_left(self.prompt.len() as u16)
             .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
@@ -816,8 +819,8 @@ impl Component for Prompt {
 
         let line = area.height as usize - 1;
 
-        (
-            Some(Position::new(area.y as usize + line, col)),
+        Cursor::Native(
+            (col as u16, area.y + line as u16).into(),
             editor.config().cursor_shape.from_mode(Mode::Insert),
         )
     }

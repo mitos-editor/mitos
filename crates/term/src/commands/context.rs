@@ -92,6 +92,7 @@ impl Context<'_> {
             jobs: self.jobs,
             scroll: None,
             image_picker: None,
+            is_cursor_owner: false,
         }
         .block_try_flush_writes()
     }

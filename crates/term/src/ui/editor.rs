@@ -1,6 +1,6 @@
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
-    compositor::{Component, Context, Event, EventResult},
+    compositor::{Component, Context, Cursor, Event, EventResult},
     events::{OnModeSwitch, PostCommand},
     key,
     keymap::{KeymapResult, Keymaps},
@@ -353,6 +353,7 @@ impl EditorView {
                 theme,
                 &config.cursor_shape,
                 self.terminal_focused,
+                cx.is_cursor_owner,
             ));
             if let Some(overlay) = Self::highlight_focused_view_elements(view, doc, theme) {
                 overlays.push(overlay);
@@ -379,6 +380,9 @@ impl EditorView {
             .primary()
             .cursor(doc.text().slice(..));
         if is_focused {
+            // This frame's rendered grapheme is authoritative. An offscreen cursor
+            // stays absent instead of reusing a position cached before an edit.
+            editor.cursor_cache.set(None);
             decorations.add_decoration(text_decorations::Cursor {
                 cache: &editor.cursor_cache,
                 primary_cursor,
@@ -746,13 +750,16 @@ impl EditorView {
         theme: &Theme,
         cursor_shape_config: &CursorShapeConfig,
         is_terminal_focused: bool,
+        is_cursor_owner: bool,
     ) -> OverlayHighlights {
         let text = doc.text().slice(..);
         let selection = doc.selection(view.id);
         let primary_idx = selection.primary_index();
 
         let cursorkind = cursor_shape_config.from_mode(mode);
-        let cursor_is_block = cursorkind == CursorKind::Block;
+        let cursor_is_block = cursorkind == CursorKind::Block || !is_cursor_owner;
+        let draw_primary =
+            primary_cursor_is_software(cursorkind, is_terminal_focused, is_cursor_owner);
 
         let selection_scope = theme
             .find_highlight_exact("ui.selection")
@@ -793,12 +800,9 @@ impl EditorView {
 
             // Special-case: cursor at end of the rope.
             if range.head == range.anchor && range.head == text.len_chars() {
-                if !selection_is_primary || (cursor_is_block && is_terminal_focused) {
-                    // Bar and underline cursors are drawn by the terminal
-                    // BUG: If the editor area loses focus while having a bar or
-                    // underline cursor (eg. when a regex prompt has focus) then
-                    // the primary cursor will be invisible. This doesn't happen
-                    // with block cursors since we manually draw *all* cursors.
+                if !selection_is_primary || draw_primary {
+                    // Inactive editor cursors remain visible as software blocks
+                    // while a prompt or picker owns the terminal cursor.
                     spans.push((cursor_scope, range.head..range.head + 1));
                 }
                 continue;
@@ -816,17 +820,15 @@ impl EditorView {
                         cursor_start
                     };
                 spans.push((selection_scope, range.anchor..selection_end));
-                // add block cursors
-                // skip primary cursor if terminal is unfocused - terminal cursor is used in that case
-                if !selection_is_primary || (cursor_is_block && is_terminal_focused) {
+                // Secondary cursors and inactive editor markers are software blocks.
+                if !selection_is_primary || draw_primary {
                     spans.push((cursor_scope, cursor_start..range.head));
                 }
             } else {
                 // Reverse case.
                 let cursor_end = next_grapheme_boundary(text, range.head);
-                // add block cursors
-                // skip primary cursor if terminal is unfocused - terminal cursor is used in that case
-                if !selection_is_primary || (cursor_is_block && is_terminal_focused) {
+                // Secondary cursors and inactive editor markers are software blocks.
+                if !selection_is_primary || draw_primary {
                     spans.push((cursor_scope, range.head..cursor_end));
                 }
                 // non block cursors look like they exclude the cursor
@@ -1855,6 +1857,7 @@ impl Component for EditorView {
                                         jobs: cx.jobs,
                                         scroll: None,
                                         image_picker: None,
+                                        is_cursor_owner: false,
                                     };
 
                                     match completion.handle_event(event, &mut cx) {
@@ -2115,23 +2118,35 @@ impl Component for EditorView {
         }
     }
 
-    fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+    fn owns_cursor(&self) -> bool {
+        true
+    }
+
+    fn cursor(&self, _area: Rect, editor: &Editor) -> Cursor {
         if current_ref!(editor).1.is_binary() {
-            return (None, CursorKind::Hidden);
+            return Cursor::Hidden;
         }
-        match editor.cursor() {
-            // all block cursors are drawn manually
-            (pos, CursorKind::Block) => {
-                if self.terminal_focused {
-                    (pos, CursorKind::Hidden)
-                } else {
-                    // use terminal cursor when terminal loses focus
-                    (pos, CursorKind::Underline)
-                }
-            }
-            cursor => cursor,
+        let (pos, kind) = editor.cursor();
+        let Some(pos) = pos else {
+            return Cursor::Hidden;
+        };
+        let pos = (pos.col as u16, pos.row as u16).into();
+        if primary_cursor_is_software(kind, self.terminal_focused, true) {
+            Cursor::Software(pos)
+        } else {
+            // Let the terminal provide its unfocused cursor appearance.
+            let kind = if kind == CursorKind::Block {
+                CursorKind::Underline
+            } else {
+                kind
+            };
+            Cursor::Native(pos, kind)
         }
     }
+}
+
+fn primary_cursor_is_software(kind: CursorKind, terminal_focused: bool, is_owner: bool) -> bool {
+    !is_owner || (kind == CursorKind::Block && terminal_focused)
 }
 
 fn canonicalize_key(key: &mut KeyEvent) {
