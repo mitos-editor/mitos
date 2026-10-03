@@ -128,8 +128,8 @@ termina = "0.3"
 termini = "1"
 
 # System integration
-# Same filesentry revision used by Helix PR #14544.
-filesentry = { git = "https://github.com/helix-editor/filesentry", rev = "57713a3e062979f3c4f98c5506fee37385c8047d" }
+# Use our fork until the watcher fix for Mitos #102 is available upstream.
+filesentry = { git = "https://github.com/mitos-editor/filesentry", rev = "c28743a0e7c87a0239a59ffa61653279e4d53a5f" }
 dunce = "1.0"
 etcetera = "0.11"
 libc = "0.2.186"
