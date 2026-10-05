@@ -2,7 +2,9 @@ use std::{path::Path, process::Command, time::Duration};
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
-use view::{current, current_ref, document::LineBlameError, editor::Action};
+use view::{
+    config::InlineBlameShow, current, current_ref, document::LineBlameError, editor::Action,
+};
 
 use super::Fixture;
 
@@ -118,10 +120,10 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn auto_fetch_refreshes_open_documents_after_head_changes() -> anyhow::Result<()> {
+async fn visible_blame_refreshes_after_head_changes_and_file_opens() -> anyhow::Result<()> {
     let mut f = Fixture::new("before\n")?;
     prepare(&mut f, "before commit");
-    f.configure(|config| config.inline_blame.auto_fetch = true);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
     wait_for_blame(&mut f).await?;
     assert_eq!(
         current_ref!(f.editor)
@@ -147,7 +149,7 @@ async fn auto_fetch_refreshes_open_documents_after_head_changes() -> anyhow::Res
         "after commit"
     );
 
-    // Documents opened after enabling auto-fetch are handled by the shared open hook.
+    // Files opened while annotations are visible fetch blame through the shared hooks.
     let another = f.dir.path().join("another.words");
     std::fs::write(&another, "another\n")?;
     commit(&f, "new file");
@@ -216,11 +218,10 @@ async fn repeated_requests_share_pending_work_and_display_the_latest_line() -> a
         "Not committed yet"
     );
     assert!(current_ref!(f.editor).1.file_blame().is_some());
-    // Enabling auto-fetch and changing visibility reuse the cached result.
-    f.configure(|config| config.inline_blame.auto_fetch = true);
-    f.configure(|config| config.inline_blame.show = view::config::InlineBlameShow::CursorLine);
-    f.configure(|config| config.inline_blame.auto_fetch = false);
-    f.configure(|config| config.inline_blame.auto_fetch = true);
+    // Visibility toggles reuse the cached result.
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::Never);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
     assert!(
         tokio::time::timeout(Duration::from_millis(100), callbacks.recv())
             .await
@@ -233,7 +234,7 @@ async fn repeated_requests_share_pending_work_and_display_the_latest_line() -> a
 async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
     let mut f = Fixture::new("before\n")?;
     prepare(&mut f, "initial");
-    f.configure(|config| config.inline_blame.auto_fetch = true);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
     wait_for_blame(&mut f).await?;
     let original = current_ref!(f.editor)
         .1
@@ -271,7 +272,7 @@ async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn disabling_auto_fetch_discards_debounced_repository_refreshes() -> anyhow::Result<()> {
+async fn hiding_blame_discards_debounced_repository_refreshes() -> anyhow::Result<()> {
     let (sender, mut callbacks) = crate::support::callback_channel();
     let mut f = Fixture::with_handler_setup(
         "before\n",
@@ -287,7 +288,7 @@ async fn disabling_auto_fetch_discards_debounced_repository_refreshes() -> anyho
         .await?
         .context("blame missing")?;
     callback(&mut f.editor);
-    f.configure(|config| config.inline_blame.auto_fetch = true);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
     // A burst of refreshes becomes a single hook completion.
     for _ in 0..20 {
         current!(f.editor)
@@ -297,7 +298,7 @@ async fn disabling_auto_fetch_discards_debounced_repository_refreshes() -> anyho
     let refresh = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
         .await?
         .context("refresh missing")?;
-    f.configure(|config| config.inline_blame.auto_fetch = false);
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::Never);
     refresh(&mut f.editor);
     assert!(current_ref!(f.editor).1.file_blame().is_none());
     assert!(
@@ -305,12 +306,90 @@ async fn disabling_auto_fetch_discards_debounced_repository_refreshes() -> anyho
             .await
             .is_err()
     );
-    // Explicit requests still work with automatic fetching disabled.
+    // Explicit requests still work while annotations are hidden.
     f.editor.blame_line(id, 0);
     let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
         .await?
         .context("manual blame missing")?;
     callback(&mut f.editor);
     assert!(current_ref!(f.editor).1.file_blame().is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn visibility_fetches_splits_and_buffer_switches_without_prefetching_hidden_files(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("first\n")?;
+    prepare(&mut f, "initial");
+    let first = current_ref!(f.editor).1.id();
+    let second_path = f.dir.path().join("second.words");
+    let hidden_path = f.dir.path().join("hidden.words");
+    std::fs::write(&second_path, "second\n")?;
+    std::fs::write(&hidden_path, "hidden\n")?;
+    commit(&f, "more files");
+    let second = f.editor.open(&second_path, Action::VerticalSplit)?;
+    let hidden = f.editor.open(&hidden_path, Action::Load)?;
+    for id in [first, second, hidden] {
+        assert!(f.editor.document(id).unwrap().file_blame().is_none());
+    }
+
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while [first, second]
+            .into_iter()
+            .any(|id| f.editor.document(id).unwrap().file_blame().is_none())
+        {
+            let callback = f.callbacks.recv().await.context("blame callback missing")?;
+            callback(&mut f.editor);
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    assert!(f.editor.document(hidden).unwrap().file_blame().is_none());
+
+    f.editor.switch(hidden, Action::Replace);
+    wait_for_blame(&mut f).await?;
+    assert_eq!(
+        current_ref!(f.editor).1.line_blame(0, "{title}").unwrap(),
+        "more files"
+    );
+
+    // Opening a file in the background while blame is enabled still skips it.
+    let background_path = f.dir.path().join("background.words");
+    std::fs::write(&background_path, "background\n")?;
+    commit(&f, "background file");
+    let background = f.editor.open(&background_path, Action::Load)?;
+    let callback = tokio::time::timeout(Duration::from_secs(10), f.callbacks.recv())
+        .await?
+        .context("open visibility check missing")?;
+    callback(&mut f.editor);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), f.callbacks.recv())
+            .await
+            .is_err()
+    );
+    assert!(f
+        .editor
+        .document(background)
+        .unwrap()
+        .file_blame()
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn configured_visible_blame_fetches_without_a_manual_toggle() -> anyhow::Result<()> {
+    let mut f = Fixture::with_config(
+        "committed\n",
+        "language = []",
+        loader::syntax::Resources::default(),
+        |config| config.inline_blame.show = InlineBlameShow::CursorLine,
+    )?;
+    prepare(&mut f, "initial");
+    wait_for_blame(&mut f).await?;
+    assert_eq!(
+        current_ref!(f.editor).1.line_blame(0, "{title}").unwrap(),
+        "initial"
+    );
     Ok(())
 }

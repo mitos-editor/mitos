@@ -143,7 +143,7 @@ impl Default for GutterLineNumbersConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InlineBlameShow {
-    /// Hide inline blame. Fetching is controlled separately by `auto_fetch`.
+    /// Hide inline blame and skip automatic requests.
     Never,
     /// Show the inline blame on the cursor line
     CursorLine,
@@ -156,8 +156,6 @@ pub enum InlineBlameShow {
 pub struct InlineBlameConfig {
     /// How to show the inline blame
     pub show: InlineBlameShow,
-    /// Whether the inline blame should be fetched in the background
-    pub auto_fetch: bool,
     /// How the inline blame should look like and the information it includes
     pub format: String,
 }
@@ -167,7 +165,6 @@ impl Default for InlineBlameConfig {
         Self {
             show: InlineBlameShow::Never,
             format: "{author}, {time-ago} • {title} • {commit}".to_owned(),
-            auto_fetch: false,
         }
     }
 }

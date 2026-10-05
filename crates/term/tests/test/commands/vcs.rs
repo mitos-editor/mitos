@@ -56,7 +56,6 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
     git(dir.path(), &["add", "file.txt"]);
     git(dir.path(), &["commit", "-m", "initial"]);
     let mut app = AppBuilder::new().with_file(path, None).build()?;
-    assert!(!app.editor.config().inline_blame.auto_fetch);
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::Never
@@ -103,7 +102,6 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
         .as_ref()
         .unwrap();
     assert!(Arc::ptr_eq(&original, current));
-    assert!(!app.editor.config().inline_blame.auto_fetch);
     assert!(app.close().await.is_empty());
     Ok(())
 }

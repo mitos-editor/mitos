@@ -9,7 +9,7 @@ use crate::{
     callbacks::EditorCallbackSender,
     config::InlineBlameShow,
     document::LineBlameError,
-    events::{ConfigDidChange, DocumentDidOpen},
+    events::{ConfigDidChange, DocumentDidOpen, DocumentFocusLost},
     Document, DocumentId, Editor,
 };
 
@@ -106,8 +106,10 @@ impl Editor {
 }
 
 fn request_file_blame(editor: &mut Editor, doc_id: DocumentId) {
-    // Queued automatic work may outlive an auto-fetch configuration change.
-    if !editor.config().inline_blame.auto_fetch {
+    // A queued refresh may outlive a visibility change or buffer switch.
+    if editor.config().inline_blame.show == InlineBlameShow::Never
+        || !editor.tree.views().any(|(view, _)| view.doc == doc_id)
+    {
         return;
     }
     request_blame(editor, doc_id);
@@ -128,11 +130,38 @@ fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
     handler.request(doc, trust_full, None);
 }
 
+fn request_visible_blame(editor: &mut Editor) {
+    if editor.config().inline_blame.show == InlineBlameShow::Never {
+        return;
+    }
+    let mut docs: Vec<_> = editor.tree.views().map(|(view, _)| view.doc).collect();
+    docs.sort_unstable();
+    docs.dedup();
+    for doc_id in docs {
+        request_file_blame(editor, doc_id);
+    }
+}
+
 pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        if event.editor.config().inline_blame.auto_fetch {
-            request_file_blame(event.editor, event.doc);
+        if event.editor.config().inline_blame.show != InlineBlameShow::Never {
+            // Open hooks run before the caller installs the document in a view.
+            // Check visibility on the editor queue, after that transition finishes.
+            let doc_id = event.doc;
+            event
+                .editor
+                .handlers
+                .blame
+                .callbacks
+                .send_blocking(move |editor| {
+                    request_file_blame(editor, doc_id);
+                });
         }
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+        // This event runs after buffer and split transitions; inspect the new views.
+        request_visible_blame(event.editor);
         Ok(())
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
@@ -143,21 +172,8 @@ pub(super) fn register_hooks() {
                 doc.invalidate_blame();
             }
         }
-        if event.new.inline_blame.auto_fetch
-            && (!event.old.inline_blame.auto_fetch || trust_changed)
-        {
-            let docs: Vec<_> = event.editor.documents().map(Document::id).collect();
-            for doc in docs {
-                request_file_blame(event.editor, doc);
-            }
-        }
-        // Turning annotations on is an explicit request, even with auto-fetch disabled.
-        if event.old.inline_blame.show == InlineBlameShow::Never
-            && event.new.inline_blame.show != InlineBlameShow::Never
-            && let Some(view) = event.editor.tree.try_get(event.editor.tree.focus)
-        {
-            let doc_id = view.doc;
-            request_blame(event.editor, doc_id);
+        if event.old.inline_blame.show == InlineBlameShow::Never || trust_changed {
+            request_visible_blame(event.editor);
         }
         Ok(())
     });
