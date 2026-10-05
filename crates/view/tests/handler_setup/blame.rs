@@ -45,7 +45,7 @@ fn prepare(f: &mut Fixture, title: &str) {
 
 async fn wait_for_blame(f: &mut Fixture) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
-        while current_ref!(f.editor).1.file_blame.is_none() {
+        while current_ref!(f.editor).1.file_blame().is_none() {
             let callback = f.callbacks.recv().await.context("callback queue closed")?;
             callback(&mut f.editor);
         }
@@ -64,11 +64,11 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
     prepare(&mut b, "second editor");
     let id_a = current_ref!(a.editor).1.id();
     let id_b = current_ref!(b.editor).1.id();
-    assert!(current_ref!(a.editor).1.file_blame.is_none());
+    assert!(current_ref!(a.editor).1.file_blame().is_none());
     a.editor.blame_line(id_a, 0);
     b.editor.blame_line(id_b, 0);
     wait_for_blame(&mut a).await?;
-    assert!(current_ref!(b.editor).1.file_blame.is_none());
+    assert!(current_ref!(b.editor).1.file_blame().is_none());
     wait_for_blame(&mut b).await?;
     assert_eq!(
         current_ref!(a.editor)
@@ -136,7 +136,7 @@ async fn auto_fetch_refreshes_open_documents_after_head_changes() -> anyhow::Res
     commit(&f, "after commit");
     let (view, doc) = current!(f.editor);
     doc.reload(view, &f.editor.diff_providers, true)?;
-    assert!(doc.file_blame.is_none());
+    assert!(doc.file_blame().is_none());
     wait_for_blame(&mut f).await?;
     assert_eq!(
         current_ref!(f.editor)
@@ -184,6 +184,133 @@ async fn queued_blame_is_discarded_after_a_path_change() -> anyhow::Result<()> {
     std::fs::write(&another, "another\n")?;
     f.editor.set_doc_path(doc_id, &another);
     callback(&mut f.editor);
-    assert!(current_ref!(f.editor).1.file_blame.is_none());
+    assert!(current_ref!(f.editor).1.file_blame().is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_requests_share_pending_work_and_display_the_latest_line() -> anyhow::Result<()> {
+    let (sender, mut callbacks) = crate::support::callback_channel();
+    let mut f = Fixture::with_handler_setup(
+        "first\nsecond\n",
+        "language = []",
+        loader::syntax::Resources::default(),
+        |config| config.inline_blame.format = "{title}".into(),
+        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+    )?;
+    prepare(&mut f, "initial");
+    let doc_id = current_ref!(f.editor).1.id();
+    f.editor.blame_line(doc_id, 0);
+    // Keep the result pending on the editor queue while more requests arrive.
+    let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+        .await?
+        .context("blame callback missing")?;
+    for _ in 0..100 {
+        f.editor.blame_line(doc_id, 0);
+    }
+    // The trailing empty line has no committed blame.
+    f.editor.blame_line(doc_id, 2);
+    callback(&mut f.editor);
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "Not committed yet"
+    );
+    assert!(current_ref!(f.editor).1.file_blame().is_some());
+    // Enabling auto-fetch and changing visibility reuse the cached result.
+    f.configure(|config| config.inline_blame.auto_fetch = true);
+    f.configure(|config| config.inline_blame.show = view::config::InlineBlameShow::CursorLine);
+    f.configure(|config| config.inline_blame.auto_fetch = false);
+    f.configure(|config| config.inline_blame.auto_fetch = true);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), callbacks.recv())
+            .await
+            .is_err()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    f.configure(|config| config.inline_blame.auto_fetch = true);
+    wait_for_blame(&mut f).await?;
+    let original = current_ref!(f.editor)
+        .1
+        .file_blame()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone();
+    let path = current_ref!(f.editor).1.path().unwrap().to_path_buf();
+    std::fs::write(&path, "inserted\nbefore\n")?;
+    let (view, doc) = current!(f.editor);
+    doc.reload(view, &f.editor.diff_providers, true)?;
+    assert!(matches!(
+        doc.line_blame(0, "{title}"),
+        Err(LineBlameError::NotReadyYet)
+    ));
+    wait_for_blame(&mut f).await?;
+    let doc = current_ref!(f.editor).1;
+    let refreshed = doc.file_blame().unwrap().as_ref().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&original, refreshed));
+    // Wait for the independent diff worker before testing the updated line mapping.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while current_ref!(f.editor).1.diff_handle().unwrap().load().doc()
+            != current_ref!(f.editor).1.text()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    assert_eq!(
+        current_ref!(f.editor).1.line_blame(1, "{title}").unwrap(),
+        "initial"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disabling_auto_fetch_discards_debounced_repository_refreshes() -> anyhow::Result<()> {
+    let (sender, mut callbacks) = crate::support::callback_channel();
+    let mut f = Fixture::with_handler_setup(
+        "before\n",
+        "language = []",
+        loader::syntax::Resources::default(),
+        |_| {},
+        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+    )?;
+    prepare(&mut f, "initial");
+    let id = current_ref!(f.editor).1.id();
+    f.editor.blame_line(id, 0);
+    let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+        .await?
+        .context("blame missing")?;
+    callback(&mut f.editor);
+    f.configure(|config| config.inline_blame.auto_fetch = true);
+    // A burst of refreshes becomes a single hook completion.
+    for _ in 0..20 {
+        current!(f.editor)
+            .1
+            .refresh_vcs(&f.editor.diff_providers, true);
+    }
+    let refresh = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+        .await?
+        .context("refresh missing")?;
+    f.configure(|config| config.inline_blame.auto_fetch = false);
+    refresh(&mut f.editor);
+    assert!(current_ref!(f.editor).1.file_blame().is_none());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), callbacks.recv())
+            .await
+            .is_err()
+    );
+    // Explicit requests still work with automatic fetching disabled.
+    f.editor.blame_line(id, 0);
+    let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+        .await?
+        .context("manual blame missing")?;
+    callback(&mut f.editor);
+    assert!(current_ref!(f.editor).1.file_blame().is_some());
     Ok(())
 }

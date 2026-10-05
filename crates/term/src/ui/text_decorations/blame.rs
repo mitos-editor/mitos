@@ -169,7 +169,7 @@ mod tests {
         )
         .unwrap();
         doc.set_selection(ViewId::default(), Selection::point(0));
-        doc.file_blame = Some(vcs::FileBlame::try_new(path.clone(), false));
+        doc.set_file_blame(vcs::FileBlame::try_new(path.clone(), false));
         let mut blame = InlineBlameConfig {
             show: InlineBlameShow::CursorLine,
             format: "{title}".into(),
@@ -207,7 +207,7 @@ mod tests {
         )
         .unwrap();
         wrapped.set_selection(ViewId::default(), Selection::point(0));
-        wrapped.file_blame = Some(vcs::FileBlame::try_new(path, false));
+        wrapped.set_file_blame(vcs::FileBlame::try_new(path, false));
         let rows = render(&wrapped, &blame, ViewPosition::default(), area);
         assert!(!rows[0].contains("COMMIT"));
         assert_eq!(rows.iter().filter(|row| row.contains("COMMIT")).count(), 1);
