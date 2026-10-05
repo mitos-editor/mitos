@@ -42,6 +42,12 @@ impl Decoration for InlineBlame<'_> {
         if !pos.is_last_visual_line
             || self.config.show == InlineBlameShow::Never
             || (self.config.show == InlineBlameShow::CursorLine && pos.doc_line != self.cursor_line)
+            || !matches!(self.doc.file_blame(), Some(Ok(_)))
+        {
+            return Position::new(0, 0);
+        }
+        let start = virt_off.col.saturating_add(6);
+        if !renderer.column_in_bounds(start, 1)
             || self
                 .doc
                 .text()
@@ -49,10 +55,6 @@ impl Decoration for InlineBlame<'_> {
                 .chars()
                 .all(char::is_whitespace)
         {
-            return Position::new(0, 0);
-        }
-        let start = virt_off.col.saturating_add(6);
-        if !renderer.column_in_bounds(start, 1) {
             return Position::new(0, 0);
         }
         let Ok(blame) = self
