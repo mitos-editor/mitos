@@ -44,6 +44,11 @@ impl<T: Item> Select<T> {
 }
 
 impl<T: Item> Component for Select<T> {
+    fn owns_cursor(&self) -> bool {
+        // Selection is shown by the menu highlight; hide the editor's cursor.
+        true
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         self.options.handle_event(event, cx)
     }

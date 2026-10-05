@@ -75,7 +75,9 @@ pub trait Decoration {
     ///
     /// # Returns
     ///
-    /// The char idx of the next grapheme that  this function should be called for
+    /// The character index of the next grapheme to visit. Returning the same
+    /// index defers the anchor until a later grapheme, for example past inline
+    /// virtual text to the document character at that position.
     fn decorate_grapheme(
         &mut self,
         _renderer: &mut TextRenderer,
@@ -116,7 +118,8 @@ impl<'a> DecorationManager<'a> {
                         *hook_char_idx = decoration.skip_concealed_anchor(grapheme.char_idx)
                     }
                     Ordering::Equal => {
-                        *hook_char_idx = decoration.decorate_grapheme(renderer, grapheme)
+                        *hook_char_idx = decoration.decorate_grapheme(renderer, grapheme);
+                        break;
                     }
                     Ordering::Greater => break,
                 }
@@ -163,8 +166,11 @@ impl Decoration for Cursor<'_> {
         renderer: &mut TextRenderer,
         grapheme: &FormattedGrapheme,
     ) -> usize {
+        if grapheme.is_virtual() {
+            return self.primary_cursor;
+        }
         if renderer.column_in_bounds(grapheme.visual_pos.col, grapheme.width())
-            && renderer.offset.row < grapheme.visual_pos.row
+            && renderer.offset.row <= grapheme.visual_pos.row
         {
             let position = grapheme.visual_pos - renderer.offset;
             self.cache.set(Some(position));

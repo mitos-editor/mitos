@@ -9,7 +9,7 @@ use view::{
     align_view,
     document::{DocumentOpenError, DocumentSavedEventResult},
     editor::{ConfigEvent, EditorEvent},
-    graphics::{CursorKind, Rect},
+    graphics::Rect,
     theme,
     tree::Layout,
     Align, Editor,
@@ -287,6 +287,12 @@ impl Application {
         Ok(app)
     }
 
+    /// Screen and cursor state exposed to the integration test harness.
+    #[cfg(feature = "integration")]
+    pub fn terminal_backend(&self) -> &TestBackend {
+        self.terminal.backend()
+    }
+
     async fn render(&mut self) {
         self.terminal
             .backend_mut()
@@ -313,39 +319,18 @@ impl Application {
             jobs: &mut self.jobs,
             scroll: None,
             image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
         };
 
         event::start_frame();
         cx.editor.needs_redraw = false;
 
-        self.terminal
-            .autoresize()
-            .expect("Unable to determine terminal size");
-        let area = Rect::from(
-            self.terminal
-                .size()
-                .expect("Unable to determine terminal size"),
-        );
-
-        // TODO: need to recalculate view tree if necessary
-
-        let mut kind = CursorKind::Hidden;
-        self.terminal
-            .draw(|frame| {
-                self.compositor.render(area, frame.buffer_mut(), &mut cx);
-                let (pos, cursor_kind) = self.compositor.cursor(area, cx.editor);
-                kind = cursor_kind;
-                if let Some(pos) = pos {
-                    frame.set_cursor_position((pos.col as u16, pos.row as u16));
-                }
-            })
-            .unwrap();
-        // reset cursor cache
+        tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
+            self.compositor.render(buffer.area, buffer, &mut cx)
+        })
+        .unwrap();
         self.editor.cursor_cache.reset();
 
-        if kind != CursorKind::Hidden {
-            self.terminal.backend_mut().show_cursor_kind(kind).unwrap();
-        }
         self.terminal.backend_mut().end_sync().unwrap();
         self.terminal.backend_mut().flush().unwrap();
     }
@@ -666,6 +651,7 @@ impl Application {
             jobs: &mut self.jobs,
             scroll: None,
             image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
         };
         let should_render = self.compositor.handle_event(&Event::IdleTimeout, &mut cx);
         if should_render || self.editor.needs_redraw {
@@ -824,6 +810,7 @@ impl Application {
             jobs: &mut self.jobs,
             scroll: None,
             image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
         };
         // Handle key events
         let should_redraw = match event.unwrap() {
@@ -1257,11 +1244,7 @@ impl Application {
     }
 
     fn restore_term(&mut self) -> std::io::Result<()> {
-        use view::graphics::CursorKind;
-        self.terminal
-            .backend_mut()
-            .show_cursor_kind(CursorKind::Block)
-            .ok();
+        self.terminal.show_cursor().ok();
         self.terminal.backend_mut().restore()
     }
 

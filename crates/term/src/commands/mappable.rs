@@ -49,6 +49,7 @@ impl MappableCommand {
                         jobs: cx.jobs,
                         scroll: None,
                         image_picker: None,
+                        is_cursor_owner: false,
                     };
                     if let Err(e) = execute_command(
                         &mut cx,

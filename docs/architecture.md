@@ -470,6 +470,16 @@ the backend and terminal rendering integration; `ui-core` supplies shared value
 types. A shared editor feature publishes state or a typed event, and the frontend
 chooses the widget, labels, layout, and interaction.
 
+The topmost component that declares cursor ownership controls the active cursor
+for the frame. Decorative overlays preserve the owner below them. After rendering,
+the owner returns a `tui::terminal::Cursor`: a software cursor with a hidden terminal
+position for input methods, a native cursor with a shape, or no cursor. Only
+`draw_with_cursor` applies that state to Ratatui and the backend. Backend shape
+changes do not change visibility, and showing a cursor does not reset its shape.
+The editor draws themed block cursors and secondary markers; active bars,
+underlines, and prompt cursors use the terminal. When a prompt owns the cursor,
+the editor keeps its previous position visible with a software block.
+
 `Surface` is like a buffer to which widgets draw themselves to, and the
 surface is then rendered on the screen on each cycle.
 
