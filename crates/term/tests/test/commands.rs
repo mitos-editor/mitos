@@ -12,6 +12,8 @@ mod movement;
 mod replace;
 mod reverse_selection_contents;
 mod rotate_selection_contents;
+#[cfg(feature = "git")]
+mod vcs;
 mod write;
 
 #[tokio::test(flavor = "multi_thread")]
