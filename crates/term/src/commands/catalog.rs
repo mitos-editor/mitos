@@ -143,6 +143,7 @@ impl MappableCommand {
         syntax_symbol_picker => super::syntax::syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         blame_line => super::vcs::blame_line, "Show blame for the current line",
+        toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline Git blame",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
         select_references_to_symbol_under_cursor => super::lsp::select_references_to_symbol_under_cursor, "Select symbol references",

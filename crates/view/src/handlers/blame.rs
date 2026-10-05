@@ -7,6 +7,7 @@ use super::document_debounce::debounce_documents;
 
 use crate::{
     callbacks::EditorCallbackSender,
+    config::InlineBlameShow,
     document::LineBlameError,
     events::{ConfigDidChange, DocumentDidOpen},
     Document, DocumentId, Editor,
@@ -109,6 +110,10 @@ fn request_file_blame(editor: &mut Editor, doc_id: DocumentId) {
     if !editor.config().inline_blame.auto_fetch {
         return;
     }
+    request_blame(editor, doc_id);
+}
+
+fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
     let handler = editor.handlers.blame.clone();
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
@@ -145,6 +150,14 @@ pub(super) fn register_hooks() {
             for doc in docs {
                 request_file_blame(event.editor, doc);
             }
+        }
+        // Turning annotations on is an explicit request, even with auto-fetch disabled.
+        if event.old.inline_blame.show == InlineBlameShow::Never
+            && event.new.inline_blame.show != InlineBlameShow::Never
+            && let Some(view) = event.editor.tree.try_get(event.editor.tree.focus)
+        {
+            let doc_id = view.doc;
+            request_blame(event.editor, doc_id);
         }
         Ok(())
     });

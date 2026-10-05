@@ -17,6 +17,25 @@ pub(super) fn blame_line(cx: &mut Context) {
         .blame_line(doc.id(), doc.cursor_line(view.id) as u32);
 }
 
+pub(super) fn toggle_inline_blame(cx: &mut Context) {
+    use crate::config::ConfigEvent;
+    use view::config::InlineBlameShow;
+
+    let mut settings = cx.config.current.editor_settings();
+    settings.editor.inline_blame.show = match settings.editor.inline_blame.show {
+        InlineBlameShow::Never => InlineBlameShow::CursorLine,
+        InlineBlameShow::CursorLine | InlineBlameShow::AllLines => InlineBlameShow::Never,
+    };
+    if let Err(err) = cx
+        .config
+        .updates
+        .send(ConfigEvent::Update(Box::new(settings)))
+    {
+        cx.editor
+            .set_error(|| format!("Could not toggle inline blame: {err}"));
+    }
+}
+
 pub(super) fn changed_file_picker(cx: &mut Context) {
     changed_file_picker_for_scope(
         cx,
