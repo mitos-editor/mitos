@@ -43,7 +43,7 @@ let
 in
 rustPlatform.buildRustPackage (self: {
   postPatch = ''
-    substituteInPlace crates/view/src/theme.rs \
+    substituteInPlace crates/loader/src/theme.rs \
       --replace-fail '../../../runtime/themes/base16_terminal.toml' '${./runtime/themes/base16_terminal.toml}'    
   '';
   
