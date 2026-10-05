@@ -173,7 +173,6 @@ mod tests {
         let mut blame = InlineBlameConfig {
             show: InlineBlameShow::CursorLine,
             format: "{title}".into(),
-            auto_fetch: false,
         };
         let area = Rect::new(3, 2, 40, 4);
         let rows = render(&doc, &blame, ViewPosition::default(), area);

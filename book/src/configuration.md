@@ -397,10 +397,9 @@ component-specific settings.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
-| `auto-fetch` | boolean | `false` | Fetch blame on a background worker when files open or their VCS state is refreshed. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./editor.md#format). |
 
-`Space + B` toggles inline blame on the cursor line. Turning it on fetches blame for the current file on demand and reuses cached results. Inline blame skips uncommitted and empty lines.
+`Space + B` toggles inline blame on the cursor line. Visible files fetch and refresh blame automatically, reusing cached results when HEAD is unchanged. Inline blame skips uncommitted and empty lines.
 
 ### `[editor.inline-diagnostics]`
 

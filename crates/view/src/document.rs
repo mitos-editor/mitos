@@ -2112,7 +2112,7 @@ impl Document {
             }
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
-        if self.config.load().inline_blame.auto_fetch
+        if self.config.load().inline_blame.show != crate::config::InlineBlameShow::Never
             && let Some(handler) = self.blame.handler.clone()
         {
             handler.schedule_refresh(self.id());

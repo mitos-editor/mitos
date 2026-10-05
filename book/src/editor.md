@@ -230,7 +230,6 @@ Inline blame is virtual text that appears at the end of a line, displaying infor
 | Key     | Description                                | Default |
 | ------- | ------------------------------------------ | ------- |
 | `show` | When to show inline blame | `"never"` |
-| `auto-fetch` | Automatically fetch blame information in the background | `false` |
 | `format` | Inline blame message format | `"{author}, {time-ago} • {title} • {commit}"` |
 
 `show` can be one of the following:
@@ -239,9 +238,9 @@ Inline blame is virtual text that appears at the end of a line, displaying infor
 - `"cursor-line"`: Display blame on the primary cursor's line.
 - `"never"`: Hide inline blame.
 
-`Space + B` toggles inline blame between `"never"` and `"cursor-line"`. Turning it on requests blame for the current file, even when `auto-fetch = false`. The first request may take a moment; later toggles reuse the cached result. Uncommitted and empty lines do not display inline blame.
+`Space + B` toggles inline blame between `"never"` and `"cursor-line"`. Turning it on requests blame for files displayed in the editor. The first request may take a moment; later toggles reuse the cached result. Uncommitted and empty lines do not display inline blame.
 
-When `auto-fetch = true`, blame is fetched in the background when files open and after reloads or repository changes. Snapshots are reused when HEAD is unchanged.
+When inline blame is visible, it is fetched in the background for displayed files and refreshed after reloads or repository changes. Hidden buffers are fetched when displayed. Snapshots are reused when HEAD is unchanged. When inline blame is hidden, automatic requests stop.
 
 The `blame_line` command remains available to display the current line's blame in the status area.
 
