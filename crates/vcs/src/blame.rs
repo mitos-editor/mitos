@@ -1,33 +1,65 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{cell::LazyCell, ops::Range, path::PathBuf, sync::Arc};
+
+#[cfg(feature = "git")]
+use std::collections::HashMap;
 
 use anyhow::Result;
 
 /// Blame for the committed version of a file, with commit metadata prepared off-thread.
 #[derive(Debug)]
 pub struct FileBlame {
-    blame: HashMap<u32, Arc<LineBlame>>,
+    #[cfg(feature = "git")]
+    source: BlameSource,
+    ranges: Vec<BlameRange>,
+    commits: Vec<LineBlame>,
+}
+
+#[cfg(feature = "git")]
+#[derive(Debug, PartialEq, Eq)]
+struct BlameSource {
+    path: PathBuf,
+    revision: gix::ObjectId,
+    trust_full: bool,
+}
+
+#[derive(Debug)]
+struct BlameRange {
+    lines: Range<u32>,
+    commit: usize,
 }
 
 impl FileBlame {
-    /// Look up a committed line after accounting for unsaved insertions and deletions.
-    pub fn blame_for_line(&self, line: u32, inserted_lines: u32, removed_lines: u32) -> LineBlame {
-        let line = line
-            .saturating_sub(inserted_lines)
-            .saturating_add(removed_lines);
-        self.blame
-            .get(&line)
-            .map(|blame| (**blame).clone())
-            .unwrap_or_default()
+    /// Borrow metadata for a zero-based line in the committed file.
+    pub fn blame_for_line(&self, line: u32) -> Option<&LineBlame> {
+        let index = self.ranges.partition_point(|range| range.lines.end <= line);
+        let range = self.ranges.get(index)?;
+        range
+            .lines
+            .contains(&line)
+            .then(|| &self.commits[range.commit])
     }
 
     /// Compute blame using the caller's workspace Git trust decision.
+    pub fn try_new(file: PathBuf, trust_full: bool) -> Result<Arc<Self>> {
+        Self::try_refresh(file, trust_full, None)
+    }
+
+    /// Reuse a snapshot only when its canonical path, HEAD commit and trust match.
     #[cfg(not(feature = "git"))]
-    pub fn try_new(_file: PathBuf, _trust_full: bool) -> Result<Self> {
+    pub fn try_refresh(
+        _file: PathBuf,
+        _trust_full: bool,
+        _cached: Option<Arc<Self>>,
+    ) -> Result<Arc<Self>> {
         anyhow::bail!("Git blame support is not compiled in")
     }
 
     #[cfg(feature = "git")]
-    pub fn try_new(file: PathBuf, trust_full: bool) -> Result<Self> {
+    pub fn try_refresh(
+        file: PathBuf,
+        trust_full: bool,
+        cached: Option<Arc<Self>>,
+    ) -> Result<Arc<Self>> {
         use crate::git::{get_repo_dir, open_repo};
         use anyhow::Context as _;
 
@@ -36,6 +68,16 @@ impl FileBlame {
             .context("Failed to open git repo")?
             .to_thread_local();
         let head = repo.head_commit()?.id;
+        let source = BlameSource {
+            path: file.clone(),
+            revision: head,
+            trust_full,
+        };
+        if let Some(cached) = cached
+            && cached.source == source
+        {
+            return Ok(cached);
+        }
         let workdir = repo
             .workdir()
             .context("Git blame requires a working tree")?;
@@ -46,17 +88,18 @@ impl FileBlame {
         let entries = repo
             .blame_file(path.as_ref(), head, Default::default())?
             .entries;
-        let mut commits = HashMap::new();
-        let mut blame = HashMap::new();
+        let mut commit_indices = HashMap::new();
+        let mut commits = Vec::new();
+        let mut ranges = Vec::with_capacity(entries.len());
         for entry in entries {
-            let line_blame = if let Some(blame) = commits.get(&entry.commit_id) {
-                Arc::clone(blame)
+            let commit_index = if let Some(&index) = commit_indices.get(&entry.commit_id) {
+                index
             } else {
                 let commit = repo.find_commit(entry.commit_id)?;
                 let message = commit.message().ok();
                 let author = commit.author().ok();
                 let time = author.and_then(|author| author.time.parse::<gix::date::Time>().ok());
-                let line_blame = Arc::new(LineBlame {
+                let line_blame = LineBlame {
                     commit_hash: commit.short_id().ok().map(|id| id.to_string()),
                     author_name: author.map(|author| author.name.to_string()),
                     author_email: author.map(|author| author.email.to_string()),
@@ -69,20 +112,27 @@ impl FileBlame {
                         .as_ref()
                         .and_then(|message| message.body.map(|body| body.to_string())),
                     time_stamp: time.map(|time| (time.seconds, time.offset)),
-                    time_ago: None,
-                });
-                commits.insert(entry.commit_id, Arc::clone(&line_blame));
-                line_blame
+                };
+                let index = commits.len();
+                commits.push(line_blame);
+                commit_indices.insert(entry.commit_id, index);
+                index
             };
-            for line in entry.start_in_blamed_file..entry.start_in_blamed_file + entry.len.get() {
-                blame.insert(line, Arc::clone(&line_blame));
-            }
+            ranges.push(BlameRange {
+                lines: entry.start_in_blamed_file..entry.start_in_blamed_file + entry.len.get(),
+                commit: commit_index,
+            });
         }
-        Ok(Self { blame })
+        ranges.sort_unstable_by_key(|range| range.lines.start);
+        Ok(Arc::new(Self {
+            source,
+            ranges,
+            commits,
+        }))
     }
 }
 
-#[derive(Default, Clone, PartialEq, PartialOrd, Ord, Eq, Debug)]
+#[derive(Default, Debug)]
 pub struct LineBlame {
     commit_hash: Option<String>,
     author_name: Option<String>,
@@ -92,12 +142,6 @@ pub struct LineBlame {
     commit_body: Option<String>,
     /// Used to compute `time-ago`
     time_stamp: Option<(i64, i32)>,
-    /// This field is the only one that needs to be re-computed every time
-    /// we request the `LineBlame`. It exists here for lifetime purposes, so we can return
-    /// `&str` from `Self::get_variable`.
-    ///
-    /// This should only be set from within and never initialized.
-    time_ago: Option<String>,
 }
 
 impl LineBlame {
@@ -106,7 +150,7 @@ impl LineBlame {
     /// None => Invalid variable
     /// Some(None) => Valid variable, but is empty
     #[inline]
-    fn get_variable(&mut self, var: &str) -> Option<Option<&str>> {
+    fn get_variable(&self, var: &str) -> Option<Option<&str>> {
         Some(
             match var {
                 "commit" => &self.commit_hash,
@@ -115,92 +159,59 @@ impl LineBlame {
                 "title" => &self.commit_title,
                 "email" => &self.author_email,
                 "body" => &self.commit_body,
-                "time-ago" => {
-                    let time_ago = self.time_stamp.map(|(utc_seconds, timezone_offset)| {
-                        stdx::time::format_relative_time(utc_seconds, timezone_offset)
-                    });
-                    self.time_ago = time_ago;
-                    &self.time_ago
-                }
                 _ => return None,
             }
             .as_deref(),
         )
     }
 
-    /// Parse the user's blame format
-    #[inline]
-    pub fn parse_format(&mut self, format: &str) -> String {
-        let mut line_blame = String::new();
-        let mut content_before_variable = String::with_capacity(format.len());
-
+    /// Format borrowed commit metadata; compute relative time only if requested.
+    pub fn parse_format(&self, format: &str) -> String {
+        let time_ago = LazyCell::new(|| {
+            self.time_stamp
+                .map(|(seconds, offset)| stdx::time::format_relative_time(seconds, offset))
+        });
+        let mut output = String::with_capacity(format.len());
+        let mut literal_start = 0;
+        let mut exclude_next_literal = false;
         let mut chars = format.char_indices().peekable();
-        // in all cases, when any of the variables is empty we exclude the content before the variable
-        // However, if the variable is the first and it is empty - then exclude the content after the variable
-        let mut exclude_content_after_variable = false;
-        while let Some((ch_idx, ch)) = chars.next() {
-            if ch == '{' {
-                let mut variable = String::new();
-                // eat all characters until the end
-                while let Some((_, ch)) = chars.next_if(|(_, ch)| *ch != '}') {
-                    variable.push(ch);
-                }
-                // eat the '}' if it was found
-                let has_closing = chars.next().is_some();
-
-                #[derive(PartialEq, Eq, PartialOrd, Ord)]
-                enum Variable<'a> {
-                    Valid(&'a str),
-                    Invalid(&'a str),
-                    Empty,
-                }
-
-                let variable_value = self.get_variable(&variable).map_or_else(
-                    || {
-                        // Invalid variable. So just add whatever we parsed before.
-                        // The length of the variable, including opening and optionally
-                        // closing curly braces
-                        let variable_len = 1 + variable.len() + has_closing as usize;
-
-                        Variable::Invalid(&format[ch_idx..ch_idx + variable_len])
-                    },
-                    |s| s.map(Variable::Valid).unwrap_or(Variable::Empty),
-                );
-
-                match variable_value {
-                    Variable::Invalid(value) | Variable::Valid(value) => {
-                        if exclude_content_after_variable {
-                            // don't push anything.
-                            exclude_content_after_variable = false;
-                        } else {
-                            line_blame.push_str(&content_before_variable);
-                        }
-                        line_blame.push_str(value);
-                    }
-                    Variable::Empty => {
-                        if line_blame.is_empty() {
-                            // exclude content AFTER this variable (at next iteration of the loop,
-                            // we'll exclude the content before a valid variable)
-                            exclude_content_after_variable = true;
-                        } else {
-                            // exclude content BEFORE this variable
-                            // also just don't add anything.
-                        }
-                    }
-                }
-
-                // we've consumed the content before the variable so just get rid of it and
-                // make space for new
-                content_before_variable.drain(..);
-            } else {
-                content_before_variable.push(ch);
+        while let Some((start, ch)) = chars.next() {
+            if ch != '{' {
+                continue;
             }
+            // Slice placeholders and separators directly from the format string.
+            while chars.next_if(|(_, ch)| *ch != '}').is_some() {}
+            let closing = chars.next().map(|(index, _)| index);
+            let variable_end = closing.unwrap_or(format.len());
+            let end = closing.map_or(format.len(), |index| index + 1);
+            let variable = &format[start + 1..variable_end];
+            let value = if variable == "time-ago" {
+                Some(time_ago.as_deref())
+            } else {
+                self.get_variable(variable)
+            };
+            match value {
+                Some(None) => {
+                    // A missing first value suppresses its following separator;
+                    // other missing values suppress their preceding separator.
+                    if output.is_empty() {
+                        exclude_next_literal = true;
+                    }
+                }
+                value => {
+                    if !exclude_next_literal {
+                        output.push_str(&format[literal_start..start]);
+                    }
+                    exclude_next_literal = false;
+                    output.push_str(value.flatten().unwrap_or(&format[start..end]));
+                }
+            }
+            literal_start = end;
         }
-
-        if !exclude_content_after_variable {
-            line_blame.push_str(&content_before_variable);
+        if !exclude_next_literal {
+            output.push_str(&format[literal_start..]);
         }
-        line_blame
+        output
     }
 }
 
@@ -363,15 +374,14 @@ mod test {
                         // if there is no $expected, then we don't care what blame_line returns
                         // because we won't show it to the user.
                         $(
-                            let blame_result =
-                                FileBlame::try_new(file.clone(), true)
-                                    .unwrap()
-                                    .blame_for_line(line_number, added_lines, removed_lines)
-                                    .commit_title;
+                            let file_blame = FileBlame::try_new(file.clone(), true).unwrap();
+                            let blame_result = file_blame
+                                .blame_for_line(line_number - added_lines + removed_lines)
+                                .and_then(|blame| blame.commit_title.as_deref());
 
                             assert_eq!(
                                 blame_result,
-                                Some(stringify!($expected).to_owned()),
+                                Some(stringify!($expected)),
                                 "Blame mismatch\nat commit: {}\nat line: {}\nline contents: {}\nexpected commit: {}\nbut got commit: {}",
                                 $commit_msg,
                                 line_number,
@@ -520,8 +530,87 @@ mod test {
         let file = repo.path().join("worktree/nested/file.txt");
         let blame = FileBlame::try_new(file, false).unwrap();
         assert_eq!(
-            blame.blame_for_line(0, 0, 0).parse_format("{title}"),
+            blame.blame_for_line(0).unwrap().parse_format("{title}"),
             "initial"
+        );
+    }
+
+    #[test]
+    fn refresh_reuses_only_the_same_file_revision_and_trust() {
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        let other = repo.path().join("other.txt");
+        std::fs::write(&file, "first\n").unwrap();
+        std::fs::write(&other, "other\n").unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        let original = FileBlame::try_new(file.clone(), true).unwrap();
+        let refreshed = FileBlame::try_refresh(file.clone(), true, Some(original.clone())).unwrap();
+        assert!(Arc::ptr_eq(&original, &refreshed));
+        let untrusted =
+            FileBlame::try_refresh(file.clone(), false, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &untrusted));
+        let different_file = FileBlame::try_refresh(other, true, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &different_file));
+        // Even an unchanged blob must get fresh blame after a HEAD change.
+        crate::git::test::exec_git_cmd(&["commit", "--allow-empty", "-m", "new HEAD"], repo.path());
+        let new_head = FileBlame::try_refresh(file, true, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &new_head));
+        assert_ne!(original.source.revision, new_head.source.revision);
+    }
+
+    #[test]
+    fn ranges_share_commits_and_borrow_metadata() {
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        std::fs::write(&file, "first\nsecond\nthird\n").unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        std::fs::write(&file, "first\nchanged\nthird\n").unwrap();
+        create_commit_with_message(repo.path(), true, "middle");
+        let blame = FileBlame::try_new(file, true).unwrap();
+        assert_eq!(blame.ranges.len(), 3);
+        assert_eq!(blame.commits.len(), 2);
+        assert!(std::ptr::eq(
+            blame.blame_for_line(0).unwrap(),
+            blame.blame_for_line(2).unwrap()
+        ));
+        assert_eq!(
+            blame.blame_for_line(1).unwrap().parse_format("{title}"),
+            "middle"
+        );
+        assert!(blame.blame_for_line(3).is_none());
+    }
+
+    #[test]
+    fn single_commit_keeps_one_range_for_a_large_file() {
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        std::fs::write(&file, "line\n".repeat(10_000)).unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        let blame = FileBlame::try_new(file, true).unwrap();
+        assert_eq!(blame.ranges.len(), 1);
+        assert_eq!(blame.ranges[0].lines, 0..10_000);
+        assert_eq!(blame.commits.len(), 1);
+        assert!(blame.blame_for_line(9_999).is_some());
+        assert!(blame.blame_for_line(10_000).is_none());
+    }
+
+    #[test]
+    fn format_borrows_metadata_with_a_large_unused_body() {
+        let blame = LineBlame {
+            commit_body: Some("x".repeat(1024 * 1024)),
+            ..bob()
+        };
+        assert_eq!(blame.parse_format("{commit}"), "f14ab1cf");
+        assert_eq!(blame.parse_format("{body}").len(), 1024 * 1024);
+        assert_eq!(blame.parse_format("{time-ago} • {commit}"), "f14ab1cf");
+        let dated = LineBlame {
+            time_stamp: Some((0, 0)),
+            ..blame
+        };
+        let relative = stdx::time::format_relative_time(0, 0);
+        assert_eq!(
+            dated.parse_format("{time-ago} / {time-ago}"),
+            format!("{relative} / {relative}")
         );
     }
 
@@ -549,7 +638,6 @@ mod test {
             commit_title: Some("feat!: extend house".to_owned()),
             commit_body: Some("BREAKING CHANGE: Removed door".to_owned()),
             time_stamp: None,
-            time_ago: None,
         }
     }
 

@@ -89,7 +89,7 @@ impl Handlers {
         doc.auto_save_trigger = Some(self.auto_save.trigger());
         doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
-        doc.blame_handler = Some(self.blame.clone());
+        doc.blame.handler = Some(self.blame.clone());
         doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 

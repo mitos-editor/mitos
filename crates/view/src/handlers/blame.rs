@@ -1,7 +1,9 @@
 //! Background Git blame, delivered only to the editor and document that requested it.
 
-use event::{cancelable_future, register_hook};
-use vcs::FileBlame;
+use event::{register_hook, send_blocking};
+use tokio::sync::mpsc::Sender;
+
+use super::document_debounce::debounce_documents;
 
 use crate::{
     callbacks::EditorCallbackSender,
@@ -13,45 +15,40 @@ use crate::{
 #[derive(Clone)]
 pub struct BlameHandler {
     callbacks: EditorCallbackSender,
+    refreshes: Sender<DocumentId>,
 }
 
 impl BlameHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        Self { callbacks }
+        let refreshes = debounce_documents(callbacks.clone(), request_file_blame);
+        Self {
+            callbacks,
+            refreshes,
+        }
     }
 
-    /// Refresh a document's committed blame. A line requests a status message on completion.
+    /// Coalesce repository refreshes; explicit requests and initial loads stay immediate.
+    pub(crate) fn schedule_refresh(&self, doc: DocumentId) {
+        send_blocking(&self.refreshes, doc);
+    }
+
+    /// Request committed blame and optionally display a line when it arrives.
     pub(crate) fn request(&self, doc: &mut Document, trust_full: bool, line: Option<u32>) {
-        if doc.is_binary() {
-            return;
-        }
-        let Some(path) = doc.path().map(ToOwned::to_owned) else {
+        let Some(request) = doc.blame_request(trust_full, line) else {
             return;
         };
         let doc_id = doc.id();
-        let cancel = doc.blame_request.restart();
         let callbacks = self.callbacks.clone();
-        let blame_path = path.clone();
-        let worker =
-            tokio::task::spawn_blocking(move || FileBlame::try_new(blame_path, trust_full));
         tokio::spawn(async move {
-            let Some(result) = cancelable_future(worker, &cancel).await else {
+            let Some(result) = request.compute().await else {
                 return;
             };
-            let result = result.unwrap_or_else(|err| Err(err.into()));
             callbacks
                 .send(move |editor| {
-                    if cancel.is_canceled() {
-                        return;
-                    }
                     let Some(doc) = editor.document_mut(doc_id) else {
                         return;
                     };
-                    if doc.path() != Some(&path) || doc.is_binary() {
-                        return;
-                    }
-                    doc.file_blame = Some(result);
-                    if let Some(line) = line {
+                    if let Some(line) = request.complete(doc, result) {
                         editor.show_line_blame(doc_id, line);
                     }
                 })
@@ -71,7 +68,7 @@ impl Editor {
             self.set_error(|| "Git blame requires a text file with a path");
             return;
         }
-        if doc.file_blame.is_none() {
+        if doc.file_blame().is_none() {
             let trust_full = self
                 .workspace_trust
                 .query(
@@ -108,6 +105,10 @@ impl Editor {
 }
 
 fn request_file_blame(editor: &mut Editor, doc_id: DocumentId) {
+    // Queued automatic work may outlive an auto-fetch configuration change.
+    if !editor.config().inline_blame.auto_fetch {
+        return;
+    }
     let handler = editor.handlers.blame.clone();
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
