@@ -21,7 +21,7 @@ pub struct BlameHandler {
 
 impl BlameHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let refreshes = debounce_documents(callbacks.clone(), request_file_blame);
+        let refreshes = debounce_documents(callbacks.clone(), request_visible_file_blame);
         Self {
             callbacks,
             refreshes,
@@ -105,7 +105,7 @@ impl Editor {
     }
 }
 
-fn request_file_blame(editor: &mut Editor, doc_id: DocumentId) {
+fn request_visible_file_blame(editor: &mut Editor, doc_id: DocumentId) {
     // A queued refresh may outlive a visibility change or buffer switch.
     if editor.config().inline_blame.show == InlineBlameShow::Never
         || !editor.tree.views().any(|(view, _)| view.doc == doc_id)
@@ -138,7 +138,7 @@ fn request_visible_blame(editor: &mut Editor) {
     docs.sort_unstable();
     docs.dedup();
     for doc_id in docs {
-        request_file_blame(editor, doc_id);
+        request_blame(editor, doc_id);
     }
 }
 
@@ -154,7 +154,7 @@ pub(super) fn register_hooks() {
                 .blame
                 .callbacks
                 .send_blocking(move |editor| {
-                    request_file_blame(editor, doc_id);
+                    request_visible_file_blame(editor, doc_id);
                 });
         }
         Ok(())

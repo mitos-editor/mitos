@@ -593,6 +593,11 @@ mod test {
         assert!(blame.blame_for_line(9_999).is_some());
         assert!(blame.blame_for_line(10_000).is_none());
     }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::LineBlame;
 
     #[test]
     fn format_borrows_metadata_with_a_large_unused_body() {
@@ -642,7 +647,7 @@ mod test {
     }
 
     #[test]
-    pub fn inline_blame_format_parser() {
+    fn inline_blame_format_parser() {
         let format = "{author}, {date} • {title} • {commit}";
 
         assert_eq!(
