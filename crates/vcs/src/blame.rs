@@ -64,6 +64,7 @@ impl FileBlame {
         use anyhow::Context as _;
 
         let file = gix::path::realpath(&file).context("resolve symlinks")?;
+        let file = stdx::path::canonicalize_existing(&file);
         let repo = open_repo(get_repo_dir(&file)?, trust_full)
             .context("Failed to open git repo")?
             .to_thread_local();
@@ -81,9 +82,12 @@ impl FileBlame {
         let workdir = repo
             .workdir()
             .context("Git blame requires a working tree")?;
+        // Git's linked-worktree metadata can omit the Windows verbatim prefix.
+        // Canonicalize both sides before comparing paths, allowing a missing file.
+        let workdir = stdx::path::canonicalize_existing(workdir);
         // Use the working tree root, including linked worktrees and subdirectories.
         let path = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
-            file.strip_prefix(workdir)?,
+            file.strip_prefix(&workdir)?,
         )?);
         let entries = repo
             .blame_file(path.as_ref(), head, Default::default())?
@@ -528,11 +532,14 @@ mod test {
             repo.path(),
         );
         let file = repo.path().join("worktree/nested/file.txt");
-        let blame = FileBlame::try_new(file, false).unwrap();
-        assert_eq!(
-            blame.blame_for_line(0).unwrap().parse_format("{title}"),
-            "initial"
-        );
+        // Windows canonical paths use a verbatim prefix unlike Git's metadata.
+        for file in [file.clone(), file.canonicalize().unwrap()] {
+            let blame = FileBlame::try_new(file, false).unwrap();
+            assert_eq!(
+                blame.blame_for_line(0).unwrap().parse_format("{title}"),
+                "initial"
+            );
+        }
     }
 
     #[test]
