@@ -14,7 +14,8 @@ curl -fsSL https://mitos.computer/install.sh | sh
 ```
 
 The installer selects the right archive, verifies its SHA-256 checksum, and
-keeps the executable and runtime together in `~/.local/share/mitos/`.
+keeps the executable and runtime together in `$XDG_DATA_HOME/mitos/`
+(default: `~/.local/share/mitos/`).
 It links `ms` into `~/.local/bin`, without sudo or changes to your shell files.
 If that directory is missing from your `PATH`, it prints the command to add it.
 
@@ -31,7 +32,7 @@ installation alone. View the [shell installer source](https://github.com/mitos-e
 
 ### Windows
 
-Run in PowerShell:
+Run in PowerShell 5.1 or newer:
 
 ```powershell
 & ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1)))

@@ -58,7 +58,7 @@ class InstallerTests(unittest.TestCase):
             output.write(f'{digest}  {path.name}\n')
         return path
 
-    def shell(self, *args):
+    def shell(self, *args, script=None, use_default_install_dir=False):
         if os.name == 'nt':
             self.skipTest('POSIX installer is exercised on Linux and macOS')
         (self.tools / 'uname').write_text(
@@ -66,6 +66,9 @@ class InstallerTests(unittest.TestCase):
         (self.tools / 'curl').write_text('''#!/usr/bin/env python3
 import os, pathlib, shutil, sys
 args = sys.argv[1:]
+assert args[args.index('--proto') + 1] == '=https'
+assert args[args.index('--proto-redir') + 1] == '=https'
+assert '--tlsv1.2' in args
 url = next(arg for arg in args if arg.startswith('https://'))
 if url.endswith('/latest'):
     print('https://github.com/mitos-editor/mitos/releases/tag/' + os.environ['FIXTURE_TAG'], end='')
@@ -79,8 +82,11 @@ shutil.copyfile(source, out)
 ''')
         for tool in self.tools.iterdir():
             tool.chmod(0o755)
-        return subprocess.run(['sh', str(SHELL_INSTALLER), '--install-dir', str(self.install),
-                               '--bin-dir', str(self.bin), *args], env=self.env,
+        command = ['sh', str(SHELL_INSTALLER)] if script is None else ['sh', '-s', '--']
+        if not use_default_install_dir:
+            command += ['--install-dir', str(self.install)]
+        command += ['--bin-dir', str(self.bin), *args]
+        return subprocess.run(command, env=self.env, input=script,
                               capture_output=True, text=True)
 
     def powershell(self, *args):
@@ -99,7 +105,12 @@ function Invoke-WebRequest {
     if ($name -eq 'SHA256SUMS') { $name = ($Uri -split '/')[-2] + '.txt' }
     Copy-Item -LiteralPath (Join-Path $env:FIXTURE_DIR $name) -Destination $OutFile
 }
-& $env:INSTALLER -InstallDir $env:INSTALL_DIR -NoModifyPath @args
+if ($env:FIXTURE_PS_VERSION) {
+    $PSVersionTable.PSVersion = [version]$env:FIXTURE_PS_VERSION
+    & ([scriptblock]::Create((Get-Content -LiteralPath $env:INSTALLER -Raw))) -InstallDir $env:INSTALL_DIR -NoModifyPath @args
+} else {
+    & $env:INSTALLER -InstallDir $env:INSTALL_DIR -NoModifyPath @args
+}
 ''')
         env = dict(self.env, INSTALLER=str(PS_INSTALLER), INSTALL_DIR=str(self.install))
         return subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-File', str(wrapper), *args],
@@ -129,6 +140,26 @@ function Invoke-WebRequest {
         self.assertTrue((self.install/'v0.1.0-aarch64-macos/runtime').exists())
         self.assertEqual(self.shell('--version', '0.1.0').returncode, 0)
         self.assertIn('v0.1.0', str((self.bin/'ms').resolve()))
+
+    def test_shell_truncated_download_does_not_install(self):
+        self.archive()
+        source = SHELL_INSTALLER.read_text()
+        for script in [source.rsplit('\n{\n  main "$@"\n}', 1)[0],
+                       source.rsplit('\n}', 1)[0]]:
+            with self.subTest(script_end=script[-40:]):
+                self.shell(script=script)
+                self.assertFalse(self.install.exists())
+                self.assertFalse(self.bin.exists())
+
+    def test_shell_respects_xdg_data_home(self):
+        self.archive()
+        data_home = self.root / 'custom data directory'
+        self.env['XDG_DATA_HOME'] = str(data_home)
+        result = self.shell(use_default_install_dir=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((data_home/'mitos/v0.1.0-aarch64-macos/runtime').exists())
+        self.assertEqual((self.bin/'ms').resolve().parent,
+                         (data_home/'mitos/v0.1.0-aarch64-macos').resolve())
 
     def test_shell_bad_checksum_does_not_change_existing_install(self):
         self.archive()
@@ -184,6 +215,13 @@ function Invoke-WebRequest {
         result = self.powershell()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Checksum mismatch', result.stderr)
+        self.assertFalse(self.install.exists())
+
+    def test_powershell_one_liner_rejects_old_powershell(self):
+        self.env.update(FIXTURE_ARCH='AMD64', FIXTURE_PS_VERSION='5.0')
+        result = self.powershell()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('PowerShell 5.1 or newer is required', result.stderr)
         self.assertFalse(self.install.exists())
 
     def test_powershell_preserves_other_launcher(self):

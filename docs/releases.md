@@ -63,3 +63,11 @@ PowerShell tests run when `pwsh` is available (or set `PWSH` to its path).
 The Installers workflow runs these tests on Linux, macOS, and Windows.
 `./book/build-site.sh` copies both installers, their HTTP headers, and the
 initial checksum manifest into the generated site for deployment.
+
+The shell installer follows the [rustup bootstrap pattern](https://github.com/rust-lang/rustup/blob/main/rustup-init.sh):
+define the installer before calling its entry point at the end, and restrict
+downloads to HTTPS. Default Unix locations follow the
+[XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/0.8/).
+The Windows installer uses PowerShell's standard parameter block, comment-based
+help, and an explicit PowerShell 5.1 minimum. Both retain the runtime alongside
+the executable rather than installing the binary alone.

@@ -1,4 +1,16 @@
-# Install a verified Mitos release for the current Windows user.
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+Installs a verified Mitos release for the current Windows user.
+.PARAMETER Version
+Release version, such as 0.1.0, or latest (the default).
+.PARAMETER InstallDir
+Installation root. Defaults to the Mitos directory in LOCALAPPDATA.
+.PARAMETER NoModifyPath
+Leaves the user and current session PATH unchanged.
+.EXAMPLE
+./install.ps1 -Version 0.1.0
+#>
 [CmdletBinding()]
 param(
     [string]$Version = 'latest',
@@ -8,6 +20,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# ScriptBlock::Create (the hosted one-liner) does not enforce #Requires.
+if ($PSVersionTable.PSVersion -lt [version]'5.1') {
+    throw 'PowerShell 5.1 or newer is required.'
+}
 if ($env:OS -ne 'Windows_NT') {
     throw 'Use install.sh on Linux or macOS.'
 }
