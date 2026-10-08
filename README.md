@@ -19,7 +19,27 @@ Mitos is a modern, batteries-included, modal text editor written in Rust. It is 
 - Incremental syntax highlighting and code editing via tree-sitter
 - A terminal UI built with Ratatui
 
-## Building
+## Installation
+
+On Linux and macOS:
+
+```sh
+curl -fsSL https://mitos.computer/install.sh | sh
+```
+
+On Windows, run in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1)))
+```
+
+The installers select your platform, verify the download, and install the executable with its runtime for your user account.
+
+Download a binary archive for Linux, macOS, or Windows from [GitHub Releases](https://github.com/mitos-editor/mitos/releases/latest). Extract it and keep `runtime/` beside `ms` (`ms.exe` on Windows), then add the extracted directory to your `PATH`.
+
+See the [installation guide](https://mitos.computer/docs/install.html) for platform instructions.
+
+### Building from Source
 
 Mitos requires Rust 1.97.1 or newer.
 

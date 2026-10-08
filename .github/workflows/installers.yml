@@ -1,0 +1,29 @@
+name: Installers
+
+on:
+  pull_request:
+    paths:
+      - 'book/install/**'
+      - 'tests/installers/**'
+      - '.github/workflows/installers.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'book/install/**'
+      - 'tests/installers/**'
+      - '.github/workflows/installers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test installers with local release fixtures
+        run: python -m unittest discover -s tests/installers -v

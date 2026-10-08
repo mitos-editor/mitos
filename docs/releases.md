@@ -3,7 +3,7 @@
 [release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
 to `main`. Merging that PR creates a GitHub release and a version tag such as `v0.1.0`;
 the tag triggers `.github/workflows/release.yml` to build and upload the binary
-archives, Debian package, and provenance attestations.
+archives, Debian package, SHA-256 checksums, and provenance attestations.
 
 Releases use Git tags only; release-plz does not publish crates to crates.io.
 The `term` package owns the release and root changelog. Its version is inherited
@@ -44,3 +44,30 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
+
+## Hosted installers
+
+The website serves `book/install/install.sh` and `book/install/install.ps1`.
+Both keep each release's executable and runtime together and verify archives
+against the release's `SHA256SUMS` asset. Version `0.1.0` predates that asset;
+its checksum manifest is checked into `book/install/checksums/v0.1.0.txt`, using
+GitHub's published SHA-256 asset digests, and served at `/checksums/v0.1.0.txt`.
+
+Run the installer regression tests with:
+
+```sh
+python3 -m unittest discover -s tests/installers -v
+```
+
+PowerShell tests run when `pwsh` is available (or set `PWSH` to its path).
+The Installers workflow runs these tests on Linux, macOS, and Windows.
+`./book/build-site.sh` copies both installers, their HTTP headers, and the
+initial checksum manifest into the generated site for deployment.
+
+The shell installer follows the [rustup bootstrap pattern](https://github.com/rust-lang/rustup/blob/main/rustup-init.sh):
+define the installer before calling its entry point at the end, and restrict
+downloads to HTTPS. Default Unix locations follow the
+[XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/0.8/).
+The Windows installer uses PowerShell's standard parameter block, comment-based
+help, and an explicit PowerShell 5.1 minimum. Both retain the runtime alongside
+the executable rather than installing the binary alone.
