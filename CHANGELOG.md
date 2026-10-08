@@ -1,146 +1,68 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
 ## [0.1.0](https://github.com/mitos-editor/mitos/releases/tag/v0.1.0) - 2026-10-08
 
+Mitos's first release builds on Helix's selection-first editing, multiple
+selections, syntax highlighting, language servers, and debugging. These are
+the main additions and changes since the fork, including work adapted from
+the upstream Helix PRs linked below.
+
 ### Added
 
-- *(docs)* update docs and READMEs ([#75](https://github.com/mitos-editor/mitos/pull/75))
-- docs, screenshots, brand, and more
-- images support ([#9](https://github.com/mitos-editor/mitos/pull/9))
-- *(editor)* [**breaking**] add prompted selection replacement
-- *(editor)* expand spell-checking syntax coverage
-- *(editor)* persist spelling ignores across sessions
-- *(editor)* add session spelling ignores
-- *(editor)* add spelling navigation and text objects
-- *(editor)* add native spell checking
-- *(editor)* add file watching and automatic reload
-- *(ui)* simplify statusline
-- *(vcs)* add repository changed file picker
-- show file icons in quicklist
-- add quicklist
-- *(lsp)* render symbol hierarchy with semantic styles
-- *(commands)* add subselect commands for textobjects
-- *(commands)* add custom typable commands
-- *(ui)* highlight command palette entries
-- *(ui)* render command docs as markdown
-- *(editor)* add breadcrumb navigation
-- *(dap)* toggle breakpoints for all selections
-- *(term)* select global search matches
-- enable automatic document highlights by default
-- improve main application layout
-- add welcome screen
-- add basic icon support
+- [Built-in spell checking](https://mitos.computer/docs/spell-checking.html) for prose and comments, with correction suggestions,
+  personal dictionaries, and temporary or permanent word ignores
+  ([Helix #15910](https://github.com/helix-editor/helix/pull/15910)).
+- [Image previews](https://mitos.computer/docs/image-previews.html) in editor panes and file pickers for PNG, JPEG, GIF, and WebP
+  ([#9](https://github.com/mitos-editor/mitos/pull/9)). Previews automatically use
+  [Kitty graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
+  [Sixel](https://vt100.net/docs/vt3xx-gp/chapter14.html), or
+  [iTerm2 inline images](https://iterm2.com/documentation-images.html), depending
+  on terminal support, with a half-block character fallback. GIF and WebP
+  previews show a still image.
+- A [quicklist](https://mitos.computer/docs/quicklist.html) to collect search results, diagnostics, or symbol locations and
+  move through them after closing the picker.
+- A [picker for changed Git files](https://mitos.computer/docs/keymap.html#space-mode) in the current workspace.
+- [Breadcrumb navigation](https://mitos.computer/docs/editor.html#editorbreadcrumb-section) showing the file path and enclosing symbols
+  ([Helix #15573](https://github.com/helix-editor/helix/pull/15573)).
+- [Custom `:` commands](https://mitos.computer/docs/custom-commands.html) with aliases, command sequences, macros, and arguments.
+- [Automatic reloads](https://mitos.computer/docs/configuration.html#editorauto-reload) when files change outside the editor
+  ([Helix #14544](https://github.com/helix-editor/helix/pull/14544)).
+- [`Alt-r`](https://mitos.computer/docs/keymap.html#changes) to replace selections with entered text and repeat the edit with `.`.
+- [Select all matching text objects](https://mitos.computer/docs/keymap.html#match-mode) within a selection
+  ([Helix #16088](https://github.com/helix-editor/helix/pull/16088)) and select
+  the matched text when opening global search results
+  ([Helix #16061](https://github.com/helix-editor/helix/pull/16061)).
+- [Toggle breakpoints](https://mitos.computer/docs/debugging.html#debugging-commands) across multiple selections
+  ([Helix #16164](https://github.com/helix-editor/helix/pull/16164)).
+
+### Changed
+
+- Rebuilt the terminal interface with Ratatui, with a welcome screen, optional
+  file icons, clearer panels, updated [pickers](https://mitos.computer/docs/pickers.html), and a simpler
+  [status line](https://mitos.computer/docs/editor.html#editorstatusline-section).
+- Command help supports Markdown, and symbol lists use syntax-aware colors.
+- Modus Operandi and Modus Vivendi are the default light and dark
+  [themes](https://mitos.computer/docs/themes.html).
+  The bundled theme collection is smaller.
+- The executable is `ms`. [User configuration](https://mitos.computer/docs/configuration.html#configuration-files-and-precedence) lives in `~/.config/mitos`
+  (`%AppData%\mitos` on Windows), and project configuration uses `.mitos/`.
+- Custom keymaps that used `replace` for character replacement must use
+  `replace_char`. The default `r` binding still replaces characters.
+- Reorganized the codebase, updated dependencies, and refreshed the [documentation](https://mitos.computer/docs/)
+  ([#75](https://github.com/mitos-editor/mitos/pull/75)).
 
 ### Fixed
 
-- *(term)* make cursor ownership explicit ([#101](https://github.com/mitos-editor/mitos/pull/101))
-- *(view)* resolve code actions without blocking the editor ([#84](https://github.com/mitos-editor/mitos/pull/84))
-- respect editor auto-format defaults
-- *(term)* avoid blocking cursor queries during full redraw
-- repo name
-- *(term)* remove directory collapsing from file explorer
-- *(windows)* resolve state directory and line ending failures
-- *(editor)* expose spelling corrections in code actions
-- *(ui)* unify panel border styling
-- *(vcs)* scope changed files to workspace
-- *(vcs)* show changed files from worktree root
-- *(ui)* preserve statusline filename width
-- *(ui)* improve panel border contrast
-- make picker results fill available width
-- avoid quicklist panic from scratch buffer
-- *(ui)* navigate file explorer in place
-- *(rust)* adopt 2024 macro expressions
-- *(ui)* hide breadcrumbs in scratch buffers
-- *(commands)* make joining comments syntax aware
-- restore CI checks
-
-### Other
-
-- *(view)* make handler lifecycle ownership explicit ([#85](https://github.com/mitos-editor/mitos/pull/85))
-- *(tests)* share fake language server configuration ([#83](https://github.com/mitos-editor/mitos/pull/83))
-- *(tests)* consolidate editor fixtures and feature coverage ([#82](https://github.com/mitos-editor/mitos/pull/82))
-- *(term)* remove transitional command forwarding layers ([#88](https://github.com/mitos-editor/mitos/pull/88))
-- *(view)* remove transitional configuration and spelling exports ([#81](https://github.com/mitos-editor/mitos/pull/81))
-- *(view)* group document state by feature ([#79](https://github.com/mitos-editor/mitos/pull/79))
-- *(view)* separate theme resources and own workspace trust ([#70](https://github.com/mitos-editor/mitos/pull/70))
-- *(term)* own icon rendering into terminal spans ([#69](https://github.com/mitos-editor/mitos/pull/69))
-- *(clipboard)* separate settings from runtime execution ([#68](https://github.com/mitos-editor/mitos/pull/68))
-- *(syntax)* separate resource loading from query compilation ([#67](https://github.com/mitos-editor/mitos/pull/67))
-- *(view)* own filesystem watching and event delivery ([#65](https://github.com/mitos-editor/mitos/pull/65))
-- *(view)* own shared handler setup and event registration ([#64](https://github.com/mitos-editor/mitos/pull/64))
-- *(view)* own completion coordination ([#60](https://github.com/mitos-editor/mitos/pull/60))
-- *(view)* own signature-help coordination ([#58](https://github.com/mitos-editor/mitos/pull/58))
-- *(view)* own autosave coordination ([#57](https://github.com/mitos-editor/mitos/pull/57))
-- *(view)* own automatic reload coordination ([#56](https://github.com/mitos-editor/mitos/pull/56))
-- *(view)* own editor configuration application ([#55](https://github.com/mitos-editor/mitos/pull/55))
-- *(lsp)* clarify workspace request ownership ([#54](https://github.com/mitos-editor/mitos/pull/54))
-- *(view)* own LSP lifecycle and push diagnostics ([#53](https://github.com/mitos-editor/mitos/pull/53))
-- *(view)* own code-action hint coordination ([#52](https://github.com/mitos-editor/mitos/pull/52))
-- *(view)* own pull-diagnostic coordination ([#51](https://github.com/mitos-editor/mitos/pull/51))
-- *(view)* consolidate document LSP feature coordination ([#50](https://github.com/mitos-editor/mitos/pull/50))
-- *(view)* consolidate spelling coordination ([#47](https://github.com/mitos-editor/mitos/pull/47))
-- *(view)* own background syntax coordination ([#45](https://github.com/mitos-editor/mitos/pull/45))
-- *(view)* extract shared selection replacement ([#43](https://github.com/mitos-editor/mitos/pull/43))
-- *(view)* share save preparation across commands and autosave ([#41](https://github.com/mitos-editor/mitos/pull/41))
-- *(term)* organize commands by feature
-- *(term)* extract navigation commands
-- *(term)* extract formatting command coordination
-- *(term)* extract edit-history commands
-- *(term)* group increment commands with selection editing
-- *(term)* group surround commands with selection editing
-- *(term)* group line insertion commands with insert-mode editing
-- *(term)* extract mode-transition commands
-- *(term)* extract insert-mode editing commands
-- *(term)* extract register and clipboard commands
-- *(term)* extract selection replacement and deletion commands
-- *(term)* group indentation and comment commands with editing ([#38](https://github.com/mitos-editor/mitos/pull/38))
-- *(term)* extract text transformation commands ([#37](https://github.com/mitos-editor/mitos/pull/37))
-- *(term)* extract selection command handlers ([#36](https://github.com/mitos-editor/mitos/pull/36))
-- *(term)* extract movement command handlers ([#35](https://github.com/mitos-editor/mitos/pull/35))
-- *(term)* extract command-line orchestration ([#33](https://github.com/mitos-editor/mitos/pull/33))
-- *(term)* extract typable command catalog ([#31](https://github.com/mitos-editor/mitos/pull/31))
-- *(term)* extract static command catalog ([#30](https://github.com/mitos-editor/mitos/pull/30))
-- *(term)* extract mappable command logic ([#28](https://github.com/mitos-editor/mitos/pull/28))
-- *(term)* extract command context and callback adapters ([#27](https://github.com/mitos-editor/mitos/pull/27))
-- editor and terminal configuration ownership ([#26](https://github.com/mitos-editor/mitos/pull/26))
-- *(deps)* bump unicode-width from 0.1.12 to 0.2.0 ([#5](https://github.com/mitos-editor/mitos/pull/5))
-- *(editor)* defer startup work through background jobs ([#17](https://github.com/mitos-editor/mitos/pull/17))
-- improve crate and public API documentation
-- *(paths)* separate display and operational paths
-- *(tui)* own generic panel widgets
-- *(ui)* move input primitives to ui-core
-- extract snippets crate
-- extract command-line crate
-- *(ui)* consolidate picker preview state
-- *(book)* refresh documentation and theme
-- *(crates)* document workspace packages
-- *(rust)* migrate workspace to edition 2024
-- *(deps)* centralize workspace dependencies
-- replace once_cell with std primitives
-- *(ui)* always frame popup panels
-- *(ui)* extract shared UI primitives
-- *(commands)* mark typable commands cold
-- *(diagnostics)* box owned strings
-- outline Editor error and warning paths
-- *(term)* extract shared shell command logic
-- *(ui)* avoid cloning diagnostic text
-- *(ui)* remove transient render allocations
-- *(ui)* normalize documentation panels
-- *(ui)* share Ratatui scrollbar rendering
-- *(ui)* centralize panel chrome
-- *(ui)* simplify remaining panel layouts
-- *(ui)* render prompt completions as a table
-- *(ui)* render buffer line as tabs
-- *(ui)* lay out status rows with Ratatui
-- *(ui)* use Ratatui picker layouts
-- *(ui)* use Ratatui popup scrollbars
-- *(ui)* use exact paragraph measurement
-- *(ui)* centralize application layout
-- rename packages, change default theme
+- Reduced blocking work during startup
+  ([#17](https://github.com/mitos-editor/mitos/pull/17)), redraws, and code actions
+  ([#84](https://github.com/mitos-editor/mitos/pull/84)).
+- Improved terminal cursor handling
+  ([#101](https://github.com/mitos-editor/mitos/pull/101)), [file explorer](https://mitos.computer/docs/pickers.html#file-explorer)
+  navigation, and Windows file watching
+  ([#103](https://github.com/mitos-editor/mitos/pull/103)), state paths, and
+  line endings.
+- Made comment joining syntax-aware
+  ([Helix #15992](https://github.com/helix-editor/helix/pull/15992)) and corrected
+  formatting defaults on save.
