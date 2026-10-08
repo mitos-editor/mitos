@@ -1,8 +1,8 @@
 # Installation
 
 Mitos runs on Linux, macOS, and Windows. The executable is called `ms`.
-Use the [installer](#installer), or choose a [release archive](#release-archives), the
-[Debian package](#debian-and-ubuntu), or [mise](./package-managers.md#mise).
+Use the [installer](#installer), download a [release archive](#release-archives),
+or install the [Debian package](#debian-and-ubuntu).
 You can also [build from source](./building-from-source.md).
 
 ## Installer
@@ -115,7 +115,7 @@ sudo apt install ./mitos_0.1.0-1_amd64.deb
 
 Use the downloaded package's filename if it differs. The package includes the
 runtime, shell completions, and desktop entry. ARM64 users can use the release
-archive or mise. If your system's glibc is too old, see
+archive or the installer. If your system's glibc is too old, see
 [building the Debian package](./building-from-source.md#building-the-debian-package).
 
 ## Verify the installation

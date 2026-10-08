@@ -37,13 +37,6 @@ The installers select your platform, verify the download, and install the execut
 
 Download a binary archive for Linux, macOS, or Windows from [GitHub Releases](https://github.com/mitos-editor/mitos/releases/latest). Extract it and keep `runtime/` beside `ms` (`ms.exe` on Windows), then add the extracted directory to your `PATH`.
 
-With [mise](https://mise.jdx.dev/):
-
-```sh
-mise use -g github:mitos-editor/mitos@0.1.0
-mise exec -- ms --health
-```
-
 See the [installation guide](https://mitos.computer/docs/install.html) for platform instructions.
 
 ### Building from Source
