@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/aquaproj/aqua/main/json-schema/registry.json
+packages:
+  - type: github_release
+    repo_owner: mitos-editor
+    repo_name: mitos
+    description: A selection-first terminal text editor based on Helix
+    asset: mitos-{{.Version}}-{{.Arch}}-{{.OS}}.{{.Format}}
+    format: tar.xz
+    supported_envs:
+      - linux/amd64
+      - linux/arm64
+      - darwin/amd64
+      - darwin/arm64
+      - windows/amd64
+      - windows/arm64
+    replacements:
+      amd64: x86_64
+      arm64: aarch64
+      darwin: macos
+    files:
+      - name: ms
+        src: "{{.AssetWithoutExt}}/ms"
+    overrides:
+      - goos: windows
+        format: zip
+        files:
+          - name: ms
+            src: "{{.AssetWithoutExt}}/ms.exe"
