@@ -15,8 +15,13 @@ pub(super) fn suspend(_cx: &mut Context) {
         if is_session_leader {
             return;
         }
-        _cx.block_try_flush_writes().ok();
-        signal_hook::low_level::raise(signal_hook::consts::signal::SIGTSTP).unwrap();
+        let _ = _cx.jobs.after_writes(
+            _cx.editor,
+            Box::new(|_| {
+                signal_hook::low_level::raise(signal_hook::consts::signal::SIGTSTP)?;
+                Ok(())
+            }),
+        );
     }
 }
 
@@ -59,7 +64,6 @@ pub(super) mod typed {
                 },
             )?;
         }
-        cx.block_try_flush_writes()?;
         quit(cx, Args::default(), event)
     }
 
@@ -84,7 +88,6 @@ pub(super) mod typed {
                 },
             )?;
         }
-        cx.block_try_flush_writes()?;
         quit(cx, Args::default(), event)
     }
 
@@ -100,15 +103,17 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        // last view and we have unsaved changes
-        if cx.editor.tree.views().count() == 1 {
-            buffers_remaining_impl(cx.editor)?
-        }
-
-        cx.block_try_flush_writes()?;
-        cx.editor.close(view!(cx.editor).id);
-
-        Ok(())
+        let view_id = view!(cx.editor).id;
+        cx.after_writes(move |editor| {
+            if !editor.tree.contains(view_id) {
+                return Ok(());
+            }
+            if editor.tree.views().count() == 1 {
+                buffers_remaining_impl(editor)?;
+            }
+            editor.close(view_id);
+            Ok(())
+        })
     }
 
     #[cold]
@@ -121,10 +126,13 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        cx.block_try_flush_writes()?;
-        cx.editor.close(view!(cx.editor).id);
-
-        Ok(())
+        let view_id = view!(cx.editor).id;
+        cx.after_writes(move |editor| {
+            if editor.tree.contains(view_id) {
+                editor.close(view_id);
+            }
+            Ok(())
+        })
     }
 
     #[cold]
@@ -146,7 +154,6 @@ pub(super) mod typed {
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
         )?;
-        cx.block_try_flush_writes()?;
         quit(cx, Args::default(), event)
     }
 
@@ -169,8 +176,17 @@ pub(super) mod typed {
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
         )?;
-        cx.block_try_flush_writes()?;
-        force_quit(cx, Args::default(), event)
+        let view_id = view!(cx.editor).id;
+        let doc_id = doc!(cx.editor).id();
+        cx.after_writes(move |editor| {
+            if editor.document(doc_id).is_some_and(|doc| doc.is_modified()) {
+                anyhow::bail!("Buffer changed while saving; write again before quitting");
+            }
+            if editor.tree.contains(view_id) {
+                editor.close(view_id);
+            }
+            Ok(())
+        })
     }
 
     #[cold]
@@ -204,7 +220,7 @@ pub(super) mod typed {
         if event != PromptEvent::Validate {
             return Ok(());
         }
-        let _ = write_all_impl(
+        write_all_impl(
             cx.editor,
             cx.jobs,
             WriteAllOptions {
@@ -213,23 +229,21 @@ pub(super) mod typed {
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
-        );
-        quit_all_impl(cx, true)
+        )?;
+        quit_all_impl(cx, false)
     }
 
     fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()> {
-        cx.block_try_flush_writes()?;
-        if !force {
-            buffers_remaining_impl(cx.editor)?;
-        }
-
-        // close all views
-        let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();
-        for view_id in views {
-            cx.editor.close(view_id);
-        }
-
-        Ok(())
+        cx.after_writes(move |editor| {
+            if !force {
+                buffers_remaining_impl(editor)?;
+            }
+            let views: Vec<_> = editor.tree.views().map(|(view, _)| view.id).collect();
+            for view_id in views {
+                editor.close(view_id);
+            }
+            Ok(())
+        })
     }
 
     #[cold]
