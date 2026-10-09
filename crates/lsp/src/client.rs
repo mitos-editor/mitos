@@ -379,6 +379,10 @@ impl Client {
                 capabilities.document_highlight_provider,
                 Some(OneOf::Left(true) | OneOf::Right(_))
             ),
+            LanguageServerFeature::InlineCompletion => matches!(
+                capabilities.inline_completion_provider,
+                Some(OneOf::Left(true) | OneOf::Right(_))
+            ),
             LanguageServerFeature::Completion => capabilities.completion_provider.is_some(),
             LanguageServerFeature::CodeAction => matches!(
                 capabilities.code_action_provider,
@@ -762,6 +766,9 @@ impl Client {
                             ],
                         }),
                         ..Default::default()
+                    }),
+                    inline_completion: Some(lsp::InlineCompletionClientCapabilities {
+                        dynamic_registration: Some(false),
                     }),
                     inlay_hint: Some(lsp::InlayHintClientCapabilities {
                         dynamic_registration: Some(false),
@@ -1304,6 +1311,30 @@ impl Client {
         };
 
         Some(self.call::<lsp::request::InlayHintRequest>(params))
+    }
+
+    pub fn inline_completion(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+        trigger_kind: lsp::InlineCompletionTriggerKind,
+    ) -> Option<impl Future<Output = Result<Option<lsp::InlineCompletionResponse>>> + use<>> {
+        if !self.supports_feature(LanguageServerFeature::InlineCompletion) {
+            return None;
+        }
+        Some(
+            self.call::<lsp::request::InlineCompletionRequest>(lsp::InlineCompletionParams {
+                text_document_position: lsp::TextDocumentPositionParams {
+                    text_document,
+                    position,
+                },
+                context: lsp::InlineCompletionContext {
+                    trigger_kind,
+                    selected_completion_info: None,
+                },
+                work_done_progress_params: Default::default(),
+            }),
+        )
     }
 
     pub fn text_document_document_color(

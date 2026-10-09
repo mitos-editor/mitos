@@ -26,6 +26,7 @@ mod test {
     mod config_application;
     mod cursor;
     mod document_features;
+    mod inline_completion;
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;

@@ -17,6 +17,7 @@ mod document_debounce;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
+pub mod inline_completion;
 pub mod lsp;
 pub mod signature_help;
 mod snippet;
@@ -35,6 +36,7 @@ pub struct Handlers {
     pub document_colors: document_colors::DocumentColorsHandler,
     pub syntax: syntax::SyntaxHandler,
     pub completions: CompletionHandler,
+    pub inline_completions: inline_completion::InlineCompletionHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
     pub auto_reload: auto_reload::AutoReloadHandler,
@@ -62,6 +64,7 @@ impl Handlers {
             document_colors: document_colors::DocumentColorsHandler::new(callbacks.clone()),
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
+            inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
             auto_reload: auto_reload::AutoReloadHandler::new(callbacks.clone(), config),
@@ -82,6 +85,7 @@ impl Handlers {
         doc.document_symbols.handler = Some(self.document_symbols.clone());
         doc.pull_diagnostics.handler = Some(self.pull_diagnostics.clone());
         doc.code_action_hints.handler = Some(self.code_action_hint.clone());
+        doc.inline_completions.trigger = Some(self.inline_completions.trigger.clone());
         doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
         doc.auto_save_trigger = Some(self.auto_save.trigger());
         doc.word_index_trigger = Some(self.word_index.document_trigger());
@@ -149,6 +153,19 @@ impl Editor {
         self.handlers.completions.invalidate();
     }
 
+    /// Rebind documents and invalidate work from the previous inline-completion service.
+    pub fn replace_inline_completion_handler(
+        &mut self,
+        handler: inline_completion::InlineCompletionHandler,
+    ) {
+        self.handlers.inline_completions.cancel();
+        self.handlers.inline_completions = handler;
+        for doc in self.documents.values_mut() {
+            doc.inline_completions.clear();
+            doc.inline_completions.trigger = Some(self.handlers.inline_completions.trigger.clone());
+        }
+    }
+
     /// Replace reload coordination, invalidating prompts and results from the old owner.
     /// File-watcher delivery remains independent of the reload handler's callback queue.
     pub fn replace_auto_reload_handler(&mut self, handler: auto_reload::AutoReloadHandler) {
@@ -185,6 +202,7 @@ fn register_hooks() {
         snippet::register_hooks();
         document_colors::register_hooks();
         document_links::register_hooks();
+        inline_completion::register_hooks();
         spelling::register_hooks();
         workspace_trust::register_hooks();
     });

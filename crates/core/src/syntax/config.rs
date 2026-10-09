@@ -327,6 +327,7 @@ pub enum LanguageServerFeature {
     RenameSymbol,
     InlayHints,
     DocumentColors,
+    InlineCompletion,
     CallHierarchy,
 }
 
@@ -354,6 +355,7 @@ impl Display for LanguageServerFeature {
             RenameSymbol => "rename-symbol",
             InlayHints => "inlay-hints",
             DocumentColors => "document-colors",
+            InlineCompletion => "inline-completion",
             CallHierarchy => "call-hierarchy",
         };
         write!(f, "{feature}",)

@@ -1425,7 +1425,9 @@ impl Editor {
             return;
         }
 
+        let old_mode = self.mode;
         self.mode = Mode::Normal;
+        crate::handlers::inline_completion::mode_changed(self, old_mode);
         let (view, doc) = current!(self);
 
         try_restore_indent(doc, view);

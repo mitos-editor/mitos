@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
+    let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
     let mut request_log = if diagnostics
@@ -38,6 +39,7 @@ fn main() -> anyhow::Result<()> {
         || lifecycle
         || signature_help
         || completion
+        || inline_completion
         || action_execution
     {
         Some(std::fs::File::create(&args[2])?)
@@ -188,6 +190,26 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/inlineCompletion" && inline_completion {
+            writeln!(request_log.as_mut().unwrap(), "{params}")?;
+            request_log.as_mut().unwrap().flush()?;
+            let items = json!([
+                {"range": range(3, 5), "insertText": "print(界)\n\treturn 1"},
+                {"insertText": "# alternate"}
+            ]);
+            let result = if text.contains("empty") {
+                Value::Null
+            } else if args.iter().any(|arg| arg == "--array") {
+                items
+            } else {
+                json!({"items": items})
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
         if method == "textDocument/signatureHelp" && signature_help {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
@@ -220,7 +242,7 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
-        if method == "textDocument/completion" && completion {
+        if method == "textDocument/completion" && (completion || inline_completion) {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
             if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
@@ -233,11 +255,16 @@ fn main() -> anyhow::Result<()> {
             let mut edit_range = range(end.saturating_sub(2), end);
             edit_range["start"]["line"] = json!(line);
             edit_range["end"]["line"] = json!(line);
+            let (first, second) = if inline_completion {
+                ("print", "println")
+            } else {
+                ("apple", "apricot")
+            };
             let result = json!({"isIncomplete": text.contains("incomplete"), "items": [
-                {"label": "apple", "sortText": "2", "detail": args[1],
-                    "textEdit": {"range": edit_range, "newText": "apple"}},
-                {"label": "apricot", "sortText": "1", "detail": args[1],
-                    "textEdit": {"range": edit_range, "newText": "apricot"}}
+                {"label": first, "sortText": "2", "detail": args[1],
+                    "textEdit": {"range": edit_range, "newText": first}},
+                {"label": second, "sortText": "1", "detail": args[1],
+                    "textEdit": {"range": edit_range, "newText": second}}
             ]});
             respond(
                 &mut output,
@@ -245,7 +272,7 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
-        if method == "completionItem/resolve" && completion {
+        if method == "completionItem/resolve" && (completion || inline_completion) {
             let mut item = params.clone();
             item["documentation"] = json!("resolved documentation");
             respond(
@@ -291,6 +318,11 @@ fn main() -> anyhow::Result<()> {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "codeActionProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},
                 "executeCommandProvider": {"commands": ["fixture.command"]}
+            }}),
+            "initialize" if inline_completion => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "inlineCompletionProvider": true,
+                "completionProvider": {"resolveProvider": true}
             }}),
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,

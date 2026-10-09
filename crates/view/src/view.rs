@@ -516,6 +516,18 @@ impl View {
             text_annotations.add_inline_annotations(color_swatches_padding, None);
         }
 
+        if let Some(completion) = doc.inline_completion(self.id) {
+            let line = doc.text().char_to_line(completion.cursor);
+            let line_end =
+                editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
+            text_annotations.add_line_annotation(Box::new(
+                crate::annotations::inline_completion::InlineCompletionLines::new(
+                    completion,
+                    doc.text_format(self.inner_width(doc), theme),
+                    line_end,
+                ),
+            ));
+        }
         let width = self.inner_width(doc);
         let enable_cursor_line = self
             .diagnostics_handler

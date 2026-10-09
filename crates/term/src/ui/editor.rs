@@ -74,6 +74,7 @@ pub enum InsertEvent {
         trigger_offset: usize,
         changes: Vec<Change>,
     },
+    InlineCompletionApply(view::handlers::inline_completion::AppliedInlineCompletion),
     TriggerCompletion,
     RequestCompletion,
 }
@@ -387,6 +388,24 @@ impl EditorView {
                 cache: &editor.cursor_cache,
                 primary_cursor,
             });
+        }
+        if is_focused
+            && editor.mode() == Mode::Insert
+            && let Some(completion) = doc.inline_completion(view.id)
+        {
+            let line = doc.text().char_to_line(completion.cursor);
+            let line_end =
+                editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
+            decorations.add_decoration(
+                text_decorations::inline_completion::InlineCompletionDecoration::new(
+                    completion,
+                    theme
+                        .try_get_exact("ui.virtual.inline-completion")
+                        .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
+                    doc.text_format(view.inner_width(doc), Some(theme)),
+                    line_end,
+                ),
+            );
         }
         let width = view.inner_width(doc);
         let config = doc.config.load();
@@ -1402,6 +1421,24 @@ impl EditorView {
                                     }),
                                 );
                                 doc.apply(&tx, view.id);
+                            }
+                            InsertEvent::InlineCompletionApply(applied) => {
+                                let (view, doc) = current!(cxt.editor);
+                                let cursor = doc
+                                    .selection(view.id)
+                                    .primary()
+                                    .cursor(doc.text().slice(..));
+                                let shift =
+                                    |pos: usize| (pos + cursor).saturating_sub(applied.cursor);
+                                let transaction = Transaction::change(
+                                    doc.text(),
+                                    applied
+                                        .changes
+                                        .into_iter()
+                                        .map(|(from, to, text)| (shift(from), shift(to), text)),
+                                )
+                                .with_selection(Selection::point(shift(applied.selection)));
+                                doc.apply(&transaction, view.id);
                             }
                             InsertEvent::TriggerCompletion => {
                                 last_savepoint = take(&mut last_request_savepoint);
