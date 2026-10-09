@@ -1,11 +1,13 @@
 mod code_action_hints;
 mod colors;
 mod highlights;
+mod inline_completion;
 mod links;
 mod symbols;
 
 pub use colors::DocumentColorSwatches;
 pub use highlights::DocumentHighlights;
+pub use inline_completion::{InlineCompletion, InlineCompletionRow};
 pub use links::DocumentLink;
 pub use symbols::{Breadcrumbs, Crumb};
 
@@ -191,6 +193,7 @@ pub struct Document {
 
     // Each feature owns its cache, scheduling handle, and request controllers.
     // Dropping the document drops those controllers and cancels in-flight work.
+    pub(crate) inline_completions: inline_completion::InlineCompletions,
     pub(crate) document_colors: colors::DocumentColors,
     pub(crate) document_links: links::DocumentLinks,
     pub(crate) document_highlights: highlights::DocumentHighlightsState,
@@ -777,6 +780,7 @@ impl Document {
             selections: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
+            inline_completions: Default::default(),
             view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
@@ -1554,6 +1558,7 @@ impl Document {
         self.jump_labels.remove(&view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
+        self.inline_completions.remove_view(self.id, view_id);
         self.code_action_hints.remove_view(view_id);
     }
 

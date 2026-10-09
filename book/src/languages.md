@@ -261,6 +261,7 @@ The list of supported features is:
 - `hover`
 - `document-highlight`
 - `completion`
+- `inline-completion`
 - `code-action`
 - `document-links`
 - `workspace-command`

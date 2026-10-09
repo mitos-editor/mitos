@@ -96,6 +96,8 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | `file-watcher` | table | See below | Native file watching, traversal, and Git refreshes. See [`[editor.file-watcher]`](#editorfile-watcher). |
 | `text-width` | integer | `80` | Width used by `:reflow` and optionally soft wrapping. |
 | `idle-timeout` | milliseconds | `250` | Idle delay used by editor UI timers. |
+| `inline-completion-timeout` | milliseconds | `150` | Delay after editing before requesting LSP ghost text. |
+| `inline-completion-auto-trigger` | boolean | `true` | Request LSP ghost text automatically in insert mode. |
 | `completion-timeout` | milliseconds | `250` | Delay after typing a word character before completion is shown; use `5` for effectively immediate completion. |
 | `preview-completion-insert` | boolean | `true` | Temporarily insert the selected completion item while browsing the menu. |
 | `completion-trigger-len` | integer | `2` | Minimum word length that triggers automatic completion. |
@@ -573,3 +575,28 @@ fields in that detailed form are optional.
 
 `use-grammars` must appear before the array-of-table declarations in TOML.
 When omitted, every configured grammar is fetched and built.
+
+## Inline completions
+
+Language servers supporting `textDocument/inlineCompletion` can suggest ghost text
+in insert mode. Mitos uses the first configured server with the `inline-completion`
+feature. Suggestions leave the document unchanged until accepted and disappear
+when you edit, move the cursor, leave insert mode, or switch documents. Requests
+pause while the completion popup is previewing an item.
+
+Add bindings to `config.toml` to accept, dismiss, request, or cycle suggestions:
+
+```toml
+[keys.insert]
+C-y = "inline_completion_accept"
+C-e = "inline_completion_dismiss"
+C-g = "inline_completion_trigger"
+A-n = "inline_completion_next"
+A-p = "inline_completion_prev"
+```
+
+There are no default bindings. Set `editor.inline-completion-auto-trigger = false`
+to request suggestions only with `inline_completion_trigger`. Plain text suggestions
+can span multiple lines; snippet suggestions and multiple cursors are not supported.
+Ghost text uses the `ui.virtual.inline-completion` theme scope, falling back to
+`ui.virtual.inlay-hint`.
