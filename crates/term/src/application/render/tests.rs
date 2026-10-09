@@ -1,9 +1,6 @@
 use std::{
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -18,12 +15,21 @@ use crate::{
     config::Config,
 };
 
-struct FirstFrame(Arc<AtomicBool>);
+#[derive(Clone, Default)]
+struct FrameProbe(Arc<Mutex<Vec<bool>>>);
 
-impl Component for FirstFrame {
+impl FrameProbe {
+    fn frames(&self) -> Vec<bool> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl Component for FrameProbe {
     fn render(&mut self, _area: Rect, _frame: &mut tui::buffer::Buffer, cx: &mut Context) {
-        assert!(doc!(cx.editor).syntax().is_some());
-        self.0.store(true, Ordering::Relaxed);
+        self.0
+            .lock()
+            .unwrap()
+            .push(doc!(cx.editor).syntax().is_some());
     }
 }
 
@@ -94,12 +100,12 @@ async fn ready_syntax_is_published_before_first_frame() -> anyhow::Result<()> {
     assert!(doc!(app.editor).syntax().is_none());
     app.jobs.editor_callback_sender().send(callback).await;
 
-    let rendered = Arc::new(AtomicBool::new(false));
-    app.compositor.push(Box::new(FirstFrame(rendered.clone())));
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
     let mut input = app.event_stream();
     // Poll through the first render and stop when the event loop waits for work.
     assert!(app.event_loop(&mut input).now_or_never().is_none());
-    assert!(rendered.load(Ordering::Relaxed));
+    assert_eq!(frames.frames().first(), Some(&true));
     assert!(app.close().await.is_empty());
     Ok(())
 }
@@ -116,8 +122,8 @@ async fn opening_a_file_publishes_ready_syntax_before_input_frame() -> anyhow::R
     assert!(doc!(app.editor).syntax().is_none());
     app.jobs.editor_callback_sender().send(callback).await;
 
-    let rendered = Arc::new(AtomicBool::new(false));
-    app.compositor.push(Box::new(FirstFrame(rendered.clone())));
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
     let key = ui_core::input::parse_macro("l")?
         .into_iter()
         .next()
@@ -127,7 +133,84 @@ async fn opening_a_file_publishes_ready_syntax_before_input_frame() -> anyhow::R
     #[cfg(windows)]
     let event = crossterm::event::Event::Key(key.into());
     app.handle_terminal_events(Ok(event)).await;
-    assert!(rendered.load(Ordering::Relaxed));
+    assert_eq!(frames.frames().first(), Some(&true));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn syntax_finishing_during_grace_is_in_the_first_frame() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (mut app, callback) = pending_application(&dir.path().join("startup.json")).await?;
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
+    let sender = app.jobs.editor_callback_sender();
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+
+    {
+        let render = app.render();
+        tokio::pin!(render);
+        assert!(render.as_mut().now_or_never().is_none());
+        assert!(frames.frames().is_empty());
+        tokio::time::advance(Duration::from_millis(8)).await;
+        sender.send(callback).await;
+        render.await;
+    }
+
+    assert_eq!(start.elapsed(), Duration::from_millis(8));
+    assert_eq!(frames.frames(), [true]);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn grace_expires_after_16_ms_and_is_not_repeated() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (mut app, callback) = pending_application(&dir.path().join("startup.json")).await?;
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
+    let sender = app.jobs.editor_callback_sender();
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+
+    {
+        let render = app.render();
+        tokio::pin!(render);
+        assert!(render.as_mut().now_or_never().is_none());
+        tokio::time::advance(Duration::from_millis(15)).await;
+        // Unrelated results may be processed, but must not reset the deadline.
+        sender
+            .send(|editor| editor.set_status("Still loading syntax"))
+            .await;
+        assert!(render.as_mut().now_or_never().is_none());
+        assert!(frames.frames().is_empty());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        render.await;
+    }
+
+    // Tokio rounds timer deadlines up to its millisecond tick.
+    let elapsed = start.elapsed();
+    assert!((Duration::from_millis(16)..=Duration::from_millis(17)).contains(&elapsed));
+    assert_eq!(frames.frames(), [false]);
+    assert!(app.render().now_or_never().is_some());
+    assert_eq!(frames.frames(), [false, false]);
+    assert_eq!(start.elapsed(), elapsed);
+    sender.send(callback).await;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn background_syntax_does_not_delay_a_plain_text_frame() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (mut app, _callback) = pending_application(&dir.path().join("hidden.json")).await?;
+    app.editor.new_file(view::editor::Action::Replace);
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+
+    assert!(app.render().now_or_never().is_some());
+    assert_eq!(start.elapsed(), Duration::ZERO);
     assert!(app.close().await.is_empty());
     Ok(())
 }

@@ -1,12 +1,16 @@
 //! Prepare newly visible buffers and draw terminal frames.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
+use tokio::time::{timeout_at, Instant};
 use tui::backend::{Backend, BackendExt};
 use view::{graphics::Rect, Document, DocumentId};
 
 use super::Application;
-use crate::compositor;
+use crate::{compositor, job::Callback};
+
+const SYNTAX_GRACE: Duration = Duration::from_millis(16);
+const CALLBACK_BATCH_SIZE: usize = 64;
 
 #[derive(Default)]
 pub(super) struct RenderState {
@@ -18,6 +22,7 @@ impl Application {
     pub(super) async fn render(&mut self) {
         if self.has_new_pending_syntax() {
             self.drain_ready_callbacks();
+            self.wait_for_syntax().await;
         }
         if self.editor.should_close() {
             return;
@@ -79,23 +84,43 @@ impl Application {
         })
     }
 
+    /// Give newly visible buffers one shared deadline before presenting their first frame.
+    async fn wait_for_syntax(&mut self) {
+        let deadline = Instant::now() + SYNTAX_GRACE;
+        for _ in 0..CALLBACK_BATCH_SIZE {
+            if self.editor.should_close()
+                || !self.has_new_pending_syntax()
+                || Instant::now() >= deadline
+            {
+                break;
+            }
+            let Ok(Some(callback)) = timeout_at(deadline, self.jobs.callbacks.recv()).await else {
+                break;
+            };
+            self.apply_callback(callback);
+        }
+    }
+
     /// Process a bounded batch without waiting for background work to finish.
     pub(super) fn drain_ready_callbacks(&mut self) -> bool {
         let mut handled_callbacks = false;
-        for _ in 0..64 {
+        for _ in 0..CALLBACK_BATCH_SIZE {
             let Ok(callback) = self.jobs.callbacks.try_recv() else {
                 break;
             };
-            if let Some(job) = self.jobs.handle_callback(
-                &mut self.editor,
-                &mut self.compositor,
-                Ok(Some(callback)),
-            ) {
-                self.jobs.add(job);
-            }
+            self.apply_callback(callback);
             handled_callbacks = true;
         }
         handled_callbacks
+    }
+
+    fn apply_callback(&mut self, callback: Callback) {
+        if let Some(job) =
+            self.jobs
+                .handle_callback(&mut self.editor, &mut self.compositor, Ok(Some(callback)))
+        {
+            self.jobs.add(job);
+        }
     }
 }
 

@@ -107,6 +107,7 @@ libc.workspace = true
 loader.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 spelling.workspace = true
 indoc.workspace = true
 tempfile.workspace = true
