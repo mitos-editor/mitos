@@ -79,87 +79,29 @@ pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + 
     }
 }
 
-pub(super) struct PreviewHighlightHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
-    trigger: Option<Arc<Path>>,
-    phantom_data: std::marker::PhantomData<(T, D)>,
-}
+const SYNTAX_PREVIEW_DELAY: Duration = Duration::from_millis(50);
 
-impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Default for PreviewHighlightHandler<T, D> {
-    fn default() -> Self {
-        Self {
-            trigger: None,
-            phantom_data: Default::default(),
-        }
-    }
-}
-
-impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
-    for PreviewHighlightHandler<T, D>
-{
-    type Event = Arc<Path>;
-
-    fn handle_event(
-        &mut self,
-        path: Self::Event,
-        timeout: Option<tokio::time::Instant>,
-    ) -> Option<tokio::time::Instant> {
-        if self
-            .trigger
-            .as_ref()
-            .is_some_and(|trigger| trigger == &path)
-        {
-            // If the path hasn't changed, don't reset the debounce
-            timeout
-        } else {
-            self.trigger = Some(path);
-            Some(Instant::now() + Duration::from_millis(150))
-        }
-    }
-
-    fn finish_debounce(&mut self) {
-        let Some(path) = self.trigger.take() else {
-            return;
-        };
-
-        job::dispatch_blocking(move |editor, compositor| {
-            let Some(Overlay {
-                content: picker, ..
-            }) = compositor.find::<Overlay<Picker<T, D>>>()
-            else {
-                return;
-            };
-
-            let Some(CachedPreview::Document(doc)) = picker.preview.preview_cache.get_mut(&path)
-            else {
-                return;
-            };
-
-            if doc.syntax().is_some() {
-                return;
+pub(super) fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+    jobs: &job::Jobs,
+    path: Arc<Path>,
+    request: view::document::SyntaxRequest,
+) {
+    jobs.add(job::Job {
+        future: Box::pin(async move {
+            tokio::select! {
+                biased;
+                _ = request.canceled() => return Ok(None),
+                _ = tokio::time::sleep(SYNTAX_PREVIEW_DELAY) => {},
             }
-
-            let Some(language) = doc.language_config().map(|config| config.language()) else {
-                return;
+            let Some(result) = request.compute().await else {
+                return Ok(None);
             };
-
-            let loader = editor.syn_loader.load();
-            let text = doc.text().clone();
-
-            tokio::task::spawn_blocking(move || {
-                let syntax = match editor_core::Syntax::new(text.slice(..), language, &loader) {
-                    Ok(syntax) => syntax,
-                    Err(err) => {
-                        log::info!("highlighting picker preview failed: {err}");
-                        return;
-                    }
-                };
-
-                job::dispatch_blocking(move |editor, compositor| {
+            Ok(Some(job::Callback::EditorCompositor(Box::new(
+                move |editor, compositor| {
                     let Some(Overlay {
                         content: picker, ..
                     }) = compositor.find::<Overlay<Picker<T, D>>>()
                     else {
-                        log::info!("picker closed before syntax highlighting finished");
                         return;
                     };
                     let Some(CachedPreview::Document(doc)) =
@@ -167,17 +109,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                     else {
                         return;
                     };
-                    let diagnostics = view::Editor::doc_diagnostics(
-                        &editor.language_servers,
-                        &editor.diagnostics,
-                        doc,
-                    );
-                    doc.replace_diagnostics(diagnostics, &[], None);
-                    doc.syntax = Some(syntax);
-                });
-            });
-        });
-    }
+                    if request.complete(doc, result) {
+                        let diagnostics = view::Editor::doc_diagnostics(
+                            &editor.language_servers,
+                            &editor.diagnostics,
+                            doc,
+                        );
+                        doc.replace_diagnostics(diagnostics, &[], None);
+                    }
+                },
+            ))))
+        }),
+        wait: false,
+    });
 }
 
 pub(super) struct DynamicQueryChange {

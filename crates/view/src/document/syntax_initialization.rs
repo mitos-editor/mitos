@@ -26,6 +26,11 @@ pub struct SyntaxRequest {
 }
 
 impl SyntaxRequest {
+    /// Wait until this snapshot is superseded or its document cancels the request.
+    pub async fn canceled(&self) {
+        self.cancel.canceled().await;
+    }
+
     /// Compute off-thread, or return `None` when canceled. A successful result
     /// may contain no tree when the language has no usable syntax configuration.
     pub async fn compute(&self) -> Option<anyhow::Result<Option<Syntax>>> {
@@ -63,6 +68,11 @@ impl SyntaxRequest {
         if self.cancel.is_canceled() {
             return false;
         }
+        let loader = doc.syn_loader.load_full();
+        if !Arc::ptr_eq(&self.loader, &loader) {
+            doc.detect_language(&loader);
+            return false;
+        }
         if self.version != doc.version {
             doc.initialize_syntax(self.loader);
             return false;
@@ -83,6 +93,13 @@ impl SyntaxRequest {
 }
 
 impl Document {
+    /// Cancel the current snapshot, leaving initialization pending for a later request.
+    pub fn cancel_syntax_request(&mut self) {
+        if let Some(pending) = self.pending_syntax.as_mut() {
+            pending.controller.cancel();
+        }
+    }
+
     /// Capture the current text if initialization has not already been scheduled.
     pub fn syntax_request(&mut self) -> Option<SyntaxRequest> {
         let pending = self.pending_syntax.as_mut()?;
@@ -203,6 +220,36 @@ mod tests {
         finish(&mut doc).await;
         assert!(!doc.is_syntax_pending());
         assert_eq!(doc.syntax().unwrap().tree().root_node().byte_range(), 0..2);
+    }
+
+    #[tokio::test]
+    async fn canceled_initialization_can_be_requested_again() {
+        let loader = loader();
+        let mut doc = document(&loader);
+        detect_language(&mut doc, "json", &loader);
+        let request = doc.syntax_request().unwrap();
+
+        doc.cancel_syntax_request();
+        request.canceled().await;
+        assert!(request.compute().await.is_none());
+        assert!(doc.is_syntax_pending());
+        finish(&mut doc).await;
+        assert!(doc.syntax().is_some());
+    }
+
+    #[tokio::test]
+    async fn loader_reload_discards_a_snapshot_before_publication() {
+        let old_loader = loader();
+        let mut doc = document(&old_loader);
+        detect_language(&mut doc, "json", &old_loader);
+        let request = doc.syntax_request().unwrap();
+        let result = request.compute().await.unwrap();
+
+        doc.syn_loader.store(loader());
+        assert!(!request.complete(&mut doc, result));
+        assert!(doc.syntax().is_none());
+        finish(&mut doc).await;
+        assert!(doc.syntax().is_some());
     }
 
     #[tokio::test]

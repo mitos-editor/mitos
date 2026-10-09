@@ -4,7 +4,7 @@ use futures_util::Stream;
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
 use serde_json::json;
 use stdx::path::get_relative_path;
-use tui::backend::{Backend, BackendExt};
+use tui::backend::BackendExt;
 use view::{
     align_view,
     document::{DocumentOpenError, DocumentSavedEventResult},
@@ -14,6 +14,8 @@ use view::{
     tree::Layout,
     Align, Editor,
 };
+
+mod render;
 
 use crate::{
     args::Args,
@@ -74,6 +76,7 @@ fn terminal_config(config: &Config) -> tui::terminal::Config {
 pub struct Application {
     compositor: Compositor,
     terminal: Terminal,
+    render_state: render::RenderState,
     pub editor: Editor,
     image_picker: Option<ratatui_image::picker::Picker>,
 
@@ -274,6 +277,7 @@ impl Application {
         let app = Self {
             compositor,
             terminal,
+            render_state: render::RenderState::default(),
             editor,
             image_picker: None,
             config,
@@ -291,48 +295,6 @@ impl Application {
     #[cfg(feature = "integration")]
     pub fn terminal_backend(&self) -> &TestBackend {
         self.terminal.backend()
-    }
-
-    async fn render(&mut self) {
-        self.terminal
-            .backend_mut()
-            .start_sync()
-            .expect("Cannot start synchronized rendering");
-        if self.compositor.full_redraw {
-            // Fullscreen resize also clears the screen and invalidates the back buffer.
-            // Unlike clear(), it does not query the cursor position: that query can
-            // block behind the event reader, which filters out cursor reports.
-            let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
-            self.terminal
-                .resize(area)
-                .expect("Cannot clear the terminal");
-            self.compositor.full_redraw = false;
-        }
-
-        let config = self.config.load();
-        let mut cx = crate::compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: self.image_picker.as_ref(),
-            is_cursor_owner: false,
-        };
-
-        event::start_frame();
-        cx.editor.needs_redraw = false;
-
-        tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
-            self.compositor.render(buffer.area, buffer, &mut cx)
-        })
-        .unwrap();
-        self.editor.cursor_cache.reset();
-
-        self.terminal.backend_mut().end_sync().unwrap();
-        self.terminal.backend_mut().flush().unwrap();
     }
 
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)
@@ -360,21 +322,7 @@ impl Application {
             // One input event can enqueue several callbacks. Drain a bounded
             // batch before accepting more input so synchronous event hooks do
             // not spend every keystroke waiting for space in their own queue.
-            let mut handled_callbacks = false;
-            for _ in 0..64 {
-                let Ok(callback) = self.jobs.callbacks.try_recv() else {
-                    break;
-                };
-                if let Some(job) = self.jobs.handle_callback(
-                    &mut self.editor,
-                    &mut self.compositor,
-                    Ok(Some(callback)),
-                ) {
-                    self.jobs.add(job);
-                }
-                handled_callbacks = true;
-            }
-            if handled_callbacks {
+            if self.drain_ready_callbacks() {
                 self.render().await;
                 #[cfg(feature = "integration")]
                 self.editor.reset_idle_timer();
