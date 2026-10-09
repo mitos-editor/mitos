@@ -3,6 +3,9 @@
 use crate::{compositor, ui::PromptEvent};
 use command_line::Args;
 
+mod diagnostics;
+pub(super) use diagnostics::{inspect, logs, timings};
+
 pub(super) fn reload(
     cx: &mut compositor::Context,
     _args: Args,

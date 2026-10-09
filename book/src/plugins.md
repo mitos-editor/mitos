@@ -12,7 +12,8 @@ rebuild prototype plugins with the component SDK.
 
 ## Installing and configuring a plugin
 
-A plugin consists of a `plugin.toml` manifest and a `.wasm` module. Put both in
+A plugin consists of a `plugin.toml` manifest and, for executable plugins, a
+`.wasm` component. Put the package files in
 the same directory, for example `~/.config/mitos/plugins/uppercase`, and add an
 entry to your `config.toml`:
 
@@ -40,8 +41,9 @@ are qualified with that ID: the `uppercase` command from `[plugins.uppercase]`
 becomes `:uppercase.uppercase`. Plugin commands appear in command completion and
 the command palette, and work in key bindings and custom commands. Arguments
 use the editor's existing command parsing, including quoting and expansions.
-Commands can declare bounded positional counts and static literal completions;
-completion never executes the guest or reads the filesystem.
+Commands can declare a positional argument count and literal completion choices.
+These choices run through native completion without calling the guest or reading
+the filesystem.
 
 Apply configuration changes with `:config-reload`. After rebuilding a module,
 use `:plugin-reload` to load the new binary. Failed plugins report an error while
@@ -62,6 +64,9 @@ automatically run modules from a workspace directory.
 This is the manifest for the example plugin:
 
 ```toml
+manifest-version = 1
+api-version = "0.1.0"
+minimum-host-version = "0.1.0"
 abi-version = 3
 module = "uppercase.component.wasm"
 capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
@@ -91,6 +96,121 @@ Available hooks are `document-opened`, `document-changed`, `document-saved`,
 `document-saved` runs after a successful write. Every plugin receives `init`
 and `shutdown`; these lifecycle events do not need to be listed. `command`
 invocations are dispatched from the manifest's command declarations.
+
+`manifest-version` and `api-version` default to the values above. The service API
+version identifies the frozen `mitos:plugin@0.1.0` WIT world; `abi-version = 3`
+identifies its owned metadata protocol. They are separate from the host release
+version. `minimum-host-version`, when present, uses a numeric `major.minor.patch`
+release. Unsupported requirements and artifact imports are rejected before init.
+
+Capabilities are declared in `capabilities` and `optional-capabilities`; neither
+table grants permission. A capability listed in `required-capabilities` must
+also be declared and granted by the user, or preparation fails. Optional services
+can instead return a typed permission error while the plugin remains usable.
+
+For example, a command accepting one or two arguments can declare:
+
+```toml
+[commands.choose]
+doc = "Choose a mode and an optional label."
+
+[commands.choose.arguments]
+min = 1
+max = 2
+completions = [["compact", "expanded"], ["two words", "μ"]]
+```
+
+The default accepts zero to 32 positional arguments. Each position can offer at
+most 32 literal candidates, each at most 128 bytes. Native parsing preserves
+quoted values and leading hyphens; command arguments do not declare flags or
+guest, filesystem, or shell completion callbacks.
+
+## Declarative packages
+
+A package can contribute themes, language profiles, queries, and snippets without
+a component. Omit `module`, commands, and event subscriptions for such a package:
+
+```toml
+manifest-version = 1
+api-version = "0.1.0"
+abi-version = 3
+
+[[contributions.themes]]
+name = "tone"
+path = "themes/tone.toml"
+
+[[contributions.languages]]
+name = "data"
+path = "languages/data.toml"
+
+[[contributions.snippets]]
+language = "json"
+path = "snippets/json.toml"
+```
+
+Theme and language names use the configured namespace: `[plugins.notes]` exposes
+`notes.tone` and `notes.data`. User and native file associations take precedence.
+Unloading removes only that package's sources and restores native registrations.
+Files must be relative to the package directory. Each source is limited to
+128 KiB, with 2 MiB of contribution source per package, at most 16 themes,
+16 language profiles, and 256 snippets. Assets prepare and validate off-thread;
+invalid themes, queries, or snippets preserve the active generation.
+
+A theme file uses the normal theme format. It can inherit a native theme, or
+another theme in its own package; inheritance is bounded and cycles are rejected.
+Choose the contributed theme with `:theme notes.tone`.
+
+A language profile contains only a host-approved base language, syntax scope,
+literal extensions, and optional query files:
+
+```toml
+base-language = "json"
+scope = "source.notes-data"
+extensions = ["notesdata"]
+
+[queries]
+highlights = "queries/data-highlights.scm"
+```
+
+Query paths resolve from the package root. Missing query kinds use the base
+language's native queries. Query `inherits` directives are unsupported; the
+profile already supplies that fallback. Profiles reuse an installed approved
+grammar and cannot install native grammar libraries. They do not inherit the
+base language's formatter, language servers, debugger, or process settings.
+Removing a profile returns affected documents to native filename/shebang
+detection, without transferring the base language's providers.
+Contribution queries are checked before native compilation: at most 64 nesting
+levels, 256 patterns, 4,096 tokens, 1,024 capture uses, and 128 quantifiers; names
+and literals are limited to 128 bytes. Predicates support literal equality and
+bounded `any-of`, reviewed native property setters, and node-position checks.
+Regex and capture-to-capture text comparisons are unsupported. Native query
+compilation and highlighting are outside WASM epoch interruption; these source
+bounds reduce their work and do not promise a hard rendering deadline.
+
+Snippet files contain native snippet definitions:
+
+```toml
+[[snippets]]
+prefix = "obj"
+body = '{"${1:key}": ${2:value}}$0'
+description = "JSON object"
+```
+
+Completion uses the editor's snippet parser, previews, and tabstop navigation.
+Bodies are limited to 8 KiB, nesting to 32 levels, and expanded work is bounded
+before rendering across selections. Transforms are unsupported. Variables use
+their declared defaults; they do not read the environment or clipboard. Snippets
+can target a native language or a contributed qualified name such as `notes.data`.
+
+## Inspecting plugins
+
+`:plugin-inspect [name]` opens a native report of configured owners, generation,
+engine, effective permissions, queue depth, and outcomes. `:plugin-logs [name]`
+shows the bounded recent diagnostic ring, and `:plugin-timings [name]` shows actual
+queue, guest execution, and host application timings in microseconds. These
+commands read owned snapshots and never invoke guest code. Failed preparation
+remains visible while the previous generation stays active. Logs retain at most
+128 entries per plugin, each bounded to 2 KiB and sanitized for terminal display.
 
 ## Writing a Rust plugin
 

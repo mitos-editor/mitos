@@ -170,6 +170,25 @@ constructed by the host must not be blamed on a healthy guest.
 
 ## Reload, shutdown, and compatibility
 
+Native resource changes during replacement trigger at most three asset-plan
+rebases. A guest that has received `Shutdown` never resumes. If rebasing fails
+after shutdown, the host retires the prior instances and requires an explicit
+reload; their already validated registrations remain until replacement or final
+cleanup. The editor reports this degraded state instead of restoring a shutdown
+guest or publishing assets against an obsolete native configuration.
+
+Declarative contributions contain bounded owned theme/query/snippet sources and
+closed language profiles. Profiles use approved installed grammar identities;
+formatter, language-server, debugger, or command configuration cannot enter through
+them. Native associations win, and unloading restores native detection without
+adopting a profile's base provider authority. Parsing, query validation, and
+snippet expansion preflight occur off-thread. A delayed preparation must still
+match the current native resource configuration before publication.
+
+Developer inspection reads bounded owned metadata, diagnostic rings, and actual
+queue/guest/application measurements. It never executes a guest. Failed preparation
+remains visible alongside the surviving running generation.
+
 Prepare and validate a replacement before switching generations. On switch,
 cancel old work and release all owned commands, keymaps, UI, providers, jobs, and
 handles. Restore surviving user/builtin/provider registrations according to

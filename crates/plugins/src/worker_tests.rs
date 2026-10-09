@@ -70,6 +70,7 @@ fn initialization_precedes_reserved_commands_and_notifications() {
         let mut request = request("status");
         request.event = event;
         Envelope {
+            submitted: Instant::now(),
             config_json: None,
             target: InvocationTarget::default(),
             cancel: CancellationToken::new(),
@@ -227,6 +228,54 @@ fn capabilities() -> CapabilitySet {
 fn plugin_actor(pool: &WorkerPool) -> PluginActor {
     pool.spawn(fixture(), 1, capabilities(), capabilities())
         .unwrap()
+}
+
+#[tokio::test]
+async fn diagnostics_measure_queue_execution_and_final_application() {
+    let pool = WorkerPool::new().unwrap();
+    let actor = plugin_actor(&pool);
+    let services = Arc::new(Services {
+        read_delay: Duration::from_millis(20),
+        ..Default::default()
+    });
+    let first = actor
+        .invoke(request("uppercase"), services.clone())
+        .unwrap();
+    let second = actor.invoke(request("status"), services).unwrap();
+    let _first = first.await.unwrap();
+    let _second = second.await.unwrap();
+    let (queued, timings, entries) = actor.diagnostics();
+    assert_eq!(queued, 0);
+    assert_eq!(timings.completed, 2);
+    assert!(timings.queue_max_us >= 10_000);
+    assert!(timings.execution_max_us >= 10_000);
+    assert!(entries
+        .iter()
+        .any(|entry| entry.message.starts_with("call ")));
+    let stale = error(ErrorCode::StaleState, "host rejected stale response");
+    actor.record_application(37, Some(&stale));
+    let (_, timings, entries) = actor.diagnostics();
+    assert_eq!((timings.completed, timings.failed), (1, 1));
+    assert_eq!((timings.apply_last_us, timings.apply_max_us), (37, 37));
+    assert_eq!(entries.last().unwrap().message, stale.message);
+    actor.shutdown().await.unwrap();
+    pool.shutdown().await.unwrap();
+}
+
+#[test]
+fn diagnostic_ring_bounds_retention_and_utf8_messages() {
+    let mut diagnostics = ActorDiagnostics::default();
+    for _ in 0..130 {
+        diagnostics.log(DiagnosticLevel::Error, &format!("\x1b{}", "μ".repeat(4096)));
+    }
+    assert_eq!(diagnostics.entries.len(), 128);
+    assert_eq!(diagnostics.entries.front().unwrap().sequence, 3);
+    assert_eq!(diagnostics.entries.back().unwrap().sequence, 130);
+    assert!(diagnostics
+        .entries
+        .iter()
+        .all(|entry| entry.message.len() == 2048
+            && entry.message.chars().all(|character| character == 'μ')));
 }
 
 #[tokio::test]
@@ -573,6 +622,57 @@ async fn suspended_services_leave_other_plugins_schedulable() {
 }
 
 #[tokio::test]
+async fn preparation_classifies_import_and_export_mismatches_before_guest_startup() {
+    let pool = WorkerPool::new().unwrap();
+    for (source, expected) in [
+        (
+            r#"(component
+                (type $host (instance
+                    (type $call (func))
+                    (export "future-call" (func (type $call)))))
+                (import "mitos:plugin/host@9.0.0" (instance $host (type $host)))
+                (alias export $host "future-call" (func $future))
+                (core func $future (canon lower (func $future)))
+                (core module $guest
+                    (import "host" "future-call" (func $future))
+                    (func $start unreachable) (start $start)
+                    (func (export "handle") call $future))
+                (core instance $host-core (export "future-call" (func $future)))
+                (core instance $guest (instantiate $guest
+                    (with "host" (instance $host-core))))
+                (func (export "handle") (canon lift (core func $guest "handle"))))"#,
+            "linking plugin component imports",
+        ),
+        (
+            r#"(component
+                (core module $trap (func $start unreachable) (start $start))
+                (core instance (instantiate $trap)))"#,
+            "checking plugin component exports",
+        ),
+        (
+            r#"(component
+                (core module $guest (func (export "handle")))
+                (core instance $guest (instantiate $guest))
+                (func (export "handle") (canon lift (core func $guest "handle"))))"#,
+            "checking plugin component exports",
+        ),
+    ] {
+        let bytes: Arc<[u8]> = wat::parse_str(source).unwrap().into();
+        wasmparser::Validator::new().validate_all(&bytes).unwrap();
+        let error = pool
+            .prepare(bytes, 1, capabilities(), capabilities())
+            .unwrap()
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.code, ErrorCode::UnsupportedInterface);
+        assert!(error.message.contains(expected), "{}", error.message);
+        assert_eq!(pool.inner.memory.load(Ordering::Acquire), 0);
+    }
+    pool.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn preparation_rejects_invalid_replacements_before_activation() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
@@ -905,24 +1005,6 @@ async fn closed_readiness_target_rejection_and_hidden_guest_target_clean_jobs() 
 }
 
 #[tokio::test]
-async fn cancelled_initialization_disables_the_store_before_any_command() {
-    let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
-    let mut initializing = request("loop");
-    initializing.event = Event::Init;
-    let completion = actor
-        .invoke(initializing, Arc::new(Services::default()))
-        .unwrap();
-    drop(completion);
-    if let Ok(command) = actor.invoke(request("status"), Arc::new(Services::default())) {
-        assert!(command.await.is_err());
-    }
-    actor.shutdown().await.unwrap();
-    assert!(!actor.is_active());
-    pool.shutdown().await.unwrap();
-}
-
-#[tokio::test]
 async fn retiring_navigation_exempts_only_its_current_call_and_cancels_jobs() {
     let pool = WorkerPool::new().unwrap();
     let actor = plugin_actor(&pool);
@@ -975,6 +1057,25 @@ async fn retiring_navigation_exempts_only_its_current_call_and_cancels_jobs() {
     })
     .await
     .unwrap();
+    assert_eq!(actor.diagnostics().1.cancelled, 1);
     actor.shutdown().await.unwrap();
+    pool.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_initialization_disables_the_store_before_any_command() {
+    let pool = WorkerPool::new().unwrap();
+    let actor = plugin_actor(&pool);
+    let mut initializing = request("loop");
+    initializing.event = Event::Init;
+    let completion = actor
+        .invoke(initializing, Arc::new(Services::default()))
+        .unwrap();
+    drop(completion);
+    if let Ok(command) = actor.invoke(request("status"), Arc::new(Services::default())) {
+        assert!(command.await.is_err());
+    }
+    actor.shutdown().await.unwrap();
+    assert!(!actor.is_active());
     pool.shutdown().await.unwrap();
 }

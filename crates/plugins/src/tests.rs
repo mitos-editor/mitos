@@ -101,6 +101,112 @@ async fn commands_are_documented_and_real_guest_state_persists() {
 }
 
 #[tokio::test]
+async fn static_argument_metadata_rejects_wrong_counts_before_guest_admission() {
+    let declared = manifest().replacen(
+        "doc = 'Report plugin state'",
+        "doc = 'Report plugin state'\narguments = { min = 1, max = 1, completions = [['two words', 'μ']] }",
+        1,
+    );
+    let (_directory, config) = fixture(&declared, &wasm());
+    let manager = load(config).await;
+    let metadata = manager
+        .get_arguments_for_identifier("example.status")
+        .unwrap();
+    assert_eq!((metadata.min, metadata.max), (1, 1));
+    assert_eq!(metadata.completions, vec![vec!["two words", "μ"]]);
+    for args in [vec![], vec!["one".into(), "two".into()]] {
+        assert_eq!(
+            manager
+                .call_command("example.status", args, context(1), Arc::new(Services))
+                .err()
+                .unwrap()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    let response = manager
+        .call_command(
+            "example.status",
+            vec!["μ".into()],
+            context(1),
+            Arc::new(Services),
+        )
+        .unwrap()
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(matches!(&response.actions[0], Action::Status { message } if message == "call 1"));
+    manager.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn incompatible_replacement_is_diagnosed_while_old_generation_remains_live() {
+    let (directory, config) = fixture(&manifest(), &wasm());
+    let manager = load(config.clone()).await;
+    fs::write(
+        directory.path().join("plugin.toml"),
+        format!("api-version = '99.0.0'\n{}", manifest()),
+    )
+    .unwrap();
+    let error = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            2,
+        )
+        .unwrap()
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, ErrorCode::UnsupportedInterface);
+    assert_eq!(manager.generation(), 1);
+    let diagnostics = manager.diagnostics();
+    assert_eq!(diagnostics[0].generation, 1);
+    assert!(diagnostics[0].entries.iter().any(|entry| entry
+        .message
+        .contains("Generation 2 preparation failed")
+        && entry.message.contains("unsupported service API")));
+    assert!(
+        matches!(&command(&manager).await.actions[0], Action::Status { message } if message == "call 1")
+    );
+    manager.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn declarative_optional_capabilities_need_no_engine_but_required_grants_fail() {
+    let declared = format!("abi-version = {ABI_VERSION}\noptional-capabilities = ['process']\n");
+    let (directory, config) = fixture(&declared, &[]);
+    let manager = load(config.clone()).await;
+    assert!(manager.pool.is_none());
+    assert!(manager.available_commands().is_empty());
+    let diagnostics = manager.diagnostics();
+    assert!(matches!(
+        diagnostics[0].engine,
+        Some(plugin_api::diagnostics::PluginEngine::Declarative)
+    ));
+    assert!(diagnostics[0].declared.contains(&Capability::Process));
+    assert!(!diagnostics[0].effective.contains(&Capability::Process));
+    fs::write(
+        directory.path().join("plugin.toml"),
+        format!("{declared}required-capabilities = ['process']\n"),
+    )
+    .unwrap();
+    let error = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            2,
+        )
+        .unwrap()
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, ErrorCode::PermissionDenied);
+    assert_eq!(manager.generation(), 1);
+    manager.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn configuration_is_bounded_and_prepared_once_off_editor_path() {
     let declared = format!("{}[commands.config]\ndoc = 'Inspect config'\n", manifest());
     let (_directory, mut config) = fixture(&declared, &wasm());
@@ -166,6 +272,43 @@ async fn digest_or_component_failure_preserves_old_generation_and_reuses_pool() 
     assert_eq!(replacement.generation(), 2);
     drop(command(&replacement).await);
     manager.shutdown().await.unwrap();
+    replacement.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn retiring_shutdown_instances_preserves_metadata_and_allows_explicit_reload() {
+    let (_directory, config) = fixture(&manifest(), &wasm());
+    let manager = load(config.clone()).await;
+    drop(command(&manager).await);
+    let policy = manager.policy("example").unwrap();
+    manager.retire_instances();
+    assert!(manager.available_commands().is_empty());
+    assert!(!manager.subscribes(Event::Init));
+    assert_eq!(policy.check_live().unwrap_err().code, ErrorCode::Cancelled);
+    assert!(!manager.revoked.is_cancelled());
+    assert!(manager
+        .diagnostics()
+        .iter()
+        .any(|snapshot| snapshot.plugin == "example"));
+    let prepared = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            2,
+        )
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(manager
+        .pool
+        .as_ref()
+        .unwrap()
+        .same_executor(prepared.pool.as_ref().unwrap()));
+    let replacement = prepared.activate().unwrap();
+    let response = command(&replacement).await;
+    assert!(matches!(&response.actions[0], Action::Status { message } if message == "call 1"));
+    manager.shutdown().await.unwrap();
+    assert!(replacement.subscribes(Event::Init));
     replacement.shutdown().await.unwrap();
 }
 
@@ -305,43 +448,4 @@ async fn disabled_and_declarative_packages_need_no_executor_and_relative_paths_w
     let defaults: PluginConfig = toml::from_str("path = 'plugin.toml'").unwrap();
     assert!(defaults.enabled);
     assert_eq!(defaults.config, Value::Null);
-}
-
-#[tokio::test]
-async fn static_argument_metadata_rejects_wrong_counts_before_guest_admission() {
-    let declared = manifest().replacen(
-        "doc = 'Report plugin state'",
-        "doc = 'Report plugin state'\narguments = { min = 1, max = 1, completions = [['two words', 'μ']] }",
-        1,
-    );
-    let (_directory, config) = fixture(&declared, &wasm());
-    let manager = load(config).await;
-    let metadata = manager
-        .get_arguments_for_identifier("example.status")
-        .unwrap();
-    assert_eq!((metadata.min, metadata.max), (1, 1));
-    assert_eq!(metadata.completions, vec![vec!["two words", "μ"]]);
-    for args in [vec![], vec!["one".into(), "two".into()]] {
-        assert_eq!(
-            manager
-                .call_command("example.status", args, context(1), Arc::new(Services))
-                .err()
-                .unwrap()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-    }
-    let response = manager
-        .call_command(
-            "example.status",
-            vec!["μ".into()],
-            context(1),
-            Arc::new(Services),
-        )
-        .unwrap()
-        .unwrap()
-        .await
-        .unwrap();
-    assert!(matches!(&response.actions[0], Action::Status { message } if message == "call 1"));
-    manager.shutdown().await.unwrap();
 }

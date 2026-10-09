@@ -31,8 +31,11 @@ const MAX_MODULE_BYTES: usize = component::MAX_COMPONENT_BYTES;
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_PACKAGE_SET_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PLUGINS: usize = 32;
+mod assets;
+pub mod compatibility;
 mod complexity;
 mod component;
+mod diagnostics;
 pub mod filesystem;
 pub mod native;
 pub mod policy;
@@ -76,19 +79,38 @@ fn enabled_by_default() -> bool {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct Manifest {
+    #[serde(default = "manifest_version")]
+    manifest_version: u32,
+    #[serde(default = "api_version")]
+    api_version: String,
+    #[serde(default)]
+    minimum_host_version: Option<String>,
     abi_version: u32,
     #[serde(default)]
     module: Option<PathBuf>,
     #[serde(default = "default_capabilities")]
     capabilities: CapabilitySet,
     #[serde(default)]
+    optional_capabilities: CapabilitySet,
+    #[serde(default)]
+    required_capabilities: CapabilitySet,
+    #[serde(default)]
     commands: BTreeMap<String, Command>,
     #[serde(default)]
     events: Vec<Event>,
+    #[serde(default)]
+    contributions: plugin_api::assets::Contributions,
 }
 
 fn default_capabilities() -> CapabilitySet {
     Permissions::default().capabilities
+}
+
+fn manifest_version() -> u32 {
+    compatibility::MANIFEST_VERSION
+}
+fn api_version() -> String {
+    compatibility::API_VERSION.to_owned()
 }
 
 fn observes_editor_state(event: Event) -> bool {
@@ -136,6 +158,7 @@ pub struct PluginManager {
     preparing: Arc<AtomicBool>,
     revoked: CancellationToken,
     generation: u64,
+    diagnostics: Arc<diagnostics::Catalog>,
 }
 
 /// Owned asynchronous preparation. Dropping it cancels pending worker admission;
@@ -174,6 +197,7 @@ pub struct PreparedManager {
     pool: Option<WorkerPool>,
     preparing: Arc<AtomicBool>,
     generation: u64,
+    diagnostics: Arc<diagnostics::Catalog>,
 }
 struct PreparedPackage {
     package: Package,
@@ -187,6 +211,12 @@ impl Drop for PreparedManager {
     }
 }
 impl PreparedManager {
+    pub fn assets(&self) -> Vec<Arc<plugin_api::assets::OwnedAssets>> {
+        self.packages
+            .values()
+            .map(|package| package.package.assets.clone())
+            .collect()
+    }
     /// Move validated stores and metadata into a generation. No guest is invoked.
     /// Any activation failure revokes the partial replacement before returning.
     pub fn activate(mut self) -> Result<PluginManager, ServiceError> {
@@ -196,6 +226,7 @@ impl PreparedManager {
             preparing: self.preparing.clone(),
             generation: self.generation,
             revoked: CancellationToken::new(),
+            diagnostics: self.diagnostics.clone(),
         };
         for (name, prepared) in std::mem::take(&mut self.packages) {
             let actor = prepared
@@ -209,14 +240,22 @@ impl PreparedManager {
                     config: prepared.package.config,
                     policy: prepared.package.policy,
                     actor,
+                    assets: prepared.package.assets,
                 },
             );
         }
+        manager.diagnostics.ready();
         Ok(manager)
     }
 }
 
 impl PluginManager {
+    pub fn assets(&self) -> Vec<Arc<plugin_api::assets::OwnedAssets>> {
+        self.plugins
+            .values()
+            .map(|plugin| plugin.assets.clone())
+            .collect()
+    }
     /// Validate the complete replacement off-thread. A failure never mutates this
     /// manager; the caller retains it until successful activation and swapping.
     pub fn prepare(
@@ -229,6 +268,12 @@ impl PluginManager {
             return Err(ServiceError::new(
                 ErrorCode::Cancelled,
                 "plugin manager has been revoked",
+            ));
+        }
+        if configs.len() > MAX_PLUGINS || !configs.keys().all(|name| valid_identifier(name)) {
+            return Err(ServiceError::new(
+                ErrorCode::InvalidRequest,
+                "configured plugin names/count exceed registry bounds",
             ));
         }
         self.preparing
@@ -245,6 +290,8 @@ impl PluginManager {
         let cancel = self.revoked.child_token();
         let stopping = cancel.clone();
         let (send, receiver) = oneshot::channel();
+        self.diagnostics.begin(&configs, generation);
+        let diagnostics = self.diagnostics.clone();
         if configs.values().all(|config| !config.enabled) {
             drop(admission);
             let _ = send.send(Ok(PreparedManager {
@@ -252,26 +299,109 @@ impl PluginManager {
                 pool: None,
                 preparing,
                 generation,
+                diagnostics,
             }));
             return Ok(ManagerPreparation { receiver, cancel });
         }
         std::thread::Builder::new()
             .name("plugin-packages".into())
             .spawn(move || {
-                let result = prepare_packages(configs, base, generation, pool, preparing, stopping);
+                let result = prepare_packages(
+                    configs,
+                    base,
+                    generation,
+                    pool,
+                    preparing,
+                    stopping,
+                    diagnostics.clone(),
+                );
+                if let Err(cause) = &result {
+                    diagnostics.failed(&cause.message);
+                }
                 drop(admission);
                 let _ = send.send(result);
             })
             .map_err(|cause| {
-                ServiceError::new(
+                let error = ServiceError::new(
                     ErrorCode::HostFailure,
                     format!("spawning plugin package loader: {cause}"),
-                )
+                );
+                self.diagnostics.failed(&error.message);
+                error
             })?;
         Ok(ManagerPreparation { receiver, cancel })
     }
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    pub fn diagnostics(&self) -> Vec<plugin_api::diagnostics::PluginDiagnostics> {
+        use plugin_api::diagnostics::{
+            PluginDiagnostics, PluginEngine, PluginStatus, RequestTimings, MAX_DIAGNOSTIC_ENTRIES,
+        };
+        let mut snapshots = self.diagnostics.snapshot();
+        for (name, plugin) in &self.plugins {
+            let snapshot = snapshots
+                .entry(name.clone())
+                .or_insert_with(|| PluginDiagnostics {
+                    plugin: name.clone(),
+                    generation: self.generation,
+                    status: PluginStatus::Ready,
+                    engine: Some(PluginEngine::Component),
+                    declared: Default::default(),
+                    effective: Default::default(),
+                    queued: 0,
+                    timings: RequestTimings::default(),
+                    entries: Vec::new(),
+                });
+            snapshot.generation = self.generation;
+            snapshot.declared = plugin.policy.declared.clone();
+            snapshot.effective = plugin
+                .policy
+                .declared
+                .intersection(&plugin.policy.permissions.capabilities)
+                .copied()
+                .collect();
+            if let Some(actor) = &plugin.actor {
+                let (queued, timings, entries) = actor.diagnostics();
+                snapshot.queued = queued;
+                snapshot.timings = timings;
+                snapshot.engine = Some(PluginEngine::Component);
+                snapshot.status = if plugin.policy.check_live().is_err() {
+                    PluginStatus::ShuttingDown
+                } else if !actor.is_active() {
+                    PluginStatus::Failed
+                } else if actor.is_busy() {
+                    PluginStatus::Busy
+                } else {
+                    PluginStatus::Ready
+                };
+                snapshot.entries.extend(entries);
+                if snapshot.entries.len() > MAX_DIAGNOSTIC_ENTRIES {
+                    snapshot
+                        .entries
+                        .drain(..snapshot.entries.len() - MAX_DIAGNOSTIC_ENTRIES);
+                }
+            } else {
+                snapshot.engine = Some(PluginEngine::Declarative);
+                snapshot.status = if plugin.policy.check_live().is_ok() {
+                    PluginStatus::Ready
+                } else {
+                    PluginStatus::ShuttingDown
+                };
+            }
+        }
+        snapshots.into_values().collect()
+    }
+
+    pub fn record_application(&self, name: &str, duration_us: u64, error: Option<&ServiceError>) {
+        if let Some(actor) = self
+            .plugins
+            .get(name)
+            .and_then(|plugin| plugin.actor.as_ref())
+        {
+            actor.record_application(duration_us, error);
+        }
     }
     pub fn available_commands(&self) -> Vec<PluginCommand> {
         self.plugins
@@ -307,6 +437,7 @@ impl PluginManager {
     pub fn policy(&self, name: &str) -> Option<Arc<policy::AccessPolicy>> {
         self.plugins.get(name).map(|plugin| plugin.policy.clone())
     }
+
     pub fn get_arguments_for_identifier(
         &self,
         identifier: &str,
@@ -487,14 +618,19 @@ impl PluginManager {
             }
         }
     }
-    pub fn revoke(&self) {
-        self.revoked.cancel();
+    /// Retire shutdown instances after a late activation conflict while keeping
+    /// package metadata and preparation available for an explicit reload.
+    pub fn retire_instances(&self) {
         for plugin in self.plugins.values() {
             plugin.policy.revoke();
             if let Some(actor) = &plugin.actor {
                 actor.revoke();
             }
         }
+    }
+    pub fn revoke(&self) {
+        self.revoked.cancel();
+        self.retire_instances();
     }
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
         self.revoke();
@@ -542,6 +678,7 @@ fn prepare_packages(
     mut pool: Option<WorkerPool>,
     preparing: Arc<AtomicBool>,
     cancel: CancellationToken,
+    diagnostics: Arc<diagnostics::Catalog>,
 ) -> Result<PreparedManager, ServiceError> {
     if configs.values().filter(|config| config.enabled).count() > MAX_PLUGINS {
         return Err(ServiceError::new(
@@ -556,14 +693,22 @@ fn prepare_packages(
             continue;
         }
         check_cancel(&cancel)?;
-        let package = Package::load(&name, &config, &base).map_err(|cause| {
+        let package = Package::load(&name, &config, &base, generation).map_err(|cause| {
             ServiceError::new(
-                ErrorCode::InvalidRequest,
+                cause
+                    .downcast_ref::<ServiceError>()
+                    .map_or(ErrorCode::InvalidRequest, |error| error.code),
                 format!("plugin '{name}': {cause:#}"),
             )
         })?;
-        source_bytes =
-            source_bytes.saturating_add(package.bytes.as_ref().map_or(0, |bytes| bytes.len()));
+        diagnostics.loaded(
+            &name,
+            package.manifest.capabilities.clone(),
+            package.bytes.is_some(),
+        );
+        source_bytes = source_bytes.saturating_add(
+            package.bytes.as_ref().map_or(0, |bytes| bytes.len()) + package.asset_bytes,
+        );
         if source_bytes > MAX_PACKAGE_SET_BYTES {
             return Err(ServiceError::new(
                 ErrorCode::ResourceExhausted,
@@ -591,6 +736,7 @@ fn prepare_packages(
         pool,
         preparing,
         generation,
+        diagnostics,
     };
     for (name, package) in &mut prepared.packages {
         let Some(bytes) = package.package.bytes.take() else {
@@ -624,9 +770,11 @@ struct Package {
     config: Arc<str>,
     policy: Arc<policy::AccessPolicy>,
     bytes: Option<Arc<[u8]>>,
+    assets: Arc<plugin_api::assets::OwnedAssets>,
+    asset_bytes: usize,
 }
 impl Package {
-    fn load(name: &str, config: &PluginConfig, base: &Path) -> Result<Self> {
+    fn load(name: &str, config: &PluginConfig, base: &Path, generation: u64) -> Result<Self> {
         ensure!(
             valid_identifier(name),
             "invalid plugin name (use letters, digits, '-' or '_')"
@@ -654,6 +802,20 @@ impl Package {
         )?;
         let mut manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)
             .context("invalid plugin manifest")?;
+        compatibility::validate(
+            manifest.manifest_version,
+            &manifest.api_version,
+            manifest.minimum_host_version.as_deref(),
+        )?;
+        manifest
+            .capabilities
+            .extend(manifest.optional_capabilities.iter().copied());
+        ensure!(
+            manifest
+                .required_capabilities
+                .is_subset(&manifest.capabilities),
+            "required capabilities must also be declared"
+        );
         ensure!(
             manifest.commands.len() <= 64 && manifest.events.len() <= 32,
             "plugin manifest exceeds command or subscription limits"
@@ -674,6 +836,9 @@ impl Package {
             config.permissions.clone(),
             base,
         )?);
+        for capability in &manifest.required_capabilities {
+            policy.require(*capability)?;
+        }
         ensure!(
             manifest.abi_version == ABI_VERSION,
             "unsupported ABI version {} (expected {ABI_VERSION})",
@@ -684,6 +849,8 @@ impl Package {
             "invalid command name (use letters, digits, '-' or '_')"
         );
         let prepared_config: Arc<str> = component::bounded_json(&config.config, 64 * 1024)?.into();
+        let (assets, asset_bytes) =
+            assets::load(&package, &manifest.contributions, name, generation)?;
         let bytes = if let Some(module) = &manifest.module {
             ensure!(
                 !module.as_os_str().is_empty()
@@ -728,6 +895,8 @@ impl Package {
             config: prepared_config,
             policy,
             bytes,
+            assets: Arc::new(assets),
+            asset_bytes,
         })
     }
 }
@@ -737,6 +906,7 @@ struct Plugin {
     config: Arc<str>,
     policy: Arc<policy::AccessPolicy>,
     actor: Option<worker::PluginActor>,
+    assets: Arc<plugin_api::assets::OwnedAssets>,
 }
 impl Drop for Plugin {
     fn drop(&mut self) {

@@ -14,6 +14,7 @@ use std::{
 };
 
 use plugin_api::{
+    diagnostics::{DiagnosticEntry, DiagnosticLevel, RequestTimings, MAX_DIAGNOSTIC_ENTRIES},
     Action, CapabilitySet, ErrorCode, Event, HostServices, Request, Response, ServiceError,
 };
 use tokio::sync::{oneshot, Notify, Semaphore};
@@ -290,6 +291,7 @@ impl WorkerPool {
         let active = Arc::new(AtomicBool::new(true));
         let current = Arc::new(Mutex::new(None));
         let done = Arc::new(ActorDone::default());
+        let diagnostics = Arc::new(Mutex::new(ActorDiagnostics::default()));
         let actor = PluginActor {
             inner: Arc::new(ActorOwner {
                 _pool: self.clone(),
@@ -300,6 +302,7 @@ impl WorkerPool {
                 active: active.clone(),
                 current: current.clone(),
                 done: done.clone(),
+                diagnostics: diagnostics.clone(),
                 admission: Arc::new(Semaphore::new(MAX_CALLS)),
                 _result_bytes: result_bytes.clone(),
             }),
@@ -325,6 +328,7 @@ impl WorkerPool {
             active,
             current,
             done,
+            diagnostics,
         ));
         Ok(actor)
     }
@@ -386,6 +390,7 @@ impl WorkerPool {
         let active = Arc::new(AtomicBool::new(true));
         let current = Arc::new(Mutex::new(None));
         let done = Arc::new(ActorDone::default());
+        let diagnostics = Arc::new(Mutex::new(ActorDiagnostics::default()));
         let actor = PluginActor {
             inner: Arc::new(ActorOwner {
                 _pool: self.clone(),
@@ -396,6 +401,7 @@ impl WorkerPool {
                 active: active.clone(),
                 current: current.clone(),
                 done: done.clone(),
+                diagnostics: diagnostics.clone(),
                 admission: Arc::new(Semaphore::new(MAX_CALLS)),
                 _result_bytes: result_bytes.clone(),
             }),
@@ -420,6 +426,7 @@ impl WorkerPool {
             active,
             current,
             done,
+            diagnostics,
         ));
         Ok(actor)
     }
@@ -632,6 +639,7 @@ impl Drop for PreparedPlugin {
 }
 
 struct Envelope {
+    submitted: Instant,
     config_json: Option<Arc<str>>,
     target: InvocationTarget,
     cancel: CancellationToken,
@@ -645,6 +653,62 @@ struct Mailbox {
     commands: VecDeque<Envelope>,
     notifications: VecDeque<Envelope>,
     bytes: usize,
+}
+
+#[derive(Default)]
+struct ActorDiagnostics {
+    timings: RequestTimings,
+    entries: VecDeque<DiagnosticEntry>,
+    sequence: u64,
+}
+impl ActorDiagnostics {
+    fn log(&mut self, level: DiagnosticLevel, message: &str) {
+        self.sequence = self.sequence.saturating_add(1);
+        if self.entries.len() == MAX_DIAGNOSTIC_ENTRIES {
+            self.entries.pop_front();
+        }
+        self.entries
+            .push_back(DiagnosticEntry::bounded(self.sequence, level, message));
+    }
+    fn failed(&mut self, error: &ServiceError) {
+        if error.code == ErrorCode::Cancelled {
+            self.timings.cancelled = self.timings.cancelled.saturating_add(1);
+        } else {
+            self.timings.failed = self.timings.failed.saturating_add(1);
+        }
+        self.log(DiagnosticLevel::Error, &error.message);
+    }
+    fn record(
+        &mut self,
+        queued: Duration,
+        execution: Duration,
+        result: Result<&Response, &ServiceError>,
+    ) {
+        let micros = |duration: Duration| u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
+        self.timings.queue_last_us = micros(queued);
+        self.timings.queue_max_us = self.timings.queue_max_us.max(self.timings.queue_last_us);
+        self.timings.execution_last_us = micros(execution);
+        self.timings.execution_max_us = self
+            .timings
+            .execution_max_us
+            .max(self.timings.execution_last_us);
+        match result {
+            Ok(response) => {
+                self.timings.completed = self.timings.completed.saturating_add(1);
+                if let Some(message) = &response.error {
+                    self.log(DiagnosticLevel::Error, message);
+                }
+                for action in &response.actions {
+                    match action {
+                        Action::Status { message } => self.log(DiagnosticLevel::Info, message),
+                        Action::Error { message } => self.log(DiagnosticLevel::Error, message),
+                        _ => (),
+                    }
+                }
+            }
+            Err(error) => self.failed(error),
+        }
+    }
 }
 impl Mailbox {
     fn len(&self) -> usize {
@@ -667,8 +731,12 @@ impl Mailbox {
         self.bytes -= envelope.bytes;
         Some(envelope)
     }
-    fn fail(&mut self, cause: ServiceError) {
+    fn fail(&mut self, cause: ServiceError, diagnostics: &Mutex<ActorDiagnostics>) {
         for envelope in self.commands.drain(..).chain(self.notifications.drain(..)) {
+            diagnostics
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .record(envelope.submitted.elapsed(), Duration::ZERO, Err(&cause));
             let _ = envelope.result.send(Err(cause.clone()));
         }
         self.bytes = 0;
@@ -701,6 +769,7 @@ struct ActorOwner {
     active: Arc<AtomicBool>,
     current: Arc<Mutex<Option<ActiveCall>>>,
     done: Arc<ActorDone>,
+    diagnostics: Arc<Mutex<ActorDiagnostics>>,
     admission: Arc<Semaphore>,
     _result_bytes: Arc<AtomicUsize>,
 }
@@ -717,8 +786,57 @@ pub struct PluginActor {
     inner: Arc<ActorOwner>,
 }
 impl PluginActor {
+    /// Bounded owned snapshots; no guest execution or filesystem work.
+    pub fn diagnostics(&self) -> (usize, RequestTimings, Vec<DiagnosticEntry>) {
+        let queued = self
+            .inner
+            .mailbox
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len();
+        let diagnostics = self
+            .inner
+            .diagnostics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (
+            queued,
+            diagnostics.timings.clone(),
+            diagnostics.entries.iter().cloned().collect(),
+        )
+    }
+    /// The host records this only for a successfully returned guest response.
+    /// A rejected application changes the provisional successful outcome.
+    pub fn record_application(&self, duration_us: u64, error: Option<&ServiceError>) {
+        let mut diagnostics = self
+            .inner
+            .diagnostics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        diagnostics.timings.apply_last_us = duration_us;
+        diagnostics.timings.apply_max_us = diagnostics.timings.apply_max_us.max(duration_us);
+        if let Some(error) = error {
+            diagnostics.timings.completed = diagnostics.timings.completed.saturating_sub(1);
+            diagnostics.failed(error);
+        }
+    }
     pub fn is_active(&self) -> bool {
         self.inner.active.load(Ordering::Acquire) && !self.inner.cancel.is_cancelled()
+    }
+    pub fn is_busy(&self) -> bool {
+        let mailbox = self
+            .inner
+            .mailbox
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !mailbox.commands.is_empty()
+            || !mailbox.notifications.is_empty()
+            || self
+                .inner
+                .current
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_some()
     }
     pub fn invoke(
         &self,
@@ -785,6 +903,7 @@ impl PluginActor {
         }
         mailbox.bytes += bytes;
         let envelope = Envelope {
+            submitted: Instant::now(),
             config_json,
             target,
             cancel: cancel.clone(),
@@ -853,6 +972,15 @@ impl PluginActor {
             for envelope in queue.drain(..) {
                 if matches(envelope.target) {
                     removed += envelope.bytes;
+                    self.inner
+                        .diagnostics
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .record(
+                            envelope.submitted.elapsed(),
+                            Duration::ZERO,
+                            Err(&cancelled()),
+                        );
                     let _ = envelope.result.send(Err(cancelled()));
                 } else {
                     kept.push_back(envelope);
@@ -935,7 +1063,7 @@ async fn compiled(
         let component = Component::from_binary(&compiler, &source).map_err(|cause| {
             ServiceError::new(
                 ErrorCode::UnsupportedInterface,
-                format!("compiling plugin component: {cause}"),
+                format!("compiling plugin component: {cause:#}"),
             )
         })?;
         // Serialize our own artifact solely to measure retained native code. No
@@ -1010,6 +1138,7 @@ async fn actor_loop(
     active: Arc<AtomicBool>,
     current: Arc<Mutex<Option<ActiveCall>>>,
     done: Arc<ActorDone>,
+    diagnostics: Arc<Mutex<ActorDiagnostics>>,
 ) {
     let _activity = Activity(actors);
     let _reservation = reservation;
@@ -1038,8 +1167,13 @@ async fn actor_loop(
         let Some(envelope) = envelope else {
             tokio::select! { _ = cancel.cancelled() => break, _ = notified => continue };
         };
+        let queued = envelope.submitted.elapsed();
         let initializing = envelope.request.event == Event::Init;
         if envelope.result.is_closed() {
+            diagnostics
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .record(queued, Duration::ZERO, Err(&cancelled()));
             *current
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
@@ -1053,10 +1187,15 @@ async fn actor_loop(
             *current
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-            let _ = envelope.result.send(Err(error(
+            let cause = error(
                 ErrorCode::StaleState,
                 "plugin request belongs to an old generation",
-            )));
+            );
+            diagnostics
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .record(queued, Duration::ZERO, Err(&cause));
+            let _ = envelope.result.send(Err(cause));
             if initializing {
                 active.store(false, Ordering::Release);
                 break;
@@ -1065,6 +1204,7 @@ async fn actor_loop(
         }
         let invocation_cancel = envelope.cancel;
         let deadline = Instant::now() + CALL_DEADLINE;
+        let started = Instant::now();
         let result = async {
             let pool = pool.upgrade().ok_or_else(cancelled)?;
             let permit = tokio::select! { _ = invocation_cancel.cancelled() => return Err(cancelled()), _ = tokio::time::sleep_until(deadline.into()) => return Err(deadline_exceeded()), permit = pool.execute.clone().acquire_owned() => permit.map_err(|_| cancelled())? };
@@ -1094,7 +1234,22 @@ async fn actor_loop(
         if initializing && result.is_err() {
             active.store(false, Ordering::Release);
         }
-        let _ = envelope.result.send(result);
+        diagnostics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .record(
+                queued,
+                started.elapsed(),
+                result.as_ref().map(|response| &**response),
+            );
+        let returned_response = result.is_ok();
+        if envelope.result.send(result).is_err() && returned_response {
+            let mut diagnostics = diagnostics
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            diagnostics.timings.completed = diagnostics.timings.completed.saturating_sub(1);
+            diagnostics.failed(&cancelled());
+        }
         if !active.load(Ordering::Acquire) {
             break;
         }
@@ -1107,7 +1262,7 @@ async fn actor_loop(
     mailbox
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .fail(cancelled());
+        .fail(cancelled(), &diagnostics);
     done.finish();
 }
 

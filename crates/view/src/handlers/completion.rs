@@ -26,7 +26,9 @@ use crate::{
     DocumentId, Editor, ViewId,
 };
 
-pub use item::{CompletionItem, CompletionItems, CompletionResponse, LspCompletionItem};
+pub use item::{
+    CompletionItem, CompletionItems, CompletionResponse, LspCompletionItem, StaticSnippetItem,
+};
 pub use request::request_incomplete_completion_list;
 use request::{Debounce, Trigger, TriggerKind};
 pub use resolve::{resolve_item, ResolveHandler};
@@ -35,6 +37,7 @@ mod item;
 mod path;
 mod request;
 mod resolve;
+mod snippet;
 mod word;
 
 struct Shared {
@@ -224,6 +227,7 @@ impl Session {
             }
             CompletionProvider::Path => doc.path_completion_enabled(),
             CompletionProvider::Word => doc.word_completion_enabled(),
+            CompletionProvider::Snippet => !editor.plugin_snippets().is_empty(),
         }
     }
 }

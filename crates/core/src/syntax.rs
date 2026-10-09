@@ -304,6 +304,48 @@ impl Loader {
         &self.resources
     }
 
+    /// Rebuild caches while retaining native language identities. Declarative
+    /// profiles are appended and cannot replace native file-extension bindings.
+    pub fn with_extra_languages(
+        &self,
+        profiles: Vec<LanguageConfiguration>,
+        resources: Resources,
+    ) -> Self {
+        let mut languages: Vec<_> = self
+            .languages
+            .iter()
+            .map(|data| LanguageData {
+                config: data.config.clone(),
+                syntax: OnceLock::new(),
+                indent_query: OnceLock::new(),
+                textobject_query: OnceLock::new(),
+                tag_query: OnceLock::new(),
+                rainbow_query: OnceLock::new(),
+                spellcheck_query: OnceLock::new(),
+            })
+            .collect();
+        let mut extensions = self.languages_by_extension.clone();
+        for mut config in profiles {
+            let language = Language(languages.len() as u32);
+            config.language = Some(language);
+            for file_type in &config.file_types {
+                if let FileType::Extension(extension) = file_type {
+                    extensions.entry(extension.clone()).or_insert(language);
+                }
+            }
+            languages.push(LanguageData::new(config));
+        }
+        Self {
+            resources,
+            languages,
+            languages_by_extension: extensions,
+            languages_by_shebang: self.languages_by_shebang.clone(),
+            languages_glob_matcher: self.languages_glob_matcher.clone(),
+            language_server_configs: self.language_server_configs.clone(),
+            scopes: ArcSwap::from(self.scopes.load_full()),
+        }
+    }
+
     /// Compile every query kind through the editor's loading path, returning errors
     /// instead of logging and caching them. Used by repository query validation.
     pub fn validate_queries(&self, language: Language) -> Result<()> {
@@ -469,7 +511,7 @@ impl LanguageLoader for Loader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FileTypeGlob {
     glob: globset::Glob,
     language: Language,
@@ -481,7 +523,7 @@ impl FileTypeGlob {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FileTypeGlobMatcher {
     matcher: globset::GlobSet,
     file_types: Vec<FileTypeGlob>,

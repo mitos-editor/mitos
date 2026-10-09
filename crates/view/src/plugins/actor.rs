@@ -17,6 +17,7 @@ use std::{
 
 const MAX_CALLS: usize = 64;
 const DEADLINE: Duration = Duration::from_secs(6);
+const MAX_ASSET_RETRIES: u8 = 3;
 
 struct Ready {
     plugin: String,
@@ -24,6 +25,7 @@ struct Ready {
     provenance: Provenance,
     event: Event,
     result: Result<CompletedResponse, ServiceError>,
+    worker_succeeded: bool,
     opened: Vec<crate::document::PreparedPluginDocument>,
     _open_quota: Option<tokio::sync::OwnedSemaphorePermit>,
     observer: Option<Arc<dyn InvocationTasks>>,
@@ -34,11 +36,25 @@ struct Loading {
     observer: Option<Arc<dyn InvocationTasks>>,
     task: Option<InvocationTask>,
 }
+struct AssetLoading {
+    prepared: PreparedManager,
+    future: BoxFuture<'static, Result<assets::PreparedAssets, ServiceError>>,
+    transition: AssetTransition,
+}
+struct AssetTransition {
+    observer: Option<Arc<dyn InvocationTasks>>,
+    task: Option<InvocationTask>,
+    retiring: bool,
+    shutdown_sent: bool,
+    attempts: u8,
+}
 struct Replacement {
     prepared: PreparedManager,
+    assets: Option<assets::PreparedAssets>,
     observer: Option<Arc<dyn InvocationTasks>>,
     task: Option<InvocationTask>,
     shutdown_sent: bool,
+    asset_attempts: u8,
 }
 pub(super) struct AsyncState {
     calls: FuturesUnordered<BoxFuture<'static, Vec<Ready>>>,
@@ -46,6 +62,7 @@ pub(super) struct AsyncState {
     call_count: usize,
     navigation: BTreeMap<(String, u64), EditorContext>,
     loading: Option<Loading>,
+    asset_loading: Option<AssetLoading>,
     replacement: Option<Replacement>,
     advancing_replacement: bool,
     cleanup: FuturesUnordered<BoxFuture<'static, Result<(), ServiceError>>>,
@@ -64,6 +81,7 @@ impl Default for AsyncState {
             call_count: 0,
             navigation: BTreeMap::new(),
             loading: None,
+            asset_loading: None,
             replacement: None,
             advancing_replacement: false,
             cleanup: FuturesUnordered::new(),
@@ -151,6 +169,7 @@ impl Editor {
         if self.plugins.shutting_down
             || self.plugins.stopped
             || self.plugins.asynchronous.loading.is_some()
+            || self.plugins.asynchronous.asset_loading.is_some()
             || self.plugins.asynchronous.replacement.is_some()
             || !self.plugins.asynchronous.cleanup.is_empty()
         {
@@ -227,6 +246,94 @@ impl Editor {
         Ok(Arc::new(native.with_editor(adapter)))
     }
 
+    fn prepare_plugin_assets(&mut self, prepared: PreparedManager, transition: AssetTransition) {
+        let packages = prepared.assets();
+        // No contribution means no extra worker, loader swap or syntax refresh.
+        if self.plugins.assets.owners().next().is_none()
+            && packages.iter().all(|package| {
+                package.themes.is_empty()
+                    && package.languages.is_empty()
+                    && package.snippets.is_empty()
+            })
+        {
+            self.accept_plugin_replacement(prepared, None, transition);
+            return;
+        }
+        let input = self.plugins.assets.capture(self, packages);
+        let work = self.plugins.asynchronous.reads.clone();
+        self.plugins.asynchronous.asset_loading = Some(AssetLoading {
+            prepared,
+            transition,
+            future: Box::pin(async move {
+                let permit = work.acquire_owned().await.map_err(|_| cancelled())?;
+                tokio::task::spawn_blocking(move || {
+                    // Cancellation cannot release this permit while native
+                    // query/theme/snippet compilation is still running.
+                    let _permit = permit;
+                    input.prepare().map_err(|error| {
+                        ServiceError::new(
+                            ErrorCode::InvalidRequest,
+                            format!("invalid plugin contributions: {error:#}"),
+                        )
+                    })
+                })
+                .await
+                .map_err(|error| ServiceError::new(ErrorCode::HostFailure, error.to_string()))?
+            }),
+        });
+    }
+
+    fn accept_plugin_replacement(
+        &mut self,
+        prepared: PreparedManager,
+        assets: Option<assets::PreparedAssets>,
+        transition: AssetTransition,
+    ) {
+        self.plugins.asynchronous.replacement = Some(Replacement {
+            prepared,
+            assets,
+            observer: transition.observer,
+            task: transition.task,
+            shutdown_sent: transition.shutdown_sent,
+            asset_attempts: transition.attempts,
+        });
+        if transition.retiring {
+            return;
+        }
+        self.plugins.shutting_down = true;
+        self.cancel_plugin_frontend();
+        self.plugins
+            .shared
+            .accepting
+            .store(false, Ordering::Release);
+        // Retire the old generation only after all native contributions have
+        // validated against the current resource configuration.
+        self.plugins.asynchronous.calls.clear();
+        self.plugins.asynchronous.call_count = 0;
+        self.plugins.asynchronous.navigation.clear();
+    }
+
+    fn fail_plugin_assets(&mut self, mut error: ServiceError, transition: AssetTransition) {
+        if transition.retiring {
+            // Shutdown is final: preserve contributed registries for the next
+            // explicit reload, but never resume an already shut-down instance.
+            self.plugins.manager.retire_instances();
+            self.plugins.shutting_down = false;
+            self.plugins
+                .shared
+                .accepting
+                .store(false, Ordering::Release);
+            self.refresh_plugin_subscriptions();
+            error
+                .message
+                .push_str("; prior plugin instances are shut down, reload required");
+        }
+        if let Some(task) = transition.task {
+            task.finish(TaskOutcome::Error(error.to_string()));
+        }
+        self.report_plugin_error("loader", &error);
+    }
+
     pub(super) fn admit_plugin_call(
         &mut self,
         plugin: String,
@@ -254,6 +361,7 @@ impl Editor {
         let open_bytes = self.plugins.asynchronous.open_bytes.clone();
         let future: BoxFuture<'static, Ready> = Box::pin(async move {
             let result = completion.await;
+            let worker_succeeded = result.is_ok();
             let mut opened = Vec::new();
             let mut open_quota = None;
             let result = match result {
@@ -343,6 +451,7 @@ impl Editor {
             };
             Ready {
                 result,
+                worker_succeeded,
                 opened,
                 _open_quota: open_quota,
                 plugin,
@@ -410,19 +519,51 @@ impl Editor {
                     ready.context = context;
                 }
                 let previous = self.replace_invocation_tasks(ready.observer);
+                if ready.worker_succeeded
+                    && let Err(error) = &ready.result
+                {
+                    // Deferred scoped Open preparation is host work. Its
+                    // failure must correct the worker's provisional success,
+                    // while an actual runtime error was counted by the actor.
+                    self.plugins
+                        .manager
+                        .record_application(&ready.plugin, 0, Some(error));
+                }
                 let result = ready
                     .result
                     .map_err(anyhow::Error::from)
                     .and_then(|completed| {
                         completed.with_response(|response| {
-                            self.apply_plugin_response(
+                            let started = std::time::Instant::now();
+                            let result = self.apply_plugin_response(
                                 response,
                                 &ready.context,
                                 &ready.plugin,
                                 &ready.provenance,
                                 ready.event,
                                 ready.opened,
-                            )
+                            );
+                            let error = result.as_ref().err().map(|error| {
+                                error
+                                    .downcast_ref::<ServiceError>()
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        ServiceError::new(
+                                            if error.downcast_ref::<PluginConflict>().is_some() {
+                                                ErrorCode::StaleState
+                                            } else {
+                                                ErrorCode::InvalidRequest
+                                            },
+                                            error.to_string(),
+                                        )
+                                    })
+                            });
+                            self.plugins.manager.record_application(
+                                &ready.plugin,
+                                started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+                                error.as_ref(),
+                            );
+                            result
                         })
                     });
                 self.replace_invocation_tasks(previous);
@@ -459,23 +600,16 @@ impl Editor {
             let loading = self.plugins.asynchronous.loading.take().unwrap();
             match result {
                 Ok(prepared) => {
-                    self.plugins.asynchronous.replacement = Some(Replacement {
+                    self.prepare_plugin_assets(
                         prepared,
-                        observer: loading.observer,
-                        task: loading.task,
-                        shutdown_sent: false,
-                    });
-                    self.plugins.shutting_down = true;
-                    self.cancel_plugin_frontend();
-                    self.plugins
-                        .shared
-                        .accepting
-                        .store(false, Ordering::Release);
-                    // Replacing a generation cancels accepted old invocations;
-                    // queued lifecycle hooks still drain before Shutdown.
-                    self.plugins.asynchronous.calls.clear();
-                    self.plugins.asynchronous.call_count = 0;
-                    self.plugins.asynchronous.navigation.clear();
+                        AssetTransition {
+                            observer: loading.observer,
+                            task: loading.task,
+                            retiring: false,
+                            shutdown_sent: false,
+                            attempts: 0,
+                        },
+                    );
                 }
                 Err(error) => {
                     if let Some(task) = loading.task {
@@ -483,6 +617,30 @@ impl Editor {
                     }
                     self.report_plugin_error("loader", &error);
                 }
+            }
+        }
+        if let Some(loading) = self.plugins.asynchronous.asset_loading.as_mut()
+            && let Poll::Ready(result) = loading.future.as_mut().poll(&mut cx)
+        {
+            let loading = self.plugins.asynchronous.asset_loading.take().unwrap();
+            match result {
+                Ok(assets) if assets.is_current(self) => self.accept_plugin_replacement(
+                    loading.prepared,
+                    Some(assets),
+                    loading.transition,
+                ),
+                Ok(_) => {
+                    if loading.transition.attempts < MAX_ASSET_RETRIES {
+                        let mut transition = loading.transition;
+                        transition.attempts += 1;
+                        self.prepare_plugin_assets(loading.prepared, transition);
+                        self.poll_plugin_completions();
+                    } else {
+                        self.fail_plugin_assets(ServiceError::new(ErrorCode::StaleState,
+                            "native resources repeatedly changed during contribution preparation"),loading.transition);
+                    }
+                }
+                Err(error) => self.fail_plugin_assets(error, loading.transition),
             }
         }
         self.advance_plugin_replacement();
@@ -528,18 +686,76 @@ impl Editor {
             }
         }
         let replacement = self.plugins.asynchronous.replacement.take().unwrap();
+        // Native configuration can change while old hooks drain. Reprepare
+        // against that baseline, retaining the paused replacement and never
+        // delivering a second Shutdown to the old generation.
+        if replacement
+            .assets
+            .as_ref()
+            .is_some_and(|assets| !assets.is_current(self))
+        {
+            let mut transition = AssetTransition {
+                observer: replacement.observer,
+                task: replacement.task,
+                retiring: true,
+                shutdown_sent: true,
+                attempts: replacement.asset_attempts,
+            };
+            if transition.attempts < MAX_ASSET_RETRIES {
+                transition.attempts += 1;
+                self.prepare_plugin_assets(replacement.prepared, transition);
+                self.poll_plugin_completions();
+            } else {
+                self.fail_plugin_assets(
+                    ServiceError::new(
+                        ErrorCode::StaleState,
+                        "native resources repeatedly changed while the previous generation drained",
+                    ),
+                    transition,
+                );
+            }
+            return;
+        }
         let manager = match replacement.prepared.activate() {
             Ok(manager) => manager,
             Err(error) => {
-                self.plugins.shutting_down = false;
-                self.plugins.shared.accepting.store(true, Ordering::Release);
-                if let Some(task) = replacement.task {
-                    task.finish(TaskOutcome::Error(error.to_string()));
-                }
-                self.report_plugin_error("loader", &error);
+                self.fail_plugin_assets(
+                    error,
+                    AssetTransition {
+                        observer: replacement.observer,
+                        task: replacement.task,
+                        retiring: true,
+                        shutdown_sent: true,
+                        attempts: replacement.asset_attempts,
+                    },
+                );
                 return;
             }
         };
+        self.clear_all_plugin_settings();
+        if let Some(assets) = replacement.assets {
+            let mut registry = std::mem::take(&mut self.plugins.assets);
+            let result = assets.activate(&mut registry, self);
+            self.plugins.assets = registry;
+            if let Err(error) = result {
+                manager.revoke();
+                self.plugins
+                    .asynchronous
+                    .cleanup
+                    .push(Box::pin(async move { manager.shutdown().await }));
+                self.fail_plugin_assets(
+                    ServiceError::new(ErrorCode::StaleState, error.to_string()),
+                    AssetTransition {
+                        observer: replacement.observer,
+                        task: replacement.task,
+                        retiring: true,
+                        shutdown_sent: true,
+                        attempts: replacement.asset_attempts,
+                    },
+                );
+                return;
+            }
+        }
         let old = std::mem::replace(&mut self.plugins.manager, manager);
         old.revoke();
         self.plugins
@@ -548,7 +764,6 @@ impl Editor {
             .push(Box::pin(async move { old.shutdown().await }));
         self.plugins.asynchronous.services.clear();
         self.plugins.frontend = frontend::FrontendState::default();
-        self.clear_all_plugin_settings();
         self.plugins
             .shared
             .accepting
@@ -592,6 +807,7 @@ impl Editor {
         let queue = self.plugins.shared.queue.lock();
         !self.plugins.asynchronous.calls.is_empty()
             || self.plugins.asynchronous.loading.is_some()
+            || self.plugins.asynchronous.asset_loading.is_some()
             || self.plugins.asynchronous.replacement.is_some()
             || !self.plugins.asynchronous.cleanup.is_empty()
             || !queue.pending.is_empty()
@@ -605,6 +821,7 @@ impl Editor {
         let first = !self.plugins.shutting_down;
         self.plugins.shutting_down = true;
         self.plugins.asynchronous.loading = None;
+        self.plugins.asynchronous.asset_loading = None;
         self.plugins.asynchronous.replacement = None;
         if first {
             self.cancel_plugin_frontend();
@@ -683,6 +900,9 @@ impl Editor {
         }
         self.plugins.asynchronous.services.clear();
         self.clear_all_plugin_settings();
+        let mut registry = std::mem::take(&mut self.plugins.assets);
+        registry.restore(self);
+        self.plugins.assets = registry;
         self.plugins.stopped = true;
         for doc in self.documents.values_mut() {
             doc.plugin_events = None;

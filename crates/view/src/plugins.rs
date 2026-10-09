@@ -5,6 +5,7 @@
 //! or syntax handles cross the WASM boundary.
 
 mod actor;
+pub mod assets;
 mod frontend;
 mod language;
 mod services;
@@ -186,6 +187,7 @@ struct Shared {
 
 #[derive(Default)]
 pub(crate) struct PluginHost {
+    assets: assets::AssetRegistry,
     settings: settings::SettingsHandle,
     manager: PluginManager,
     shared: Arc<Shared>,
@@ -710,6 +712,10 @@ impl Editor {
 
     pub fn plugin_command_doc(&self, name: &str) -> Option<String> {
         self.plugins.manager.get_doc_for_identifier(name)
+    }
+
+    pub fn plugin_diagnostics(&self) -> Vec<plugin_api::diagnostics::PluginDiagnostics> {
+        self.plugins.manager.diagnostics()
     }
 
     pub fn plugin_command_arguments(

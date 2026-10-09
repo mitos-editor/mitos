@@ -405,7 +405,7 @@ pub mod util {
         selection: &Selection,
         edit_offset: Option<(i128, i128)>,
         replace_mode: bool,
-        snippet: Snippet,
+        snippet: impl std::borrow::Borrow<Snippet>,
         cx: &mut SnippetRenderCtx,
     ) -> (Transaction, RenderedSnippet) {
         let text = doc.slice(..);
@@ -417,7 +417,7 @@ pub mod util {
         )
         .expect("transaction must be valid for primary selection");
         let removed_text = text.slice(removed_start..removed_end);
-        let (transaction, mapped_selection, snippet) = snippet.render(
+        let (transaction, mapped_selection, snippet) = snippet.borrow().render(
             doc,
             selection,
             |range| {
