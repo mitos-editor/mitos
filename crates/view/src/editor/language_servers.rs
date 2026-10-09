@@ -5,6 +5,57 @@ use anyhow::{bail, Context as _};
 use crate::{DocumentId, Editor};
 
 impl Editor {
+    /// Stop selected servers attached to a document across all workspaces.
+    /// An empty selection stops all initialized servers attached to the document.
+    pub fn stop_language_servers(
+        &mut self,
+        document: DocumentId,
+        servers: &[&str],
+    ) -> anyhow::Result<()> {
+        let doc = self
+            .documents
+            .get(&document)
+            .context("Document no longer exists")?;
+        let language_servers: Vec<_> = doc
+            .language_servers()
+            .map(|ls| ls.name().to_owned())
+            .collect();
+        let language_servers = if servers.is_empty() {
+            language_servers
+        } else {
+            let (valid, invalid): (Vec<_>, Vec<_>) = servers
+                .iter()
+                .map(|name| name.to_string())
+                .partition(|name| language_servers.contains(name));
+            if !invalid.is_empty() {
+                let s = if invalid.len() == 1 { "" } else { "s" };
+                bail!("Unknown language server{s}: {}", invalid.join(", "));
+            }
+            valid
+        };
+
+        for name in language_servers {
+            let server_ids: Vec<_> = self
+                .language_servers
+                .iter_clients()
+                .filter(|client| client.name() == name)
+                .map(|client| client.id())
+                .collect();
+            for server_id in server_ids {
+                self.cleanup_language_server(server_id);
+            }
+            self.language_servers.stop(&name);
+            for doc in self.documents_mut() {
+                if doc.remove_language_server_by_name(&name).is_some() {
+                    doc.reset_all_inlay_hints();
+                    doc.inlay_hints_oudated = true;
+                    doc.clear_document_symbols();
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Restart selected servers for a document and refresh all affected documents.
     /// An empty selection restarts all configured servers and ignores missing executables.
     pub fn restart_language_servers(
@@ -18,8 +69,10 @@ impl Editor {
             .get(&document)
             .context("Document no longer exists")?;
         let config = doc
-            .language_config()
+            .language
+            .clone()
             .context("LSP not defined for the current document")?;
+        let path = doc.path().map(ToOwned::to_owned);
 
         let language_servers: Vec<_> = config
             .language_servers
@@ -40,14 +93,27 @@ impl Editor {
             valid
         };
 
+        // Restart removes these clients from the registry before their exit notifications
+        // arrive, so the exit handler can no longer clear their diagnostics.
+        let old_server_ids: Vec<_> = self
+            .language_servers
+            .iter_clients()
+            .filter(|client| language_servers.contains(&client.name()))
+            .map(|client| client.id())
+            .collect();
+
+        for server_id in old_server_ids {
+            self.cleanup_language_server(server_id);
+        }
+
         let mut errors = Vec::new();
         for server in language_servers.iter() {
             match self
                 .language_servers
                 .restart_server(
                     server,
-                    config,
-                    doc.path(),
+                    &config,
+                    path.as_deref(),
                     &editor_config.workspace_lsp_roots,
                     editor_config.lsp.snippets,
                 )

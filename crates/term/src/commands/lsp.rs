@@ -1518,7 +1518,7 @@ pub(super) mod typed {
         ui::{self, overlay::overlaid, PromptEvent},
     };
     use ::command_line::Args;
-    use anyhow::{anyhow, bail};
+    use anyhow::anyhow;
     use editor_core::syntax::config::LanguageServerFeature;
     use serde_json::Value;
     use view::Editor;
@@ -1648,39 +1648,8 @@ pub(super) mod typed {
         if event != PromptEvent::Validate {
             return Ok(());
         }
-        let doc = doc!(cx.editor);
-
-        let language_servers: Vec<_> = doc
-            .language_servers()
-            .map(|ls| ls.name().to_string())
-            .collect();
-        let language_servers = if args.is_empty() {
-            language_servers
-        } else {
-            let (valid, invalid): (Vec<_>, Vec<_>) = args
-                .iter()
-                .map(|arg| arg.to_string())
-                .partition(|name| language_servers.contains(name));
-            if !invalid.is_empty() {
-                let s = if invalid.len() == 1 { "" } else { "s" };
-                bail!("Unknown language server{s}: {}", invalid.join(", "));
-            }
-            valid
-        };
-
-        for ls_name in &language_servers {
-            cx.editor.language_servers.stop(ls_name);
-
-            for doc in cx.editor.documents_mut() {
-                if let Some(client) = doc.remove_language_server_by_name(ls_name) {
-                    doc.clear_diagnostics_for_language_server(client.id());
-                    doc.reset_all_inlay_hints();
-                    doc.inlay_hints_oudated = true;
-                    doc.clear_document_symbols();
-                }
-            }
-        }
-
-        Ok(())
+        let document = doc!(cx.editor).id();
+        let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
+        cx.editor.stop_language_servers(document, &servers)
     }
 }
