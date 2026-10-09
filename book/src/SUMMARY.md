@@ -39,6 +39,7 @@
 - [Themes](./themes.md)
 - [Key remapping](./remapping.md)
 - [Custom commands](./custom-commands.md)
+- [WebAssembly plugins](./plugins.md)
 - [Languages](./languages.md)
 
 # Help and migration

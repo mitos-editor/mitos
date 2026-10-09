@@ -1365,6 +1365,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "plugin-reload",
+        aliases: &[],
+        doc: "Reload configured WebAssembly plugins and discard their previous state.",
+        fun: super::plugins::reload,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
         name: "config-open",
         aliases: &[],
         doc: "Open the user config.toml file.",

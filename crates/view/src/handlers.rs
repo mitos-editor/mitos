@@ -205,5 +205,6 @@ fn register_hooks() {
         inline_completion::register_hooks();
         spelling::register_hooks();
         workspace_trust::register_hooks();
+        crate::plugins::register_hooks();
     });
 }

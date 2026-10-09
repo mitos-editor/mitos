@@ -80,6 +80,7 @@
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:config-reload` | Refresh user config. |
+| `:plugin-reload` | Reload configured WebAssembly plugins and discard their previous state. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-open-workspace` | Open the workspace config.toml file. |
 | `:log-open` | Open the mitos log file. |

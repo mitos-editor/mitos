@@ -2,12 +2,11 @@
 
 use std::fmt;
 
-use ::command_line::{self, Args};
 use anyhow::{anyhow, ensure};
 use serde::de::{self, Deserialize, Deserializer};
 use ui_core::input::{self, KeyEvent};
 
-use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_command, context::Context};
+use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_command_line, context::Context};
 use crate::{compositor, ui::PromptEvent};
 
 /// MappableCommands are commands that can be bound to keys, executable in
@@ -42,26 +41,20 @@ impl MappableCommand {
     pub fn execute(&self, cx: &mut Context) {
         match &self {
             Self::Typable { name, args, doc: _ } => {
-                if let Some(command) = TYPABLE_COMMAND_MAP.get(name.as_str()) {
-                    let mut cx = compositor::Context {
-                        config: cx.config,
-                        editor: cx.editor,
-                        jobs: cx.jobs,
-                        scroll: None,
-                        image_picker: None,
-                        is_cursor_owner: false,
-                    };
-                    if let Err(e) = execute_command(
-                        &mut cx,
-                        command,
-                        args,
-                        &Args::empty(),
-                        PromptEvent::Validate,
-                    ) {
-                        cx.editor.set_error(|| format!("{}", e));
-                    }
-                } else {
-                    cx.editor.set_error(|| format!("no such command: '{name}'"));
+                let mut command_cx = compositor::Context {
+                    config: cx.config,
+                    editor: cx.editor,
+                    jobs: cx.jobs,
+                    scroll: None,
+                    image_picker: None,
+                    is_cursor_owner: false,
+                };
+                // Explicit keybindings and palette entries keep targeting their
+                // registered command even when configuration defines an alias.
+                let input = format!("^{name} {args}");
+                match execute_command_line(&mut command_cx, &input, PromptEvent::Validate) {
+                    Ok(callbacks) => cx.callback.extend(callbacks),
+                    Err(err) => command_cx.editor.set_error(|| err.to_string()),
                 }
             }
             Self::Static { fun, .. } => (fun)(cx),
@@ -135,19 +128,27 @@ impl std::str::FromStr for MappableCommand {
         if let Some(suffix) = s.strip_prefix(':') {
             let (name, args, _) = command_line::split(suffix);
             ensure!(!name.is_empty(), "Expected typable command name");
-            TYPABLE_COMMAND_MAP
-                .get(name)
-                .map(|cmd| {
-                    let doc = if args.is_empty() {
-                        cmd.doc.to_string()
-                    } else {
-                        format!(":{} {:?}", cmd.name, args)
-                    };
-                    MappableCommand::Typable {
-                        name: cmd.name.to_owned(),
-                        doc,
-                        args: args.to_string(),
-                    }
+            let command = TYPABLE_COMMAND_MAP.get(name).map(|cmd| {
+                let doc = if args.is_empty() {
+                    cmd.doc.to_string()
+                } else {
+                    format!(":{} {:?}", cmd.name, args)
+                };
+                MappableCommand::Typable {
+                    name: cmd.name.to_owned(),
+                    doc,
+                    args: args.to_string(),
+                }
+            });
+            // Like Helix PR #8675, defer plugin command resolution until execution.
+            // Qualified names keep ordinary built-in typos invalid in configuration.
+            command
+                .or_else(|| {
+                    is_plugin_command(name).then(|| Self::Typable {
+                        name: name.to_owned(),
+                        args: args.to_owned(),
+                        doc: format!(":{name}"),
+                    })
                 })
                 .ok_or_else(|| anyhow!("No TypableCommand named '{}'", s))
         } else if let Some(suffix) = s.strip_prefix('@') {
@@ -163,6 +164,19 @@ impl std::str::FromStr for MappableCommand {
                 .ok_or_else(|| anyhow!("No command named '{}'", s))
         }
     }
+}
+
+fn is_plugin_command(name: &str) -> bool {
+    let Some((plugin, command)) = name.split_once('.') else {
+        return false;
+    };
+    let valid_component = |component: &str| {
+        !component.is_empty()
+            && component
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    };
+    valid_component(plugin) && valid_component(command)
 }
 
 impl<'de> Deserialize<'de> for MappableCommand {
@@ -200,5 +214,34 @@ impl PartialEq for MappableCommand {
             ) => first_name == second_name,
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defers_qualified_plugin_keybinding_resolution() {
+        let command: MappableCommand = ":example-plugin.say_hello 'hello world'".parse().unwrap();
+        let MappableCommand::Typable { name, args, .. } = command else {
+            panic!("expected a typable plugin command");
+        };
+        assert_eq!(name, "example-plugin.say_hello");
+        assert_eq!(args, "'hello world'");
+    }
+
+    #[test]
+    fn rejects_unqualified_and_malformed_unknown_commands() {
+        for command in [
+            ":wriet",
+            ":example.",
+            ":.hello",
+            ":a.b.c",
+            ":plug.hello/there",
+        ] {
+            assert!(command.parse::<MappableCommand>().is_err(), "{command}");
+        }
+        assert!(":write".parse::<MappableCommand>().is_ok());
     }
 }

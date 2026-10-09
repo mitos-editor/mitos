@@ -164,6 +164,7 @@ impl Application {
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
         let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
         let _ = editor.set_theme(theme);
+        editor.reload_plugins(&config.load().plugins, &loader::config_dir());
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
@@ -452,7 +453,7 @@ impl Application {
     }
 
     fn refresh_config(&mut self) {
-        let mut refresh_config = || -> Result<(), Error> {
+        let mut refresh_config = || -> Result<bool, Error> {
             let default_config = Config::load_default()
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
@@ -469,14 +470,18 @@ impl Application {
                 .backend_mut()
                 .reconfigure(terminal_config(&default_config))?;
             // Store new config
+            let plugins_loaded = self
+                .editor
+                .reload_plugins(&default_config.plugins, &loader::config_dir());
             self.config.store(Arc::new(default_config));
-            Ok(())
+            Ok(plugins_loaded)
         };
 
         match refresh_config() {
-            Ok(_) => {
+            Ok(true) => {
                 self.editor.set_status("Config refreshed");
             }
+            Ok(false) => {}
             Err(err) => {
                 self.editor.set_error(|| err.to_string());
             }
@@ -673,6 +678,8 @@ impl Application {
             "'{}' written, {lines}L {size}",
             get_relative_path(&doc_save_event.path).to_string_lossy(),
         ));
+        self.editor
+            .queue_plugin_document_saved(doc_save_event.doc_id);
     }
 
     #[inline(always)]
@@ -1287,6 +1294,7 @@ impl Application {
     }
 
     pub async fn close(&mut self) -> Vec<anyhow::Error> {
+        self.editor.shutdown_plugins();
         // [NOTE] we intentionally do not return early for errors because we
         //        want to try to run as much cleanup as we can, regardless of
         //        errors along the way

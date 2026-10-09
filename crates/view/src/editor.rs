@@ -82,6 +82,7 @@ use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
+    pub(crate) plugins: crate::plugins::PluginHost,
     /// Current editing mode.
     pub mode: Mode,
     pub tree: Tree,
@@ -251,6 +252,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
+            plugins: Default::default(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -883,6 +885,7 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
+        doc.plugin_events = self.plugins.sender(&self.handlers.callbacks);
         self.handlers.attach_document(&mut doc);
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
@@ -902,6 +905,7 @@ impl Editor {
         let id = self.new_document(doc);
         self.switch(id, action);
         self.refresh_spelling(id);
+        self.queue_plugin_document_event(plugin_sdk::Event::DocumentOpened, id);
         id
     }
 

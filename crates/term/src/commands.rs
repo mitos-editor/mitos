@@ -22,6 +22,7 @@ mod movement;
 mod navigation;
 mod palette;
 mod picker;
+mod plugins;
 mod quicklist;
 mod registers;
 mod search;

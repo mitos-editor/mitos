@@ -47,6 +47,8 @@ path = "tests/fixtures/document_features_lsp.rs"
 required-features = ["integration"]
 
 [dependencies]
+plugins.workspace = true
+plugin-sdk.workspace = true
 command-line.workspace = true
 stdx.workspace = true
 core.workspace = true
@@ -107,6 +109,7 @@ libc.workspace = true
 loader.workspace = true
 
 [dev-dependencies]
+wat = "1"
 tokio = { workspace = true, features = ["test-util"] }
 spelling.workspace = true
 indoc.workspace = true

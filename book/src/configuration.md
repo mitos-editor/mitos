@@ -36,7 +36,7 @@ fail visibly instead of being silently ignored.
 
 ## `config.toml` reference
 
-`config.toml` accepts four top-level entries:
+`config.toml` accepts five top-level entries:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -44,6 +44,7 @@ fail visibly instead of being silently ignored.
 | `editor` | table | See below | Editor behavior and UI settings. |
 | `keys` | table | Built-in keymap | Per-mode key bindings under `[keys.normal]`, `[keys.insert]`, and `[keys.select]`. Entries are merged with the built-in keymap. See [Key remapping](./remapping.md). |
 | `commands` | table | `{}` | User-defined command-mode commands. See [Custom commands](./custom-commands.md). |
+| `plugins` | table | `{}` | Named WASM plugins, their manifest paths and configuration. See [Plugins](./plugins.md). |
 
 Example:
 
