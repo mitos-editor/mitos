@@ -79,6 +79,13 @@ impl DiffHandle {
         }
     }
 
+    pub fn try_load(&self) -> Option<Diff<'_>> {
+        Some(Diff {
+            diff: self.diff.try_read()?,
+            inverted: self.inverted,
+        })
+    }
+
     /// Updates the document associated with this redraw handle
     /// This function is only intended to be called from within the rendering loop
     /// if called from elsewhere it may fail to acquire the render lock and panic
@@ -170,6 +177,31 @@ impl Diff<'_> {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Map an unchanged document line to its base line in O(log(hunks)).
+    /// Changed or inserted lines have no corresponding base line.
+    pub fn base_line(&self, line: u32) -> Option<u32> {
+        let index = self.diff.hunks.partition_point(|hunk| {
+            let after = if self.inverted {
+                &hunk.before
+            } else {
+                &hunk.after
+            };
+            after.start <= line
+        });
+        if index == 0 {
+            return Some(line);
+        }
+        let hunk = &self.diff.hunks[index - 1];
+        let (before, after) = if self.inverted {
+            (&hunk.after, &hunk.before)
+        } else {
+            (&hunk.before, &hunk.after)
+        };
+        // Absolute hunk endpoints already encode all preceding line offsets.
+        // An empty `after` is a deletion: its following line maps past `before`.
+        before.end.checked_add(line.checked_sub(after.end)?)
     }
 
     /// Gives the index of the first hunk after the given line, if one exists.
@@ -312,5 +344,71 @@ impl<'a, I: Iterator<Item = (usize, usize)>> Iterator for HunksInLineRangesIter<
                 self.line_ranges.next();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_lines_map_across_insertions_deletions_and_replacements() {
+        let mut before = 2;
+        let mut after = 2;
+        let hunks = (0..80)
+            .map(|index| {
+                let removed = index % 4;
+                let inserted = (index + 1) % 4;
+                let hunk = Hunk {
+                    before: before..before + removed,
+                    after: after..after + inserted,
+                };
+                before += removed + 2;
+                after += inserted + 2;
+                hunk
+            })
+            .collect();
+        let inner = RwLock::new(DiffInner {
+            hunks,
+            ..Default::default()
+        });
+        for inverted in [false, true] {
+            let diff = Diff {
+                diff: inner.read(),
+                inverted,
+            };
+            let length = if inverted { before } else { after };
+            for line in 0..length {
+                let mut expected = Some(line);
+                for index in 0..diff.len() {
+                    let hunk = diff.nth_hunk(index);
+                    if hunk.after.start > line {
+                        break;
+                    }
+                    if hunk.after.contains(&line) {
+                        expected = None;
+                        break;
+                    }
+                    expected = expected
+                        .map(|base| base + hunk.before.len() as u32 - hunk.after.len() as u32);
+                }
+                assert_eq!(
+                    diff.base_line(line),
+                    expected,
+                    "line {line}, inverted={inverted}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unchanged_lines_without_hunks_keep_their_line_number() {
+        let inner = RwLock::new(DiffInner::default());
+        let diff = Diff {
+            diff: inner.read(),
+            inverted: false,
+        };
+        assert_eq!(diff.base_line(0), Some(0));
+        assert_eq!(diff.base_line(u32::MAX), Some(u32::MAX));
     }
 }

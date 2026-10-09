@@ -140,6 +140,35 @@ impl Default for GutterLineNumbersConfig {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InlineBlameShow {
+    /// Hide inline blame and skip automatic requests.
+    Never,
+    /// Show the inline blame on the cursor line
+    CursorLine,
+    /// Show inline blame on all visible lines
+    AllLines,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct InlineBlameConfig {
+    /// How to show the inline blame
+    pub show: InlineBlameShow,
+    /// How the inline blame should look like and the information it includes
+    pub format: String,
+}
+
+impl Default for InlineBlameConfig {
+    fn default() -> Self {
+        Self {
+            show: InlineBlameShow::Never,
+            format: "{author}, {time-ago} • {title} • {commit}".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct FilePickerConfig {
@@ -374,6 +403,8 @@ pub struct Config {
     /// Whether to read settings from [EditorConfig](https://editorconfig.org) files. Defaults to
     /// `true`.
     pub editor_config: bool,
+    /// Show information about the commit that last changed a line.
+    pub inline_blame: InlineBlameConfig,
     /// Spell checking: which dictionaries to use and how to filter tokens. Off by default (no
     /// dictionaries); languages can override this in `languages.toml`.
     pub spelling: SpellingConfig,
@@ -1183,6 +1214,7 @@ impl Default for Config {
             end_of_line_diagnostics: DiagnosticFilter::Enable(Severity::Hint),
             clipboard_provider: ClipboardProvider::default(),
             editor_config: true,
+            inline_blame: InlineBlameConfig::default(),
             spelling: SpellingConfig::default(),
             rainbow_brackets: false,
             buffer_picker: BufferPickerConfig::default(),

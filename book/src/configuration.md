@@ -129,6 +129,7 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | `smart-tab` | table | See below | Syntax-aware Tab behavior. See [`[editor.smart-tab]`](#editorsmart-tab). |
 | `indent-heuristic` | `"simple"`, `"tree-sitter"`, or `"hybrid"` | `"hybrid"` | Indentation strategy. Unavailable strategies fall back from hybrid to tree-sitter to simple. |
 | `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
+| `inline-blame` | table | See below | Git blame rendered at the end of buffer lines. See [`[editor.inline-blame]`](#editorinline-blame). |
 | `inline-diagnostics` | table | See below | Diagnostics rendered within buffer text. See [`[editor.inline-diagnostics]`](#editorinline-diagnostics). |
 | `end-of-line-diagnostics` | `"disable"`, `"hint"`, `"info"`, `"warning"`, or `"error"` | `"hint"` | Minimum severity shown at the end of a line. |
 | `clipboard-provider` | provider name or custom table | Auto-detected | Clipboard integration. See [`[editor.clipboard-provider]`](#editorclipboard-provider). |
@@ -390,6 +391,15 @@ component-specific settings.
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
 | `supersede-menu` | boolean | `false` | Give smart-tab precedence over completion-menu navigation. |
+
+### `[editor.inline-blame]`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
+| `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./editor.md#format). |
+
+`Space + B` toggles inline blame on the cursor line. Visible files fetch and refresh blame automatically, reusing cached results when HEAD is unchanged. Inline blame skips uncommitted and empty lines.
 
 ### `[editor.inline-diagnostics]`
 

@@ -1,8 +1,12 @@
+mod blame;
 mod code_action_hints;
 mod colors;
 mod highlights;
 mod links;
 mod symbols;
+
+use blame::DocumentBlame;
+pub use blame::LineBlameError;
 
 pub use colors::DocumentColorSwatches;
 pub use highlights::DocumentHighlights;
@@ -271,6 +275,7 @@ pub struct Document {
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
+    pub(crate) blame: DocumentBlame,
 
     // when document was used for most-recent-used buffer picker
     pub focused_at: std::time::Instant,
@@ -801,6 +806,7 @@ impl Document {
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             diff_handle: None,
+            blame: Default::default(),
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
@@ -1443,6 +1449,7 @@ impl Document {
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead
     pub fn set_path(&mut self, path: Option<&Path>) {
+        self.invalidate_blame();
         let path = path.map(stdx::path::canonicalize);
 
         // `take` to remove any prior relative path that may have existed.
@@ -1515,6 +1522,13 @@ impl Document {
         }
 
         Range::new(0, 1).grapheme_aligned(self.text().slice(..))
+    }
+
+    /// Get the line of cursor for the primary selection
+    pub fn cursor_line(&self, view_id: ViewId) -> usize {
+        let text = self.text();
+        let selection = self.selection(view_id);
+        text.char_to_line(selection.primary().cursor(text.slice(..)))
     }
 
     /// Reset the view's selection on this document to the
@@ -2085,6 +2099,7 @@ impl Document {
 
     /// Refresh both branch display and the diff base after repository changes.
     pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+        self.blame.refresh();
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
@@ -2097,6 +2112,11 @@ impl Document {
             }
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
+        if self.config.load().inline_blame.show != crate::config::InlineBlameShow::Never
+            && let Some(handler) = self.blame.handler.clone()
+        {
+            handler.schedule_refresh(self.id());
+        }
     }
 
     /// Initialize or update the differ for this document with a new base.

@@ -22,6 +22,9 @@ use std::{
 #[cfg(feature = "git")]
 mod git;
 
+mod blame;
+pub use blame::FileBlame;
+
 mod diff;
 
 pub use diff::{DiffHandle, Hunk};

@@ -35,7 +35,7 @@ assets = [
 default = ["git"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
 integration = ["event/integration_test"]
-git = ["vcs/git"]
+git = ["view/git"]
 
 [[bin]]
 name = "ms"
