@@ -5,6 +5,18 @@ use anyhow::{bail, Context as _};
 use crate::{DocumentId, Editor};
 
 impl Editor {
+    /// Clear document and workspace diagnostics, including unopened files, for one server.
+    pub fn clear_language_server_diagnostics(&mut self, server_id: lsp_client::LanguageServerId) {
+        self.diagnostics.retain(|_, diagnostics| {
+            diagnostics.retain(|(_, provider)| provider.language_server_id() != Some(server_id));
+            !diagnostics.is_empty()
+        });
+        for doc in self.documents_mut() {
+            doc.clear_diagnostics_for_language_server(server_id);
+            doc.pull_diagnostics.clear_for_server(server_id);
+        }
+    }
+
     /// Restart selected servers for a document and refresh all affected documents.
     /// An empty selection restarts all configured servers and ignores missing executables.
     pub fn restart_language_servers(
@@ -39,6 +51,15 @@ impl Editor {
             }
             valid
         };
+
+        // Restart removes these clients from the registry before their exit notifications
+        // arrive, so the exit handler can no longer clear their diagnostics.
+        let old_server_ids: Vec<_> = self
+            .language_servers
+            .iter_clients()
+            .filter(|client| language_servers.contains(&client.name()))
+            .map(|client| client.id())
+            .collect();
 
         let mut errors = Vec::new();
         for server in language_servers.iter() {
@@ -77,6 +98,10 @@ impl Editor {
                 _ => None,
             })
             .collect();
+
+        for server_id in old_server_ids {
+            self.clear_language_server_diagnostics(server_id);
+        }
 
         for document_id in document_ids_to_refresh {
             self.refresh_language_servers(document_id);

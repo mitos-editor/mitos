@@ -350,15 +350,7 @@ impl Editor {
             log::warn!("can't find language server with id `{server_id}`");
             return;
         }
-        // Servers can publish diagnostics for files that were never opened.
-        for diagnostics in self.diagnostics.values_mut() {
-            diagnostics.retain(|(_, provider)| provider.language_server_id() != Some(server_id));
-        }
-        self.diagnostics
-            .retain(|_, diagnostics| !diagnostics.is_empty());
-        for doc in self.documents_mut() {
-            doc.clear_diagnostics_for_language_server(server_id);
-        }
+        self.clear_language_server_diagnostics(server_id);
         event::dispatch(LanguageServerExited {
             editor: self,
             server_id,

@@ -1669,11 +1669,20 @@ pub(super) mod typed {
         };
 
         for ls_name in &language_servers {
+            let server_ids: Vec<_> = cx
+                .editor
+                .language_servers
+                .iter_clients()
+                .filter(|client| client.name() == ls_name)
+                .map(|client| client.id())
+                .collect();
+            for server_id in server_ids {
+                cx.editor.clear_language_server_diagnostics(server_id);
+            }
             cx.editor.language_servers.stop(ls_name);
 
             for doc in cx.editor.documents_mut() {
-                if let Some(client) = doc.remove_language_server_by_name(ls_name) {
-                    doc.clear_diagnostics_for_language_server(client.id());
+                if doc.remove_language_server_by_name(ls_name).is_some() {
                     doc.reset_all_inlay_hints();
                     doc.inlay_hints_oudated = true;
                     doc.clear_document_symbols();

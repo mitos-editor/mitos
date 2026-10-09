@@ -213,6 +213,104 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha", "beta"])?;
+    f.initialize().await?;
+    let alpha = f.server("alpha");
+    let beta = f.server("beta");
+    let open = f.uri();
+    let other_path = dir.path().join("other.lifecycle-test");
+    std::fs::write(&other_path, "😀 original\n")?;
+    let other_document = f.app.editor.open(&other_path, view::editor::Action::Load)?;
+    let other = f
+        .app
+        .editor
+        .document(other_document)
+        .unwrap()
+        .uri()
+        .unwrap();
+    let shared = Uri::from(stdx::path::normalize(
+        dir.path().join("unopened-shared.lifecycle-test"),
+    ));
+    let alpha_only = Uri::from(stdx::path::normalize(
+        dir.path().join("unopened-alpha.lifecycle-test"),
+    ));
+    for uri in [&open, &other, &shared] {
+        for (id, name) in [(alpha, "alpha"), (beta, "beta")] {
+            f.app
+                .editor
+                .handle_publish_diagnostics(id, params(uri, None, name));
+        }
+    }
+    f.app
+        .editor
+        .handle_publish_diagnostics(alpha, params(&alpha_only, None, "alpha"));
+    let doc = current!(f.app.editor).1;
+    let document = doc.id();
+    let mut spelling = doc.diagnostics()[0].clone();
+    spelling.provider = DiagnosticProvider::Spelling;
+    spelling.message = "spelling".into();
+    doc.replace_diagnostics([spelling], &[], Some(&DiagnosticProvider::Spelling));
+
+    f.app
+        .editor
+        .restart_language_servers(document, &["alpha"])?;
+
+    assert_ne!(f.server("alpha"), alpha);
+    assert_eq!(f.server("beta"), beta);
+    assert_eq!(f.messages(), ["beta", "spelling"]);
+    let other_doc = f.app.editor.document(other_document).unwrap();
+    assert_eq!(other_doc.diagnostics().len(), 1);
+    assert_eq!(other_doc.diagnostics()[0].message.as_ref(), "beta");
+    assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
+    assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
+    assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    // Late notifications from the retired process cannot restore its diagnostics.
+    f.app
+        .editor
+        .handle_publish_diagnostics(alpha, params(&open, None, "late"));
+    f.app.editor.handle_language_server_exit(alpha);
+    assert_eq!(f.messages(), ["beta", "spelling"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha", "beta"])?;
+    f.initialize().await?;
+    let alpha = f.server("alpha");
+    let beta = f.server("beta");
+    let shared = Uri::from(stdx::path::normalize(
+        dir.path().join("unopened.lifecycle-test"),
+    ));
+    let alpha_only = Uri::from(stdx::path::normalize(
+        dir.path().join("alpha.lifecycle-test"),
+    ));
+    for (id, name) in [(alpha, "alpha"), (beta, "beta")] {
+        f.app
+            .editor
+            .handle_publish_diagnostics(id, params(&shared, None, name));
+    }
+    f.app
+        .editor
+        .handle_publish_diagnostics(alpha, params(&alpha_only, None, "alpha"));
+
+    super::helpers::test_key_sequence(&mut f.app, Some(":lsp-stop alpha<ret>"), None, false)
+        .await?;
+
+    assert!(f.app.editor.language_server_by_id(alpha).is_none());
+    assert!(f.app.editor.language_server_by_id(beta).is_some());
+    assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
+    assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
+    assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn terminal_adapter_delegates_and_keeps_the_exit_status_message() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), &["alpha"])?;
