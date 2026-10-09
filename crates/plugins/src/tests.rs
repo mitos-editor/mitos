@@ -1,6 +1,6 @@
 use std::fs;
 
-use plugin_sdk::Action;
+use plugin_api::Action;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -9,6 +9,7 @@ use super::*;
 const MANIFEST: &str = r#"
 abi-version = 2
 module = "plugin.wasm"
+capabilities = ["ui", "editor-read"]
 events = ["document-opened"]
 [commands.run]
 doc = "Run the example command"
@@ -27,6 +28,11 @@ fn fixture(manifest: &str, module: &str) -> (TempDir, PluginConfig) {
         path: directory.path().join("plugin.toml"),
         enabled: true,
         config: json!({ "prefix": "example" }),
+        permissions: Permissions {
+            capabilities: [Capability::Ui, Capability::EditorRead].into(),
+            ..Permissions::default()
+        },
+        ..PluginConfig::default()
     };
     (directory, config)
 }
@@ -63,6 +69,37 @@ fn load_manager(config: PluginConfig) -> PluginManager {
 
 fn command(manager: &mut PluginManager) -> Result<Option<Response>> {
     manager.call_command("example.run", vec![], EditorContext::default())
+}
+
+#[test]
+fn module_pins_and_permission_revocation_reject_replacements_and_calls() {
+    let (_directory, mut config) = fixture(MANIFEST, &module("{}", ""));
+    config.sha256 = Some("0".repeat(64));
+    let (manager, errors) = PluginManager::load(
+        &BTreeMap::from([("example".into(), config)]),
+        Path::new("."),
+    );
+    assert!(manager.available_commands().is_empty());
+    assert!(errors[0].contains("SHA-256"));
+
+    let (_directory, config) = fixture(MANIFEST, &module("{}", ""));
+    let mut manager = load_manager(config);
+    manager.policy("example").unwrap().revoke();
+    assert!(command(&mut manager).is_err());
+    assert!(!manager.subscribes(Event::DocumentOpened));
+}
+
+#[test]
+fn document_observation_requires_declaration_and_user_grant() {
+    let (_directory, mut config) = fixture(MANIFEST, &module("{}", ""));
+    config.permissions = Permissions::default();
+    let mut manager = load_manager(config);
+    assert!(!manager.subscribes(Event::DocumentOpened));
+    assert!(manager
+        .dispatch_event(Event::DocumentOpened, EditorContext::default(), Value::Null)
+        .is_empty());
+    assert!(manager.subscribes(Event::Init));
+    assert!(manager.subscribes(Event::UiResult));
 }
 
 #[test]

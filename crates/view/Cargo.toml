@@ -23,7 +23,7 @@ bench = []
 
 [dependencies]
 plugins.workspace = true
-plugin-sdk.workspace = true
+plugin-api.workspace = true
 filesentry.workspace = true
 ignore.workspace = true
 command-line.workspace = true

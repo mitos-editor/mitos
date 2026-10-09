@@ -41,6 +41,7 @@
 - [Custom commands](./custom-commands.md)
 - [WebAssembly plugins](./plugins.md)
   - [API contract](./plugin-contract.md)
+  - [Permissions](./plugin-permissions.md)
 - [Languages](./languages.md)
 
 # Help and migration

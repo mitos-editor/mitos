@@ -11,6 +11,7 @@ use futures_util::future::BoxFuture;
 use crate::Editor;
 
 pub type EditorCallback = Box<dyn FnOnce(&mut Editor) + Send>;
+type TrySendEditorCallback = dyn Fn(EditorCallback) -> Result<(), EditorCallback> + Send + Sync;
 
 /// Completion of one accepted native task belonging to a command invocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,7 +82,7 @@ impl Drop for InvocationTask {
 pub struct EditorCallbackSender {
     send: Arc<dyn Fn(EditorCallback) -> BoxFuture<'static, ()> + Send + Sync>,
     send_blocking: Arc<dyn Fn(EditorCallback) + Send + Sync>,
-    try_send: Option<Arc<dyn Fn(EditorCallback) -> Result<(), EditorCallback> + Send + Sync>>,
+    try_send: Option<Arc<TrySendEditorCallback>>,
 }
 
 impl fmt::Debug for EditorCallbackSender {

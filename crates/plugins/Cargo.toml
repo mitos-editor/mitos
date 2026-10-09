@@ -13,7 +13,13 @@ homepage.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-plugin-sdk.workspace = true
+cap-std.workspace = true
+plugin-api.workspace = true
+libc.workspace = true
+parking_lot.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "process", "io-util", "macros"] }
+tokio-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

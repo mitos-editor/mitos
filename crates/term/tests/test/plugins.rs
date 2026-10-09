@@ -151,7 +151,7 @@ fn fixture_matching(
     std::fs::write(dir.path().join("fixture.wasm"), wasm)?;
     std::fs::write(
         dir.path().join("plugin.toml"),
-        format!("abi-version = {}\nmodule = 'fixture.wasm'\nevents = ['{event}']\n[commands.run]\ndoc = 'Run the fixture guest'\n", plugin_sdk::ABI_VERSION),
+        format!("abi-version = {}\nmodule = 'fixture.wasm'\ncapabilities = ['ui', 'editor-read']\nevents = ['{event}']\n[commands.run]\ndoc = 'Run the fixture guest'\n", plugin_api::ABI_VERSION),
     )?;
     let mut config = test_config();
     config.plugins.insert(
@@ -160,6 +160,14 @@ fn fixture_matching(
             path: dir.path().into(),
             enabled: true,
             config: Value::Null,
+            permissions: plugin_api::Permissions {
+                capabilities: std::collections::BTreeSet::from([
+                    plugin_api::Capability::Ui,
+                    plugin_api::Capability::EditorRead,
+                ]),
+                ..Default::default()
+            },
+            ..Default::default()
         },
     );
     Ok((dir, config))

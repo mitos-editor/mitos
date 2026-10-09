@@ -19,6 +19,7 @@ members = [
   "crates/spelling",
   "crates/stdx",
   "crates/plugin-sdk",
+  "crates/plugin-api",
   "crates/plugins",
   "xtask",
 ]
@@ -56,6 +57,7 @@ lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
 plugin-sdk = { path = "crates/plugin-sdk" }
+plugin-api = { path = "crates/plugin-api" }
 plugins = { path = "crates/plugins" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }
@@ -72,6 +74,7 @@ jiff = { version = "0.2.27", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2.0"
 wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "auto-dispatch"] }
+cap-std = "4.0.3"
 
 # Async and concurrency
 arc-swap = "1.9"
@@ -80,6 +83,7 @@ futures-executor = "0.3.32"
 futures-util = { version = "0.3", features = ["std", "async-await"], default-features = false }
 parking_lot = "0.12"
 tokio = "1.50"
+tokio-util = { version = "=0.7.18", features = ["rt"] }
 tokio-stream = "0.1.18"
 
 # Collections and compact storage

@@ -1,7 +1,7 @@
 //! Small real guests that validate owned event requests at the WASM boundary.
 use std::path::Path;
 
-use plugin_sdk::{Action, Response};
+use plugin_api::{Action, Response};
 use plugins::PluginConfig;
 
 #[derive(Default)]
@@ -101,10 +101,30 @@ pub(crate) fn observing(
             i64.const 2))"#
     ))?;
     std::fs::write(dir.join("plugin.wasm"), wasm)?;
-    std::fs::write(dir.join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\nevents = {subscriptions:?}\n[commands.run]\ndoc = 'Observed guest'\n", plugin_sdk::ABI_VERSION))?;
+    std::fs::write(dir.join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read', 'editor-edit', 'editor-selection', 'editor-navigate', 'workspace-read']\nevents = {subscriptions:?}\n[commands.run]\ndoc = 'Observed guest'\n", plugin_api::ABI_VERSION))?;
     Ok(PluginConfig {
         path: dir.join("plugin.toml"),
         enabled: true,
         config: serde_json::Value::Null,
+        permissions: permissions(dir),
+        ..PluginConfig::default()
     })
+}
+
+/// Fixture authority is explicit so production defaults stay restricted.
+pub(crate) fn permissions(root: &Path) -> plugin_api::Permissions {
+    use plugin_api::Capability;
+    plugin_api::Permissions {
+        capabilities: [
+            Capability::Ui,
+            Capability::EditorRead,
+            Capability::EditorEdit,
+            Capability::EditorSelection,
+            Capability::EditorNavigate,
+            Capability::WorkspaceRead,
+        ]
+        .into(),
+        read_roots: vec![root.to_owned()],
+        ..plugin_api::Permissions::default()
+    }
 }

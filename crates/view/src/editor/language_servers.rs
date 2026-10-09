@@ -55,10 +55,8 @@ impl Editor {
                 }
             }
         }
-        if detached {
-            if let Some(tasks) = self.invocation_tasks() {
-                tasks.detached();
-            }
+        if detached && let Some(tasks) = self.invocation_tasks() {
+            tasks.detached();
         }
         Ok(())
     }
@@ -70,6 +68,12 @@ impl Editor {
         document: DocumentId,
         servers: &[&str],
     ) -> anyhow::Result<()> {
+        // This is an explicit native command; automatic refresh uses the
+        // guarded launch_language_servers path instead.
+        self.documents
+            .get_mut(&document)
+            .context("Document no longer exists")?
+            .adopt_native_authority();
         let editor_config = self.config.load();
         let doc = self
             .documents
@@ -157,10 +161,8 @@ impl Editor {
             self.refresh_language_servers(document_id);
         }
 
-        if detached {
-            if let Some(tasks) = self.invocation_tasks() {
-                tasks.detached();
-            }
+        if detached && let Some(tasks) = self.invocation_tasks() {
+            tasks.detached();
         }
 
         if errors.is_empty() {

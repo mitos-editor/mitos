@@ -16,6 +16,28 @@ use ui_core::{keymap::Keymap, terminal::KittyKeyboardProtocolConfig};
 use view::custom_commands::{CustomCommand, CustomCommands};
 use view::{document::Mode, theme};
 
+/// Workspace files may configure plugins, but only the user's configuration
+/// grants authority. A replacement package never inherits another path's grant.
+fn merge_workspace_plugins(
+    global: &mut BTreeMap<String, plugins::PluginConfig>,
+    local: BTreeMap<String, plugins::PluginConfig>,
+) {
+    for (name, mut plugin) in local {
+        match global.get(&name).filter(|user| user.path == plugin.path) {
+            Some(user) => {
+                plugin.permissions = user.permissions.clone();
+                plugin.sha256 = user.sha256.clone();
+                plugin.enabled &= user.enabled;
+            }
+            None => {
+                plugin.permissions = Default::default();
+                plugin.sha256 = None;
+            }
+        }
+        global.insert(name, plugin);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub plugins: BTreeMap<String, plugins::PluginConfig>,
@@ -343,7 +365,7 @@ impl Config {
             local.and_then(|file| parse_source(&file).map_err(ConfigLoadError::BadConfig));
         let res = match (global_config, local_config) {
             (Ok(mut global), Ok(local)) => {
-                global.plugins.extend(local.plugins);
+                merge_workspace_plugins(&mut global.plugins, local.plugins);
                 let (keys, component_keys) =
                     resolve_keymaps(global.keys.into_iter().chain(local.keys));
 
@@ -379,7 +401,18 @@ impl Config {
             | (Err(ConfigLoadError::BadConfig(err)), _) => {
                 return Err(ConfigLoadError::BadConfig(err))
             }
-            (Ok(config), Err(_)) | (Err(_), Ok(config)) => {
+            (global @ Ok(_), local @ Err(_)) | (global @ Err(_), local @ Ok(_)) => {
+                let config = match (global, local) {
+                    (Ok(config), _) => config,
+                    (_, Ok(mut config)) => {
+                        for plugin in config.plugins.values_mut() {
+                            plugin.permissions = Default::default();
+                            plugin.sha256 = None;
+                        }
+                        config
+                    }
+                    _ => unreachable!(),
+                };
                 let (keys, component_keys) = resolve_keymaps(config.keys);
                 let mut settings =
                     settings_from_sources(config.editor, config.terminal, None, None)?;
@@ -938,6 +971,37 @@ mod tests {
         assert!(
             Config::load_test_result("[plugins.example]\npath = 'test'\nenabeld = true").is_err()
         );
+    }
+
+    #[test]
+    fn workspace_plugins_cannot_broaden_or_transfer_user_grants() {
+        let global = "[plugins.example]\npath = 'user/plugin.toml'\nsha256 = '".to_owned() + "a".repeat(64).as_str() + "'\n[plugins.example.permissions]\ncapabilities = ['editor-edit']\nread-roots = ['/user/root']";
+        let local = "[plugins.example]\npath = 'user/plugin.toml'\nsha256 = '".to_owned() + "b".repeat(64).as_str() + "'\n[plugins.example.permissions]\ncapabilities = ['process', 'network']\nread-roots = ['/']";
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        let plugin = &config.plugins["example"];
+        assert_eq!(
+            plugin.permissions.capabilities,
+            [plugin_api::Capability::EditorEdit].into()
+        );
+        assert_eq!(
+            plugin.permissions.read_roots,
+            vec![std::path::PathBuf::from("/user/root")]
+        );
+        assert_eq!(plugin.sha256.as_deref(), Some("a".repeat(64).as_str()));
+
+        let local = "[plugins.example]\npath = 'replacement/plugin.toml'\n[plugins.example.permissions]\ncapabilities = ['process']".to_owned();
+        let config = Config::load(Ok(&global), Ok(local.clone())).unwrap();
+        assert_eq!(config.plugins["example"].permissions, Default::default());
+        assert!(config.plugins["example"].sha256.is_none());
+        let local_only = Config::load(Err(ConfigLoadError::default()), Ok(local)).unwrap();
+        assert_eq!(
+            local_only.plugins["example"].permissions,
+            Default::default()
+        );
+
+        let disabled = "[plugins.example]\npath = 'same'\nenabled = false".to_owned();
+        let enabled = "[plugins.example]\npath = 'same'\nenabled = true".to_owned();
+        assert!(!Config::load(Ok(&disabled), Ok(enabled)).unwrap().plugins["example"].enabled);
     }
 
     #[test]
