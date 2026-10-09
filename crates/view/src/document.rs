@@ -642,6 +642,9 @@ fn read_and_detect_encoding<R: std::io::Read + ?Sized>(
     buf: &mut [u8],
 ) -> Result<(&'static Encoding, bool, encoding::Decoder, usize), io::Error> {
     let read = reader.read(buf)?;
+    // A short read can split a multibyte character. Unread buffer bytes must
+    // not be fed to the detector as if they were part of the input.
+    let buf = &buf[..read];
     let is_empty = read == 0;
     let (encoding, has_bom) = encoding
         .map(|encoding| (encoding, false))
@@ -2899,6 +2902,62 @@ mod test {
             .to_string(),
             editor_core::NATIVE_LINE_ENDING.as_str()
         );
+    }
+
+    #[test]
+    fn detect_utf8_with_split_cjk_character() {
+        // File opening preloads 1024 bytes for binary detection. This splits a
+        // three-byte character, leaving the rest of the decoding buffer unused.
+        let mut text = "中文日本語한국어".repeat(1000);
+        let mut file = tempfile::tempfile().unwrap();
+        std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
+        std::io::Seek::rewind(&mut file).unwrap();
+
+        let (mut rope, encoding, has_bom, binary) = read_file(&mut file, None).unwrap();
+        assert_eq!(encoding, encoding::UTF_8);
+        assert!(!has_bom);
+        assert!(!binary);
+        assert_eq!(rope.to_string(), text);
+
+        // Saving and reopening must also preserve pasted CJK text.
+        let pasted = "粘贴した텍스트";
+        rope.insert(rope.len_chars(), pasted);
+        text.push_str(pasted);
+        let mut saved = Vec::new();
+        lsp_client::block_on(to_writer(&mut saved, (encoding, has_bom), &rope)).unwrap();
+        assert_eq!(saved, text.as_bytes());
+        let (reopened, encoding, _) = from_reader(&mut saved.as_slice(), None).unwrap();
+        assert_eq!(encoding, encoding::UTF_8);
+        assert_eq!(reopened, rope);
+    }
+
+    #[test]
+    fn detect_utf8_from_short_reads() {
+        let text = "中文日本語한국어".repeat(1000);
+        let mut reader = io::BufReader::with_capacity(1024, text.as_bytes());
+        std::io::BufRead::fill_buf(&mut reader).unwrap();
+
+        let (decoded, encoding, has_bom) = read_to_string(&mut reader, None).unwrap();
+        assert_eq!(encoding, encoding::UTF_8);
+        assert!(!has_bom);
+        assert_eq!(decoded, text);
+    }
+
+    #[test]
+    fn encoding_detection_ignores_unread_bytes() {
+        // Unread bytes must affect neither BOM detection nor the encoding guess.
+        let mut buf = [0xef, 0xbb, 0xbf, 0xff];
+        let (encoding, has_bom, _, read) =
+            read_and_detect_encoding(&mut &b""[..], None, &mut buf).unwrap();
+        assert_eq!(read, 0);
+        assert_eq!(encoding, encoding::UTF_8);
+        assert!(!has_bom);
+
+        let (encoding, has_bom, _, read) =
+            read_and_detect_encoding(&mut &b"a"[..], None, &mut buf).unwrap();
+        assert_eq!(read, 1);
+        assert_eq!(encoding, encoding::UTF_8);
+        assert!(!has_bom);
     }
 
     macro_rules! decode {
