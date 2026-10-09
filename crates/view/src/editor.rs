@@ -677,6 +677,9 @@ impl Editor {
         let Some(doc) = self.documents.get_mut(&doc_id) else {
             return;
         };
+        if doc.is_restricted_adoption() {
+            return;
+        }
         let Some(doc_url) = doc.url() else {
             return;
         };
@@ -780,10 +783,10 @@ impl Editor {
         let scrolloff = self.config().scrolloff;
         let view = self.tree.get_mut(current_view);
 
-        if view.doc != doc_id {
-            if let Some(previous) = self.documents.get_mut(&view.doc) {
-                previous.unbind_view(view.id);
-            }
+        if view.doc != doc_id
+            && let Some(previous) = self.documents.get_mut(&view.doc)
+        {
+            previous.unbind_view(view.id);
         }
         view.bind_document(doc_id);
         let doc = doc_mut!(self, &doc_id);
@@ -927,7 +930,9 @@ impl Editor {
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);
-        self.refresh_vcs_watches();
+        if !self.documents[&id].is_restricted_adoption() {
+            self.refresh_vcs_watches();
+        }
 
         let (save_sender, save_receiver) = tokio::sync::mpsc::unbounded_channel();
         self.saves.insert(id, save_sender);
@@ -942,7 +947,7 @@ impl Editor {
         let id = self.new_document(doc);
         self.switch(id, action);
         self.refresh_spelling(id);
-        self.queue_plugin_document_event(plugin_sdk::Event::DocumentOpened, id);
+        self.queue_plugin_document_event(plugin_api::Event::DocumentOpened, id);
         id
     }
 
@@ -988,9 +993,30 @@ impl Editor {
     // ??? possible use for integration tests
     pub fn open(&mut self, path: &Path, action: Action) -> Result<DocumentId, DocumentOpenError> {
         let path = stdx::path::canonicalize(path);
-        let id = self.document_id_by_path(&path);
+        let id = self.document_id_by_path(&path).or_else(|| {
+            // Scoped reads retain the granted directory's canonical identity;
+            // explicit native open may use a configured alias such as /tmp.
+            // This lookup is native authority and never runs for plugin effects.
+            let canonical = path.canonicalize().ok()?;
+            self.documents
+                .values()
+                .find(|doc| doc.is_restricted_adoption() && doc.path() == Some(canonical.as_path()))
+                .map(Document::id)
+        });
 
         let id = if let Some(id) = id {
+            if self.documents[&id].is_restricted_adoption() {
+                let doc = self.documents.get_mut(&id).unwrap();
+                doc.adopt_native_authority();
+                doc.set_path(Some(&path));
+                let trust_full = self
+                    .workspace_trust
+                    .query(doc.workspace_root(), TrustQuery::Git)
+                    .is_trusted();
+                doc.refresh_vcs(&self.diff_providers, trust_full);
+                self.launch_language_servers(id);
+                self.refresh_vcs_watches();
+            }
             id
         } else {
             let mut doc = Document::open(
@@ -1032,6 +1058,26 @@ impl Editor {
         self.switch(id, action);
 
         Ok(id)
+    }
+
+    /// Adopt a fully prepared scoped-read document without reopening its path,
+    /// discovering repositories or starting configured providers. Native `open`
+    /// may later promote it through the normal explicit user operation.
+    pub(crate) fn adopt_plugin_document(&mut self, doc: Document, action: Action) -> DocumentId {
+        debug_assert!(doc.is_restricted_adoption());
+        let path = doc.path().expect("scoped document has a path");
+        let id = if let Some(id) = self.document_id_by_path(path) {
+            id
+        } else {
+            let id = self.new_document(doc);
+            event::dispatch(DocumentDidOpen {
+                editor: self,
+                doc: id,
+            });
+            id
+        };
+        self.switch(id, action);
+        id
     }
 
     pub fn close(&mut self, id: ViewId) {
@@ -1135,6 +1181,7 @@ impl Editor {
 
         let path = path.map(|path| path.into());
         let doc = doc_mut!(self, &doc_id);
+        doc.adopt_native_authority();
         // the path that will be written: the override, else the document's own path
         let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
         let created = save_path.as_ref().is_some_and(|path| !path.exists());
@@ -1551,6 +1598,9 @@ impl Editor {
         let mut paths = Vec::new();
         if self.config().file_watcher.watch_vcs {
             for doc in self.documents.values() {
+                if doc.is_restricted_adoption() {
+                    continue;
+                }
                 let Some(path) = doc.path().and_then(|path| path.parent()) else {
                     continue;
                 };

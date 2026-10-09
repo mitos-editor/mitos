@@ -133,7 +133,8 @@ impl ReloadRequest {
             && editor.config().auto_reload.enable
             && editor.config().auto_reload.prompt_if_modified
             && editor.document(self.doc).is_some_and(|doc| {
-                doc.path() == Some(self.path.as_path())
+                !doc.is_restricted_adoption()
+                    && doc.path() == Some(self.path.as_path())
                     && doc.version() == self.version
                     && doc.last_saved_time() == self.saved
                     && doc.is_modified()
@@ -196,8 +197,10 @@ pub fn check_unwatched(editor: &mut Editor) {
         let ids: Vec<_> = editor
             .documents()
             .filter(|doc| {
-                doc.path()
-                    .is_some_and(|path| !editor.file_watcher.is_watching(path))
+                !doc.is_restricted_adoption()
+                    && doc
+                        .path()
+                        .is_some_and(|path| !editor.file_watcher.is_watching(path))
             })
             .map(|doc| doc.id())
             .collect();
@@ -225,6 +228,9 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
     };
+    if doc.is_restricted_adoption() {
+        return;
+    }
     let Some(path) = doc.path().map(ToOwned::to_owned) else {
         return;
     };
@@ -291,6 +297,9 @@ fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()
 
 fn reload_vcs(editor: &mut Editor) {
     for doc in editor.documents.values_mut() {
+        if doc.is_restricted_adoption() {
+            continue;
+        }
         let Some(path) = doc.path().map(ToOwned::to_owned) else {
             continue;
         };
@@ -333,8 +342,10 @@ pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
         let ids: Vec<_> = editor
             .documents()
             .filter(|doc| {
-                doc.path()
-                    .is_some_and(|path| changed.contains(canonicalize_existing(path).as_path()))
+                !doc.is_restricted_adoption()
+                    && doc
+                        .path()
+                        .is_some_and(|path| changed.contains(canonicalize_existing(path).as_path()))
             })
             .map(|doc| doc.id())
             .collect();

@@ -79,7 +79,7 @@ impl CommandCompletion {
         if mode != self.mode {
             self.queue_event(
                 editor,
-                plugin_sdk::Event::ModeChanged,
+                plugin_api::Event::ModeChanged,
                 serde_json::json!({
                     "old-mode": self.mode.to_string(),
                     "new-mode": mode.to_string(),
@@ -110,7 +110,7 @@ impl CommandCompletion {
         self.capture_effects(editor);
         let error = error.or_else(|| self.error.take());
         self.queue_event(editor,
-            plugin_sdk::Event::PostCommand,
+            plugin_api::Event::PostCommand,
             serde_json::json!({
                 "command": self.command,
                 "args": self.args,
@@ -126,7 +126,7 @@ impl CommandCompletion {
         );
     }
 
-    fn queue_event(&self, editor: &Editor, event: plugin_sdk::Event, data: serde_json::Value) {
+    fn queue_event(&self, editor: &Editor, event: plugin_api::Event, data: serde_json::Value) {
         if let Some(document) = self.document {
             editor.queue_plugin_event_for_view_binding(
                 event,

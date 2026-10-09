@@ -212,13 +212,12 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event.doc.config.load().lsp.auto_document_highlight
             && !event.ghost_transaction
-            && event.view.is_some()
+            && let Some(view_id) = event.view
             && event
                 .doc
                 .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
         {
             let doc_id = event.doc.id();
-            let view_id = event.view.unwrap();
             event.doc.document_highlight_controller(view_id).cancel();
             if let Some(handler) = &event.doc.document_highlights.handler {
                 handler.callbacks.send_blocking(move |editor| {

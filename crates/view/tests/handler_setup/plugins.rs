@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use editor_core::{Range, Selection, Transaction};
-use plugin_sdk::{Action, Event, Response, SelectionRange, TextEdit};
+use plugin_api::{Action, Event, Response, SelectionRange, TextEdit};
 use plugins::PluginConfig;
 use view::{
     current, current_ref, editor::Action as EditorAction, plugins::PluginConflict, Editor, ViewId,
@@ -24,8 +24,8 @@ fn plugin_with_init(
     initial: Response,
 ) -> anyhow::Result<BTreeMap<String, PluginConfig>> {
     std::fs::write(dir.join("plugin.toml"), format!(
-        "abi-version = {}\nmodule = 'plugin.wasm'\nevents = {events:?}\n[commands.run]\ndoc = 'Run fixture'\n",
-        plugin_sdk::ABI_VERSION
+        "abi-version = {}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read', 'editor-edit', 'editor-selection', 'editor-navigate', 'workspace-read']\nevents = {events:?}\n[commands.run]\ndoc = 'Run fixture'\n",
+        plugin_api::ABI_VERSION
     ))?;
     let response = serde_json::to_vec(&response)?;
     let initial = serde_json::to_vec(&initial)?;
@@ -64,6 +64,8 @@ fn plugin_with_init(
             path: dir.join("plugin.toml"),
             enabled: true,
             config: serde_json::Value::Null,
+            permissions: crate::support::plugin_guest::permissions(dir),
+            ..PluginConfig::default()
         },
     )]))
 }
@@ -388,6 +390,8 @@ async fn rust_sdk_plugin_runs_through_the_editor() -> anyhow::Result<()> {
             path: dir.path().join("plugin.toml"),
             enabled: true,
             config: serde_json::Value::Null,
+            permissions: crate::support::plugin_guest::permissions(dir.path()),
+            ..PluginConfig::default()
         },
     )]);
     fixture.editor.reload_plugins(&config, dir.path());
@@ -1019,7 +1023,7 @@ async fn other_plugins_observe_mutations_with_provenance_without_own_echoes() ->
 #[tokio::test(flavor = "multi_thread")]
 async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> anyhow::Result<()> {
     use super::support::plugin_guest::{observing, status, Route};
-    use plugin_sdk::{StateCatalog, StateQuery};
+    use plugin_api::{StateCatalog, StateQuery};
     use view::callbacks::{EditorCallback, EditorCallbackSender};
     let dir = tempfile::tempdir()?;
     // Fill the frontend callback queue. Plugin hooks must never block or lose
@@ -1335,13 +1339,15 @@ async fn a_disabled_guest_stops_snapshot_capture_and_callback_wakes_immediately(
             i64.const 68719476738))"#,
     )?;
     std::fs::write(dir.path().join("plugin.wasm"), wasm)?;
-    std::fs::write(dir.path().join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\nevents = ['post-command','document-opened']\n", plugin_sdk::ABI_VERSION))?;
+    std::fs::write(dir.path().join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read', 'editor-edit', 'editor-selection', 'editor-navigate', 'workspace-read']\nevents = ['post-command','document-opened']\n", plugin_api::ABI_VERSION))?;
     let config = BTreeMap::from([(
         "trap".into(),
         PluginConfig {
             path: dir.path().join("plugin.toml"),
             enabled: true,
             config: serde_json::Value::Null,
+            permissions: crate::support::plugin_guest::permissions(dir.path()),
+            ..PluginConfig::default()
         },
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
@@ -1560,5 +1566,346 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
     );
     drain(&mut fixture);
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "closed");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn capability_denial_rejects_the_complete_response() -> anyhow::Result<()> {
+    use plugin_api::{Capability, ErrorCode, ServiceError};
+    let mut fixture = Fixture::new("original\n")?;
+    let doc = current_ref!(fixture.editor).1;
+    let dir = tempfile::tempdir()?;
+    let mut config = plugin(
+        dir.path(),
+        Response {
+            actions: vec![
+                Action::Status {
+                    message: "must not appear".into(),
+                },
+                Action::Edit {
+                    document: doc.id().as_u64(),
+                    version: doc.version(),
+                    edits: vec![TextEdit {
+                        start: 0,
+                        end: 1,
+                        text: "X".into(),
+                    }],
+                },
+            ],
+            error: None,
+        },
+        &[],
+    )?;
+    config
+        .get_mut("fixture")
+        .unwrap()
+        .permissions
+        .capabilities
+        .remove(&Capability::EditorEdit);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    let error = fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<ServiceError>().unwrap().code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().to_string(),
+        "original\n"
+    );
+    assert!(fixture
+        .editor
+        .status_msg
+        .as_ref()
+        .is_none_or(|message| message.0 != "must not appear"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_only_guests_do_not_capture_large_buffer_text() -> anyhow::Result<()> {
+    use crate::support::plugin_guest::{observing, status, Route};
+    use plugin_api::{Capability, Permissions};
+    let mut fixture = Fixture::new(&"sensitive".repeat(300_000))?;
+    let dir = tempfile::tempdir()?;
+    let mut config = observing(
+        dir.path(),
+        &["document-opened"],
+        &[Route {
+            event: "command",
+            expected: vec![
+                "\"document\":null".into(),
+                "\"view\":null".into(),
+                "\"args\":[\"explicit argument\"]".into(),
+            ],
+            response: status("allowed"),
+            ..Route::default()
+        }],
+        None,
+    )?;
+    config.permissions = Permissions {
+        capabilities: [Capability::Ui].into(),
+        ..Permissions::default()
+    };
+    assert!(fixture
+        .editor
+        .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
+    fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec!["explicit argument".into()])?;
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "allowed");
+    fixture.editor.new_file(EditorAction::VerticalSplit);
+    assert!(
+        fixture.callbacks.try_recv().is_err(),
+        "ungranted document subscriptions must not capture or schedule"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adoption(
+) -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("opened.txt");
+    std::fs::write(&path, "owned bytes\n")?;
+    let config = plugin(
+        dir.path(),
+        Response {
+            actions: vec![Action::Open {
+                path: path.to_string_lossy().into_owned(),
+            }],
+            error: None,
+        },
+        &[],
+    )?;
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])?;
+    let (view, doc) = current!(fixture.editor);
+    let id = doc.id();
+    assert!(doc.is_restricted_adoption());
+    assert_eq!(doc.text().to_string(), "owned bytes\n");
+    let transaction = Transaction::change(doc.text(), [(0, 0, Some("X".into()))].into_iter());
+    assert!(doc.apply(&transaction, view.id));
+    doc.append_changes_to_history(view);
+    view::save::auto_save(&mut fixture.editor)?;
+    assert_eq!(fixture.editor.write_count, 0);
+    assert!(fixture
+        .editor
+        .document(id)
+        .unwrap()
+        .is_restricted_adoption());
+    std::fs::write(&path, "external change\n")?;
+    let mut config = (**fixture.config.load()).clone();
+    config.auto_reload.enable = true;
+    fixture.config.store(std::sync::Arc::new(config));
+    view::handlers::auto_reload::check_unwatched(&mut fixture.editor);
+    assert_eq!(
+        fixture.editor.document(id).unwrap().text().to_string(),
+        "Xowned bytes\n"
+    );
+    assert_eq!(fixture.editor.open(&path, EditorAction::Replace)?, id);
+    assert!(!fixture
+        .editor
+        .document(id)
+        .unwrap()
+        .is_restricted_adoption());
+    view::save::auto_save(&mut fixture.editor)?;
+    assert_eq!(fixture.editor.write_count, 1);
+    fixture.editor.flush_writes().await?;
+    assert_eq!(std::fs::read_to_string(path)?, "Xowned bytes\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unsafe_or_binary_opens_leave_earlier_edits_and_navigation_unapplied() -> anyhow::Result<()>
+{
+    use plugin_api::{ErrorCode, ServiceError};
+    for target in ["missing.txt", "binary.png"] {
+        let mut fixture = Fixture::new("original\n")?;
+        let doc = current_ref!(fixture.editor).1;
+        let id = doc.id();
+        let version = doc.version();
+        let dir = tempfile::tempdir()?;
+        let first = dir.path().join("first.txt");
+        std::fs::write(&first, "first\n")?;
+        std::fs::write(dir.path().join("binary.png"), b"\x89PNG\r\n\x1a\n")?;
+        let config = plugin(
+            dir.path(),
+            Response {
+                actions: vec![
+                    Action::Edit {
+                        document: id.as_u64(),
+                        version,
+                        edits: vec![TextEdit {
+                            start: 0,
+                            end: 1,
+                            text: "X".into(),
+                        }],
+                    },
+                    Action::Open {
+                        path: first.to_string_lossy().into_owned(),
+                    },
+                    Action::Open {
+                        path: dir.path().join(target).to_string_lossy().into_owned(),
+                    },
+                ],
+                error: None,
+            },
+            &[],
+        )?;
+        assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        let count = fixture.editor.documents().count();
+        let error = fixture
+            .editor
+            .execute_plugin_command("fixture.run", vec![])
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ServiceError>().unwrap().code,
+            ErrorCode::PermissionDenied | ErrorCode::InvalidRequest
+        ));
+        assert_eq!(fixture.editor.documents().count(), count);
+        assert_eq!(current_ref!(fixture.editor).1.id(), id);
+        assert_eq!(
+            fixture.editor.document(id).unwrap().text().to_string(),
+            "original\n"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plugin_status_is_bounded_and_has_no_terminal_controls() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let config = plugin(
+        dir.path(),
+        Response {
+            actions: vec![Action::Status {
+                message: format!("\x1b\x07\n{}", "é".repeat(4000)),
+            }],
+            error: None,
+        },
+        &[],
+    )?;
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])?;
+    let message = &fixture.editor.status_msg.as_ref().unwrap().0;
+    assert!(message.len() <= 4096);
+    assert!(!message.chars().any(char::is_control));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delayed_open_rejects_changed_selection_text_or_focus() -> anyhow::Result<()> {
+    for change in ["selection", "text", "focus"] {
+        let mut fixture = Fixture::new("original\n")?;
+        let dir = tempfile::tempdir()?;
+        let target = dir.path().join("opened.txt");
+        std::fs::write(&target, "opened\n")?;
+        let config = plugin(
+            dir.path(),
+            Response {
+                actions: vec![Action::Open {
+                    path: target.to_string_lossy().into_owned(),
+                }],
+                error: None,
+            },
+            &["post-command"],
+        )?;
+        assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        fixture
+            .editor
+            .queue_plugin_event(Event::PostCommand, serde_json::json!({"command":"run"}));
+        match change {
+            "selection" => {
+                let (view, doc) = current!(fixture.editor);
+                doc.set_selection(view.id, Selection::single(1, 2));
+            }
+            "text" => {
+                let (view, doc) = current!(fixture.editor);
+                let transaction =
+                    Transaction::change(doc.text(), [(0, 0, Some("X".into()))].into_iter());
+                assert!(doc.apply(&transaction, view.id));
+            }
+            "focus" => {
+                fixture.editor.new_file(EditorAction::VerticalSplit);
+            }
+            _ => unreachable!(),
+        }
+        let focused = fixture.editor.tree.focus;
+        let count = fixture.editor.documents().count();
+        drain(&mut fixture);
+        assert_eq!(fixture.editor.tree.focus, focused);
+        assert_eq!(fixture.editor.documents().count(), count);
+        let error = fixture.editor.status_msg.as_ref().unwrap().0.as_ref();
+        let expected = match change {
+            "selection" => "stale selection",
+            "text" => "stale document",
+            _ => "no longer focused",
+        };
+        assert!(error.contains(expected), "{error}");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_rejects_guest_navigation_and_edits_before_any_effect() -> anyhow::Result<()> {
+    for open in [false, true] {
+        let mut fixture = Fixture::new("original\n")?;
+        let doc = current_ref!(fixture.editor).1;
+        let id = doc.id();
+        let dir = tempfile::tempdir()?;
+        let target = dir.path().join("opened.txt");
+        std::fs::write(&target, "opened\n")?;
+        let action = if open {
+            Action::Open {
+                path: target.to_string_lossy().into_owned(),
+            }
+        } else {
+            Action::Edit {
+                document: id.as_u64(),
+                version: doc.version(),
+                edits: vec![TextEdit {
+                    start: 0,
+                    end: 1,
+                    text: "X".into(),
+                }],
+            }
+        };
+        let config = plugin(
+            dir.path(),
+            Response {
+                actions: vec![
+                    Action::Status {
+                        message: "must not apply".into(),
+                    },
+                    action,
+                ],
+                error: None,
+            },
+            &[],
+        )?;
+        assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        let count = fixture.editor.documents().count();
+        fixture.editor.shutdown_plugins();
+        assert_eq!(fixture.editor.documents().count(), count);
+        assert_eq!(
+            fixture.editor.document(id).unwrap().text().to_string(),
+            "original\n"
+        );
+        assert!(fixture
+            .editor
+            .status_msg
+            .as_ref()
+            .unwrap()
+            .0
+            .contains("only diagnostics"));
+    }
     Ok(())
 }

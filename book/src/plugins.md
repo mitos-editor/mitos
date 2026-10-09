@@ -18,6 +18,9 @@ path = "plugins/uppercase/plugin.toml"
 enabled = true
 config = {}
 
+[plugins.uppercase.permissions]
+capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
+
 [keys.normal]
 U = ":uppercase.uppercase"
 ```
@@ -41,6 +44,10 @@ until it is reloaded.
 
 Trusted workspace configuration can override plugin entries by their configured
 name, following the existing [workspace trust](./workspace-trust.md) policy.
+Only global user configuration grants permissions. Workspace overrides cannot
+expand grants or move them to a different package path. See
+[plugin permissions](./plugin-permissions.md) for filesystem roots, digest pins,
+native execution, and resource limits.
 Plugins are loaded only from explicit configuration; Mitos does not discover or
 automatically run modules from a workspace directory.
 
@@ -51,6 +58,7 @@ This is the manifest for the example plugin:
 ```toml
 abi-version = 2
 module = "uppercase.wasm"
+capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
 
 [commands.uppercase]
 doc = "Uppercase each selection, preserving Unicode and multiple selections."

@@ -22,7 +22,7 @@ pub fn register_hooks() {
         use crate::events::{PostInsertChar, TerminalFocusGained, TerminalFocusLost};
         event::register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
             event.cx.editor.queue_plugin_event(
-                plugin_sdk::Event::PostInsertChar,
+                plugin_api::Event::PostInsertChar,
                 serde_json::json!({
                     "character": event.c,
                     "source": if event.cx.editor.macro_replaying.is_empty() { "insert-char" } else { "macro" },
@@ -32,14 +32,14 @@ pub fn register_hooks() {
         });
         event::register_hook!(move |event: &mut TerminalFocusGained<'_, '_>| {
             event.cx.editor.queue_plugin_event(
-                plugin_sdk::Event::TerminalFocusGained,
+                plugin_api::Event::TerminalFocusGained,
                 serde_json::json!({ "focused": true }),
             );
             Ok(())
         });
         event::register_hook!(move |event: &mut TerminalFocusLost<'_, '_>| {
             event.cx.editor.queue_plugin_event(
-                plugin_sdk::Event::TerminalFocusLost,
+                plugin_api::Event::TerminalFocusLost,
                 serde_json::json!({ "focused": false }),
             );
             Ok(())

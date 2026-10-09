@@ -17,9 +17,9 @@ use ::plugins::{PluginCommand, PluginConfig, PluginManager};
 use anyhow::{bail, ensure, Context};
 use editor_core::{Range, Rope, Selection, Transaction};
 use parking_lot::Mutex;
-use plugin_sdk::{
-    Action, DocumentInfo, DocumentSnapshot, EditorContext, Event, Response, SelectionRange,
-    StateCatalog, StateQuery, ViewInfo, ViewSnapshot,
+use plugin_api::{
+    Action, Capability, DocumentInfo, DocumentSnapshot, EditorContext, ErrorCode, Event, Response,
+    SelectionRange, ServiceError, StateCatalog, StateQuery, ViewInfo, ViewSnapshot,
 };
 use serde_json::Value;
 
@@ -31,6 +31,7 @@ const MAX_CONTROL_EVENTS: usize = 32;
 const MAX_PENDING_BYTES: usize = ::plugins::MAX_MESSAGE_BYTES * 2;
 const MAX_CAUSAL_DEPTH: u16 = 8;
 const MAX_DRAIN_EVENTS: usize = 64;
+const MAX_STATUS_BYTES: usize = 4096;
 
 const OBSERVABLE_EVENTS: &[Event] = &[
     Event::DocumentOpened,
@@ -48,11 +49,19 @@ const OBSERVABLE_EVENTS: &[Event] = &[
     Event::ResyncRequired,
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct EffectOrigin {
     plugin: String,
     sequence: u64,
     depth: u16,
+}
+
+/// Owned frontend provenance; its fields are assigned only by this editor.
+/// A delayed completion cannot re-enter an unloaded plugin generation.
+#[derive(Clone, Debug)]
+pub struct PluginEventSource {
+    generation: u64,
+    origin: Option<EffectOrigin>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -143,6 +152,7 @@ impl Queue {
 struct Shared {
     queue: Mutex<Queue>,
     subscriptions: Mutex<BTreeMap<Event, HashSet<String>>>,
+    readers: Mutex<HashSet<String>>,
     accepting: AtomicBool,
     generation: u64,
 }
@@ -152,6 +162,7 @@ pub(crate) struct PluginHost {
     manager: PluginManager,
     shared: Arc<Shared>,
     stopped: bool,
+    shutting_down: bool,
 }
 
 impl PluginHost {
@@ -191,6 +202,28 @@ impl PluginEventSender {
             .lock()
             .get(&event)
             .is_some_and(|targets| targets.iter().any(|target| origin.as_ref() != Some(target)))
+    }
+
+    fn needs_context(&self, event: Event) -> bool {
+        let Some(owner) = self.owner.upgrade() else {
+            return false;
+        };
+        let origin = owner
+            .queue
+            .lock()
+            .origin
+            .as_ref()
+            .map(|origin| origin.plugin.clone());
+        let readers = owner.readers.lock();
+        owner
+            .subscriptions
+            .lock()
+            .get(&event)
+            .is_some_and(|targets| {
+                targets
+                    .iter()
+                    .any(|target| origin.as_ref() != Some(target) && readers.contains(target))
+            })
     }
 
     fn enqueue(&self, event: Event, editor: EditorContext, data: Value) {
@@ -544,6 +577,14 @@ impl Editor {
         self.plugin_context_for_view(Some(self.tree.focus))
     }
 
+    fn plugin_global_context(&self) -> EditorContext {
+        EditorContext {
+            generation: self.plugins.shared.generation,
+            mode: self.mode.to_string(),
+            ..EditorContext::default()
+        }
+    }
+
     pub fn plugin_commands(&self) -> Vec<PluginCommand> {
         self.plugins.manager.available_commands()
     }
@@ -566,6 +607,7 @@ impl Editor {
         self.plugins = PluginHost {
             manager,
             stopped: false,
+            shutting_down: false,
             shared: Arc::new(Shared {
                 generation,
                 accepting: AtomicBool::new(true),
@@ -587,6 +629,13 @@ impl Editor {
     }
 
     fn refresh_plugin_subscriptions(&mut self) {
+        *self.plugins.shared.readers.lock() = self
+            .plugins
+            .manager
+            .event_recipients(Event::Init)
+            .into_iter()
+            .filter(|name| self.plugins.manager.can_read(name))
+            .collect();
         *self.plugins.shared.subscriptions.lock() = OBSERVABLE_EVENTS
             .iter()
             .copied()
@@ -606,6 +655,7 @@ impl Editor {
         if self.plugins.stopped {
             return;
         }
+        self.plugins.shutting_down = true;
         // Saved/closed/post-command hooks must precede shutdown. The drain is
         // bounded even when guests generate events in response to other guests.
         for _ in 0..4 {
@@ -670,7 +720,12 @@ impl Editor {
         if self.plugin_command_doc(name).is_none() {
             return Ok(false);
         }
-        let context = self.plugin_context()?;
+        let plugin = name.split_once('.').unwrap().0;
+        let context = if self.plugins.manager.can_read(plugin) {
+            self.plugin_context()?
+        } else {
+            self.plugin_global_context()
+        };
         let provenance = self
             .plugins
             .shared
@@ -687,14 +742,23 @@ impl Editor {
         let Some(response) = result? else {
             return Ok(false);
         };
-        let plugin = name.split_once('.').unwrap().0;
-        self.apply_plugin_response(response, &context, plugin, &provenance)
+        self.apply_plugin_response(response, &context, plugin, &provenance, Event::Command)
             .with_context(|| format!("plugin command '{name}'"))?;
         Ok(true)
     }
 
     pub fn dispatch_plugin_event(&mut self, event: Event, data: Value) -> bool {
-        let context = match self.plugin_context() {
+        let capture = self
+            .plugins
+            .manager
+            .event_recipients(event)
+            .iter()
+            .any(|name| self.plugins.manager.can_read(name));
+        let context = match if capture {
+            self.plugin_context()
+        } else {
+            Ok(self.plugin_global_context())
+        } {
             Ok(context) => context,
             Err(_) if matches!(event, Event::Init | Event::Shutdown) => EditorContext {
                 generation: self.plugins.shared.generation,
@@ -757,6 +821,40 @@ impl Editor {
         });
     }
 
+    pub fn plugin_event_source(&self) -> PluginEventSource {
+        PluginEventSource {
+            generation: self.plugins.shared.generation,
+            origin: self.plugins.shared.queue.lock().origin.clone(),
+        }
+    }
+
+    /// Queue a delayed native completion under its original plugin cause. A
+    /// native invocation has no owner and may complete after a plugin reload.
+    pub fn queue_plugin_event_for_view_binding_from_source(
+        &self,
+        source: &PluginEventSource,
+        event: Event,
+        view: ViewId,
+        document: DocumentId,
+        binding_revision: u64,
+        data: Value,
+    ) {
+        if let Some(origin) = &source.origin
+            && (source.generation != self.plugins.shared.generation
+                || self
+                    .plugins
+                    .manager
+                    .policy(&origin.plugin)
+                    .is_none_or(|policy| policy.check_live().is_err()))
+        {
+            return;
+        }
+        let owner = self.plugins.shared.clone();
+        let previous = std::mem::replace(&mut owner.queue.lock().origin, source.origin.clone());
+        let _guard = ApplyingGuard { owner, previous };
+        self.queue_plugin_event_for_view_binding(event, view, document, binding_revision, data);
+    }
+
     fn queue_plugin_event_snapshot(
         &self,
         event: Event,
@@ -768,7 +866,11 @@ impl Editor {
             return;
         };
         if sender.interested(event) {
-            match capture() {
+            match if sender.needs_context(event) {
+                capture()
+            } else {
+                Ok(self.plugin_global_context())
+            } {
                 Ok(context) => sender.enqueue(event, context, data),
                 Err(error) => {
                     let mut data = match data {
@@ -877,6 +979,11 @@ impl Editor {
             if event != Event::State && provenance.origin_plugin.as_ref() == Some(&name) {
                 continue;
             }
+            let context = if self.plugins.manager.can_read(&name) {
+                context.clone()
+            } else {
+                self.plugin_global_context()
+            };
             let result = self.plugins.manager.call_event(
                 &name,
                 event,
@@ -885,7 +992,7 @@ impl Editor {
             );
             self.refresh_plugin_subscriptions();
             if let Err(err) = result.and_then(|response| {
-                self.apply_plugin_response(response, &context, &name, &provenance)
+                self.apply_plugin_response(response, &context, &name, &provenance, event)
             }) {
                 successful = false;
                 log::error!("plugin '{name}': {err:#}");
@@ -935,19 +1042,35 @@ impl Editor {
         context: &EditorContext,
         plugin: &str,
         provenance: &Provenance,
+        event: Event,
     ) -> anyhow::Result<()> {
         if context.generation != self.plugins.shared.generation {
             return Err(PluginConflict::GenerationChanged.into());
         }
         if let Some(error) = response.error {
-            bail!("{error}")
+            bail!("{}", plugin_message(error))
         }
         // Every document/view precondition and every projected range is checked
         // before any effect is applied. Later edits use the preceding edit's text.
         let mut documents = BTreeMap::<DocumentId, PreparedDocument>::new();
         let mut prepared = Vec::new();
         let mut opened = false;
+        let mut open_bytes = 0usize;
         for action in response.actions {
+            if (self.plugins.stopped || self.plugins.shutting_down)
+                && !matches!(action, Action::Status { .. } | Action::Error { .. })
+            {
+                return Err(ServiceError::new(
+                    ErrorCode::Cancelled,
+                    "plugin host is shutting down; only diagnostics are accepted",
+                )
+                .into());
+            }
+            for capability in action_capabilities(&action) {
+                self.plugins
+                    .manager
+                    .require_capability(plugin, capability)?;
+            }
             match action {
                 Action::Edit {
                     document,
@@ -1043,8 +1166,12 @@ impl Editor {
                         .ensure_invariants(plan.text.slice(..)),
                     );
                 }
-                Action::Status { message } => prepared.push(PreparedAction::Status(message)),
-                Action::Error { message } => prepared.push(PreparedAction::Error(message)),
+                Action::Status { message } => {
+                    prepared.push(PreparedAction::Status(plugin_message(message)))
+                }
+                Action::Error { message } => {
+                    prepared.push(PreparedAction::Error(plugin_message(message)))
+                }
                 Action::RequestState { query } => {
                     ensure!(
                         self.plugins.shared.accepting.load(Ordering::Relaxed),
@@ -1055,7 +1182,94 @@ impl Editor {
                 Action::Open { path } => {
                     opened = true;
                     ensure!(!path.is_empty(), "plugin open path is empty");
-                    prepared.push(PreparedAction::Open(path));
+                    if let Some(origin) = &context.view {
+                        let view = ViewId::from_u64(origin.id);
+                        let target = self
+                            .tree
+                            .try_get(view)
+                            .ok_or(PluginConflict::ViewClosed(origin.id))?;
+                        if target.doc.as_u64() != origin.document
+                            || target.binding_revision() != origin.binding_revision
+                        {
+                            return Err(PluginConflict::ViewRebound(origin.id).into());
+                        }
+                        let id = self.plugin_document(
+                            origin.document,
+                            context
+                                .document
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    ServiceError::new(
+                                        ErrorCode::StaleState,
+                                        "plugin open has no originating document",
+                                    )
+                                })?
+                                .version,
+                        )?;
+                        if self.documents[&id].selection_revision(view)
+                            != Some(origin.selection_revision)
+                        {
+                            return Err(PluginConflict::SelectionChanged(origin.id).into());
+                        }
+                        if self.tree.focus != view {
+                            return Err(ServiceError::new(
+                                ErrorCode::StaleState,
+                                "plugin open origin is no longer focused",
+                            )
+                            .into());
+                        }
+                    } else if self.tree.views().next().is_some() {
+                        self.plugins
+                            .manager
+                            .require_capability(plugin, Capability::EditorRead)?;
+                        return Err(ServiceError::new(
+                            ErrorCode::StaleState,
+                            "plugin open has no originating view",
+                        )
+                        .into());
+                    } else if event != Event::Init {
+                        return Err(ServiceError::new(
+                            ErrorCode::StaleState,
+                            "plugin open cannot recreate a closed editor",
+                        )
+                        .into());
+                    }
+                    let policy = self.plugins.manager.policy(plugin).ok_or_else(|| {
+                        ServiceError::new(ErrorCode::Cancelled, "plugin has been unloaded")
+                    })?;
+                    let (path, bytes) = policy.read_path(Path::new(&path))?;
+                    open_bytes = open_bytes.saturating_add(bytes.len());
+                    if open_bytes > ::plugins::MAX_MESSAGE_BYTES {
+                        return Err(ServiceError::new(
+                            ErrorCode::ResourceExhausted,
+                            "plugin open contents exceed the response budget",
+                        )
+                        .into());
+                    }
+                    let doc = Document::from_plugin_bytes(
+                        path,
+                        bytes,
+                        editor_core::editor_config::EditorConfig::default(),
+                        self.config.clone(),
+                        self.syn_loader.clone(),
+                    )?;
+                    if doc.is_binary() {
+                        return Err(ServiceError::new(
+                            ErrorCode::InvalidRequest,
+                            "plugin open only supports text documents",
+                        )
+                        .into());
+                    }
+                    prepared.push(PreparedAction::Open(Box::new(doc)));
+                }
+                Action::ShowUi { .. }
+                | Action::InvokeBuiltin { .. }
+                | Action::UpdateKeymap { .. } => {
+                    return Err(ServiceError::new(
+                        ErrorCode::UnsupportedInterface,
+                        "plugin frontend services are unavailable",
+                    )
+                    .into());
                 }
             }
         }
@@ -1132,13 +1346,13 @@ impl Editor {
                 }
                 PreparedAction::Status(message) => self.set_status(message),
                 PreparedAction::Error(message) => self.set_error(|| message),
-                PreparedAction::Open(path) => {
+                PreparedAction::Open(doc) => {
                     let action = if self.tree.views().next().is_none() {
                         crate::editor::Action::VerticalSplit
                     } else {
                         crate::editor::Action::Replace
                     };
-                    self.open(Path::new(&path), action)?;
+                    self.adopt_plugin_document(*doc, action);
                 }
             }
         }
@@ -1188,7 +1402,33 @@ enum PreparedAction {
     State(StateQuery),
     Status(String),
     Error(String),
-    Open(String),
+    Open(Box<Document>),
+}
+
+fn action_capabilities(action: &Action) -> Vec<Capability> {
+    match action {
+        Action::Edit { .. } => vec![Capability::EditorEdit],
+        Action::SetSelection { .. } => vec![Capability::EditorSelection],
+        Action::Status { .. }
+        | Action::Error { .. }
+        | Action::ShowUi { .. }
+        | Action::UpdateKeymap { .. } => vec![Capability::Ui],
+        Action::Open { .. } => vec![Capability::EditorNavigate, Capability::WorkspaceRead],
+        Action::RequestState { .. } => vec![Capability::EditorRead],
+        Action::InvokeBuiltin { commands, .. } => commands
+            .iter()
+            .flat_map(|command| command.command.capabilities().iter().copied())
+            .collect(),
+    }
+}
+
+fn plugin_message(mut message: String) -> String {
+    let mut end = message.len().min(MAX_STATUS_BYTES);
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    message.truncate(end);
+    plugin_api::ui::terminal_text(&message, false)
 }
 
 pub(crate) fn register_hooks() {

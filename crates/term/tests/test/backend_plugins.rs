@@ -140,6 +140,48 @@ async fn closing_the_last_split_keeps_its_post_command_hook() -> anyhow::Result<
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn saved_hooks_cannot_reopen_the_editor_after_write_quit() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let source = dir.path().join("document.txt");
+    std::fs::write(&source, "original\n")?;
+    let guest_dir = tempfile::tempdir()?;
+    let target = guest_dir.path().join("reopened.txt");
+    std::fs::write(&target, "must not open\n")?;
+    let mut config = test_config();
+    config.plugins.insert(
+        "observer".into(),
+        observing(
+            guest_dir.path(),
+            &["document-saved"],
+            &[Route {
+                event: "document-saved",
+                response: plugin_api::Response {
+                    actions: vec![plugin_api::Action::Open {
+                        path: target.to_string_lossy().into_owned(),
+                    }],
+                    error: None,
+                },
+                ..Route::default()
+            }],
+            None,
+        )?,
+    );
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&source, None)
+        .build()?;
+    test_key_sequences(&mut app, vec![(Some("iX<esc>:wq<ret>"), None)], true).await?;
+    assert_eq!(std::fs::read_to_string(source)?, "Xoriginal\n");
+    assert!(app.editor.should_close());
+    assert!(app.editor.document_id_by_path(&target).is_none());
+    assert!(
+        app.editor.error_revision() > 0,
+        "rejected guest effects are reported"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn callbacks_accepted_before_close_can_save_before_plugin_shutdown() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let source = dir.path().join("document.txt");

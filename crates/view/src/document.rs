@@ -155,8 +155,8 @@ pub enum DocumentOpenError {
     IoError(#[from] io::Error),
 }
 
-fn read_file(
-    file: &mut std::fs::File,
+fn read_file<R: io::Read + ?Sized>(
+    file: &mut R,
     encoding: Option<&'static Encoding>,
 ) -> io::Result<(Rope, &'static Encoding, bool, bool)> {
     use std::io::BufRead;
@@ -178,6 +178,8 @@ pub struct Document {
     pub(crate) id: DocumentId,
     text: Rope,
     binary: bool,
+    /// Scoped plugin reads do not authorize later ambient path reads or tools.
+    restricted_adoption: bool,
     selections: HashMap<ViewId, Selection>,
     selection_states: HashMap<ViewId, ViewSelectionState>,
     view_data: HashMap<ViewId, ViewData>,
@@ -789,6 +791,7 @@ impl Document {
             has_bom,
             text,
             binary: false,
+            restricted_adoption: false,
             selections: HashMap::default(),
             selection_states: HashMap::default(),
             inlay_hints: HashMap::default(),
@@ -903,6 +906,46 @@ impl Document {
         doc.detect_indent_and_line_ending();
 
         Ok(doc)
+    }
+
+    /// Decode bytes already read through a granted directory handle. `path` is
+    /// bookkeeping only: no canonicalization, stat, `.editorconfig` lookup or
+    /// file reopen is performed. Runtime grammars/dictionaries remain configured
+    /// native editor resources; a guest cannot supply their paths here.
+    pub(crate) fn from_plugin_bytes(
+        path: PathBuf,
+        bytes: Vec<u8>,
+        editor_config: EditorConfig,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Result<Self, DocumentOpenError> {
+        let (rope, encoding, has_bom, binary) =
+            read_file(&mut bytes.as_slice(), editor_config.encoding)?;
+        let mut doc = Self::from(rope, Some((encoding, has_bom)), config, syn_loader.clone());
+        doc.binary = binary;
+        doc.restricted_adoption = true;
+        doc.path = Some(path);
+        doc.language = doc.detect_language_config(&syn_loader.load());
+        doc.editor_config = editor_config;
+        doc.detect_indent_and_line_ending();
+        Ok(doc)
+    }
+
+    /// This document's path was supplied by a scoped plugin read. Automatic
+    /// reload/configuration/provider discovery stays disabled until native use.
+    pub fn is_restricted_adoption(&self) -> bool {
+        self.restricted_adoption
+    }
+
+    /// Called only by explicit native editor operations, never plugin effects.
+    pub(crate) fn adopt_native_authority(&mut self) {
+        if !std::mem::take(&mut self.restricted_adoption) {
+            return;
+        }
+        let path = self.path.clone();
+        self.set_path(path.as_deref());
+        self.detect_editor_config();
+        self.detect_indent_and_line_ending();
     }
 
     /// The same as [`format`], but only returns formatting changes if auto-formatting
@@ -1353,7 +1396,8 @@ impl Document {
     }
 
     pub fn detect_editor_config(&mut self) {
-        if self.config.load().editor_config
+        if !self.restricted_adoption
+            && self.config.load().editor_config
             && let Some(path) = self.path.as_ref()
         {
             self.editor_config = EditorConfig::find(path);
@@ -1403,6 +1447,9 @@ impl Document {
         provider_registry: &DiffProviderRegistry,
         trust_full: bool,
     ) -> Result<(), Error> {
+        // Automatic callers reject restricted documents before reaching here.
+        // An explicit native :reload intentionally adopts ambient path authority.
+        self.adopt_native_authority();
         let encoding = self.encoding;
         let path = match self.path() {
             None => return Ok(()),
@@ -2191,9 +2238,11 @@ impl Document {
     }
 
     pub fn servers_to_load(&self) -> bool {
-        self.language_config()
-            .map(|lang| !lang.language_servers.is_empty() || lang.debugger.is_some())
-            .unwrap_or(false)
+        !self.restricted_adoption
+            && self
+                .language_config()
+                .map(|lang| !lang.language_servers.is_empty() || lang.debugger.is_some())
+                .unwrap_or(false)
     }
 
     pub fn diff_handle(&self) -> Option<&DiffHandle> {
@@ -2202,6 +2251,9 @@ impl Document {
 
     /// Refresh both branch display and the diff base after repository changes.
     pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+        if self.restricted_adoption {
+            return;
+        }
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };

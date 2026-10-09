@@ -5,16 +5,19 @@
 //! by `plugin-sdk`, rather than exposing editor internals or ambient I/O.
 
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
-    fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     path::{Component, Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{ensure, Context, Result};
-use plugin_sdk::{EditorContext, Event, Request, Response, ABI_VERSION};
+use plugin_api::{Capability, CapabilitySet, ErrorCode, Permissions, ServiceError};
+use plugin_api::{EditorContext, Event, Request, Response, ABI_VERSION};
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use wasmi::{
     Config, EnforcedLimits, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
     TypedFunc,
@@ -27,6 +30,11 @@ const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ACTIONS: usize = 256;
 const FUEL_PER_CALL: u64 = 10_000_000;
+const MAX_PLUGINS: usize = 32;
+
+pub mod filesystem;
+pub mod native;
+pub mod policy;
 
 /// Configuration for a single plugin. Relative paths use the editor config directory.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -38,6 +46,24 @@ pub struct PluginConfig {
     pub enabled: bool,
     #[serde(default)]
     pub config: Value,
+    /// Authority granted only by the user's global configuration.
+    #[serde(default)]
+    pub permissions: Permissions,
+    /// Optional module digest pin. Workspace config cannot replace this pin.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+impl Default for PluginConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::new(),
+            enabled: true,
+            config: Value::Null,
+            permissions: Permissions::default(),
+            sha256: None,
+        }
+    }
 }
 
 fn enabled_by_default() -> bool {
@@ -49,10 +75,31 @@ fn enabled_by_default() -> bool {
 struct Manifest {
     abi_version: u32,
     module: PathBuf,
+    #[serde(default = "default_capabilities")]
+    capabilities: CapabilitySet,
     #[serde(default)]
     commands: BTreeMap<String, Command>,
     #[serde(default)]
     events: Vec<Event>,
+}
+
+fn default_capabilities() -> CapabilitySet {
+    Permissions::default().capabilities
+}
+
+fn observes_editor_state(event: Event) -> bool {
+    matches!(
+        event,
+        Event::DocumentOpened
+            | Event::DocumentChanged
+            | Event::DocumentSaved
+            | Event::DocumentClosed
+            | Event::SelectionChanged
+            | Event::PostCommand
+            | Event::PostInsertChar
+            | Event::DocumentFocusLost
+            | Event::State
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +141,10 @@ impl PluginManager {
         let engine = Engine::new(&config);
         let mut manager = Self::default();
         let mut errors = Vec::new();
+        if configs.values().filter(|config| config.enabled).count() > MAX_PLUGINS {
+            errors.push(format!("too many enabled plugins (limit {MAX_PLUGINS})"));
+            return (manager, errors);
+        }
         for (name, config) in configs {
             if !config.enabled {
                 continue;
@@ -132,6 +183,25 @@ impl PluginManager {
             .commands
             .get(command)
             .map(|command| command.doc.clone())
+    }
+
+    pub fn policy(&self, name: &str) -> Option<Arc<policy::AccessPolicy>> {
+        self.plugins.get(name).map(|plugin| plugin.policy.clone())
+    }
+
+    pub fn require_capability(
+        &self,
+        name: &str,
+        capability: Capability,
+    ) -> Result<(), ServiceError> {
+        self.policy(name)
+            .ok_or_else(|| ServiceError::new(ErrorCode::Cancelled, "plugin is no longer loaded"))?
+            .require(capability)
+    }
+
+    pub fn can_read(&self, name: &str) -> bool {
+        self.require_capability(name, Capability::EditorRead)
+            .is_ok()
     }
 
     /// Avoid constructing document snapshots when no active plugin needs an event.
@@ -261,6 +331,13 @@ struct Plugin {
     manifest: Manifest,
     config: Value,
     instance: Option<Guest>,
+    policy: Arc<policy::AccessPolicy>,
+}
+
+impl Drop for Plugin {
+    fn drop(&mut self) {
+        self.policy.revoke();
+    }
 }
 
 impl Plugin {
@@ -278,9 +355,36 @@ impl Plugin {
         let manifest_path = manifest_path
             .canonicalize()
             .with_context(|| format!("opening manifest {}", manifest_path.display()))?;
-        let manifest_bytes = read_bounded(&manifest_path, MAX_MANIFEST_BYTES)?;
-        let manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)
+        let directory = manifest_path
+            .parent()
+            .context("manifest has no parent directory")?;
+        let package = filesystem::ScopedDirectory::open(directory)?;
+        let manifest_bytes = package.read_bounded(
+            Path::new(
+                manifest_path
+                    .file_name()
+                    .context("manifest has no filename")?,
+            ),
+            MAX_MANIFEST_BYTES,
+        )?;
+        let mut manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)
             .context("invalid plugin manifest")?;
+        ensure!(
+            manifest.commands.len() <= 64 && manifest.events.len() <= 32,
+            "plugin manifest exceeds command or subscription limits"
+        );
+        for command in manifest.commands.values_mut() {
+            ensure!(
+                command.doc.len() <= 4096,
+                "command documentation exceeds 4096 bytes"
+            );
+            command.doc = plugin_api::ui::terminal_text(&command.doc, false);
+        }
+        let policy = Arc::new(policy::AccessPolicy::new(
+            manifest.capabilities.clone(),
+            config.permissions.clone(),
+            base,
+        )?);
         ensure!(
             manifest.abi_version == ABI_VERSION,
             "unsupported ABI version {} (expected {ABI_VERSION})",
@@ -298,18 +402,21 @@ impl Plugin {
                     .all(|part| matches!(part, Component::Normal(_))),
             "module must be a relative path within the plugin directory"
         );
-        let directory = manifest_path
-            .parent()
-            .context("manifest has no parent directory")?;
-        let module_path = directory
-            .join(&manifest.module)
-            .canonicalize()
-            .with_context(|| format!("opening module {}", manifest.module.display()))?;
-        ensure!(
-            module_path.starts_with(directory),
-            "module must stay within the plugin directory"
-        );
-        let bytes = read_bounded(&module_path, MAX_MODULE_BYTES)?;
+        let bytes = package.read_bounded(&manifest.module, MAX_MODULE_BYTES)?;
+        if let Some(pin) = &config.sha256 {
+            ensure!(
+                pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "sha256 must contain 64 hexadecimal digits"
+            );
+            let digest: String = Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            ensure!(
+                digest.eq_ignore_ascii_case(pin),
+                "module SHA-256 does not match the user's package pin"
+            );
+        }
         // Reject text-format modules even when Wasmi's optional WAT feature is enabled elsewhere.
         ensure!(
             bytes.starts_with(b"\0asm"),
@@ -349,6 +456,7 @@ impl Plugin {
         Ok(Self {
             manifest,
             config: config.config.clone(),
+            policy,
             instance: Some(Guest {
                 store,
                 memory,
@@ -361,25 +469,63 @@ impl Plugin {
 
     fn subscribes(&self, event: Event) -> bool {
         self.instance.is_some()
+            && (!observes_editor_state(event)
+                || self.policy.require(Capability::EditorRead).is_ok())
             && (matches!(
                 event,
-                Event::Init | Event::Shutdown | Event::ResyncRequired | Event::State
+                Event::Init
+                    | Event::Shutdown
+                    | Event::ResyncRequired
+                    | Event::State
+                    | Event::UiResult
+                    | Event::BuiltinResult
+                    | Event::KeymapResult
             ) || self.manifest.events.contains(&event))
     }
 
     fn call(&mut self, request: &Request) -> Result<Response> {
+        self.policy.check_live()?;
         ensure!(
             self.instance.is_some(),
             "disabled after a previous failure; use :plugin-reload to reload"
         );
         // A host snapshot that is too large is not a guest failure.
+        let request = if self.policy.require(Capability::EditorRead).is_ok() {
+            Cow::Borrowed(request)
+        } else {
+            Cow::Owned(Request {
+                abi_version: request.abi_version,
+                event: request.event,
+                command: request.command.clone(),
+                args: request.args.clone(),
+                config: request.config.clone(),
+                editor: EditorContext {
+                    generation: request.editor.generation,
+                    mode: request.editor.mode.clone(),
+                    ..EditorContext::default()
+                },
+                data: if matches!(
+                    request.event,
+                    Event::Command
+                        | Event::ResyncRequired
+                        | Event::UiResult
+                        | Event::BuiltinResult
+                        | Event::KeymapResult
+                ) {
+                    request.data.clone()
+                } else {
+                    Value::Null
+                },
+            })
+        };
         let mut bytes = BoundedBytes::default();
-        serde_json::to_writer(&mut bytes, request)
+        serde_json::to_writer(&mut bytes, request.as_ref())
             .context("serializing plugin request (limit 4 MiB)")?;
         let result = self.instance.as_mut().unwrap().call(&bytes.0);
         if result.is_err() {
             // Discard the entire instance, including allocations left behind by a trap.
             self.instance = None;
+            self.policy.revoke();
         }
         result
     }
@@ -451,28 +597,10 @@ impl Guest {
 
 fn valid_identifier(name: &str) -> bool {
     !name.is_empty()
+        && name.len() <= 64
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let file = File::open(path).with_context(|| format!("reading {}", path.display()))?;
-    ensure!(
-        file.metadata()?.len() <= limit as u64,
-        "{} exceeds the {} byte limit",
-        path.display(),
-        limit
-    );
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= limit,
-        "{} exceeds the {} byte limit",
-        path.display(),
-        limit
-    );
-    Ok(bytes)
 }
 
 #[derive(Default)]

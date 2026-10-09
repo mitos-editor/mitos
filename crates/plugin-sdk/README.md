@@ -1,7 +1,7 @@
 # Mitos plugin SDK
 
-`plugin-sdk` defines the language-neutral JSON protocol for Mitos plugins and
-provides a Rust guest adapter. Plugins run as core WebAssembly modules using
+`plugin-api` defines the runtime-neutral owned protocol. `plugin-sdk` reexports
+its types and provides a Rust guest adapter. Plugins run as core WebAssembly modules using
 Wasmi, without WASI or host imports. Rust is optional: any language that can
 export the memory ABI below can implement the protocol.
 
@@ -34,6 +34,35 @@ Build for `wasm32-unknown-unknown`; the macro emits the exports only on Wasm,
 so native tests can exercise the same handler. See
 [`examples/plugins/uppercase`](../../examples/plugins/uppercase) for a complete
 plugin, manifest, and focused Unicode/multiple-selection tests.
+
+## Authority
+
+A package declares capabilities in its manifest, and the user independently
+grants them under `[plugins.<name>.permissions]`. Both are required. The default
+grant is `ui` only. Reading snapshots/catalogs needs `editor-read`, edits need
+`editor-edit`, and selection changes need `editor-selection`. A guest without
+`editor-read` receives no document/view snapshot or document-scoped hooks; its
+own explicitly supplied command arguments and plugin configuration remain available.
+Host permission/conflict diagnostics do not require the `ui` capability. Guest
+status/error messages are limited to 4 KiB and stripped of terminal controls.
+
+`open` needs `editor-navigate` and `workspace-read` with an explicit granted root.
+With existing views, this transitional action also needs `editor-read` to obtain
+an originating view. The view must remain focused, with matching document text,
+binding and selection revisions. Files are read through granted directory
+handles, all reads are prepared before any response effect, and binary files
+are rejected. Only `init` may open into an empty split tree; delayed hooks cannot
+reopen an editor the user closed. Closing/shutdown accepts diagnostics only.
+Newly opened documents retain scoped provenance: automatic reload,
+autosave, `.editorconfig` reads, repository discovery and provider startup remain
+disabled until explicit native open/reload/save/server-restart adoption. Grammar,
+query and dictionary resources remain trusted host configuration; plugin packages
+cannot supply native DLL paths through this action. Explicit native operations
+use normal editor authority and workspace trust rules.
+
+The protocol reserves typed frontend requests/results for the native frontend
+adapter. The current host rejects those requests with a typed
+unsupported-interface error until that adapter is installed.
 
 ## Memory ABI, experimental version 2
 
