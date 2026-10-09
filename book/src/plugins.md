@@ -49,7 +49,7 @@ automatically run modules from a workspace directory.
 This is the manifest for the example plugin:
 
 ```toml
-abi-version = 1
+abi-version = 2
 module = "uppercase.wasm"
 
 [commands.uppercase]
@@ -62,7 +62,7 @@ subscribe to editor events with a top-level `events` list, before the command
 tables:
 
 ```toml
-abi-version = 1
+abi-version = 2
 module = "my-plugin.wasm"
 events = ["document-saved", "selection-changed"]
 
@@ -131,17 +131,20 @@ other languages.
 Document offsets count Unicode scalar values, matching Mitos's text coordinates.
 An edit replaces the half-open range `start..end` and includes the original
 document ID and version. Edits from stale snapshots, overlapping ranges, and
-invalid selections are rejected. All edits within one edit action refer to
-the same original snapshot. Subsequent selection actions use the resulting
-document's coordinates but supply that original snapshot's version too. Both
+invalid selections are rejected. Edits within one action use its preceding
+projected text; later actions use the text after earlier edits, while retaining
+the original version precondition. Selection actions include the originating
+view's ID, binding revision, and selection revision. A changed selection, closed
+view, or view switched away and back rejects the batch before mutation. Both
 edit and selection actions must precede any open action in the response,
 because opening a path can replace their view. Snapshots can omit the current
 document, path, or language; handlers must account for these cases.
 
-Editing and changing selections currently require a document with a visible
-editor view. Plugin actions suppress mutation hooks across all plugins, so a
+Document-only edits can target hidden documents and compose into one undo step.
+Selection changes require their explicit live view; the host does not substitute
+the focused split. Plugin actions currently suppress hooks across all plugins, so a
 document-change hook can return an edit without recursively invoking plugins.
-Pending document-change and selection-change events are coalesced per document;
+Pending document-change events coalesce per document and selection events per view;
 the queue retains at most 32 snapshots. Hooks can observe the latest state but
 are not guaranteed to receive every intermediate change.
 

@@ -81,6 +81,18 @@ slotmap::new_key_type! {
     pub struct ViewId;
 }
 
+impl ViewId {
+    /// Includes the slot generation, so a closed split's handle cannot alias a new split.
+    pub fn as_u64(self) -> u64 {
+        use slotmap::Key;
+        self.data().as_ffi()
+    }
+
+    pub(crate) fn from_u64(value: u64) -> Self {
+        slotmap::KeyData::from_ffi(value).into()
+    }
+}
+
 /// Vertical placement used when scrolling a cursor into a view.
 pub enum Align {
     /// Place the cursor on the first visual row.

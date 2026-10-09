@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Version of the memory ABI and JSON protocol implemented by this SDK.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// The invocation delivered to a plugin's request handler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -23,6 +23,10 @@ pub enum Event {
     SelectionChanged,
     ModeChanged,
     PostCommand,
+    PostInsertChar,
+    DocumentFocusLost,
+    TerminalFocusGained,
+    TerminalFocusLost,
 }
 
 /// An owned snapshot of the editor and invocation arguments.
@@ -46,8 +50,11 @@ pub struct Request {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EditorContext {
+    /// The owning plugin-host generation; resources expire on reload/shutdown.
+    pub generation: u64,
     pub mode: String,
     pub document: Option<DocumentSnapshot>,
+    pub view: Option<ViewSnapshot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,6 +66,18 @@ pub struct DocumentSnapshot {
     pub path: Option<String>,
     pub language: Option<String>,
     pub text: String,
+}
+
+/// The originating view's binding and selection, independent of document text.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ViewSnapshot {
+    /// An opaque generational handle, valid only in this editor generation.
+    pub id: u64,
+    pub document: u64,
+    /// Changes whenever the view switches to another document, including away/back.
+    pub binding_revision: u64,
+    /// Changes independently of text versions whenever selection state changes.
+    pub selection_revision: u64,
     pub selections: Vec<SelectionRange>,
     /// Index of the primary selection in `selections`.
     pub primary: usize,
@@ -77,8 +96,9 @@ pub struct SelectionRange {
 
 /// A replacement of the half-open scalar-value range `start..end`.
 ///
-/// All edits in one [`Action::Edit`] use the same original document revision;
-/// their ranges must not overlap.
+/// Ranges within one [`Action::Edit`] refer to the text before that action and
+/// must not overlap. Later edit actions use the projected text after preceding
+/// edits, while every action's version refers to the original snapshot.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextEdit {
     pub start: usize,
@@ -101,6 +121,7 @@ pub struct Response {
 pub enum Action {
     Edit {
         document: u64,
+        /// The originating snapshot version, before any action in this response.
         version: i32,
         edits: Vec<TextEdit>,
     },
@@ -109,6 +130,9 @@ pub enum Action {
     SetSelection {
         document: u64,
         version: i32,
+        view: u64,
+        binding_revision: u64,
+        selection_revision: u64,
         ranges: Vec<SelectionRange>,
         primary: usize,
     },
@@ -250,9 +274,9 @@ mod tests {
     #[test]
     fn requests_default_optional_invocation_fields() {
         let request: Request = serde_json::from_value(json!({
-            "abi_version": 1,
+            "abi_version": ABI_VERSION,
             "event": "document-changed",
-            "editor": {"mode": "normal", "document": null}
+            "editor": {"generation": 1, "mode": "normal", "document": null, "view": null}
         }))
         .unwrap();
         assert_eq!(request.event, Event::DocumentChanged);
@@ -277,12 +301,12 @@ mod tests {
         assert!(malformed.actions.is_empty());
 
         let unsupported = dispatch_request(
-            br#"{"abi_version":2,"event":"init","editor":{"mode":"normal","document":null}}"#,
+            br#"{"abi_version":1,"event":"init","editor":{"generation":1,"mode":"normal","document":null,"view":null}}"#,
             unexpected_handler,
         );
         assert_eq!(
             unsupported.error.as_deref(),
-            Some("Unsupported plugin ABI version 2")
+            Some("Unsupported plugin ABI version 1")
         );
         assert!(unsupported.actions.is_empty());
     }
@@ -303,6 +327,9 @@ mod tests {
                 Action::SetSelection {
                     document: 7,
                     version: 3,
+                    view: 9,
+                    binding_revision: 1,
+                    selection_revision: 2,
                     ranges: vec![SelectionRange { anchor: 2, head: 1 }],
                     primary: 0,
                 },

@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use super::*;
 
 const MANIFEST: &str = r#"
-abi-version = 1
+abi-version = 2
 module = "plugin.wasm"
 events = ["document-opened"]
 [commands.run]
@@ -92,6 +92,7 @@ fn commands_are_documented_and_receive_their_request() {
     let editor = EditorContext {
         mode: "insert".into(),
         document: None,
+        ..EditorContext::default()
     };
     let args = vec!["argument".into()];
     assert_eq!(
@@ -286,8 +287,8 @@ fn memory_growth_and_action_count_are_limited() {
 #[test]
 fn manifest_and_module_load_failures_are_isolated() {
     for invalid in [
-        MANIFEST.replace("abi-version = 1", "abi-version = 2"),
-        MANIFEST.replace("abi-version = 1", "unknown-key = 1\nabi-version = 1"),
+        MANIFEST.replace("abi-version = 2", "abi-version = 1"),
+        MANIFEST.replace("abi-version = 2", "unknown-key = 1\nabi-version = 2"),
         MANIFEST.replace("plugin.wasm", "../plugin.wasm"),
         MANIFEST.replace("commands.run", "commands.'run.with.dots'"),
     ] {

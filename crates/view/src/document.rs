@@ -178,6 +178,7 @@ pub struct Document {
     text: Rope,
     binary: bool,
     selections: HashMap<ViewId, Selection>,
+    selection_states: HashMap<ViewId, ViewSelectionState>,
     view_data: HashMap<ViewId, ViewData>,
     pub active_snippet: Option<ActiveSnippet>,
 
@@ -248,6 +249,7 @@ pub struct Document {
     changes: ChangeSet,
     /// State at last commit. Used for calculating reverts.
     old_state: Option<State>,
+    old_state_view: Option<ViewId>,
     /// Undo tree.
     // It can be used as a cell where we will take it out to get some parts of the history and put
     // it back as it separated from the edits. We could split out the parts manually but that will
@@ -290,6 +292,13 @@ pub struct Document {
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.
     syn_loader: Arc<ArcSwap<syntax::Loader>>,
+}
+
+#[derive(Default)]
+struct ViewSelectionState {
+    binding_revision: u64,
+    selection_revision: u64,
+    active: bool,
 }
 
 /// Inlay hints for a single `(Document, View)` combo.
@@ -780,6 +789,7 @@ impl Document {
             text,
             binary: false,
             selections: HashMap::default(),
+            selection_states: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
             inline_completions: Default::default(),
@@ -800,6 +810,7 @@ impl Document {
             language: None,
             changes,
             old_state,
+            old_state_view: None,
             diagnostics: Vec::new(),
             version: 0,
             history: Cell::new(History::default()),
@@ -1509,10 +1520,46 @@ impl Document {
         // TODO: use a transaction?
         self.selections
             .insert(view_id, selection.ensure_invariants(self.text().slice(..)));
+        self.advance_selection_revision(view_id);
         event::dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
         })
+    }
+
+    fn advance_selection_revision(&mut self, view: ViewId) {
+        let state = self.selection_states.entry(view).or_default();
+        state.selection_revision = state
+            .selection_revision
+            .checked_add(1)
+            .expect("selection revision exhausted");
+    }
+
+    /// Revision of this document's selection in a split, independent of the text version.
+    pub fn selection_revision(&self, view: ViewId) -> Option<u64> {
+        self.selection_states
+            .get(&view)
+            .map(|state| state.selection_revision)
+    }
+
+    pub(crate) fn view_binding_revision(&self, view: ViewId) -> Option<u64> {
+        self.selection_states
+            .get(&view)
+            .filter(|state| state.active)
+            .map(|state| state.binding_revision)
+    }
+
+    pub(crate) fn bind_view(&mut self, view: ViewId, binding_revision: u64) {
+        let state = self.selection_states.entry(view).or_default();
+        state.binding_revision = binding_revision;
+        state.active = true;
+        self.ensure_view_init(view);
+    }
+
+    pub(crate) fn unbind_view(&mut self, view: ViewId) {
+        if let Some(state) = self.selection_states.get_mut(&view) {
+            state.active = false;
+        }
     }
 
     /// Find the origin selection of the text in a document, i.e. where
@@ -1555,6 +1602,7 @@ impl Document {
     /// Remove any views' data and state that is stored in the `Document`.
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.selections.remove(&view_id);
+        self.selection_states.remove(&view_id);
         self.view_data.remove(&view_id);
         self.inlay_hints.remove(&view_id);
         self.jump_labels.remove(&view_id);
@@ -1568,7 +1616,7 @@ impl Document {
     fn apply_impl(
         &mut self,
         transaction: &Transaction,
-        view_id: ViewId,
+        view_id: Option<ViewId>,
         emit_lsp_notification: bool,
     ) -> bool {
         use editor_core::Assoc;
@@ -1583,15 +1631,8 @@ impl Document {
         }
 
         if changes.is_empty() {
-            if let Some(selection) = transaction.selection() {
-                self.selections.insert(
-                    view_id,
-                    selection.clone().ensure_invariants(self.text.slice(..)),
-                );
-                event::dispatch(SelectionDidChange {
-                    doc: self,
-                    view: view_id,
-                });
+            if let (Some(selection), Some(view)) = (transaction.selection(), view_id) {
+                self.set_selection(view, selection.clone());
             }
             return true;
         }
@@ -1606,6 +1647,12 @@ impl Document {
                 .map(transaction.changes())
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.text.slice(..));
+        }
+        for state in self.selection_states.values_mut() {
+            state.selection_revision = state
+                .selection_revision
+                .checked_add(1)
+                .expect("selection revision exhausted");
         }
 
         for view_data in self.view_data.values_mut() {
@@ -1719,6 +1766,15 @@ impl Document {
         self.document_highlights
             .apply_changes(changes, self.text.len_chars());
 
+        // Capture the final transaction selection in document change snapshots,
+        // while keeping document-change notification before selection notification.
+        if let (Some(selection), Some(view)) = (transaction.selection(), view_id) {
+            self.selections.insert(
+                view,
+                selection.clone().ensure_invariants(self.text.slice(..)),
+            );
+            self.advance_selection_revision(view);
+        }
         event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
@@ -1728,15 +1784,8 @@ impl Document {
         });
 
         // if specified, the current selection should instead be replaced by transaction.selection
-        if let Some(selection) = transaction.selection() {
-            self.selections.insert(
-                view_id,
-                selection.clone().ensure_invariants(self.text.slice(..)),
-            );
-            event::dispatch(SelectionDidChange {
-                doc: self,
-                view: view_id,
-            });
+        if let (Some(_), Some(view)) = (transaction.selection(), view_id) {
+            event::dispatch(SelectionDidChange { doc: self, view });
         }
 
         true
@@ -1758,9 +1807,10 @@ impl Document {
                 doc: self.text.clone(),
                 selection: self.selection(view_id).clone(),
             });
+            self.old_state_view = Some(view_id);
         }
 
-        let success = self.apply_impl(transaction, view_id, emit_lsp_notification);
+        let success = self.apply_impl(transaction, Some(view_id), emit_lsp_notification);
 
         if !transaction.changes().is_empty() {
             // Compose this transaction with the previous one
@@ -1791,7 +1841,7 @@ impl Document {
         let mut history = self.history.take();
         let txn = if undo { history.undo() } else { history.redo() };
         let success = if let Some(txn) = txn {
-            self.apply_impl(txn, view.id, true)
+            self.apply_impl(txn, Some(view.id), true)
         } else {
             false
         };
@@ -1880,7 +1930,7 @@ impl Document {
         };
         let mut success = false;
         for txn in txns {
-            if self.apply_impl(&txn, view.id, true) {
+            if self.apply_impl(&txn, Some(view.id), true) {
                 success = true;
             }
         }
@@ -1918,6 +1968,7 @@ impl Document {
 
         // HAXX: we need to reconstruct the state as it was before the changes..
         let old_state = self.old_state.take().expect("no old_state available");
+        self.old_state_view = None;
 
         let mut history = self.history.take();
         history.commit_revision(&transaction, &old_state);
@@ -1925,6 +1976,59 @@ impl Document {
 
         // Update jumplist entries in the view.
         view.apply(&transaction, self);
+    }
+
+    /// Commit pending native edits without stamping any split's lazy history cache.
+    /// The originating selection is retained even when its document is hidden.
+    pub(crate) fn commit_pending_changes(&mut self) {
+        if self.changes.is_empty() {
+            return;
+        }
+        let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
+        let original = self.old_state.take().expect("no old_state available");
+        let view = self.old_state_view.take();
+        let mut transaction = Transaction::from(changes);
+        let selection = view.and_then(|view| self.selections.get(&view)).cloned();
+        let mut history = self.history.take();
+        if let Some(selection) = selection {
+            transaction = transaction.with_selection(selection);
+            history.commit_revision(&transaction, &original);
+        } else {
+            history.commit_document_revision(&transaction, &original.doc);
+        }
+        self.history.set(history);
+    }
+
+    /// Apply one validated plugin transaction as one undo revision. Text-only
+    /// operations need no visible split and never invent a cursor for undo.
+    pub(crate) fn apply_plugin_transaction(
+        &mut self,
+        transaction: &Transaction,
+        view: Option<ViewId>,
+    ) -> bool {
+        debug_assert!(self.changes.is_empty());
+        let original = self.text.clone();
+        let selection = view.and_then(|view| self.selections.get(&view)).cloned();
+        if !self.apply_impl(transaction, view, true) {
+            return false;
+        }
+        if !transaction.changes().is_empty() {
+            let mut history = self.history.take();
+            if let Some(selection) = selection {
+                history.commit_revision(
+                    transaction,
+                    &State {
+                        doc: original,
+                        selection,
+                    },
+                );
+            } else {
+                history.commit_document_revision(transaction, &original);
+            }
+            self.history.set(history);
+        }
+        self.changes = ChangeSet::new(self.text.slice(..));
+        true
     }
 
     pub fn id(&self) -> DocumentId {

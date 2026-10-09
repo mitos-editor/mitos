@@ -374,21 +374,22 @@ pub fn mode_changed(editor: &mut Editor, old: Mode) {
 pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         event.doc.inline_completions.clear();
-        if event.ghost_transaction
+        if (event.ghost_transaction || event.view.is_none())
             && let Some(trigger) = &event.doc.inline_completions.trigger
         {
             trigger.cancel_document(event.doc.id());
         }
         if !event.ghost_transaction
             && event.doc.config.load().inline_completion_auto_trigger
+            && let Some(view) = event.view
             && let Some(tx) = &event.doc.inline_completions.trigger
         {
             tx.schedule(
                 event.doc.id(),
-                event.view,
+                view,
                 event
                     .doc
-                    .selection(event.view)
+                    .selection(view)
                     .primary()
                     .cursor(event.doc.text().slice(..)),
                 event.doc.config.load().inline_completion_timeout,

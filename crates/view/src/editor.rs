@@ -123,6 +123,7 @@ pub struct Editor {
     pub quicklist: Quicklist,
 
     pub status_msg: Option<(Cow<'static, str>, Severity)>,
+    error_revision: u64,
     pub autoinfo: Option<Info>,
 
     pub config: Arc<dyn DynAccess<Config>>,
@@ -280,6 +281,7 @@ impl Editor {
                 }),
             ))),
             status_msg: None,
+            error_revision: 0,
             autoinfo: None,
             idle_timer: Box::pin(sleep(conf.idle_timeout)),
             redraw_timer: Box::pin(sleep(Duration::MAX)),
@@ -341,6 +343,11 @@ impl Editor {
         self.status_msg = None;
     }
 
+    /// Distinguishes a new command error from an earlier status message.
+    pub fn error_revision(&self) -> u64 {
+        self.error_revision
+    }
+
     #[inline]
     pub fn set_status<T: Into<Cow<'static, str>>>(&mut self, status: T) {
         let status = status.into();
@@ -356,6 +363,7 @@ impl Editor {
         M: FnOnce() -> C,
     {
         let error = message().into();
+        self.error_revision = self.error_revision.wrapping_add(1);
         log::debug!("editor error: {}", error);
         self.status_msg = Some((error, Severity::Error));
     }
@@ -759,10 +767,15 @@ impl Editor {
         let scrolloff = self.config().scrolloff;
         let view = self.tree.get_mut(current_view);
 
-        view.doc = doc_id;
+        if view.doc != doc_id {
+            if let Some(previous) = self.documents.get_mut(&view.doc) {
+                previous.unbind_view(view.id);
+            }
+        }
+        view.bind_document(doc_id);
         let doc = doc_mut!(self, &doc_id);
 
-        doc.ensure_view_init(view.id);
+        doc.bind_view(view.id, view.binding_revision());
         view.sync_changes(doc);
         doc.mark_as_focused();
 
@@ -862,8 +875,9 @@ impl Editor {
                     },
                 );
                 // initialize selection for view
+                let binding_revision = self.tree.get(view_id).binding_revision();
                 let doc = doc_mut!(self, &id);
-                doc.ensure_view_init(view_id);
+                doc.bind_view(view_id, binding_revision);
                 doc.mark_as_focused();
                 focus_lost
             }
@@ -1074,8 +1088,9 @@ impl Editor {
                 });
             let view = View::new(doc_id, self.config().gutters.clone());
             let view_id = self.tree.insert(view);
+            let binding_revision = self.tree.get(view_id).binding_revision();
             let doc = doc_mut!(self, &doc_id);
-            doc.ensure_view_init(view_id);
+            doc.bind_view(view_id, binding_revision);
             doc.mark_as_focused();
         }
 

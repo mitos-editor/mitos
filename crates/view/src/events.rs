@@ -11,7 +11,7 @@ events! {
     }
     DocumentDidChange<'a> {
         doc: &'a mut Document,
-        view: ViewId,
+        view: Option<ViewId>,
         old_text: &'a Rope,
         changes: &'a ChangeSet,
         ghost_transaction: bool

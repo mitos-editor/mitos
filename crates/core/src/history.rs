@@ -97,6 +97,20 @@ impl History {
             // Store the current cursor position
             .with_selection(original.selection.clone());
 
+        self.commit_with_inversion(transaction, inversion, timestamp);
+    }
+
+    /// Commit a text-only change without associating undo with a particular view's cursor.
+    pub fn commit_document_revision(&mut self, transaction: &Transaction, original: &Rope) {
+        self.commit_with_inversion(transaction, transaction.invert(original), Instant::now());
+    }
+
+    fn commit_with_inversion(
+        &mut self,
+        transaction: &Transaction,
+        inversion: Transaction,
+        timestamp: Instant,
+    ) {
         let new_current = self.revisions.len();
         self.revisions[self.current].last_child = NonZeroUsize::new(new_current);
         self.revisions.push(Revision {

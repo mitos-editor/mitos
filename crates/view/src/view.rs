@@ -147,6 +147,7 @@ pub struct View {
     pub id: ViewId,
     pub area: Rect,
     pub doc: DocumentId,
+    binding_revision: u64,
     pub jumps: JumpList,
     // documents accessed from this view from the oldest one to last viewed one
     pub docs_access_history: Vec<DocumentId>,
@@ -189,6 +190,7 @@ impl View {
         Self {
             id: ViewId::default(),
             doc,
+            binding_revision: 0,
             area: Rect::default(), // will get calculated upon inserting into tree
             jumps: JumpList::new((doc, Selection::point(0))), // TODO: use actual sel
             docs_access_history: Vec::new(),
@@ -205,6 +207,21 @@ impl View {
             self.docs_access_history.remove(pos);
         }
         self.docs_access_history.push(id);
+    }
+
+    /// Changes whenever this split is rebound, including switching away and back.
+    pub fn binding_revision(&self) -> u64 {
+        self.binding_revision
+    }
+
+    pub(crate) fn bind_document(&mut self, document: DocumentId) {
+        if self.doc != document {
+            self.binding_revision = self
+                .binding_revision
+                .checked_add(1)
+                .expect("view revision exhausted");
+            self.doc = document;
+        }
     }
 
     pub fn inner_area(&self, doc: &Document) -> Rect {
