@@ -18,6 +18,7 @@ use view::{document::Mode, theme};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
+    pub plugins: BTreeMap<String, plugins::PluginConfig>,
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
     pub component_keys: ComponentKeymaps,
@@ -198,6 +199,8 @@ fn resolve_keymaps(
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRaw {
+    #[serde(default)]
+    pub plugins: BTreeMap<String, plugins::PluginConfig>,
     pub theme: Option<theme::Config>,
     pub keys: Option<Keys>,
     pub editor: Option<toml::Value>,
@@ -229,6 +232,7 @@ impl Commands {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            plugins: BTreeMap::new(),
             theme: None,
             keys: keymap::default(),
             component_keys: ComponentKeymaps::default(),
@@ -339,6 +343,7 @@ impl Config {
             local.and_then(|file| parse_source(&file).map_err(ConfigLoadError::BadConfig));
         let res = match (global_config, local_config) {
             (Ok(mut global), Ok(local)) => {
+                global.plugins.extend(local.plugins);
                 let (keys, component_keys) =
                     resolve_keymaps(global.keys.into_iter().chain(local.keys));
 
@@ -362,6 +367,7 @@ impl Config {
 
                 Config {
                     theme: local.theme.or(global.theme),
+                    plugins: global.plugins,
                     keys,
                     component_keys,
                     editor: settings.editor,
@@ -383,6 +389,7 @@ impl Config {
 
                 Config {
                     theme: config.theme,
+                    plugins: config.plugins,
                     keys,
                     component_keys,
                     editor: settings.editor,
@@ -916,6 +923,21 @@ mod tests {
         );
         let defaults = Config::default().component_keys;
         assert_eq!(defaults.buffer_picker, defaults.picker);
+    }
+
+    #[test]
+    fn plugins_are_explicit_and_merge_by_configured_name() {
+        assert!(Config::load_test("").plugins.is_empty());
+        let global = "[plugins.example]\npath = 'plugins/example/plugin.toml'\nconfig = { prefix = 'user' }\n[plugins.other]\npath = 'plugins/other/plugin.toml'".to_owned();
+        let local = "[plugins.example]\npath = 'plugins/example/plugin.toml'\nenabled = false\nconfig = { prefix = 'workspace' }".to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        assert_eq!(config.plugins.len(), 2);
+        assert!(!config.plugins["example"].enabled);
+        assert_eq!(config.plugins["example"].config["prefix"], "workspace");
+        assert!(config.plugins["other"].enabled);
+        assert!(
+            Config::load_test_result("[plugins.example]\npath = 'test'\nenabeld = true").is_err()
+        );
     }
 
     #[test]

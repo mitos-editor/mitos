@@ -1,6 +1,6 @@
 //! Terminal command prompt, dispatch, help, and completion.
 
-use std::{borrow::Cow, fmt::Write, ops};
+use std::{borrow::Cow, collections::HashMap, fmt::Write, ops};
 
 use ::command_line::{self, Args, Flag, Signature, Token, TokenKind};
 use anyhow::anyhow;
@@ -21,7 +21,7 @@ use crate::{
     ui::{self, completers::Completer, Prompt, PromptEvent},
 };
 
-fn execute_command_line(
+pub(super) fn execute_command_line(
     cx: &mut compositor::Context,
     input: &str,
     event: PromptEvent,
@@ -46,10 +46,8 @@ fn execute_command_line(
             for configured in &custom.commands {
                 if let Some(typable) = configured.strip_prefix(':') {
                     let (name, args, _) = command_line::split(typable);
-                    let command = TYPABLE_COMMAND_MAP
-                        .get(name)
-                        .ok_or_else(|| anyhow!("no such command: '{name}'"))?;
-                    execute_command(cx, command, args, &positional_args, event)?;
+                    let name = name.strip_prefix(CustomCommand::ESCAPE).unwrap_or(name);
+                    execute_named_command(cx, name, args, &positional_args, event)?;
                 } else if event == PromptEvent::Validate {
                     let command: MappableCommand = configured.parse()?;
                     let mut command_cx = super::Context {
@@ -77,14 +75,39 @@ fn execute_command_line(
         return Ok(Vec::new());
     }
 
-    match TYPABLE_COMMAND_MAP.get(command) {
-        Some(cmd) => {
-            execute_command(cx, cmd, args, &Args::empty(), event)?;
-            Ok(Vec::new())
-        }
-        None if event == PromptEvent::Validate => Err(anyhow!("no such command: '{command}'")),
-        None => Ok(Vec::new()),
+    execute_named_command(cx, command, args, &Args::empty(), event)?;
+    Ok(Vec::new())
+}
+
+fn execute_named_command(
+    cx: &mut compositor::Context,
+    command: &str,
+    args: &str,
+    positional_args: &Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if let Some(cmd) = TYPABLE_COMMAND_MAP.get(command) {
+        return execute_command(cx, cmd, args, positional_args, event);
     }
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    if cx.editor.plugin_command_doc(command).is_some() {
+        let args = Args::parse(args, Signature::DEFAULT, true, |token| {
+            expansion::expand(cx.editor, token, positional_args.as_slice())
+                .map_err(|err| err.into())
+        })
+        .map_err(|err| anyhow!("'{command}': {err}"))?;
+        let args = args.iter().map(|arg| arg.to_string()).collect();
+        if cx
+            .editor
+            .execute_plugin_command(command, args)
+            .map_err(|err| anyhow!("'{command}': {err:#}"))?
+        {
+            return Ok(());
+        }
+    }
+    Err(anyhow!("no such command: '{command}'"))
 }
 
 pub(super) fn execute_command(
@@ -133,7 +156,14 @@ pub(super) fn command_mode(cx: &mut Context) {
     );
 
     let custom_commands = cx.editor.config().commands.clone();
-    prompt.doc_fn = Box::new(move |input| command_line_doc_with_custom(input, &custom_commands));
+    let plugin_docs = cx
+        .editor
+        .plugin_commands()
+        .into_iter()
+        .map(|command| (command.name, command.doc))
+        .collect();
+    prompt.doc_fn =
+        Box::new(move |input| command_line_doc_with_plugins(input, &custom_commands, &plugin_docs));
 
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
@@ -234,6 +264,23 @@ fn command_line_doc_with_custom<'a>(
     command_line_doc(input)
 }
 
+fn command_line_doc_with_plugins<'a>(
+    input: &'a str,
+    custom_commands: &CustomCommands,
+    plugin_docs: &HashMap<String, String>,
+) -> Option<Cow<'a, str>> {
+    let (command, _, _) = command_line::split(input);
+    if !command.starts_with(CustomCommand::ESCAPE) && custom_commands.get(command).is_some() {
+        return command_line_doc_with_custom(input, custom_commands);
+    }
+    command_line_doc_with_custom(input, custom_commands).or_else(|| {
+        let command = command
+            .strip_prefix(CustomCommand::ESCAPE)
+            .unwrap_or(command);
+        plugin_docs.get(command).cloned().map(Cow::Owned)
+    })
+}
+
 fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
     let (command, rest, complete_command) = command_line::split(input);
     let config = editor.config();
@@ -242,10 +289,17 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
         .map_or((false, command), |command| (true, command));
 
     if complete_command {
+        let plugins = editor
+            .plugin_commands()
+            .into_iter()
+            .map(|command| Cow::Owned(command.name));
         if escaped {
             fuzzy_match(
                 command,
-                TYPABLE_COMMAND_LIST.iter().map(|command| command.name),
+                TYPABLE_COMMAND_LIST
+                    .iter()
+                    .map(|command| Cow::Borrowed(command.name))
+                    .chain(plugins),
                 false,
             )
             .into_iter()
@@ -262,7 +316,8 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
                 .iter()
                 .map(|command| Cow::Borrowed(command.name));
 
-            fuzzy_match(command, custom.chain(builtins), false)
+            // Reuse the plugin command completion integration from Helix PR #8675.
+            fuzzy_match(command, custom.chain(builtins).chain(plugins), false)
                 .into_iter()
                 .map(|(name, _)| (0.., name.into()))
                 .collect()
@@ -581,5 +636,29 @@ mod command_line_doc_tests {
         let doc = command_line_doc_with_custom("save-and-close", &commands).unwrap();
         assert!(doc.starts_with("`:save-and-close` `<path>` — Save *and* close"));
         assert!(doc.contains("Maps to: `:write` → `:buffer-close`"));
+    }
+
+    #[test]
+    fn plugin_docs_respect_custom_command_shadowing_and_escape() {
+        let plugin_docs =
+            HashMap::from([("example.hello".into(), "Greet from WebAssembly".into())]);
+        let empty = CustomCommands::default();
+        assert_eq!(
+            command_line_doc_with_plugins("example.hello 'hello world'", &empty, &plugin_docs)
+                .unwrap(),
+            "Greet from WebAssembly"
+        );
+
+        let commands = CustomCommands::new(vec![CustomCommand {
+            name: "example.hello".into(),
+            commands: vec![":write".into()],
+            hidden: true,
+            ..CustomCommand::default()
+        }]);
+        assert!(command_line_doc_with_plugins("example.hello", &commands, &plugin_docs).is_none());
+        assert_eq!(
+            command_line_doc_with_plugins("^example.hello", &commands, &plugin_docs).unwrap(),
+            "Greet from WebAssembly"
+        );
     }
 }

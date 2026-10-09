@@ -30,6 +30,7 @@ pub mod gutter;
 pub mod handlers;
 pub mod icons;
 pub mod info;
+pub mod plugins;
 pub mod quicklist;
 pub mod register;
 pub mod save;
@@ -50,6 +51,13 @@ pub struct DocumentId(NonZeroUsize);
 impl Default for DocumentId {
     fn default() -> DocumentId {
         DocumentId(NonZeroUsize::new(1).unwrap())
+    }
+}
+
+impl DocumentId {
+    /// The stable numeric identifier exposed to external editor integrations.
+    pub fn as_u64(self) -> u64 {
+        self.0.get() as u64
     }
 }
 

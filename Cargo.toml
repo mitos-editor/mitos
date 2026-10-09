@@ -18,8 +18,11 @@ members = [
   "crates/snippets",
   "crates/spelling",
   "crates/stdx",
+  "crates/plugin-sdk",
+  "crates/plugins",
   "xtask",
 ]
+exclude = ["examples/plugins/uppercase"]
 
 default-members = [
   "crates/term"
@@ -52,6 +55,8 @@ loader = { path = "crates/loader" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
+plugin-sdk = { path = "crates/plugin-sdk" }
+plugins = { path = "crates/plugins" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }
 stdx = { path = "crates/stdx" }
@@ -66,6 +71,7 @@ anyhow = "1"
 jiff = { version = "0.2.27", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2.0"
+wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "auto-dispatch"] }
 
 # Async and concurrency
 arc-swap = "1.9"

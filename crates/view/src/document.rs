@@ -175,6 +175,7 @@ fn read_file(
 }
 
 pub struct Document {
+    pub(crate) plugin_events: Option<crate::plugins::PluginEventSender>,
     pub(crate) id: DocumentId,
     text: Rope,
     binary: bool,
@@ -771,6 +772,7 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
+            plugin_events: None,
             active_snippet: None,
             path: None,
             relative_path: OnceLock::new(),

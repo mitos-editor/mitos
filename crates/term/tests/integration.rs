@@ -33,6 +33,7 @@ mod test {
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
+    mod plugins;
     mod pull_diagnostics;
     mod signature_help;
     mod spelling;

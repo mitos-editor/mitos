@@ -68,15 +68,25 @@ pub fn command_palette(cx: &mut Context) {
                 binding_style: cx.editor.theme.get("markup.raw.inline"),
             };
 
-            let commands = MappableCommand::STATIC_COMMAND_LIST.iter().cloned().chain(
-                catalog::TYPABLE_COMMAND_LIST
+            // Helix PR #8675 includes plugin commands alongside the built-in catalog.
+            let commands =
+                MappableCommand::STATIC_COMMAND_LIST
                     .iter()
-                    .map(|cmd| MappableCommand::Typable {
-                        name: cmd.name.to_owned(),
-                        args: String::new(),
-                        doc: cmd.doc.to_owned(),
-                    }),
-            );
+                    .cloned()
+                    .chain(catalog::TYPABLE_COMMAND_LIST.iter().map(|cmd| {
+                        MappableCommand::Typable {
+                            name: cmd.name.to_owned(),
+                            args: String::new(),
+                            doc: cmd.doc.to_owned(),
+                        }
+                    }))
+                    .chain(cx.editor.plugin_commands().into_iter().map(|command| {
+                        MappableCommand::Typable {
+                            name: command.name,
+                            args: String::new(),
+                            doc: command.doc,
+                        }
+                    }));
 
             let columns = [
                 ui::PickerColumn::new("name", command_palette_name),
