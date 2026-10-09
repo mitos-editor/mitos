@@ -132,6 +132,7 @@ impl Serialize for Mode {
 #[derive(Debug, Clone)]
 pub struct DocumentSavedEvent {
     pub revision: usize,
+    pub version: i32,
     pub save_time: SystemTime,
     pub doc_id: DocumentId,
     pub path: PathBuf,
@@ -1102,6 +1103,7 @@ impl Document {
 
         // mark changes up to now as saved
         let current_rev = self.get_current_revision();
+        let text_version = self.version();
         let doc_id = self.id();
         let atomic_save = self.config.load().files.save.atomic;
 
@@ -1255,6 +1257,7 @@ impl Document {
 
             let event = DocumentSavedEvent {
                 revision: current_rev,
+                version: text_version,
                 save_time,
                 doc_id,
                 path,

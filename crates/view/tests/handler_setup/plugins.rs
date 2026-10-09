@@ -827,3 +827,738 @@ async fn readonly_targets_reject_the_complete_batch() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("saved-as.txt");
+    let id = current_ref!(fixture.editor).1.id();
+    fixture.replace("submitted\n");
+    let (view, doc) = current!(fixture.editor);
+    doc.append_changes_to_history(view);
+    let saved_version = doc.version();
+    let saved_revision = doc.get_current_revision();
+    let config = BTreeMap::from([(
+        "observer".into(),
+        observing(
+            dir.path(),
+            &["document-saved"],
+            &[
+                Route {
+                    event: "document-saved",
+                    response: status("written snapshot observed"),
+                    expected: vec![
+                        r#""text":"submitted\n""#.into(),
+                        format!("\"saved_version\":{saved_version}"),
+                        format!("\"saved_revision\":{saved_revision}"),
+                        format!("\"current_version\":{}", saved_version + 1),
+                        format!(
+                            "\"path\":{}",
+                            serde_json::to_string(&target.to_string_lossy())?
+                        ),
+                        r#""view":null"#.into(),
+                    ],
+                    ..Route::default()
+                },
+                Route {
+                    event: "shutdown",
+                    response: status("shutdown after save"),
+                    ..Route::default()
+                },
+            ],
+            Some("document-saved"),
+        )?,
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture.editor.save(id, Some(target.clone()), false)?;
+    fixture.replace("newer\n");
+    fixture.editor.flush_writes().await?;
+    assert_eq!(std::fs::read_to_string(&target)?, "submitted\n");
+    assert_eq!(
+        fixture.editor.document(id).unwrap().path(),
+        Some(target.as_path())
+    );
+    // Shutdown must pump the queued save hook even when no frontend runs again.
+    fixture.editor.shutdown_plugins();
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "shutdown after save"
+    );
+    assert_eq!(
+        fixture.editor.document(id).unwrap().text().to_string(),
+        "newer\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn write_flush_continues_after_failure_and_reports_only_successful_saves(
+) -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("first\n")?;
+    let first = current_ref!(fixture.editor).1.id();
+    let dir = tempfile::tempdir()?;
+    let good = dir.path().join("good.txt");
+    let config = BTreeMap::from([(
+        "observer".into(),
+        observing(
+            dir.path(),
+            &["document-saved"],
+            &[Route {
+                event: "document-saved",
+                response: status("successful save only"),
+                expected: vec![format!(
+                    "\"path\":{}",
+                    serde_json::to_string(&good.to_string_lossy())?
+                )],
+                ..Route::default()
+            }],
+            None,
+        )?,
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture
+        .editor
+        .save(first, Some(dir.path().join("missing/failed.txt")), false)?;
+    let second = fixture.editor.new_file(EditorAction::Replace);
+    fixture.editor.save(second, Some(good.clone()), false)?;
+    assert!(fixture.editor.flush_writes().await.is_err());
+    fixture.editor.poll_plugin_events();
+    assert_eq!(fixture.editor.write_count, 0);
+    assert!(good.exists());
+    assert_eq!(
+        fixture.editor.document(second).unwrap().path(),
+        Some(good.as_path())
+    );
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "successful save only"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn other_plugins_observe_mutations_with_provenance_without_own_echoes() -> anyhow::Result<()>
+{
+    use super::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("original\n")?;
+    let (_, doc) = current_ref!(fixture.editor);
+    let alpha = tempfile::tempdir()?;
+    let beta = tempfile::tempdir()?;
+    let config = BTreeMap::from([
+        (
+            "alpha".into(),
+            observing(
+                alpha.path(),
+                &["document-changed"],
+                &[
+                    Route {
+                        event: "command",
+                        response: Response {
+                            actions: vec![Action::Edit {
+                                document: doc.id().as_u64(),
+                                version: doc.version(),
+                                edits: vec![TextEdit {
+                                    start: 0,
+                                    end: 8,
+                                    text: "CHANGED!".into(),
+                                }],
+                            }],
+                            error: None,
+                        },
+                        ..Route::default()
+                    },
+                    Route {
+                        event: "document-changed",
+                        response: Response {
+                            actions: vec![],
+                            error: Some("own echo was delivered".into()),
+                        },
+                        ..Route::default()
+                    },
+                ],
+                None,
+            )?,
+        ),
+        (
+            "beta".into(),
+            observing(
+                beta.path(),
+                &["document-changed"],
+                &[Route {
+                    event: "document-changed",
+                    response: status("other plugin observed alpha"),
+                    expected: vec![
+                        r#""origin_plugin":"alpha""#.into(),
+                        r#""parent_sequence":2"#.into(),
+                        r#""depth":1"#.into(),
+                    ],
+                    ..Route::default()
+                }],
+                None,
+            )?,
+        ),
+    ]);
+    assert!(fixture.editor.reload_plugins(&config, alpha.path()));
+    fixture.editor.execute_plugin_command("alpha.run", vec![])?;
+    drain(&mut fixture);
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().to_string(),
+        "CHANGED!\n"
+    );
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "other plugin observed alpha"
+    );
+    assert_eq!(fixture.editor.error_revision(), 0);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, status, Route};
+    use plugin_sdk::{StateCatalog, StateQuery};
+    use view::callbacks::{EditorCallback, EditorCallbackSender};
+    let dir = tempfile::tempdir()?;
+    // Fill the frontend callback queue. Plugin hooks must never block or lose
+    // the retained host work when this wake cannot be sent.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<EditorCallback>(1);
+    assert!(tx.send(Box::new(|_| {})).await.is_ok());
+    let async_tx = tx.clone();
+    let sender = EditorCallbackSender::new(
+        move |callback| {
+            let tx = async_tx.clone();
+            async move {
+                let _ = tx.send(callback).await;
+            }
+        },
+        |_| panic!("plugin wake used a blocking callback send"),
+    )
+    .with_try_send(move |callback| tx.try_send(callback).map_err(|err| err.into_inner()));
+    let mut fixture = Fixture::with_handler_setup(
+        "original\n",
+        "language = []",
+        loader::syntax::Resources::default(),
+        |config| config.word_completion.enable = false,
+        move |handlers, config| *handlers = view::handlers::Handlers::new(config, sender),
+    )?;
+    let config = BTreeMap::from([(
+        "observer".into(),
+        observing(
+            dir.path(),
+            &["document-opened"],
+            &[
+                Route {
+                    event: "resync-required",
+                    response: Response {
+                        actions: vec![Action::RequestState {
+                            query: StateQuery::default(),
+                        }],
+                        error: None,
+                    },
+                    expected: vec![r#""queue-capacity""#.into()],
+                    ..Route::default()
+                },
+                Route {
+                    event: "state",
+                    response: status("startup state recovered"),
+                    expected: vec![r#""next_document":null"#.into()],
+                    ..Route::default()
+                },
+            ],
+            None,
+        )?,
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    let mut opened = Vec::new();
+    for index in 0..40 {
+        let path = dir.path().join(format!("startup-{index}.txt"));
+        std::fs::write(&path, format!("document {index}\n"))?;
+        opened.push(fixture.editor.open(&path, EditorAction::Load)?);
+    }
+    assert_eq!(rx.len(), 1, "one full callback destination stays bounded");
+    drop(rx.try_recv()?);
+    fixture.editor.poll_plugin_events();
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "startup state recovered"
+    );
+    assert!(rx.len() <= 1, "at most one wake can be scheduled");
+    let (context, catalog) = fixture.editor.plugin_state(&StateQuery::default());
+    assert!(context.document.is_none());
+    let wire_catalog: StateCatalog = serde_json::from_value(serde_json::to_value(catalog)?)?;
+    for id in opened {
+        assert!(wire_catalog
+            .documents
+            .iter()
+            .any(|doc| doc.id == id.as_u64()));
+    }
+    let mut after_document = None;
+    let mut listed = Vec::new();
+    loop {
+        let (_, page) = fixture.editor.plugin_state(&StateQuery {
+            after_document,
+            limit: 3,
+            ..StateQuery::default()
+        });
+        assert!(page.documents.len() <= 3);
+        listed.extend(page.documents.iter().map(|doc| doc.id));
+        after_document = page.next_document;
+        if after_document.is_none() {
+            break;
+        }
+    }
+    assert_eq!(
+        listed,
+        fixture
+            .editor
+            .documents
+            .keys()
+            .map(|id| id.as_u64())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queue_bytes_and_causal_feedback_have_explicit_recovery_limits() -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("small\n")?;
+    let dir = tempfile::tempdir()?;
+    let config = BTreeMap::from([(
+        "observer".into(),
+        observing(
+            dir.path(),
+            &["post-command"],
+            &[
+                Route {
+                    event: "post-command",
+                    ..Route::default()
+                },
+                Route {
+                    event: "resync-required",
+                    response: status("byte limit reported"),
+                    expected: vec![r#""queue-capacity""#.into()],
+                    ..Route::default()
+                },
+            ],
+            None,
+        )?,
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture.replace(&format!("{}\n", "x".repeat(512 * 1024)));
+    for _ in 0..20 {
+        fixture
+            .editor
+            .queue_plugin_event(Event::PostCommand, serde_json::Value::Null);
+    }
+    drain(&mut fixture);
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "byte limit reported"
+    );
+
+    let mut fixture = Fixture::new("seed\n")?;
+    let id = current_ref!(fixture.editor).1.id();
+    let alpha = tempfile::tempdir()?;
+    let beta = tempfile::tempdir()?;
+    let mut routes = (1..64)
+        .map(|version| Route {
+            event: "document-changed",
+            filter: Some(format!("\"version\":{version},")),
+            response: Response {
+                actions: vec![Action::Edit {
+                    document: id.as_u64(),
+                    version,
+                    edits: vec![TextEdit {
+                        start: 0,
+                        end: 0,
+                        text: "X".into(),
+                    }],
+                }],
+                error: None,
+            },
+            ..Route::default()
+        })
+        .collect::<Vec<_>>();
+    routes.push(Route {
+        event: "resync-required",
+        response: status("causal limit reported"),
+        expected: vec![r#""causal-depth""#.into()],
+        ..Route::default()
+    });
+    let config = BTreeMap::from([
+        (
+            "alpha".into(),
+            observing(alpha.path(), &["document-changed"], &routes, None)?,
+        ),
+        (
+            "beta".into(),
+            observing(beta.path(), &["document-changed"], &routes, None)?,
+        ),
+    ]);
+    assert!(fixture.editor.reload_plugins(&config, alpha.path()));
+    fixture.replace("seed\n");
+    drain(&mut fixture);
+    assert!(
+        current_ref!(fixture.editor).1.version() <= 12,
+        "feedback must stop before the guest runs out of prepared responses"
+    );
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "causal limit reported"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn focus_lost_identifies_the_previous_document_and_split() -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("first\n")?;
+    let (view, doc) = current_ref!(fixture.editor);
+    let id = doc.id().as_u64();
+    let view = view.id.as_u64();
+    let dir = tempfile::tempdir()?;
+    let config = BTreeMap::from([(
+        "observer".into(),
+        observing(
+            dir.path(),
+            &["document-focus-lost"],
+            &[Route {
+                event: "document-focus-lost",
+                response: status("old binding observed"),
+                expected: vec![
+                    format!("\"document\":{id}"),
+                    format!("\"view\":{view}"),
+                    r#""text":"first\n""#.into(),
+                ],
+                ..Route::default()
+            }],
+            None,
+        )?,
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    fixture.editor.new_file(EditorAction::Replace);
+    drain(&mut fixture);
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "old binding observed"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn event_recipients_share_one_frozen_snapshot_and_conflicts_are_deterministic(
+) -> anyhow::Result<()> {
+    use super::support::plugin_guest::{observing, Route};
+    let mut fixture = Fixture::new("original\n")?;
+    let (_, doc) = current_ref!(fixture.editor);
+    let id = doc.id().as_u64();
+    let version = doc.version();
+    let alpha = tempfile::tempdir()?;
+    let beta = tempfile::tempdir()?;
+    let response = |text: &str| Response {
+        actions: vec![Action::Edit {
+            document: id,
+            version,
+            edits: vec![TextEdit {
+                start: 0,
+                end: 8,
+                text: text.into(),
+            }],
+        }],
+        error: None,
+    };
+    let config = BTreeMap::from([
+        (
+            "alpha".into(),
+            observing(
+                alpha.path(),
+                &["post-command"],
+                &[Route {
+                    event: "post-command",
+                    response: response("FIRST!!!"),
+                    ..Route::default()
+                }],
+                None,
+            )?,
+        ),
+        (
+            "beta".into(),
+            observing(
+                beta.path(),
+                &["post-command"],
+                &[Route {
+                    event: "post-command",
+                    response: response("SECOND!!"),
+                    expected: vec![
+                        format!("\"version\":{version},"),
+                        r#""text":"original\n""#.into(),
+                    ],
+                    ..Route::default()
+                }],
+                None,
+            )?,
+        ),
+    ]);
+    assert!(fixture.editor.reload_plugins(&config, alpha.path()));
+    assert!(!fixture
+        .editor
+        .dispatch_plugin_event(Event::PostCommand, serde_json::Value::Null));
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().to_string(),
+        "FIRST!!!\n"
+    );
+    let message = fixture.editor.get_status().unwrap().0.as_ref();
+    assert!(message.contains("plugin 'beta'"));
+    assert!(message.contains("stale document version"));
+    assert_eq!(fixture.editor.error_revision(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_disabled_guest_stops_snapshot_capture_and_callback_wakes_immediately(
+) -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let wasm = wat::parse_str(
+        r#"(module
+        (memory (export "memory") 1) (data (i32.const 16) "{}")
+        (global $initialized (mut i32) (i32.const 0))
+        (func (export "mitos_alloc") (param i32) (result i32) i32.const 32768)
+        (func (export "mitos_dealloc") (param i32 i32))
+        (func (export "mitos_call") (param i32 i32) (result i64)
+            global.get $initialized if unreachable end
+            i32.const 1 global.set $initialized
+            i64.const 68719476738))"#,
+    )?;
+    std::fs::write(dir.path().join("plugin.wasm"), wasm)?;
+    std::fs::write(dir.path().join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\nevents = ['post-command','document-opened']\n", plugin_sdk::ABI_VERSION))?;
+    let config = BTreeMap::from([(
+        "trap".into(),
+        PluginConfig {
+            path: dir.path().join("plugin.toml"),
+            enabled: true,
+            config: serde_json::Value::Null,
+        },
+    )]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    assert!(!fixture
+        .editor
+        .dispatch_plugin_event(Event::PostCommand, serde_json::Value::Null));
+    // Clearing existing unrelated completions isolates new plugin wakes.
+    while let Ok(callback) = fixture.callbacks.try_recv() {
+        callback(&mut fixture.editor);
+    }
+    for _ in 0..40 {
+        fixture
+            .editor
+            .queue_plugin_event(Event::PostCommand, serde_json::Value::Null);
+    }
+    assert!(fixture.callbacks.try_recv().is_err());
+    fixture.editor.poll_plugin_events();
+    assert!(fixture
+        .editor
+        .get_status()
+        .unwrap()
+        .0
+        .contains("plugin 'trap'"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn write_invocation_observers_finish_once_for_success_failure_and_cancellation(
+) -> anyhow::Result<()> {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
+    use view::callbacks::{InvocationTasks, TaskOutcome};
+    #[derive(Default)]
+    struct Observer {
+        started: AtomicUsize,
+        outcomes: Mutex<Vec<TaskOutcome>>,
+    }
+    impl InvocationTasks for Observer {
+        fn started(&self) {
+            self.started.fetch_add(1, Ordering::Relaxed);
+        }
+        fn finished(&self, outcome: TaskOutcome) {
+            self.outcomes.lock().unwrap().push(outcome);
+        }
+    }
+    let observer = Arc::new(Observer::default());
+    let mut fixture = Fixture::new("original\n")?;
+    let id = current_ref!(fixture.editor).1.id();
+    fixture
+        .editor
+        .replace_invocation_tasks(Some(observer.clone()));
+    fixture.editor.save(id, None::<std::path::PathBuf>, false)?;
+    assert_eq!(observer.started.load(Ordering::Relaxed), 1);
+    assert!(observer.outcomes.lock().unwrap().is_empty());
+    // The captured task survives restoration of the command's observer scope.
+    fixture.editor.replace_invocation_tasks(None);
+    fixture.editor.flush_writes().await?;
+    assert_eq!(
+        *observer.outcomes.lock().unwrap(),
+        vec![TaskOutcome::Success]
+    );
+
+    fixture
+        .editor
+        .replace_invocation_tasks(Some(observer.clone()));
+    fixture.editor.save(
+        id,
+        Some(fixture.dir.path().join("missing/failed.txt")),
+        false,
+    )?;
+    fixture.editor.replace_invocation_tasks(None);
+    assert!(fixture.editor.flush_writes().await.is_err());
+    assert_eq!(observer.started.load(Ordering::Relaxed), 2);
+    assert!(matches!(
+        observer.outcomes.lock().unwrap().as_slice(),
+        [TaskOutcome::Success, TaskOutcome::Error(_)]
+    ));
+
+    let mut cancelled = Fixture::new("cancelled\n")?;
+    let cancelled_id = current_ref!(cancelled.editor).1.id();
+    cancelled
+        .editor
+        .replace_invocation_tasks(Some(observer.clone()));
+    cancelled
+        .editor
+        .save(cancelled_id, None::<std::path::PathBuf>, false)?;
+    drop(cancelled);
+    assert_eq!(observer.started.load(Ordering::Relaxed), 3);
+    assert!(matches!(
+        observer.outcomes.lock().unwrap().as_slice(),
+        [
+            TaskOutcome::Success,
+            TaskOutcome::Error(_),
+            TaskOutcome::Cancelled(_)
+        ]
+    ));
+
+    // A disconnected write queue rejects the submission with one Error outcome;
+    // dropping its returned future must not add a second cancellation outcome.
+    fixture.editor.save_queue.clear();
+    fixture
+        .editor
+        .replace_invocation_tasks(Some(observer.clone()));
+    assert!(fixture
+        .editor
+        .save(id, None::<std::path::PathBuf>, false)
+        .is_err());
+    assert_eq!(observer.started.load(Ordering::Relaxed), 4);
+    assert!(matches!(
+        observer.outcomes.lock().unwrap().as_slice(),
+        [
+            TaskOutcome::Success,
+            TaskOutcome::Error(_),
+            TaskOutcome::Cancelled(_),
+            TaskOutcome::Error(_)
+        ]
+    ));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::Result<()> {
+    use crate::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("original\n")?;
+    let (view, doc) = current_ref!(fixture.editor);
+    let origin = view.id;
+    let binding = view.binding_revision();
+    let document = doc.id();
+    let dir = tempfile::tempdir()?;
+    let original = format!("\"document\":{{\"id\":{}", document.as_u64());
+    let config = observing(
+        dir.path(),
+        &["post-command"],
+        &[
+            Route {
+                event: "post-command",
+                filter: Some("\"case\":\"bound\"".into()),
+                expected: vec![
+                    original.clone(),
+                    format!("\"view\":{{\"id\":{}", origin.as_u64()),
+                ],
+                response: status("bound"),
+            },
+            Route {
+                event: "post-command",
+                filter: Some("\"case\":\"unbound\"".into()),
+                expected: vec![
+                    original,
+                    "\"text\":\"original\\n\"".into(),
+                    "\"view\":null".into(),
+                ],
+                response: status("unbound"),
+            },
+            Route {
+                event: "post-command",
+                filter: Some("\"case\":\"closed\"".into()),
+                expected: vec!["\"document\":null".into(), "\"view\":null".into()],
+                response: status("closed"),
+            },
+        ],
+        None,
+    )?;
+    assert!(fixture
+        .editor
+        .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
+    fixture.editor.queue_plugin_event_for_view_binding(
+        Event::PostCommand,
+        origin,
+        document,
+        binding,
+        serde_json::json!({"case":"bound"}),
+    );
+    drain(&mut fixture);
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "bound");
+
+    fixture.editor.new_file(EditorAction::Replace);
+    fixture.editor.queue_plugin_event_for_view_binding(
+        Event::PostCommand,
+        origin,
+        document,
+        binding,
+        serde_json::json!({"case":"unbound"}),
+    );
+    drain(&mut fixture);
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
+    // Returning to the original document must not revive the expired binding.
+    fixture.editor.switch(document, EditorAction::Replace);
+    fixture.editor.queue_plugin_event_for_view_binding(
+        Event::PostCommand,
+        origin,
+        document,
+        binding,
+        serde_json::json!({"case":"unbound"}),
+    );
+    drain(&mut fixture);
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
+    fixture.editor.close(origin);
+    fixture.editor.queue_plugin_event_for_view_binding(
+        Event::PostCommand,
+        origin,
+        document,
+        binding,
+        serde_json::json!({"case":"unbound"}),
+    );
+    drain(&mut fixture);
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
+    assert!(fixture.editor.close_document(document, true).is_ok());
+    fixture.editor.queue_plugin_event_for_view_binding(
+        Event::PostCommand,
+        origin,
+        document,
+        binding,
+        serde_json::json!({"case":"closed"}),
+    );
+    drain(&mut fixture);
+    assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "closed");
+    Ok(())
+}

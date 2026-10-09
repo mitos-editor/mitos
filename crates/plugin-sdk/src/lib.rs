@@ -27,6 +27,10 @@ pub enum Event {
     DocumentFocusLost,
     TerminalFocusGained,
     TerminalFocusLost,
+    /// Events were lost to a bounded queue or causal limit. Query current state.
+    ResyncRequired,
+    /// A targeted response to Action::RequestState; data contains StateCatalog.
+    State,
 }
 
 /// An owned snapshot of the editor and invocation arguments.
@@ -81,6 +85,52 @@ pub struct ViewSnapshot {
     pub selections: Vec<SelectionRange>,
     /// Index of the primary selection in `selections`.
     pub primary: usize,
+}
+
+/// A bounded current-state query. Catalog cursors are exclusive session handles.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateQuery {
+    #[serde(default)]
+    pub document: Option<u64>,
+    #[serde(default)]
+    pub view: Option<u64>,
+    #[serde(default)]
+    pub after_document: Option<u64>,
+    #[serde(default)]
+    pub after_view: Option<u64>,
+    /// Zero chooses the default page size; the host caps every page at 64.
+    #[serde(default)]
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentInfo {
+    pub id: u64,
+    pub version: i32,
+    pub path: Option<String>,
+    pub language: Option<String>,
+    pub readonly: bool,
+    pub binary: bool,
+    pub bytes: usize,
+    pub chars: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewInfo {
+    pub id: u64,
+    pub document: u64,
+    pub binding_revision: u64,
+    pub selection_revision: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateCatalog {
+    pub documents: Vec<DocumentInfo>,
+    pub views: Vec<ViewInfo>,
+    pub next_document: Option<u64>,
+    pub next_view: Option<u64>,
+    /// An explicit query failure (closed target or oversized snapshot).
+    pub error: Option<String>,
 }
 
 /// A selection's directed boundaries, measured in Unicode scalar values.
@@ -144,6 +194,9 @@ pub enum Action {
     },
     Open {
         path: String,
+    },
+    RequestState {
+        query: StateQuery,
     },
 }
 

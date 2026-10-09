@@ -11,6 +11,7 @@ pub(super) fn format_selections(cx: &mut Context) {
 
     let (view, doc) = current!(cx.editor);
     let view_id = view.id;
+    let binding_revision = view.binding_revision();
 
     // via lsp if available
     // TODO: else via tree-sitter indentation calculations
@@ -66,26 +67,32 @@ pub(super) fn format_selections(cx: &mut Context) {
     let doc_id = doc.id();
     let doc_version = doc.version();
 
-    tokio::spawn(async move {
-        match future.await {
-            Ok(Some(res)) => {
+    cx.jobs.callback(async move {
+        let response = future.await?;
+        Ok(Callback::Editor(Box::new(move |editor| {
+            if let Some(res) = response {
+                if editor.tree.try_get(view_id).is_none_or(|view| {
+                    view.doc != doc_id || view.binding_revision() != binding_revision
+                }) {
+                    job::cancel_invocation(editor, "range formatting view was closed or rebound");
+                    return;
+                }
                 let transaction =
                     lsp_client::util::generate_transaction_from_edits(&text, res, offset_encoding);
-                job::dispatch(move |editor, _compositor| {
+                {
                     let Some(doc) = editor.document_mut(doc_id) else {
+                        job::cancel_invocation(editor, "range formatting document was closed");
                         return;
                     };
                     // Updating a desynced document causes problems with applying the transaction
                     if doc.version() != doc_version {
+                        job::cancel_invocation(editor, "range formatting document changed");
                         return;
                     }
                     doc.apply(&transaction, view_id);
-                })
-                .await
+                }
             }
-            Err(err) => log::error!("format sections failed: {err}"),
-            Ok(None) => (),
-        }
+        })))
     });
 }
 
@@ -98,13 +105,19 @@ pub(super) async fn make_format_callback(
     doc_id: DocumentId,
     doc_version: i32,
     view_id: ViewId,
+    binding_revision: u64,
     format: impl Future<Output = Result<Transaction, FormatterError>> + Send + 'static,
     write: Option<(Option<PathBuf>, bool)>,
 ) -> anyhow::Result<job::Callback> {
     let format = format.await;
 
     let call: job::Callback = Callback::Editor(Box::new(move |editor| {
-        if !editor.documents.contains_key(&doc_id) || !editor.tree.contains(view_id) {
+        if !editor.documents.contains_key(&doc_id)
+            || editor.tree.try_get(view_id).is_none_or(|view| {
+                view.doc != doc_id || view.binding_revision() != binding_revision
+            })
+        {
+            job::cancel_invocation(editor, "formatting document or view was closed or rebound");
             return;
         }
 
@@ -121,6 +134,10 @@ pub(super) async fn make_format_callback(
                     view.ensure_cursor_in_view(doc, scrolloff);
                 } else {
                     log::info!("discarded formatting changes because the document changed");
+                    if write.is_none() {
+                        job::cancel_invocation(editor, "formatting document changed");
+                        return;
+                    }
                 }
             }
             Err(err) => {
@@ -164,7 +181,14 @@ pub(super) mod typed {
         let format = doc.format(cx.editor).context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;
-        let callback = make_format_callback(doc.id(), doc.version(), view.id, format, None);
+        let callback = make_format_callback(
+            doc.id(),
+            doc.version(),
+            view.id,
+            view.binding_revision(),
+            format,
+            None,
+        );
         cx.jobs.callback(callback);
 
         Ok(())

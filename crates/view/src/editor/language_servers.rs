@@ -34,6 +34,7 @@ impl Editor {
             valid
         };
 
+        let mut detached = false;
         for name in language_servers {
             let server_ids: Vec<_> = self
                 .language_servers
@@ -42,6 +43,7 @@ impl Editor {
                 .map(|client| client.id())
                 .collect();
             for server_id in server_ids {
+                detached = true;
                 self.cleanup_language_server(server_id);
             }
             self.language_servers.stop(&name);
@@ -51,6 +53,11 @@ impl Editor {
                     doc.inlay_hints_oudated = true;
                     doc.clear_document_symbols();
                 }
+            }
+        }
+        if detached {
+            if let Some(tasks) = self.invocation_tasks() {
+                tasks.detached();
             }
         }
         Ok(())
@@ -102,6 +109,7 @@ impl Editor {
             .map(|client| client.id())
             .collect();
 
+        let mut detached = !old_server_ids.is_empty();
         for server_id in old_server_ids {
             self.cleanup_language_server(server_id);
         }
@@ -123,7 +131,8 @@ impl Editor {
                 // in the arguments.
                 Err(lsp_client::Error::ExecutableNotFound(_)) if !servers.contains(server) => {}
                 Err(err) => errors.push(err.to_string()),
-                _ => (),
+                Ok(Some(_)) => detached = true,
+                Ok(None) => (),
             }
         }
 
@@ -146,6 +155,12 @@ impl Editor {
 
         for document_id in document_ids_to_refresh {
             self.refresh_language_servers(document_id);
+        }
+
+        if detached {
+            if let Some(tasks) = self.invocation_tasks() {
+                tasks.detached();
+            }
         }
 
         if errors.is_empty() {

@@ -1,4 +1,5 @@
 //! A headless editor with explicit callbacks and a private document directory.
+pub(crate) mod plugin_guest;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -124,6 +125,7 @@ pub fn callback_channel() -> (
 ) {
     let (tx, rx) = mpsc::unbounded_channel();
     let blocking = tx.clone();
+    let nonblocking = tx.clone();
     let sender = EditorCallbackSender::new(
         move |callback| {
             let tx = tx.clone();
@@ -135,5 +137,7 @@ pub fn callback_channel() -> (
             let _ = blocking.send(callback);
         },
     );
+    let sender =
+        sender.with_try_send(move |callback| nonblocking.send(callback).map_err(|err| err.0));
     (sender, rx)
 }

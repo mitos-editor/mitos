@@ -18,6 +18,7 @@ mod test {
     mod auto_pairs;
     mod auto_reload;
     mod auto_save;
+    mod backend_plugins;
     mod buffer_picker;
     mod code_action_hints;
     mod code_actions;

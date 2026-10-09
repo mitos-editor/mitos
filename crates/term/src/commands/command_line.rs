@@ -13,22 +13,60 @@ use view::{
 
 use super::{
     catalog::{CommandCompleter, TypableCommand, TYPABLE_COMMAND_LIST, TYPABLE_COMMAND_MAP},
-    context::Context,
+    context::{CommandCompletion, CommandInvocation, Context},
     mappable::MappableCommand,
 };
 use crate::{
     compositor,
+    events::CommandOrigin,
     ui::{self, completers::Completer, Prompt, PromptEvent},
 };
 
-pub(super) fn execute_command_line(
+pub(super) struct CommandLineExecution {
+    pub callbacks: Vec<compositor::Callback>,
+    pub error: Option<String>,
+}
+
+impl CommandLineExecution {
+    pub fn finish(mut self, editor: &mut Editor) -> Vec<compositor::Callback> {
+        if let Some(error) = self.error {
+            editor.set_error(|| error.clone());
+            if !self.callbacks.is_empty() {
+                // Earlier custom-command callbacks still run if a later child
+                // fails. Keep that final failure visible after those callbacks.
+                self.callbacks.push(Box::new(move |_, cx| {
+                    cx.editor.set_error(|| error);
+                }));
+            }
+        }
+        self.callbacks
+    }
+}
+
+pub(super) fn execute_command_line_with_invocation(
     cx: &mut compositor::Context,
     input: &str,
     event: PromptEvent,
-) -> anyhow::Result<Vec<compositor::Callback>> {
+    invocation: CommandInvocation,
+) -> CommandLineExecution {
+    let mut callbacks = Vec::new();
+    let result = execute_command_line(cx, input, event, invocation, &mut callbacks);
+    CommandLineExecution {
+        callbacks,
+        error: result.err().map(|error| error.to_string()),
+    }
+}
+
+fn execute_command_line(
+    cx: &mut compositor::Context,
+    input: &str,
+    event: PromptEvent,
+    invocation: CommandInvocation,
+    callbacks: &mut Vec<compositor::Callback>,
+) -> anyhow::Result<()> {
     let (command, args, _) = command_line::split(input);
     if command.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     let (escaped, command) = command
@@ -41,42 +79,60 @@ pub(super) fn execute_command_line(
             let positional_args =
                 Args::parse(args, Signature::DEFAULT, false, |token| Ok(token.content))
                     .expect("argument parsing cannot fail when validation is disabled");
-            let mut callbacks = Vec::new();
+            let mut invocation = invocation;
+            invocation.origin = CommandOrigin::Custom;
+            invocation.custom_command = Some(command.to_owned());
 
             for configured in &custom.commands {
                 if let Some(typable) = configured.strip_prefix(':') {
                     let (name, args, _) = command_line::split(typable);
                     let name = name.strip_prefix(CustomCommand::ESCAPE).unwrap_or(name);
-                    execute_named_command(cx, name, args, &positional_args, event)?;
+                    execute_named_command(
+                        cx,
+                        name,
+                        args,
+                        &positional_args,
+                        event,
+                        invocation.clone(),
+                    )?;
                 } else if event == PromptEvent::Validate {
-                    let command: MappableCommand = configured.parse()?;
+                    let command: MappableCommand =
+                        configured.parse().map_err(|error| {
+                            CommandCompletion::new(cx.editor, configured, invocation.clone())
+                                .finish(cx.editor, Some(format!("{error}")), false);
+                            error
+                        })?;
                     let mut command_cx = super::Context {
                         config: cx.config,
-                        register: None,
-                        count: None,
+                        register: invocation.register,
+                        count: invocation.count.and_then(std::num::NonZeroUsize::new),
                         editor: cx.editor,
                         callback: Vec::new(),
                         on_next_key_callback: None,
                         jobs: cx.jobs,
                     };
-                    command.execute(&mut command_cx);
+                    command.execute_with_invocation(&mut command_cx, invocation.clone());
                     callbacks.extend(command_cx.callback);
+                    if let Some(callback) = command_cx.on_next_key_callback {
+                        callbacks.push(Box::new(move |compositor, _| {
+                            if let Some(editor) = compositor.find::<ui::EditorView>() {
+                                editor.set_next_key_callback(callback);
+                            }
+                        }));
+                    }
                 }
             }
-
-            return Ok(callbacks);
+            return Ok(());
         }
     }
 
     // If command is numeric, interpret as line number and go there.
     if command.parse::<usize>().is_ok() && args.trim().is_empty() {
         let cmd = TYPABLE_COMMAND_MAP.get("goto").unwrap();
-        execute_command(cx, cmd, command, &Args::empty(), event)?;
-        return Ok(Vec::new());
+        return execute_command(cx, cmd, command, &Args::empty(), event, invocation);
     }
 
-    execute_named_command(cx, command, args, &Args::empty(), event)?;
-    Ok(Vec::new())
+    execute_named_command(cx, command, args, &Args::empty(), event, invocation)
 }
 
 fn execute_named_command(
@@ -85,52 +141,111 @@ fn execute_named_command(
     args: &str,
     positional_args: &Args,
     event: PromptEvent,
+    invocation: CommandInvocation,
 ) -> anyhow::Result<()> {
     if let Some(cmd) = TYPABLE_COMMAND_MAP.get(command) {
-        return execute_command(cx, cmd, args, positional_args, event);
+        return execute_command(cx, cmd, args, positional_args, event, invocation);
     }
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    if cx.editor.plugin_command_doc(command).is_some() {
-        let args = Args::parse(args, Signature::DEFAULT, true, |token| {
-            expansion::expand(cx.editor, token, positional_args.as_slice())
-                .map_err(|err| err.into())
-        })
-        .map_err(|err| anyhow!("'{command}': {err}"))?;
-        let args = args.iter().map(|arg| arg.to_string()).collect();
-        if cx
-            .editor
-            .execute_plugin_command(command, args)
-            .map_err(|err| anyhow!("'{command}': {err:#}"))?
-        {
-            return Ok(());
+    let mut completion = CommandCompletion::new(cx.editor, command, invocation);
+    completion.raw_args = args.to_owned();
+    let completion = cx.jobs.begin_command(completion);
+    let scope = cx.jobs.enter_command(cx.editor, completion.clone());
+    let result = (|| {
+        if cx.editor.plugin_command_doc(command).is_some() {
+            let args = Args::parse(args, Signature::DEFAULT, true, |token| {
+                expansion::expand(cx.editor, token, positional_args.as_slice())
+                    .map_err(|err| err.into())
+            })
+            .map_err(|err| anyhow!("'{command}': {err}"))?;
+            let args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+            completion.metadata(|completion| completion.args = args.clone());
+            if cx
+                .editor
+                .execute_plugin_command(command, args)
+                .map_err(|err| anyhow!("'{command}': {err:#}"))?
+            {
+                return Ok(());
+            }
         }
-    }
-    Err(anyhow!("no such command: '{command}'"))
+        Err(anyhow!("no such command: '{command}'"))
+    })();
+    completion.capture_effects(cx.editor);
+    cx.jobs.leave_command(cx.editor, scope);
+    completion.finish_dispatch(
+        cx.editor,
+        result.as_ref().err().map(ToString::to_string),
+        false,
+    );
+    result
 }
 
-pub(super) fn execute_command(
+fn execute_command(
     cx: &mut compositor::Context,
     cmd: &TypableCommand,
-    args: &str,
+    raw_args: &str,
     positional_args: &Args,
     event: PromptEvent,
+    invocation: CommandInvocation,
 ) -> anyhow::Result<()> {
-    let args = if event == PromptEvent::Validate {
-        Args::parse(args, cmd.signature, true, |token| {
-            expansion::expand(cx.editor, token, positional_args.as_slice())
-                .map_err(|err| err.into())
-        })
-        .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
-    } else {
-        Args::parse(args, cmd.signature, false, |token| {
-            expansion::expand_only_arg(token, positional_args.as_slice()).map_err(|err| err.into())
-        })
-        .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
-    };
-
-    (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
+    let completion = (event == PromptEvent::Validate).then(|| {
+        let mut completion = CommandCompletion::new(cx.editor, cmd.name, invocation);
+        completion.raw_args = raw_args.to_owned();
+        cx.jobs.begin_command(completion)
+    });
+    let scope = completion
+        .as_ref()
+        .map(|completion| cx.jobs.enter_command(cx.editor, completion.clone()));
+    let result = (|| {
+        let args = if event == PromptEvent::Validate {
+            Args::parse(raw_args, cmd.signature, true, |token| {
+                expansion::expand(cx.editor, token, positional_args.as_slice())
+                    .map_err(|err| err.into())
+            })
+            .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
+        } else {
+            Args::parse(raw_args, cmd.signature, false, |token| {
+                expansion::expand_only_arg(token, positional_args.as_slice())
+                    .map_err(|err| err.into())
+            })
+            .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
+        };
+        if let Some(completion) = &completion {
+            completion.metadata(|completion| {
+                completion.args = args.iter().map(|arg| arg.to_string()).collect();
+                completion.flags = cmd
+                    .signature
+                    .flags
+                    .iter()
+                    .filter_map(|flag| {
+                        let value = if flag.completions.is_some() {
+                            args.get_flag(flag.name)
+                        } else {
+                            args.has_flag(flag.name).then_some("")
+                        };
+                        value.map(|value| (flag.name.to_owned(), value.to_owned()))
+                    })
+                    .collect();
+            });
+        }
+        (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
+    })();
+    if let Some(completion) = &completion {
+        completion.capture_effects(cx.editor);
+    }
+    if let Some(scope) = scope {
+        cx.jobs.leave_command(cx.editor, scope);
+    }
+    if let Some(completion) = completion {
+        completion.finish_dispatch(
+            cx.editor,
+            result.as_ref().err().map(ToString::to_string),
+            false,
+        );
+    }
+    result
 }
 
 #[allow(clippy::unnecessary_unwrap)]
@@ -140,18 +255,18 @@ pub(super) fn command_mode(cx: &mut Context) {
         Some(':'),
         complete_command_line,
         move |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
-            match execute_command_line(cx, input, event) {
-                Ok(callbacks) if !callbacks.is_empty() => Some(Box::new(move |compositor, cx| {
-                    for callback in callbacks {
-                        callback(compositor, cx);
-                    }
-                })),
-                Ok(_) => None,
-                Err(err) => {
-                    cx.editor.set_error(|| err.to_string());
-                    None
-                }
-            }
+            let callbacks =
+                execute_command_line_with_invocation(cx, input, event, CommandInvocation::prompt())
+                    .finish(cx.editor);
+            (!callbacks.is_empty()).then(|| {
+                Box::new(
+                    move |compositor: &mut compositor::Compositor, cx: &mut compositor::Context| {
+                        for callback in callbacks {
+                            callback(compositor, cx);
+                        }
+                    },
+                ) as compositor::Callback
+            })
         },
     );
 

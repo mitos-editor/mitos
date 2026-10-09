@@ -110,7 +110,7 @@ The host validates the originating generation independently of guest data.
 Supported event names are `init`, `shutdown`, `command`, `document-opened`,
 `document-changed`, `document-saved`, `document-closed`, `selection-changed`,
 `mode-changed`, `post-command`, `post-insert-char`, `document-focus-lost`,
-`terminal-focus-gained`, and `terminal-focus-lost`. Every instance receives lifecycle events;
+`terminal-focus-gained`, `terminal-focus-lost`, `resync-required`, and `state`. Every instance receives lifecycle events;
 other hooks are declared in its manifest. Hook data is event-specific, so a
 plugin should ignore metadata fields it does not need.
 
@@ -164,13 +164,31 @@ stores no cursor in its undo history and can edit a hidden document. Readonly
 and binary documents reject edits; selection changes can target readonly text.
 Both `edit` and `set-selection` must precede any `open` action in a response.
 
-Editor mutations requested by plugins currently suppress hooks on every plugin.
-Pending document-change hooks coalesce per document, selection-change hooks per
-split, and the pending event queue retains at most 32 snapshots; hooks do not
-guarantee notification of every intermediate change.
+Mutations suppress their originating plugin's own echo; other subscribed plugins
+observe them. Every request carries host-owned `data.provenance` with `generation`,
+`sequence`, `parent_sequence`, `origin_plugin`, and `depth`, alongside event metadata.
+Sequences identify captures, including coalesced snapshots; delivery is not a log
+of every intermediate change. Causal notifications stop after depth 8.
+
+Document/selection changes coalesce by document and originating view. Queues retain
+at most 32 data events, 32 control events, and 8 MiB of owned data. Overflow,
+oversized snapshots, and causal limits produce mandatory `resync-required` events
+with dropped sequence ranges, counts, and reasons. A final shutdown gap adds
+`closing: true`; state queries are then rejected. Shutdown drains accepted save,
+close, and post-command hooks before invalidating the generation. Saved events
+carry the actual written snapshot and `path`, `saved_revision`, `saved_version`,
+`current_version`, and `snapshot_available`, including write-and-quit.
+
+Return `{"type":"request-state","query":{}}` to receive a targeted `state` event,
+without a manifest subscription. Its data contains `StateCatalog`: document/view
+metadata, exclusive `next_document`/`next_view` cursors, and an optional error.
+Query `after_document`, `after_view`, and `limit` for additional pages (at most 64
+entries per catalog). Optional `document` or `view` handles retrieve current
+snapshots in `editor.document`/`editor.view`; closed targets and oversized snapshots
+return explicit query errors. Query completion goes only to the requesting plugin.
 
 Available actions are `edit`, `set-selection`, `status` (a `message`), `error`
-(a `message`), and `open` (a `path`). Response errors report a failed invocation;
+(a `message`), `open` (a `path`), and `request-state` (a `query`). Response errors report a failed invocation;
 plugins should return no actions when reporting a failure.
 
 The initial API intentionally has a small synchronous surface. It does not

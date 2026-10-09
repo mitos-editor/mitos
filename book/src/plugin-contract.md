@@ -65,6 +65,14 @@ invocations, each tagged with the custom origin; the alias wrapper does not add
 another completion event. Macro replay preserves its origin through the input
 queue.
 
+Native dispatch paths that deliberately hand ownership to another service report
+`accepted` instead of success: LSP command/stop/restart, backend code-action
+resolution, and external URL opening. These observations describe dispatch only;
+consumers cannot use them as completion barriers. Tracked callbacks, queued jobs,
+followups, and submitted writes retain invocation ownership until their actual
+result. Async errors belong to that invocation, independently of later status
+messages. A rebound origin keeps its original live document but omits the view.
+
 Document lifecycle events originate in shared editor services, including
 headless and blocking paths. A saved event follows a successful write and names
 the written path and revision. The current buffer may already contain newer
