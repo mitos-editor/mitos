@@ -44,8 +44,10 @@ pub(super) struct AsyncState {
     calls: FuturesUnordered<BoxFuture<'static, Vec<Ready>>>,
     staging: Option<Vec<BoxFuture<'static, Ready>>>,
     call_count: usize,
+    navigation: BTreeMap<(String, u64), EditorContext>,
     loading: Option<Loading>,
     replacement: Option<Replacement>,
+    advancing_replacement: bool,
     cleanup: FuturesUnordered<BoxFuture<'static, Result<(), ServiceError>>>,
     services: BTreeMap<String, Arc<NativeServices>>,
     pub(super) budget: NativeBudget,
@@ -60,8 +62,10 @@ impl Default for AsyncState {
             calls: FuturesUnordered::new(),
             staging: None,
             call_count: 0,
+            navigation: BTreeMap::new(),
             loading: None,
             replacement: None,
+            advancing_replacement: false,
             cleanup: FuturesUnordered::new(),
             services: BTreeMap::new(),
             budget: NativeBudget::default(),
@@ -87,7 +91,49 @@ impl Wake for EditorWake {
 
 impl Editor {
     pub(crate) fn cancel_plugin_target(&self, document: Option<u64>, view: Option<u64>) {
-        self.plugins.manager.cancel_target(document, view);
+        if let Some(origin) = self.plugins.shared.queue.lock().origin.as_ref() {
+            self.plugins.manager.cancel_target_except(
+                document,
+                view,
+                &origin.plugin,
+                origin.sequence,
+            );
+        } else {
+            self.plugins.manager.cancel_target(document, view);
+        }
+    }
+
+    pub(super) fn record_plugin_navigation(
+        &mut self,
+        source: &PluginEventSource,
+        reply: &plugin_api::editor::EditorReply,
+    ) {
+        let Some(origin) = source.origin.as_ref() else {
+            return;
+        };
+        let context = if let plugin_api::editor::EditorReply::View { target } = reply {
+            let view = self.tree.try_get(ViewId::from_u64(target.view));
+            let doc = view.and_then(|view| self.document(view.doc));
+            EditorContext {
+                generation: self.plugins.shared.generation,
+                mode: self.mode.to_string(),
+                document: doc.and_then(|doc| snapshot(doc).ok()),
+                view: Some(ViewSnapshot {
+                    id: target.view,
+                    document: target.document,
+                    binding_revision: target.binding_revision,
+                    selection_revision: target.selection_revision,
+                    selections: Vec::new(),
+                    primary: 0,
+                }),
+            }
+        } else {
+            self.plugin_global_context()
+        };
+        self.plugins
+            .asynchronous
+            .navigation
+            .insert((origin.plugin.clone(), origin.sequence), context);
     }
 
     fn plugin_waker(&self) -> Waker {
@@ -142,6 +188,7 @@ impl Editor {
         &mut self,
         plugin: &str,
         provenance: &Provenance,
+        event: Event,
     ) -> Result<Arc<dyn HostServices>, ServiceError> {
         let policy = self.plugins.manager.policy(plugin).ok_or_else(cancelled)?;
         let adapter: Arc<dyn HostServices> = Arc::new(EditorServices {
@@ -149,7 +196,9 @@ impl Editor {
             callbacks: self.handlers.callbacks.clone(),
             policy: policy.clone(),
             plugin: plugin.into(),
+            event,
             reads: self.plugins.asynchronous.reads.clone(),
+            open_bytes: self.plugins.asynchronous.open_bytes.clone(),
             source: PluginEventSource {
                 generation: self.plugins.shared.generation,
                 origin: Some(EffectOrigin {
@@ -351,7 +400,15 @@ impl Editor {
                 break;
             };
             self.plugins.asynchronous.call_count -= batch.len();
-            for ready in batch {
+            for mut ready in batch {
+                if let Some(context) = self
+                    .plugins
+                    .asynchronous
+                    .navigation
+                    .remove(&(ready.plugin.clone(), ready.provenance.sequence))
+                {
+                    ready.context = context;
+                }
                 let previous = self.replace_invocation_tasks(ready.observer);
                 let result = ready
                     .result
@@ -409,6 +466,7 @@ impl Editor {
                         shutdown_sent: false,
                     });
                     self.plugins.shutting_down = true;
+                    self.cancel_plugin_frontend();
                     self.plugins
                         .shared
                         .accepting
@@ -417,6 +475,7 @@ impl Editor {
                     // queued lifecycle hooks still drain before Shutdown.
                     self.plugins.asynchronous.calls.clear();
                     self.plugins.asynchronous.call_count = 0;
+                    self.plugins.asynchronous.navigation.clear();
                 }
                 Err(error) => {
                     if let Some(task) = loading.task {
@@ -434,7 +493,8 @@ impl Editor {
     }
 
     fn advance_plugin_replacement(&mut self) {
-        if self.plugins.asynchronous.replacement.is_none()
+        if self.plugins.asynchronous.advancing_replacement
+            || self.plugins.asynchronous.replacement.is_none()
             || !self.plugins.asynchronous.calls.is_empty()
         {
             return;
@@ -458,7 +518,11 @@ impl Editor {
                 .as_mut()
                 .unwrap()
                 .shutdown_sent = true;
+            // Dispatch polls readiness synchronously. A replacement with no
+            // live old subscribers must not recursively activate twice.
+            self.plugins.asynchronous.advancing_replacement = true;
             self.dispatch_plugin_event(Event::Shutdown, Value::Null);
+            self.plugins.asynchronous.advancing_replacement = false;
             if !self.plugins.asynchronous.calls.is_empty() {
                 return;
             }
@@ -483,6 +547,8 @@ impl Editor {
             .cleanup
             .push(Box::pin(async move { old.shutdown().await }));
         self.plugins.asynchronous.services.clear();
+        self.plugins.frontend = frontend::FrontendState::default();
+        self.clear_all_plugin_settings();
         self.plugins
             .shared
             .accepting
@@ -498,6 +564,7 @@ impl Editor {
         let sender = self.plugins.sender(&self.handlers.callbacks);
         for doc in self.documents.values_mut() {
             doc.plugin_events = sender.clone();
+            doc.plugin_settings = Some(Arc::downgrade(&self.plugins.settings));
         }
         let previous = self.replace_invocation_tasks(replacement.observer);
         let accepted = self.dispatch_plugin_event(Event::Init, Value::Null);
@@ -535,9 +602,13 @@ impl Editor {
         if self.plugins.stopped {
             return;
         }
+        let first = !self.plugins.shutting_down;
         self.plugins.shutting_down = true;
         self.plugins.asynchronous.loading = None;
         self.plugins.asynchronous.replacement = None;
+        if first {
+            self.cancel_plugin_frontend();
+        }
         self.poll_plugin_events();
     }
 
@@ -571,6 +642,7 @@ impl Editor {
                 if !self.plugins.asynchronous.shutdown_sent {
                     self.plugins.asynchronous.calls.clear();
                     self.plugins.asynchronous.call_count = 0;
+                    self.plugins.asynchronous.navigation.clear();
                     let provenance = {
                         let mut queue = self.plugins.shared.queue.lock();
                         while !queue.pending.is_empty() {
@@ -603,12 +675,14 @@ impl Editor {
             .store(false, Ordering::Release);
         self.plugins.asynchronous.calls.clear();
         self.plugins.asynchronous.call_count = 0;
+        self.plugins.asynchronous.navigation.clear();
         self.plugins.shared.queue.lock().pending.clear();
         self.plugins.shared.queue.lock().bytes = 0;
         if let Err(error) = self.plugins.manager.shutdown().await {
             self.report_plugin_error("shutdown", &error);
         }
         self.plugins.asynchronous.services.clear();
+        self.clear_all_plugin_settings();
         self.plugins.stopped = true;
         for doc in self.documents.values_mut() {
             doc.plugin_events = None;
@@ -631,9 +705,39 @@ struct EditorServices {
     policy: Arc<::plugins::policy::AccessPolicy>,
     plugin: String,
     reads: Arc<tokio::sync::Semaphore>,
+    open_bytes: Arc<tokio::sync::Semaphore>,
     source: PluginEventSource,
+    event: Event,
 }
 impl HostServices for EditorServices {
+    fn editor_request(
+        &self,
+        request: plugin_api::editor::EditorRequest,
+    ) -> HostFuture<plugin_api::editor::EditorReply> {
+        if language::handles(&request) {
+            language::request(
+                request,
+                self.owner.clone(),
+                self.callbacks.clone(),
+                self.policy.clone(),
+                self.reads.clone(),
+            )
+        } else {
+            services::request(
+                request,
+                services::Scope {
+                    owner: self.owner.clone(),
+                    callbacks: self.callbacks.clone(),
+                    policy: self.policy.clone(),
+                    source: self.source.clone(),
+                    event: self.event,
+                    work: self.reads.clone(),
+                    open_bytes: self.open_bytes.clone(),
+                },
+            )
+        }
+    }
+
     fn notify_job_ready(&self, job: u64) -> HostFuture<()> {
         let weak = self.owner.clone();
         let callbacks = self.callbacks.clone();

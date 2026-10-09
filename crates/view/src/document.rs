@@ -192,6 +192,9 @@ impl PreparedPluginDocument {
 }
 
 pub struct Document {
+    plugin_scratch_name: Option<String>,
+    pub(crate) plugin_settings:
+        Option<std::sync::Weak<parking_lot::Mutex<crate::plugins::settings::Settings>>>,
     pub(crate) plugin_events: Option<crate::plugins::PluginEventSender>,
     pub(crate) id: DocumentId,
     text: Rope,
@@ -800,6 +803,8 @@ impl Document {
         Self {
             id: DocumentId::default(),
             plugin_events: None,
+            plugin_settings: None,
+            plugin_scratch_name: None,
             active_snippet: None,
             path: None,
             relative_path: OnceLock::new(),
@@ -983,6 +988,20 @@ impl Document {
         doc
     }
 
+    pub(crate) fn plugin_scratch(
+        name: String,
+        text: String,
+        language: Option<Arc<LanguageConfiguration>>,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Self {
+        let mut doc = Self::from(Rope::from(text.as_str()), None, config, syn_loader);
+        doc.restricted_adoption = true;
+        doc.plugin_scratch_name = Some(name);
+        doc.language = language;
+        doc
+    }
+
     /// This document's path was supplied by a scoped plugin read. Automatic
     /// reload/configuration/provider discovery stays disabled until native use.
     pub fn is_restricted_adoption(&self) -> bool {
@@ -1006,11 +1025,11 @@ impl Document {
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
-        if self
-            .language_config()?
-            .auto_format
-            .unwrap_or(editor.config().auto_format)
-        {
+        if self.plugin_auto_format().unwrap_or_else(|| {
+            self.language_config()
+                .and_then(|lang| lang.auto_format)
+                .unwrap_or(editor.config().auto_format)
+        }) {
             self.format(editor)
         } else {
             None
@@ -2486,8 +2505,15 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
-        self.display_path()
-            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
+        self.display_path().map_or_else(
+            || {
+                self.plugin_scratch_name
+                    .as_deref()
+                    .unwrap_or(SCRATCH_BUFFER_NAME)
+                    .into()
+            },
+            |path| path.to_string_lossy(),
+        )
     }
 
     // transact(Fn) ?
@@ -2759,9 +2785,13 @@ impl Document {
             .language
             .as_ref()
             .and_then(|config| config.soft_wrap.as_ref());
-        let enable_soft_wrap = language_soft_wrap
-            .and_then(|soft_wrap| soft_wrap.enable)
-            .or(editor_soft_wrap.enable)
+        let enable_soft_wrap = self
+            .plugin_soft_wrap()
+            .or_else(|| {
+                language_soft_wrap
+                    .and_then(|soft_wrap| soft_wrap.enable)
+                    .or(editor_soft_wrap.enable)
+            })
             .unwrap_or(false);
         let max_wrap = language_soft_wrap
             .and_then(|soft_wrap| soft_wrap.max_wrap)

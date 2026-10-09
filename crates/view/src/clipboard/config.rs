@@ -50,3 +50,28 @@ impl Default for ClipboardProvider {
         }
     }
 }
+
+impl ClipboardProvider {
+    pub(crate) fn plugin_custom_command(
+        &self,
+        kind: super::ClipboardType,
+        write: bool,
+    ) -> Option<(String, Vec<String>)> {
+        let Self::Custom(provider) = self else {
+            return None;
+        };
+        let command = match (write, kind) {
+            (false, super::ClipboardType::Clipboard) => &provider.yank,
+            // Match native Custom providers: reads historically use `yank`
+            // for both registers; checking `yank_primary` could authorize a
+            // different executable from the one actually invoked.
+            (false, super::ClipboardType::Selection) => &provider.yank,
+            (true, super::ClipboardType::Clipboard) => &provider.paste,
+            (true, super::ClipboardType::Selection) => provider.paste_primary.as_ref()?,
+        };
+        Some((
+            command.command.to_string(),
+            command.args.iter().map(|arg| arg.to_string()).collect(),
+        ))
+    }
+}

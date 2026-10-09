@@ -327,7 +327,7 @@ impl EditorView {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
         }
 
-        if is_focused && config.cursorline {
+        if is_focused && doc.plugin_cursorline(config.cursorline) {
             decorations.add_decoration(Self::cursorline(doc, view, theme));
         }
 

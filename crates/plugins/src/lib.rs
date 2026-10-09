@@ -110,6 +110,8 @@ fn observes_editor_state(event: Event) -> bool {
 #[serde(deny_unknown_fields)]
 struct Command {
     doc: String,
+    #[serde(default)]
+    arguments: plugin_api::commands::CommandArguments,
 }
 
 /// A command registered by a plugin, qualified by its configured name.
@@ -117,6 +119,7 @@ struct Command {
 pub struct PluginCommand {
     pub name: String,
     pub doc: String,
+    pub arguments: plugin_api::commands::CommandArguments,
 }
 
 /// The command registry boundary carried over from Helix's plugin proposal.
@@ -282,6 +285,7 @@ impl PluginManager {
                     .map(move |(command, details)| PluginCommand {
                         name: format!("{name}.{command}"),
                         doc: details.doc.clone(),
+                        arguments: details.arguments.clone(),
                     })
             })
             .collect()
@@ -302,6 +306,23 @@ impl PluginManager {
     }
     pub fn policy(&self, name: &str) -> Option<Arc<policy::AccessPolicy>> {
         self.plugins.get(name).map(|plugin| plugin.policy.clone())
+    }
+    pub fn get_arguments_for_identifier(
+        &self,
+        identifier: &str,
+    ) -> Option<plugin_api::commands::CommandArguments> {
+        let (name, command) = identifier.split_once('.')?;
+        let plugin = self.plugins.get(name)?;
+        plugin
+            .active()
+            .then(|| {
+                plugin
+                    .manifest
+                    .commands
+                    .get(command)
+                    .map(|command| command.arguments.clone())
+            })
+            .flatten()
     }
     pub fn require_capability(
         &self,
@@ -410,8 +431,19 @@ impl PluginManager {
         let Some(plugin) = self.plugins.get(plugin_name) else {
             return Ok(None);
         };
-        if !plugin.manifest.commands.contains_key(command) {
+        let Some(details) = plugin.manifest.commands.get(command) else {
             return Ok(None);
+        };
+        if args.len() < details.arguments.min || args.len() > details.arguments.max {
+            return Err(ServiceError::new(
+                ErrorCode::InvalidRequest,
+                format!(
+                    "command '{name}' expects {}..={} arguments, got {}",
+                    details.arguments.min,
+                    details.arguments.max,
+                    args.len()
+                ),
+            ));
         }
         plugin
             .call(
@@ -436,6 +468,22 @@ impl PluginManager {
         for plugin in self.plugins.values() {
             if let Some(actor) = &plugin.actor {
                 actor.cancel_target(document, view);
+            }
+        }
+    }
+    /// Deliberate navigation may retire its own source while returning a reply.
+    /// Only the initiating actor's active call is exempt; jobs and queued calls
+    /// bound to the retired target are always cancelled.
+    pub fn cancel_target_except(
+        &self,
+        document: Option<u64>,
+        view: Option<u64>,
+        plugin: &str,
+        sequence: u64,
+    ) {
+        for (name, entry) in &self.plugins {
+            if let Some(actor) = &entry.actor {
+                actor.cancel_target_except(document, view, (name == plugin).then_some(sequence));
             }
         }
     }
@@ -611,6 +659,10 @@ impl Package {
             "plugin manifest exceeds command or subscription limits"
         );
         for command in manifest.commands.values_mut() {
+            command
+                .arguments
+                .validate()
+                .context("invalid command arguments")?;
             ensure!(
                 command.doc.len() <= 4096,
                 "command documentation exceeds 4096 bytes"

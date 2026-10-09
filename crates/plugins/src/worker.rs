@@ -5,8 +5,8 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex, Weak,
     },
     task::{Context, Poll},
     thread,
@@ -16,9 +16,9 @@ use std::{
 use plugin_api::{
     Action, CapabilitySet, ErrorCode, Event, HostServices, Request, Response, ServiceError,
 };
-use tokio::sync::{Notify, Semaphore, oneshot};
+use tokio::sync::{oneshot, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
-use wasmtime::{Engine, component::Component};
+use wasmtime::{component::Component, Engine};
 
 use crate::component::{self, Instance, MAX_COMPONENT_BYTES, MAX_MESSAGE_BYTES};
 
@@ -41,6 +41,8 @@ pub struct InvocationTarget {
     pub document: Option<u64>,
     pub view: Option<u64>,
     pub binding_revision: Option<u64>,
+    /// Host-owned provenance; never accepted from guest metadata.
+    pub call_sequence: Option<u64>,
 }
 impl InvocationTarget {
     pub(crate) fn from_context(context: &plugin_api::EditorContext) -> Self {
@@ -48,6 +50,7 @@ impl InvocationTarget {
             document: context.document.as_ref().map(|doc| doc.id),
             view: context.view.as_ref().map(|view| view.id),
             binding_revision: context.view.as_ref().map(|view| view.binding_revision),
+            call_sequence: None,
         }
     }
 }
@@ -686,6 +689,7 @@ impl ActorDone {
 struct ActiveCall {
     document: Option<u64>,
     view: Option<u64>,
+    call_sequence: Option<u64>,
     cancel: CancellationToken,
 }
 struct ActorOwner {
@@ -766,6 +770,11 @@ impl PluginActor {
             .mailbox
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Final draining and this admission share the mailbox lock. A producer
+        // must not enqueue behind the final drain after the actor has stopped.
+        if !self.is_active() {
+            return Err(cancelled());
+        }
         if mailbox.bytes.saturating_add(bytes) > MAX_QUEUE_BYTES
             || mailbox.len() >= MAX_CALLS
             || (!command && mailbox.len() >= MAX_CALLS - COMMAND_RESERVE)
@@ -802,6 +811,14 @@ impl PluginActor {
         self.inner.job_controls.target(job)
     }
     pub fn cancel_target(&self, document: Option<u64>, view: Option<u64>) {
+        self.cancel_target_except(document, view, None);
+    }
+    pub fn cancel_target_except(
+        &self,
+        document: Option<u64>,
+        view: Option<u64>,
+        call_sequence: Option<u64>,
+    ) {
         self.inner.job_controls.cancel_target(document, view);
         let matches = |target: InvocationTarget| {
             document.is_some_and(|id| target.document == Some(id))
@@ -821,6 +838,7 @@ impl PluginActor {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             && (document.is_some_and(|id| active.document == Some(id))
                 || view.is_some_and(|id| active.view == Some(id)))
+            && !call_sequence.is_some_and(|sequence| active.call_sequence == Some(sequence))
         {
             active.cancel.cancel();
         }
@@ -1011,6 +1029,7 @@ async fn actor_loop(
                     .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ActiveCall {
                     document: envelope.target.document,
                     view: envelope.target.view,
+                    call_sequence: envelope.target.call_sequence,
                     cancel: envelope.cancel.clone(),
                 });
             }

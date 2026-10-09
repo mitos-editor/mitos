@@ -139,6 +139,19 @@ impl Registers {
         }
     }
 
+    pub(crate) fn plugin_clipboard_snapshot(
+        &self,
+    ) -> (
+        crate::clipboard::ClipboardProvider,
+        std::sync::Arc<dyn ClipboardBackend>,
+    ) {
+        self.clipboard.plugin_snapshot()
+    }
+    pub(crate) fn plugin_store_clipboard(&mut self, name: char, mut values: Vec<String>) {
+        values.reverse();
+        self.inner.insert(name, values);
+    }
+
     pub fn first<'a>(&'a self, name: char, editor: &'a Editor) -> Option<Cow<'a, str>> {
         self.read(name, editor).and_then(|mut values| values.next())
     }

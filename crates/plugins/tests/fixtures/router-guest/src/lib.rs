@@ -1,6 +1,7 @@
 //! A public-SDK guest driven by host fixture configuration, never host mocks.
 use std::cell::RefCell;
 
+use plugin_sdk::editor::{EditorReply, EditorRequest, OpenDisposition, ViewTarget};
 use plugin_sdk::{component, export_plugin, Action, Event, Request, Response, TextEdit};
 use serde::Deserialize;
 
@@ -24,7 +25,16 @@ struct Route {
     once: bool,
     #[serde(default)]
     reads: Vec<Read>,
+    #[serde(default)]
+    requests: Vec<ServiceCase>,
     operation: Option<String>,
+}
+#[derive(Deserialize)]
+struct ServiceCase {
+    request: EditorRequest,
+    #[serde(default)]
+    expected: Vec<String>,
+    error_code: Option<plugin_sdk::ErrorCode>,
 }
 #[derive(Deserialize)]
 struct Read {
@@ -113,6 +123,22 @@ fn handle(mut request: Request) -> Response {
                     return failure("region read failed");
                 }
             }
+            for service in &route.requests {
+                match component::editor_request(service.request.clone()) {
+                    Ok(reply) if service.error_code.is_none() => {
+                        let encoded = serde_json::to_string(&reply).unwrap();
+                        if service
+                            .expected
+                            .iter()
+                            .any(|fragment| !encoded.contains(fragment))
+                        {
+                            return failure("editor service reply mismatch");
+                        }
+                    }
+                    Err(error) if Some(error.code) == service.error_code => (),
+                    _ => return failure("editor service outcome mismatch"),
+                }
+            }
             match route.operation.as_deref() {
                 Some("trap") => panic!("deliberate fixture trap"),
                 Some("loop") => loop {
@@ -129,12 +155,54 @@ fn handle(mut request: Request) -> Response {
                     }
                 }
                 Some("uppercase") => return uppercase(&request),
+                Some("scratch") => return scratch(&request),
                 _ => (),
             }
             return route.response.clone();
         }
         Response::default()
     })
+}
+fn scratch(request: &Request) -> Response {
+    let origin = request.editor.view.as_ref().map(|view| ViewTarget {
+        view: view.id,
+        document: view.document,
+        binding_revision: view.binding_revision,
+        version: request.editor.document.as_ref().unwrap().version,
+        selection_revision: view.selection_revision,
+    });
+    let result = component::editor_request(EditorRequest::Scratch {
+        name: "Guest scratch".into(),
+        text: "éß\n".into(),
+        language: None,
+        origin,
+        action: OpenDisposition::Replace,
+    });
+    let target = match result {
+        Ok(EditorReply::View { target }) => target,
+        Err(error) => return failure(&error.message),
+        _ => return failure("scratch did not return a view"),
+    };
+    if component::read_document(target.document, target.version, 0, 2).as_deref() != Ok("éß") {
+        return failure("scratch read failed");
+    }
+    Response {
+        actions: vec![
+            Action::Edit {
+                document: target.document,
+                version: target.version,
+                edits: vec![TextEdit {
+                    start: 0,
+                    end: 2,
+                    text: "ÉSS".into(),
+                }],
+            },
+            Action::Status {
+                message: "scratch edited".into(),
+            },
+        ],
+        error: None,
+    }
 }
 fn uppercase(request: &Request) -> Response {
     let Some(doc) = request.editor.document.as_ref() else {

@@ -3,6 +3,7 @@
 include!(concat!(env!("OUT_DIR"), "/wit_bindings.rs"));
 
 mod capabilities;
+pub mod commands;
 pub mod editor;
 pub mod protocol;
 mod services;

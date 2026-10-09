@@ -5,6 +5,7 @@ mod auto_save;
 pub mod completion;
 mod diagnostics;
 mod inline_completion;
+pub(crate) mod plugins;
 mod prompt;
 pub(crate) mod signature_help;
 pub(crate) mod workspace_trust;

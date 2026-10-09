@@ -36,7 +36,7 @@ use tokio::{
     process::{Child, Command},
     sync::{
         mpsc::{channel, UnboundedReceiver, UnboundedSender},
-        Notify, OnceCell,
+        Notify, OnceCell, OwnedSemaphorePermit, Semaphore,
     },
 };
 
@@ -75,6 +75,73 @@ pub struct Client {
     shutdown_flushed: Arc<Notify>,
     /// workspace folders added while the server is still initializing
     req_timeout: u64,
+    cancellable_requests: Arc<Semaphore>,
+}
+
+/// The permit lives in the transport, including while an outgoing write stalls.
+/// Dropping a caller sends exactly one cancellation without a detached task.
+struct RequestCancellation {
+    sender: UnboundedSender<Payload>,
+    id: Option<jsonrpc::Id>,
+}
+impl Drop for RequestCancellation {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            let _ = self.sender.send(Payload::Cancel(id));
+        }
+    }
+}
+
+fn request_with_options<R: lsp::request::Request>(
+    server_tx: UnboundedSender<Payload>,
+    id: jsonrpc::Id,
+    params: &R::Params,
+    timeout_secs: u64,
+    permit: Option<OwnedSemaphorePermit>,
+) -> impl Future<Output = Result<R::Result>> + use<R>
+where
+    R::Params: serde::Serialize,
+{
+    let mut cancellation = permit.as_ref().map(|_| RequestCancellation {
+        sender: server_tx.clone(),
+        id: Some(id.clone()),
+    });
+
+    // It's important that this is not part of the future so that it gets executed right away
+    // and the request order stays consistent.
+    let rx = serde_json::to_value(params)
+        .map_err(Error::from)
+        .and_then(|params| {
+            let request = jsonrpc::MethodCall {
+                jsonrpc: Some(jsonrpc::Version::V2),
+                id: id.clone(),
+                method: R::METHOD.to_string(),
+                params: Client::value_into_params(params),
+            };
+            let (tx, rx) = channel::<Result<Value>>(1);
+            server_tx
+                .send(Payload::Request {
+                    chan: tx,
+                    value: request,
+                    permit,
+                })
+                .map_err(|e| Error::Other(e.into()))?;
+            Ok(rx)
+        });
+
+    async move {
+        use std::time::Duration;
+        use tokio::time::timeout;
+        // TODO: delay other calls until initialize success
+        let response = timeout(Duration::from_secs(timeout_secs), rx?.recv())
+            .await
+            .map_err(|_| Error::Timeout(id))? // return Timeout
+            .ok_or(Error::StreamClosed)?;
+        if let Some(cancellation) = &mut cancellation {
+            cancellation.id = None;
+        }
+        response.and_then(|value| serde_json::from_value(value).map_err(Into::into))
+    }
 }
 
 impl Client {
@@ -280,6 +347,7 @@ impl Client {
             file_operation_interest: OnceLock::new(),
             config,
             req_timeout,
+            cancellable_requests: Arc::new(Semaphore::new(64)),
             root_path,
             root_uri,
             workspace_folders: Mutex::new(workspace_folders),
@@ -509,40 +577,40 @@ impl Client {
     where
         R::Params: serde::Serialize,
     {
-        let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
+        self.call_with_options::<R>(params, timeout_secs, None)
+    }
 
-        // It's important that this is not part of the future so that it gets executed right away
-        // and the request order stays consistent.
-        let rx = serde_json::to_value(params)
-            .map_err(Error::from)
-            .and_then(|params| {
-                let request = jsonrpc::MethodCall {
-                    jsonrpc: Some(jsonrpc::Version::V2),
-                    id: id.clone(),
-                    method: R::METHOD.to_string(),
-                    params: Self::value_into_params(params),
-                };
-                let (tx, rx) = channel::<Result<Value>>(1);
-                server_tx
-                    .send(Payload::Request {
-                        chan: tx,
-                        value: request,
-                    })
-                    .map_err(|e| Error::Other(e.into()))?;
-                Ok(rx)
-            });
+    fn call_cancellable<R: lsp::request::Request>(
+        &self,
+        params: &R::Params,
+    ) -> Result<impl Future<Output = Result<R::Result>> + use<R>>
+    where
+        R::Params: serde::Serialize,
+    {
+        let permit = self
+            .cancellable_requests
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::RequestLimit)?;
+        Ok(self.call_with_options::<R>(params, 2, Some(permit)))
+    }
 
-        async move {
-            use std::time::Duration;
-            use tokio::time::timeout;
-            // TODO: delay other calls until initialize success
-            timeout(Duration::from_secs(timeout_secs), rx?.recv())
-                .await
-                .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)?
-                .and_then(|value| serde_json::from_value(value).map_err(Into::into))
-        }
+    fn call_with_options<R: lsp::request::Request>(
+        &self,
+        params: &R::Params,
+        timeout_secs: u64,
+        permit: Option<OwnedSemaphorePermit>,
+    ) -> impl Future<Output = Result<R::Result>> + use<R>
+    where
+        R::Params: serde::Serialize,
+    {
+        request_with_options::<R>(
+            self.server_tx.clone(),
+            self.next_request_id(),
+            params,
+            timeout_secs,
+            permit,
+        )
     }
 
     /// Send a RPC notification to the language server.
@@ -864,6 +932,7 @@ impl Client {
         let _ = self.server_tx.send(Payload::Request {
             chan,
             value: request,
+            permit: None,
         });
         self.exit();
     }
@@ -1391,6 +1460,30 @@ impl Client {
         position: lsp::Position,
         work_done_token: Option<lsp::ProgressToken>,
     ) -> Option<impl Future<Output = Result<Option<lsp::Hover>>> + use<>> {
+        let params = self.hover_params(text_document, position, work_done_token)?;
+        Some(self.call::<lsp::request::HoverRequest>(params))
+    }
+
+    /// Attached plugin hover with a two-second timeout, Drop cancellation and
+    /// bounded outgoing/pending transport admission. This never launches a server.
+    pub fn text_document_hover_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> Result<Option<impl Future<Output = Result<Option<lsp::Hover>>> + use<>>> {
+        let Some(params) = self.hover_params(text_document, position, None) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::HoverRequest>(&params)
+            .map(Some)
+    }
+
+    fn hover_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<lsp::HoverParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support hover.
@@ -1402,16 +1495,14 @@ impl Client {
             _ => return None,
         }
 
-        let params = lsp::HoverParams {
+        Some(lsp::HoverParams {
             text_document_position_params: lsp::TextDocumentPositionParams {
                 text_document,
                 position,
             },
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
             // lsp::SignatureHelpContext
-        };
-
-        Some(self.call::<lsp::request::HoverRequest>(params))
+        })
     }
 
     // formatting
@@ -1677,6 +1768,27 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
     ) -> Option<impl Future<Output = Result<Option<lsp::DocumentSymbolResponse>>> + use<>> {
+        let params = self.symbol_params(text_document)?;
+        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+    }
+
+    /// Attached plugin symbols use the same cancellation/admission contract as hover.
+    pub fn document_symbols_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Result<Option<impl Future<Output = Result<Option<lsp::DocumentSymbolResponse>>> + use<>>>
+    {
+        let Some(params) = self.symbol_params(text_document) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::DocumentSymbolRequest>(&params)
+            .map(Some)
+    }
+
+    fn symbol_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Option<lsp::DocumentSymbolParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support document symbols.
@@ -1685,13 +1797,11 @@ impl Client {
             _ => return None,
         }
 
-        let params = lsp::DocumentSymbolParams {
+        Some(lsp::DocumentSymbolParams {
             text_document,
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
             partial_result_params: lsp::PartialResultParams::default(),
-        };
-
-        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+        })
     }
 
     pub fn prepare_call_hierarchy(
@@ -1889,5 +1999,86 @@ impl Client {
         self.notify::<lsp::notification::DidChangeWatchedFiles>(lsp::DidChangeWatchedFilesParams {
             changes,
         })
+    }
+}
+
+#[cfg(test)]
+mod cancellable_tests {
+    use super::*;
+
+    fn params() -> lsp::HoverParams {
+        lsp::HoverParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier::new(
+                    lsp::Url::parse("file:///test.rs").unwrap(),
+                ),
+                position: lsp::Position::new(0, 0),
+            },
+            work_done_progress_params: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn unpolled_and_timed_out_requests_send_one_owned_cancel() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(64));
+        for (number, poll) in [(1, false), (2, true)] {
+            let id = jsonrpc::Id::Num(number);
+            let future = request_with_options::<lsp::request::HoverRequest>(
+                sender.clone(),
+                id.clone(),
+                &params(),
+                0,
+                Some(permits.clone().try_acquire_owned().unwrap()),
+            );
+            let outgoing = receive.try_recv().unwrap();
+            assert_eq!(permits.available_permits(), 63);
+            if poll {
+                assert!(matches!(future.await, Err(Error::Timeout(_))));
+            } else {
+                drop(future);
+            }
+            assert!(
+                matches!(receive.try_recv().unwrap(), Payload::Cancel(cancelled) if cancelled == id)
+            );
+            assert!(receive.try_recv().is_err());
+            // Dropping the caller does not release queued transport admission.
+            assert_eq!(permits.available_permits(), 63);
+            drop(outgoing);
+            assert_eq!(permits.available_permits(), 64);
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_and_ordinary_requests_do_not_emit_cancellation() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(1));
+        let future = request_with_options::<lsp::request::HoverRequest>(
+            sender.clone(),
+            jsonrpc::Id::Num(1),
+            &params(),
+            1,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let Payload::Request { chan, permit, .. } = receive.try_recv().unwrap() else {
+            panic!("not request")
+        };
+        chan.send(Ok(Value::Null)).await.unwrap();
+        drop(permit);
+        assert!(future.await.unwrap().is_none());
+        assert!(receive.try_recv().is_err());
+        let future = request_with_options::<lsp::request::HoverRequest>(
+            sender,
+            jsonrpc::Id::Num(2),
+            &params(),
+            1,
+            None,
+        );
+        drop(future);
+        assert!(matches!(
+            receive.try_recv().unwrap(),
+            Payload::Request { permit: None, .. }
+        ));
+        assert!(receive.try_recv().is_err());
     }
 }

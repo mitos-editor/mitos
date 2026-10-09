@@ -81,10 +81,15 @@ pub fn command_palette(cx: &mut Context) {
                         }
                     }))
                     .chain(cx.editor.plugin_commands().into_iter().map(|command| {
+                        let doc = super::command_line::format_plugin_doc(
+                            &command.name,
+                            &command.doc,
+                            &command.arguments,
+                        );
                         MappableCommand::Typable {
                             name: command.name,
                             args: String::new(),
-                            doc: command.doc,
+                            doc,
                         }
                     }));
 
@@ -135,10 +140,10 @@ pub fn command_palette(cx: &mut Context) {
                                 for callback in callbacks {
                                     callback(compositor, cx);
                                 }
-                                if let Some(callback) = next_key {
-                                    if let Some(editor) = compositor.find::<ui::EditorView>() {
-                                        editor.set_next_key_callback(callback);
-                                    }
+                                if let Some(callback) = next_key
+                                    && let Some(editor) = compositor.find::<ui::EditorView>()
+                                {
+                                    editor.set_next_key_callback(callback);
                                 }
                             },
                         ))

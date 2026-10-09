@@ -88,6 +88,7 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
+    plugin_frontend: handlers::plugins::Frontend,
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
@@ -103,6 +104,11 @@ fn setup_integration_logging() {
 }
 
 impl Application {
+    #[cfg(feature = "integration")]
+    pub fn has_plugin_ui(&self) -> bool {
+        crate::handlers::plugins::has_active_ui(&self.compositor)
+    }
+
     pub fn new(
         args: Args,
         config: Config,
@@ -285,6 +291,7 @@ impl Application {
             config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
+            plugin_frontend: handlers::plugins::Frontend::default(),
             lsp_progress: LspProgressMap::new(),
             theme_mode,
         };
@@ -318,6 +325,7 @@ impl Application {
         loop {
             self.jobs.poll_commands(&self.editor);
             self.editor.poll_plugin_events();
+            self.synchronize_plugin_frontend();
             if self.editor.should_close() {
                 return false;
             }
@@ -1303,14 +1311,33 @@ impl Application {
             errs.push(err);
         }
 
+        self.plugin_frontend
+            .shutdown(&mut self.compositor, &mut self.editor);
         self.jobs.cancel_commands(&self.editor);
         self.editor.poll_plugin_events();
         self.editor.shutdown_plugins();
         self.editor.finish_plugin_shutdown().await;
-        self.jobs.poll_commands(&mut self.editor);
+        self.jobs.poll_commands(&self.editor);
         self.editor.close_language_servers(None).await;
 
         errs
+    }
+
+    pub(super) fn synchronize_plugin_frontend(&mut self) {
+        let config = self.config.load();
+        let mut cx = crate::compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
+            editor: &mut self.editor,
+            jobs: &mut self.jobs,
+            scroll: None,
+            image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
+        };
+        self.plugin_frontend
+            .synchronize(&mut self.compositor, &mut cx);
     }
 }
 

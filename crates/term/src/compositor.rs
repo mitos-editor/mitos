@@ -151,6 +151,25 @@ impl Compositor {
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
+
+    /// Retain matching components by owned identity, including a saved picker.
+    /// Other component types keep their position in the layer stack.
+    pub(crate) fn retain_type<T: 'static>(&mut self, mut retain: impl FnMut(&mut T) -> bool) {
+        self.layers.retain_mut(|component| {
+            component
+                .as_any_mut()
+                .downcast_mut::<T>()
+                .is_none_or(&mut retain)
+        });
+        if self.last_picker.as_mut().is_some_and(|component| {
+            component
+                .as_any_mut()
+                .downcast_mut::<T>()
+                .is_some_and(|component| !retain(component))
+        }) {
+            self.last_picker = None;
+        }
+    }
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> bool {
         // If it is a key event, a macro is being recorded, and a macro isn't being replayed,
         // push the key event to the recording.

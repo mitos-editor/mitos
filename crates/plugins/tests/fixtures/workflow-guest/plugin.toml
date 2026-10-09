@@ -1,0 +1,13 @@
+abi-version = 3
+module = "workflows.component.wasm"
+capabilities = ["ui", "editor-read", "editor-edit", "editor-selection", "editor-navigate", "workspace-read", "storage", "process"]
+events = ["document-opened"]
+
+[commands.recent]
+doc = "Choose a recent file from private plugin storage."
+[commands.search]
+doc = "Search the first granted workspace root and choose a result."
+[commands.format]
+doc = "Format the current buffer with the explicitly granted tool; save after completion."
+[commands.cancel]
+doc = "Cancel the current search or formatter job and await cleanup."

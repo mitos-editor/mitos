@@ -7,6 +7,39 @@ use view::clipboard::{
 pub(crate) struct TerminalClipboard;
 
 impl ClipboardBackend for TerminalClipboard {
+    fn get_plugin_contents(
+        &self,
+        provider: ClipboardProvider,
+        kind: ClipboardType,
+    ) -> plugin_api::HostFuture<String> {
+        NativeClipboard.get_plugin_contents(provider, kind)
+    }
+
+    fn set_plugin_contents(
+        &self,
+        provider: ClipboardProvider,
+        content: String,
+        kind: ClipboardType,
+    ) -> plugin_api::HostFuture<()> {
+        if matches!(provider, ClipboardProvider::Termcode) {
+            NativeClipboard::bounded_plugin_ipc(move || {
+                if content.len() > 4096 {
+                    return Err(plugin_api::ServiceError::new(
+                        plugin_api::ErrorCode::ResourceExhausted,
+                        "clipboard exceeds 4 KiB",
+                    ));
+                }
+                write_selection(&mut std::io::stdout().lock(), &content, kind).map_err(|error| {
+                    plugin_api::ServiceError::new(
+                        plugin_api::ErrorCode::HostFailure,
+                        error.to_string(),
+                    )
+                })
+            })
+        } else {
+            NativeClipboard.set_plugin_contents(provider, content, kind)
+        }
+    }
     fn name(&self, provider: &ClipboardProvider) -> String {
         NativeClipboard.name(provider)
     }

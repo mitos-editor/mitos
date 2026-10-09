@@ -31,6 +31,8 @@ mod test {
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
+    mod plugin_ui;
+    mod plugin_workflows;
     mod plugins;
     mod pull_diagnostics;
     mod signature_help;

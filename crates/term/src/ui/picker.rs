@@ -1094,6 +1094,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .unwrap_or_else(|| "".into())
     }
 
+    pub(crate) fn query_input(&self) -> &str {
+        self.prompt.line()
+    }
+
+    pub(crate) fn set_query_input(&mut self, input: String, editor: &Editor) {
+        self.prompt.set_line(input, editor);
+        self.handle_prompt_change(true);
+    }
+
     fn header_height(&self) -> u16 {
         if self.columns.len() > 1 {
             1

@@ -420,7 +420,9 @@ impl Editor {
     }
 
     pub fn set_theme(&mut self, theme: Theme) -> anyhow::Result<()> {
-        self.set_theme_impl(theme, ThemeAction::Set)
+        self.set_theme_impl(theme, ThemeAction::Set)?;
+        self.plugin_native_theme_changed();
+        Ok(())
     }
 
     fn set_theme_impl(&mut self, theme: Theme, preview: ThemeAction) -> anyhow::Result<()> {
@@ -929,6 +931,7 @@ impl Editor {
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
         doc.plugin_events = self.plugins.sender(&self.handlers.callbacks);
+        doc.plugin_settings = Some(self.plugin_settings_handle());
         self.handlers.attach_document(&mut doc);
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
@@ -952,6 +955,10 @@ impl Editor {
         self.refresh_spelling(id);
         self.queue_plugin_document_event(plugin_api::Event::DocumentOpened, id);
         id
+    }
+
+    pub(crate) fn adopt_plugin_scratch(&mut self, doc: Document, action: Action) -> DocumentId {
+        self.new_file_from_document(action, doc)
     }
 
     pub fn new_file(&mut self, action: Action) -> DocumentId {
@@ -1142,6 +1149,7 @@ impl Editor {
         }
 
         self.cancel_plugin_target(Some(doc_id.as_u64()), None);
+        self.clear_plugin_document_settings(doc_id.as_u64());
         let doc = self.documents.remove(&doc_id).unwrap();
         self.refresh_vcs_watches();
 

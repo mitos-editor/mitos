@@ -15,7 +15,7 @@ use tokio::{
     process::{ChildStderr, ChildStdin, ChildStdout},
     sync::{
         mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
-        Mutex, Notify,
+        Mutex, Notify, OwnedSemaphorePermit,
     },
 };
 
@@ -24,7 +24,9 @@ pub enum Payload {
     Request {
         chan: Sender<Result<Value>>,
         value: jsonrpc::MethodCall,
+        permit: Option<OwnedSemaphorePermit>,
     },
+    Cancel(jsonrpc::Id),
     Notification(jsonrpc::Notification),
     Response(jsonrpc::Output),
 }
@@ -44,11 +46,17 @@ enum ServerMessage {
 pub struct Transport {
     id: LanguageServerId,
     name: String,
-    pending_requests: Mutex<HashMap<jsonrpc::Id, Sender<Result<Value>>>>,
+    pending_requests: Mutex<HashMap<jsonrpc::Id, PendingRequest>>,
     shutdown_requested: AtomicBool,
     inject_tx: UnboundedSender<Payload>,
     /// Notified once the `exit` notification has been flushed to the server's stdin
     shutdown_flushed: Arc<Notify>,
+}
+
+#[derive(Debug)]
+struct PendingRequest {
+    sender: Sender<Result<Value>>,
+    _permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Transport {
@@ -170,19 +178,41 @@ impl Transport {
         Ok(())
     }
 
-    async fn send_payload_to_server(
+    async fn send_payload_to_server<W: tokio::io::AsyncWrite + Unpin>(
         &self,
-        server_stdin: &mut BufWriter<ChildStdin>,
+        server_stdin: &mut BufWriter<W>,
         payload: Payload,
     ) -> Result<()> {
         //TODO: reuse string
         let json = match payload {
-            Payload::Request { chan, value } => {
-                self.pending_requests
-                    .lock()
-                    .await
-                    .insert(value.id.clone(), chan);
+            Payload::Request {
+                chan,
+                value,
+                permit,
+            } => {
+                self.pending_requests.lock().await.insert(
+                    value.id.clone(),
+                    PendingRequest {
+                        sender: chan,
+                        _permit: permit,
+                    },
+                );
                 serde_json::to_string(&value)?
+            }
+            Payload::Cancel(id) => {
+                // Release local admission before awaiting another server write.
+                // A late response has no registered receiver and cannot revive it.
+                if self.pending_requests.lock().await.remove(&id).is_none() {
+                    return Ok(());
+                }
+                serde_json::to_string(&jsonrpc::Notification {
+                    jsonrpc: Some(jsonrpc::Version::V2),
+                    method: "$/cancelRequest".into(),
+                    params: jsonrpc::Params::Map(serde_json::Map::from_iter([(
+                        "id".into(),
+                        serde_json::to_value(id)?,
+                    )])),
+                })?
             }
             Payload::Notification(value) => serde_json::to_string(&value)?,
             Payload::Response(error) => serde_json::to_string(&error)?,
@@ -191,9 +221,9 @@ impl Transport {
             .await
     }
 
-    async fn send_string_to_server(
+    async fn send_string_to_server<W: tokio::io::AsyncWrite + Unpin>(
         &self,
-        server_stdin: &mut BufWriter<ChildStdin>,
+        server_stdin: &mut BufWriter<W>,
         request: String,
         language_server_name: &str,
     ) -> Result<()> {
@@ -252,6 +282,15 @@ impl Transport {
         Ok(())
     }
 
+    async fn close_pending(&self) {
+        let pending: Vec<_> = self.pending_requests.lock().await.drain().collect();
+        for (id, request) in pending {
+            if request.sender.send(Err(Error::StreamClosed)).await.is_err() {
+                log::debug!("Could not close request on a closed channel (id={id:?})");
+            }
+        }
+    }
+
     async fn process_request_response(
         &self,
         output: jsonrpc::Output,
@@ -267,7 +306,7 @@ impl Transport {
 
         let tx = self.pending_requests.lock().await.remove(&id);
         if let Some(tx) = tx {
-            match tx.send(result).await {
+            match tx.sender.send(result).await {
                 Ok(_) => (),
                 Err(_) => log::debug!(
                     "Tried sending response into a closed channel (id={:?}), likely a fire-and-forget shutdown",
@@ -318,19 +357,7 @@ impl Transport {
                         error!("Exiting {} after unexpected error: {err:?}", transport.name);
                     }
 
-                    // Close any outstanding requests.
-                    let pending_requests: Vec<_> = {
-                        let mut pending_requests = transport.pending_requests.lock().await;
-                        pending_requests.drain().collect()
-                    };
-                    for (id, tx) in pending_requests {
-                        match tx.send(Err(Error::StreamClosed)).await {
-                            Ok(_) => (),
-                            Err(_) => {
-                                error!("Could not close request on a closed channel (id={:?})", id)
-                            }
-                        }
-                    }
+                    transport.close_pending().await;
 
                     // Hack: inject a terminated notification so we trigger code that needs to happen after exit
                     let notification =
@@ -504,5 +531,104 @@ impl Transport {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod cancellable_tests {
+    use super::*;
+    use slotmap::Key;
+    use tokio::sync::{mpsc::channel, Semaphore};
+
+    #[tokio::test]
+    async fn hung_responses_hold_admission_until_cancel_and_late_reply_is_discarded() {
+        let (inject_tx, _) = unbounded_channel();
+        let transport = Transport {
+            id: LanguageServerId::null(),
+            name: "fixture".into(),
+            pending_requests: Mutex::new(HashMap::default()),
+            shutdown_requested: AtomicBool::new(false),
+            inject_tx,
+            shutdown_flushed: Arc::new(Notify::new()),
+        };
+        // The bounded pipe accepts outgoing frames but deliberately never replies.
+        let (outgoing, mut listener) = tokio::io::duplex(64 * 1024);
+        let mut server = BufWriter::new(outgoing);
+        let permits = Arc::new(Semaphore::new(64));
+        let mut receivers = Vec::new();
+        for number in 0..64 {
+            let (chan, receive) = channel(1);
+            receivers.push(receive);
+            transport
+                .send_payload_to_server(
+                    &mut server,
+                    Payload::Request {
+                        chan,
+                        value: jsonrpc::MethodCall {
+                            jsonrpc: Some(jsonrpc::Version::V2),
+                            id: jsonrpc::Id::Num(number),
+                            method: "textDocument/hover".into(),
+                            params: jsonrpc::Params::None,
+                        },
+                        permit: Some(permits.clone().try_acquire_owned().unwrap()),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(transport.pending_requests.lock().await.len(), 64);
+        assert!(permits.clone().try_acquire_owned().is_err());
+        for number in 0..64 {
+            transport
+                .send_payload_to_server(&mut server, Payload::Cancel(jsonrpc::Id::Num(number)))
+                .await
+                .unwrap();
+        }
+        assert!(transport.pending_requests.lock().await.is_empty());
+        assert_eq!(permits.available_permits(), 64);
+        assert!(receivers
+            .iter_mut()
+            .all(|receive| receive.try_recv().is_err()));
+        transport
+            .process_request_response(
+                jsonrpc::Output::Success(jsonrpc::Success {
+                    jsonrpc: Some(jsonrpc::Version::V2),
+                    id: jsonrpc::Id::Num(1),
+                    result: Value::Null,
+                }),
+                "fixture",
+            )
+            .await
+            .unwrap();
+        assert_eq!(permits.available_permits(), 64);
+        assert!(transport.pending_requests.lock().await.is_empty());
+        let (chan, mut receive) = channel(1);
+        transport
+            .send_payload_to_server(
+                &mut server,
+                Payload::Request {
+                    chan,
+                    value: jsonrpc::MethodCall {
+                        jsonrpc: Some(jsonrpc::Version::V2),
+                        id: jsonrpc::Id::Num(65),
+                        method: "textDocument/hover".into(),
+                        params: jsonrpc::Params::None,
+                    },
+                    permit: Some(permits.clone().try_acquire_owned().unwrap()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(permits.available_permits(), 63);
+        transport.close_pending().await;
+        assert!(matches!(
+            receive.recv().await,
+            Some(Err(Error::StreamClosed))
+        ));
+        assert_eq!(permits.available_permits(), 64);
+        drop(server);
+        let mut frames = String::new();
+        listener.read_to_string(&mut frames).await.unwrap();
+        assert_eq!(frames.matches("\"method\":\"$/cancelRequest\"").count(), 64);
     }
 }

@@ -5,9 +5,21 @@ use super::config::{Command, CommandProvider};
 use super::{ClipboardBackend, ClipboardError, ClipboardProvider, ClipboardType, Result};
 use std::borrow::Cow;
 
+mod plugin;
+
 /// Native command and platform clipboard access, without frontend output.
 #[derive(Default)]
 pub struct NativeClipboard;
+
+impl NativeClipboard {
+    /// Bound native frontend IPC without retaining an editor borrow. A blocking
+    /// OS operation keeps its permit even if the caller expires.
+    pub fn bounded_plugin_ipc<T: Send + 'static>(
+        operation: impl FnOnce() -> std::result::Result<T, plugin_api::ServiceError> + Send + 'static,
+    ) -> plugin_api::HostFuture<T> {
+        plugin::blocking(operation)
+    }
+}
 
 #[cfg(windows)]
 pub(super) fn default_provider() -> ClipboardProvider {
@@ -70,6 +82,22 @@ pub(super) fn default_provider() -> ClipboardProvider {
     }
 }
 impl ClipboardBackend for NativeClipboard {
+    fn get_plugin_contents(
+        &self,
+        provider: ClipboardProvider,
+        kind: ClipboardType,
+    ) -> plugin_api::HostFuture<String> {
+        plugin::read(provider, kind)
+    }
+
+    fn set_plugin_contents(
+        &self,
+        provider: ClipboardProvider,
+        content: String,
+        kind: ClipboardType,
+    ) -> plugin_api::HostFuture<()> {
+        plugin::write(provider, content, kind)
+    }
     fn name(&self, provider: &ClipboardProvider) -> String {
         fn builtin_name<'a>(
             name: &'static str,

@@ -5,13 +5,17 @@
 //! or syntax handles cross the WASM boundary.
 
 mod actor;
+mod frontend;
+mod language;
+mod services;
+pub(crate) mod settings;
 
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     path::Path,
     sync::{
-        Arc, Weak,
         atomic::{AtomicBool, Ordering},
+        Arc, Weak,
     },
 };
 
@@ -25,7 +29,7 @@ use plugin_api::{
 };
 use serde_json::Value;
 
-use crate::{Document, DocumentId, Editor, ViewId, callbacks::EditorCallbackSender};
+use crate::{callbacks::EditorCallbackSender, Document, DocumentId, Editor, ViewId};
 
 const MAX_PENDING_EVENTS: usize = 32;
 const MAX_CONTROL_EVENTS: usize = 32;
@@ -88,15 +92,8 @@ struct PendingEvent {
     bytes: usize,
 }
 
-fn frontend_reply(event: Event) -> bool {
-    matches!(
-        event,
-        Event::UiResult | Event::BuiltinResult | Event::KeymapResult
-    )
-}
-
 fn control(event: Event) -> bool {
-    if frontend_reply(event) || event == Event::JobReady {
+    if frontend::reply_event(event) || event == Event::JobReady {
         return true;
     }
     matches!(
@@ -111,7 +108,7 @@ fn control(event: Event) -> bool {
 }
 
 fn queue_class(event: Event) -> u8 {
-    if frontend_reply(event) {
+    if frontend::reply_event(event) {
         2
     } else if event == Event::JobReady {
         3
@@ -189,10 +186,12 @@ struct Shared {
 
 #[derive(Default)]
 pub(crate) struct PluginHost {
+    settings: settings::SettingsHandle,
     manager: PluginManager,
     shared: Arc<Shared>,
     stopped: bool,
     shutting_down: bool,
+    frontend: frontend::FrontendState,
     asynchronous: actor::AsyncState,
 }
 
@@ -271,6 +270,7 @@ impl PluginEventSender {
         target: Option<String>,
     ) {
         let scope = InvocationTarget {
+            call_sequence: None,
             document: editor.document.as_ref().map(|doc| doc.id),
             view: editor.view.as_ref().map(|view| view.id),
             binding_revision: editor.view.as_ref().map(|view| view.binding_revision),
@@ -296,7 +296,7 @@ impl PluginEventSender {
         let provenance = queue.provenance(owner.generation);
         let bytes = json_size(&editor).saturating_add(json_size(&data));
         if (provenance.depth > MAX_CAUSAL_DEPTH
-            && !frontend_reply(event)
+            && !frontend::reply_event(event)
             && event != Event::JobReady)
             || bytes > MAX_PENDING_BYTES
         {
@@ -325,8 +325,8 @@ impl PluginEventSender {
                     queue.remove(index);
                 }
             }
-            let limit = if frontend_reply(event) {
-                8
+            let limit = if frontend::reply_event(event) {
+                frontend::MAX_FRONTEND_REQUESTS
             } else if event == Event::JobReady {
                 32 // NativeBudget limits the owning editor to 32 live jobs.
             } else if control(event) {
@@ -360,7 +360,7 @@ impl PluginEventSender {
                         .position(|item| !control(item.event))
                         .or_else(|| {
                             queue.pending.iter().position(|item| {
-                                !frontend_reply(item.event) && item.event != Event::JobReady
+                                !frontend::reply_event(item.event) && item.event != Event::JobReady
                             })
                         })
                 };
@@ -678,6 +678,7 @@ impl Editor {
     fn plugin_invocation_target(&self, view: Option<ViewId>) -> InvocationTarget {
         let view = view.and_then(|view| self.tree.try_get(view));
         InvocationTarget {
+            call_sequence: None,
             document: view.map(|view| view.doc.as_u64()),
             view: view.map(|view| view.id.as_u64()),
             binding_revision: view.map(|view| view.binding_revision()),
@@ -692,12 +693,30 @@ impl Editor {
         }
     }
 
+    pub fn plugin_event_interested(&self, event: Event) -> bool {
+        self.plugins.shared.accepting.load(Ordering::Acquire)
+            && self
+                .plugins
+                .shared
+                .subscriptions
+                .lock()
+                .get(&event)
+                .is_some_and(|owners| !owners.is_empty())
+    }
+
     pub fn plugin_commands(&self) -> Vec<PluginCommand> {
         self.plugins.manager.available_commands()
     }
 
     pub fn plugin_command_doc(&self, name: &str) -> Option<String> {
         self.plugins.manager.get_doc_for_identifier(name)
+    }
+
+    pub fn plugin_command_arguments(
+        &self,
+        name: &str,
+    ) -> Option<plugin_api::commands::CommandArguments> {
+        self.plugins.manager.get_arguments_for_identifier(name)
     }
 
     /// Replace plugin instances, discard stale callbacks and initialize the new
@@ -707,6 +726,8 @@ impl Editor {
     }
 
     fn refresh_plugin_subscriptions(&mut self) {
+        self.prune_plugin_frontend();
+        self.prune_plugin_settings();
         *self.plugins.shared.readers.lock() = self
             .plugins
             .manager
@@ -757,14 +778,17 @@ impl Editor {
             .queue
             .lock()
             .provenance(self.plugins.shared.generation);
-        let services = self.plugin_services(plugin, &provenance)?;
+        let services = self.plugin_services(plugin, &provenance, Event::Command)?;
         let result = self.plugins.manager.call_command_with_target(
             name,
             args,
             context.clone(),
             with_provenance(Value::Null, &provenance),
             services,
-            self.plugin_invocation_target(Some(self.tree.focus)),
+            InvocationTarget {
+                call_sequence: Some(provenance.sequence),
+                ..self.plugin_invocation_target(Some(self.tree.focus))
+            },
         );
         self.refresh_plugin_subscriptions();
         let Some(response) = result? else {
@@ -810,7 +834,11 @@ impl Editor {
             data,
             provenance,
             None,
-            if matches!(event, Event::Init | Event::Shutdown) { InvocationTarget::default() } else { self.plugin_invocation_target(Some(self.tree.focus)) },
+            if matches!(event, Event::Init | Event::Shutdown) {
+                InvocationTarget::default()
+            } else {
+                self.plugin_invocation_target(Some(self.tree.focus))
+            },
         )
     }
 
@@ -847,6 +875,7 @@ impl Editor {
             .try_get(view)
             .filter(|view| view.doc == document && view.binding_revision() == binding_revision);
         let scope = InvocationTarget {
+            call_sequence: None,
             document: self.document(document).map(|doc| doc.id().as_u64()),
             view: live_view.map(|view| view.id.as_u64()),
             binding_revision: live_view.map(|view| view.binding_revision()),
@@ -998,7 +1027,7 @@ impl Editor {
                 pending.editor.mode = self.mode.to_string();
             }
             let reliable = pending.target.is_some()
-                && (frontend_reply(pending.event) || pending.event == Event::JobReady);
+                && (frontend::reply_event(pending.event) || pending.event == Event::JobReady);
             let accepted = self.run_plugin_event(
                 pending.event,
                 pending.editor.clone(),
@@ -1041,6 +1070,10 @@ impl Editor {
                     .collect()
             },
         );
+        let scope = InvocationTarget {
+            call_sequence: Some(provenance.sequence),
+            ..scope
+        };
         self.begin_plugin_batch();
         let mut successful = true;
         for name in names {
@@ -1053,7 +1086,7 @@ impl Editor {
                 self.plugin_global_context()
             };
             let result = self
-                .plugin_services(&name, &provenance)
+                .plugin_services(&name, &provenance, event)
                 .and_then(|services| {
                     self.plugins.manager.call_event_with_target(
                         &name,
@@ -1077,7 +1110,7 @@ impl Editor {
                 successful = false;
                 log::error!("plugin '{name}': {err:#}");
                 self.set_error(|| format!("plugin '{name}': {err:#}"));
-                if !(targeted && (frontend_reply(event) || event == Event::JobReady)) {
+                if !(targeted && (frontend::reply_event(event) || event == Event::JobReady)) {
                     self.plugins
                         .shared
                         .queue
@@ -1085,6 +1118,8 @@ impl Editor {
                         .lost(provenance.sequence, "worker-admission");
                 }
                 self.refresh_plugin_subscriptions();
+            } else if targeted && frontend::reply_event(event) {
+                self.plugins.frontend.release_reply(&data);
             }
         }
         self.finish_plugin_batch();
@@ -1146,6 +1181,7 @@ impl Editor {
         // before any effect is applied. Later edits use the preceding edit's text.
         let mut documents = BTreeMap::<DocumentId, PreparedDocument>::new();
         let mut prepared = Vec::new();
+        let mut frontend = Vec::new();
         let mut opened = false;
         for action in response.actions {
             if provenance.depth > MAX_CAUSAL_DEPTH
@@ -1361,14 +1397,11 @@ impl Editor {
                     );
                     prepared.push(PreparedAction::Open(Box::new(doc)));
                 }
-                Action::ShowUi { .. }
+                action @ (Action::ShowUi { .. }
                 | Action::InvokeBuiltin { .. }
-                | Action::UpdateKeymap { .. } => {
-                    return Err(ServiceError::new(
-                        ErrorCode::UnsupportedInterface,
-                        "native frontend services are unavailable",
-                    )
-                    .into());
+                | Action::UpdateKeymap { .. }) => {
+                    self.prepare_plugin_frontend(action, plugin, &mut frontend)?;
+                    prepared.push(PreparedAction::Frontend);
                 }
             }
         }
@@ -1430,8 +1463,10 @@ impl Editor {
                 doc.set_selection(view, selection);
             }
         }
+        let mut frontend = frontend.into_iter();
         for action in prepared {
             match action {
+                PreparedAction::Frontend => self.apply_plugin_frontend(frontend.next().unwrap()),
                 PreparedAction::State(query) => {
                     let (editor, catalog) = self.plugin_state(&query);
                     if let Some(sender) = self.plugins.sender(&self.handlers.callbacks) {
@@ -1498,6 +1533,7 @@ impl PreparedDocument {
 }
 
 enum PreparedAction {
+    Frontend,
     State(StateQuery),
     Status(String),
     Error(String),
