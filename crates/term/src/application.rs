@@ -335,10 +335,34 @@ impl Application {
         self.terminal.backend_mut().flush().unwrap();
     }
 
+    /// Process a bounded batch without waiting for background work to finish.
+    fn drain_ready_callbacks(&mut self) -> bool {
+        let mut handled_callbacks = false;
+        for _ in 0..64 {
+            let Ok(callback) = self.jobs.callbacks.try_recv() else {
+                break;
+            };
+            if let Some(job) = self.jobs.handle_callback(
+                &mut self.editor,
+                &mut self.compositor,
+                Ok(Some(callback)),
+            ) {
+                self.jobs.add(job);
+            }
+            handled_callbacks = true;
+        }
+        handled_callbacks
+    }
+
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
+        // Include syntax that finished during startup in the first frame.
+        self.drain_ready_callbacks();
+        if self.editor.should_close() {
+            return;
+        }
         self.render().await;
 
         loop {
@@ -360,21 +384,7 @@ impl Application {
             // One input event can enqueue several callbacks. Drain a bounded
             // batch before accepting more input so synchronous event hooks do
             // not spend every keystroke waiting for space in their own queue.
-            let mut handled_callbacks = false;
-            for _ in 0..64 {
-                let Ok(callback) = self.jobs.callbacks.try_recv() else {
-                    break;
-                };
-                if let Some(job) = self.jobs.handle_callback(
-                    &mut self.editor,
-                    &mut self.compositor,
-                    Ok(Some(callback)),
-                ) {
-                    self.jobs.add(job);
-                }
-                handled_callbacks = true;
-            }
-            if handled_callbacks {
+            if self.drain_ready_callbacks() {
                 self.render().await;
                 #[cfg(feature = "integration")]
                 self.editor.reset_idle_timer();
@@ -1368,5 +1378,84 @@ impl ui::menu::Item for lsp::MessageActionItem {
     type Data = ();
     fn format(&self, _data: &Self::Data) -> tui::widgets::Row<'_> {
         tui::widgets::Row::new([self.title.as_str()])
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use std::{sync::atomic::AtomicBool, time::Duration};
+
+    use futures_util::FutureExt;
+
+    use super::*;
+    use crate::compositor::{Component, Context};
+
+    struct FirstFrame(Arc<AtomicBool>);
+
+    impl Component for FirstFrame {
+        fn render(&mut self, _area: Rect, _frame: &mut tui::buffer::Buffer, cx: &mut Context) {
+            assert!(doc!(cx.editor).syntax().is_some());
+            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ready_syntax_is_published_before_first_frame() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("startup.json");
+        std::fs::write(&path, "{}\n")?;
+        let mut args = Args::default();
+        args.files.insert(path, vec![Default::default()]);
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.file_watcher.enable = false;
+        config.editor.auto_reload.enable = false;
+        config.editor.word_completion.enable = false;
+        let lang_loader = syntax::Loader::new(
+            toml::from_str(
+                r#"
+                [[language]]
+                name = "json"
+                scope = "source.json"
+                file-types = ["json"]
+                "#,
+            )?,
+            loader::syntax::Resources::default(),
+        )?;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let blocking_tx = tx.clone();
+        let sender = view::callbacks::EditorCallbackSender::new(
+            move |callback| {
+                let tx = tx.clone();
+                async move {
+                    let _ = tx.send(callback).await;
+                }
+            },
+            move |callback| event::send_blocking(&blocking_tx, callback),
+        );
+        let mut app = Application::new_with_handler_setup(
+            args,
+            config,
+            lang_loader,
+            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            move |handlers, _| {
+                handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
+            },
+        )?;
+
+        let callback = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await?
+            .expect("syntax completion was not delivered");
+        assert!(doc!(app.editor).syntax().is_none());
+        app.jobs.editor_callback_sender().send(callback).await;
+
+        let rendered = Arc::new(AtomicBool::new(false));
+        app.compositor.push(Box::new(FirstFrame(rendered.clone())));
+        let mut input = app.event_stream();
+        // Poll through the first render and stop when the event loop waits for work.
+        assert!(app.event_loop(&mut input).now_or_never().is_none());
+        assert!(rendered.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(app.close().await.is_empty());
+        Ok(())
     }
 }
