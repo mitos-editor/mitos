@@ -71,7 +71,9 @@ doc = "Run the example command."
 ```
 
 Available hooks are `document-opened`, `document-changed`, `document-saved`,
-`document-closed`, `selection-changed`, `mode-changed`, and `post-command`.
+`document-closed`, `selection-changed`, `mode-changed`, `post-command`,
+`post-insert-char`, `document-focus-lost`, `terminal-focus-gained`, and
+`terminal-focus-lost`.
 `document-saved` runs after a successful write. Every plugin receives `init`
 and `shutdown`; these lifecycle events do not need to be listed. `command`
 invocations are dispatched from the manifest's command declarations.
@@ -142,11 +144,33 @@ document, path, or language; handlers must account for these cases.
 
 Document-only edits can target hidden documents and compose into one undo step.
 Selection changes require their explicit live view; the host does not substitute
-the focused split. Plugin actions currently suppress hooks across all plugins, so a
-document-change hook can return an edit without recursively invoking plugins.
-Pending document-change events coalesce per document and selection events per view;
-the queue retains at most 32 snapshots. Hooks can observe the latest state but
-are not guaranteed to receive every intermediate change.
+the focused split. A plugin does not receive its own mutation echoes; other
+plugins can observe those changes. Event `data.provenance` includes the host
+generation, sequence, parent sequence, originating plugin, and causal depth.
+Feedback is limited to eight causal generations.
+
+Pending document-change events coalesce per document and selection events per
+view. The queue reserves 32 data and 32 control entries, with an aggregate 8 MiB
+limit. Overflow or a causal cutoff emits `resync-required`, including the lost
+sequence range. `Action::RequestState` requests a catalog page or a selected
+document/view; the requesting plugin receives a targeted `state` event. These
+two recovery events are delivered without a manifest subscription. Catalog
+pages contain at most 64 documents and views with exclusive continuation cursors.
+
+Saved events name the path and revision actually written, even when newer edits
+exist. Both ordinary writes and headless flushes use the same completion path.
+Shutdown drains accepted callbacks and writes before delivering saved events and
+the final shutdown hook. Failed writes do not emit saved success.
+
+Post-command metadata records the canonical command, arguments, count, register,
+origin, and outcome. Success, error, or cancellation follows that invocation's
+callbacks, next-key continuation, jobs, and exact submitted writes. Unrelated
+later status changes do not change its outcome. Detached LSP command/stop/restart,
+backend code-action-resolution dispatch, and external URL opening report
+`accepted`; this outcome does not promise completion of the external operation.
+Character hooks cover ordinary insertion and macro replay;
+bulk paste is observed through document changes. Hooks are observations and must
+validate revisions before editing in response.
 
 The initial API provides synchronous commands and hooks. It has no WASI or
 ambient filesystem/network access, arbitrary editor-command execution, custom

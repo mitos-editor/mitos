@@ -469,6 +469,9 @@ impl Editor {
             return;
         };
 
+        if let Some(tasks) = self.invocation_tasks() {
+            tasks.detached();
+        }
         tokio::spawn(async move {
             if let Err(err) = future.await {
                 log::error!("Error executing LSP command: {err}");

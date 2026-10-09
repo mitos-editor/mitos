@@ -792,7 +792,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         )
     }
 
-    pub(super) fn new_with_callback_result<C, O, F>(
+    pub(crate) fn new_with_callback_result<C, O, F>(
         columns: C,
         primary_column: usize,
         options: O,
@@ -1013,16 +1013,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         &mut self,
         result: PickerCallbackResult<T, D>,
         editor: &Editor,
-    ) -> bool {
+    ) -> Option<Option<compositor::Callback>> {
         match result {
-            PickerCallbackResult::Close => true,
-            PickerCallbackResult::KeepOpen => false,
+            PickerCallbackResult::Close => Some(None),
+            PickerCallbackResult::CloseWithCallback(callback) => Some(Some(callback)),
+            PickerCallbackResult::KeepOpen => None,
             PickerCallbackResult::Replace {
                 options,
                 editor_data,
             } => {
                 self.replace_options(options, editor_data, editor);
-                false
+                None
             }
         }
     }
@@ -1441,7 +1442,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             _ => return EventResult::Ignored(None),
         };
 
-        let close_fn = |picker: &mut Self| {
+        let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
             picker.preview.cancel_loads(None);
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
@@ -1462,7 +1463,12 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                         compositor.last_picker = compositor.pop();
                     })
                 };
-            EventResult::Consumed(Some(callback))
+            EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                callback(compositor, cx);
+                if let Some(after) = after {
+                    after(compositor, cx);
+                }
+            })))
         };
 
         match key_event {
@@ -1484,7 +1490,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             key!(End) => {
                 self.to_end();
             }
-            key!(Esc) | ctrl!('c') => return close_fn(self),
+            key!(Esc) | ctrl!('c') => return close_fn(self, None),
             ctrl!('q') => {
                 // Pickers can provide explicit quicklist entries when they have
                 // more precise jump data. Everything else falls back to preview
@@ -1503,7 +1509,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             alt!(Enter) => {
                 if let Some(option) = self.selection() {
                     let result = (self.callback_fn)(ctx, option, self.default_action);
-                    self.apply_callback_result(result, ctx.editor);
+                    if let Some(Some(callback)) = self.apply_callback_result(result, ctx.editor) {
+                        return EventResult::Consumed(Some(callback));
+                    }
                 }
             }
             key!(Enter) => {
@@ -1539,8 +1547,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                     {
                         ctx.editor.set_error(|| err.to_string());
                     }
-                    if self.apply_callback_result(callback_result, ctx.editor) {
-                        return close_fn(self);
+                    if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor)
+                    {
+                        return close_fn(self, callback);
                     }
                 }
             }
@@ -1550,8 +1559,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                     .map_or(PickerCallbackResult::Close, |option| {
                         (self.callback_fn)(ctx, option, Action::HorizontalSplit)
                     });
-                if self.apply_callback_result(callback_result, ctx.editor) {
-                    return close_fn(self);
+                if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor) {
+                    return close_fn(self, callback);
                 }
             }
             ctrl!('v') => {
@@ -1560,8 +1569,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                     .map_or(PickerCallbackResult::Close, |option| {
                         (self.callback_fn)(ctx, option, Action::VerticalSplit)
                     });
-                if self.apply_callback_result(callback_result, ctx.editor) {
-                    return close_fn(self);
+                if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor) {
+                    return close_fn(self, callback);
                 }
             }
             ctrl!('t') => {
@@ -1607,8 +1616,9 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
     }
 }
 
-pub(super) enum PickerCallbackResult<T, D> {
+pub(crate) enum PickerCallbackResult<T, D> {
     Close,
+    CloseWithCallback(compositor::Callback),
     KeepOpen,
     Replace { options: Vec<T>, editor_data: D },
 }

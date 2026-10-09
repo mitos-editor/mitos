@@ -6,8 +6,16 @@ use anyhow::{anyhow, ensure};
 use serde::de::{self, Deserialize, Deserializer};
 use ui_core::input::{self, KeyEvent};
 
-use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_command_line, context::Context};
-use crate::{compositor, ui::PromptEvent};
+use super::{
+    catalog::TYPABLE_COMMAND_MAP,
+    command_line::execute_command_line_with_invocation,
+    context::{CommandCompletion, CommandInvocation, Context},
+};
+use crate::{
+    compositor,
+    events::{CommandOrigin, PostCommand},
+    ui::PromptEvent,
+};
 
 /// MappableCommands are commands that can be bound to keys, executable in
 /// normal, insert or select mode.
@@ -39,6 +47,31 @@ pub enum MappableCommand {
 
 impl MappableCommand {
     pub fn execute(&self, cx: &mut Context) {
+        self.execute_with_origin(cx, CommandOrigin::Programmatic);
+    }
+
+    pub fn execute_with_origin(&self, cx: &mut Context, origin: CommandOrigin) {
+        let origin =
+            if matches!(origin, CommandOrigin::Keymap) && !cx.editor.macro_replaying.is_empty() {
+                CommandOrigin::Macro
+            } else {
+                origin
+            };
+        self.execute_with_invocation(cx, cx.invocation(origin));
+    }
+
+    pub(super) fn execute_with_invocation(&self, cx: &mut Context, invocation: CommandInvocation) {
+        let callback_start = cx.callback.len();
+        let completion = (!matches!(self, Self::Typable { .. })).then(|| {
+            cx.jobs.begin_command(CommandCompletion::new(
+                cx.editor,
+                self.name(),
+                invocation.clone(),
+            ))
+        });
+        let scope = completion
+            .as_ref()
+            .map(|completion| cx.jobs.enter_command(cx.editor, completion.clone()));
         match &self {
             Self::Typable { name, args, doc: _ } => {
                 let mut command_cx = compositor::Context {
@@ -52,10 +85,14 @@ impl MappableCommand {
                 // Explicit keybindings and palette entries keep targeting their
                 // registered command even when configuration defines an alias.
                 let input = format!("^{name} {args}");
-                match execute_command_line(&mut command_cx, &input, PromptEvent::Validate) {
-                    Ok(callbacks) => cx.callback.extend(callbacks),
-                    Err(err) => command_cx.editor.set_error(|| err.to_string()),
-                }
+                let callbacks = execute_command_line_with_invocation(
+                    &mut command_cx,
+                    &input,
+                    PromptEvent::Validate,
+                    invocation,
+                )
+                .finish(command_cx.editor);
+                cx.callback.extend(callbacks);
             }
             Self::Static { fun, .. } => (fun)(cx),
             Self::Macro { keys, .. } => {
@@ -64,17 +101,31 @@ impl MappableCommand {
                     cx.editor.set_error(|| {
                         "Cannot execute macro because the [@] register is already playing a macro"
                     });
-                    return;
+                } else {
+                    cx.editor.macro_replaying.push('@');
+                    let keys = keys.clone();
+                    cx.callback.push(Box::new(move |compositor, cx| {
+                        for key in keys.into_iter() {
+                            compositor.handle_event(&compositor::Event::Key(key), cx);
+                        }
+                        cx.editor.macro_replaying.pop();
+                    }));
                 }
-                cx.editor.macro_replaying.push('@');
-                let keys = keys.clone();
-                cx.callback.push(Box::new(move |compositor, cx| {
-                    for key in keys.into_iter() {
-                        compositor.handle_event(&compositor::Event::Key(key), cx);
-                    }
-                    cx.editor.macro_replaying.pop();
-                }));
             }
+        }
+        // Native completion handlers keep their borrowed command context. The
+        // plugin observation is emitted separately once the invocation finishes.
+        if !cx.editor.should_close() {
+            event::dispatch(PostCommand { command: self, cx });
+        }
+        if let Some(completion) = &completion {
+            completion.capture_effects(cx.editor);
+        }
+        if let Some(scope) = scope {
+            cx.jobs.leave_command(cx.editor, scope);
+        }
+        if let Some(completion) = completion {
+            cx.complete_command(completion, false, callback_start);
         }
     }
 

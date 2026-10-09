@@ -27,7 +27,7 @@ use crate::{
     ui::{self, overlay::overlaid},
 };
 
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use std::{
     io::{stdin, IsTerminal},
     path::Path,
@@ -316,6 +316,8 @@ impl Application {
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         loop {
+            self.jobs.poll_commands(&self.editor);
+            self.editor.poll_plugin_events();
             if self.editor.should_close() {
                 return false;
             }
@@ -396,6 +398,8 @@ impl Application {
                             && self.editor.write_count == 0
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                         {
+                            self.jobs.poll_commands(&self.editor);
+                            self.editor.poll_plugin_events();
                             return true;
                         }
                     }
@@ -621,25 +625,7 @@ impl Application {
             }
         };
 
-        let doc = match self.editor.document_mut(doc_save_event.doc_id) {
-            None => {
-                warn!(
-                    "received document saved event for non-existent doc id: {}",
-                    doc_save_event.doc_id
-                );
-
-                return;
-            }
-            Some(doc) => doc,
-        };
-
-        debug!(
-            "document {:?} saved with revision {}",
-            doc.path(),
-            doc_save_event.revision
-        );
-
-        doc.set_last_saved_revision(doc_save_event.revision, doc_save_event.save_time);
+        self.editor.complete_document_write(&doc_save_event);
 
         let lines = doc_save_event.text.len_lines();
         let size = doc_save_event.text.len_bytes();
@@ -671,15 +657,11 @@ impl Application {
             Size::HumanReadable(size, SUFFIX[i])
         };
 
-        self.editor
-            .set_doc_path(doc_save_event.doc_id, &doc_save_event.path);
         // TODO: fix being overwritten by lsp
         self.editor.set_status(format!(
             "'{}' written, {lines}L {size}",
             get_relative_path(&doc_save_event.path).to_string_lossy(),
         ));
-        self.editor
-            .queue_plugin_document_saved(doc_save_event.doc_id);
     }
 
     #[inline(always)]
@@ -1294,11 +1276,16 @@ impl Application {
     }
 
     pub async fn close(&mut self) -> Vec<anyhow::Error> {
-        self.editor.shutdown_plugins();
         // [NOTE] we intentionally do not return early for errors because we
         //        want to try to run as much cleanup as we can, regardless of
         //        errors along the way
         let mut errs = Vec::new();
+
+        // Stop new background publications, then consume the finite callbacks
+        // already accepted by this bounded queue. They can enqueue required
+        // formatting jobs or writes, which must finish before plugin shutdown.
+        self.jobs.callbacks.close();
+        while self.drain_ready_callbacks() {}
 
         if let Err(err) = self
             .jobs
@@ -1314,6 +1301,9 @@ impl Application {
             errs.push(err);
         }
 
+        self.jobs.cancel_commands(&self.editor);
+        self.editor.poll_plugin_events();
+        self.editor.shutdown_plugins();
         self.editor.close_language_servers(None).await;
 
         errs

@@ -19,22 +19,28 @@ pub fn register_hooks() {
     prompt::register_hooks();
     event::runtime_local! { static PLUGIN_HOOKS: std::sync::Once = std::sync::Once::new(); }
     PLUGIN_HOOKS.call_once(|| {
-        use crate::events::{OnModeSwitch, PostCommand};
-        event::register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+        use crate::events::{PostInsertChar, TerminalFocusGained, TerminalFocusLost};
+        event::register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
             event.cx.editor.queue_plugin_event(
-                plugin_sdk::Event::ModeChanged,
+                plugin_sdk::Event::PostInsertChar,
                 serde_json::json!({
-                    "old-mode": event.old_mode.to_string(), "new-mode": event.new_mode.to_string()
+                    "character": event.c,
+                    "source": if event.cx.editor.macro_replaying.is_empty() { "insert-char" } else { "macro" },
                 }),
             );
             Ok(())
         });
-        event::register_hook!(move |event: &mut PostCommand<'_, '_>| {
+        event::register_hook!(move |event: &mut TerminalFocusGained<'_, '_>| {
             event.cx.editor.queue_plugin_event(
-                plugin_sdk::Event::PostCommand,
-                serde_json::json!({
-                    "command": event.command.name()
-                }),
+                plugin_sdk::Event::TerminalFocusGained,
+                serde_json::json!({ "focused": true }),
+            );
+            Ok(())
+        });
+        event::register_hook!(move |event: &mut TerminalFocusLost<'_, '_>| {
+            event.cx.editor.queue_plugin_event(
+                plugin_sdk::Event::TerminalFocusLost,
+                serde_json::json!({ "focused": false }),
             );
             Ok(())
         });

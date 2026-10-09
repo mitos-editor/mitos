@@ -83,6 +83,7 @@ type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
     pub(crate) plugins: crate::plugins::PluginHost,
+    invocation_tasks: Option<Arc<dyn crate::callbacks::InvocationTasks>>,
     /// Current editing mode.
     pub mode: Mode,
     pub tree: Tree,
@@ -254,6 +255,7 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             plugins: Default::default(),
+            invocation_tasks: None,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -346,6 +348,17 @@ impl Editor {
     /// Distinguishes a new command error from an earlier status message.
     pub fn error_revision(&self) -> u64 {
         self.error_revision
+    }
+
+    pub fn invocation_tasks(&self) -> Option<Arc<dyn crate::callbacks::InvocationTasks>> {
+        self.invocation_tasks.clone()
+    }
+
+    pub fn replace_invocation_tasks(
+        &mut self,
+        tasks: Option<Arc<dyn crate::callbacks::InvocationTasks>>,
+    ) -> Option<Arc<dyn crate::callbacks::InvocationTasks>> {
+        std::mem::replace(&mut self.invocation_tasks, tasks)
     }
 
     #[inline]
@@ -813,6 +826,7 @@ impl Editor {
 
                 let (view, doc) = current!(self);
                 let view_id = view.id;
+                let old_doc_id = doc.id();
 
                 // Append any outstanding changes to history in the old document.
                 doc.append_changes_to_history(view);
@@ -821,7 +835,11 @@ impl Editor {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable
                     // borrow, invalidating direct access to `doc.id`.
                     let id = doc.id;
-                    self.documents.remove(&id);
+                    let closed = self.documents.remove(&id).unwrap();
+                    dispatch(DocumentDidClose {
+                        editor: self,
+                        doc: closed,
+                    });
 
                     // Remove the scratch buffer from any jumplists
                     for (view, _) in self.tree.views_mut() {
@@ -846,7 +864,8 @@ impl Editor {
 
                 dispatch(DocumentFocusLost {
                     editor: self,
-                    doc: id,
+                    doc: old_doc_id,
+                    view: view_id,
                 });
                 return;
             }
@@ -858,7 +877,10 @@ impl Editor {
                 return;
             }
             Action::HorizontalSplit | Action::VerticalSplit => {
-                let focus_lost = self.tree.try_get(self.tree.focus).map(|view| view.doc);
+                let focus_lost = self
+                    .tree
+                    .try_get(self.tree.focus)
+                    .map(|view| (view.doc, view.id));
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
@@ -884,10 +906,11 @@ impl Editor {
         };
 
         self._refresh();
-        if let Some(focus_lost) = focust_lost {
+        if let Some((focus_lost, view)) = focust_lost {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: focus_lost,
+                view,
             });
         }
     }
@@ -1123,6 +1146,14 @@ impl Editor {
         let watched = save_path
             .as_deref()
             .is_some_and(|path| self.file_watcher.is_watching(path));
+        let sender = self
+            .saves
+            .get(&doc_id)
+            .ok_or_else(|| anyhow!("saves are closed for this document!"))?;
+        let task = crate::callbacks::InvocationTask::new(self.invocation_tasks());
+        let failed_enqueue = task
+            .as_ref()
+            .map(crate::callbacks::InvocationTask::completion);
         let future = async move {
             let res = doc_save_future.await;
             if !watched && let Ok(event) = &res {
@@ -1135,16 +1166,24 @@ impl Editor {
                     },
                 );
             }
+            if let Some(task) = task {
+                task.finish(match &res {
+                    Ok(_) => crate::callbacks::TaskOutcome::Success,
+                    Err(error) => crate::callbacks::TaskOutcome::Error(error.to_string()),
+                });
+            }
             res
         };
 
         use futures_util::stream;
 
-        self.saves
-            .get(&doc_id)
-            .ok_or_else(|| anyhow::format_err!("saves are closed for this document!"))?
-            .send(stream::once(Box::pin(future)))
-            .map_err(|err| anyhow!("failed to send save event: {}", err))?;
+        sender.send(stream::once(Box::pin(future))).map_err(|err| {
+            let error = anyhow!("failed to send save event: {}", err);
+            if let Some(completion) = failed_enqueue {
+                completion.finish(crate::callbacks::TaskOutcome::Error(error.to_string()));
+            }
+            error
+        })?;
 
         self.write_count += 1;
 
@@ -1180,6 +1219,7 @@ impl Editor {
         dispatch(DocumentFocusLost {
             editor: self,
             doc: focus_lost,
+            view: prev_id,
         });
     }
 
@@ -1416,24 +1456,34 @@ impl Editor {
     }
 
     pub async fn flush_writes(&mut self) -> anyhow::Result<()> {
+        let mut first_error = None;
         while self.write_count > 0 {
-            if let Some(save_event) = self.save_queue.next().await {
-                self.write_count -= 1;
-
-                let save_event = match save_event {
-                    Ok(event) => event,
-                    Err(err) => {
-                        self.set_error(|| err.to_string());
-                        bail!(err);
-                    }
-                };
-
-                let doc = doc_mut!(self, &save_event.doc_id);
-                doc.set_last_saved_revision(save_event.revision, save_event.save_time);
+            let Some(result) = self.save_queue.next().await else {
+                bail!("save queue closed with unfinished writes");
+            };
+            self.write_count -= 1;
+            match result {
+                Ok(event) => self.complete_document_write(&event),
+                Err(error) => {
+                    self.set_error(|| error.to_string());
+                    first_error.get_or_insert(error);
+                }
             }
         }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
 
-        Ok(())
+    /// The shared successful-write completion path, including write-and-quit.
+    /// The event describes the written text, not edits made after submission.
+    pub fn complete_document_write(&mut self, event: &crate::document::DocumentSavedEvent) {
+        if let Some(doc) = self.document_mut(event.doc_id) {
+            doc.set_last_saved_revision(event.revision, event.save_time);
+            self.set_doc_path(event.doc_id, &event.path);
+        }
+        self.queue_plugin_write_completed(event);
     }
 
     /// Switches the editor into normal mode.
@@ -1574,6 +1624,7 @@ impl Editor {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: old_doc_id,
+                view: view_id,
             });
         }
         let (view, doc) = current!(self);

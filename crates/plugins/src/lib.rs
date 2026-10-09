@@ -139,12 +139,63 @@ impl PluginManager {
         self.plugins.values().any(|plugin| plugin.subscribes(event))
     }
 
+    /// Active recipients in deterministic configured-name order.
+    pub fn event_recipients(&self, event: Event) -> Vec<String> {
+        self.plugins
+            .iter()
+            .filter(|(_, plugin)| plugin.subscribes(event))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn receives_event(&self, name: &str, event: Event) -> bool {
+        self.plugins
+            .get(name)
+            .is_some_and(|plugin| plugin.subscribes(event))
+    }
+
+    pub fn call_event(
+        &mut self,
+        name: &str,
+        event: Event,
+        editor: EditorContext,
+        data: Value,
+    ) -> Result<Response> {
+        let plugin = self
+            .plugins
+            .get_mut(name)
+            .context("plugin is no longer loaded")?;
+        ensure!(
+            plugin.subscribes(event),
+            "plugin is not subscribed to event"
+        );
+        plugin.call(&Request {
+            abi_version: ABI_VERSION,
+            event,
+            command: None,
+            args: Vec::new(),
+            config: plugin.config.clone(),
+            editor,
+            data,
+        })
+    }
+
     /// Run a qualified command. Unknown commands are left to the editor's registry.
     pub fn call_command(
         &mut self,
         name: &str,
         args: Vec<String>,
         editor: EditorContext,
+    ) -> Result<Option<Response>> {
+        self.call_command_with_data(name, args, editor, Value::Null)
+    }
+
+    pub fn call_command_with_data(
+        &mut self,
+        name: &str,
+        args: Vec<String>,
+        editor: EditorContext,
+        data: Value,
     ) -> Result<Option<Response>> {
         let Some((plugin_name, command)) = name.split_once('.') else {
             return Ok(None);
@@ -162,7 +213,7 @@ impl PluginManager {
             args,
             config: plugin.config.clone(),
             editor,
-            data: Value::Null,
+            data,
         };
         plugin
             .call(&request)
@@ -310,8 +361,10 @@ impl Plugin {
 
     fn subscribes(&self, event: Event) -> bool {
         self.instance.is_some()
-            && (matches!(event, Event::Init | Event::Shutdown)
-                || self.manifest.events.contains(&event))
+            && (matches!(
+                event,
+                Event::Init | Event::Shutdown | Event::ResyncRequired | Event::State
+            ) || self.manifest.events.contains(&event))
     }
 
     fn call(&mut self, request: &Request) -> Result<Response> {

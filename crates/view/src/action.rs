@@ -90,6 +90,9 @@ impl Action {
                     if let Some(resolve) = resolve {
                         let callbacks = editor.handlers.callbacks.clone();
                         let context = context.clone();
+                        if let Some(tasks) = editor.invocation_tasks() {
+                            tasks.detached();
+                        }
                         tokio::spawn(async move {
                             let result = resolve.await;
                             callbacks

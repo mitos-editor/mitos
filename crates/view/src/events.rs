@@ -23,7 +23,7 @@ events! {
     SelectionDidChange<'a> { doc: &'a mut Document, view: ViewId }
     DiagnosticsDidChange<'a> { editor: &'a mut Editor, doc: DocumentId }
     // called **after** a document loses focus (but not when its closed)
-    DocumentFocusLost<'a> { editor: &'a mut Editor, doc: DocumentId }
+    DocumentFocusLost<'a> { editor: &'a mut Editor, doc: DocumentId, view: ViewId }
 
     // Configuration is queued before dispatch; document-open hooks precede feature requests.
     LanguageServerInitialized<'a> {

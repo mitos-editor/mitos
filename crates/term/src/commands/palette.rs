@@ -94,33 +94,57 @@ pub fn command_palette(cx: &mut Context) {
                 ui::PickerColumn::new("doc", |item: &MappableCommand, _| item.doc().into()),
             ];
 
-            let picker = Picker::new(columns, 0, commands, data, move |cx, command, _action| {
-                let mut ctx = Context {
-                    config: cx.config,
-                    register,
-                    count,
-                    editor: cx.editor,
-                    callback: Vec::new(),
-                    on_next_key_callback: None,
-                    jobs: cx.jobs,
-                };
-                let focus = view!(ctx.editor).id;
+            let picker = Picker::new_with_callback_result(
+                columns,
+                0,
+                commands,
+                data,
+                move |cx, command, _action| {
+                    let mut ctx = Context {
+                        config: cx.config,
+                        register,
+                        count,
+                        editor: cx.editor,
+                        callback: Vec::new(),
+                        on_next_key_callback: None,
+                        jobs: cx.jobs,
+                    };
+                    let focus = view!(ctx.editor).id;
 
-                command.execute(&mut ctx);
+                    command.execute_with_origin(&mut ctx, crate::events::CommandOrigin::Palette);
 
-                if ctx.editor.tree.contains(focus) {
-                    let config = ctx.editor.config();
-                    let mode = ctx.editor.mode();
-                    let view = view_mut!(ctx.editor, focus);
-                    let doc = doc_mut!(ctx.editor, &view.doc);
+                    if ctx.editor.tree.contains(focus) {
+                        let config = ctx.editor.config();
+                        let mode = ctx.editor.mode();
+                        let view = view_mut!(ctx.editor, focus);
+                        let doc = doc_mut!(ctx.editor, &view.doc);
 
-                    view.ensure_cursor_in_view(doc, config.scrolloff);
+                        view.ensure_cursor_in_view(doc, config.scrolloff);
 
-                    if mode != Mode::Insert {
-                        doc.append_changes_to_history(view);
+                        if mode != Mode::Insert {
+                            doc.append_changes_to_history(view);
+                        }
                     }
-                }
-            });
+                    let next_key = ctx.on_next_key_callback.take();
+                    let callbacks = ctx.callback;
+                    if callbacks.is_empty() && next_key.is_none() {
+                        ui::picker::PickerCallbackResult::Close
+                    } else {
+                        ui::picker::PickerCallbackResult::CloseWithCallback(Box::new(
+                            move |compositor, cx| {
+                                for callback in callbacks {
+                                    callback(compositor, cx);
+                                }
+                                if let Some(callback) = next_key {
+                                    if let Some(editor) = compositor.find::<ui::EditorView>() {
+                                        editor.set_next_key_callback(callback);
+                                    }
+                                }
+                            },
+                        ))
+                    }
+                },
+            );
             compositor.push(Box::new(overlaid(picker)));
         },
     ));
