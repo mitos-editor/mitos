@@ -1,6 +1,7 @@
 //! Clipboard settings and editor-owned access through an application-supplied backend.
 
 use arc_swap::access::DynAccess;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +44,31 @@ pub use native::NativeClipboard;
 /// Clipboard access supplied by the application. Settings are a snapshot for each operation.
 /// Implementations must not retain a reference to the supplied settings.
 pub trait ClipboardBackend: Send + Sync {
+    fn get_plugin_contents(
+        &self,
+        _provider: ClipboardProvider,
+        _kind: ClipboardType,
+    ) -> plugin_api::HostFuture<String> {
+        Box::pin(async {
+            Err(plugin_api::ServiceError::new(
+                plugin_api::ErrorCode::UnsupportedInterface,
+                "bounded clipboard reads are unavailable",
+            ))
+        })
+    }
+    fn set_plugin_contents(
+        &self,
+        _provider: ClipboardProvider,
+        _content: String,
+        _kind: ClipboardType,
+    ) -> plugin_api::HostFuture<()> {
+        Box::pin(async {
+            Err(plugin_api::ServiceError::new(
+                plugin_api::ErrorCode::UnsupportedInterface,
+                "bounded clipboard writes are unavailable",
+            ))
+        })
+    }
     fn name(&self, provider: &ClipboardProvider) -> String;
     fn get_contents(&self, provider: &ClipboardProvider, kind: ClipboardType) -> Result<String>;
     fn set_contents(
@@ -56,7 +82,7 @@ pub trait ClipboardBackend: Send + Sync {
 /// Editor-owned clipboard access. Configuration changes are visible on the next operation.
 pub struct Clipboard {
     config: Box<dyn DynAccess<ClipboardProvider>>,
-    backend: Box<dyn ClipboardBackend>,
+    backend: Arc<dyn ClipboardBackend>,
 }
 
 impl Clipboard {
@@ -64,7 +90,10 @@ impl Clipboard {
         config: Box<dyn DynAccess<ClipboardProvider>>,
         backend: Box<dyn ClipboardBackend>,
     ) -> Self {
-        Self { config, backend }
+        Self {
+            config,
+            backend: backend.into(),
+        }
     }
 
     pub fn native(config: Box<dyn DynAccess<ClipboardProvider>>) -> Self {
@@ -72,7 +101,11 @@ impl Clipboard {
     }
 
     pub fn set_backend(&mut self, backend: Box<dyn ClipboardBackend>) {
-        self.backend = backend;
+        self.backend = backend.into();
+    }
+
+    pub(crate) fn plugin_snapshot(&self) -> (ClipboardProvider, Arc<dyn ClipboardBackend>) {
+        (self.config.load().clone(), self.backend.clone())
     }
 
     pub fn name(&self) -> String {

@@ -18,6 +18,8 @@ pub const MAX_UI_MODEL_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGIN_KEYBINDINGS: usize = 64;
 pub const MAX_BUILTIN_COMMANDS: usize = 32;
 pub const MAX_BUILTIN_COUNT: usize = 1024;
+pub const MAX_BUILTIN_TOTAL_COUNT: usize = 128;
+pub const MAX_BUILTIN_SELECTION_WORK: usize = 8192;
 pub const MAX_NEXT_KEY_TIMEOUT_MS: u32 = 60_000;
 
 /// Assigned by the host. A guest cannot choose another plugin's identity.
@@ -354,8 +356,29 @@ impl BuiltinRequest {
                     .count
                     .is_some_and(|count| count == 0 || count > MAX_BUILTIN_COUNT)
             })
+            || self.commands.iter().fold(0usize, |total, command| {
+                total.saturating_add(command.count.unwrap_or(1))
+            }) > MAX_BUILTIN_TOTAL_COUNT
         {
             return Err(exhausted("plugin builtin composition exceeds its limit"));
+        }
+        Ok(())
+    }
+
+    /// Host preflight uses the actual originating selection count. Model
+    /// limits alone must not permit multiplicative work on the editor thread.
+    pub fn validate_work(&self, selections: usize) -> Result<(), ServiceError> {
+        self.validate()?;
+        let total = self
+            .commands
+            .iter()
+            .map(|command| command.count.unwrap_or(1))
+            .sum::<usize>();
+        if total
+            .checked_mul(selections)
+            .is_none_or(|work| work > MAX_BUILTIN_SELECTION_WORK)
+        {
+            return Err(exhausted("plugin builtin selection work exceeds its limit"));
         }
         Ok(())
     }
@@ -460,6 +483,44 @@ mod tests {
                 title: "μ ".into(),
                 timeout_ms: MAX_NEXT_KEY_TIMEOUT_MS
             }
+        );
+    }
+
+    #[test]
+    fn builtin_composition_bounds_aggregate_and_selection_work() {
+        let mut request = BuiltinRequest {
+            identity: UiIdentity {
+                owner: UiOwner {
+                    plugin: "fixture".into(),
+                    generation: 1,
+                },
+                request: 1,
+                token: 1,
+            },
+            origin: UiOrigin {
+                view: 1,
+                document: 1,
+                binding_revision: 0,
+                version: 0,
+                selection_revision: 0,
+            },
+            commands: vec![BuiltinInvocation {
+                command: BuiltinCommand::MoveCharRight,
+                count: Some(128),
+            }],
+        };
+        assert!(request.validate_work(64).is_ok());
+        assert_eq!(
+            request.validate_work(65).unwrap_err().code,
+            ErrorCode::ResourceExhausted
+        );
+        request.commands.push(BuiltinInvocation {
+            command: BuiltinCommand::MoveCharLeft,
+            count: None,
+        });
+        assert_eq!(
+            request.validate().unwrap_err().code,
+            ErrorCode::ResourceExhausted
         );
     }
 }

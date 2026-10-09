@@ -306,3 +306,42 @@ async fn disabled_and_declarative_packages_need_no_executor_and_relative_paths_w
     assert!(defaults.enabled);
     assert_eq!(defaults.config, Value::Null);
 }
+
+#[tokio::test]
+async fn static_argument_metadata_rejects_wrong_counts_before_guest_admission() {
+    let declared = manifest().replacen(
+        "doc = 'Report plugin state'",
+        "doc = 'Report plugin state'\narguments = { min = 1, max = 1, completions = [['two words', 'μ']] }",
+        1,
+    );
+    let (_directory, config) = fixture(&declared, &wasm());
+    let manager = load(config).await;
+    let metadata = manager
+        .get_arguments_for_identifier("example.status")
+        .unwrap();
+    assert_eq!((metadata.min, metadata.max), (1, 1));
+    assert_eq!(metadata.completions, vec![vec!["two words", "μ"]]);
+    for args in [vec![], vec!["one".into(), "two".into()]] {
+        assert_eq!(
+            manager
+                .call_command("example.status", args, context(1), Arc::new(Services))
+                .err()
+                .unwrap()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    let response = manager
+        .call_command(
+            "example.status",
+            vec!["μ".into()],
+            context(1),
+            Arc::new(Services),
+        )
+        .unwrap()
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(matches!(&response.actions[0], Action::Status { message } if message == "call 1"));
+    manager.shutdown().await.unwrap();
+}

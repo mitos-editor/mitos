@@ -40,6 +40,8 @@ are qualified with that ID: the `uppercase` command from `[plugins.uppercase]`
 becomes `:uppercase.uppercase`. Plugin commands appear in command completion and
 the command palette, and work in key bindings and custom commands. Arguments
 use the editor's existing command parsing, including quoting and expansions.
+Commands can declare bounded positional counts and static literal completions;
+completion never executes the guest or reads the filesystem.
 
 Apply configuration changes with `:config-reload`. After rebuilding a module,
 use `:plugin-reload` to load the new binary. Failed plugins report an error while
@@ -217,3 +219,59 @@ boundaries of [Helix PR #8675](https://github.com/helix-editor/helix/pull/8675),
 reviewed at revision `c16fac096a9dd162d46f53bf2411f36251d755f3`, to Mitos's current
 editor structure. Its Steel runtime and bindings are replaced with the
 WebAssembly protocol described here.
+
+## Editor services and interactive workflows
+
+Use `component::editor_request` with the closed `EditorRequest` enum for named
+scratch buffers, scoped file navigation, focus/split/close, registers, settings,
+structural syntax captures, hover, and symbols. Every operation checks its own
+capabilities and explicit document/view revisions. `OpenAt` counts lines and
+Unicode scalar columns from zero and rejects invalid coordinates. Closing a
+modified document requires a separate native user decision.
+
+Successful mutating service replies mean the native operation already applied;
+a later guest trap does not roll it back. Returned handles can be used in the
+same invocation. Staged `Response` edit batches keep their separate transactional
+preflight and undo behavior.
+
+`Action::ShowUi` supplies a prompt, picker with cached previews, or bounded next-key
+request. The native frontend presents it and returns a targeted `ui-result` event;
+`data.response` contains its typed `UiResponse`. Job readiness instead carries
+`data.job`. An instance is available for other invocations while the user decides.
+Cancellation, timeout, origin loss, and reload close the owned native layer.
+Scoped keymaps can invoke only the package's declared commands; user mappings
+win conflicts, and unload restores surviving registrations. Builtin composition
+uses a reviewed clipboard-free enum and reports partial completion on failure.
+
+Register values are limited to 64 entries and 4 KiB in total. Clipboard registers
+`*` and `+` additionally require `clipboard`. Clipboard IPC runs off the editor
+thread with two shared slots, a 4 KiB text limit, and a two-second caller deadline.
+Unix command providers terminate and reap their process group on failure or
+cancellation. Custom providers additionally require the exact configured program
+and argv in both process declarations and user grants. Native desktop clipboard
+owners can intentionally persist after success. Terminal OSC52 and Windows native
+IPC cannot be hard-interrupted; their slots stay charged until the OS operation
+finishes. Command providers are unavailable on platforms without process-tree
+cleanup; Windows native clipboard access remains available.
+
+Settings overrides cover auto-format, soft-wrap, cursorline, and native theme
+selection. Overrides belong to a package generation, retain the current native
+baseline, and disappear when that owner unloads or traps. Plugins cannot change
+filesystem roots, process policy, providers, or executable configuration through
+settings.
+
+Syntax queries return owned structural capture ranges from the existing grammar,
+with bounded source/range/result counts. Predicates are initially unsupported.
+A native query already running cannot be interrupted by the caller deadline;
+one shared worker permit stays held until it finishes. Hover and symbol requests
+use already attached servers and never start providers. They expire after two
+seconds, send LSP cancellation, bound pending plugin requests to 64 per client,
+and reject replies if the original document revision changed.
+
+The public SDK [workflows example](https://github.com/mitos-editor/mitos/tree/main/examples/plugins/workflows)
+contains a persistent recent-files picker, streamed project search with cached
+previews and Unicode navigation, and a manual formatter with exact process grants.
+Formatting supplies a later revisioned edit; wait for completion before saving.
+Reload revokes unfinished dialogs and jobs. Provider registration for automatic
+save, diagnostics, completion, debug, task, or MCP integrations will be added only
+with a concrete native lifecycle contract.

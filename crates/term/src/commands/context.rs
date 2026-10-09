@@ -44,6 +44,7 @@ pub(crate) struct CommandCompletion {
     view: view::ViewId,
     document: Option<view::DocumentId>,
     binding_revision: u64,
+    event_source: view::plugins::PluginEventSource,
     error_revision: u64,
     error: Option<String>,
     mode: view::document::Mode,
@@ -63,6 +64,7 @@ impl CommandCompletion {
                 .tree
                 .try_get(editor.tree.focus)
                 .map_or(0, |view| view.binding_revision()),
+            event_source: editor.plugin_event_source(),
             error_revision: editor.error_revision(),
             error: None,
             mode: editor.mode(),
@@ -128,7 +130,8 @@ impl CommandCompletion {
 
     fn queue_event(&self, editor: &Editor, event: plugin_api::Event, data: serde_json::Value) {
         if let Some(document) = self.document {
-            editor.queue_plugin_event_for_view_binding(
+            editor.queue_plugin_event_for_view_binding_from_source(
+                &self.event_source,
                 event,
                 self.view,
                 document,
@@ -502,7 +505,6 @@ mod tests {
                             format!("\"outcome\":\"{outcome}\""),
                             "\"origin\":\"programmatic\"".into(),
                         ],
-                        ..guest::Route::default()
                     }],
                     Some("post-command"),
                 )?,
@@ -517,6 +519,12 @@ mod tests {
                 loader,
                 loader::workspace_trust::WorkspaceTrust::fully_trusted(),
             )?;
+            let mut input = futures_util::stream::pending();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                app.event_loop_until_idle(&mut input),
+            )
+            .await?;
             let mut jobs = Jobs::new();
             let (updates, _rx) = tokio::sync::mpsc::unbounded_channel();
             let mut cx = Context {
@@ -556,6 +564,11 @@ mod tests {
                 jobs.poll_commands(&app.editor);
             }
             app.editor.poll_plugin_events();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                app.event_loop_until_idle(&mut input),
+            )
+            .await?;
             assert_eq!(app.editor.get_status().unwrap().0, "owned result observed");
             jobs.poll_commands(&app.editor);
             app.editor.poll_plugin_events();

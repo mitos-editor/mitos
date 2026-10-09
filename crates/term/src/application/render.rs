@@ -20,6 +20,7 @@ pub(super) struct RenderState {
 
 impl Application {
     pub(super) async fn render(&mut self) {
+        self.synchronize_plugin_frontend();
         if self.has_new_pending_syntax() {
             self.drain_ready_callbacks();
             self.wait_for_syntax().await;

@@ -154,11 +154,19 @@ fn execute_named_command(
     let completion = cx.jobs.begin_command(completion);
     let scope = cx.jobs.enter_command(cx.editor, completion.clone());
     let result = (|| {
-        if cx.editor.plugin_command_doc(command).is_some() {
-            let args = Args::parse(args, Signature::DEFAULT, true, |token| {
-                expansion::expand(cx.editor, token, positional_args.as_slice())
-                    .map_err(|err| err.into())
-            })
+        if let Some(specification) = cx.editor.plugin_command_arguments(command) {
+            // Plugin signatures declare only positional values. Use the native
+            // end-of-flags marker so literals such as -1 and -- are forwarded.
+            let positional_input = format!("-- {args}");
+            let args = Args::parse(
+                &positional_input,
+                plugin_signature(&specification),
+                true,
+                |token| {
+                    expansion::expand(cx.editor, token, positional_args.as_slice())
+                        .map_err(|err| err.into())
+                },
+            )
             .map_err(|err| anyhow!("'{command}': {err}"))?;
             let args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
             completion.metadata(|completion| completion.args = args.clone());
@@ -275,7 +283,10 @@ pub(super) fn command_mode(cx: &mut Context) {
         .editor
         .plugin_commands()
         .into_iter()
-        .map(|command| (command.name, command.doc))
+        .map(|command| {
+            let doc = format_plugin_doc(&command.name, &command.doc, &command.arguments);
+            (command.name, doc)
+        })
         .collect();
     prompt.doc_fn =
         Box::new(move |input| command_line_doc_with_plugins(input, &custom_commands, &plugin_docs));
@@ -438,25 +449,108 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
                 .collect()
         }
     } else if escaped {
-        TYPABLE_COMMAND_MAP
-            .get(command)
-            .map_or_else(Vec::new, |cmd| {
+        TYPABLE_COMMAND_MAP.get(command).map_or_else(
+            || {
+                editor
+                    .plugin_command_arguments(command)
+                    .map_or_else(Vec::new, |specification| {
+                        complete_plugin_args(&specification, rest, command.len() + 2)
+                    })
+            },
+            |cmd| {
                 let args_offset = command.len() + 2;
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
-            })
+            },
+        )
     } else {
         let completer_command = config
             .commands
             .get(command)
             .and_then(|custom| custom.completer.as_deref())
             .unwrap_or(command);
-        TYPABLE_COMMAND_MAP
-            .get(completer_command)
-            .map_or_else(Vec::new, |cmd| {
+        TYPABLE_COMMAND_MAP.get(completer_command).map_or_else(
+            || {
+                editor
+                    .plugin_command_arguments(completer_command)
+                    .map_or_else(Vec::new, |specification| {
+                        complete_plugin_args(&specification, rest, command.len() + 1)
+                    })
+            },
+            |cmd| {
                 let args_offset = command.len() + 1;
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
-            })
+            },
+        )
     }
+}
+
+fn plugin_signature(specification: &plugin_api::commands::CommandArguments) -> Signature {
+    Signature {
+        positionals: (specification.min, Some(specification.max)),
+        ..Signature::DEFAULT
+    }
+}
+
+pub(super) fn format_plugin_doc(
+    name: &str,
+    doc: &str,
+    specification: &plugin_api::commands::CommandArguments,
+) -> String {
+    let arguments = match (specification.min, specification.max) {
+        (0, 0) => "no arguments".into(),
+        (min, max) if min == max => format!("{min} argument{}", if min == 1 { "" } else { "s" }),
+        (min, max) => format!("{min}–{max} arguments"),
+    };
+    format!("`:{name}` — {arguments}\n\n{doc}")
+}
+
+fn complete_plugin_args(
+    specification: &plugin_api::commands::CommandArguments,
+    input: &str,
+    offset: usize,
+) -> Vec<ui::prompt::Completion> {
+    use command_line::{CompletionState, Tokenizer};
+    let mut tokenizer = Tokenizer::new(input, false);
+    let mut args = Args::new(plugin_signature(specification), false);
+    args.push(Cow::Borrowed("--")).unwrap();
+    let mut final_token = None;
+    let mut trailing_space = true;
+    while let Some(token) = args
+        .read_token(&mut tokenizer)
+        .expect("unvalidated argument parsing cannot fail")
+    {
+        trailing_space = tokenizer.pos() < input.len();
+        final_token = Some(token.clone());
+        args.push(token.content).unwrap();
+    }
+    let token = if trailing_space {
+        let token = Token::empty_at(input.len());
+        args.push(token.content.clone()).unwrap();
+        token
+    } else {
+        final_token.unwrap()
+    };
+    if token.is_terminated
+        || !matches!(token.kind, TokenKind::Unquoted | TokenKind::Quoted(_))
+        || !matches!(args.completion_state(), CompletionState::Positional)
+    {
+        return Vec::new();
+    }
+    let Some(candidates) = specification.completions.get(args.len().saturating_sub(1)) else {
+        return Vec::new();
+    };
+    fuzzy_match(&token.content, candidates.iter(), false)
+        .into_iter()
+        .map(|(candidate, _)| {
+            if matches!(token.kind, TokenKind::Unquoted) && candidate.contains(['\'', '"']) {
+                return (
+                    (offset + token.content_start)..,
+                    format!("'{}'", candidate.replace('\'', "''")).into(),
+                );
+            }
+            quote_completion(&token, 0.., candidate.clone().into(), offset)
+        })
+        .collect()
 }
 
 pub fn complete_command_args(
@@ -725,6 +819,45 @@ fn complete_expansion_kind(content: &str, offset: usize) -> Vec<ui::prompt::Comp
 #[cfg(test)]
 mod command_line_doc_tests {
     use super::*;
+
+    #[test]
+    fn plugin_literal_argument_completion_respects_position_and_quotes() {
+        let specification = plugin_api::commands::CommandArguments {
+            min: 1,
+            max: 2,
+            completions: vec![
+                vec!["two words".into(), "say'hi".into(), "-1".into()],
+                vec!["μ".into()],
+            ],
+        };
+        let first = complete_plugin_args(&specification, "", 10);
+        assert!(first
+            .iter()
+            .any(|(range, span)| range.start == 10 && span.content == "'two words'"));
+        assert!(first.iter().any(|(_, span)| span.content == "'say''hi'"));
+        assert!(first.iter().any(|(_, span)| span.content == "-1"));
+        let second = complete_plugin_args(&specification, "one μ", 10);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].0.start, 14);
+        assert_eq!(second[0].1.content, "μ");
+        assert!(complete_plugin_args(&specification, "%sh{echo x}", 0).is_empty());
+        assert!(
+            Args::parse("", plugin_signature(&specification), true, |token| Ok(
+                token.content
+            ))
+            .is_err()
+        );
+        assert!(Args::parse(
+            "one two three",
+            plugin_signature(&specification),
+            true,
+            |token| Ok(token.content)
+        )
+        .is_err());
+        assert!(
+            format_plugin_doc("fixture.run", "Example", &specification).contains("1–2 arguments")
+        );
+    }
 
     #[test]
     fn formats_command_metadata_as_markdown() {

@@ -49,6 +49,12 @@ transaction creates one undo group, including its resulting selection.
 Document transaction atomicity does not imply that opening documents, showing
 UI, invoking processes, or updating several documents is one atomic operation.
 Services return typed outcomes for those effects and specify their ordering.
+Closed mutating `EditorRequest` services have an immediate native milestone:
+a successful reply means that operation applied and its returned handles are live.
+A later guest trap does not roll back a preceding scratch, navigation, register,
+or settings call. Staged `Response` edit batches remain preflighted document
+transactions; they do not turn a sequence of native service calls into one atomic
+operation.
 
 ## Commands and events
 
@@ -56,6 +62,9 @@ Commands have a qualified plugin namespace, documentation, argument signature,
 and completion behavior. Invocation context preserves the originating view,
 arguments, count, register, and invocation source. User configuration precedence
 and explicit command escaping remain consistent with native commands.
+The manifest's argument signature bounds positional counts to 32. Completion
+choices are bounded static literals; completion does not execute the guest or
+delegate to filesystem, shell, or expansion services.
 
 Post-command means completion of the public command invocation. Nested internal
 implementation calls do not create duplicate completion events. Report success,
@@ -109,6 +118,24 @@ editor, plugin, and generation. Resources contain host-owned state; handles do
 not expose native pointers or internal object layouts. UI and slow services
 return handles and later completion/results rather than occupying an instance
 while awaiting user input or a long process.
+
+Native prompts, pickers, and next-key requests retain the owning generation and
+a fresh host token. At most eight frontend requests are outstanding across UI,
+builtin groups, and keymaps. User acceptance, cancellation, timeout, loss of
+origin, and unload each produce one targeted result; reusing a guest request ID
+cannot revive an older native layer. Showing UI completes a command's presentation
+milestone while the user result remains pending. Next-key timeouts are bounded
+to 60 seconds. Rendering and cached previews do not call the guest.
+
+Builtin composition admits a closed clipboard-free set of reviewed editor
+commands. Its whole group checks capabilities, original focused view, text and
+selection revisions, and count budgets before the first child. Total counts are
+bounded to 128 and count-times-selection work to 8,192; later children recheck
+remaining work because undo can change selections. This is not a rollback
+transaction: a later failure reports the completed child count and typed error.
+Clipboard operations use their explicit bounded asynchronous editor service.
+Scoped keymaps can invoke only declared local plugin commands and restore the
+remaining native/user mappings when removed. User configuration wins conflicts.
 
 Every privileged request requires both a manifest declaration and a current user
 grant. Enforce grants on direct calls and indirect command/provider/helper paths.

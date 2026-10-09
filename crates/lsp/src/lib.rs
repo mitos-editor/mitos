@@ -67,6 +67,8 @@ pub enum Error {
     Timeout(jsonrpc::Id),
     #[error("server closed the stream")]
     StreamClosed,
+    #[error("too many pending plugin language requests")]
+    RequestLimit,
     #[error("Unhandled")]
     Unhandled,
     #[error(transparent)]

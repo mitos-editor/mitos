@@ -17,6 +17,12 @@
 //! 1 MiB. Native adapters also enforce the operation limits below before doing
 //! work. Language requests have a host deadline, and completion checks the
 //! original document version; a successful stale reply is never published.
+//! Syntax queries initially support structural captures only: predicates return
+//! `UnsupportedInterface`. The adapter bounds query source to 4 KiB, document
+//! bytes to 16 MiB and queried range to 1 MiB. Its native cursor has no progress
+//! callback, so the two-second caller deadline cannot interrupt an already
+//! running compile/cursor operation. One editor-wide work permit remains held
+//! until that native operation actually finishes, including after timeout.
 
 use serde::{Deserialize, Serialize};
 
@@ -72,8 +78,8 @@ pub enum EditorRequest {
     SyntaxQuery {
         target: DocumentTarget,
         range: TextRange,
-        /// A query compiled for the target's existing root grammar. Predicates
-        /// are limited to the native adapter's supported, bounded predicates.
+        /// A structural query compiled for the target's existing root grammar.
+        /// The initial adapter rejects predicates with `UnsupportedInterface`.
         query: String,
         /// Zero chooses 256. Injection grammars are not guessed or selected by
         /// an unvalidated foreign grammar handle.
@@ -93,6 +99,15 @@ pub enum EditorRequest {
         server: Option<String>,
         #[serde(default)]
         max_symbols: u32,
+    },
+    /// Scoped text-file navigation. Coordinates count lines and Unicode scalar
+    /// columns from zero; invalid coordinates are rejected rather than clamped.
+    OpenAt {
+        origin: Option<ViewTarget>,
+        path: String,
+        line: u64,
+        column: u64,
+        action: OpenDisposition,
     },
     Scratch {
         name: String,
@@ -161,7 +176,7 @@ pub enum SettingValue {
     AutoFormat(bool),
     SoftWrap(bool),
     CursorLine(bool),
-    /// Editor scope only; the existing theme loader validates the name.
+    /// Editor scope only; a theme identifier without directory separators.
     Theme(String),
 }
 
@@ -229,6 +244,11 @@ impl EditorRequest {
             | Self::LanguageSymbols { .. }
             | Self::ReadRegister { .. }
             | Self::ReadSettings { .. } => vec![Capability::EditorRead],
+            Self::OpenAt { .. } => vec![
+                Capability::EditorNavigate,
+                Capability::EditorSelection,
+                Capability::WorkspaceRead,
+            ],
             Self::Scratch { .. }
             | Self::Focus { .. }
             | Self::Split { .. }
@@ -259,6 +279,11 @@ impl EditorRequest {
     /// document lengths, revisions, server attachment and owner liveness.
     pub fn validate(&self) -> Result<(), ServiceError> {
         match self {
+            Self::OpenAt { path, .. }
+                if path.is_empty() || path.len() > 4096 || path.chars().any(char::is_control) =>
+            {
+                return Err(invalid("open path must be nonempty bounded text"));
+            }
             Self::SyntaxQuery {
                 range,
                 query,
@@ -317,8 +342,14 @@ impl EditorRequest {
             Self::OverrideSetting {
                 value: SettingValue::Theme(name),
                 ..
-            } if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) => {
-                return Err(invalid("theme name must be nonempty bounded text"));
+            } if name.is_empty()
+                || name.len() > 128
+                || matches!(name.as_str(), "." | "..")
+                || name
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':')) =>
+            {
+                return Err(invalid("theme name must be a bounded theme identifier"));
             }
             _ => (),
         }
@@ -391,5 +422,34 @@ mod tests {
             r#"{"kind":"read-register","name":"a","owner":"another-plugin"}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn theme_overrides_accept_identifiers_without_path_authority() {
+        for name in [
+            "../secret",
+            "/tmp/theme",
+            "..",
+            ".",
+            "C:\\theme",
+            "dir\\theme",
+        ] {
+            let request = EditorRequest::OverrideSetting {
+                scope: SettingsScope::Editor,
+                value: SettingValue::Theme(name.into()),
+            };
+            assert_eq!(
+                request.validate().unwrap_err().code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        for name in ["default", "base16_default", "owner.theme"] {
+            EditorRequest::OverrideSetting {
+                scope: SettingsScope::Editor,
+                value: SettingValue::Theme(name.into()),
+            }
+            .validate()
+            .unwrap();
+        }
     }
 }

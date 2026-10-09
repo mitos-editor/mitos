@@ -10,6 +10,8 @@ mod completion;
 mod configuration;
 #[path = "handler_setup/file_watching.rs"]
 mod file_watching;
+#[path = "handler_setup/plugin_services.rs"]
+mod plugin_services;
 #[path = "handler_setup/plugins.rs"]
 mod plugins;
 #[path = "handler_setup/snippets.rs"]

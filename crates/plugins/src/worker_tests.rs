@@ -885,6 +885,7 @@ async fn closed_readiness_target_rejection_and_hidden_guest_target_clean_jobs() 
                 document: Some(21),
                 view: Some(99),
                 binding_revision: Some(4),
+                call_sequence: None,
             },
         )
         .unwrap()
@@ -918,5 +919,62 @@ async fn cancelled_initialization_disables_the_store_before_any_command() {
     }
     actor.shutdown().await.unwrap();
     assert!(!actor.is_active());
+    pool.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn retiring_navigation_exempts_only_its_current_call_and_cancels_jobs() {
+    let pool = WorkerPool::new().unwrap();
+    let actor = plugin_actor(&pool);
+    let services = Arc::new(Services {
+        read_delay: Duration::from_millis(50),
+        ..Default::default()
+    });
+    let target = InvocationTarget {
+        document: Some(1),
+        view: Some(1),
+        binding_revision: Some(9),
+        call_sequence: Some(7),
+    };
+    actor
+        .invoke_with_target(request("job-start"), services.clone(), target)
+        .unwrap()
+        .await
+        .unwrap();
+    let current = actor
+        .invoke_with_target(request("uppercase"), services.clone(), target)
+        .unwrap();
+    let queued = actor
+        .invoke_with_target(
+            request("status"),
+            services.clone(),
+            InvocationTarget {
+                call_sequence: Some(8),
+                ..target
+            },
+        )
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while services.starts.load(Ordering::Acquire) == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    actor.cancel_target_except(Some(1), Some(1), Some(7));
+    assert_eq!(queued.await.unwrap_err().code, ErrorCode::Cancelled);
+    assert!(matches!(
+        current.await.unwrap().actions.first(),
+        Some(Action::Edit { .. })
+    ));
+    assert!(actor.is_active());
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while services.jobs.load(Ordering::Acquire) != 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    actor.shutdown().await.unwrap();
     pool.shutdown().await.unwrap();
 }
