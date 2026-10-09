@@ -4,7 +4,7 @@ use futures_util::Stream;
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
 use serde_json::json;
 use stdx::path::get_relative_path;
-use tui::backend::{Backend, BackendExt};
+use tui::backend::BackendExt;
 use view::{
     align_view,
     document::{DocumentOpenError, DocumentSavedEventResult},
@@ -14,6 +14,8 @@ use view::{
     tree::Layout,
     Align, Editor,
 };
+
+mod render;
 
 use crate::{
     args::Args,
@@ -74,6 +76,7 @@ fn terminal_config(config: &Config) -> tui::terminal::Config {
 pub struct Application {
     compositor: Compositor,
     terminal: Terminal,
+    render_state: render::RenderState,
     pub editor: Editor,
     image_picker: Option<ratatui_image::picker::Picker>,
 
@@ -274,6 +277,7 @@ impl Application {
         let app = Self {
             compositor,
             terminal,
+            render_state: render::RenderState::default(),
             editor,
             image_picker: None,
             config,
@@ -293,76 +297,10 @@ impl Application {
         self.terminal.backend()
     }
 
-    async fn render(&mut self) {
-        self.terminal
-            .backend_mut()
-            .start_sync()
-            .expect("Cannot start synchronized rendering");
-        if self.compositor.full_redraw {
-            // Fullscreen resize also clears the screen and invalidates the back buffer.
-            // Unlike clear(), it does not query the cursor position: that query can
-            // block behind the event reader, which filters out cursor reports.
-            let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
-            self.terminal
-                .resize(area)
-                .expect("Cannot clear the terminal");
-            self.compositor.full_redraw = false;
-        }
-
-        let config = self.config.load();
-        let mut cx = crate::compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: self.image_picker.as_ref(),
-            is_cursor_owner: false,
-        };
-
-        event::start_frame();
-        cx.editor.needs_redraw = false;
-
-        tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
-            self.compositor.render(buffer.area, buffer, &mut cx)
-        })
-        .unwrap();
-        self.editor.cursor_cache.reset();
-
-        self.terminal.backend_mut().end_sync().unwrap();
-        self.terminal.backend_mut().flush().unwrap();
-    }
-
-    /// Process a bounded batch without waiting for background work to finish.
-    fn drain_ready_callbacks(&mut self) -> bool {
-        let mut handled_callbacks = false;
-        for _ in 0..64 {
-            let Ok(callback) = self.jobs.callbacks.try_recv() else {
-                break;
-            };
-            if let Some(job) = self.jobs.handle_callback(
-                &mut self.editor,
-                &mut self.compositor,
-                Ok(Some(callback)),
-            ) {
-                self.jobs.add(job);
-            }
-            handled_callbacks = true;
-        }
-        handled_callbacks
-    }
-
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
-        // Include syntax that finished during startup in the first frame.
-        self.drain_ready_callbacks();
-        if self.editor.should_close() {
-            return;
-        }
         self.render().await;
 
         loop {
@@ -1378,84 +1316,5 @@ impl ui::menu::Item for lsp::MessageActionItem {
     type Data = ();
     fn format(&self, _data: &Self::Data) -> tui::widgets::Row<'_> {
         tui::widgets::Row::new([self.title.as_str()])
-    }
-}
-
-#[cfg(all(test, feature = "integration"))]
-mod tests {
-    use std::{sync::atomic::AtomicBool, time::Duration};
-
-    use futures_util::FutureExt;
-
-    use super::*;
-    use crate::compositor::{Component, Context};
-
-    struct FirstFrame(Arc<AtomicBool>);
-
-    impl Component for FirstFrame {
-        fn render(&mut self, _area: Rect, _frame: &mut tui::buffer::Buffer, cx: &mut Context) {
-            assert!(doc!(cx.editor).syntax().is_some());
-            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn ready_syntax_is_published_before_first_frame() -> anyhow::Result<()> {
-        let dir = tempfile::tempdir()?;
-        let path = dir.path().join("startup.json");
-        std::fs::write(&path, "{}\n")?;
-        let mut args = Args::default();
-        args.files.insert(path, vec![Default::default()]);
-        let mut config = Config::default();
-        config.editor.lsp.enable = false;
-        config.editor.file_watcher.enable = false;
-        config.editor.auto_reload.enable = false;
-        config.editor.word_completion.enable = false;
-        let lang_loader = syntax::Loader::new(
-            toml::from_str(
-                r#"
-                [[language]]
-                name = "json"
-                scope = "source.json"
-                file-types = ["json"]
-                "#,
-            )?,
-            loader::syntax::Resources::default(),
-        )?;
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        let blocking_tx = tx.clone();
-        let sender = view::callbacks::EditorCallbackSender::new(
-            move |callback| {
-                let tx = tx.clone();
-                async move {
-                    let _ = tx.send(callback).await;
-                }
-            },
-            move |callback| event::send_blocking(&blocking_tx, callback),
-        );
-        let mut app = Application::new_with_handler_setup(
-            args,
-            config,
-            lang_loader,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
-            move |handlers, _| {
-                handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
-            },
-        )?;
-
-        let callback = tokio::time::timeout(Duration::from_secs(10), rx.recv())
-            .await?
-            .expect("syntax completion was not delivered");
-        assert!(doc!(app.editor).syntax().is_none());
-        app.jobs.editor_callback_sender().send(callback).await;
-
-        let rendered = Arc::new(AtomicBool::new(false));
-        app.compositor.push(Box::new(FirstFrame(rendered.clone())));
-        let mut input = app.event_stream();
-        // Poll through the first render and stop when the event loop waits for work.
-        assert!(app.event_loop(&mut input).now_or_never().is_none());
-        assert!(rendered.load(std::sync::atomic::Ordering::Relaxed));
-        assert!(app.close().await.is_empty());
-        Ok(())
     }
 }
