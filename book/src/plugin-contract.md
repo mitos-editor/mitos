@@ -37,9 +37,11 @@ response that depends on a selection carries the selection and binding
 preconditions captured for that view. The host rejects stale responses instead
 of overwriting newer input or guessing another target.
 
-Edits in one transaction refer to the same original document revision and must
-not overlap. Selection results attached to that transaction refer to the text
-after its edits. Validate targets, revisions, offsets, output size, permissions,
+Edits within one edit action refer to its preceding projected text and must not
+overlap. Later actions use the text after earlier edits; their version
+precondition remains the original document version. Selection results refer to
+the projected text at their position in the batch and are mapped through later
+edits. Validate targets, revisions, offsets, output size, permissions,
 and selections before mutation. Synchronize the actual target view's lazy
 history/jump state before applying the transaction. One successful document
 transaction creates one undo group, including its resulting selection.

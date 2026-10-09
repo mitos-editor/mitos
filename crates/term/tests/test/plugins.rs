@@ -119,7 +119,7 @@ fn fixture(response: Value, expected_args: Option<&[&str]>) -> anyhow::Result<(T
     std::fs::write(dir.path().join("fixture.wasm"), wasm)?;
     std::fs::write(
         dir.path().join("plugin.toml"),
-        "abi-version = 1\nmodule = 'fixture.wasm'\n[commands.run]\ndoc = 'Run the fixture guest'\n",
+        "abi-version = 2\nmodule = 'fixture.wasm'\n[commands.run]\ndoc = 'Run the fixture guest'\n",
     )?;
     let mut config = test_config();
     config.plugins.insert(
