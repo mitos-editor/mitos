@@ -1,6 +1,9 @@
 mod handlers;
 mod query;
 
+#[cfg(all(test, feature = "integration"))]
+mod syntax_preview_tests;
+
 use crate::ui::image::{cached_image, render_image, PreparedImage};
 use crate::{
     alt,
@@ -58,8 +61,8 @@ use view::{
 };
 
 use self::handlers::{
-    spawn_image_preview, DynamicQueryChange, DynamicQueryHandler, ImagePreviewTask,
-    PreviewHighlightHandler,
+    highlight_preview, spawn_image_preview, DynamicQueryChange, DynamicQueryHandler,
+    ImagePreviewTask,
 };
 
 pub const ID: &str = "picker";
@@ -188,6 +191,7 @@ struct FilePreview {
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
     read_buffer: Vec<u8>,
     image_task: Option<ImagePreviewTask>,
+    syntax_path: Option<Arc<Path>>,
 }
 
 impl Default for FilePreview {
@@ -196,6 +200,7 @@ impl Default for FilePreview {
             preview_cache: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
             image_task: None,
+            syntax_path: None,
         }
     }
 }
@@ -216,8 +221,38 @@ impl FilePreview {
         }
     }
 
+    fn cancel_syntax_load(&mut self, path: Option<&Path>) {
+        if self.syntax_path.as_deref() == path {
+            return;
+        }
+        if let Some(path) = self.syntax_path.take()
+            && let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path)
+        {
+            doc.cancel_syntax_request();
+        }
+    }
+
+    fn cancel_loads(&mut self, location: Option<(&Path, Size)>) {
+        self.cancel_image_load(location);
+        self.cancel_syntax_load(location.map(|(path, _)| path));
+    }
+
+    fn highlight<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+        &mut self,
+        path: Arc<Path>,
+        jobs: &crate::job::Jobs,
+    ) {
+        let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path) else {
+            return;
+        };
+        if let Some(request) = doc.syntax_request() {
+            self.syntax_path = Some(path.clone());
+            highlight_preview::<T, D>(jobs, path, request);
+        }
+    }
+
     fn clear(&mut self) {
-        self.image_task = None;
+        self.cancel_loads(None);
         self.preview_cache.clear();
         self.read_buffer.clear();
     }
@@ -226,13 +261,16 @@ impl FilePreview {
         &'preview mut self,
         editor: &'editor Editor,
         (path_or_id, range): FileLocation<'_>,
-        preview_highlight_handler: &Sender<Arc<Path>>,
+        jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
         let path_or_id = match path_or_id {
             PathOrId::Id(id) => {
-                let doc = editor.documents.get(&id)?;
+                let Some(doc) = editor.documents.get(&id) else {
+                    self.cancel_loads(None);
+                    return None;
+                };
                 if doc.is_binary() {
                     doc.path().map_or(PathOrId::Id(id), PathOrId::Path)
                 } else {
@@ -241,13 +279,14 @@ impl FilePreview {
             }
             path => path,
         };
-        self.cancel_image_load(match path_or_id {
+        self.cancel_loads(match path_or_id {
             PathOrId::Path(path) => Some((path, image_size)),
             PathOrId::Id(_) => None,
         });
         match path_or_id {
             PathOrId::Path(path) => {
                 if let Some(doc) = editor.document_by_path(path).filter(|doc| !doc.is_binary()) {
+                    self.cancel_syntax_load(None);
                     return Some((Preview::EditorDocument(doc), range));
                 }
 
@@ -258,11 +297,9 @@ impl FilePreview {
                     self.preview_cache.remove(path);
                 }
                 if self.preview_cache.contains_key(path) {
-                    let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
+                    let (path, _) = self.preview_cache.get_key_value(path).unwrap();
                     let path = Arc::clone(path);
-                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
-                        event::send_blocking(preview_highlight_handler, path.clone());
-                    }
+                    self.highlight::<T, D>(path.clone(), jobs);
                     let preview = self.preview_cache.get_mut(&path).unwrap();
                     return Some((Preview::Cached(preview), range));
                 }
@@ -325,11 +362,7 @@ impl FilePreview {
                                 std::io::ErrorKind::NotFound,
                                 "Cannot open document",
                             )))?;
-                            let loader = editor.syn_loader.load();
-                            if let Some(language_config) = doc.detect_language_config(&loader) {
-                                doc.language = Some(language_config);
-                                event::send_blocking(preview_highlight_handler, path.clone());
-                            }
+                            doc.detect_language(&editor.syn_loader.load_full());
                             Ok(CachedPreview::Document(Box::new(doc)))
                         } else {
                             Err(std::io::Error::new(
@@ -354,6 +387,7 @@ impl FilePreview {
                         .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
                 }
                 self.preview_cache.insert(path.clone(), preview);
+                self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
                         path.clone(),
@@ -706,8 +740,6 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
-    /// An event handler for syntax highlighting the currently previewed file.
-    preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
 }
 
@@ -856,7 +888,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview: FilePreview::default(),
             file_fn: None,
             quicklist_fn: None,
-            preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
         }
     }
@@ -1135,6 +1166,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn get_preview<'picker, 'editor>(
         &'picker mut self,
         editor: &'editor Editor,
+        jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
@@ -1143,16 +1175,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .get_matched_item(self.cursor)
             .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
         let Some(location) = location else {
-            self.preview.cancel_image_load(None);
+            self.preview.cancel_loads(None);
             return None;
         };
-        self.preview.get::<T, D>(
-            editor,
-            location,
-            &self.preview_highlight_handler,
-            image_picker,
-            image_size,
-        )
+        self.preview
+            .get::<T, D>(editor, location, jobs, image_picker, image_size)
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -1356,11 +1383,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         block.render(area, surface);
 
         if inner.is_empty() {
-            self.preview.cancel_image_load(None);
+            self.preview.cancel_loads(None);
             return;
         }
         let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
-        if let Some((preview, range)) = self.get_preview(cx.editor, cx.image_picker, image_size) {
+        if let Some((preview, range)) =
+            self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
+        {
             render_preview_content(preview, range, area, inner, surface, cx);
         }
     }
@@ -1395,7 +1424,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
         } else {
-            self.preview.cancel_image_load(None);
+            self.preview.cancel_loads(None);
         }
     }
 
@@ -1413,7 +1442,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         let close_fn = |picker: &mut Self| {
-            picker.preview.cancel_image_load(None);
+            picker.preview.cancel_loads(None);
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
