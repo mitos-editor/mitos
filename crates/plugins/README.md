@@ -1,28 +1,32 @@
 # plugins
 
-Mitos's WebAssembly runtime and plugin command registry. Its registry boundary
-and lifecycle entry points follow Helix's plugin proposal
+Mitos's capability-checked WebAssembly component runtime and command registry.
+The command/lifecycle semantics reuse Helix's plugin proposal
 ([helix-editor/helix#8675](https://github.com/helix-editor/helix/pull/8675)); execution
-uses Wasmi and the versioned `plugin-sdk` protocol.
+uses lean Wasmtime 48.0.5 and the versioned WIT world in `plugin-api`.
 
-Plugin configuration points to a `plugin.toml` manifest. The manifest declares
-`abi-version`, a relative `module` path, command documentation, and subscribed
-events. Commands are qualified by the configured plugin name. Each editor owns
-its plugin instances, whose memory persists across command and event calls.
+Configuration points to `plugin.toml`. A code package declares ABI3, a relative
+component module, capabilities, command documentation, and event subscriptions.
+Commands are qualified by the configured plugin name. Every editor generation
+owns independent serialized actors, with persistent guest state between calls.
+An all-disabled or declarative-only configuration needs no guest executor.
 
-Guests have no imports, WASI, filesystem, network, or process access. The host
-passes JSON snapshots and receives validated actions. Modules are limited to
-16 MiB, manifests to 64 KiB, linear memory to 64 MiB, tables to 4,096 elements,
-and each complete invocation to 10 million fuel units. Request and response
-messages are limited to 4 MiB, and responses to 256 actions. Compilation uses
-Wasmi's strict limits. Allocation, handlers, deallocation, and module start
-functions all run with fuel metering.
+The async manager prepares the entire replacement off-thread, including package
+files, digest checks, compilation, import linking, and instantiation. Activation
+runs no guest; a failed replacement keeps the existing generation available.
+Guests run on dedicated bounded workers and receive document/view metadata by
+default. Text requires an explicit bounded, version-checked read. Host services
+check declared capabilities, user grants, and live ownership; WASI and ambient
+filesystem/network/process access are not installed.
 
-A guest trap or invalid ABI response disables that instance and releases its
-memory. Other plugins continue running; the command documentation remains
-available so errors are understandable. Reloading creates fresh instances.
-Oversized host snapshots and ordinary errors returned in `Response.error` do
-not disable plugins. Lifecycle `init` and `shutdown` events reach all active
-instances; other events require a manifest subscription.
+Effects stream through bounded resources and remain staged until the exported
+handler succeeds. The owning editor validates the complete batch before applying
+native transactions. Traps/interrupted Stores disable only that actor until
+reload; typed denials and ordinary handler errors leave a healthy Store usable.
+Result-byte reservations remain held through the editor's application callback.
 
-See [`plugin-sdk`](../plugin-sdk/README.md) for authoring and ABI documentation.
+See [the execution contract](RUNTIME.md) for budgets, cancellation, compiler and
+memory limits; [the SDK](../plugin-sdk/README.md) for authoring; and [the frozen
+Wasmi baseline](BASELINE.md) for comparison. Normal runtime tests execute checked
+Rust SDK, generated Rust, and generated C source-WASM fixtures without silently
+requiring or skipping a guest compiler.

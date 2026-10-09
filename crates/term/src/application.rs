@@ -400,7 +400,9 @@ impl Application {
                         {
                             self.jobs.poll_commands(&self.editor);
                             self.editor.poll_plugin_events();
-                            return true;
+                            if !self.editor.has_pending_plugin_work() {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -1304,6 +1306,8 @@ impl Application {
         self.jobs.cancel_commands(&self.editor);
         self.editor.poll_plugin_events();
         self.editor.shutdown_plugins();
+        self.editor.finish_plugin_shutdown().await;
+        self.jobs.poll_commands(&mut self.editor);
         self.editor.close_language_servers(None).await;
 
         errs

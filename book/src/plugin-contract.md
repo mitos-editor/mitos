@@ -1,9 +1,9 @@
 # Plugin API contract
 
 The plugin interface is experimental. The prototype at commit `37776c06` uses
-core WASM and JSON ABI 1. The component API will replace that transport before
-the public interface becomes stable. This contract defines the behavior that
-both transports must preserve as the implementation progresses.
+core WASM and JSON ABI 1. The production implementation uses the experimental `mitos:plugin@0.1.0`
+component world and metadata protocol 3; the prototype transport is retired.
+This contract defines editor behavior independently of the transport.
 
 ## Ownership and identifiers
 

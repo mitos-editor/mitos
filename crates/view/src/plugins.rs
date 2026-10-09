@@ -4,17 +4,19 @@
 //! Guest calls use owned data and run outside event dispatch; no editor references
 //! or syntax handles cross the WASM boundary.
 
+mod actor;
+
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
-use ::plugins::{PluginCommand, PluginConfig, PluginManager};
-use anyhow::{bail, ensure, Context};
+use ::plugins::{InvocationTarget, PluginCommand, PluginConfig, PluginManager};
+use anyhow::{bail, ensure};
 use editor_core::{Range, Rope, Selection, Transaction};
 use parking_lot::Mutex;
 use plugin_api::{
@@ -23,9 +25,8 @@ use plugin_api::{
 };
 use serde_json::Value;
 
-use crate::{callbacks::EditorCallbackSender, Document, DocumentId, Editor, ViewId};
+use crate::{Document, DocumentId, Editor, ViewId, callbacks::EditorCallbackSender};
 
-const MAX_SNAPSHOT_BYTES: usize = ::plugins::MAX_MESSAGE_BYTES / 2;
 const MAX_PENDING_EVENTS: usize = 32;
 const MAX_CONTROL_EVENTS: usize = 32;
 const MAX_PENDING_BYTES: usize = ::plugins::MAX_MESSAGE_BYTES * 2;
@@ -47,6 +48,10 @@ const OBSERVABLE_EVENTS: &[Event] = &[
     Event::TerminalFocusLost,
     Event::State,
     Event::ResyncRequired,
+    Event::UiResult,
+    Event::BuiltinResult,
+    Event::KeymapResult,
+    Event::JobReady,
 ];
 
 #[derive(Clone, Debug)]
@@ -79,10 +84,21 @@ struct PendingEvent {
     data: Value,
     provenance: Provenance,
     target: Option<String>,
+    scope: InvocationTarget,
     bytes: usize,
 }
 
+fn frontend_reply(event: Event) -> bool {
+    matches!(
+        event,
+        Event::UiResult | Event::BuiltinResult | Event::KeymapResult
+    )
+}
+
 fn control(event: Event) -> bool {
+    if frontend_reply(event) || event == Event::JobReady {
+        return true;
+    }
     matches!(
         event,
         Event::DocumentOpened
@@ -92,6 +108,18 @@ fn control(event: Event) -> bool {
             | Event::State
             | Event::ResyncRequired
     )
+}
+
+fn queue_class(event: Event) -> u8 {
+    if frontend_reply(event) {
+        2
+    } else if event == Event::JobReady {
+        3
+    } else if control(event) {
+        1
+    } else {
+        0
+    }
 }
 
 #[derive(Default, serde::Serialize)]
@@ -155,6 +183,8 @@ struct Shared {
     readers: Mutex<HashSet<String>>,
     accepting: AtomicBool,
     generation: u64,
+    async_woken: AtomicBool,
+    async_pending: AtomicBool,
 }
 
 #[derive(Default)]
@@ -163,6 +193,7 @@ pub(crate) struct PluginHost {
     shared: Arc<Shared>,
     stopped: bool,
     shutting_down: bool,
+    asynchronous: actor::AsyncState,
 }
 
 impl PluginHost {
@@ -239,6 +270,22 @@ impl PluginEventSender {
         data: Value,
         target: Option<String>,
     ) {
+        let scope = InvocationTarget {
+            document: editor.document.as_ref().map(|doc| doc.id),
+            view: editor.view.as_ref().map(|view| view.id),
+            binding_revision: editor.view.as_ref().map(|view| view.binding_revision),
+        };
+        self.enqueue_scoped(event, editor, data, target, scope);
+    }
+
+    fn enqueue_scoped(
+        &self,
+        event: Event,
+        editor: EditorContext,
+        data: Value,
+        target: Option<String>,
+        scope: InvocationTarget,
+    ) {
         let Some(owner) = self.owner.upgrade() else {
             return;
         };
@@ -248,7 +295,11 @@ impl PluginEventSender {
         let mut queue = owner.queue.lock();
         let provenance = queue.provenance(owner.generation);
         let bytes = json_size(&editor).saturating_add(json_size(&data));
-        if provenance.depth > MAX_CAUSAL_DEPTH || bytes > MAX_PENDING_BYTES {
+        if (provenance.depth > MAX_CAUSAL_DEPTH
+            && !frontend_reply(event)
+            && event != Event::JobReady)
+            || bytes > MAX_PENDING_BYTES
+        {
             queue.lost(
                 provenance.sequence,
                 if bytes > MAX_PENDING_BYTES {
@@ -258,11 +309,15 @@ impl PluginEventSender {
                 },
             );
         } else {
-            if matches!(event, Event::DocumentChanged | Event::SelectionChanged) {
+            if matches!(
+                event,
+                Event::DocumentChanged | Event::SelectionChanged | Event::JobReady
+            ) {
                 let document = editor.document.as_ref().map(|doc| doc.id);
                 let view = editor.view.as_ref().map(|view| view.id);
                 if let Some(index) = queue.pending.iter().position(|item| {
                     item.event == event
+                        && (event != Event::JobReady || item.data.get("job") == data.get("job"))
                         && item.editor.document.as_ref().map(|doc| doc.id) == document
                         && item.editor.view.as_ref().map(|view| view.id) == view
                         && item.target == target
@@ -270,7 +325,11 @@ impl PluginEventSender {
                     queue.remove(index);
                 }
             }
-            let limit = if control(event) {
+            let limit = if frontend_reply(event) {
+                8
+            } else if event == Event::JobReady {
+                32 // NativeBudget limits the owning editor to 32 live jobs.
+            } else if control(event) {
                 MAX_CONTROL_EVENTS
             } else {
                 MAX_PENDING_EVENTS
@@ -278,7 +337,7 @@ impl PluginEventSender {
             while queue
                 .pending
                 .iter()
-                .filter(|item| control(item.event) == control(event))
+                .filter(|item| queue_class(item.event) == queue_class(event))
                 .count()
                 >= limit
                 || queue.bytes.saturating_add(bytes) > MAX_PENDING_BYTES
@@ -286,20 +345,24 @@ impl PluginEventSender {
                 let class_full = queue
                     .pending
                     .iter()
-                    .filter(|item| control(item.event) == control(event))
+                    .filter(|item| queue_class(item.event) == queue_class(event))
                     .count()
                     >= limit;
                 let index = if class_full {
                     queue
                         .pending
                         .iter()
-                        .position(|item| control(item.event) == control(event))
+                        .position(|item| queue_class(item.event) == queue_class(event))
                 } else {
                     queue
                         .pending
                         .iter()
                         .position(|item| !control(item.event))
-                        .or_else(|| (!queue.pending.is_empty()).then_some(0))
+                        .or_else(|| {
+                            queue.pending.iter().position(|item| {
+                                !frontend_reply(item.event) && item.event != Event::JobReady
+                            })
+                        })
                 };
                 let Some(index) = index else {
                     break;
@@ -314,6 +377,7 @@ impl PluginEventSender {
                 data,
                 provenance,
                 target,
+                scope,
                 bytes,
             });
         }
@@ -326,7 +390,11 @@ impl PluginEventSender {
             return;
         };
         let mut queue = owner.queue.lock();
-        if queue.wake_scheduled || (queue.pending.is_empty() && queue.gap.is_none()) {
+        if queue.wake_scheduled
+            || (queue.pending.is_empty()
+                && queue.gap.is_none()
+                && !owner.async_woken.swap(false, Ordering::AcqRel))
+        {
             return;
         }
         queue.wake_scheduled = true;
@@ -352,6 +420,19 @@ impl PluginEventSender {
 
     fn document(&self, event: Event, doc: &Document, view: Option<ViewId>) {
         if !self.interested(event) {
+            return;
+        }
+        if view.is_some_and(|view| {
+            doc.selections()
+                .get(&view)
+                .is_some_and(|selection| selection.len() > 1024)
+        }) {
+            if let Some(owner) = self.owner.upgrade() {
+                let mut queue = owner.queue.lock();
+                let sequence = queue.provenance(owner.generation).sequence;
+                queue.lost(sequence, "selection-limit");
+            }
+            self.schedule_wake();
             return;
         }
         match snapshot(doc) {
@@ -407,21 +488,21 @@ fn with_provenance(data: Value, provenance: &Provenance) -> Value {
 }
 
 fn snapshot(doc: &Document) -> anyhow::Result<DocumentSnapshot> {
-    ensure!(
-        doc.text().len_bytes() <= MAX_SNAPSHOT_BYTES,
-        "document exceeds the plugin snapshot limit ({MAX_SNAPSHOT_BYTES} bytes)"
-    );
     Ok(DocumentSnapshot {
         id: doc.id().as_u64(),
         version: doc.version(),
         path: doc.path().map(|path| path.to_string_lossy().into_owned()),
         language: doc.language_name().map(str::to_owned),
-        text: doc.text().to_string(),
+        char_count: doc.text().len_chars() as u64,
+        byte_count: doc.text().len_bytes() as u64,
     })
 }
 
 fn view_snapshot(doc: &Document, view: ViewId) -> Option<ViewSnapshot> {
     let selection = doc.selections().get(&view)?;
+    if selection.len() > 1024 {
+        return None;
+    }
     Some(ViewSnapshot {
         id: view.as_u64(),
         document: doc.id().as_u64(),
@@ -436,6 +517,21 @@ fn view_snapshot(doc: &Document, view: ViewId) -> Option<ViewSnapshot> {
             .collect(),
         primary: selection.primary_index(),
     })
+}
+
+fn bounded_view_snapshot(doc: &Document, view: ViewId) -> anyhow::Result<Option<ViewSnapshot>> {
+    if doc
+        .selections()
+        .get(&view)
+        .is_some_and(|selection| selection.len() > 1024)
+    {
+        return Err(ServiceError::new(
+            ErrorCode::ResourceExhausted,
+            "view has more than 1024 selections; plugin snapshot omitted",
+        )
+        .into());
+    }
+    Ok(view_snapshot(doc, view))
 }
 
 /// A rejected effect is distinguishable from an invalid action or a guest trap.
@@ -546,7 +642,7 @@ impl Editor {
                         view.doc == doc.id(),
                         "queried view is bound to another document"
                     );
-                    context.view = view_snapshot(doc, view.id);
+                    context.view = bounded_view_snapshot(doc, view.id)?;
                 }
                 context.document = Some(snapshot(doc)?);
             }
@@ -569,12 +665,23 @@ impl Editor {
             document: doc.map(snapshot).transpose()?,
             view: view
                 .zip(doc)
-                .and_then(|(view, doc)| view_snapshot(doc, view.id)),
+                .map(|(view, doc)| bounded_view_snapshot(doc, view.id))
+                .transpose()?
+                .flatten(),
         })
     }
 
     fn plugin_context(&self) -> anyhow::Result<EditorContext> {
         self.plugin_context_for_view(Some(self.tree.focus))
+    }
+
+    fn plugin_invocation_target(&self, view: Option<ViewId>) -> InvocationTarget {
+        let view = view.and_then(|view| self.tree.try_get(view));
+        InvocationTarget {
+            document: view.map(|view| view.doc.as_u64()),
+            view: view.map(|view| view.id.as_u64()),
+            binding_revision: view.map(|view| view.binding_revision()),
+        }
     }
 
     fn plugin_global_context(&self) -> EditorContext {
@@ -596,36 +703,7 @@ impl Editor {
     /// Replace plugin instances, discard stale callbacks and initialize the new
     /// generation. A broken plugin cannot prevent other plugins from loading.
     pub fn reload_plugins(&mut self, config: &BTreeMap<String, PluginConfig>, base: &Path) -> bool {
-        let (manager, errors) = PluginManager::load(config, base);
-        let generation = self
-            .plugins
-            .shared
-            .generation
-            .checked_add(1)
-            .expect("plugin generation exhausted");
-        self.shutdown_plugins();
-        self.plugins = PluginHost {
-            manager,
-            stopped: false,
-            shutting_down: false,
-            shared: Arc::new(Shared {
-                generation,
-                accepting: AtomicBool::new(true),
-                ..Shared::default()
-            }),
-        };
-        self.refresh_plugin_subscriptions();
-        let sender = self.plugins.sender(&self.handlers.callbacks);
-        for doc in self.documents.values_mut() {
-            doc.plugin_events = sender.clone();
-        }
-        let initialized = self.dispatch_plugin_event(Event::Init, Value::Null);
-        let loaded = errors.is_empty();
-        for error in errors {
-            log::error!("{error}");
-            self.set_error(|| error);
-        }
-        loaded && initialized
+        self.prepare_plugin_reload(config, base)
     }
 
     fn refresh_plugin_subscriptions(&mut self) {
@@ -652,63 +730,7 @@ impl Editor {
     }
 
     pub fn shutdown_plugins(&mut self) {
-        if self.plugins.stopped {
-            return;
-        }
-        self.plugins.shutting_down = true;
-        // Saved/closed/post-command hooks must precede shutdown. The drain is
-        // bounded even when guests generate events in response to other guests.
-        for _ in 0..4 {
-            self.poll_plugin_events();
-            let queue = self.plugins.shared.queue.lock();
-            if queue.pending.is_empty() && queue.gap.is_none() {
-                break;
-            }
-        }
-        self.plugins
-            .shared
-            .accepting
-            .store(false, Ordering::Relaxed);
-        let abandoned = {
-            let mut queue = self.plugins.shared.queue.lock();
-            while !queue.pending.is_empty() {
-                let event = queue.remove(0);
-                queue.lost(event.provenance.sequence, "shutdown-budget");
-            }
-            queue.gap.take()
-        };
-        if let Some(gap) = abandoned {
-            let mut data = serde_json::to_value(gap).unwrap();
-            data.as_object_mut()
-                .unwrap()
-                .insert("closing".into(), true.into());
-            let provenance = self
-                .plugins
-                .shared
-                .queue
-                .lock()
-                .provenance(self.plugins.shared.generation);
-            self.run_plugin_event(
-                Event::ResyncRequired,
-                EditorContext {
-                    generation: self.plugins.shared.generation,
-                    mode: self.mode.to_string(),
-                    ..EditorContext::default()
-                },
-                data,
-                provenance,
-                None,
-            );
-        }
-        self.plugins.stopped = true;
-        self.dispatch_plugin_event(Event::Shutdown, Value::Null);
-        self.plugins.shared = Arc::new(Shared {
-            generation: self.plugins.shared.generation,
-            ..Shared::default()
-        });
-        for doc in self.documents.values_mut() {
-            doc.plugin_events = None;
-        }
+        self.begin_plugin_shutdown();
     }
 
     pub fn execute_plugin_command(
@@ -716,7 +738,10 @@ impl Editor {
         name: &str,
         args: Vec<String>,
     ) -> anyhow::Result<bool> {
-        ensure!(!self.plugins.stopped, "plugins have been shut down");
+        ensure!(
+            !self.plugins.stopped && !self.plugins.shutting_down,
+            "plugins have been shut down or are being replaced"
+        );
         if self.plugin_command_doc(name).is_none() {
             return Ok(false);
         }
@@ -732,18 +757,20 @@ impl Editor {
             .queue
             .lock()
             .provenance(self.plugins.shared.generation);
-        let result = self.plugins.manager.call_command_with_data(
+        let services = self.plugin_services(plugin, &provenance)?;
+        let result = self.plugins.manager.call_command_with_target(
             name,
             args,
             context.clone(),
             with_provenance(Value::Null, &provenance),
+            services,
+            self.plugin_invocation_target(Some(self.tree.focus)),
         );
         self.refresh_plugin_subscriptions();
         let Some(response) = result? else {
             return Ok(false);
         };
-        self.apply_plugin_response(response, &context, plugin, &provenance, Event::Command)
-            .with_context(|| format!("plugin command '{name}'"))?;
+        self.admit_plugin_call(plugin.into(), response, context, provenance, Event::Command)?;
         Ok(true)
     }
 
@@ -777,7 +804,14 @@ impl Editor {
             .queue
             .lock()
             .provenance(self.plugins.shared.generation);
-        self.run_plugin_event(event, context, data, provenance, None)
+        self.run_plugin_event(
+            event,
+            context,
+            data,
+            provenance,
+            None,
+            if matches!(event, Event::Init | Event::Shutdown) { InvocationTarget::default() } else { self.plugin_invocation_target(Some(self.tree.focus)) },
+        )
     }
 
     /// Queue frontend events on the same owning-editor path as document hooks.
@@ -788,9 +822,13 @@ impl Editor {
     /// Captures the originating split rather than whichever split later gains focus.
     /// A closed origin still produces the event, with no document or view snapshot.
     pub fn queue_plugin_event_for_view(&self, event: Event, view: ViewId, data: Value) {
-        self.queue_plugin_event_snapshot(event, view, data, || {
-            self.plugin_context_for_view(Some(view))
-        });
+        self.queue_plugin_event_snapshot(
+            event,
+            view,
+            data,
+            self.plugin_invocation_target(Some(view)),
+            || self.plugin_context_for_view(Some(view)),
+        );
     }
 
     /// A delayed frontend completion retains its original document binding.
@@ -804,7 +842,16 @@ impl Editor {
         binding_revision: u64,
         data: Value,
     ) {
-        self.queue_plugin_event_snapshot(event, view, data, || {
+        let live_view = self
+            .tree
+            .try_get(view)
+            .filter(|view| view.doc == document && view.binding_revision() == binding_revision);
+        let scope = InvocationTarget {
+            document: self.document(document).map(|doc| doc.id().as_u64()),
+            view: live_view.map(|view| view.id.as_u64()),
+            binding_revision: live_view.map(|view| view.binding_revision()),
+        };
+        self.queue_plugin_event_snapshot(event, view, data, scope, || {
             let doc = self.document(document);
             let view = self
                 .tree
@@ -816,7 +863,9 @@ impl Editor {
                 document: doc.map(snapshot).transpose()?,
                 view: view
                     .zip(doc)
-                    .and_then(|(view, doc)| view_snapshot(doc, view.id)),
+                    .map(|(view, doc)| bounded_view_snapshot(doc, view.id))
+                    .transpose()?
+                    .flatten(),
             })
         });
     }
@@ -860,6 +909,7 @@ impl Editor {
         event: Event,
         view: ViewId,
         data: Value,
+        scope: InvocationTarget,
         capture: impl FnOnce() -> anyhow::Result<EditorContext>,
     ) {
         let Some(sender) = self.plugins.sender(&self.handlers.callbacks) else {
@@ -871,7 +921,7 @@ impl Editor {
             } else {
                 Ok(self.plugin_global_context())
             } {
-                Ok(context) => sender.enqueue(event, context, data),
+                Ok(context) => sender.enqueue_scoped(event, context, data, None, scope),
                 Err(error) => {
                     let mut data = match data {
                         Value::Object(data) => data,
@@ -879,7 +929,7 @@ impl Editor {
                     };
                     data.insert("snapshot_error".into(), Value::String(error.to_string()));
                     data.insert("source_view".into(), view.as_u64().into());
-                    sender.enqueue(
+                    sender.enqueue_scoped(
                         event,
                         EditorContext {
                             generation: self.plugins.shared.generation,
@@ -887,6 +937,8 @@ impl Editor {
                             ..EditorContext::default()
                         },
                         Value::Object(data),
+                        None,
+                        scope,
                     );
                 }
             }
@@ -908,7 +960,9 @@ impl Editor {
     /// Nonblocking editor-owned pump. It also recovers a wake rejected by a
     /// full callback destination; no task is spawned per event or retry.
     pub fn poll_plugin_events(&mut self) {
+        self.poll_plugin_completions();
         let mut delivered_gap = false;
+        let mut admission_blocked = false;
         for _ in 0..MAX_DRAIN_EVENTS {
             let pending = {
                 let mut queue = self.plugins.shared.queue.lock();
@@ -928,6 +982,7 @@ impl Editor {
                         data: serde_json::to_value(gap).unwrap(),
                         provenance,
                         target: None,
+                        scope: InvocationTarget::default(),
                         bytes: 0,
                     })
                 } else if !queue.pending.is_empty() {
@@ -942,15 +997,25 @@ impl Editor {
             if pending.editor.mode.is_empty() {
                 pending.editor.mode = self.mode.to_string();
             }
-            self.run_plugin_event(
+            let reliable = pending.target.is_some()
+                && (frontend_reply(pending.event) || pending.event == Event::JobReady);
+            let accepted = self.run_plugin_event(
                 pending.event,
-                pending.editor,
-                pending.data,
-                pending.provenance,
-                pending.target,
+                pending.editor.clone(),
+                pending.data.clone(),
+                pending.provenance.clone(),
+                pending.target.clone(),
+                pending.scope,
             );
+            if reliable && !accepted {
+                let mut queue = self.plugins.shared.queue.lock();
+                queue.bytes += pending.bytes;
+                queue.pending.push_front(pending);
+                admission_blocked = true;
+                break;
+            }
         }
-        if let Some(sender) = self.plugins.sender(&self.handlers.callbacks) {
+        if !admission_blocked && let Some(sender) = self.plugins.sender(&self.handlers.callbacks) {
             sender.schedule_wake();
         }
     }
@@ -962,7 +1027,9 @@ impl Editor {
         data: Value,
         provenance: Provenance,
         target: Option<String>,
+        scope: InvocationTarget,
     ) -> bool {
+        let targeted = target.is_some();
         let names = target.map_or_else(
             || self.plugins.manager.event_recipients(event),
             |name| {
@@ -974,9 +1041,10 @@ impl Editor {
                     .collect()
             },
         );
+        self.begin_plugin_batch();
         let mut successful = true;
         for name in names {
-            if event != Event::State && provenance.origin_plugin.as_ref() == Some(&name) {
+            if !targeted && provenance.origin_plugin.as_ref() == Some(&name) {
                 continue;
             }
             let context = if self.plugins.manager.can_read(&name) {
@@ -984,21 +1052,42 @@ impl Editor {
             } else {
                 self.plugin_global_context()
             };
-            let result = self.plugins.manager.call_event(
-                &name,
-                event,
-                context.clone(),
-                with_provenance(data.clone(), &provenance),
-            );
-            self.refresh_plugin_subscriptions();
-            if let Err(err) = result.and_then(|response| {
-                self.apply_plugin_response(response, &context, &name, &provenance, event)
-            }) {
+            let result = self
+                .plugin_services(&name, &provenance)
+                .and_then(|services| {
+                    self.plugins.manager.call_event_with_target(
+                        &name,
+                        event,
+                        context.clone(),
+                        with_provenance(data.clone(), &provenance),
+                        services,
+                        scope,
+                    )
+                })
+                .and_then(|completion| {
+                    self.admit_plugin_call(
+                        name.clone(),
+                        completion,
+                        context,
+                        provenance.clone(),
+                        event,
+                    )
+                });
+            if let Err(err) = result {
                 successful = false;
                 log::error!("plugin '{name}': {err:#}");
                 self.set_error(|| format!("plugin '{name}': {err:#}"));
+                if !(targeted && (frontend_reply(event) || event == Event::JobReady)) {
+                    self.plugins
+                        .shared
+                        .queue
+                        .lock()
+                        .lost(provenance.sequence, "worker-admission");
+                }
+                self.refresh_plugin_subscriptions();
             }
         }
+        self.finish_plugin_batch();
         successful
     }
 
@@ -1009,7 +1098,7 @@ impl Editor {
         if !sender.interested(Event::DocumentSaved) {
             return;
         }
-        let document = (saved.text.len_bytes() <= MAX_SNAPSHOT_BYTES).then(|| DocumentSnapshot {
+        let document = Some(DocumentSnapshot {
             id: saved.doc_id.as_u64(),
             version: saved.version,
             path: Some(saved.path.to_string_lossy().into_owned()),
@@ -1017,7 +1106,8 @@ impl Editor {
                 .document(saved.doc_id)
                 .and_then(Document::language_name)
                 .map(str::to_owned),
-            text: saved.text.to_string(),
+            char_count: saved.text.len_chars() as u64,
+            byte_count: saved.text.len_bytes() as u64,
         });
         sender.enqueue(
             Event::DocumentSaved,
@@ -1031,7 +1121,7 @@ impl Editor {
                 "document": saved.doc_id.as_u64(), "path": saved.path,
                 "saved_revision": saved.revision, "saved_version": saved.version,
                 "current_version": self.document(saved.doc_id).map(Document::version),
-                "snapshot_available": saved.text.len_bytes() <= MAX_SNAPSHOT_BYTES,
+                "snapshot_available": true,
             }),
         );
     }
@@ -1043,7 +1133,9 @@ impl Editor {
         plugin: &str,
         provenance: &Provenance,
         event: Event,
+        opened_documents: Vec<crate::document::PreparedPluginDocument>,
     ) -> anyhow::Result<()> {
+        let mut opened_documents = opened_documents.into_iter();
         if context.generation != self.plugins.shared.generation {
             return Err(PluginConflict::GenerationChanged.into());
         }
@@ -1055,8 +1147,16 @@ impl Editor {
         let mut documents = BTreeMap::<DocumentId, PreparedDocument>::new();
         let mut prepared = Vec::new();
         let mut opened = false;
-        let mut open_bytes = 0usize;
         for action in response.actions {
+            if provenance.depth > MAX_CAUSAL_DEPTH
+                && !matches!(action, Action::Status { .. } | Action::Error { .. })
+            {
+                return Err(ServiceError::new(
+                    ErrorCode::ResourceExhausted,
+                    "plugin causal effect limit exceeded",
+                )
+                .into());
+            }
             if (self.plugins.stopped || self.plugins.shutting_down)
                 && !matches!(action, Action::Status { .. } | Action::Error { .. })
             {
@@ -1065,6 +1165,20 @@ impl Editor {
                     "plugin host is shutting down; only diagnostics are accepted",
                 )
                 .into());
+            }
+            if !matches!(
+                action,
+                Action::Status { .. } | Action::Error { .. } | Action::RequestState { .. }
+            ) && let Some(origin) = context.view.as_ref()
+                && self
+                    .tree
+                    .try_get(ViewId::from_u64(origin.id))
+                    .is_none_or(|view| {
+                        view.doc.as_u64() != origin.document
+                            || view.binding_revision() != origin.binding_revision
+                    })
+            {
+                return Err(PluginConflict::ViewRebound(origin.id).into());
             }
             for capability in action_capabilities(&action) {
                 self.plugins
@@ -1234,32 +1348,17 @@ impl Editor {
                         )
                         .into());
                     }
-                    let policy = self.plugins.manager.policy(plugin).ok_or_else(|| {
-                        ServiceError::new(ErrorCode::Cancelled, "plugin has been unloaded")
-                    })?;
-                    let (path, bytes) = policy.read_path(Path::new(&path))?;
-                    open_bytes = open_bytes.saturating_add(bytes.len());
-                    if open_bytes > ::plugins::MAX_MESSAGE_BYTES {
-                        return Err(ServiceError::new(
-                            ErrorCode::ResourceExhausted,
-                            "plugin open contents exceed the response budget",
+                    let doc = opened_documents.next().ok_or_else(|| {
+                        ServiceError::new(
+                            ErrorCode::HostFailure,
+                            "plugin open was not prepared off-thread",
                         )
-                        .into());
-                    }
-                    let doc = Document::from_plugin_bytes(
-                        path,
-                        bytes,
-                        editor_core::editor_config::EditorConfig::default(),
+                    })?;
+                    let doc = Document::from_prepared_plugin(
+                        doc,
                         self.config.clone(),
                         self.syn_loader.clone(),
-                    )?;
-                    if doc.is_binary() {
-                        return Err(ServiceError::new(
-                            ErrorCode::InvalidRequest,
-                            "plugin open only supports text documents",
-                        )
-                        .into());
-                    }
+                    );
                     prepared.push(PreparedAction::Open(Box::new(doc)));
                 }
                 Action::ShowUi { .. }
@@ -1267,7 +1366,7 @@ impl Editor {
                 | Action::UpdateKeymap { .. } => {
                     return Err(ServiceError::new(
                         ErrorCode::UnsupportedInterface,
-                        "plugin frontend services are unavailable",
+                        "native frontend services are unavailable",
                     )
                     .into());
                 }

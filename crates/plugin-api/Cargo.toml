@@ -1,6 +1,7 @@
 [package]
 name = "plugin-api"
 description = "Versioned plugin contracts and capability policy for Mitos"
+include = ["src/**/*", "wit/**/*", "build.rs"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

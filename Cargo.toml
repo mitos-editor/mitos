@@ -73,7 +73,10 @@ anyhow = "1"
 jiff = { version = "0.2.27", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2.0"
-wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "auto-dispatch"] }
+wasmtime = { version = "=48.0.5", default-features = false, features = ["anyhow", "std", "runtime", "component-model", "cranelift", "async"] }
+wasmparser = { version = "=0.254.2", default-features = false, features = ["std", "component-model"] }
+wit-component = "=0.261.0"
+wit-bindgen = { version = "=0.62.0", default-features = false, features = ["macros", "realloc", "std"] }
 cap-std = "4.0.3"
 
 # Async and concurrency

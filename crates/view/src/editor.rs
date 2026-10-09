@@ -780,6 +780,9 @@ impl Editor {
     }
 
     fn replace_document_in_view(&mut self, current_view: ViewId, doc_id: DocumentId) {
+        if self.tree.get(current_view).doc != doc_id {
+            self.cancel_plugin_target(None, Some(current_view.as_u64()));
+        }
         let scrolloff = self.config().scrolloff;
         let view = self.tree.get_mut(current_view);
 
@@ -1081,6 +1084,7 @@ impl Editor {
     }
 
     pub fn close(&mut self, id: ViewId) {
+        self.cancel_plugin_target(None, Some(id.as_u64()));
         // Remove selections for the closed view on all documents.
         for doc in self.documents_mut() {
             doc.remove_view(id);
@@ -1137,6 +1141,7 @@ impl Editor {
             }
         }
 
+        self.cancel_plugin_target(Some(doc_id.as_u64()), None);
         let doc = self.documents.remove(&doc_id).unwrap();
         self.refresh_vcs_watches();
 

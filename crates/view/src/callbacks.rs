@@ -44,13 +44,23 @@ impl TaskCompletion {
     }
 }
 
-pub(crate) struct InvocationTask(TaskCompletion);
+pub(crate) struct InvocationTask(TaskCompletion, &'static str);
 
 impl InvocationTask {
     pub(crate) fn new(observer: Option<Arc<dyn InvocationTasks>>) -> Option<Self> {
+        Self::new_named(observer, "write cancelled before completion")
+    }
+
+    pub(crate) fn new_named(
+        observer: Option<Arc<dyn InvocationTasks>>,
+        cancellation: &'static str,
+    ) -> Option<Self> {
         observer.map(|observer| {
             observer.started();
-            Self(TaskCompletion(Arc::new(Mutex::new(Some(observer)))))
+            Self(
+                TaskCompletion(Arc::new(Mutex::new(Some(observer)))),
+                cancellation,
+            )
         })
     }
 
@@ -65,9 +75,7 @@ impl InvocationTask {
 
 impl Drop for InvocationTask {
     fn drop(&mut self) {
-        self.0.finish(TaskOutcome::Cancelled(
-            "write cancelled before completion".into(),
-        ));
+        self.0.finish(TaskOutcome::Cancelled(self.1.into()));
     }
 }
 

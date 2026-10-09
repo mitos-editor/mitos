@@ -19,7 +19,7 @@ use plugin_api::{
 use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{mpsc, Semaphore},
+    sync::{mpsc, watch, Semaphore},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -67,11 +67,51 @@ pub struct NativeServices {
     jobs: Arc<Semaphore>,
     editor_jobs: Arc<Semaphore>,
     io: Arc<Semaphore>,
-    storage: Option<Arc<ScopedDirectory>>,
+    storage: Option<Arc<PrivateStorage>>,
     storage_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
+struct PrivateStorage {
+    path: PathBuf,
+    directory: Mutex<Option<Arc<ScopedDirectory>>>,
+}
+
+impl PrivateStorage {
+    /// Called only inside a blocking I/O task with the shared I/O permit held.
+    fn open(&self) -> Result<Arc<ScopedDirectory>, ServiceError> {
+        let mut cached = self.directory.lock();
+        if let Some(directory) = cached.as_ref() {
+            return Ok(directory.clone());
+        }
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&self.path).map_err(host_failure)?;
+        let directory = Arc::new(ScopedDirectory::open(&self.path).map_err(host_failure)?);
+        *cached = Some(directory.clone());
+        Ok(directory)
+    }
+}
+
 impl NativeServices {
+    /// Bind one invocation's editor origin while retaining generation-owned
+    /// policy, storage locks, and native admission across queued invocations.
+    pub fn with_editor(&self, editor: Arc<dyn HostServices>) -> Self {
+        Self {
+            policy: self.policy.clone(),
+            editor,
+            jobs: self.jobs.clone(),
+            editor_jobs: self.editor_jobs.clone(),
+            io: self.io.clone(),
+            storage: self.storage.clone(),
+            storage_lock: self.storage_lock.clone(),
+        }
+    }
+
     pub fn new(
         policy: Arc<AccessPolicy>,
         editor: Arc<dyn HostServices>,
@@ -87,21 +127,12 @@ impl NativeServices {
         budget: NativeBudget,
     ) -> Result<Self, ServiceError> {
         let storage = if policy.require(Capability::Storage).is_ok() {
-            storage
-                .map(|path| {
-                    let mut builder = std::fs::DirBuilder::new();
-                    builder.recursive(true);
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::DirBuilderExt;
-                        builder.mode(0o700);
-                    }
-                    builder.create(path).map_err(host_failure)?;
-                    ScopedDirectory::open(path)
-                        .map(Arc::new)
-                        .map_err(host_failure)
+            storage.map(|path| {
+                Arc::new(PrivateStorage {
+                    path: path.to_owned(),
+                    directory: Mutex::new(None),
                 })
-                .transpose()?
+            })
         } else {
             None
         };
@@ -116,7 +147,7 @@ impl NativeServices {
         })
     }
 
-    fn storage(&self, key: &str) -> Result<(Arc<ScopedDirectory>, String), ServiceError> {
+    fn storage(&self, key: &str) -> Result<(Arc<PrivateStorage>, String), ServiceError> {
         self.policy.require(Capability::Storage)?;
         if key.is_empty() || key.len() > 256 {
             return Err(failure(
@@ -139,6 +170,12 @@ impl NativeServices {
 }
 
 impl HostServices for NativeServices {
+    fn notify_job_ready(&self, job: u64) -> HostFuture<()> {
+        match self.policy.check_live() {
+            Ok(()) => self.editor.notify_job_ready(job),
+            Err(error) => Box::pin(async { Err(error) }),
+        }
+    }
     fn editor_request(
         &self,
         request: plugin_api::editor::EditorRequest,
@@ -173,8 +210,9 @@ impl HostServices for NativeServices {
                 ));
             }
             policy.require(Capability::WorkspaceRead)?;
-            let _io = io.acquire_owned().await.map_err(host_failure)?;
+            let permit = io.acquire_owned().await.map_err(host_failure)?;
             tokio::task::spawn_blocking(move || {
+                let _permit = permit;
                 let bytes = policy
                     .read_root(root)?
                     .read(Path::new(&path))
@@ -203,8 +241,9 @@ impl HostServices for NativeServices {
                 ));
             }
             policy.require(Capability::WorkspaceWrite)?;
-            let _io = io.acquire_owned().await.map_err(host_failure)?;
+            let permit = io.acquire_owned().await.map_err(host_failure)?;
             tokio::task::spawn_blocking(move || {
+                let _permit = permit;
                 policy.write_root(root, Path::new(&path), value.as_bytes())
             })
             .await
@@ -271,25 +310,34 @@ impl HostServices for NativeServices {
         let io = self.io.clone();
         Box::pin(async move {
             let permits = prepare?;
+            let admission = Arc::new(JobAdmission { _permits: permits });
+            let task_admission = admission.clone();
             let cancel = CancellationToken::new();
             let token = cancel.clone();
             let (sender, receiver) = mpsc::channel(8);
+            let (progress, _) = watch::channel(0_u64);
+            let progress = Arc::new(progress);
+            let task_progress = progress.clone();
             // The returned resource owns the task from the moment it is spawned.
             // No await occurs between spawning and returning that ownership.
             let task = tokio::spawn(async move {
+                let _admission = task_admission;
                 let operation = async {
                     match request {
                         JobRequest::Timer { milliseconds } => {
                             tokio::select! { _ = token.cancelled() => Err(cancelled()), _ = tokio::time::sleep(Duration::from_millis(milliseconds)) => {
-                                sender.send(Ok(JobOutput::Timer)).await.map_err(|_| cancelled())
+                                sender.send(Ok(JobOutput::Timer)).await.map_err(|_| cancelled())?;
+                                task_progress.send_modify(|sequence| *sequence = sequence.saturating_add(1));
+                                Ok(())
                             }}
                         }
                         JobRequest::Search { root, query } => {
                             let _io = tokio::select! { _ = token.cancelled() => return Err(cancelled()), permit = io.acquire_owned() => permit.map_err(host_failure)? };
                             let scan_token = token.clone();
                             let stream = sender.clone();
+                            let scan_progress = task_progress.clone();
                             tokio::task::spawn_blocking(move || {
-                                search(&policy, root, &query, &scan_token, &stream)
+                                search(&policy, root, &query, &scan_token, &stream, &scan_progress)
                             })
                             .await
                             .map_err(host_failure)?
@@ -302,7 +350,10 @@ impl HostServices for NativeServices {
                         } => {
                             let output =
                                 process(&policy, root, &command, &args, input, &token).await?;
-                            sender.send(Ok(output)).await.map_err(|_| cancelled())
+                            sender.send(Ok(output)).await.map_err(|_| cancelled())?;
+                            task_progress
+                                .send_modify(|sequence| *sequence = sequence.saturating_add(1));
+                            Ok(())
                         }
                     }
                 };
@@ -310,13 +361,16 @@ impl HostServices for NativeServices {
                 if let Err(error) = result {
                     let _ = sender.try_send(Err(error));
                 }
-                drop(permits);
+                drop(sender);
+                task_progress.send_modify(|sequence| *sequence = sequence.saturating_add(1));
             });
             Ok(Arc::new(NativeJob {
                 inner: Arc::new(JobInner {
                     cancel,
                     task: tokio::sync::Mutex::new(Some(task)),
                     receiver: Mutex::new(receiver),
+                    progress,
+                    _admission: admission,
                 }),
             }) as Arc<dyn HostJob>)
         })
@@ -329,10 +383,12 @@ impl HostServices for NativeServices {
         let lock = self.storage_lock.clone();
         Box::pin(async move {
             let (directory, key) = selected?;
-            let _guard = lock.lock().await;
-            let _io = io.acquire_owned().await.map_err(host_failure)?;
+            let guard = lock.lock_owned().await;
+            let permit = io.acquire_owned().await.map_err(host_failure)?;
             tokio::task::spawn_blocking(move || {
+                let (_guard, _permit) = (guard, permit);
                 policy.require(Capability::Storage)?;
+                let directory = directory.open()?;
                 match directory.directory().symlink_metadata(&key) {
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
                     Err(error) => Err(host_failure(error)),
@@ -363,10 +419,12 @@ impl HostServices for NativeServices {
                 ));
             }
             let (directory, key) = selected?;
-            let _guard = lock.lock().await;
-            let _io = io.acquire_owned().await.map_err(host_failure)?;
+            let guard = lock.lock_owned().await;
+            let permit = io.acquire_owned().await.map_err(host_failure)?;
             tokio::task::spawn_blocking(move || {
+                let (_guard, _permit) = (guard, permit);
                 policy.require(Capability::Storage)?;
+                let directory = directory.open()?;
                 let mut bytes = 0;
                 let mut keys = 0;
                 for entry in directory.directory().entries().map_err(host_failure)? {
@@ -426,6 +484,16 @@ struct JobInner {
     cancel: CancellationToken,
     task: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     receiver: Mutex<mpsc::Receiver<Result<JobOutput, ServiceError>>>,
+    progress: Arc<watch::Sender<u64>>,
+    // Completed jobs can still retain output and a readiness notification.
+    // Keep admission charged until the resource itself is released.
+    _admission: Arc<JobAdmission>,
+}
+struct JobAdmission {
+    _permits: (
+        tokio::sync::OwnedSemaphorePermit,
+        tokio::sync::OwnedSemaphorePermit,
+    ),
 }
 impl Drop for JobInner {
     fn drop(&mut self) {
@@ -436,6 +504,22 @@ struct NativeJob {
     inner: Arc<JobInner>,
 }
 impl HostJob for NativeJob {
+    fn ready(&self, after: u64) -> HostFuture<u64> {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut progress = inner.progress.subscribe();
+            loop {
+                let sequence = *progress.borrow_and_update();
+                if sequence > after {
+                    return Ok(sequence);
+                }
+                tokio::select! {
+                    _ = inner.cancel.cancelled() => return Err(cancelled()),
+                    changed = progress.changed() => changed.map_err(host_failure)?,
+                }
+            }
+        })
+    }
     fn poll(&self) -> HostFuture<JobPoll> {
         let inner = self.inner.clone();
         Box::pin(async move {
@@ -469,6 +553,7 @@ fn search(
     query: &str,
     cancel: &CancellationToken,
     sender: &mpsc::Sender<Result<JobOutput, ServiceError>>,
+    progress: &watch::Sender<u64>,
 ) -> Result<(), ServiceError> {
     let directory = policy.read_root(root)?.directory();
     let start = Instant::now();
@@ -504,6 +589,7 @@ fn search(
                 send_search(
                     sender,
                     cancel,
+                    progress,
                     JobOutput::Search {
                         matches,
                         truncated: true,
@@ -552,6 +638,7 @@ fn search(
                             send_search(
                                 sender,
                                 cancel,
+                                progress,
                                 JobOutput::Search {
                                     matches: std::mem::take(&mut matches),
                                     truncated: false,
@@ -562,6 +649,7 @@ fn search(
                             send_search(
                                 sender,
                                 cancel,
+                                progress,
                                 JobOutput::Search {
                                     matches,
                                     truncated: true,
@@ -577,6 +665,7 @@ fn search(
     send_search(
         sender,
         cancel,
+        progress,
         JobOutput::Search {
             matches,
             truncated: false,
@@ -587,6 +676,7 @@ fn search(
 fn send_search(
     sender: &mpsc::Sender<Result<JobOutput, ServiceError>>,
     cancel: &CancellationToken,
+    progress: &watch::Sender<u64>,
     output: JobOutput,
 ) -> Result<(), ServiceError> {
     let mut output = Ok(output);
@@ -602,7 +692,10 @@ fn send_search(
             ));
         }
         match sender.try_send(output) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                progress.send_modify(|sequence| *sequence = sequence.saturating_add(1));
+                return Ok(());
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => return Err(cancelled()),
             Err(mpsc::error::TrySendError::Full(value)) => {
                 output = value;
@@ -818,9 +911,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn job_readiness_waits_for_progress_and_cancellation() {
+        let root = tempfile::tempdir().unwrap();
+        let host = services(root.path(), Default::default(), vec![]);
+        let job = host
+            .start_job(JobRequest::Timer { milliseconds: 5 })
+            .await
+            .unwrap();
+        let sequence = tokio::time::timeout(Duration::from_secs(1), job.ready(0))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(sequence > 0);
+        assert_eq!(
+            job.poll().await.unwrap(),
+            JobPoll::Ready {
+                output: JobOutput::Timer
+            }
+        );
+        while job.poll().await.unwrap() != JobPoll::Finished {
+            tokio::task::yield_now().await;
+        }
+        let latest = job.ready(0).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), job.ready(latest))
+                .await
+                .is_err()
+        );
+        job.cancel().await.unwrap();
+        assert_eq!(
+            job.ready(latest).await.unwrap_err().code,
+            ErrorCode::Cancelled
+        );
+    }
+
+    #[tokio::test]
     async fn private_storage_is_durable_bounded_and_revoked() {
         let root = tempfile::tempdir().unwrap();
         let host = services(root.path(), [Capability::Storage].into(), vec![]);
+        assert!(!root.path().join("storage").exists());
         assert_eq!(host.storage_read("recent".into()).await.unwrap(), None);
         host.storage_write("recent".into(), "é文件".into())
             .await
@@ -846,6 +975,55 @@ mod tests {
             host.storage_read("recent".into()).await.unwrap_err().code,
             ErrorCode::Cancelled
         );
+    }
+
+    #[tokio::test]
+    async fn completed_job_resources_still_reserve_editor_admission() {
+        let budget = NativeBudget::default();
+        let mut hosts = Vec::new();
+        for _ in 0..3 {
+            let policy = Arc::new(
+                AccessPolicy::new(Default::default(), Permissions::default(), Path::new("."))
+                    .unwrap(),
+            );
+            hosts.push(
+                NativeServices::with_budget(policy, Arc::new(NoEditor), None, budget.clone())
+                    .unwrap(),
+            );
+        }
+        let mut jobs = Vec::new();
+        for host in &hosts[..2] {
+            for _ in 0..MAX_JOBS {
+                let job = host
+                    .start_job(JobRequest::Timer { milliseconds: 0 })
+                    .await
+                    .unwrap();
+                tokio::time::timeout(Duration::from_secs(1), job.ready(0))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(matches!(job.poll().await.unwrap(), JobPoll::Ready { .. }));
+                while job.poll().await.unwrap() != JobPoll::Finished {
+                    tokio::task::yield_now().await;
+                }
+                jobs.push(job);
+            }
+        }
+        assert!(matches!(
+            hosts[2]
+                .start_job(JobRequest::Timer { milliseconds: 0 })
+                .await,
+            Err(ServiceError {
+                code: ErrorCode::ResourceExhausted,
+                ..
+            })
+        ));
+        drop(jobs);
+        let job = hosts[2]
+            .start_job(JobRequest::Timer { milliseconds: 0 })
+            .await
+            .unwrap();
+        job.cancel().await.unwrap();
     }
 
     #[tokio::test]

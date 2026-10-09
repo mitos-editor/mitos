@@ -3,9 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use editor_core::{Range, Selection, Transaction};
 use plugin_api::{Action, Event, Response, SelectionRange, TextEdit};
 use plugins::PluginConfig;
-use view::{
-    current, current_ref, editor::Action as EditorAction, plugins::PluginConflict, Editor, ViewId,
-};
+use view::{current, current_ref, editor::Action as EditorAction, Editor, ViewId};
 
 use super::Fixture;
 
@@ -23,61 +21,50 @@ fn plugin_with_init(
     events: &[&str],
     initial: Response,
 ) -> anyhow::Result<BTreeMap<String, PluginConfig>> {
-    std::fs::write(dir.join("plugin.toml"), format!(
-        "abi-version = {}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read', 'editor-edit', 'editor-selection', 'editor-navigate', 'workspace-read']\nevents = {events:?}\n[commands.run]\ndoc = 'Run fixture'\n",
-        plugin_api::ABI_VERSION
-    ))?;
-    let response = serde_json::to_vec(&response)?;
-    let initial = serde_json::to_vec(&initial)?;
-    let initial_data = initial
-        .iter()
-        .map(|byte| format!("\\{byte:02x}"))
-        .collect::<String>();
-    let data = response
-        .iter()
-        .map(|byte| format!("\\{byte:02x}"))
-        .collect::<String>();
-    let wasm = wat::parse_str(format!(
-        r#"(module
-        (memory (export "memory") 1)
-        (global $calls (mut i32) (i32.const 0))
-        (data (i32.const 16) "{initial_data}")
-        (data (i32.const 8192) "{data}")
-        (func (export "mitos_alloc") (param i32) (result i32) i32.const 32768)
-        (func (export "mitos_dealloc") (param i32 i32))
-        (func (export "mitos_call") (param i32 i32) (result i64)
-            global.get $calls i32.const 1 i32.add global.set $calls
-            global.get $calls i32.const 1 i32.eq
-            if (result i64)
-                i64.const {}
-            else
-                i64.const {}
-            end)
-    )"#,
-        (16_u64 << 32) | initial.len() as u64,
-        (8192_u64 << 32) | response.len() as u64
-    ))?;
-    std::fs::write(dir.join("plugin.wasm"), wasm)?;
+    use crate::support::plugin_guest::{observing, Route};
+    let mut routes = vec![Route {
+        event: "init",
+        response: initial,
+        ..Route::default()
+    }];
+    for event in events.iter().copied().chain(["command", "shutdown"]) {
+        routes.push(Route {
+            event,
+            response: response.clone(),
+            ..Route::default()
+        });
+    }
     Ok(BTreeMap::from([(
         "fixture".into(),
-        PluginConfig {
-            path: dir.join("plugin.toml"),
-            enabled: true,
-            config: serde_json::Value::Null,
-            permissions: crate::support::plugin_guest::permissions(dir),
-            ..PluginConfig::default()
-        },
+        observing(dir, events, &routes, None)?,
     )]))
 }
 
-fn drain(fixture: &mut Fixture) {
-    for _ in 0..100 {
-        match fixture.callbacks.try_recv() {
-            Ok(callback) => callback(&mut fixture.editor),
-            Err(_) => return,
+async fn drain(fixture: &mut Fixture) {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            fixture.editor.poll_plugin_events();
+            while let Ok(callback) = fixture.callbacks.try_recv() {
+                callback(&mut fixture.editor);
+            }
+            if !fixture.editor.has_pending_plugin_work() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
+    })
+    .await
+    .expect("plugin callbacks did not terminate");
+}
+
+async fn execute(fixture: &mut Fixture, name: &str, args: Vec<String>) -> anyhow::Result<bool> {
+    let before = fixture.editor.error_revision();
+    let accepted = fixture.editor.execute_plugin_command(name, args)?;
+    drain(fixture).await;
+    if fixture.editor.error_revision() != before {
+        anyhow::bail!("{}", fixture.editor.get_status().unwrap().0);
     }
-    panic!("plugin callbacks did not terminate");
+    Ok(accepted)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -106,16 +93,19 @@ async fn lifecycle_opens_without_a_view_and_runs_for_large_documents() -> anyhow
         },
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "opened\n"
     );
     fixture.replace(&"x".repeat(2 * 1024 * 1024 + 1));
     fixture.editor.shutdown_plugins();
+    fixture.editor.finish_plugin_shutdown().await;
     assert_eq!(
         fixture.editor.status_msg.as_ref().unwrap().0,
         "shutdown ran"
     );
+    let mut fixture = Fixture::new(&"x".repeat(10 * 1024 * 1024))?;
     let config = plugin_with_init(
         dir.path(),
         Response::default(),
@@ -128,6 +118,7 @@ async fn lifecycle_opens_without_a_view_and_runs_for_large_documents() -> anyhow
         },
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     assert_eq!(
         fixture.editor.status_msg.as_ref().unwrap().0,
         "large document init ran"
@@ -174,9 +165,8 @@ async fn edits_use_character_offsets_and_are_one_undo_step() -> anyhow::Result<(
         &[],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
-    assert!(fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?);
+    drain(&mut fixture).await;
+    assert!(execute(&mut fixture, "fixture.run", vec![]).await?);
     let (view, doc) = current!(fixture.editor);
     assert_eq!(doc.text().to_string(), "SSÉx\n");
     assert_eq!(doc.selection(view.id).primary(), Range::new(0, 3));
@@ -227,11 +217,14 @@ async fn invalid_batches_and_stale_selections_leave_documents_unchanged() -> any
         &[],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    drain(&mut fixture).await;
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert!(format!("{error:#}").contains("invalid primary selection"));
+    assert!(
+        format!("{error:#}").contains("valid primary range"),
+        "{error:#}"
+    );
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "original\n"
@@ -254,13 +247,13 @@ async fn invalid_batches_and_stale_selections_leave_documents_unchanged() -> any
         &[],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
+    drain(&mut fixture).await;
     let before = current_ref!(fixture.editor)
         .1
         .selection(current_ref!(fixture.editor).0.id)
         .clone();
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
     assert!(format!("{error:#}").contains("stale document version"));
     assert_eq!(
@@ -287,6 +280,7 @@ async fn reload_discards_queued_events_and_edit_hooks_do_not_recurse() -> anyhow
         &["document-changed"],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
+    drain(&mut fixture).await;
     fixture.replace("before\n");
     let (_, doc) = current_ref!(fixture.editor);
     let config = plugin(
@@ -306,15 +300,16 @@ async fn reload_discards_queued_events_and_edit_hooks_do_not_recurse() -> anyhow
         &["document-changed"],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
+    drain(&mut fixture).await;
     fixture.editor.set_status("reloaded");
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "reloaded");
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "before\n"
     );
     fixture.replace("before\n");
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "AFTER!\n"
@@ -352,9 +347,9 @@ async fn open_cannot_invalidate_prepared_document_actions() -> anyhow::Result<()
         &[],
     )?;
     fixture.editor.reload_plugins(&config, dir.path());
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    drain(&mut fixture).await;
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
     assert!(format!("{error:#}").contains("edit actions must precede open"));
     assert_eq!(
@@ -364,40 +359,23 @@ async fn open_cannot_invalidate_prepared_document_actions() -> anyhow::Result<()
     Ok(())
 }
 
-// Building a Rust WASM target is optional for contributors. Run this explicitly
-// after the documented example build to verify the complete guest-to-editor ABI.
+// A checked-in component built through the public SDK exercises real bounded
+// read imports and streamed effects without an optional contributor toolchain.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires the compiled examples/plugins/uppercase WASM module"]
 async fn rust_sdk_plugin_runs_through_the_editor() -> anyhow::Result<()> {
-    let module = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../examples/plugins/uppercase/target/wasm32-unknown-unknown/release/uppercase.wasm",
-    );
     let dir = tempfile::tempdir()?;
-    std::fs::copy(module, dir.path().join("uppercase.wasm"))?;
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/uppercase/plugin.toml"),
-        dir.path().join("plugin.toml"),
-    )?;
     let mut fixture = Fixture::new("ßé hello\n")?;
     let (view, doc) = current!(fixture.editor);
     doc.set_selection(
         view.id,
         Selection::new(vec![Range::new(0, 2), Range::new(3, 8)].into(), 1),
     );
-    let config = BTreeMap::from([(
-        "uppercase".into(),
-        PluginConfig {
-            path: dir.path().join("plugin.toml"),
-            enabled: true,
-            config: serde_json::Value::Null,
-            permissions: crate::support::plugin_guest::permissions(dir.path()),
-            ..PluginConfig::default()
-        },
-    )]);
+    let mut package = crate::support::plugin_guest::observing(dir.path(), &[], &[], None)?;
+    package.config = serde_json::json!({"routes":[{"event":"command","operation":"uppercase"}]});
+    let config = BTreeMap::from([("uppercase".into(), package)]);
     fixture.editor.reload_plugins(&config, dir.path());
-    assert!(fixture
-        .editor
-        .execute_plugin_command("uppercase.uppercase", vec![])?);
+    drain(&mut fixture).await;
+    assert!(execute(&mut fixture, "uppercase.run", vec![]).await?);
     let (view, doc) = current_ref!(fixture.editor);
     assert_eq!(doc.text().to_string(), "SSÉ HELLO\n");
     assert_eq!(doc.selection(view.id).primary_index(), 1);
@@ -458,12 +436,13 @@ async fn background_selection_hooks_keep_the_originating_split() -> anyhow::Resu
         &["selection-changed"],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture
         .editor
         .document_mut(id)
         .unwrap()
         .set_selection(background, Selection::single(2, 3));
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     let doc = fixture.editor.document(id).unwrap();
     assert_eq!(doc.selection(foreground), &before);
     assert_eq!(doc.selection(background).primary(), Range::new(4, 5));
@@ -489,6 +468,7 @@ async fn selection_only_changes_expire_queued_snapshots_without_text_edits() -> 
         &["post-command"],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture
         .editor
         .queue_plugin_event(Event::PostCommand, serde_json::Value::Null);
@@ -497,18 +477,20 @@ async fn selection_only_changes_expire_queued_snapshots_without_text_edits() -> 
         .document_mut(id)
         .unwrap()
         .set_selection(view, Selection::single(5, 6));
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     let doc = fixture.editor.document(id).unwrap();
     assert_eq!(doc.version(), version);
     assert_eq!(doc.selection(view).primary(), Range::new(5, 6));
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert_eq!(
-        error.downcast_ref::<PluginConflict>(),
-        Some(&PluginConflict::SelectionChanged(view.as_u64()))
-    );
+    assert!(error.to_string().contains(match "SelectionChanged" {
+        "SelectionChanged" => "stale selection revision",
+        "ViewRebound" => "has been rebound",
+        "ViewClosed" => "is closed",
+        "DocumentClosed" => "is closed",
+        _ => "stale document version",
+    }));
     Ok(())
 }
 
@@ -538,16 +520,19 @@ async fn closed_and_rebound_views_are_typed_conflicts_before_any_edit() -> anyho
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture.editor.new_file(EditorAction::Replace);
     fixture.editor.switch(id, EditorAction::Replace);
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert_eq!(
-        error.downcast_ref::<PluginConflict>(),
-        Some(&PluginConflict::ViewRebound(origin.as_u64()))
-    );
+    assert!(error.to_string().contains(match "ViewRebound" {
+        "SelectionChanged" => "stale selection revision",
+        "ViewRebound" => "has been rebound",
+        "ViewClosed" => "is closed",
+        "DocumentClosed" => "is closed",
+        _ => "stale document version",
+    }));
     assert_eq!(
         fixture.editor.document(id).unwrap().text().to_string(),
         "abcdef\n"
@@ -555,27 +540,31 @@ async fn closed_and_rebound_views_are_typed_conflicts_before_any_edit() -> anyho
     fixture.editor.close(origin);
     fixture.editor.switch(id, EditorAction::VerticalSplit);
     assert_ne!(current_ref!(fixture.editor).0.id, origin);
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert_eq!(
-        error.downcast_ref::<PluginConflict>(),
-        Some(&PluginConflict::ViewClosed(origin.as_u64()))
-    );
+    assert!(error.to_string().contains(match "ViewClosed" {
+        "SelectionChanged" => "stale selection revision",
+        "ViewRebound" => "has been rebound",
+        "ViewClosed" => "is closed",
+        "DocumentClosed" => "is closed",
+        _ => "stale document version",
+    }));
     assert_eq!(
         fixture.editor.document(id).unwrap().text().to_string(),
         "abcdef\n"
     );
     assert!(fixture.editor.close_document(id, true).is_ok());
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert_eq!(
-        error.downcast_ref::<PluginConflict>(),
-        Some(&PluginConflict::DocumentClosed(id.as_u64()))
-    );
+    assert!(error.to_string().contains(match "DocumentClosed" {
+        "SelectionChanged" => "stale selection revision",
+        "ViewRebound" => "has been rebound",
+        "ViewClosed" => "is closed",
+        "DocumentClosed" => "is closed",
+        _ => "stale document version",
+    }));
     Ok(())
 }
 
@@ -620,9 +609,8 @@ async fn hidden_document_edits_compose_and_undo_without_a_view() -> anyhow::Resu
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?;
+    drain(&mut fixture).await;
+    execute(&mut fixture, "fixture.run", vec![]).await?;
     assert_eq!(
         fixture.editor.document(id).unwrap().text().to_string(),
         "SSÉXX\n"
@@ -683,9 +671,8 @@ async fn plugin_edits_sync_prior_history_in_every_split() -> anyhow::Result<()> 
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?;
+    drain(&mut fixture).await;
+    execute(&mut fixture, "fixture.run", vec![]).await?;
     assert_eq!(
         fixture
             .editor
@@ -764,9 +751,8 @@ async fn composed_edits_project_interleaved_multi_view_selections_and_one_undo(
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?;
+    drain(&mut fixture).await;
+    execute(&mut fixture, "fixture.run", vec![]).await?;
     let doc = fixture.editor.document(id).unwrap();
     assert_eq!(doc.text().to_string(), "YXXbcdef\n");
     assert_eq!(doc.selection(origin).primary(), Range::new(3, 4));
@@ -809,14 +795,14 @@ async fn readonly_targets_reject_the_complete_batch() -> anyhow::Result<()> {
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture.editor.document_mut(id).unwrap().readonly = true;
     let before = current_ref!(fixture.editor)
         .1
         .selection(fixture.editor.tree.focus)
         .clone();
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
     assert!(format!("{error:#}").contains("readonly"));
     assert_eq!(
@@ -854,7 +840,7 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
                     event: "document-saved",
                     response: status("written snapshot observed"),
                     expected: vec![
-                        r#""text":"submitted\n""#.into(),
+                        r#""char_count":10"#.into(),
                         format!("\"saved_version\":{saved_version}"),
                         format!("\"saved_revision\":{saved_revision}"),
                         format!("\"current_version\":{}", saved_version + 1),
@@ -876,6 +862,7 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
         )?,
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture.editor.save(id, Some(target.clone()), false)?;
     fixture.replace("newer\n");
     fixture.editor.flush_writes().await?;
@@ -886,6 +873,7 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
     );
     // Shutdown must pump the queued save hook even when no frontend runs again.
     fixture.editor.shutdown_plugins();
+    fixture.editor.finish_plugin_shutdown().await;
     assert_eq!(
         fixture.editor.get_status().unwrap().0,
         "shutdown after save"
@@ -923,6 +911,7 @@ async fn write_flush_continues_after_failure_and_reports_only_successful_saves(
         )?,
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture
         .editor
         .save(first, Some(dir.path().join("missing/failed.txt")), false)?;
@@ -930,6 +919,7 @@ async fn write_flush_continues_after_failure_and_reports_only_successful_saves(
     fixture.editor.save(second, Some(good.clone()), false)?;
     assert!(fixture.editor.flush_writes().await.is_err());
     fixture.editor.poll_plugin_events();
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.write_count, 0);
     assert!(good.exists());
     assert_eq!(
@@ -1006,8 +996,9 @@ async fn other_plugins_observe_mutations_with_provenance_without_own_echoes() ->
         ),
     ]);
     assert!(fixture.editor.reload_plugins(&config, alpha.path()));
-    fixture.editor.execute_plugin_command("alpha.run", vec![])?;
-    drain(&mut fixture);
+    drain(&mut fixture).await;
+    execute(&mut fixture, "alpha.run", vec![]).await?;
+    drain(&mut fixture).await;
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "CHANGED!\n"
@@ -1076,6 +1067,7 @@ async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> a
         )?,
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     let mut opened = Vec::new();
     for index in 0..40 {
         let path = dir.path().join(format!("startup-{index}.txt"));
@@ -1085,6 +1077,7 @@ async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> a
     assert_eq!(rx.len(), 1, "one full callback destination stays bounded");
     drop(rx.try_recv()?);
     fixture.editor.poll_plugin_events();
+    drain(&mut fixture).await;
     assert_eq!(
         fixture.editor.get_status().unwrap().0,
         "startup state recovered"
@@ -1152,13 +1145,15 @@ async fn queue_bytes_and_causal_feedback_have_explicit_recovery_limits() -> anyh
         )?,
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture.replace(&format!("{}\n", "x".repeat(512 * 1024)));
     for _ in 0..20 {
-        fixture
-            .editor
-            .queue_plugin_event(Event::PostCommand, serde_json::Value::Null);
+        fixture.editor.queue_plugin_event(
+            Event::PostCommand,
+            serde_json::json!({"large": "x".repeat(512 * 1024)}),
+        );
     }
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(
         fixture.editor.get_status().unwrap().0,
         "byte limit reported"
@@ -1204,8 +1199,9 @@ async fn queue_bytes_and_causal_feedback_have_explicit_recovery_limits() -> anyh
         ),
     ]);
     assert!(fixture.editor.reload_plugins(&config, alpha.path()));
+    drain(&mut fixture).await;
     fixture.replace("seed\n");
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert!(
         current_ref!(fixture.editor).1.version() <= 12,
         "feedback must stop before the guest runs out of prepared responses"
@@ -1236,7 +1232,7 @@ async fn focus_lost_identifies_the_previous_document_and_split() -> anyhow::Resu
                 expected: vec![
                     format!("\"document\":{id}"),
                     format!("\"view\":{view}"),
-                    r#""text":"first\n""#.into(),
+                    r#""char_count":6"#.into(),
                 ],
                 ..Route::default()
             }],
@@ -1244,8 +1240,9 @@ async fn focus_lost_identifies_the_previous_document_and_split() -> anyhow::Resu
         )?,
     )]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
     fixture.editor.new_file(EditorAction::Replace);
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(
         fixture.editor.get_status().unwrap().0,
         "old binding observed"
@@ -1299,7 +1296,7 @@ async fn event_recipients_share_one_frozen_snapshot_and_conflicts_are_determinis
                     response: response("SECOND!!"),
                     expected: vec![
                         format!("\"version\":{version},"),
-                        r#""text":"original\n""#.into(),
+                        r#""char_count":9"#.into(),
                     ],
                     ..Route::default()
                 }],
@@ -1308,9 +1305,11 @@ async fn event_recipients_share_one_frozen_snapshot_and_conflicts_are_determinis
         ),
     ]);
     assert!(fixture.editor.reload_plugins(&config, alpha.path()));
-    assert!(!fixture
+    drain(&mut fixture).await;
+    assert!(fixture
         .editor
         .dispatch_plugin_event(Event::PostCommand, serde_json::Value::Null));
+    drain(&mut fixture).await;
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
         "FIRST!!!\n"
@@ -1327,33 +1326,20 @@ async fn a_disabled_guest_stops_snapshot_capture_and_callback_wakes_immediately(
 ) -> anyhow::Result<()> {
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
-    let wasm = wat::parse_str(
-        r#"(module
-        (memory (export "memory") 1) (data (i32.const 16) "{}")
-        (global $initialized (mut i32) (i32.const 0))
-        (func (export "mitos_alloc") (param i32) (result i32) i32.const 32768)
-        (func (export "mitos_dealloc") (param i32 i32))
-        (func (export "mitos_call") (param i32 i32) (result i64)
-            global.get $initialized if unreachable end
-            i32.const 1 global.set $initialized
-            i64.const 68719476738))"#,
+    let mut package = crate::support::plugin_guest::observing(
+        dir.path(),
+        &["post-command", "document-opened"],
+        &[],
+        None,
     )?;
-    std::fs::write(dir.path().join("plugin.wasm"), wasm)?;
-    std::fs::write(dir.path().join("plugin.toml"), format!("abi-version = {}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read', 'editor-edit', 'editor-selection', 'editor-navigate', 'workspace-read']\nevents = ['post-command','document-opened']\n", plugin_api::ABI_VERSION))?;
-    let config = BTreeMap::from([(
-        "trap".into(),
-        PluginConfig {
-            path: dir.path().join("plugin.toml"),
-            enabled: true,
-            config: serde_json::Value::Null,
-            permissions: crate::support::plugin_guest::permissions(dir.path()),
-            ..PluginConfig::default()
-        },
-    )]);
+    package.config = serde_json::json!({"routes":[{"event":"post-command","operation":"trap"}]});
+    let config = BTreeMap::from([("trap".into(), package)]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    assert!(!fixture
+    drain(&mut fixture).await;
+    assert!(fixture
         .editor
         .dispatch_plugin_event(Event::PostCommand, serde_json::Value::Null));
+    drain(&mut fixture).await;
     // Clearing existing unrelated completions isolates new plugin wakes.
     while let Ok(callback) = fixture.callbacks.try_recv() {
         callback(&mut fixture.editor);
@@ -1496,11 +1482,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
             Route {
                 event: "post-command",
                 filter: Some("\"case\":\"unbound\"".into()),
-                expected: vec![
-                    original,
-                    "\"text\":\"original\\n\"".into(),
-                    "\"view\":null".into(),
-                ],
+                expected: vec![original, "\"char_count\":9".into(), "\"view\":null".into()],
                 response: status("unbound"),
             },
             Route {
@@ -1515,6 +1497,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
     assert!(fixture
         .editor
         .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
+    drain(&mut fixture).await;
     fixture.editor.queue_plugin_event_for_view_binding(
         Event::PostCommand,
         origin,
@@ -1522,7 +1505,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
         binding,
         serde_json::json!({"case":"bound"}),
     );
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "bound");
 
     fixture.editor.new_file(EditorAction::Replace);
@@ -1533,7 +1516,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
         binding,
         serde_json::json!({"case":"unbound"}),
     );
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
     // Returning to the original document must not revive the expired binding.
     fixture.editor.switch(document, EditorAction::Replace);
@@ -1544,7 +1527,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
         binding,
         serde_json::json!({"case":"unbound"}),
     );
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
     fixture.editor.close(origin);
     fixture.editor.queue_plugin_event_for_view_binding(
@@ -1554,7 +1537,7 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
         binding,
         serde_json::json!({"case":"unbound"}),
     );
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "unbound");
     assert!(fixture.editor.close_document(document, true).is_ok());
     fixture.editor.queue_plugin_event_for_view_binding(
@@ -1564,14 +1547,14 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
         binding,
         serde_json::json!({"case":"closed"}),
     );
-    drain(&mut fixture);
+    drain(&mut fixture).await;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "closed");
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn capability_denial_rejects_the_complete_response() -> anyhow::Result<()> {
-    use plugin_api::{Capability, ErrorCode, ServiceError};
+    use plugin_api::Capability;
     let mut fixture = Fixture::new("original\n")?;
     let doc = current_ref!(fixture.editor).1;
     let dir = tempfile::tempdir()?;
@@ -1603,13 +1586,15 @@ async fn capability_denial_rejects_the_complete_response() -> anyhow::Result<()>
         .capabilities
         .remove(&Capability::EditorEdit);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    let error = fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])
+    drain(&mut fixture).await;
+    let error = execute(&mut fixture, "fixture.run", vec![])
+        .await
         .unwrap_err();
-    assert_eq!(
-        error.downcast_ref::<ServiceError>().unwrap().code,
-        ErrorCode::PermissionDenied
+    assert!(
+        error
+            .to_string()
+            .contains("EditorEdit is not declared and granted"),
+        "{error}"
     );
     assert_eq!(
         current_ref!(fixture.editor).1.text().to_string(),
@@ -1651,9 +1636,13 @@ async fn status_only_guests_do_not_capture_large_buffer_text() -> anyhow::Result
     assert!(fixture
         .editor
         .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec!["explicit argument".into()])?;
+    drain(&mut fixture).await;
+    execute(
+        &mut fixture,
+        "fixture.run",
+        vec!["explicit argument".into()],
+    )
+    .await?;
     assert_eq!(fixture.editor.status_msg.as_ref().unwrap().0, "allowed");
     fixture.editor.new_file(EditorAction::VerticalSplit);
     assert!(
@@ -1681,9 +1670,8 @@ async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adopt
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?;
+    drain(&mut fixture).await;
+    execute(&mut fixture, "fixture.run", vec![]).await?;
     let (view, doc) = current!(fixture.editor);
     let id = doc.id();
     assert!(doc.is_restricted_adoption());
@@ -1723,7 +1711,6 @@ async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adopt
 #[tokio::test(flavor = "multi_thread")]
 async fn unsafe_or_binary_opens_leave_earlier_edits_and_navigation_unapplied() -> anyhow::Result<()>
 {
-    use plugin_api::{ErrorCode, ServiceError};
     for target in ["missing.txt", "binary.png"] {
         let mut fixture = Fixture::new("original\n")?;
         let doc = current_ref!(fixture.editor).1;
@@ -1758,15 +1745,18 @@ async fn unsafe_or_binary_opens_leave_earlier_edits_and_navigation_unapplied() -
             &[],
         )?;
         assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        drain(&mut fixture).await;
         let count = fixture.editor.documents().count();
-        let error = fixture
-            .editor
-            .execute_plugin_command("fixture.run", vec![])
+        let error = execute(&mut fixture, "fixture.run", vec![])
+            .await
             .unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<ServiceError>().unwrap().code,
-            ErrorCode::PermissionDenied | ErrorCode::InvalidRequest
-        ));
+        assert!(
+            error.to_string().contains("only supports text")
+                || error.to_string().contains("file access denied")
+                || error.to_string().contains("granted")
+                || error.to_string().contains("outside"),
+            "{error}"
+        );
         assert_eq!(fixture.editor.documents().count(), count);
         assert_eq!(current_ref!(fixture.editor).1.id(), id);
         assert_eq!(
@@ -1792,9 +1782,8 @@ async fn plugin_status_is_bounded_and_has_no_terminal_controls() -> anyhow::Resu
         &[],
     )?;
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
-    fixture
-        .editor
-        .execute_plugin_command("fixture.run", vec![])?;
+    drain(&mut fixture).await;
+    execute(&mut fixture, "fixture.run", vec![]).await?;
     let message = &fixture.editor.status_msg.as_ref().unwrap().0;
     assert!(message.len() <= 4096);
     assert!(!message.chars().any(char::is_control));
@@ -1819,6 +1808,7 @@ async fn delayed_open_rejects_changed_selection_text_or_focus() -> anyhow::Resul
             &["post-command"],
         )?;
         assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        drain(&mut fixture).await;
         fixture
             .editor
             .queue_plugin_event(Event::PostCommand, serde_json::json!({"command":"run"}));
@@ -1840,7 +1830,7 @@ async fn delayed_open_rejects_changed_selection_text_or_focus() -> anyhow::Resul
         }
         let focused = fixture.editor.tree.focus;
         let count = fixture.editor.documents().count();
-        drain(&mut fixture);
+        drain(&mut fixture).await;
         assert_eq!(fixture.editor.tree.focus, focused);
         assert_eq!(fixture.editor.documents().count(), count);
         let error = fixture.editor.status_msg.as_ref().unwrap().0.as_ref();
@@ -1892,8 +1882,10 @@ async fn shutdown_rejects_guest_navigation_and_edits_before_any_effect() -> anyh
             &[],
         )?;
         assert!(fixture.editor.reload_plugins(&config, dir.path()));
+        drain(&mut fixture).await;
         let count = fixture.editor.documents().count();
         fixture.editor.shutdown_plugins();
+        fixture.editor.finish_plugin_shutdown().await;
         assert_eq!(fixture.editor.documents().count(), count);
         assert_eq!(
             fixture.editor.document(id).unwrap().text().to_string(),
@@ -1907,5 +1899,156 @@ async fn shutdown_rejects_guest_navigation_and_edits_before_any_effect() -> anyh
             .0
             .contains("only diagnostics"));
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_only_hooks_read_unicode_regions_in_large_documents() -> anyhow::Result<()> {
+    let text = format!("ßé😀\n{}", "x".repeat(10 * 1024 * 1024));
+    let mut fixture = Fixture::new(&text)?;
+    let dir = tempfile::tempdir()?;
+    let mut package = crate::support::plugin_guest::observing(dir.path(), &[], &[], None)?;
+    package.config = serde_json::json!({"routes":[{
+        "event":"command",
+        "expected":[format!("\"char_count\":{}",text.chars().count()), format!("\"byte_count\":{}",text.len())],
+        "reads":[{"start":0,"end":3,"expected":"ßé😀"}],
+        "response":{"actions":[{"type":"status","message":"bounded unicode region"}]}
+    }]});
+    let config = BTreeMap::from([("fixture".into(), package)]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
+    assert!(execute(&mut fixture, "fixture.run", vec![]).await?);
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "bounded unicode region"
+    );
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().len_bytes(),
+        text.len()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn excessive_native_selections_fail_before_guest_snapshot_allocation() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(&"x".repeat(8192))?;
+    let dir = tempfile::tempdir()?;
+    let config = plugin(dir.path(), Response::default(), &[])?;
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
+    let (view, doc) = current!(fixture.editor);
+    doc.set_selection(
+        view.id,
+        Selection::new(
+            (0..2048)
+                .map(|index| Range::new(index * 2, index * 2))
+                .collect(),
+            0,
+        ),
+    );
+    assert_eq!(doc.selection(view.id).len(), 2048);
+    let error = fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])
+        .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<plugin_api::ServiceError>()
+            .unwrap()
+            .code,
+        plugin_api::ErrorCode::ResourceExhausted
+    );
+    assert!(!fixture.editor.has_pending_plugin_work());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn running_guest_does_not_block_native_edits_and_reload_cancels_it() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let mut package = crate::support::plugin_guest::observing(dir.path(), &[], &[], None)?;
+    package.config = serde_json::json!({"routes":[{"event":"command","operation":"loop"}]});
+    let config = BTreeMap::from([("fixture".into(), package)]);
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
+    assert!(fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])?);
+    fixture.replace("native input\n");
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().to_string(),
+        "native input\n"
+    );
+    assert!(fixture.editor.reload_plugins(&BTreeMap::new(), dir.path()));
+    drain(&mut fixture).await;
+    assert!(fixture.editor.plugin_commands().is_empty());
+    assert_eq!(
+        current_ref!(fixture.editor).1.text().to_string(),
+        "native input\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_async_preparation_keeps_the_previous_generation_usable() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let dir = tempfile::tempdir()?;
+    let config = plugin(
+        dir.path(),
+        crate::support::plugin_guest::status("old generation"),
+        &[],
+    )?;
+    assert!(fixture.editor.reload_plugins(&config, dir.path()));
+    drain(&mut fixture).await;
+    let missing = BTreeMap::from([(
+        "missing".into(),
+        PluginConfig {
+            path: dir.path().join("missing.toml"),
+            enabled: true,
+            ..PluginConfig::default()
+        },
+    )]);
+    assert!(fixture.editor.reload_plugins(&missing, dir.path()));
+    drain(&mut fixture).await;
+    assert!(fixture.editor.plugin_command_doc("fixture.run").is_some());
+    assert!(execute(&mut fixture, "fixture.run", vec![]).await?);
+    assert_eq!(fixture.editor.get_status().unwrap().0, "old generation");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_read_origin_cancels_the_worker_before_effect_application() -> anyhow::Result<()>
+{
+    let mut fixture = Fixture::new("original\n")?;
+    let (view, doc) = current_ref!(fixture.editor);
+    let origin = view.id;
+    let document = doc.id();
+    let version = doc.version();
+    let dir = tempfile::tempdir()?;
+    let mut package = crate::support::plugin_guest::observing(dir.path(), &[], &[], None)?;
+    package.config = serde_json::json!({"routes":[{"event":"command","reads":[{"start":0,"end":3,"expected":"ori"}],"response":{"actions":[{"type":"edit","document":document.as_u64(),"version":version,"edits":[{"start":0,"end":1,"text":"X"}]}]}}]});
+    assert!(fixture
+        .editor
+        .reload_plugins(&BTreeMap::from([("fixture".into(), package)]), dir.path()));
+    drain(&mut fixture).await;
+    assert!(fixture
+        .editor
+        .execute_plugin_command("fixture.run", vec![])?);
+    let capture = tokio::time::timeout(std::time::Duration::from_secs(5), fixture.callbacks.recv())
+        .await?
+        .unwrap();
+    fixture.editor.close(origin);
+    capture(&mut fixture.editor);
+    drain(&mut fixture).await;
+    assert_eq!(
+        fixture
+            .editor
+            .document(document)
+            .unwrap()
+            .text()
+            .to_string(),
+        "original\n"
+    );
+    assert!(fixture.editor.tree.views().next().is_none());
     Ok(())
 }

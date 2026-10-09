@@ -1,0 +1,133 @@
+package mitos:plugin@0.1.0;
+
+interface types {
+  enum error-code {
+    invalid-request, stale-state, permission-denied, resource-exhausted,
+    cancelled, deadline-exceeded, unsupported-interface, guest-trap, host-failure,
+  }
+  record failure { code: error-code, message: string }
+  enum event {
+    init, shutdown, command, document-opened, document-changed, document-saved,
+    document-closed, selection-changed, mode-changed, post-command,
+    post-insert-char, document-focus-lost, terminal-focus-gained,
+    terminal-focus-lost, resync-required, state, ui-result, builtin-result, keymap-result, job-ready,
+  }
+  record selection-range { anchor: u64, head: u64 }
+  record document {
+    id: u64, version: s32, path: option<string>, language: option<string>,
+    char-count: u64, byte-count: u64,
+  }
+  record view {
+    id: u64, document: u64, binding-revision: u64, selection-revision: u64,
+    selections: list<selection-range>, primary: u32,
+  }
+  record editor-context {
+    generation: u64, mode: string, document: option<document>, view: option<view>,
+  }
+  record request {
+    abi-version: u32, event: event, command: option<string>, args: list<string>,
+    config-json: string, editor: editor-context, data-json: string,
+  }
+  record ui-origin { view: u64, document: u64, binding-revision: u64, version: s32, selection-revision: u64 }
+  record ui-location { document: u64, version: s32, offset: u64 }
+  enum keymap-mode { normal, select, insert }
+  enum builtin-command {
+    move-char-left, move-char-right, move-line-up, move-line-down, select-all,
+    collapse-selection, keep-primary-selection, delete-selection-no-yank,
+    change-selection-no-yank, undo, redo, insert-mode, normal-mode,
+  }
+  record state-query {
+    document: option<u64>, view: option<u64>, after-document: option<u64>,
+    after-view: option<u64>, limit: u32,
+  }
+}
+
+interface host {
+  use types.{failure, state-query, ui-origin, ui-location, keymap-mode, builtin-command};
+  // Text offsets count Unicode scalar values. There is no default text payload.
+  read-document: func(document: u64, version: s32, start: u64, end: u64) -> result<string, failure>;
+
+  // Effects are staged. Finish does not apply edits: successful handle completion
+  // and the owning editor's complete preflight validation are also required.
+  resource edit-group {
+    add: func(start: u64, end: u64, text: string) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource selection-group {
+    add: func(anchor: u64, head: u64) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource prompt {
+    initial: func(value: string) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource picker-row {
+    label: func(value: string) -> result<_, failure>;
+    description: func(value: string) -> result<_, failure>;
+    preview: func(value: string) -> result<_, failure>;
+    location: func(value: ui-location) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource picker {
+    row: func(id: string) -> result<picker-row, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource builtin-group {
+    add: func(command: builtin-command, count: option<u32>) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource keybinding {
+    key: func(value: string) -> result<_, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource keymap-group {
+    binding: func(mode: keymap-mode, command: string) -> result<keybinding, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  resource effects {
+    edit: func(document: u64, version: s32) -> result<edit-group, failure>;
+    selection: func(document: u64, version: s32, view: u64, binding-revision: u64, selection-revision: u64, primary: u32) -> result<selection-group, failure>;
+    status: func(message: string) -> result<_, failure>;
+    error: func(message: string) -> result<_, failure>;
+    open: func(path: string) -> result<_, failure>;
+    request-state: func(query: state-query) -> result<_, failure>;
+    prompt: func(request: u64, origin: option<ui-origin>, title: string) -> result<prompt, failure>;
+    next-key: func(request: u64, origin: option<ui-origin>, title: string, timeout-ms: u32) -> result<_, failure>;
+    picker: func(request: u64, origin: option<ui-origin>, title: string) -> result<picker, failure>;
+    builtins: func(request: u64, origin: ui-origin) -> result<builtin-group, failure>;
+    keymap: func(request: u64) -> result<keymap-group, failure>;
+    finish: func() -> result<_, failure>;
+  }
+  begin-effects: func() -> result<effects, failure>;
+
+  // Closed services have independent capability checks. Process arguments are
+  // streamed so a guest-controlled list is never lifted before a count quota.
+  resource job {
+    id: func() -> u64;
+    poll: func() -> result<string, failure>;
+    cancel: func() -> result<_, failure>;
+  }
+  resource process-request {
+    argument: func(value: string) -> result<_, failure>;
+    input: func(value: string) -> result<_, failure>;
+    start: func() -> result<job, failure>;
+  }
+  resource writer {
+    write: func(value: string) -> result<_, failure>;
+  }
+  start-timer: func(milliseconds: u64) -> result<job, failure>;
+  start-search: func(root: u32, query: string) -> result<job, failure>;
+  process: func(command: string, root: u32) -> result<process-request, failure>;
+  editor-request: func(payload: string) -> result<string, failure>;
+  read-file: func(root: u32, path: string) -> result<string, failure>;
+  write-file: func(root: u32, path: string) -> result<writer, failure>;
+  storage-read: func(key: string) -> result<option<string>, failure>;
+  storage-write: func(key: string) -> result<writer, failure>;
+}
+
+world plugin {
+  import types;
+  import host;
+  use types.{request, failure};
+  export handle: func(request: request) -> result<_, failure>;
+}

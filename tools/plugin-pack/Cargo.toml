@@ -1,0 +1,15 @@
+[package]
+name = "mitos-plugin-pack"
+default-run = "mitos-plugin-pack"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+wit-component = "=0.261.0"
+wit-bindgen-c = "=0.62.0"
+wit-bindgen-core = "=0.62.0"
+
+[workspace]

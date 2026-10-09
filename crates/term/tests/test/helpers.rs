@@ -131,7 +131,9 @@ pub async fn test_key_sequences(
 ) -> anyhow::Result<()> {
     // Command tests start from a ready fixture. Startup tests exercise input
     // arriving while the initial syntax tree is still being built.
-    if app.editor.documents().any(|doc| doc.is_syntax_pending()) {
+    if app.editor.documents().any(|doc| doc.is_syntax_pending())
+        || app.editor.has_pending_plugin_work()
+    {
         tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
     }
 

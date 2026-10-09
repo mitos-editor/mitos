@@ -173,6 +173,24 @@ fn read_file<R: io::Read + ?Sized>(
     Ok((text, encoding, has_bom, false))
 }
 
+/// Thread-safe result of a scoped read/decoding job. It owns no editor services.
+pub(crate) struct PreparedPluginDocument {
+    path: PathBuf,
+    text: Rope,
+    encoding: &'static Encoding,
+    has_bom: bool,
+    pub(crate) binary: bool,
+    editor_config: EditorConfig,
+    indent: Option<IndentStyle>,
+    line_ending: Option<LineEnding>,
+}
+
+impl PreparedPluginDocument {
+    pub(crate) fn byte_count(&self) -> usize {
+        self.text.len_bytes()
+    }
+}
+
 pub struct Document {
     pub(crate) plugin_events: Option<crate::plugins::PluginEventSender>,
     pub(crate) id: DocumentId,
@@ -912,23 +930,57 @@ impl Document {
     /// bookkeeping only: no canonicalization, stat, `.editorconfig` lookup or
     /// file reopen is performed. Runtime grammars/dictionaries remain configured
     /// native editor resources; a guest cannot supply their paths here.
-    pub(crate) fn from_plugin_bytes(
+    pub(crate) fn prepare_plugin_bytes(
         path: PathBuf,
         bytes: Vec<u8>,
         editor_config: EditorConfig,
+    ) -> Result<PreparedPluginDocument, DocumentOpenError> {
+        let (text, encoding, has_bom, binary) =
+            read_file(&mut bytes.as_slice(), editor_config.encoding)?;
+        let indent = auto_detect_indent_style(&text);
+        let line_ending = auto_detect_line_ending(&text);
+        Ok(PreparedPluginDocument {
+            path,
+            text,
+            encoding,
+            has_bom,
+            binary,
+            editor_config,
+            indent,
+            line_ending,
+        })
+    }
+
+    pub(crate) fn from_prepared_plugin(
+        prepared: PreparedPluginDocument,
         config: Arc<dyn DynAccess<Config>>,
         syn_loader: Arc<ArcSwap<syntax::Loader>>,
-    ) -> Result<Self, DocumentOpenError> {
-        let (rope, encoding, has_bom, binary) =
-            read_file(&mut bytes.as_slice(), editor_config.encoding)?;
-        let mut doc = Self::from(rope, Some((encoding, has_bom)), config, syn_loader.clone());
-        doc.binary = binary;
+    ) -> Self {
+        let mut doc = Self::from(
+            prepared.text,
+            Some((prepared.encoding, prepared.has_bom)),
+            config,
+            syn_loader.clone(),
+        );
+        doc.binary = prepared.binary;
         doc.restricted_adoption = true;
-        doc.path = Some(path);
+        doc.path = Some(prepared.path);
         doc.language = doc.detect_language_config(&syn_loader.load());
-        doc.editor_config = editor_config;
-        doc.detect_indent_and_line_ending();
-        Ok(doc)
+        doc.editor_config = prepared.editor_config;
+        doc.indent_style = doc
+            .editor_config
+            .indent_style
+            .or(prepared.indent)
+            .unwrap_or_else(|| {
+                doc.language_config()
+                    .and_then(|config| config.indent.as_ref())
+                    .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
+            });
+        if let Some(ending) = doc.editor_config.line_ending.or(prepared.line_ending) {
+            doc.line_ending = ending;
+        }
+        doc.detect_spelling_languages();
+        doc
     }
 
     /// This document's path was supplied by a scoped plugin read. Automatic
