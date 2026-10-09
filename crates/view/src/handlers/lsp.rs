@@ -350,12 +350,24 @@ impl Editor {
             log::warn!("can't find language server with id `{server_id}`");
             return;
         }
-        self.clear_language_server_diagnostics(server_id);
+        self.cleanup_language_server(server_id);
+        self.language_servers.remove_by_id(server_id);
+    }
+
+    /// Clear diagnostics and notify features while the server and attachments still exist.
+    /// Registry removal belongs to the caller so manual stop keeps its tombstone.
+    pub(crate) fn cleanup_language_server(&mut self, server_id: LanguageServerId) {
+        self.diagnostics.retain(|_, diagnostics| {
+            diagnostics.retain(|(_, provider)| provider.language_server_id() != Some(server_id));
+            !diagnostics.is_empty()
+        });
+        for doc in self.documents_mut() {
+            doc.clear_diagnostics_for_language_server(server_id);
+        }
         event::dispatch(LanguageServerExited {
             editor: self,
             server_id,
         });
-        self.language_servers.remove_by_id(server_id);
     }
 
     pub fn handle_lsp_diagnostics(

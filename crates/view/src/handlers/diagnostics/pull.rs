@@ -26,13 +26,6 @@ pub(crate) struct DocumentDiagnostics {
     requests: HashMap<LanguageServerId, TaskController>,
 }
 
-impl DocumentDiagnostics {
-    pub(crate) fn clear_for_server(&mut self, server_id: LanguageServerId) {
-        self.requests.remove(&server_id);
-        self.result_ids.remove(&server_id);
-    }
-}
-
 /// Scheduling destinations shared by documents owned by this editor.
 #[derive(Clone)]
 pub struct PullDiagnosticsHandler {
@@ -282,7 +275,8 @@ pub(in crate::handlers) fn register_hooks() {
     });
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
-            doc.pull_diagnostics.clear_for_server(event.server_id);
+            doc.pull_diagnostics.requests.remove(&event.server_id);
+            doc.pull_diagnostics.result_ids.remove(&event.server_id);
         }
         Ok(())
     });

@@ -199,6 +199,9 @@ open documents and start feature requests. Push diagnostics validate the URI and
 server readiness, then use the shared version, provider, and persistence rules.
 Exit clears the server's diagnostics from open documents and the workspace cache,
 runs feature cleanup while the server is still registered, then removes it.
+`Editor::stop_language_servers` and `restart_language_servers` in
+`view::editor::language_servers` run the same cleanup before removing old servers.
+Stop keeps the registry's manual-stop tombstone; restart refreshes affected documents.
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
 

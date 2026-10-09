@@ -253,10 +253,31 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
     spelling.message = "spelling".into();
     doc.replace_diagnostics([spelling], &[], Some(&DiagnosticProvider::Spelling));
 
+    let exits = Arc::new(AtomicUsize::new(0));
+    let seen = exits.clone();
+    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        assert_eq!(event.server_id, alpha);
+        assert!(event.editor.language_server_by_id(alpha).is_some());
+        assert!(event
+            .editor
+            .document(document)
+            .unwrap()
+            .supports_language_server(alpha));
+        assert!(event
+            .editor
+            .diagnostics
+            .values()
+            .flatten()
+            .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
+        seen.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
     f.app
         .editor
         .restart_language_servers(document, &["alpha"])?;
 
+    assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert_ne!(f.server("alpha"), alpha);
     assert_eq!(f.server("beta"), beta);
     assert_eq!(f.messages(), ["beta", "spelling"]);
@@ -271,6 +292,7 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
         .editor
         .handle_publish_diagnostics(alpha, params(&open, None, "late"));
     f.app.editor.handle_language_server_exit(alpha);
+    assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert_eq!(f.messages(), ["beta", "spelling"]);
     assert!(f.app.close().await.is_empty());
     Ok(())
@@ -298,14 +320,48 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
         .editor
         .handle_publish_diagnostics(alpha, params(&alpha_only, None, "alpha"));
 
-    super::helpers::test_key_sequence(&mut f.app, Some(":lsp-stop alpha<ret>"), None, false)
-        .await?;
+    let document = current_ref!(f.app.editor).1.id();
+    assert!(f
+        .app
+        .editor
+        .stop_language_servers(document, &["unknown"])
+        .is_err());
+    assert!(f.app.editor.language_server_by_id(alpha).is_some());
+    assert!(f.app.editor.diagnostics.contains_key(&alpha_only));
+    let exits = Arc::new(AtomicUsize::new(0));
+    let seen = exits.clone();
+    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
+        assert_eq!(event.server_id, alpha);
+        assert!(event.editor.language_server_by_id(alpha).is_some());
+        assert!(event
+            .editor
+            .document(document)
+            .unwrap()
+            .supports_language_server(alpha));
+        assert!(event
+            .editor
+            .diagnostics
+            .values()
+            .flatten()
+            .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
+        seen.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
+    f.app.editor.stop_language_servers(document, &["alpha"])?;
 
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
+    assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.editor.language_server_by_id(beta).is_some());
     assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
     assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    f.app.editor.refresh_language_servers(document);
+    assert!(f.app.editor.language_server_by_id(alpha).is_none());
+    assert!(current_ref!(f.app.editor)
+        .1
+        .language_servers()
+        .all(|server| server.name() != "alpha"));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
