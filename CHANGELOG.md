@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/mitos-editor/mitos/compare/v0.1.0...v0.1.1) - 2026-10-09
+
+### Added
+
+- *(lsp)* support inline completion ghost text ([#117](https://github.com/mitos-editor/mitos/pull/117))
+
+### Fixed
+
+- *(lsp)* clear diagnostics when restarting or stopping servers ([#118](https://github.com/mitos-editor/mitos/pull/118))
+- detect file encoding using only bytes actually read ([#114](https://github.com/mitos-editor/mitos/pull/114))
+
+### Other
+
+- startup optimization ([#119](https://github.com/mitos-editor/mitos/pull/119))
+
 ## [0.1.0](https://github.com/mitos-editor/mitos/releases/tag/v0.1.0) - 2026-10-08
 
 Mitos's first release builds on Helix's selection-first editing, multiple
