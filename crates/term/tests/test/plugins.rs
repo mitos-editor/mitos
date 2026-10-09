@@ -1,4 +1,4 @@
-use super::helpers::{test_config, test_key_sequences, AppBuilder};
+use super::helpers::{run_event_loop_until_idle, test_config, test_key_sequences, AppBuilder};
 
 use editor_core::diagnostic::Severity;
 use plugins::PluginConfig;
@@ -25,133 +25,26 @@ fn fixture_matching(
     expected: &[String],
     once: bool,
 ) -> anyhow::Result<(TempDir, Config)> {
-    fn wat_bytes(bytes: &[u8]) -> String {
-        bytes.iter().map(|byte| format!("\\{byte:02x}")).collect()
+    // ABI3 sends metadata. Existing text observations become explicit scoped
+    // reads, preserving their content assertions without a default snapshot.
+    let mut metadata = Vec::new();
+    let mut reads = Vec::new();
+    for fragment in expected {
+        if let Some(value) = fragment.strip_prefix("\"text\":") {
+            let text: String = serde_json::from_str(value)?;
+            reads.push(json!({"start":0,"end":text.chars().count(),"expected":text}));
+        } else {
+            metadata.push(fragment.clone());
+        }
     }
-
-    let response = serde_json::to_vec(&response)?;
-    let mut needles = Vec::new();
-    let mut checks = String::from("i32.const 1\n");
-    for expected in expected {
-        let pointer = 8192 + needles.len();
-        checks.push_str(&format!(
-            "local.get $input local.get $length i32.const {pointer} i32.const {} call $contains i32.and\n",
-            expected.len()
-        ));
-        needles.extend_from_slice(expected.as_bytes());
-    }
-    let wrong_args = br#"{"error":"unexpected event metadata"}"#;
-    let duplicate = br#"{"error":"duplicate event"}"#;
-    let command_event = format!("\"event\":\"{event}\"");
-    let matched_response = if once {
-        format!("global.get $matched i32.const 1 i32.add global.set $matched global.get $matched i32.const 1 i32.eq if (result i64) i64.const {} else i64.const {} end",
-            (4096_u64 << 32) | response.len() as u64,
-            (20000_u64 << 32) | duplicate.len() as u64)
-    } else {
-        format!("i64.const {}", (4096_u64 << 32) | response.len() as u64)
-    };
-    let wasm = wat::parse_str(format!(
-        r#"(module
-            (memory (export "memory") 1)
-            (global $initialized (mut i32) (i32.const 0))
-            (global $matched (mut i32) (i32.const 0))
-            (data (i32.const 0) "{{}}")
-            (data (i32.const 4096) "{}")
-            (data (i32.const 8192) "{}")
-            (data (i32.const 12288) "{}")
-            (data (i32.const 16384) "{}")
-            (data (i32.const 20000) "{}")
-            (data (i32.const 24576) "{}")
-            (func (export "mitos_alloc") (param i32) (result i32)
-                i32.const 32768)
-            (func (export "mitos_dealloc") (param i32 i32))
-            (func $contains (param $input i32) (param $length i32)
-                            (param $needle i32) (param $needle_length i32) (result i32)
-                (local $offset i32) (local $index i32)
-                (block $missing
-                    (loop $scan
-                        local.get $offset
-                        local.get $needle_length
-                        i32.add
-                        local.get $length
-                        i32.gt_u
-                        br_if $missing
-                        i32.const 0
-                        local.set $index
-                        (block $mismatch
-                            (loop $compare
-                                local.get $index
-                                local.get $needle_length
-                                i32.eq
-                                if
-                                    i32.const 1
-                                    return
-                                end
-                                local.get $input
-                                local.get $offset
-                                i32.add
-                                local.get $index
-                                i32.add
-                                i32.load8_u
-                                local.get $needle
-                                local.get $index
-                                i32.add
-                                i32.load8_u
-                                i32.ne
-                                br_if $mismatch
-                                local.get $index
-                                i32.const 1
-                                i32.add
-                                local.set $index
-                                br $compare))
-                        local.get $offset
-                        i32.const 1
-                        i32.add
-                        local.set $offset
-                        br $scan))
-                i32.const 0)
-            (func (export "mitos_call") (param $input i32) (param $length i32) (result i64)
-                global.get $initialized
-                i32.eqz
-                if (result i64)
-                    i32.const 1
-                    global.set $initialized
-                    i64.const 2
-                else
-                    local.get $input
-                    local.get $length
-                    i32.const 16384
-                    i32.const {command_event_len}
-                    call $contains
-                    local.get $input local.get $length
-                    i32.const 24576 i32.const {filter_len} call $contains
-                    i32.and
-                    if (result i64)
-                        {checks}
-                        if (result i64)
-                            {matched_response}
-                        else
-                            i64.const {wrong_args_buffer}
-                        end
-                    else
-                        i64.const 2
-                    end
-                end))"#,
-        wat_bytes(&response),
-        wat_bytes(&needles),
-        wat_bytes(wrong_args),
-        wat_bytes(command_event.as_bytes()),
-        wat_bytes(duplicate),
-        wat_bytes(filter.as_bytes()),
-        command_event_len = command_event.len(),
-        filter_len = filter.len(),
-        wrong_args_buffer = (12288_u64 << 32) | wrong_args.len() as u64,
-    ))?;
     let dir = tempfile::tempdir()?;
-    std::fs::write(dir.path().join("fixture.wasm"), wasm)?;
+    std::fs::write(
+        dir.path().join("fixture.component.wasm"),
+        include_bytes!("../../../plugins/tests/fixtures/router-guest.component.wasm"),
+    )?;
     std::fs::write(
         dir.path().join("plugin.toml"),
-        format!("abi-version = {}\nmodule = 'fixture.wasm'\ncapabilities = ['ui', 'editor-read']\nevents = ['{event}']\n[commands.run]\ndoc = 'Run the fixture guest'\n", plugin_api::ABI_VERSION),
+        format!("abi-version = {}\nmodule = 'fixture.component.wasm'\ncapabilities = ['ui', 'editor-read']\nevents = ['{event}']\n[commands.run]\ndoc = 'Run the fixture guest'\n", plugin_api::ABI_VERSION),
     )?;
     let mut config = test_config();
     config.plugins.insert(
@@ -159,7 +52,9 @@ fn fixture_matching(
         PluginConfig {
             path: dir.path().into(),
             enabled: true,
-            config: Value::Null,
+            config: json!({"require_initialized":true,"routes":[{
+                "event":event,"filter":filter,"expected":metadata,"reads":reads,"response":response,"once":once
+            }]}),
             permissions: plugin_api::Permissions {
                 capabilities: std::collections::BTreeSet::from([
                     plugin_api::Capability::Ui,
@@ -194,6 +89,7 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
         .named(":echo".into()),
     ]);
     let mut app = AppBuilder::new().with_config(config).build()?;
+    run_event_loop_until_idle(&mut app).await;
     let commands = app.editor.plugin_commands();
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].name, "fixture.run");
@@ -501,6 +397,7 @@ async fn insertion_and_terminal_focus_hooks_capture_the_originating_view() -> an
             true,
         )?;
         let mut app = AppBuilder::new().with_config(config).build()?;
+        run_event_loop_until_idle(&mut app).await;
         // Focus events must pass through modal prompts to the editor view.
         for key in ui_core::input::parse_macro(":")? {
             #[cfg(not(windows))]
@@ -577,6 +474,7 @@ async fn non_key_input_completes_pending_commands_as_cancelled() -> anyhow::Resu
             .with_config(config)
             .with_input_text("#[a|]#bc\n")
             .build()?;
+        run_event_loop_until_idle(&mut app).await;
         for key in ui_core::input::parse_macro("f")? {
             app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
                 .await;
@@ -630,6 +528,7 @@ async fn write_completion_waits_for_its_actual_save_result() -> anyhow::Result<(
             .with_file(&source, None)
             .build()?;
 
+        run_event_loop_until_idle(&mut app).await;
         // Input dispatch submits a future; no write has been polled yet.
         for key in ui_core::input::parse_macro("iX<esc>:write --no-format<ret>")? {
             app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))

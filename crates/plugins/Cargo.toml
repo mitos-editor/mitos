@@ -1,7 +1,7 @@
 [package]
 name = "plugins"
 description = "Sandboxed WebAssembly plugins for Mitos"
-include = ["src/**/*", "README.md"]
+include = ["src/**/*", "tests/fixtures/**/*", "README.md", "RUNTIME.md"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -13,18 +13,22 @@ homepage.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+futures-executor.workspace = true
+futures-util.workspace = true
 cap-std.workspace = true
 plugin-api.workspace = true
 libc.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "process", "io-util", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "process", "io-util", "macros", "net"] }
 tokio-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
-wasmi.workspace = true
+wasmtime.workspace = true
+wasmparser.workspace = true
 
 [dev-dependencies]
+wit-component.workspace = true
 tempfile.workspace = true
 wat = "1"

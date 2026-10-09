@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Experimental host protocol version, also used by the transitional memory ABI.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 /// The invocation delivered to a plugin's request handler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -34,6 +34,8 @@ pub enum Event {
     UiResult,
     BuiltinResult,
     KeymapResult,
+    /// A retained host job has buffered output or completion to drain.
+    JobReady,
 }
 
 /// An owned snapshot of the editor and invocation arguments.
@@ -72,7 +74,9 @@ pub struct DocumentSnapshot {
     pub version: i32,
     pub path: Option<String>,
     pub language: Option<String>,
-    pub text: String,
+    /// Text is read through an explicitly bounded region service.
+    pub char_count: u64,
+    pub byte_count: u64,
 }
 
 /// The originating view's binding and selection, independent of document text.

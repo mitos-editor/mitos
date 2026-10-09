@@ -1,40 +1,43 @@
-//! Sandboxed WebAssembly plugins and their command/lifecycle registry.
+//! Capability-checked component packages, command registry, and async execution.
 //!
-//! Each configured plugin has its own instance and persistent memory. Guests have
-//! no imports: editor access is restricted to the snapshots and actions defined
-//! by `plugin-sdk`, rather than exposing editor internals or ambient I/O.
-
-use std::{
-    borrow::Cow,
-    collections::BTreeMap,
-    io::{self, Write},
-    path::{Component, Path, PathBuf},
-    sync::Arc,
-};
+//! Package preparation performs filesystem work, compilation, and linking off the
+//! editor path. Activation is transactional; every actor belongs to one editor
+//! generation and stages effects until the owning editor applies them.
 
 use anyhow::{ensure, Context, Result};
-use plugin_api::{Capability, CapabilitySet, ErrorCode, Permissions, ServiceError};
-use plugin_api::{EditorContext, Event, Request, Response, ABI_VERSION};
+use plugin_api::{
+    Capability, CapabilitySet, EditorContext, ErrorCode, Event, HostServices, Permissions, Request,
+    ServiceError, ABI_VERSION,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use wasmi::{
-    Config, EnforcedLimits, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
-    TypedFunc,
+use std::{
+    collections::BTreeMap,
+    future::Future,
+    path::{Component, Path, PathBuf},
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Context as TaskContext, Poll},
 };
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
-/// Maximum size of either JSON message crossing the plugin boundary.
-pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
-const MAX_MODULE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_MESSAGE_BYTES: usize = component::MAX_MESSAGE_BYTES;
+const MAX_MODULE_BYTES: usize = component::MAX_COMPONENT_BYTES;
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
-const MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
-const MAX_ACTIONS: usize = 256;
-const FUEL_PER_CALL: u64 = 10_000_000;
+const MAX_PACKAGE_SET_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PLUGINS: usize = 32;
-
+mod complexity;
+mod component;
 pub mod filesystem;
 pub mod native;
 pub mod policy;
+mod worker;
+pub use worker::{CompletedResponse, Completion, InvocationTarget, WorkerPool};
 
 /// Configuration for a single plugin. Relative paths use the editor config directory.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -74,7 +77,8 @@ fn enabled_by_default() -> bool {
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct Manifest {
     abi_version: u32,
-    module: PathBuf,
+    #[serde(default)]
+    module: Option<PathBuf>,
     #[serde(default = "default_capabilities")]
     capabilities: CapabilitySet,
     #[serde(default)]
@@ -121,47 +125,155 @@ pub trait PluginSystem {
     fn get_doc_for_identifier(&self, identifier: &str) -> Option<String>;
 }
 
-/// Plugin state belonging to one editor, with independent failure isolation.
+/// Packages and serialized actors belonging to one editor generation.
 #[derive(Default)]
 pub struct PluginManager {
     plugins: BTreeMap<String, Plugin>,
+    pool: Option<WorkerPool>,
+    preparing: Arc<AtomicBool>,
+    revoked: CancellationToken,
+    generation: u64,
+}
+
+/// Owned asynchronous preparation. Dropping it cancels pending worker admission;
+/// an already running native compile remains bounded but cannot be interrupted.
+pub struct ManagerPreparation {
+    receiver: oneshot::Receiver<Result<PreparedManager, ServiceError>>,
+    cancel: CancellationToken,
+}
+impl Future for ManagerPreparation {
+    type Output = Result<PreparedManager, ServiceError>;
+    fn poll(mut self: Pin<&mut Self>, context: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.receiver).poll(context) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(result)) => Poll::Ready(result),
+            Poll::Ready(Err(_)) => Poll::Ready(Err(ServiceError::new(
+                ErrorCode::HostFailure,
+                "plugin package loader stopped",
+            ))),
+        }
+    }
+}
+impl Drop for ManagerPreparation {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+struct PreparationAdmission(Arc<AtomicBool>);
+impl Drop for PreparationAdmission {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+pub struct PreparedManager {
+    packages: BTreeMap<String, PreparedPackage>,
+    pool: Option<WorkerPool>,
+    preparing: Arc<AtomicBool>,
+    generation: u64,
+}
+struct PreparedPackage {
+    package: Package,
+    instance: Option<worker::PreparedPlugin>,
+}
+impl Drop for PreparedManager {
+    fn drop(&mut self) {
+        for package in self.packages.values() {
+            package.package.policy.revoke();
+        }
+    }
+}
+impl PreparedManager {
+    /// Move validated stores and metadata into a generation. No guest is invoked.
+    /// Any activation failure revokes the partial replacement before returning.
+    pub fn activate(mut self) -> Result<PluginManager, ServiceError> {
+        let mut manager = PluginManager {
+            plugins: BTreeMap::new(),
+            pool: self.pool.take(),
+            preparing: self.preparing.clone(),
+            generation: self.generation,
+            revoked: CancellationToken::new(),
+        };
+        for (name, prepared) in std::mem::take(&mut self.packages) {
+            let actor = prepared
+                .instance
+                .map(|instance| manager.pool.as_ref().unwrap().activate(instance))
+                .transpose()?;
+            manager.plugins.insert(
+                name,
+                Plugin {
+                    manifest: prepared.package.manifest,
+                    config: prepared.package.config,
+                    policy: prepared.package.policy,
+                    actor,
+                },
+            );
+        }
+        Ok(manager)
+    }
 }
 
 impl PluginManager {
-    /// Load enabled plugins, collecting failures without discarding healthy plugins.
-    pub fn load(configs: &BTreeMap<String, PluginConfig>, base: &Path) -> (Self, Vec<String>) {
-        let mut config = Config::default();
-        config
-            .consume_fuel(true)
-            .enforced_limits(EnforcedLimits::strict())
-            .ignore_custom_sections(true)
-            .wasm_multi_memory(false)
-            .set_max_recursion_depth(128)
-            .set_max_stack_height(1024 * 1024);
-        let engine = Engine::new(&config);
-        let mut manager = Self::default();
-        let mut errors = Vec::new();
-        if configs.values().filter(|config| config.enabled).count() > MAX_PLUGINS {
-            errors.push(format!("too many enabled plugins (limit {MAX_PLUGINS})"));
-            return (manager, errors);
+    /// Validate the complete replacement off-thread. A failure never mutates this
+    /// manager; the caller retains it until successful activation and swapping.
+    pub fn prepare(
+        &self,
+        configs: BTreeMap<String, PluginConfig>,
+        base: PathBuf,
+        generation: u64,
+    ) -> Result<ManagerPreparation, ServiceError> {
+        if self.revoked.is_cancelled() {
+            return Err(ServiceError::new(
+                ErrorCode::Cancelled,
+                "plugin manager has been revoked",
+            ));
         }
-        for (name, config) in configs {
-            if !config.enabled {
-                continue;
-            }
-            match Plugin::load(&engine, name, config, base) {
-                Ok(plugin) => {
-                    manager.plugins.insert(name.clone(), plugin);
-                }
-                Err(error) => errors.push(format!("plugin '{name}': {error:#}")),
-            }
+        self.preparing
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                ServiceError::new(
+                    ErrorCode::ResourceExhausted,
+                    "plugin replacement is already being prepared",
+                )
+            })?;
+        let admission = PreparationAdmission(self.preparing.clone());
+        let pool = self.pool.clone();
+        let preparing = self.preparing.clone();
+        let cancel = self.revoked.child_token();
+        let stopping = cancel.clone();
+        let (send, receiver) = oneshot::channel();
+        if configs.values().all(|config| !config.enabled) {
+            drop(admission);
+            let _ = send.send(Ok(PreparedManager {
+                packages: BTreeMap::new(),
+                pool: None,
+                preparing,
+                generation,
+            }));
+            return Ok(ManagerPreparation { receiver, cancel });
         }
-        (manager, errors)
+        std::thread::Builder::new()
+            .name("plugin-packages".into())
+            .spawn(move || {
+                let result = prepare_packages(configs, base, generation, pool, preparing, stopping);
+                drop(admission);
+                let _ = send.send(result);
+            })
+            .map_err(|cause| {
+                ServiceError::new(
+                    ErrorCode::HostFailure,
+                    format!("spawning plugin package loader: {cause}"),
+                )
+            })?;
+        Ok(ManagerPreparation { receiver, cancel })
     }
-
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
     pub fn available_commands(&self) -> Vec<PluginCommand> {
         self.plugins
             .iter()
+            .filter(|(_, plugin)| plugin.active())
             .flat_map(|(name, plugin)| {
                 plugin
                     .manifest
@@ -174,21 +286,23 @@ impl PluginManager {
             })
             .collect()
     }
-
     pub fn get_doc_for_identifier(&self, identifier: &str) -> Option<String> {
         let (name, command) = identifier.split_once('.')?;
-        self.plugins
-            .get(name)?
-            .manifest
-            .commands
-            .get(command)
-            .map(|command| command.doc.clone())
+        let plugin = self.plugins.get(name)?;
+        plugin
+            .active()
+            .then(|| {
+                plugin
+                    .manifest
+                    .commands
+                    .get(command)
+                    .map(|command| command.doc.clone())
+            })
+            .flatten()
     }
-
     pub fn policy(&self, name: &str) -> Option<Arc<policy::AccessPolicy>> {
         self.plugins.get(name).map(|plugin| plugin.policy.clone())
     }
-
     pub fn require_capability(
         &self,
         name: &str,
@@ -198,18 +312,13 @@ impl PluginManager {
             .ok_or_else(|| ServiceError::new(ErrorCode::Cancelled, "plugin is no longer loaded"))?
             .require(capability)
     }
-
     pub fn can_read(&self, name: &str) -> bool {
         self.require_capability(name, Capability::EditorRead)
             .is_ok()
     }
-
-    /// Avoid constructing document snapshots when no active plugin needs an event.
     pub fn subscribes(&self, event: Event) -> bool {
         self.plugins.values().any(|plugin| plugin.subscribes(event))
     }
-
-    /// Active recipients in deterministic configured-name order.
     pub fn event_recipients(&self, event: Event) -> Vec<String> {
         self.plugins
             .iter()
@@ -217,131 +326,259 @@ impl PluginManager {
             .map(|(name, _)| name.clone())
             .collect()
     }
-
     pub fn receives_event(&self, name: &str, event: Event) -> bool {
         self.plugins
             .get(name)
             .is_some_and(|plugin| plugin.subscribes(event))
     }
-
     pub fn call_event(
-        &mut self,
+        &self,
         name: &str,
         event: Event,
         editor: EditorContext,
         data: Value,
-    ) -> Result<Response> {
+        services: Arc<dyn HostServices>,
+    ) -> Result<Completion, ServiceError> {
+        let target = InvocationTarget::from_context(&editor);
+        self.call_event_with_target(name, event, editor, data, services, target)
+    }
+    pub fn call_event_with_target(
+        &self,
+        name: &str,
+        event: Event,
+        editor: EditorContext,
+        data: Value,
+        services: Arc<dyn HostServices>,
+        target: InvocationTarget,
+    ) -> Result<Completion, ServiceError> {
         let plugin = self
             .plugins
-            .get_mut(name)
-            .context("plugin is no longer loaded")?;
-        ensure!(
-            plugin.subscribes(event),
-            "plugin is not subscribed to event"
-        );
-        plugin.call(&Request {
-            abi_version: ABI_VERSION,
-            event,
-            command: None,
-            args: Vec::new(),
-            config: plugin.config.clone(),
-            editor,
-            data,
-        })
+            .get(name)
+            .ok_or_else(|| ServiceError::new(ErrorCode::Cancelled, "plugin is no longer loaded"))?;
+        if !plugin.subscribes(event) {
+            return Err(ServiceError::new(
+                ErrorCode::InvalidRequest,
+                "plugin is not subscribed to event",
+            ));
+        }
+        plugin.call(
+            Request {
+                abi_version: ABI_VERSION,
+                event,
+                command: None,
+                args: Vec::new(),
+                config: Value::Null,
+                editor,
+                data,
+            },
+            services,
+            target,
+        )
     }
-
-    /// Run a qualified command. Unknown commands are left to the editor's registry.
     pub fn call_command(
-        &mut self,
+        &self,
         name: &str,
         args: Vec<String>,
         editor: EditorContext,
-    ) -> Result<Option<Response>> {
-        self.call_command_with_data(name, args, editor, Value::Null)
+        services: Arc<dyn HostServices>,
+    ) -> Result<Option<Completion>, ServiceError> {
+        self.call_command_with_data(name, args, editor, Value::Null, services)
     }
-
     pub fn call_command_with_data(
-        &mut self,
+        &self,
         name: &str,
         args: Vec<String>,
         editor: EditorContext,
         data: Value,
-    ) -> Result<Option<Response>> {
+        services: Arc<dyn HostServices>,
+    ) -> Result<Option<Completion>, ServiceError> {
+        let target = InvocationTarget::from_context(&editor);
+        self.call_command_with_target(name, args, editor, data, services, target)
+    }
+    pub fn call_command_with_target(
+        &self,
+        name: &str,
+        args: Vec<String>,
+        editor: EditorContext,
+        data: Value,
+        services: Arc<dyn HostServices>,
+        target: InvocationTarget,
+    ) -> Result<Option<Completion>, ServiceError> {
         let Some((plugin_name, command)) = name.split_once('.') else {
             return Ok(None);
         };
-        let Some(plugin) = self.plugins.get_mut(plugin_name) else {
+        let Some(plugin) = self.plugins.get(plugin_name) else {
             return Ok(None);
         };
         if !plugin.manifest.commands.contains_key(command) {
             return Ok(None);
         }
-        let request = Request {
-            abi_version: ABI_VERSION,
-            event: Event::Command,
-            command: Some(command.to_owned()),
-            args,
-            config: plugin.config.clone(),
-            editor,
-            data,
-        };
         plugin
-            .call(&request)
-            .map(Some)
-            .with_context(|| format!("plugin '{plugin_name}' command '{command}'"))
-    }
-
-    /// Dispatch lifecycle and subscribed editor events in configured-name order.
-    pub fn dispatch_event(
-        &mut self,
-        event: Event,
-        editor: EditorContext,
-        data: Value,
-    ) -> Vec<(String, Result<Response>)> {
-        self.plugins
-            .iter_mut()
-            .filter(|(_, plugin)| plugin.subscribes(event))
-            .map(|(name, plugin)| {
-                let request = Request {
+            .call(
+                Request {
                     abi_version: ABI_VERSION,
-                    event,
-                    command: None,
-                    args: Vec::new(),
-                    config: plugin.config.clone(),
-                    editor: editor.clone(),
-                    data: data.clone(),
-                };
-                (name.clone(), plugin.call(&request))
-            })
-            .collect()
+                    event: Event::Command,
+                    command: Some(command.into()),
+                    args,
+                    config: Value::Null,
+                    editor,
+                    data,
+                },
+                services,
+                target,
+            )
+            .map(Some)
+    }
+    pub fn job_target(&self, name: &str, job: u64) -> Option<InvocationTarget> {
+        self.plugins.get(name)?.actor.as_ref()?.job_target(job)
+    }
+    pub fn cancel_target(&self, document: Option<u64>, view: Option<u64>) {
+        for plugin in self.plugins.values() {
+            if let Some(actor) = &plugin.actor {
+                actor.cancel_target(document, view);
+            }
+        }
+    }
+    pub fn revoke(&self) {
+        self.revoked.cancel();
+        for plugin in self.plugins.values() {
+            plugin.policy.revoke();
+            if let Some(actor) = &plugin.actor {
+                actor.revoke();
+            }
+        }
+    }
+    pub async fn shutdown(&self) -> Result<(), ServiceError> {
+        self.revoke();
+        let results = futures_util::future::join_all(
+            self.plugins
+                .values()
+                .filter_map(|plugin| plugin.actor.as_ref())
+                .map(|actor| actor.shutdown()),
+        )
+        .await;
+        results
+            .into_iter()
+            .find_map(Result::err)
+            .map_or(Ok(()), Err)
     }
 }
-
+impl Drop for PluginManager {
+    fn drop(&mut self) {
+        self.revoke();
+    }
+}
 impl PluginSystem for PluginManager {
     fn available_commands(&self) -> Vec<PluginCommand> {
         self.available_commands()
     }
-
     fn get_doc_for_identifier(&self, identifier: &str) -> Option<String> {
         self.get_doc_for_identifier(identifier)
     }
 }
 
-struct Plugin {
-    manifest: Manifest,
-    config: Value,
-    instance: Option<Guest>,
-    policy: Arc<policy::AccessPolicy>,
-}
-
-impl Drop for Plugin {
-    fn drop(&mut self) {
-        self.policy.revoke();
+fn check_cancel(cancel: &CancellationToken) -> Result<(), ServiceError> {
+    if cancel.is_cancelled() {
+        Err(ServiceError::new(
+            ErrorCode::Cancelled,
+            "plugin package preparation cancelled",
+        ))
+    } else {
+        Ok(())
     }
 }
+fn prepare_packages(
+    configs: BTreeMap<String, PluginConfig>,
+    base: PathBuf,
+    generation: u64,
+    mut pool: Option<WorkerPool>,
+    preparing: Arc<AtomicBool>,
+    cancel: CancellationToken,
+) -> Result<PreparedManager, ServiceError> {
+    if configs.values().filter(|config| config.enabled).count() > MAX_PLUGINS {
+        return Err(ServiceError::new(
+            ErrorCode::ResourceExhausted,
+            format!("too many enabled plugins (limit {MAX_PLUGINS})"),
+        ));
+    }
+    let mut packages = BTreeMap::new();
+    let mut source_bytes = 0usize;
+    for (name, config) in configs {
+        if !config.enabled {
+            continue;
+        }
+        check_cancel(&cancel)?;
+        let package = Package::load(&name, &config, &base).map_err(|cause| {
+            ServiceError::new(
+                ErrorCode::InvalidRequest,
+                format!("plugin '{name}': {cause:#}"),
+            )
+        })?;
+        source_bytes =
+            source_bytes.saturating_add(package.bytes.as_ref().map_or(0, |bytes| bytes.len()));
+        if source_bytes > MAX_PACKAGE_SET_BYTES {
+            return Err(ServiceError::new(
+                ErrorCode::ResourceExhausted,
+                "plugin replacement source exceeds 64 MiB",
+            ));
+        }
+        packages.insert(
+            name,
+            PreparedPackage {
+                package,
+                instance: None,
+            },
+        );
+    }
+    check_cancel(&cancel)?;
+    if packages
+        .values()
+        .any(|package| package.package.bytes.is_some())
+        && pool.is_none()
+    {
+        pool = Some(WorkerPool::new()?);
+    }
+    let mut prepared = PreparedManager {
+        packages,
+        pool,
+        preparing,
+        generation,
+    };
+    for (name, package) in &mut prepared.packages {
+        let Some(bytes) = package.package.bytes.take() else {
+            continue;
+        };
+        check_cancel(&cancel)?;
+        let preparation = prepared.pool.as_ref().unwrap().prepare(
+            bytes,
+            generation,
+            package.package.policy.declared.clone(),
+            package.package.policy.permissions.capabilities.clone(),
+        )?;
+        package.instance = Some(futures_executor::block_on(async {
+            tokio::select! { _ = cancel.cancelled() => Err(ServiceError::new(ErrorCode::Cancelled, "plugin package preparation cancelled")), result = preparation => result }
+        }).map_err(|error| ServiceError::new(error.code, format!("plugin '{name}': {}", error.message)))?);
+    }
+    check_cancel(&cancel)?;
+    // An all-disabled/declarative replacement need not retain the old executor.
+    if prepared
+        .packages
+        .values()
+        .all(|package| package.instance.is_none())
+    {
+        prepared.pool = None;
+    }
+    Ok(prepared)
+}
 
-impl Plugin {
-    fn load(engine: &Engine, name: &str, config: &PluginConfig, base: &Path) -> Result<Self> {
+struct Package {
+    manifest: Manifest,
+    config: Arc<str>,
+    policy: Arc<policy::AccessPolicy>,
+    bytes: Option<Arc<[u8]>>,
+}
+impl Package {
+    fn load(name: &str, config: &PluginConfig, base: &Path) -> Result<Self> {
         ensure!(
             valid_identifier(name),
             "invalid plugin name (use letters, digits, '-' or '_')"
@@ -394,81 +631,76 @@ impl Plugin {
             manifest.commands.keys().all(|name| valid_identifier(name)),
             "invalid command name (use letters, digits, '-' or '_')"
         );
-        ensure!(
-            !manifest.module.as_os_str().is_empty()
-                && manifest
-                    .module
-                    .components()
-                    .all(|part| matches!(part, Component::Normal(_))),
-            "module must be a relative path within the plugin directory"
-        );
-        let bytes = package.read_bounded(&manifest.module, MAX_MODULE_BYTES)?;
-        if let Some(pin) = &config.sha256 {
+        let prepared_config: Arc<str> = component::bounded_json(&config.config, 64 * 1024)?.into();
+        let bytes = if let Some(module) = &manifest.module {
             ensure!(
-                pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()),
-                "sha256 must contain 64 hexadecimal digits"
+                !module.as_os_str().is_empty()
+                    && module
+                        .components()
+                        .all(|part| matches!(part, Component::Normal(_))),
+                "module must be a relative path within the plugin directory"
             );
-            let digest: String = Sha256::digest(&bytes)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
+            let bytes = package.read_bounded(module, MAX_MODULE_BYTES)?;
             ensure!(
-                digest.eq_ignore_ascii_case(pin),
-                "module SHA-256 does not match the user's package pin"
+                bytes.starts_with(b"\0asm"),
+                "module must be a WebAssembly binary component"
             );
-        }
-        // Reject text-format modules even when Wasmi's optional WAT feature is enabled elsewhere.
-        ensure!(
-            bytes.starts_with(b"\0asm"),
-            "module must be a WebAssembly binary"
-        );
-        let module = Module::new(engine, &bytes).context("invalid WebAssembly module")?;
-        ensure!(
-            module.imports().next().is_none(),
-            "plugin modules must not import host or WASI functions"
-        );
-        let limits = StoreLimitsBuilder::new()
-            .memory_size(MAX_MEMORY_BYTES)
-            .memories(1)
-            .table_elements(4096)
-            .tables(1)
-            .instances(1)
-            .trap_on_grow_failure(true)
-            .build();
-        let mut store = Store::new(engine, limits);
-        store.limiter(|limits| limits);
-        store.set_fuel(FUEL_PER_CALL)?;
-        let instance = Linker::<StoreLimits>::new(engine)
-            .instantiate_and_start(&mut store, &module)
-            .context("instantiating WebAssembly plugin")?;
-        let memory = instance
-            .get_memory(&store, "memory")
-            .context("missing 'memory' export")?;
-        let alloc = instance
-            .get_typed_func(&store, "mitos_alloc")
-            .context("missing or invalid 'mitos_alloc' export")?;
-        let dealloc = instance
-            .get_typed_func(&store, "mitos_dealloc")
-            .context("missing or invalid 'mitos_dealloc' export")?;
-        let call = instance
-            .get_typed_func(&store, "mitos_call")
-            .context("missing or invalid 'mitos_call' export")?;
+            if let Some(pin) = &config.sha256 {
+                ensure!(
+                    pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                    "sha256 must contain 64 hexadecimal digits"
+                );
+                let digest: String = Sha256::digest(&bytes)
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                ensure!(
+                    digest.eq_ignore_ascii_case(pin),
+                    "module SHA-256 does not match the user's package pin"
+                );
+            }
+            Some(bytes.into())
+        } else {
+            ensure!(
+                manifest.commands.is_empty() && manifest.events.is_empty(),
+                "commands and event hooks require a component module"
+            );
+            ensure!(
+                config.sha256.is_none(),
+                "a module digest pin requires a component module"
+            );
+            None
+        };
         Ok(Self {
             manifest,
-            config: config.config.clone(),
+            config: prepared_config,
             policy,
-            instance: Some(Guest {
-                store,
-                memory,
-                alloc,
-                dealloc,
-                call,
-            }),
+            bytes,
         })
     }
+}
 
+struct Plugin {
+    manifest: Manifest,
+    config: Arc<str>,
+    policy: Arc<policy::AccessPolicy>,
+    actor: Option<worker::PluginActor>,
+}
+impl Drop for Plugin {
+    fn drop(&mut self) {
+        self.policy.revoke();
+        if let Some(actor) = &self.actor {
+            actor.revoke();
+        }
+    }
+}
+impl Plugin {
+    fn active(&self) -> bool {
+        self.actor.as_ref().is_some_and(|actor| actor.is_active())
+            && self.policy.check_live().is_ok()
+    }
     fn subscribes(&self, event: Event) -> bool {
-        self.instance.is_some()
+        self.active()
             && (!observes_editor_state(event)
                 || self.policy.require(Capability::EditorRead).is_ok())
             && (matches!(
@@ -480,144 +712,48 @@ impl Plugin {
                     | Event::UiResult
                     | Event::BuiltinResult
                     | Event::KeymapResult
+                    | Event::JobReady
             ) || self.manifest.events.contains(&event))
     }
-
-    fn call(&mut self, request: &Request) -> Result<Response> {
+    fn call(
+        &self,
+        mut request: Request,
+        services: Arc<dyn HostServices>,
+        target: InvocationTarget,
+    ) -> Result<Completion, ServiceError> {
         self.policy.check_live()?;
-        ensure!(
-            self.instance.is_some(),
-            "disabled after a previous failure; use :plugin-reload to reload"
-        );
-        // A host snapshot that is too large is not a guest failure.
-        let request = if self.policy.require(Capability::EditorRead).is_ok() {
-            Cow::Borrowed(request)
-        } else {
-            Cow::Owned(Request {
-                abi_version: request.abi_version,
-                event: request.event,
-                command: request.command.clone(),
-                args: request.args.clone(),
-                config: request.config.clone(),
-                editor: EditorContext {
-                    generation: request.editor.generation,
-                    mode: request.editor.mode.clone(),
-                    ..EditorContext::default()
-                },
-                data: if matches!(
-                    request.event,
-                    Event::Command
-                        | Event::ResyncRequired
-                        | Event::UiResult
-                        | Event::BuiltinResult
-                        | Event::KeymapResult
-                ) {
-                    request.data.clone()
-                } else {
-                    Value::Null
-                },
-            })
-        };
-        let mut bytes = BoundedBytes::default();
-        serde_json::to_writer(&mut bytes, request.as_ref())
-            .context("serializing plugin request (limit 4 MiB)")?;
-        let result = self.instance.as_mut().unwrap().call(&bytes.0);
-        if result.is_err() {
-            // Discard the entire instance, including allocations left behind by a trap.
-            self.instance = None;
-            self.policy.revoke();
+        if self.policy.require(Capability::EditorRead).is_err() {
+            request.editor.document = None;
+            request.editor.view = None;
+            if !matches!(
+                request.event,
+                Event::Command
+                    | Event::ResyncRequired
+                    | Event::UiResult
+                    | Event::BuiltinResult
+                    | Event::KeymapResult
+                    | Event::JobReady
+            ) {
+                request.data = Value::Null;
+            }
         }
-        result
+        self.actor
+            .as_ref()
+            .ok_or_else(|| {
+                ServiceError::new(
+                    ErrorCode::UnsupportedInterface,
+                    "package has no executable component",
+                )
+            })?
+            .invoke_configured(request, services, target, Some(self.config.clone()))
     }
 }
-
-struct Guest {
-    store: Store<StoreLimits>,
-    memory: Memory,
-    alloc: TypedFunc<i32, i32>,
-    dealloc: TypedFunc<(i32, i32), ()>,
-    call: TypedFunc<(i32, i32), i64>,
-}
-
-impl Guest {
-    fn call(&mut self, request: &[u8]) -> Result<Response> {
-        self.store.set_fuel(FUEL_PER_CALL)?;
-        let input_len = i32::try_from(request.len())?;
-        let input_ptr = self
-            .alloc
-            .call(&mut self.store, input_len)
-            .context("allocating guest request")?;
-        let input_range = self.buffer_range(input_ptr as u32, request.len())?;
-        self.memory
-            .write(&mut self.store, input_range.start, request)
-            .context("writing guest request")?;
-        let output = self
-            .call
-            .call(&mut self.store, (input_ptr, input_len))
-            .context("executing guest handler")? as u64;
-        let output_ptr = (output >> 32) as u32;
-        let output_len = (output & u32::MAX as u64) as usize;
-        ensure!(
-            output_len > 0 && output_len <= MAX_MESSAGE_BYTES,
-            "invalid response length {output_len} (limit 4 MiB)"
-        );
-        let output_range = self.buffer_range(output_ptr, output_len)?;
-        ensure!(
-            input_range.end <= output_range.start || output_range.end <= input_range.start,
-            "response buffer overlaps the borrowed request buffer"
-        );
-        let response: Response =
-            serde_json::from_slice(&self.memory.data(&self.store)[output_range])
-                .context("invalid plugin response JSON")?;
-        ensure!(
-            response.actions.len() <= MAX_ACTIONS,
-            "too many plugin actions (limit {MAX_ACTIONS})"
-        );
-        self.dealloc
-            .call(&mut self.store, (output_ptr as i32, output_len as i32))
-            .context("freeing guest response")?;
-        self.dealloc
-            .call(&mut self.store, (input_ptr, input_len))
-            .context("freeing guest request")?;
-        Ok(response)
-    }
-
-    fn buffer_range(&self, pointer: u32, length: usize) -> Result<std::ops::Range<usize>> {
-        let start = pointer as usize;
-        let end = start
-            .checked_add(length)
-            .context("guest buffer range overflow")?;
-        ensure!(
-            end <= self.memory.data_size(&self.store),
-            "guest buffer is outside linear memory"
-        );
-        Ok(start..end)
-    }
-}
-
 fn valid_identifier(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
-#[derive(Default)]
-struct BoundedBytes(Vec<u8>);
-
-impl Write for BoundedBytes {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > MAX_MESSAGE_BYTES - self.0.len() {
-            return Err(io::Error::other("plugin request exceeds 4 MiB"));
-        }
-        self.0.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 #[cfg(test)]

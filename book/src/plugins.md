@@ -1,10 +1,14 @@
 # WebAssembly plugins
 
-Mitos plugins are core WebAssembly modules. They run in Wasmi and receive an
-owned snapshot of the editor through a JSON protocol. A plugin can edit the
-document, change selections, open a path, and show status or error messages.
-Plugins can be written in any language that implements the memory ABI; a Rust
-SDK and an example are included in the source repository.
+Mitos plugins are WebAssembly components with a versioned WIT interface.
+They run in a lean Wasmtime host on dedicated workers and receive document/view
+metadata with explicit revisions. Text is read through bounded host services;
+status commands do not copy the current document. The Rust SDK supplies generated
+bindings, owned request types, and an `export_plugin!` macro. Other languages can
+generate bindings from `crates/plugin-api/wit/plugin.wit`.
+
+The API is experimental. The old core-WASM allocator/JSON ABI is retired;
+rebuild prototype plugins with the component SDK.
 
 ## Installing and configuring a plugin
 
@@ -56,8 +60,8 @@ automatically run modules from a workspace directory.
 This is the manifest for the example plugin:
 
 ```toml
-abi-version = 2
-module = "uppercase.wasm"
+abi-version = 3
+module = "uppercase.component.wasm"
 capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
 
 [commands.uppercase]
@@ -70,8 +74,8 @@ subscribe to editor events with a top-level `events` list, before the command
 tables:
 
 ```toml
-abi-version = 2
-module = "my-plugin.wasm"
+abi-version = 3
+module = "my-plugin.component.wasm"
 events = ["document-saved", "selection-changed"]
 
 [commands.example]
@@ -90,7 +94,8 @@ invocations are dispatched from the manifest's command declarations.
 
 The source repository's `crates/plugin-sdk` crate supplies request and response
 types and an `export_plugin!` macro. Compile a `cdylib` for
-`wasm32-unknown-unknown`; WASI modules are not supported.
+`wasm32-unknown-unknown`, then package its embedded interface metadata into a
+component. This world imports no WASI interfaces or ambient filesystem services.
 
 ```rust
 use plugin_sdk::{Action, Event, Request, Response, export_plugin};
@@ -121,8 +126,9 @@ cargo build --manifest-path examples/plugins/uppercase/Cargo.toml \
   --target wasm32-unknown-unknown --release --locked
 mkdir -p ~/.config/mitos/plugins/uppercase
 cp examples/plugins/uppercase/plugin.toml ~/.config/mitos/plugins/uppercase/
-cp examples/plugins/uppercase/target/wasm32-unknown-unknown/release/uppercase.wasm \
-  ~/.config/mitos/plugins/uppercase/
+cargo run --manifest-path tools/plugin-pack/Cargo.toml --locked -- \
+  examples/plugins/uppercase/target/wasm32-unknown-unknown/release/uppercase.wasm \
+  ~/.config/mitos/plugins/uppercase/uppercase.component.wasm
 ```
 
 Add the configuration above, reload it, select text, and run
@@ -130,13 +136,14 @@ Add the configuration above, reload it, select text, and run
 
 ## Protocol and limits
 
-The ABI exports linear `memory`, `mitos_alloc(i32) -> i32`,
-`mitos_dealloc(i32, i32)`, and `mitos_call(i32, i32) -> i64`. Request and response
-buffers hold UTF-8 JSON. The response packs its address into the upper 32 bits
-and its byte length into the lower 32 bits. The host owns and frees both buffers;
-the plugin only reads the input and allocates the output. The SDK implements
-this contract for Rust guests. Its README documents the full JSON schema for
-other languages.
+The component exports the typed `handle` function from `mitos:plugin@0.1.0`.
+Generated canonical bindings lift the request and call capability-checked imports.
+Edits and other effects stream through bounded resources; finishing a resource
+stages its contents. The host applies effects only after successful handler
+completion and full editor preflight. Traps and rejected batches discard staged
+edits. Configuration and event-specific data remain bounded JSON inside the
+versioned interface. Packages supply source components; guest-provided native
+compiled artifacts are never accepted.
 
 Document offsets count Unicode scalar values, matching Mitos's text coordinates.
 An edit replaces the half-open range `start..end` and includes the original
@@ -180,16 +187,30 @@ Character hooks cover ordinary insertion and macro replay;
 bulk paste is observed through document changes. Hooks are observations and must
 validate revisions before editing in response.
 
-The initial API provides synchronous commands and hooks. It has no WASI or
-ambient filesystem/network access, arbitrary editor-command execution, custom
-UI, LSP calls, Tree-sitter handles, or asynchronous jobs. Opening a path is an
-explicit editor action. Each instance has a 64 MiB memory limit and each
-invocation has a 10 million fuel budget. Document snapshots are limited to 2 MiB
-of text. JSON requests and responses are limited to 4 MiB and responses to 256
-actions. Modules are limited to 16 MiB, manifests
-to 64 KiB, and Wasm tables to 4096 elements. A document that exceeds the snapshot
-limit cannot be delivered to a plugin, and heavily escaped JSON can reach the
-message limit even with a smaller document.
+Guest execution is serialized per instance on two dedicated workers. An
+independent 2 ms epoch ticker provides yielding and interrupt progress; each
+invocation also has a five-second deadline. Reload, target close, and shutdown
+cancel obsolete work and await owned job cleanup. Typed permission/stale-state
+errors preserve a healthy instance; guest traps or interruption discard its store.
+Replacement packages prepare off-thread before the editor switches generations.
+A failed replacement leaves the previous generation active.
+
+The host lazily creates the engine only when executable plugins are enabled.
+Source components are capped at 16 MiB. Guest memory is bounded to an aggregate
+64 MiB per store and 256 MiB per worker pool across component memories. Effects
+are limited to 256 actions, 4,096 entries, and 4 MiB retained bytes. Calls,
+compilation, cached code, handles, jobs, and completed results have separate
+budgets. Each region read is bounded to 4 MiB and requires its live text version.
+One retained source snapshot is admitted per editor, including across reloads,
+with a 128 MiB source limit. Oversized selections are rejected before allocation.
+A saved event describes the written version; if the document has changed since
+then, reading that old version returns `stale-state` rather than retaining
+unbounded historical buffers. See the [runtime limits](../../crates/plugins/RUNTIME.md)
+and [permission policy](./plugin-permissions.md) for the full boundary.
+
+In-process guest limits do not promise hard editor-process RSS containment:
+compilation and canonical string lifting use host allocations. Explicitly granted
+native tools execute with operating-system authority outside WASM memory isolation.
 
 This integration adapts the lifecycle, command registration, and event-hook
 boundaries of [Helix PR #8675](https://github.com/helix-editor/helix/pull/8675),

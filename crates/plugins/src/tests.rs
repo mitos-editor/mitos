@@ -1,33 +1,31 @@
-use std::fs;
+use std::{fs, sync::Arc};
 
-use plugin_api::Action;
+use plugin_api::{Action, HostFuture, HostServices, ReadRequest};
 use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
 
-const MANIFEST: &str = r#"
-abi-version = 2
-module = "plugin.wasm"
-capabilities = ["ui", "editor-read"]
-events = ["document-opened"]
-[commands.run]
-doc = "Run the example command"
-"#;
-const REQUEST_POINTER: usize = 32768;
-
-fn fixture(manifest: &str, module: &str) -> (TempDir, PluginConfig) {
+fn wasm() -> Vec<u8> {
+    wit_component::ComponentEncoder::default()
+        .module(include_bytes!("../tests/fixtures/component-guest.wasm"))
+        .unwrap()
+        .validate(true)
+        .encode()
+        .unwrap()
+}
+fn manifest() -> String {
+    format!(
+        "abi-version = {ABI_VERSION}\nmodule = 'plugin.wasm'\ncapabilities = ['ui', 'editor-read']\nevents = ['document-opened']\n[commands.status]\ndoc = 'Report plugin state'\n[commands.loop]\ndoc = 'Fault fixture'\n"
+    )
+}
+fn fixture(manifest: &str, bytes: &[u8]) -> (TempDir, PluginConfig) {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("plugin.toml"), manifest).unwrap();
-    fs::write(
-        directory.path().join("plugin.wasm"),
-        wat::parse_str(module).unwrap(),
-    )
-    .unwrap();
+    fs::write(directory.path().join("plugin.wasm"), bytes).unwrap();
     let config = PluginConfig {
         path: directory.path().join("plugin.toml"),
-        enabled: true,
-        config: json!({ "prefix": "example" }),
+        config: json!({"prefix": "example"}),
         permissions: Permissions {
             capabilities: [Capability::Ui, Capability::EditorRead].into(),
             ..Permissions::default()
@@ -36,342 +34,275 @@ fn fixture(manifest: &str, module: &str) -> (TempDir, PluginConfig) {
     };
     (directory, config)
 }
-
-fn module(response: &str, body: &str) -> String {
-    let data: String = response
-        .bytes()
-        .map(|byte| format!("\\{byte:02x}"))
-        .collect();
-    format!(
-        r#"(module
-            (memory (export "memory") 1)
-            (global $calls (mut i32) (i32.const 0))
-            (data (i32.const 16) "{data}")
-            (func (export "mitos_alloc") (param i32) (result i32) i32.const {REQUEST_POINTER})
-            (func (export "mitos_dealloc") (param i32 i32))
-            (func (export "mitos_call") (param $ptr i32) (param $len i32) (result i64)
-                {body}
-                i64.const {}
-            )
-        )"#,
-        (16_u64 << 32) | response.len() as u64
-    )
-}
-
-fn load_manager(config: PluginConfig) -> PluginManager {
-    let (manager, errors) = PluginManager::load(
-        &BTreeMap::from([("example".into(), config)]),
-        Path::new("."),
-    );
-    assert!(errors.is_empty(), "{errors:?}");
+async fn load(config: PluginConfig) -> PluginManager {
+    let manager = PluginManager::default();
     manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            1,
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .activate()
+        .unwrap()
+}
+struct Services;
+impl HostServices for Services {
+    fn read_document(&self, _request: ReadRequest) -> HostFuture<String> {
+        Box::pin(async {
+            Err(ServiceError::new(
+                ErrorCode::UnsupportedInterface,
+                "unexpected read",
+            ))
+        })
+    }
+}
+fn context(generation: u64) -> EditorContext {
+    EditorContext {
+        generation,
+        mode: "normal".into(),
+        ..EditorContext::default()
+    }
+}
+async fn command(manager: &PluginManager) -> CompletedResponse {
+    manager
+        .call_command(
+            "example.status",
+            vec![],
+            context(manager.generation()),
+            Arc::new(Services),
+        )
+        .unwrap()
+        .unwrap()
+        .await
+        .unwrap()
 }
 
-fn command(manager: &mut PluginManager) -> Result<Option<Response>> {
-    manager.call_command("example.run", vec![], EditorContext::default())
-}
-
-#[test]
-fn module_pins_and_permission_revocation_reject_replacements_and_calls() {
-    let (_directory, mut config) = fixture(MANIFEST, &module("{}", ""));
-    config.sha256 = Some("0".repeat(64));
-    let (manager, errors) = PluginManager::load(
-        &BTreeMap::from([("example".into(), config)]),
-        Path::new("."),
+#[tokio::test]
+async fn commands_are_documented_and_real_guest_state_persists() {
+    let (_directory, config) = fixture(&manifest(), &wasm());
+    let manager = load(config).await;
+    assert_eq!(manager.available_commands().len(), 2);
+    assert_eq!(
+        manager.get_doc_for_identifier("example.status").as_deref(),
+        Some("Report plugin state")
     );
-    assert!(manager.available_commands().is_empty());
-    assert!(errors[0].contains("SHA-256"));
-
-    let (_directory, config) = fixture(MANIFEST, &module("{}", ""));
-    let mut manager = load_manager(config);
-    manager.policy("example").unwrap().revoke();
-    assert!(command(&mut manager).is_err());
-    assert!(!manager.subscribes(Event::DocumentOpened));
+    assert!(manager
+        .call_command("native-command", vec![], context(1), Arc::new(Services))
+        .unwrap()
+        .is_none());
+    for expected in ["call 1", "call 2"] {
+        let response = command(&manager).await;
+        assert!(matches!(&response.actions[0], Action::Status { message } if message == expected));
+    }
+    manager.shutdown().await.unwrap();
 }
 
-#[test]
-fn document_observation_requires_declaration_and_user_grant() {
-    let (_directory, mut config) = fixture(MANIFEST, &module("{}", ""));
-    config.permissions = Permissions::default();
-    let mut manager = load_manager(config);
-    assert!(!manager.subscribes(Event::DocumentOpened));
+#[tokio::test]
+async fn configuration_is_bounded_and_prepared_once_off_editor_path() {
+    let declared = format!("{}[commands.config]\ndoc = 'Inspect config'\n", manifest());
+    let (_directory, mut config) = fixture(&declared, &wasm());
+    let manager = load(config.clone()).await;
+    let response = manager
+        .call_command("example.config", vec![], context(1), Arc::new(Services))
+        .unwrap()
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(
+        matches!(&response.actions[0], Action::Status { message } if message == r#"{"prefix":"example"}"#)
+    );
+    config.config = json!({"large": "x".repeat(64 * 1024)});
     assert!(manager
-        .dispatch_event(Event::DocumentOpened, EditorContext::default(), Value::Null)
-        .is_empty());
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            2
+        )
+        .unwrap()
+        .await
+        .is_err());
+    assert!(manager.subscribes(Event::Init));
+    manager.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn digest_or_component_failure_preserves_old_generation_and_reuses_pool() {
+    let (_directory, config) = fixture(&manifest(), &wasm());
+    let manager = load(config.clone()).await;
+    drop(command(&manager).await);
+    let mut pinned = config.clone();
+    pinned.sha256 = Some("0".repeat(64));
+    let failure = manager
+        .prepare(
+            BTreeMap::from([("example".into(), pinned)]),
+            PathBuf::from("."),
+            2,
+        )
+        .unwrap()
+        .await
+        .err()
+        .unwrap();
+    assert!(failure.message.contains("SHA-256"));
+    let response = command(&manager).await;
+    assert!(matches!(&response.actions[0], Action::Status { message } if message == "call 2"));
+    let prepared = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            PathBuf::from("."),
+            2,
+        )
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(manager
+        .pool
+        .as_ref()
+        .unwrap()
+        .same_executor(prepared.pool.as_ref().unwrap()));
+    let replacement = prepared.activate().unwrap();
+    assert_eq!(replacement.generation(), 2);
+    drop(command(&replacement).await);
+    manager.shutdown().await.unwrap();
+    replacement.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_package_rejects_the_whole_replacement_without_activating_partial_set() {
+    let (_directory, config) = fixture(&manifest(), &wasm());
+    let (invalid_directory, invalid) = fixture(&manifest(), b"not a component");
+    let manager = PluginManager::default();
+    let failure = manager
+        .prepare(
+            BTreeMap::from([("good".into(), config), ("bad".into(), invalid)]),
+            PathBuf::from("."),
+            1,
+        )
+        .unwrap()
+        .await
+        .err()
+        .unwrap();
+    assert!(failure.message.contains("bad"));
+    assert!(manager.available_commands().is_empty());
+    assert!(manager.pool.is_none());
+    fs::write(
+        invalid_directory.path().join("plugin.wasm"),
+        wat::parse_str("(module)").unwrap(),
+    )
+    .unwrap();
+    let config = PluginConfig {
+        path: invalid_directory.path().join("plugin.toml"),
+        ..PluginConfig::default()
+    };
+    assert!(manager
+        .prepare(
+            BTreeMap::from([("old-core-abi".into(), config)]),
+            PathBuf::from("."),
+            1
+        )
+        .unwrap()
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn observation_requires_both_grants_and_declaration_and_revocation_is_immediate() {
+    let (_directory, mut config) = fixture(&manifest(), &wasm());
+    config.permissions = Permissions::default();
+    let manager = load(config).await;
+    assert!(!manager.subscribes(Event::DocumentOpened));
     assert!(manager.subscribes(Event::Init));
     assert!(manager.subscribes(Event::UiResult));
-}
-
-#[test]
-fn commands_are_documented_and_receive_their_request() {
-    let (_directory, config) = fixture(MANIFEST, &module("{}", ""));
-    let mut manager = load_manager(config);
-    assert_eq!(
-        manager.available_commands(),
-        vec![PluginCommand {
-            name: "example.run".into(),
-            doc: "Run the example command".into(),
-        }]
-    );
-    assert_eq!(
-        manager.get_doc_for_identifier("example.run"),
-        Some("Run the example command".into())
-    );
-    assert!(manager
-        .call_command("unknown.run", vec![], EditorContext::default())
-        .unwrap()
-        .is_none());
-    assert!(manager
-        .call_command("example.missing", vec![], EditorContext::default())
-        .unwrap()
-        .is_none());
-
-    let editor = EditorContext {
-        mode: "insert".into(),
-        document: None,
-        ..EditorContext::default()
-    };
-    let args = vec!["argument".into()];
+    manager.policy("example").unwrap().revoke();
+    assert!(!manager.subscribes(Event::Init));
+    assert!(manager.available_commands().is_empty());
     assert_eq!(
         manager
-            .call_command("example.run", args.clone(), editor.clone())
-            .unwrap(),
-        Some(Response::default())
+            .call_command("example.status", vec![], context(1), Arc::new(Services))
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::Cancelled
     );
-
-    let expected = Request {
-        abi_version: ABI_VERSION,
-        event: Event::Command,
-        command: Some("run".into()),
-        args,
-        config: json!({ "prefix": "example" }),
-        editor,
-        data: Value::Null,
-    };
-    let length = serde_json::to_vec(&expected).unwrap().len();
-    let guest = manager.plugins["example"].instance.as_ref().unwrap();
-    let request: Request = serde_json::from_slice(
-        &guest.memory.data(&guest.store)[REQUEST_POINTER..REQUEST_POINTER + length],
-    )
-    .unwrap();
-    assert_eq!(request, expected);
+    manager.shutdown().await.unwrap();
 }
 
-#[test]
-fn guest_state_persists_and_only_subscribed_events_run() {
-    let response = r#"{"actions":[{"type":"status","message":"0"}]}"#;
-    let position = 16 + response.find("\"0\"").unwrap() + 1;
-    let body = format!(
-        r#"
-        global.get $calls
-        i32.const 1
-        i32.add
-        global.set $calls
-        i32.const {position}
-        global.get $calls
-        i32.const 48
-        i32.add
-        i32.store8
-    "#
-    );
-    let (_directory, config) = fixture(MANIFEST, &module(response, &body));
-    let mut manager = load_manager(config);
-    assert!(manager.subscribes(Event::Init));
-    assert!(manager.subscribes(Event::Shutdown));
-    assert!(manager.subscribes(Event::DocumentOpened));
-    assert!(!manager.subscribes(Event::DocumentChanged));
-    assert!(manager
-        .dispatch_event(
-            Event::DocumentChanged,
-            EditorContext::default(),
-            Value::Null
-        )
-        .is_empty());
-    let init = manager.dispatch_event(Event::Init, EditorContext::default(), Value::Null);
+#[tokio::test]
+async fn dropping_manager_revokes_grants_and_callbacks_cannot_resurrect_actor() {
+    let (_directory, config) = fixture(&manifest(), &wasm());
+    let manager = load(config).await;
+    let policy = manager.policy("example").unwrap();
+    let actor = manager.plugins["example"].actor.as_ref().unwrap().clone();
+    drop(manager);
+    assert!(!actor.is_active());
     assert_eq!(
-        init[0].1.as_ref().unwrap().actions,
-        vec![Action::Status {
-            message: "1".into()
-        }]
+        policy.require(Capability::Ui).unwrap_err().code,
+        ErrorCode::Cancelled
     );
-    assert_eq!(
-        command(&mut manager).unwrap().unwrap().actions,
-        vec![Action::Status {
-            message: "2".into()
-        }]
-    );
-    let shutdown = manager.dispatch_event(Event::Shutdown, EditorContext::default(), Value::Null);
-    assert_eq!(
-        shutdown[0].1.as_ref().unwrap().actions,
-        vec![Action::Status {
-            message: "3".into()
-        }]
-    );
+    actor.shutdown().await.unwrap();
 }
 
-#[test]
-fn trapping_plugin_is_disabled_without_affecting_other_plugins() {
-    let (_bad_directory, bad) = fixture(MANIFEST, &module("{}", "(loop $again br $again)"));
-    let (_good_directory, good) = fixture(MANIFEST, &module("{}", ""));
-    let (mut manager, errors) = PluginManager::load(
-        &BTreeMap::from([("bad".into(), bad), ("good".into(), good)]),
-        Path::new("."),
-    );
-    assert!(errors.is_empty());
-    assert!(manager
-        .call_command("bad.run", vec![], EditorContext::default())
-        .is_err());
-    assert!(manager.plugins["bad"].instance.is_none());
-    assert!(manager
-        .call_command("bad.run", vec![], EditorContext::default())
-        .unwrap_err()
-        .to_string()
-        .contains("plugin 'bad'"));
-    assert_eq!(
-        manager
-            .call_command("good.run", vec![], EditorContext::default())
-            .unwrap(),
-        Some(Response::default())
-    );
-    assert!(manager.get_doc_for_identifier("bad.run").is_some());
-}
-
-#[test]
-fn allocation_and_deallocation_are_also_metered() {
-    let wasm = module("{}", "");
-    let allocation = wasm.replace(
-        &format!("(result i32) i32.const {REQUEST_POINTER}"),
-        &format!("(result i32) (loop $again br $again) i32.const {REQUEST_POINTER}"),
-    );
-    let deallocation = wasm.replace(
-        "(func (export \"mitos_dealloc\") (param i32 i32))",
-        "(func (export \"mitos_dealloc\") (param i32 i32) (loop $again br $again))",
-    );
-    for wasm in [allocation, deallocation] {
-        let (_directory, config) = fixture(MANIFEST, &wasm);
-        let mut manager = load_manager(config);
-        assert!(command(&mut manager).is_err());
-        assert!(manager.plugins["example"].instance.is_none());
-    }
-}
-
-#[test]
-fn invalid_guest_buffers_and_json_disable_the_instance() {
-    for body in [
-        format!("(return (i64.const {}))", (u64::from(u32::MAX) << 32) | 2),
-        format!(
-            "(return (i64.const {}))",
-            (16_u64 << 32) | (MAX_MESSAGE_BYTES as u64 + 1)
-        ),
-        format!(
-            "(return (i64.const {}))",
-            ((REQUEST_POINTER as u64) << 32) | 2
-        ),
-    ] {
-        let (_directory, config) = fixture(MANIFEST, &module("{}", &body));
-        let mut manager = load_manager(config);
-        assert!(command(&mut manager).is_err());
-        assert!(manager.plugins["example"].instance.is_none());
-    }
-    let (_directory, config) = fixture(MANIFEST, &module("not JSON", ""));
-    let mut manager = load_manager(config);
-    assert!(command(&mut manager).is_err());
-    assert!(manager.plugins["example"].instance.is_none());
-}
-
-#[test]
-fn oversized_host_requests_and_declared_errors_keep_the_plugin_active() {
-    let (_directory, config) = fixture(MANIFEST, &module(r#"{"error":"command failed"}"#, ""));
-    let mut manager = load_manager(config);
-    assert!(manager
-        .call_command(
-            "example.run",
-            vec!["x".repeat(MAX_MESSAGE_BYTES)],
-            EditorContext::default()
-        )
-        .is_err());
-    assert!(manager.plugins["example"].instance.is_some());
-    assert_eq!(
-        command(&mut manager).unwrap().unwrap().error,
-        Some("command failed".into())
-    );
-    assert!(manager.plugins["example"].instance.is_some());
-}
-
-#[test]
-fn memory_growth_and_action_count_are_limited() {
-    let (_directory, config) = fixture(MANIFEST, &module("{}", "i32.const 1024 memory.grow drop"));
-    let mut manager = load_manager(config);
-    assert!(command(&mut manager).is_err());
-    assert!(manager.plugins["example"].instance.is_none());
-
-    let response = serde_json::to_string(&Response {
-        actions: vec![
-            Action::Status {
-                message: String::new()
-            };
-            MAX_ACTIONS + 1
-        ],
-        error: None,
-    })
-    .unwrap();
-    let (_directory, config) = fixture(MANIFEST, &module(&response, ""));
-    let mut manager = load_manager(config);
-    let error = command(&mut manager).unwrap_err();
-    assert!(format!("{error:#}").contains("too many plugin actions"));
-}
-
-#[test]
-fn manifest_and_module_load_failures_are_isolated() {
-    for invalid in [
-        MANIFEST.replace("abi-version = 2", "abi-version = 1"),
-        MANIFEST.replace("abi-version = 2", "unknown-key = 1\nabi-version = 2"),
-        MANIFEST.replace("plugin.wasm", "../plugin.wasm"),
-        MANIFEST.replace("commands.run", "commands.'run.with.dots'"),
-    ] {
-        let (_directory, config) = fixture(&invalid, &module("{}", ""));
-        let (manager, errors) = PluginManager::load(
-            &BTreeMap::from([("example".into(), config)]),
-            Path::new("."),
-        );
-        assert_eq!(errors.len(), 1);
-        assert!(manager.available_commands().is_empty());
-    }
-    for invalid in [
-        "(module (memory (export \"memory\") 1))",
-        "(module (import \"wasi_snapshot_preview1\" \"fd_write\" (func)))",
-        "(module (memory (export \"memory\") 1025))",
-        "(module (table 4097 funcref))",
-        "(module (func $start (loop $again br $again)) (start $start))",
-    ] {
-        let (_bad_directory, bad) = fixture(MANIFEST, invalid);
-        let (_good_directory, good) = fixture(MANIFEST, &module("{}", ""));
-        let (manager, errors) = PluginManager::load(
-            &BTreeMap::from([("bad".into(), bad), ("good".into(), good)]),
-            Path::new("."),
-        );
-        assert_eq!(errors.len(), 1, "{errors:?}");
-        assert_eq!(manager.available_commands()[0].name, "good.run");
-    }
-}
-
-#[test]
-fn configuration_defaults_and_relative_manifest_paths_work() {
-    let (_directory, config) = fixture(MANIFEST, &module("{}", ""));
-    let mut config = config;
+#[tokio::test]
+async fn disabled_and_declarative_packages_need_no_executor_and_relative_paths_work() {
+    let (_directory, mut config) = fixture(&manifest(), &wasm());
     let base = config.path.parent().unwrap().to_owned();
     config.path = "plugin.toml".into();
-    let (manager, errors) =
-        PluginManager::load(&BTreeMap::from([("example".into(), config.clone())]), &base);
-    assert!(errors.is_empty());
-    assert_eq!(manager.available_commands()[0].name, "example.run");
+    let manager = PluginManager::default();
+    let configured = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config.clone())]),
+            base.clone(),
+            1,
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .activate()
+        .unwrap();
+    assert_eq!(configured.available_commands().len(), 2);
+    configured.shutdown().await.unwrap();
     config.enabled = false;
     config.path = "missing.toml".into();
-    let (manager, errors) =
-        PluginManager::load(&BTreeMap::from([("example".into(), config)]), &base);
-    assert!(errors.is_empty());
-    assert!(manager.available_commands().is_empty());
-    let config: PluginConfig = toml::from_str("path = 'plugin.toml'").unwrap();
-    assert!(config.enabled);
-    assert_eq!(config.config, Value::Null);
+    let disabled = manager
+        .prepare(
+            BTreeMap::from([("example".into(), config)]),
+            base.clone(),
+            2,
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .activate()
+        .unwrap();
+    assert!(disabled.pool.is_none());
+    assert!(disabled.available_commands().is_empty());
+    fs::write(
+        base.join("plugin.toml"),
+        format!("abi-version = {ABI_VERSION}\n"),
+    )
+    .unwrap();
+    let declarative = manager
+        .prepare(
+            BTreeMap::from([(
+                "example".into(),
+                PluginConfig {
+                    path: "plugin.toml".into(),
+                    ..PluginConfig::default()
+                },
+            )]),
+            base,
+            3,
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .activate()
+        .unwrap();
+    assert!(declarative.pool.is_none());
+    assert!(!declarative.subscribes(Event::Init));
+    let defaults: PluginConfig = toml::from_str("path = 'plugin.toml'").unwrap();
+    assert!(defaults.enabled);
+    assert_eq!(defaults.config, Value::Null);
 }

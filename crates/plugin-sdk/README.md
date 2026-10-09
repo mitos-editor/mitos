@@ -1,229 +1,99 @@
-# Mitos plugin SDK
+# plugin-sdk
 
-`plugin-api` defines the runtime-neutral owned protocol. `plugin-sdk` reexports
-its types and provides a Rust guest adapter. Plugins run as core WebAssembly modules using
-Wasmi, without WASI or host imports. Rust is optional: any language that can
-export the memory ABI below can implement the protocol.
+Rust adapters for Mitos's versioned WebAssembly component world. Public protocol,
+capability/error, job, UI, and editor-service types live in `plugin-api`; other
+languages generate bindings from `plugin-api/wit/plugin.wit`. The component
+interface is `mitos:plugin@0.1.0`, with manifest ABI3.
 
-The editor integration follows the lifecycle, typable-command, and event-hook
-boundaries of [Helix PR #8675](https://github.com/helix-editor/helix/pull/8675),
-reviewed at revision `c16fac096a9dd162d46f53bf2411f36251d755f3`. The guest protocol
-uses WebAssembly and JSON in place of the PR's Steel bindings.
-
-## Rust guests
-
-Create a `cdylib` with this crate as a dependency and export a request handler:
+A Rust plugin is a `cdylib` for `wasm32-unknown-unknown`. Define a
+`fn(Request) -> Response` handler and use `export_component!(handle)` or its
+`export_plugin!(handle)` alias. Native handler tests remain ordinary Rust tests.
+The export macro emits generated canonical component bindings; it does not
+export the previous allocation/JSON core ABI.
 
 ```rust
 use plugin_sdk::{Action, Event, Request, Response, export_plugin};
 
 fn handle(request: Request) -> Response {
-    if request.event == Event::Command {
-        return Response {
-            actions: vec![Action::Status { message: "Hello from Wasm".into() }],
-            error: None,
-        };
+    if request.event != Event::Command {
+        return Response::default();
     }
-    Response::default()
+    Response {
+        actions: vec![Action::Status { message: "Plugin ready".into() }],
+        error: None,
+    }
 }
 
 export_plugin!(handle);
 ```
 
-Build for `wasm32-unknown-unknown`; the macro emits the exports only on Wasm,
-so native tests can exercise the same handler. See
-[`examples/plugins/uppercase`](../../examples/plugins/uppercase) for a complete
-plugin, manifest, and focused Unicode/multiple-selection tests.
+Compile the core module and package its embedded interface metadata into a
+component before installing it. This world uses Mitos's capability-checked imports and has no WASI imports,
+so no WASI adapter is needed.
+With `wasm-tools` available, the packaging command is:
 
-## Authority
-
-A package declares capabilities in its manifest, and the user independently
-grants them under `[plugins.<name>.permissions]`. Both are required. The default
-grant is `ui` only. Reading snapshots/catalogs needs `editor-read`, edits need
-`editor-edit`, and selection changes need `editor-selection`. A guest without
-`editor-read` receives no document/view snapshot or document-scoped hooks; its
-own explicitly supplied command arguments and plugin configuration remain available.
-Host permission/conflict diagnostics do not require the `ui` capability. Guest
-status/error messages are limited to 4 KiB and stripped of terminal controls.
-
-`open` needs `editor-navigate` and `workspace-read` with an explicit granted root.
-With existing views, this transitional action also needs `editor-read` to obtain
-an originating view. The view must remain focused, with matching document text,
-binding and selection revisions. Files are read through granted directory
-handles, all reads are prepared before any response effect, and binary files
-are rejected. Only `init` may open into an empty split tree; delayed hooks cannot
-reopen an editor the user closed. Closing/shutdown accepts diagnostics only.
-Newly opened documents retain scoped provenance: automatic reload,
-autosave, `.editorconfig` reads, repository discovery and provider startup remain
-disabled until explicit native open/reload/save/server-restart adoption. Grammar,
-query and dictionary resources remain trusted host configuration; plugin packages
-cannot supply native DLL paths through this action. Explicit native operations
-use normal editor authority and workspace trust rules.
-
-The protocol reserves typed frontend requests/results for the native frontend
-adapter. The current host rejects those requests with a typed
-unsupported-interface error until that adapter is installed.
-
-## Memory ABI, experimental version 2
-
-A module exports the following names:
-
-| Export | Wasm signature | Contract |
-| --- | --- | --- |
-| `memory` | linear memory | Contains request and response UTF-8 JSON. |
-| `mitos_alloc` | `(i32) -> i32` | Allocate the requested byte length and return its address. |
-| `mitos_dealloc` | `(i32, i32) -> ()` | Free an address and its exact allocated byte length once. |
-| `mitos_call` | `(i32, i32) -> i64` | Read a request and return the response address in bits 63–32, length in bits 31–0. |
-
-The host allocates the input, writes JSON, invokes `mitos_call`, and frees the
-input. The handler only borrows the input: it must not free it. The guest
-allocates a separate response; the host copies and frees that allocation. A
-guest must keep its linear memory and allocator valid across invocations.
-Addresses are unsigned 32-bit bit patterns carried by Wasm `i32`; JSON byte
-lengths must be positive and fit in a signed 32-bit integer. A zero packed
-response is invalid.
-
-The Rust adapter checks the request's `abi_version`, deserializes it into owned
-values, and serializes the response. An invalid JSON request or unsupported ABI
-returns a response error. Traps, including panics, are reported by the host.
-
-## JSON protocol
-
-The manifest and request use ABI version `2`. A command request looks like:
-
-```json
-{
-  "abi_version": 2,
-  "event": "command",
-  "command": "uppercase",
-  "args": [],
-  "config": {},
-  "editor": {
-    "generation": 1,
-    "mode": "normal",
-    "document": {
-      "id": 1,
-      "version": 3,
-      "path": "/project/example.txt",
-      "language": "text",
-      "text": "straße"
-    },
-    "view": {
-      "id": 4294967297,
-      "document": 1,
-      "binding_revision": 0,
-      "selection_revision": 3,
-      "selections": [{"anchor": 0, "head": 6}],
-      "primary": 0
-    }
-  },
-  "data": null
-}
+```sh
+cargo build --target wasm32-unknown-unknown --release
+wasm-tools component new target/wasm32-unknown-unknown/release/example.wasm \
+    -o example.component.wasm
 ```
 
-`command` contains the unqualified name declared in the manifest. `args` are
-parsed command arguments, `config` is the plugin's configured JSON value, and
-`data` carries event metadata. These four fields can be omitted and default to
-`null`, an empty list, `null`, and `null`, respectively. `editor.document` can
-be `null`; plugins must handle invocations without a document. Document IDs are
-local to the editor session, paths and language identifiers can be `null`, and
-the snapshot's version must be supplied with edits. `editor.view` is the originating
-split and can be `null` independently of the document. Document-only events and
-hidden-document edits do not invent a view. View handles include a slot generation;
-`binding_revision` changes on switching documents, including switching away and
-back. `selection_revision` advances on explicit selection changes, text mapping,
-and undo/redo, even when the text version stays the same. Host generations expire
-on reload or shutdown; callbacks and responses from old generations are discarded.
-The host validates the originating generation independently of guest data.
+```toml
+abi-version = 3
+module = "example.component.wasm"
+capabilities = ["ui"]
 
-Supported event names are `init`, `shutdown`, `command`, `document-opened`,
-`document-changed`, `document-saved`, `document-closed`, `selection-changed`,
-`mode-changed`, `post-command`, `post-insert-char`, `document-focus-lost`,
-`terminal-focus-gained`, `terminal-focus-lost`, `resync-required`, and `state`. Every instance receives lifecycle events;
-other hooks are declared in its manifest. Hook data is event-specific, so a
-plugin should ignore metadata fields it does not need.
-
-Responses contain an `actions` list and an optional `error` string. Missing
-fields default to an empty list and `null`:
-
-```json
-{
-  "actions": [
-    {
-      "type": "edit",
-      "document": 1,
-      "version": 3,
-      "edits": [{"start": 0, "end": 6, "text": "STRASSE"}]
-    },
-    {
-      "type": "set-selection",
-      "document": 1,
-      "version": 3,
-      "view": 4294967297,
-      "binding_revision": 0,
-      "selection_revision": 3,
-      "ranges": [{"anchor": 0, "head": 7}],
-      "primary": 0
-    }
-  ],
-  "error": null
-}
+[commands.ready]
+doc = "Report plugin readiness"
 ```
 
-Offsets in selections and edits count **Unicode scalar values**, matching
-Mitos's document coordinates. They do not count UTF-8 bytes, UTF-16 code units,
-or grapheme clusters. A selection covers
-`min(anchor, head)..max(anchor, head)`; equal endpoints are an insertion cursor.
-An edit replaces `start..end`, excluding `end`. All edits in one `edit` action
-refer to the text before that action and must not overlap. Later edit actions
-use the projected text after preceding actions. A subsequent `set-selection`
-uses coordinates at its position in the action list; further edits map those
-selections forward. Every action's `version` remains the original snapshot
-version. `set-selection` also supplies the originating view handle and its
-original binding/selection revisions; these preconditions are checked against
-the current editor before any mutation. Closed documents, changed text, closed
-or rebound views, and changed selections produce typed host conflicts. Invalid
-ranges or conflicts reject the complete document/selection batch.
+Commands are qualified by the configured package name. `Request.command` carries
+its local name, and `Request.args` contains parsed arguments. Configuration and
+owned event data are available as JSON values. Init and Shutdown, resynchronization,
+state catalogs, and UI/composition responses are targeted controls; ordinary
+editor events require manifest subscription and appropriate user grants.
 
-Multiple edits to one document compose into a single undo revision. Explicit
-selections in multiple splits target those splits. Undo/redo preserves the
-originating edit split's selection; other splits' selections map through the
-inverse/forward text changes. A text-only operation without an originating view
-stores no cursor in its undo history and can edit a hidden document. Readonly
-and binary documents reject edits; selection changes can target readonly text.
-Both `edit` and `set-selection` must precede any `open` action in a response.
+The editor context contains its generation, document metadata, and explicit view
+identity/binding/selection revisions. Documents contain `char_count` and
+`byte_count`, with no default text. All offsets count Unicode scalar values.
+Use `component::read_document(document, version, start, end)` to read one bounded
+snapshot region. `Action::Edit` carries the original document version; selection
+actions also carry the originating view and its original binding/selection
+revisions, even after preceding edits project the resulting selection offsets.
 
-Mutations suppress their originating plugin's own echo; other subscribed plugins
-observe them. Every request carries host-owned `data.provenance` with `generation`,
-`sequence`, `parent_sequence`, `origin_plugin`, and `depth`, alongside event metadata.
-Sequences identify captures, including coalesced snapshots; delivery is not a log
-of every intermediate change. Causal notifications stop after depth 8.
+The SDK adapts `Response.actions` into streamed effect resources. It finishes
+edit/selection groups, UI prompts/picker rows, builtin compositions, and keymap
+bindings before completing the exported handler. Returning `Response.error`
+rejects the invocation's staged effects. Finishing a resource does not apply any
+editor changes: the handler must succeed and the owning editor validates the
+entire response before applying native transactions.
 
-Document/selection changes coalesce by document and originating view. Queues retain
-at most 32 data events, 32 control events, and 8 MiB of owned data. Overflow,
-oversized snapshots, and causal limits produce mandatory `resync-required` events
-with dropped sequence ranges, counts, and reasons. A final shutdown gap adds
-`closing: true`; state queries are then rejected. Shutdown drains accepted save,
-close, and post-command hooks before invalidating the generation. Saved events
-carry the actual written snapshot and `path`, `saved_revision`, `saved_version`,
-`current_version`, and `snapshot_available`, including write-and-quit.
+Bounded host helpers are in `component`:
 
-Return `{"type":"request-state","query":{}}` to receive a targeted `state` event,
-without a manifest subscription. Its data contains `StateCatalog`: document/view
-metadata, exclusive `next_document`/`next_view` cursors, and an optional error.
-Query `after_document`, `after_view`, and `limit` for additional pages (at most 64
-entries per catalog). Optional `document` or `view` handles retrieve current
-snapshots in `editor.document`/`editor.view`; closed targets and oversized snapshots
-return explicit query errors. Query completion goes only to the requesting plugin.
+- `read_document` for a versioned document region.
+- `editor_request` for the closed `editor::EditorRequest` schema, including
+  bounded syntax/language requests and narrow editor operations.
+- `read_file`/`write_file` for relative UTF-8 paths under user-granted roots.
+- `storage_read`/`storage_write` for private package storage, when supplied by the host.
+- `start_job` with the closed Timer, Search, or Process request types.
+  The owned job exposes `poll` and `cancel`; dropping it awaits host cleanup.
 
-Available actions are `edit`, `set-selection`, `status` (a `message`), `error`
-(a `message`), `open` (a `path`), and `request-state` (a `query`). Response errors report a failed invocation;
-plugins should return no actions when reporting a failure.
+For asynchronous workflows, retain the owned `Job` across invocations, record
+`Job::id()`, and return from the handler. A targeted `Event::JobReady` carries
+that identity in `Request.data["job"]`. Drain `poll` until Pending or Finished on
+each readiness event, then return again; several producer chunks may coalesce
+into one notification. Drop/cancel finished jobs. Readiness is independent of
+the mutation causal chain, and closing the job's original document/view or
+unloading its generation cancels the native work.
 
-The initial API intentionally has a small synchronous surface. It does not
-provide arbitrary editor-command execution, LSP calls, Tree-sitter handles,
-custom UI, asynchronous work, or direct filesystem/network access. Modules
-execute with fixed host memory, instruction, and response limits. Document
-snapshots are limited to 2 MiB of text; JSON requests and responses are limited
-to 4 MiB. Plugins can read the provided document snapshot and request only the
-actions above.
+There is no generic RPC, arbitrary builtin evaluation, shell command string,
+ambient filesystem, or WASI. Process requests stream arguments and input through
+bounded resources, and remain subject to the user's executable/argument/root
+policy. File/storage helpers and UI setters likewise send at most one string per
+import to avoid allocation amplification.
+
+Guest execution occurs on dedicated workers. A trap or interrupted Store is
+discarded until reload; typed service failures preserve healthy guest state.
+All services/effects remain bound to one package and editor generation. See the
+[runtime contract](../plugins/RUNTIME.md) for exact memory, message, handle,
+action, deadline, and retained-result budgets and their in-process limits.

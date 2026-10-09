@@ -87,10 +87,17 @@ impl Permissions {
         args: &[String],
     ) -> Result<(), ServiceError> {
         Capability::Process.require(declared, &self.capabilities)?;
-        if self.processes.iter().any(|grant| grant.allows(command, args)) {
+        if self
+            .processes
+            .iter()
+            .any(|grant| grant.allows(command, args))
+        {
             Ok(())
         } else {
-            Err(ServiceError::new(ErrorCode::PermissionDenied, "plugin executable or arguments are not granted"))
+            Err(ServiceError::new(
+                ErrorCode::PermissionDenied,
+                "plugin executable or arguments are not granted",
+            ))
         }
     }
 }
@@ -140,8 +147,14 @@ impl ServiceError {
         let message = message.into();
         let mut bounded = String::new();
         for character in message.chars() {
-            let character = if character.is_control() { ' ' } else { character };
-            if bounded.len() + character.len_utf8() > 4096 { break; }
+            let character = if character.is_control() {
+                ' '
+            } else {
+                character
+            };
+            if bounded.len() + character.len_utf8() > 4096 {
+                break;
+            }
             bounded.push(character);
         }
         Self {
@@ -161,7 +174,10 @@ mod tests {
         let none = BTreeSet::new();
         for (declared, granted) in [(&read, &none), (&none, &read), (&none, &none)] {
             assert_eq!(
-                Capability::EditorRead.require(declared, granted).unwrap_err().code,
+                Capability::EditorRead
+                    .require(declared, granted)
+                    .unwrap_err()
+                    .code,
                 ErrorCode::PermissionDenied
             );
         }
@@ -175,13 +191,32 @@ mod tests {
         assert_eq!(permissions.capabilities, BTreeSet::from([Capability::Ui]));
         assert!(permissions.read_roots.is_empty());
         let declared = BTreeSet::from([Capability::Process]);
-        assert!(permissions.require_process(&declared, "rustfmt", &[]).is_err());
+        assert!(permissions
+            .require_process(&declared, "rustfmt", &[])
+            .is_err());
         let mut granted = permissions;
         granted.capabilities.insert(Capability::Process);
-        granted.processes.push(ProcessGrant { command: "rustfmt".into(), args: vec!["--emit".into(), "stdout".into()] });
-        assert!(granted.require_process(&declared, "rustfmt", &["--emit".into(), "stdout".into()]).is_ok());
+        granted.processes.push(ProcessGrant {
+            command: "rustfmt".into(),
+            args: vec!["--emit".into(), "stdout".into()],
+        });
+        assert!(granted
+            .require_process(&declared, "rustfmt", &["--emit".into(), "stdout".into()])
+            .is_ok());
         assert!(granted.require_process(&declared, "sh", &[]).is_err());
-        assert!(granted.require_process(&declared, "rustfmt", &["--emit".into(), "stdout".into(), "file.rs".into()]).is_err());
-        assert!(granted.require_process(&BTreeSet::new(), "rustfmt", &["--emit".into(), "stdout".into()]).is_err());
+        assert!(granted
+            .require_process(
+                &declared,
+                "rustfmt",
+                &["--emit".into(), "stdout".into(), "file.rs".into()]
+            )
+            .is_err());
+        assert!(granted
+            .require_process(
+                &BTreeSet::new(),
+                "rustfmt",
+                &["--emit".into(), "stdout".into()]
+            )
+            .is_err());
     }
 }

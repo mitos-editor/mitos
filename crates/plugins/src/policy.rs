@@ -168,9 +168,16 @@ mod tests {
         std::fs::write(outside.path().join("file"), "outside").unwrap();
         let alias = parent.path().join("alias");
         std::os::unix::fs::symlink(root.path(), &alias).unwrap();
-        let policy = AccessPolicy::new([Capability::WorkspaceRead].into(), Permissions {
-            capabilities: [Capability::WorkspaceRead].into(), read_roots: vec![alias.clone()], ..Permissions::default()
-        }, Path::new(".")).unwrap();
+        let policy = AccessPolicy::new(
+            [Capability::WorkspaceRead].into(),
+            Permissions {
+                capabilities: [Capability::WorkspaceRead].into(),
+                read_roots: vec![alias.clone()],
+                ..Permissions::default()
+            },
+            Path::new("."),
+        )
+        .unwrap();
         assert_eq!(policy.read_path(&alias.join("file")).unwrap().1, b"allowed");
         std::fs::remove_file(&alias).unwrap();
         std::os::unix::fs::symlink(outside.path(), &alias).unwrap();

@@ -75,6 +75,12 @@ pub enum JobPoll {
 pub trait HostJob: Send + Sync + 'static {
     fn poll(&self) -> HostFuture<JobPoll>;
     fn cancel(&self) -> HostFuture<()>;
+    /// Wait for output or completion newer than `after`. The sequence is
+    /// monotonic; adapters notify once per observed change, then await a new
+    /// sequence. Consumers drain buffered results until `Pending` or `Finished`.
+    fn ready(&self, _after: u64) -> HostFuture<u64> {
+        Box::pin(async { Err(unsupported("job notifications are unavailable")) })
+    }
 }
 
 /// Bound by the host to one editor, plugin, generation, and permission set.
@@ -84,6 +90,13 @@ pub trait HostJob: Send + Sync + 'static {
 /// checks generation, live grants, targets, revisions, and sizes on every call.
 pub trait HostServices: Send + Sync + 'static {
     fn read_document(&self, request: ReadRequest) -> HostFuture<String>;
+
+    /// Admit one owner/generation-scoped readiness control. The adapter
+    /// coalesces by job handle and acknowledges admission without awaiting the
+    /// guest, which may still be completing the invocation that created it.
+    fn notify_job_ready(&self, _job: u64) -> HostFuture<()> {
+        Box::pin(async { Err(unsupported("job notifications are unavailable")) })
+    }
 
     fn editor_request(
         &self,
