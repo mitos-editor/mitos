@@ -26,9 +26,7 @@ use tokio::sync::{oneshot, Semaphore};
 const MAX_DOCUMENT_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SYNTAX_DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RANGE_BYTES: usize = 1024 * 1024;
-const MAX_QUERY_BYTES: usize = 4096;
-const MAX_QUERY_DEPTH: usize = 64;
-const MAX_PATTERNS: usize = 64;
+const MAX_PATTERNS: usize = plugin_api::query::STRUCTURAL_LIMITS.patterns;
 const MAX_MATCHES: usize = 4096;
 const MAX_HOVER_BYTES: usize = 64 * 1024;
 
@@ -386,47 +384,19 @@ fn check_current(
 /// Structural queries avoid unbounded text predicates. The native cursor has no
 /// progress/timeout hook; bounds and admission remain held beyond caller timeout.
 fn validate_query(query: &str) -> Result<(), ServiceError> {
-    if query.is_empty() || query.len() > MAX_QUERY_BYTES {
-        return Err(exhausted("syntax query source exceeds 4 KiB"));
+    if query.is_empty() {
+        return Err(failure(
+            ErrorCode::InvalidRequest,
+            "syntax query source is empty",
+        ));
     }
-    let (mut quoted, mut escaped, mut comment, mut depth) = (false, false, false, 0usize);
-    for byte in query.bytes() {
-        if comment {
-            if byte == b'\n' {
-                comment = false;
-            }
-            continue;
-        }
-        if quoted {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                quoted = false;
-            }
-            continue;
-        }
-        match byte {
-            b';' => comment = true,
-            b'"' => quoted = true,
-            b'#' => {
-                return Err(unsupported(
-                    "syntax query predicates are unsupported; use structural captures",
-                ))
-            }
-            b'(' | b'[' => {
-                depth += 1;
-                if depth > MAX_QUERY_DEPTH {
-                    return Err(exhausted("syntax query nesting exceeds 64"));
-                }
-            }
-            b')' | b']' => depth = depth.saturating_sub(1),
-            _ => (),
-        }
-    }
-    Ok(())
+    plugin_api::query::validate(
+        query,
+        plugin_api::query::STRUCTURAL_LIMITS,
+        plugin_api::query::Predicates::Structural,
+    )
 }
+
 fn query_captures(
     target: DocumentTarget,
     text: Rope,

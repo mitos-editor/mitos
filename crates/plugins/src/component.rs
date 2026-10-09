@@ -1314,6 +1314,23 @@ impl Instance {
             deadline,
             shared_memory,
         } = options;
+        let mut linker = Linker::new(engine);
+        Plugin::add_to_linker::<_, HostState>(&mut linker, |state| state)
+            .map_err(|error| ServiceError::new(ErrorCode::HostFailure, error.to_string()))?;
+        let linked = linker
+            .instantiate_pre(&component.component)
+            .map_err(|error| {
+                ServiceError::new(
+                    ErrorCode::UnsupportedInterface,
+                    format!("linking plugin component imports: {error}"),
+                )
+            })?;
+        let binding = PluginPre::new(linked).map_err(|error| {
+            ServiceError::new(
+                ErrorCode::UnsupportedInterface,
+                format!("checking plugin component exports: {error}"),
+            )
+        })?;
         let mut table = ResourceTable::new();
         table.set_max_capacity(MAX_HANDLES);
         let mut store = Store::new(
@@ -1355,17 +1372,19 @@ impl Instance {
                 .map_err(|error| wasmtime::Error::msg(error.message))?;
             Ok(UpdateDeadline::Yield(1))
         });
-        let mut linker = Linker::new(engine);
-        Plugin::add_to_linker::<_, HostState>(&mut linker, |state| state)
-            .map_err(|error| ServiceError::new(ErrorCode::HostFailure, error.to_string()))?;
-        let binding = Plugin::instantiate_async(&mut store, &component.component, &linker)
-            .await
-            .map_err(|error| {
-                ServiceError::new(
-                    ErrorCode::GuestTrap,
-                    format!("instantiating plugin component: {error}"),
-                )
-            })?;
+        let binding = binding.instantiate_async(&mut store).await.map_err(|error| {
+            let state = store.data();
+            let code = if state.cancel.is_cancelled() {
+                ErrorCode::Cancelled
+            } else if Instant::now() >= state.deadline {
+                ErrorCode::DeadlineExceeded
+            } else if state.limits.exhausted {
+                ErrorCode::ResourceExhausted
+            } else {
+                ErrorCode::GuestTrap
+            };
+            ServiceError::new(code, format!("instantiating plugin component: {error}"))
+        })?;
         Ok(Self {
             binding,
             store,

@@ -81,6 +81,9 @@
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:config-reload` | Refresh user config. |
 | `:plugin-reload` | Reload configured WebAssembly plugins and discard their previous state. |
+| `:plugin-inspect` | Inspect configured plugin ownership, status and effective permissions. |
+| `:plugin-logs` | Show bounded recent plugin logs and failures, optionally for one plugin. |
+| `:plugin-timings` | Show measured plugin queue, execution and host application timings. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-open-workspace` | Open the workspace config.toml file. |
 | `:log-open` | Open the mitos log file. |

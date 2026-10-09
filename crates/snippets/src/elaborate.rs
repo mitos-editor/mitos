@@ -24,6 +24,22 @@ pub struct Snippet {
     tabstops: Vec<Tabstop>,
 }
 
+#[cfg(test)]
+mod static_tests {
+    use super::*;
+    #[test]
+    fn static_render_preflight_bounds_expanded_defaults_and_rejects_transforms() {
+        let repeated = Snippet::parse("${1:hello}$1$1").unwrap();
+        assert_eq!(repeated.static_render_size(32), Some((15, 0, 7)));
+        assert!(repeated.static_render_size(10).is_none());
+        let transformed = Snippet::parse("${TM_FILENAME/hello/world/}").unwrap();
+        assert!(
+            transformed.static_render_size(64).is_none(),
+            "{transformed:?}"
+        );
+    }
+}
+
 impl Snippet {
     /// Parses LSP snippet syntax and elaborates it into the editing model.
     ///
@@ -58,6 +74,91 @@ impl Snippet {
     /// Iterates over tabstops in navigation order, ending with `$0`.
     pub fn tabstops(&self) -> impl Iterator<Item = &Tabstop> {
         self.tabstops.iter()
+    }
+
+    /// Preflight static, untrusted snippets before rendering. Bounds expanded
+    /// placeholder defaults and rejects recursive tabstops and transforms whose
+    /// output depends on runtime input. Native/LSP rendering is unchanged.
+    pub fn static_render_size(&self, limit: usize) -> Option<(usize, usize, usize)> {
+        if self
+            .tabstops()
+            .any(|tabstop| matches!(tabstop.kind, TabstopKind::Transform(_)))
+        {
+            return None;
+        }
+        fn measure(
+            snippet: &Snippet,
+            elements: &[SnippetElement],
+            visiting: &mut Vec<TabstopIdx>,
+            limit: usize,
+            nodes: &mut usize,
+        ) -> Option<(usize, usize)> {
+            let mut size = 0usize;
+            let mut lines = 0usize;
+            for element in elements {
+                *nodes = nodes.checked_add(1)?;
+                if *nodes > limit {
+                    return None;
+                }
+                let (bytes, newlines) = match element {
+                    SnippetElement::Text(text) => (
+                        text.len(),
+                        text.chars().filter(|character| *character == '\n').count(),
+                    ),
+                    SnippetElement::Variable {
+                        default,
+                        transform: None,
+                        ..
+                    } => measure(
+                        snippet,
+                        default.as_deref().unwrap_or_default(),
+                        visiting,
+                        limit,
+                        nodes,
+                    )?,
+                    SnippetElement::Variable {
+                        transform: Some(_), ..
+                    } => return None,
+                    SnippetElement::Tabstop { idx } => {
+                        if visiting.contains(idx) || visiting.len() >= 32 {
+                            return None;
+                        }
+                        visiting.push(*idx);
+                        let measured = match &snippet[*idx].kind {
+                            TabstopKind::Placeholder { default } => {
+                                measure(snippet, default, visiting, limit, nodes)?
+                            }
+                            TabstopKind::Choice { choices } => {
+                                choices.iter().fold((0, 0), |(bytes, lines), choice| {
+                                    (
+                                        bytes.max(choice.len()),
+                                        lines.max(
+                                            choice
+                                                .chars()
+                                                .filter(|character| *character == '\n')
+                                                .count(),
+                                        ),
+                                    )
+                                })
+                            }
+                            TabstopKind::Empty => (0, 0),
+                            TabstopKind::Transform(_) => return None,
+                        };
+                        visiting.pop();
+                        measured
+                    }
+                };
+                size = size.checked_add(bytes)?;
+                lines = lines.checked_add(newlines)?;
+                if size > limit {
+                    return None;
+                }
+            }
+            Some((size, lines))
+        }
+        let mut nodes = 0;
+        let (bytes, lines) = measure(self, self.elements(), &mut Vec::new(), limit, &mut nodes)?;
+        Some((bytes, lines, nodes))
     }
 
     fn renumber_tabstops(&mut self) {

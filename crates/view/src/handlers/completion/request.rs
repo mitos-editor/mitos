@@ -261,9 +261,14 @@ pub(super) fn request_completions(
         requests.spawn_blocking(path_completion_request);
     }
     if let Some(word_completion_request) =
-        word::completion(editor, trigger, handle.clone(), savepoint)
+        word::completion(editor, trigger, handle.clone(), savepoint.clone())
     {
         requests.spawn_blocking(word_completion_request);
+    }
+    if let Some(snippet_request) =
+        super::snippet::completion(editor, trigger, handle.clone(), savepoint)
+    {
+        requests.spawn_blocking(snippet_request);
     }
 
     let session = Session::new(editor, trigger, epoch);

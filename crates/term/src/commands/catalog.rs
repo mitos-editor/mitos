@@ -1376,6 +1376,21 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "plugin-inspect", aliases: &[], doc: "Inspect configured plugin ownership, status and effective permissions.",
+        fun: super::plugins::inspect, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "plugin-logs", aliases: &[], doc: "Show bounded recent plugin logs and failures, optionally for one plugin.",
+        fun: super::plugins::logs, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "plugin-timings", aliases: &[], doc: "Show measured plugin queue, execution and host application timings.",
+        fun: super::plugins::timings, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "config-open",
         aliases: &[],
         doc: "Open the user config.toml file.",

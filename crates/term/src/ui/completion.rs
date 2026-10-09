@@ -42,12 +42,13 @@ impl menu::Item for CompletionItem {
                         .as_ref()
                         .is_some_and(|tags| tags.contains(&lsp::CompletionItemTag::DEPRECATED))
             }
-            CompletionItem::Other(_) => false,
+            CompletionItem::Other(_) | CompletionItem::Snippet(_) => false,
         };
 
         let label = match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.label.as_str(),
             CompletionItem::Other(core::CompletionItem { label, .. }) => label,
+            CompletionItem::Snippet(item) => &item.label,
         };
 
         let kind = match self {
@@ -104,6 +105,7 @@ impl menu::Item for CompletionItem {
                 None => "".into(),
             },
             CompletionItem::Other(core::CompletionItem { kind, .. }) => kind.as_ref().into(),
+            CompletionItem::Snippet(_) => "snippet".into(),
         };
 
         let kind_name = kind.spans.first().map_or("", |span| span.content.as_ref());
@@ -235,6 +237,9 @@ impl Completion {
                         CompletionItem::Other(core::CompletionItem { transaction, .. }) => {
                             doc.apply_temporary(transaction, view.id)
                         }
+                        CompletionItem::Snippet(item) => {
+                            doc.apply_temporary(&item.transaction, view.id)
+                        }
                     };
                 }
                 PromptEvent::Update => {}
@@ -286,6 +291,15 @@ impl Completion {
                         }
                         CompletionItem::Other(core::CompletionItem { transaction, .. }) => {
                             (transaction, None, None)
+                        }
+                        CompletionItem::Snippet(item) => {
+                            let Some((transaction, snippet)) =
+                                item.render(doc, view.id, replace_mode)
+                            else {
+                                editor.set_error(|| "static snippet expansion exceeds bounds");
+                                return;
+                            };
+                            (transaction, None, Some(snippet))
                         }
                     };
 
@@ -541,6 +555,9 @@ impl Component for Completion {
                     return;
                 };
                 markdowned(language, None, Some(doc))
+            }
+            CompletionItem::Snippet(option) => {
+                markdowned(language, Some(&option.body), Some(&option.description))
             }
         };
 

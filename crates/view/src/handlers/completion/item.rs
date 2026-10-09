@@ -72,6 +72,75 @@ impl LspCompletionItem {
 pub enum CompletionItem {
     Lsp(LspCompletionItem),
     Other(editor_core::CompletionItem),
+    Snippet(StaticSnippetItem),
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticSnippetItem {
+    pub owner: plugin_api::assets::AssetOwner,
+    pub label: String,
+    pub description: String,
+    pub body: String,
+    pub parsed: std::sync::Arc<snippets::Snippet>,
+    pub transaction: editor_core::Transaction,
+    pub rendered_bytes: usize,
+    pub newlines: usize,
+    pub rendered_nodes: usize,
+    pub edit_offset: i128,
+}
+
+impl StaticSnippetItem {
+    pub fn render(
+        &self,
+        doc: &crate::Document,
+        view: crate::ViewId,
+        replace_mode: bool,
+    ) -> Option<(editor_core::Transaction, snippets::RenderedSnippet)> {
+        let text = doc.text().slice(..);
+        let selection = doc.selection(view);
+        let indentation = selection
+            .iter()
+            .map(|range| {
+                let cursor = range.cursor(text);
+                let prefix =
+                    text.slice(doc.text().line_to_char(doc.text().char_to_line(cursor))..cursor);
+                prefix
+                    .chars()
+                    .take_while(|character| character.is_whitespace())
+                    .take(4097)
+                    .map(char::len_utf8)
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or_default();
+        let work = self
+            .rendered_bytes
+            .checked_add(self.newlines.checked_mul(indentation)?)?
+            .checked_mul(selection.len())?;
+        if indentation > 4096
+            || work > 1024 * 1024
+            || self.rendered_nodes.checked_mul(selection.len())? > 4096
+        {
+            return None;
+        }
+        Some(lsp_client::util::generate_transaction_from_snippet(
+            doc.text(),
+            selection,
+            Some((self.edit_offset, 0)),
+            replace_mode,
+            self.parsed.clone(),
+            &mut doc.snippet_ctx(),
+        ))
+    }
+}
+
+impl PartialEq for StaticSnippetItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner
+            && self.label == other.label
+            && self.body == other.body
+            && self.transaction == other.transaction
+    }
 }
 
 impl CompletionItem {
@@ -80,6 +149,7 @@ impl CompletionItem {
         match self {
             CompletionItem::Lsp(item) => item.filter_text(),
             CompletionItem::Other(item) => &item.label,
+            CompletionItem::Snippet(item) => &item.label,
         }
     }
 }
@@ -107,7 +177,7 @@ impl CompletionItem {
         match self {
             CompletionItem::Lsp(item) => item.provider_priority,
             // sorting path completions after LSP for now
-            CompletionItem::Other(_) => 1,
+            CompletionItem::Other(_) | CompletionItem::Snippet(_) => 1,
         }
     }
 
@@ -115,13 +185,14 @@ impl CompletionItem {
         match self {
             CompletionItem::Lsp(item) => CompletionProvider::Lsp(item.provider),
             CompletionItem::Other(item) => item.provider,
+            CompletionItem::Snippet(_) => CompletionProvider::Snippet,
         }
     }
 
     pub fn preselect(&self) -> bool {
         match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.preselect.unwrap_or(false),
-            CompletionItem::Other(_) => false,
+            CompletionItem::Other(_) | CompletionItem::Snippet(_) => false,
         }
     }
 }

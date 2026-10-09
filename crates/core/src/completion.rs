@@ -17,6 +17,7 @@ pub enum CompletionProvider {
     Lsp(LanguageServerId),
     Path,
     Word,
+    Snippet,
 }
 
 impl From<LanguageServerId> for CompletionProvider {
