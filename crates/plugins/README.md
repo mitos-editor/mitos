@@ -5,6 +5,20 @@ The command/lifecycle semantics reuse Matthew Paras's Helix plugin proposal
 ([helix-editor/helix#8675](https://github.com/helix-editor/helix/pull/8675)); execution
 uses lean Wasmtime 48.0.5 and the versioned WIT world in `plugin-api`.
 
+Code follows ownership across five crates:
+
+- `plugin-api` defines the shared WIT world, owned messages, and fixed request limits. It has no editor or runtime dependencies.
+- `plugin-sdk` adapts Rust guest handlers to that contract. It has no host implementation.
+- `plugins` loads packages, enforces grants, and owns Wasmtime actors and native jobs. Package parsing stays in `package`; workers receive prepared Stores.
+- `view` captures editor state, checks revisions, applies effects, and owns plugin lifecycle and declarative contributions.
+- `term` presents dialogs, maps the closed builtin command enum to native commands, and manages plugin keymaps.
+
+Host callbacks capture or apply editor state; they never run guests or compile
+packages. Immediate editor services and staged effects have separate lifecycles:
+services return completed native operations, while effects publish only after a
+successful guest invocation and complete editor preflight. Keep that distinction
+when adding an operation, and put its implementation with the state it owns.
+
 Configuration points to `plugin.toml`. A code package declares ABI3, a relative
 component module, capabilities, command documentation, and event subscriptions.
 Commands are qualified by the configured plugin name. Every editor generation

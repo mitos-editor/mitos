@@ -212,7 +212,9 @@ async fn component_root_metadata_checks_permission_and_preserves_bounded_aliases
     let allowed: CapabilitySet = [Capability::Ui, Capability::WorkspaceRead].into();
     let ui: CapabilitySet = [Capability::Ui].into();
     for (declared, granted) in [(ui.clone(), allowed.clone()), (allowed.clone(), ui)] {
-        let actor = pool.spawn(fixture(), 1, declared, granted).unwrap();
+        let actor = prepared_actor(&pool, fixture(), 1, declared, granted)
+            .await
+            .unwrap();
         assert_eq!(
             actor
                 .invoke(request("read-roots"), services(vec![root.clone()]))
@@ -229,8 +231,8 @@ async fn component_root_metadata_checks_permission_and_preserves_bounded_aliases
         0,
         "deny before querying metadata"
     );
-    let actor = pool
-        .spawn(fixture(), 1, allowed.clone(), allowed.clone())
+    let actor = prepared_actor(&pool, fixture(), 1, allowed.clone(), allowed.clone())
+        .await
         .unwrap();
     let response = actor
         .invoke(request("read-roots"), services(vec![root.clone()]))
@@ -261,8 +263,8 @@ async fn component_root_metadata_checks_permission_and_preserves_bounded_aliases
         );
     }
     actor.shutdown().await.unwrap();
-    let actor = pool
-        .spawn(sdk_fixture(), 1, allowed.clone(), allowed)
+    let actor = prepared_actor(&pool, sdk_fixture(), 1, allowed.clone(), allowed)
+        .await
         .unwrap();
     let response = actor
         .invoke(request("read-roots"), services(vec![root]))
@@ -401,8 +403,19 @@ fn capabilities() -> CapabilitySet {
     .into_iter()
     .collect()
 }
-fn plugin_actor(pool: &WorkerPool) -> PluginActor {
-    pool.spawn(fixture(), 1, capabilities(), capabilities())
+async fn prepared_actor(
+    pool: &WorkerPool,
+    bytes: Arc<[u8]>,
+    generation: u64,
+    declared: CapabilitySet,
+    granted: CapabilitySet,
+) -> Result<PluginActor, ServiceError> {
+    let prepared = pool.prepare(bytes, generation, declared, granted)?.await?;
+    pool.activate(prepared)
+}
+async fn plugin_actor(pool: &WorkerPool) -> PluginActor {
+    prepared_actor(pool, fixture(), 1, capabilities(), capabilities())
+        .await
         .unwrap()
 }
 
@@ -410,8 +423,8 @@ fn plugin_actor(pool: &WorkerPool) -> PluginActor {
 async fn component_process_timeout_defaults_and_rejects_invalid_bounds_before_creation() {
     let pool = WorkerPool::new().unwrap();
     let declared: CapabilitySet = [Capability::Ui, Capability::Process].into();
-    let actor = pool
-        .spawn(fixture(), 1, declared.clone(), declared)
+    let actor = prepared_actor(&pool, fixture(), 1, declared.clone(), declared)
+        .await
         .unwrap();
     let services = Arc::new(Services::default());
     for milliseconds in [None, Some(JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS)] {
@@ -467,7 +480,7 @@ async fn component_process_timeout_defaults_and_rejects_invalid_bounds_before_cr
 #[tokio::test]
 async fn diagnostics_measure_queue_execution_and_final_application() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services {
         read_delay: Duration::from_millis(20),
         ..Default::default()
@@ -515,7 +528,7 @@ fn diagnostic_ring_bounds_retention_and_utf8_messages() {
 #[tokio::test]
 async fn actual_rust_guest_preserves_state_and_reads_only_requested_unicode() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services::default());
     for expected in ["call 1", "call 2"] {
         let response = actor
@@ -563,8 +576,8 @@ async fn actual_rust_guest_preserves_state_and_reads_only_requested_unicode() {
 async fn generated_c_bindings_share_the_world_and_release_effect_resources() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
-    let actor = pool
-        .spawn(c_fixture(), 1, capabilities(), capabilities())
+    let actor = prepared_actor(&pool, c_fixture(), 1, capabilities(), capabilities())
+        .await
         .unwrap();
     for _ in 0..100 {
         let response = actor
@@ -596,8 +609,8 @@ async fn generated_c_bindings_share_the_world_and_release_effect_resources() {
 async fn rust_sdk_adapter_streams_effects_and_uses_scoped_reads() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
-    let actor = pool
-        .spawn(sdk_fixture(), 1, capabilities(), capabilities())
+    let actor = prepared_actor(&pool, sdk_fixture(), 1, capabilities(), capabilities())
+        .await
         .unwrap();
     let response = actor
         .invoke(request("uppercase"), services.clone())
@@ -628,7 +641,9 @@ async fn rust_sdk_adapter_streams_effects_and_uses_scoped_reads() {
 async fn status_on_large_metadata_does_not_read_text_and_denials_keep_guest_healthy() {
     let pool = WorkerPool::new().unwrap();
     let grants = [Capability::Ui].into_iter().collect();
-    let actor = pool.spawn(fixture(), 1, capabilities(), grants).unwrap();
+    let actor = prepared_actor(&pool, fixture(), 1, capabilities(), grants)
+        .await
+        .unwrap();
     let services = Arc::new(Services::default());
     let mut context = request("status");
     context.editor.document.as_mut().unwrap().byte_count = 10 * 1024 * 1024;
@@ -663,7 +678,7 @@ async fn invalid_effect_batches_are_atomic_and_do_not_poison_other_plugins() {
         ("large-string", ErrorCode::ResourceExhausted),
         ("unfinished", ErrorCode::InvalidRequest),
     ] {
-        let actor = plugin_actor(&pool);
+        let actor = plugin_actor(&pool).await;
         let failure = actor
             .invoke(request(command), services.clone())
             .unwrap()
@@ -673,7 +688,7 @@ async fn invalid_effect_batches_are_atomic_and_do_not_poison_other_plugins() {
         assert!(actor.is_active());
         actor.shutdown().await.unwrap();
     }
-    let broken = plugin_actor(&pool);
+    let broken = plugin_actor(&pool).await;
     let failure = broken
         .invoke(request("trap-after-finish"), services.clone())
         .unwrap()
@@ -681,7 +696,7 @@ async fn invalid_effect_batches_are_atomic_and_do_not_poison_other_plugins() {
         .unwrap_err();
     assert_eq!(failure.code, ErrorCode::GuestTrap);
     assert!(!broken.is_active());
-    let healthy = plugin_actor(&pool);
+    let healthy = plugin_actor(&pool).await;
     healthy
         .invoke(request("status"), services)
         .unwrap()
@@ -699,7 +714,7 @@ async fn loops_and_slow_reads_cancel_with_dedicated_epochs() {
         ..Services::default()
     });
     for command in ["loop", "uppercase"] {
-        let actor = plugin_actor(&pool);
+        let actor = plugin_actor(&pool).await;
         let completion = actor.invoke(request(command), services.clone()).unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
         let start = Instant::now();
@@ -719,7 +734,7 @@ async fn loops_and_slow_reads_cancel_with_dedicated_epochs() {
 async fn job_drop_and_actor_revocation_await_child_cleanup() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     actor
         .invoke(request("job-start"), services.clone())
         .unwrap()
@@ -744,7 +759,7 @@ async fn job_drop_and_actor_revocation_await_child_cleanup() {
         .unwrap();
     actor.shutdown().await.unwrap();
     assert_eq!(services.jobs.load(Ordering::Acquire), 0);
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let failure = actor
         .invoke(request("job-quota"), services.clone())
         .unwrap()
@@ -757,10 +772,46 @@ async fn job_drop_and_actor_revocation_await_child_cleanup() {
 }
 
 #[tokio::test]
+async fn dropping_the_last_actor_handle_cleans_jobs_without_stopping_the_pool() {
+    let pool = WorkerPool::new().unwrap();
+    let services = Arc::new(Services::default());
+    let actor = plugin_actor(&pool).await;
+    let retained = actor.clone();
+    actor
+        .invoke(request("job-start"), services.clone())
+        .unwrap()
+        .await
+        .unwrap();
+    drop(actor);
+    assert_eq!(services.jobs.load(Ordering::Acquire), 1);
+    retained
+        .invoke(request("status"), services.clone())
+        .unwrap()
+        .await
+        .unwrap();
+    drop(retained);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let notified = pool.inner.actors.drained.notified();
+            if pool.inner.actors.count.load(Ordering::Acquire) == 0 {
+                break;
+            }
+            notified.await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(services.jobs.load(Ordering::Acquire), 0);
+    assert_eq!(pool.inner.memory.load(Ordering::Acquire), 0);
+    assert!(!pool.inner.stop.is_cancelled());
+    pool.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn memory_growth_traps_without_affecting_other_stores() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
-    let broken = plugin_actor(&pool);
+    let broken = plugin_actor(&pool).await;
     let failure = broken
         .invoke(request("grow"), services.clone())
         .unwrap()
@@ -769,7 +820,7 @@ async fn memory_growth_traps_without_affecting_other_stores() {
     assert_eq!(failure.code, ErrorCode::ResourceExhausted);
     assert!(!broken.is_active());
     assert_eq!(pool.inner.memory.load(Ordering::Acquire), 0);
-    let healthy = plugin_actor(&pool);
+    let healthy = plugin_actor(&pool).await;
     healthy
         .invoke(request("status"), services)
         .unwrap()
@@ -782,9 +833,10 @@ async fn memory_growth_traps_without_affecting_other_stores() {
 #[tokio::test]
 async fn admission_counts_unconsumed_results_and_rejects_old_generations() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
-    let services = Arc::new(Services::default());
     assert!(pool.inner.engine.lock().unwrap().is_none());
+    let actor = plugin_actor(&pool).await;
+    let services = Arc::new(Services::default());
+    assert!(pool.inner.engine.lock().unwrap().is_some());
     let mut old = request("status");
     old.editor.generation = 0;
     assert_eq!(
@@ -822,9 +874,9 @@ async fn suspended_services_leave_other_plugins_schedulable() {
         read_delay: Duration::from_secs(30),
         ..Services::default()
     });
-    let first = plugin_actor(&pool);
-    let second = plugin_actor(&pool);
-    let third = plugin_actor(&pool);
+    let first = plugin_actor(&pool).await;
+    let second = plugin_actor(&pool).await;
+    let third = plugin_actor(&pool).await;
     let one = first
         .invoke(request("uppercase"), services.clone())
         .unwrap();
@@ -910,7 +962,7 @@ async fn preparation_classifies_import_and_export_mismatches_before_guest_startu
 async fn preparation_rejects_invalid_replacements_before_activation() {
     let pool = WorkerPool::new().unwrap();
     let services = Arc::new(Services::default());
-    let old = plugin_actor(&pool);
+    let old = plugin_actor(&pool).await;
     old.invoke(request("status"), services.clone())
         .unwrap()
         .await
@@ -948,14 +1000,14 @@ async fn preparation_rejects_invalid_replacements_before_activation() {
 #[tokio::test]
 async fn unconsumed_large_results_hold_byte_quota_through_application() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services::default());
     let first = actor
         .invoke(request("large-status"), services.clone())
         .unwrap()
         .await
         .unwrap();
-    assert!(actor.inner._result_bytes.load(Ordering::Acquire) > 2 * 1024 * 1024);
+    assert!(actor.inner.state.result_bytes.load(Ordering::Acquire) > 2 * 1024 * 1024);
     assert_eq!(
         actor
             .invoke(request("large-status"), services.clone())
@@ -967,9 +1019,9 @@ async fn unconsumed_large_results_hold_byte_quota_through_application() {
     );
     assert!(actor.is_active());
     first.with_response(|_| {
-        assert!(actor.inner._result_bytes.load(Ordering::Acquire) > 2 * 1024 * 1024);
+        assert!(actor.inner.state.result_bytes.load(Ordering::Acquire) > 2 * 1024 * 1024);
     });
-    assert_eq!(actor.inner._result_bytes.load(Ordering::Acquire), 0);
+    assert_eq!(actor.inner.state.result_bytes.load(Ordering::Acquire), 0);
     drop(
         actor
             .invoke(request("large-status"), services)
@@ -985,7 +1037,7 @@ async fn unconsumed_large_results_hold_byte_quota_through_application() {
 #[tokio::test]
 async fn cancellation_during_job_creation_drops_the_future_without_child_work() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services {
         creation_delay: Duration::from_secs(30),
         ..Services::default()
@@ -1018,7 +1070,7 @@ async fn cancellation_during_job_creation_drops_the_future_without_child_work() 
 #[tokio::test]
 async fn typed_ui_builders_bound_rows_and_check_each_builtin_capability() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services::default());
     let response = actor
         .invoke(request("picker"), services.clone())
@@ -1048,7 +1100,9 @@ async fn typed_ui_builders_bound_rows_and_check_each_builtin_capability() {
         matches!(&response.actions[0], Action::UpdateKeymap { request: 19, bindings } if bindings.len() == 1 && bindings[0].keys == ["space", "u"])
     );
     let grants = [Capability::Ui].into_iter().collect();
-    let limited = pool.spawn(fixture(), 1, capabilities(), grants).unwrap();
+    let limited = prepared_actor(&pool, fixture(), 1, capabilities(), grants)
+        .await
+        .unwrap();
     assert_eq!(
         limited
             .invoke(request("builtin"), services.clone())
@@ -1076,7 +1130,7 @@ async fn retained_results_are_bounded_across_plugins_when_consumer_stops() {
     let mut responses = Vec::new();
     let mut rejected = false;
     for _ in 0..16 {
-        let actor = plugin_actor(&pool);
+        let actor = plugin_actor(&pool).await;
         match actor
             .invoke(request("large-status"), services.clone())
             .unwrap()
@@ -1108,7 +1162,7 @@ async fn aggregate_guest_memory_is_bounded_across_plugins() {
     let mut actors = Vec::new();
     let mut rejected = false;
     for _ in 0..8 {
-        let actor = plugin_actor(&pool);
+        let actor = plugin_actor(&pool).await;
         match actor
             .invoke(request("grow-32"), services.clone())
             .unwrap()
@@ -1142,7 +1196,7 @@ async fn aggregate_guest_memory_is_bounded_across_plugins() {
 #[tokio::test]
 async fn retained_jobs_notify_once_after_invocation_and_close_cancels_their_child() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services {
         job_ready: true,
         ..Services::default()
@@ -1186,7 +1240,7 @@ async fn retained_jobs_notify_once_after_invocation_and_close_cancels_their_chil
 #[tokio::test]
 async fn closed_readiness_target_rejection_and_hidden_guest_target_clean_jobs() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let rejected = Arc::new(Services {
         job_ready: true,
         reject_notification: true,
@@ -1206,7 +1260,7 @@ async fn closed_readiness_target_rejection_and_hidden_guest_target_clean_jobs() 
     .unwrap();
     assert!(actor.is_active());
     actor.shutdown().await.unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services::default());
     let mut hidden = request("job-start");
     hidden.editor.document = None;
@@ -1241,7 +1295,7 @@ async fn closed_readiness_target_rejection_and_hidden_guest_target_clean_jobs() 
 #[tokio::test]
 async fn retiring_navigation_exempts_only_its_current_call_and_cancels_jobs() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services {
         read_delay: Duration::from_millis(50),
         ..Default::default()
@@ -1299,7 +1353,7 @@ async fn retiring_navigation_exempts_only_its_current_call_and_cancels_jobs() {
 #[tokio::test]
 async fn cancelled_initialization_disables_the_store_before_any_command() {
     let pool = WorkerPool::new().unwrap();
-    let actor = plugin_actor(&pool);
+    let actor = plugin_actor(&pool).await;
     let mut initializing = request("loop");
     initializing.event = Event::Init;
     let completion = actor

@@ -3,22 +3,25 @@
 use crate::{ErrorCode, ServiceError};
 
 #[derive(Clone, Copy)]
-pub struct QueryLimits {
-    pub bytes: usize,
-    pub patterns: usize,
+struct QueryLimits {
+    bytes: usize,
+    patterns: usize,
 }
 
-pub const STRUCTURAL_LIMITS: QueryLimits = QueryLimits {
-    bytes: 4096,
-    patterns: 64,
+/// Native grammar validation must also reject more structural query patterns.
+pub const MAX_STRUCTURAL_PATTERNS: usize = 64;
+
+const STRUCTURAL_LIMITS: QueryLimits = QueryLimits {
+    bytes: crate::editor::MAX_EDITOR_REQUEST_BYTES,
+    patterns: MAX_STRUCTURAL_PATTERNS,
 };
-pub const DECLARATIVE_LIMITS: QueryLimits = QueryLimits {
-    bytes: 128 * 1024,
+const DECLARATIVE_LIMITS: QueryLimits = QueryLimits {
+    bytes: crate::assets::MAX_SOURCE_BYTES,
     patterns: 256,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Predicates {
+enum Predicates {
     Structural,
     Declarative,
 }
@@ -47,15 +50,22 @@ fn unsupported() -> ServiceError {
     )
 }
 
-/// Comments and quoted text cannot hide syntax work from the counters. Literal
-/// predicates compare only bounded strings; regex, capture-text comparisons,
-/// and native text lookup roles are excluded from contributed queries. Native
-/// grammar/query validation still checks actual syntax.
-pub fn validate(
-    source: &str,
-    limits: QueryLimits,
-    predicates: Predicates,
-) -> Result<(), ServiceError> {
+/// Preflight an editor-service query with fixed source, nesting and work bounds.
+/// Predicates are excluded; comments and quoted text do not count as predicates.
+/// Native grammar validation must still check actual syntax and capture counts.
+pub fn validate_structural(source: &str) -> Result<(), ServiceError> {
+    validate(source, STRUCTURAL_LIMITS, Predicates::Structural)
+}
+
+/// Preflight a contributed query with fixed source, nesting and work bounds.
+/// Literal predicates compare only bounded strings; regex, capture-text
+/// comparisons and native text lookup roles are excluded. Native grammar
+/// validation must still check actual syntax and capture counts.
+pub fn validate_declarative(source: &str) -> Result<(), ServiceError> {
+    validate(source, DECLARATIVE_LIMITS, Predicates::Declarative)
+}
+
+fn validate(source: &str, limits: QueryLimits, predicates: Predicates) -> Result<(), ServiceError> {
     if source.len() > limits.bytes {
         return Err(exhausted("query source exceeds byte bound"));
     }
@@ -269,16 +279,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn entry_points_keep_fixed_source_and_pattern_limits() {
+        let source = "(identifier) @name\n".repeat(MAX_STRUCTURAL_PATTERNS + 1);
+        assert_eq!(
+            validate_structural(&source).unwrap_err().code,
+            ErrorCode::ResourceExhausted
+        );
+        validate_declarative(&source).unwrap();
+        for (validate, bound) in [
+            (
+                validate_structural as fn(&str) -> Result<(), ServiceError>,
+                STRUCTURAL_LIMITS.bytes,
+            ),
+            (validate_declarative, DECLARATIVE_LIMITS.bytes),
+        ] {
+            let source = " ".repeat(bound);
+            validate(&source).unwrap();
+            assert_eq!(
+                validate(&(source + " ")).unwrap_err().code,
+                ErrorCode::ResourceExhausted
+            );
+        }
+    }
+
+    #[test]
     fn lexer_bounds_native_compilation_and_literal_predicates() {
         let valid = "; #match? inside comment\n((identifier) @x (#eq? @x \"#(value)\"))";
-        assert!(validate(valid, DECLARATIVE_LIMITS, Predicates::Declarative).is_ok());
-        assert!(validate(valid, STRUCTURAL_LIMITS, Predicates::Structural).is_err());
-        assert!(validate(
-            "; # inside comment\n(\"#\") @x",
-            STRUCTURAL_LIMITS,
-            Predicates::Structural
-        )
-        .is_ok());
+        assert!(validate_declarative(valid).is_ok());
+        assert!(validate_structural(valid).is_err());
+        assert!(validate_structural("; # inside comment\n(\"#\") @x").is_ok());
         for source in [
             "((identifier) @x (#match? @x \"a{9999999}\"))".to_owned(),
             "((identifier) @x (#eq? @x @y))".to_owned(),
@@ -288,15 +317,10 @@ mod tests {
             format!("({})", "(identifier)? ".repeat(129)),
             format!("(\"{}\")", "x".repeat(129)),
         ] {
-            assert!(
-                validate(&source, DECLARATIVE_LIMITS, Predicates::Declarative).is_err(),
-                "{source}"
-            );
+            assert!(validate_declarative(&source).is_err(), "{source}");
         }
-        assert!(validate(
-            "((string) @injection.content (#set! injection.language \"json\"))",
-            DECLARATIVE_LIMITS,
-            Predicates::Declarative
+        assert!(validate_declarative(
+            "((string) @injection.content (#set! injection.language \"json\"))"
         )
         .is_ok());
     }
@@ -314,22 +338,18 @@ mod tests {
             // structural service only returns bounded node metadata, so these
             // same capture labels remain valid there.
             let source = format!("(document) @{capture}");
-            let error = validate(&source, DECLARATIVE_LIMITS, Predicates::Declarative).unwrap_err();
+            let error = validate_declarative(&source).unwrap_err();
             assert_eq!(error.code, ErrorCode::UnsupportedInterface);
             assert!(error.message.contains(capture));
-            assert!(validate(&source, STRUCTURAL_LIMITS, Predicates::Structural).is_ok());
+            assert!(validate_structural(&source).is_ok());
         }
         for predicate in ["#is? local", "#is-not? \"local\""] {
             let source = format!("((document) @variable ({predicate}))");
-            let error = validate(&source, DECLARATIVE_LIMITS, Predicates::Declarative).unwrap_err();
+            let error = validate_declarative(&source).unwrap_err();
             assert_eq!(error.code, ErrorCode::UnsupportedInterface);
             assert!(error.message.contains("local lookup"));
         }
-        assert!(validate(
-            "((document) @variable (#not-eq? @variable \"tiny\"))\n((string) @injection.content (#set! injection.language \"json\"))",
-            DECLARATIVE_LIMITS,
-            Predicates::Declarative,
-        )
+        assert!(validate_declarative("((document) @variable (#not-eq? @variable \"tiny\"))\n((string) @injection.content (#set! injection.language \"json\"))")
         .is_ok());
     }
 }

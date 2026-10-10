@@ -666,18 +666,18 @@ impl host::Host for HostState {
     ) -> wasmtime::Result<Result<String, types::Failure>> {
         let result = async {
             self.live()?;
-            if payload.len() > 4096 {
+            if payload.len() > plugin_api::editor::MAX_EDITOR_REQUEST_BYTES {
                 return Err(exhausted("plugin editor request exceeds its byte limit"));
             }
             let request: plugin_api::editor::EditorRequest = serde_json::from_str(&payload)
                 .map_err(|_| invalid("plugin editor request is not a supported typed request"))?;
             request.validate()?;
-            for capability in request.capabilities() {
+            for &capability in request.capabilities() {
                 self.require(capability)?;
             }
             let services = self.services.as_ref().ok_or_else(stale)?.clone();
             let reply = self.await_service(services.editor_request(request)).await?;
-            bounded_json(&reply, 1024 * 1024)
+            bounded_json(&reply, plugin_api::editor::MAX_EDITOR_REPLY_BYTES)
         }
         .await;
         Ok(result.map_err(failure))

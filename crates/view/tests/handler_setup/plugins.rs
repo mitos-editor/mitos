@@ -2131,7 +2131,7 @@ async fn failed_async_preparation_keeps_the_previous_generation_usable() -> anyh
     )]);
     assert!(fixture.editor.reload_plugins(&missing, dir.path()));
     drain(&mut fixture).await;
-    assert!(fixture.editor.plugin_command_doc("fixture.run").is_some());
+    assert!(fixture.editor.plugin_command("fixture.run").is_some());
     assert!(execute(&mut fixture, "fixture.run", vec![]).await?);
     assert_eq!(fixture.editor.get_status().unwrap().0, "old generation");
     Ok(())

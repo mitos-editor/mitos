@@ -105,7 +105,7 @@ impl AccessPolicy {
         ))
     }
 
-    pub fn read_root(&self, index: u32) -> Result<&ScopedDirectory, ServiceError> {
+    pub(crate) fn read_root(&self, index: u32) -> Result<&ScopedDirectory, ServiceError> {
         self.require(Capability::WorkspaceRead)?;
         self.read_roots
             .get(index as usize)
@@ -156,7 +156,7 @@ impl AccessPolicy {
         Ok(roots)
     }
 
-    pub fn process_root(
+    pub(crate) fn process_root(
         &self,
         index: u32,
         command: &str,
@@ -176,7 +176,12 @@ impl AccessPolicy {
             })
     }
 
-    pub fn write_root(&self, index: u32, path: &Path, bytes: &[u8]) -> Result<(), ServiceError> {
+    pub(crate) fn write_root(
+        &self,
+        index: u32,
+        path: &Path,
+        bytes: &[u8],
+    ) -> Result<(), ServiceError> {
         self.require(Capability::WorkspaceWrite)?;
         let (_, _, directory) = self.write_roots.get(index as usize).ok_or_else(|| {
             ServiceError::new(

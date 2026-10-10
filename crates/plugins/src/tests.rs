@@ -1,6 +1,6 @@
 use std::{fs, sync::Arc};
 
-use plugin_api::{Action, HostFuture, HostServices, ReadRequest};
+use plugin_api::{Action, HostFuture, HostServices, Permissions, ReadRequest};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -72,7 +72,9 @@ async fn command(manager: &PluginManager) -> CompletedResponse {
             "example.status",
             vec![],
             context(manager.generation()),
+            serde_json::Value::Null,
             Arc::new(Services),
+            InvocationTarget::default(),
         )
         .unwrap()
         .unwrap()
@@ -86,11 +88,20 @@ async fn commands_are_documented_and_real_guest_state_persists() {
     let manager = load(config).await;
     assert_eq!(manager.available_commands().len(), 2);
     assert_eq!(
-        manager.get_doc_for_identifier("example.status").as_deref(),
+        manager
+            .command("example.status")
+            .map(|command| command.doc.as_str()),
         Some("Report plugin state")
     );
     assert!(manager
-        .call_command("native-command", vec![], context(1), Arc::new(Services))
+        .call_command(
+            "native-command",
+            vec![],
+            context(1),
+            Value::Null,
+            Arc::new(Services),
+            InvocationTarget::default()
+        )
         .unwrap()
         .is_none());
     for expected in ["call 1", "call 2"] {
@@ -109,15 +120,20 @@ async fn static_argument_metadata_rejects_wrong_counts_before_guest_admission() 
     );
     let (_directory, config) = fixture(&declared, &wasm());
     let manager = load(config).await;
-    let metadata = manager
-        .get_arguments_for_identifier("example.status")
-        .unwrap();
+    let metadata = &manager.command("example.status").unwrap().arguments;
     assert_eq!((metadata.min, metadata.max), (1, 1));
     assert_eq!(metadata.completions, vec![vec!["two words", "μ"]]);
     for args in [vec![], vec!["one".into(), "two".into()]] {
         assert_eq!(
             manager
-                .call_command("example.status", args, context(1), Arc::new(Services))
+                .call_command(
+                    "example.status",
+                    args,
+                    context(1),
+                    Value::Null,
+                    Arc::new(Services),
+                    InvocationTarget::default()
+                )
                 .err()
                 .unwrap()
                 .code,
@@ -129,7 +145,9 @@ async fn static_argument_metadata_rejects_wrong_counts_before_guest_admission() 
             "example.status",
             vec!["μ".into()],
             context(1),
+            serde_json::Value::Null,
             Arc::new(Services),
+            InvocationTarget::default(),
         )
         .unwrap()
         .unwrap()
@@ -212,7 +230,14 @@ async fn configuration_is_bounded_and_prepared_once_off_editor_path() {
     let (_directory, mut config) = fixture(&declared, &wasm());
     let manager = load(config.clone()).await;
     let response = manager
-        .call_command("example.config", vec![], context(1), Arc::new(Services))
+        .call_command(
+            "example.config",
+            vec![],
+            context(1),
+            Value::Null,
+            Arc::new(Services),
+            InvocationTarget::default(),
+        )
         .unwrap()
         .unwrap()
         .await
@@ -363,7 +388,14 @@ async fn observation_requires_both_grants_and_declaration_and_revocation_is_imme
     assert!(manager.available_commands().is_empty());
     assert_eq!(
         manager
-            .call_command("example.status", vec![], context(1), Arc::new(Services))
+            .call_command(
+                "example.status",
+                vec![],
+                context(1),
+                Value::Null,
+                Arc::new(Services),
+                InvocationTarget::default()
+            )
             .err()
             .unwrap()
             .code,

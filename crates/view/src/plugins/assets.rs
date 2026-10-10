@@ -252,11 +252,7 @@ impl AssetPreparation {
                 aliases.insert(name.clone(), profile.base_language.clone());
                 languages.insert(name.clone(), profile.base_language);
                 for (kind, source) in language.queries {
-                    plugin_api::query::validate(
-                        &source,
-                        plugin_api::query::DECLARATIVE_LIMITS,
-                        plugin_api::query::Predicates::Declarative,
-                    )?;
+                    plugin_api::query::validate_declarative(&source)?;
                     queries.insert((name.clone(), kind.filename().to_owned()), source);
                 }
             }

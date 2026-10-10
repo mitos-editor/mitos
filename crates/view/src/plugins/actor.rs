@@ -94,10 +94,7 @@ struct AssetTransition {
 struct Replacement {
     prepared: PreparedManager,
     assets: Option<assets::PreparedAssets>,
-    observer: Option<Arc<dyn InvocationTasks>>,
-    task: Option<InvocationTask>,
-    shutdown_sent: bool,
-    asset_attempts: u8,
+    transition: AssetTransition,
 }
 pub(super) struct AsyncState {
     calls: FuturesUnordered<BoxFuture<'static, Vec<Ready>>>,
@@ -317,20 +314,22 @@ impl Editor {
         }
         let policy = self.plugins.manager.policy(plugin).ok_or_else(cancelled)?;
         let adapter: Arc<dyn HostServices> = Arc::new(EditorServices {
-            owner: Arc::downgrade(&self.plugins.shared),
-            callbacks: self.handlers.callbacks.clone(),
-            policy: policy.clone(),
             plugin: plugin.into(),
-            event,
-            reads: self.plugins.asynchronous.reads.clone(),
-            open_bytes: self.plugins.asynchronous.open_bytes.clone(),
-            source: PluginEventSource {
-                generation: self.plugins.shared.generation,
-                origin: Some(EffectOrigin {
-                    plugin: plugin.into(),
-                    sequence: provenance.sequence,
-                    depth: provenance.depth,
-                }),
+            scope: services::Scope {
+                owner: Arc::downgrade(&self.plugins.shared),
+                callbacks: self.handlers.callbacks.clone(),
+                policy: policy.clone(),
+                event,
+                work: self.plugins.asynchronous.reads.clone(),
+                open_bytes: self.plugins.asynchronous.open_bytes.clone(),
+                source: PluginEventSource {
+                    generation: self.plugins.shared.generation,
+                    origin: Some(EffectOrigin {
+                        plugin: plugin.into(),
+                        sequence: provenance.sequence,
+                        depth: provenance.depth,
+                    }),
+                },
             },
         });
         let native = if let Some(native) = self.plugins.asynchronous.services.get(plugin) {
@@ -342,7 +341,7 @@ impl Editor {
                 adapter.clone(),
                 Some(&path),
                 self.plugins.asynchronous.budget.clone(),
-            )?);
+            ));
             self.plugins
                 .asynchronous
                 .services
@@ -396,17 +395,16 @@ impl Editor {
         &mut self,
         prepared: PreparedManager,
         assets: Option<assets::PreparedAssets>,
-        transition: AssetTransition,
+        mut transition: AssetTransition,
     ) {
+        let retiring = transition.retiring;
+        transition.retiring = true;
         self.plugins.asynchronous.replacement = Some(Replacement {
             prepared,
             assets,
-            observer: transition.observer,
-            task: transition.task,
-            shutdown_sent: transition.shutdown_sent,
-            asset_attempts: transition.attempts,
+            transition,
         });
-        if transition.retiring {
+        if retiring {
             return;
         }
         self.plugins.shutting_down = true;
@@ -778,6 +776,7 @@ impl Editor {
             .replacement
             .as_ref()
             .unwrap()
+            .transition
             .shutdown_sent
         {
             self.plugins
@@ -785,6 +784,7 @@ impl Editor {
                 .replacement
                 .as_mut()
                 .unwrap()
+                .transition
                 .shutdown_sent = true;
             // Dispatch polls readiness synchronously. A replacement with no
             // live old subscribers must not recursively activate twice.
@@ -804,13 +804,7 @@ impl Editor {
             .as_ref()
             .is_some_and(|assets| !assets.is_current(self))
         {
-            let mut transition = AssetTransition {
-                observer: replacement.observer,
-                task: replacement.task,
-                retiring: true,
-                shutdown_sent: true,
-                attempts: replacement.asset_attempts,
-            };
+            let mut transition = replacement.transition;
             if transition.attempts < MAX_ASSET_RETRIES {
                 transition.attempts += 1;
                 self.prepare_plugin_assets(replacement.prepared, transition);
@@ -829,16 +823,7 @@ impl Editor {
         let manager = match replacement.prepared.activate() {
             Ok(manager) => manager,
             Err(error) => {
-                self.fail_plugin_assets(
-                    error,
-                    AssetTransition {
-                        observer: replacement.observer,
-                        task: replacement.task,
-                        retiring: true,
-                        shutdown_sent: true,
-                        attempts: replacement.asset_attempts,
-                    },
-                );
+                self.fail_plugin_assets(error, replacement.transition);
                 return;
             }
         };
@@ -855,13 +840,7 @@ impl Editor {
                     .push(Box::pin(async move { manager.shutdown().await }));
                 self.fail_plugin_assets(
                     ServiceError::new(ErrorCode::StaleState, error.to_string()),
-                    AssetTransition {
-                        observer: replacement.observer,
-                        task: replacement.task,
-                        retiring: true,
-                        shutdown_sent: true,
-                        attempts: replacement.asset_attempts,
-                    },
+                    replacement.transition,
                 );
                 return;
             }
@@ -892,7 +871,7 @@ impl Editor {
             doc.plugin_events = sender.clone();
             doc.plugin_settings = Some(Arc::downgrade(&self.plugins.settings));
         }
-        let previous = self.replace_invocation_tasks(replacement.observer);
+        let previous = self.replace_invocation_tasks(replacement.transition.observer);
         let accepted = self.dispatch_plugin_event(Event::Init, Value::Null);
         self.replace_invocation_tasks(previous);
         self.plugins
@@ -904,7 +883,7 @@ impl Editor {
             callbacks: self.handlers.callbacks.clone(),
         }
         .schedule_wake();
-        if let Some(task) = replacement.task {
+        if let Some(task) = replacement.transition.task {
             task.finish(if accepted {
                 TaskOutcome::Success
             } else {
@@ -1146,14 +1125,8 @@ impl HostServices for LifecycleServices {
 }
 
 struct EditorServices {
-    owner: Weak<Shared>,
-    callbacks: EditorCallbackSender,
-    policy: Arc<::plugins::policy::AccessPolicy>,
+    scope: services::Scope,
     plugin: String,
-    reads: Arc<tokio::sync::Semaphore>,
-    open_bytes: Arc<tokio::sync::Semaphore>,
-    source: PluginEventSource,
-    event: Event,
 }
 impl HostServices for EditorServices {
     fn editor_request(
@@ -1161,33 +1134,16 @@ impl HostServices for EditorServices {
         request: plugin_api::editor::EditorRequest,
     ) -> HostFuture<plugin_api::editor::EditorReply> {
         if language::handles(&request) {
-            language::request(
-                request,
-                self.owner.clone(),
-                self.callbacks.clone(),
-                self.policy.clone(),
-                self.reads.clone(),
-            )
+            language::request(request, self.scope.clone())
         } else {
-            services::request(
-                request,
-                services::Scope {
-                    owner: self.owner.clone(),
-                    callbacks: self.callbacks.clone(),
-                    policy: self.policy.clone(),
-                    source: self.source.clone(),
-                    event: self.event,
-                    work: self.reads.clone(),
-                    open_bytes: self.open_bytes.clone(),
-                },
-            )
+            services::request(request, self.scope.clone())
         }
     }
 
     fn notify_job_ready(&self, job: u64) -> HostFuture<()> {
-        let weak = self.owner.clone();
-        let callbacks = self.callbacks.clone();
-        let policy = self.policy.clone();
+        let weak = self.scope.owner.clone();
+        let callbacks = self.scope.callbacks.clone();
+        let policy = self.scope.policy.clone();
         let plugin = self.plugin.clone();
         Box::pin(async move {
             policy.check_live()?;
@@ -1253,12 +1209,12 @@ impl HostServices for EditorServices {
     }
 
     fn read_document(&self, request: ReadRequest) -> HostFuture<String> {
-        let owner = self.owner.clone();
-        let callbacks = self.callbacks.clone();
-        let policy = self.policy.clone();
-        let reads = self.reads.clone();
-        let generation = self.source.generation;
-        let event = self.event;
+        let owner = self.scope.owner.clone();
+        let callbacks = self.scope.callbacks.clone();
+        let policy = self.scope.policy.clone();
+        let reads = self.scope.work.clone();
+        let generation = self.scope.source.generation;
+        let event = self.scope.event;
         Box::pin(async move {
             policy.require(Capability::EditorRead)?;
             if event == Event::Shutdown {

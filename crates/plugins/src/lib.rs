@@ -4,18 +4,15 @@
 //! editor path. Activation is transactional; every actor belongs to one editor
 //! generation and stages effects until the owning editor applies them.
 
-use anyhow::{ensure, Context, Result};
+use anyhow::Result;
 use plugin_api::{
-    Capability, CapabilitySet, EditorContext, ErrorCode, Event, HostServices, Permissions, Request,
-    ServiceError, ABI_VERSION,
+    Capability, EditorContext, ErrorCode, Event, HostServices, Request, ServiceError, ABI_VERSION,
 };
-use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     future::Future,
-    path::{Component, Path, PathBuf},
+    path::PathBuf,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -27,91 +24,22 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 pub const MAX_MESSAGE_BYTES: usize = component::MAX_MESSAGE_BYTES;
-const MAX_MODULE_BYTES: usize = component::MAX_COMPONENT_BYTES;
-const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_PACKAGE_SET_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PLUGINS: usize = 32;
 mod assets;
-pub mod compatibility;
+mod compatibility;
 mod complexity;
 mod component;
 mod diagnostics;
-pub mod filesystem;
+mod filesystem;
 pub mod native;
+mod package;
 pub mod policy;
 mod worker;
-pub use worker::{CompletedResponse, Completion, InvocationTarget, WorkerPool};
-
-/// Configuration for a single plugin. Relative paths use the editor config directory.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct PluginConfig {
-    /// The plugin manifest (`plugin.toml`), or its containing directory.
-    pub path: PathBuf,
-    #[serde(default = "enabled_by_default")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub config: Value,
-    /// Authority granted only by the user's global configuration.
-    #[serde(default)]
-    pub permissions: Permissions,
-    /// Optional module digest pin. Workspace config cannot replace this pin.
-    #[serde(default)]
-    pub sha256: Option<String>,
-}
-
-impl Default for PluginConfig {
-    fn default() -> Self {
-        Self {
-            path: PathBuf::new(),
-            enabled: true,
-            config: Value::Null,
-            permissions: Permissions::default(),
-            sha256: None,
-        }
-    }
-}
-
-fn enabled_by_default() -> bool {
-    true
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-struct Manifest {
-    #[serde(default = "manifest_version")]
-    manifest_version: u32,
-    #[serde(default = "api_version")]
-    api_version: String,
-    #[serde(default)]
-    minimum_host_version: Option<String>,
-    abi_version: u32,
-    #[serde(default)]
-    module: Option<PathBuf>,
-    #[serde(default = "default_capabilities")]
-    capabilities: CapabilitySet,
-    #[serde(default)]
-    optional_capabilities: CapabilitySet,
-    #[serde(default)]
-    required_capabilities: CapabilitySet,
-    #[serde(default)]
-    commands: BTreeMap<String, Command>,
-    #[serde(default)]
-    events: Vec<Event>,
-    #[serde(default)]
-    contributions: plugin_api::assets::Contributions,
-}
-
-fn default_capabilities() -> CapabilitySet {
-    Permissions::default().capabilities
-}
-
-fn manifest_version() -> u32 {
-    compatibility::MANIFEST_VERSION
-}
-fn api_version() -> String {
-    compatibility::API_VERSION.to_owned()
-}
+use package::{valid_identifier, Package};
+pub use package::{CommandMetadata, PluginConfig};
+use worker::WorkerPool;
+pub use worker::{CompletedResponse, Completion, InvocationTarget};
 
 fn observes_editor_state(event: Event) -> bool {
     matches!(
@@ -128,26 +56,12 @@ fn observes_editor_state(event: Event) -> bool {
     )
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Command {
-    doc: String,
-    #[serde(default)]
-    arguments: plugin_api::commands::CommandArguments,
-}
-
 /// A command registered by a plugin, qualified by its configured name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginCommand {
     pub name: String,
     pub doc: String,
     pub arguments: plugin_api::commands::CommandArguments,
-}
-
-/// The command registry boundary carried over from Helix's plugin proposal.
-pub trait PluginSystem {
-    fn available_commands(&self) -> Vec<PluginCommand>;
-    fn get_doc_for_identifier(&self, identifier: &str) -> Option<String>;
 }
 
 /// Packages and serialized actors belonging to one editor generation.
@@ -236,7 +150,8 @@ impl PreparedManager {
             manager.plugins.insert(
                 name,
                 Plugin {
-                    manifest: prepared.package.manifest,
+                    commands: prepared.package.commands,
+                    events: prepared.package.events,
                     config: prepared.package.config,
                     policy: prepared.package.policy,
                     actor,
@@ -409,7 +324,6 @@ impl PluginManager {
             .filter(|(_, plugin)| plugin.active())
             .flat_map(|(name, plugin)| {
                 plugin
-                    .manifest
                     .commands
                     .iter()
                     .map(move |(command, details)| PluginCommand {
@@ -420,41 +334,18 @@ impl PluginManager {
             })
             .collect()
     }
-    pub fn get_doc_for_identifier(&self, identifier: &str) -> Option<String> {
+    pub fn command(&self, identifier: &str) -> Option<&CommandMetadata> {
         let (name, command) = identifier.split_once('.')?;
         let plugin = self.plugins.get(name)?;
-        plugin
-            .active()
-            .then(|| {
-                plugin
-                    .manifest
-                    .commands
-                    .get(command)
-                    .map(|command| command.doc.clone())
-            })
-            .flatten()
+        if !plugin.active() {
+            return None;
+        }
+        plugin.commands.get(command)
     }
     pub fn policy(&self, name: &str) -> Option<Arc<policy::AccessPolicy>> {
         self.plugins.get(name).map(|plugin| plugin.policy.clone())
     }
 
-    pub fn get_arguments_for_identifier(
-        &self,
-        identifier: &str,
-    ) -> Option<plugin_api::commands::CommandArguments> {
-        let (name, command) = identifier.split_once('.')?;
-        let plugin = self.plugins.get(name)?;
-        plugin
-            .active()
-            .then(|| {
-                plugin
-                    .manifest
-                    .commands
-                    .get(command)
-                    .map(|command| command.arguments.clone())
-            })
-            .flatten()
-    }
     pub fn require_capability(
         &self,
         name: &str,
@@ -484,17 +375,6 @@ impl PluginManager {
             .is_some_and(|plugin| plugin.subscribes(event))
     }
     pub fn call_event(
-        &self,
-        name: &str,
-        event: Event,
-        editor: EditorContext,
-        data: Value,
-        services: Arc<dyn HostServices>,
-    ) -> Result<Completion, ServiceError> {
-        let target = InvocationTarget::from_context(&editor);
-        self.call_event_with_target(name, event, editor, data, services, target)
-    }
-    pub fn call_event_with_target(
         &self,
         name: &str,
         event: Event,
@@ -532,26 +412,6 @@ impl PluginManager {
         name: &str,
         args: Vec<String>,
         editor: EditorContext,
-        services: Arc<dyn HostServices>,
-    ) -> Result<Option<Completion>, ServiceError> {
-        self.call_command_with_data(name, args, editor, Value::Null, services)
-    }
-    pub fn call_command_with_data(
-        &self,
-        name: &str,
-        args: Vec<String>,
-        editor: EditorContext,
-        data: Value,
-        services: Arc<dyn HostServices>,
-    ) -> Result<Option<Completion>, ServiceError> {
-        let target = InvocationTarget::from_context(&editor);
-        self.call_command_with_target(name, args, editor, data, services, target)
-    }
-    pub fn call_command_with_target(
-        &self,
-        name: &str,
-        args: Vec<String>,
-        editor: EditorContext,
         data: Value,
         services: Arc<dyn HostServices>,
         target: InvocationTarget,
@@ -562,7 +422,7 @@ impl PluginManager {
         let Some(plugin) = self.plugins.get(plugin_name) else {
             return Ok(None);
         };
-        let Some(details) = plugin.manifest.commands.get(command) else {
+        let Some(details) = plugin.commands.get(command) else {
             return Ok(None);
         };
         if args.len() < details.arguments.min || args.len() > details.arguments.max {
@@ -652,15 +512,6 @@ impl Drop for PluginManager {
         self.revoke();
     }
 }
-impl PluginSystem for PluginManager {
-    fn available_commands(&self) -> Vec<PluginCommand> {
-        self.available_commands()
-    }
-    fn get_doc_for_identifier(&self, identifier: &str) -> Option<String> {
-        self.get_doc_for_identifier(identifier)
-    }
-}
-
 fn check_cancel(cancel: &CancellationToken) -> Result<(), ServiceError> {
     if cancel.is_cancelled() {
         Err(ServiceError::new(
@@ -680,12 +531,6 @@ fn prepare_packages(
     cancel: CancellationToken,
     diagnostics: Arc<diagnostics::Catalog>,
 ) -> Result<PreparedManager, ServiceError> {
-    if configs.values().filter(|config| config.enabled).count() > MAX_PLUGINS {
-        return Err(ServiceError::new(
-            ErrorCode::ResourceExhausted,
-            format!("too many enabled plugins (limit {MAX_PLUGINS})"),
-        ));
-    }
     let mut packages = BTreeMap::new();
     let mut source_bytes = 0usize;
     for (name, config) in configs {
@@ -703,7 +548,7 @@ fn prepare_packages(
         })?;
         diagnostics.loaded(
             &name,
-            package.manifest.capabilities.clone(),
+            package.policy.declared.clone(),
             package.bytes.is_some(),
         );
         source_bytes = source_bytes.saturating_add(
@@ -765,144 +610,9 @@ fn prepare_packages(
     Ok(prepared)
 }
 
-struct Package {
-    manifest: Manifest,
-    config: Arc<str>,
-    policy: Arc<policy::AccessPolicy>,
-    bytes: Option<Arc<[u8]>>,
-    assets: Arc<plugin_api::assets::OwnedAssets>,
-    asset_bytes: usize,
-}
-impl Package {
-    fn load(name: &str, config: &PluginConfig, base: &Path, generation: u64) -> Result<Self> {
-        ensure!(
-            valid_identifier(name),
-            "invalid plugin name (use letters, digits, '-' or '_')"
-        );
-        let path = base.join(&config.path);
-        let manifest_path = if path.is_dir() {
-            path.join("plugin.toml")
-        } else {
-            path
-        };
-        let manifest_path = manifest_path
-            .canonicalize()
-            .with_context(|| format!("opening manifest {}", manifest_path.display()))?;
-        let directory = manifest_path
-            .parent()
-            .context("manifest has no parent directory")?;
-        let package = filesystem::ScopedDirectory::open(directory)?;
-        let manifest_bytes = package.read_bounded(
-            Path::new(
-                manifest_path
-                    .file_name()
-                    .context("manifest has no filename")?,
-            ),
-            MAX_MANIFEST_BYTES,
-        )?;
-        let mut manifest: Manifest = toml::from_str(std::str::from_utf8(&manifest_bytes)?)
-            .context("invalid plugin manifest")?;
-        compatibility::validate(
-            manifest.manifest_version,
-            &manifest.api_version,
-            manifest.minimum_host_version.as_deref(),
-        )?;
-        manifest
-            .capabilities
-            .extend(manifest.optional_capabilities.iter().copied());
-        ensure!(
-            manifest
-                .required_capabilities
-                .is_subset(&manifest.capabilities),
-            "required capabilities must also be declared"
-        );
-        ensure!(
-            manifest.commands.len() <= 64 && manifest.events.len() <= 32,
-            "plugin manifest exceeds command or subscription limits"
-        );
-        for command in manifest.commands.values_mut() {
-            command
-                .arguments
-                .validate()
-                .context("invalid command arguments")?;
-            ensure!(
-                command.doc.len() <= 4096,
-                "command documentation exceeds 4096 bytes"
-            );
-            command.doc = plugin_api::ui::terminal_text(&command.doc, false);
-        }
-        let policy = Arc::new(policy::AccessPolicy::new(
-            manifest.capabilities.clone(),
-            config.permissions.clone(),
-            base,
-        )?);
-        for capability in &manifest.required_capabilities {
-            policy.require(*capability)?;
-        }
-        ensure!(
-            manifest.abi_version == ABI_VERSION,
-            "unsupported ABI version {} (expected {ABI_VERSION})",
-            manifest.abi_version
-        );
-        ensure!(
-            manifest.commands.keys().all(|name| valid_identifier(name)),
-            "invalid command name (use letters, digits, '-' or '_')"
-        );
-        let prepared_config: Arc<str> = component::bounded_json(&config.config, 64 * 1024)?.into();
-        let (assets, asset_bytes) =
-            assets::load(&package, &manifest.contributions, name, generation)?;
-        let bytes = if let Some(module) = &manifest.module {
-            ensure!(
-                !module.as_os_str().is_empty()
-                    && module
-                        .components()
-                        .all(|part| matches!(part, Component::Normal(_))),
-                "module must be a relative path within the plugin directory"
-            );
-            let bytes = package.read_bounded(module, MAX_MODULE_BYTES)?;
-            ensure!(
-                bytes.starts_with(b"\0asm"),
-                "module must be a WebAssembly binary component"
-            );
-            if let Some(pin) = &config.sha256 {
-                ensure!(
-                    pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()),
-                    "sha256 must contain 64 hexadecimal digits"
-                );
-                let digest: String = Sha256::digest(&bytes)
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
-                ensure!(
-                    digest.eq_ignore_ascii_case(pin),
-                    "module SHA-256 does not match the user's package pin"
-                );
-            }
-            Some(bytes.into())
-        } else {
-            ensure!(
-                manifest.commands.is_empty() && manifest.events.is_empty(),
-                "commands and event hooks require a component module"
-            );
-            ensure!(
-                config.sha256.is_none(),
-                "a module digest pin requires a component module"
-            );
-            None
-        };
-        Ok(Self {
-            manifest,
-            config: prepared_config,
-            policy,
-            bytes,
-            assets: Arc::new(assets),
-            asset_bytes,
-        })
-    }
-}
-
 struct Plugin {
-    manifest: Manifest,
+    commands: BTreeMap<String, CommandMetadata>,
+    events: Vec<Event>,
     config: Arc<str>,
     policy: Arc<policy::AccessPolicy>,
     actor: Option<worker::PluginActor>,
@@ -935,7 +645,7 @@ impl Plugin {
                     | Event::BuiltinResult
                     | Event::KeymapResult
                     | Event::JobReady
-            ) || self.manifest.events.contains(&event))
+            ) || self.events.contains(&event))
     }
     fn call(
         &self,
@@ -970,13 +680,5 @@ impl Plugin {
             .invoke_configured(request, services, target, Some(self.config.clone()))
     }
 }
-fn valid_identifier(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
 #[cfg(test)]
 mod tests;

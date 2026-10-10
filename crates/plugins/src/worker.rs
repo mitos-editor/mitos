@@ -46,7 +46,8 @@ pub struct InvocationTarget {
     pub call_sequence: Option<u64>,
 }
 impl InvocationTarget {
-    pub(crate) fn from_context(context: &plugin_api::EditorContext) -> Self {
+    #[cfg(test)]
+    fn from_context(context: &plugin_api::EditorContext) -> Self {
         Self {
             document: context.document.as_ref().map(|doc| doc.id),
             view: context.view.as_ref().map(|view| view.id),
@@ -140,18 +141,18 @@ struct Cache {
     entries: VecDeque<(Arc<[u8]>, Arc<Compiled>, usize)>,
     bytes: usize,
 }
-struct CodeReservation {
+struct ByteReservation {
     counter: Arc<AtomicUsize>,
     bytes: usize,
 }
-impl Drop for CodeReservation {
+impl Drop for ByteReservation {
     fn drop(&mut self) {
         self.counter.fetch_sub(self.bytes, Ordering::AcqRel);
     }
 }
 pub(crate) struct Compiled {
     pub component: Component,
-    _reservation: CodeReservation,
+    _reservation: ByteReservation,
 }
 #[derive(Default)]
 struct Actors {
@@ -180,7 +181,7 @@ impl Drop for PoolInner {
 
 /// One executor per owning editor. Engine creation and compilation are lazy.
 #[derive(Clone)]
-pub struct WorkerPool {
+pub(crate) struct WorkerPool {
     inner: Arc<PoolInner>,
 }
 impl WorkerPool {
@@ -188,7 +189,7 @@ impl WorkerPool {
     pub(crate) fn same_executor(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
-    pub fn new() -> Result<Self, ServiceError> {
+    pub(crate) fn new() -> Result<Self, ServiceError> {
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let actors = Arc::new(Actors::default());
@@ -265,77 +266,10 @@ impl WorkerPool {
             }),
         })
     }
-    pub fn spawn(
-        &self,
-        bytes: Arc<[u8]>,
-        generation: u64,
-        declared: CapabilitySet,
-        granted: CapabilitySet,
-    ) -> Result<PluginActor, ServiceError> {
-        if bytes.len() > MAX_COMPONENT_BYTES {
-            return Err(exhausted("plugin component exceeds its source byte limit"));
-        }
-        self.inner
-            .code_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                current
-                    .checked_add(bytes.len())
-                    .filter(|total| *total <= MAX_SOURCE_BYTES)
-            })
-            .map_err(|_| exhausted("editor plugin source budget exceeded"))?;
-        let job_controls = Arc::new(component::JobControls::default());
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let wake = Arc::new(Notify::new());
-        let cancel = self.inner.stop.child_token();
-        let result_bytes = Arc::new(AtomicUsize::new(0));
-        let active = Arc::new(AtomicBool::new(true));
-        let current = Arc::new(Mutex::new(None));
-        let done = Arc::new(ActorDone::default());
-        let diagnostics = Arc::new(Mutex::new(ActorDiagnostics::default()));
-        let actor = PluginActor {
-            inner: Arc::new(ActorOwner {
-                _pool: self.clone(),
-                job_controls: job_controls.clone(),
-                mailbox: mailbox.clone(),
-                wake: wake.clone(),
-                cancel: cancel.clone(),
-                active: active.clone(),
-                current: current.clone(),
-                done: done.clone(),
-                diagnostics: diagnostics.clone(),
-                admission: Arc::new(Semaphore::new(MAX_CALLS)),
-                _result_bytes: result_bytes.clone(),
-            }),
-        };
-        self.inner.actors.count.fetch_add(1, Ordering::AcqRel);
-        self.inner.handle.spawn(actor_loop(
-            Arc::downgrade(&self.inner),
-            self.inner.actors.clone(),
-            SourceReservation {
-                counter: self.inner.code_bytes.clone(),
-                bytes: bytes.len(),
-            },
-            bytes,
-            generation,
-            declared,
-            granted,
-            None,
-            result_bytes,
-            job_controls,
-            mailbox,
-            wake,
-            cancel,
-            active,
-            current,
-            done,
-            diagnostics,
-        ));
-        Ok(actor)
-    }
     /// Compile, link-check and instantiate a replacement without running Init or
     /// attaching editor services. The owning editor activates only after every
     /// package in its replacement set has prepared successfully.
-    pub fn prepare(
+    pub(crate) fn prepare(
         &self,
         bytes: Arc<[u8]>,
         generation: u64,
@@ -353,7 +287,7 @@ impl WorkerPool {
                     .filter(|total| *total <= MAX_SOURCE_BYTES)
             })
             .map_err(|_| exhausted("editor plugin source budget exceeded"))?;
-        let reservation = SourceReservation {
+        let reservation = ByteReservation {
             counter: self.inner.code_bytes.clone(),
             bytes: bytes.len(),
         };
@@ -369,7 +303,7 @@ impl WorkerPool {
                 let _permit = tokio::select! { _ = stopping.cancelled() => return Err(cancelled()), _ = tokio::time::sleep_until(deadline.into()) => return Err(deadline_exceeded()), permit = pool.inner.execute.clone().acquire_owned() => permit.map_err(|_| cancelled())? };
                 let (engine, component) = compiled(&pool.inner, bytes.clone(), &stopping, deadline).await?;
                 let instance = Instance::new(&engine, &component, component::InstanceOptions { generation, declared: declared.clone(), granted: granted.clone(), cancel: stopping, deadline, shared_memory: pool.inner.memory.clone() }).await?;
-                Ok(PreparedPlugin { pool, bytes, generation, declared, granted, instance: Some(instance), reservation: Some(reservation) })
+                Ok(PreparedPlugin { pool, generation, instance: Some(instance), reservation: Some(reservation) })
             }.await;
             let _ = send.send(result);
         });
@@ -378,61 +312,48 @@ impl WorkerPool {
 
     /// Move an already prepared store into its serialized actor. This operation
     /// neither compiles nor invokes a guest and is safe on an editor callback.
-    pub fn activate(&self, mut prepared: PreparedPlugin) -> Result<PluginActor, ServiceError> {
+    pub(crate) fn activate(
+        &self,
+        mut prepared: PreparedPlugin,
+    ) -> Result<PluginActor, ServiceError> {
         if !Arc::ptr_eq(&self.inner, &prepared.pool.inner) || self.inner.stop.is_cancelled() {
             return Err(cancelled());
         }
-        let job_controls = Arc::new(component::JobControls::default());
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let wake = Arc::new(Notify::new());
-        let cancel = self.inner.stop.child_token();
-        let result_bytes = Arc::new(AtomicUsize::new(0));
-        let active = Arc::new(AtomicBool::new(true));
-        let current = Arc::new(Mutex::new(None));
-        let done = Arc::new(ActorDone::default());
-        let diagnostics = Arc::new(Mutex::new(ActorDiagnostics::default()));
+        let state = Arc::new(ActorState {
+            job_controls: Arc::new(component::JobControls::default()),
+            mailbox: Mutex::new(Mailbox::default()),
+            wake: Notify::new(),
+            cancel: self.inner.stop.child_token(),
+            active: AtomicBool::new(true),
+            current: Mutex::new(None),
+            done: ActorDone::default(),
+            diagnostics: Mutex::new(ActorDiagnostics::default()),
+            admission: Arc::new(Semaphore::new(MAX_CALLS)),
+            result_bytes: Arc::new(AtomicUsize::new(0)),
+        });
         let actor = PluginActor {
             inner: Arc::new(ActorOwner {
                 _pool: self.clone(),
-                job_controls: job_controls.clone(),
-                mailbox: mailbox.clone(),
-                wake: wake.clone(),
-                cancel: cancel.clone(),
-                active: active.clone(),
-                current: current.clone(),
-                done: done.clone(),
-                diagnostics: diagnostics.clone(),
-                admission: Arc::new(Semaphore::new(MAX_CALLS)),
-                _result_bytes: result_bytes.clone(),
+                state: state.clone(),
             }),
         };
-        let instance = prepared.instance.take();
+        let instance = prepared.instance.take().unwrap();
         let reservation = prepared.reservation.take().unwrap();
         self.inner.actors.count.fetch_add(1, Ordering::AcqRel);
         self.inner.handle.spawn(actor_loop(
             Arc::downgrade(&self.inner),
             self.inner.actors.clone(),
             reservation,
-            prepared.bytes.clone(),
             prepared.generation,
-            prepared.declared.clone(),
-            prepared.granted.clone(),
             instance,
-            result_bytes,
-            job_controls,
-            mailbox,
-            wake,
-            cancel,
-            active,
-            current,
-            done,
-            diagnostics,
+            state,
         ));
         Ok(actor)
     }
 
     /// Signal revocation before waiting; cancellation does not need mailbox space.
-    pub async fn shutdown(&self) -> Result<(), ServiceError> {
+    #[cfg(test)]
+    pub(crate) async fn shutdown(&self) -> Result<(), ServiceError> {
         self.inner.stop.cancel();
         let deadline = Instant::now() + SHUTDOWN_DEADLINE;
         loop {
@@ -579,15 +500,6 @@ fn response_bytes(response: &Response) -> usize {
     bytes
 }
 
-struct SourceReservation {
-    counter: Arc<AtomicUsize>,
-    bytes: usize,
-}
-impl Drop for SourceReservation {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(self.bytes, Ordering::AcqRel);
-    }
-}
 struct Activity(Arc<Actors>);
 impl Drop for Activity {
     fn drop(&mut self) {
@@ -596,7 +508,7 @@ impl Drop for Activity {
     }
 }
 
-pub struct Preparation {
+pub(crate) struct Preparation {
     receiver: oneshot::Receiver<Result<PreparedPlugin, ServiceError>>,
     cancel: CancellationToken,
 }
@@ -619,14 +531,11 @@ impl Drop for Preparation {
     }
 }
 
-pub struct PreparedPlugin {
+pub(crate) struct PreparedPlugin {
     pool: WorkerPool,
-    bytes: Arc<[u8]>,
     generation: u64,
-    declared: CapabilitySet,
-    granted: CapabilitySet,
     instance: Option<Instance>,
-    reservation: Option<SourceReservation>,
+    reservation: Option<ByteReservation>,
 }
 impl Drop for PreparedPlugin {
     fn drop(&mut self) {
@@ -760,42 +669,50 @@ struct ActiveCall {
     call_sequence: Option<u64>,
     cancel: CancellationToken,
 }
-struct ActorOwner {
+struct ActorState {
     job_controls: Arc<component::JobControls>,
-    _pool: WorkerPool,
-    mailbox: Arc<Mutex<Mailbox>>,
-    wake: Arc<Notify>,
+    mailbox: Mutex<Mailbox>,
+    wake: Notify,
     cancel: CancellationToken,
-    active: Arc<AtomicBool>,
-    current: Arc<Mutex<Option<ActiveCall>>>,
-    done: Arc<ActorDone>,
-    diagnostics: Arc<Mutex<ActorDiagnostics>>,
+    active: AtomicBool,
+    current: Mutex<Option<ActiveCall>>,
+    done: ActorDone,
+    diagnostics: Mutex<ActorDiagnostics>,
     admission: Arc<Semaphore>,
-    _result_bytes: Arc<AtomicUsize>,
+    result_bytes: Arc<AtomicUsize>,
+}
+
+// The actor task shares state, never this external owner. Dropping the final
+// submission handle must revoke the actor even while its task is still running.
+struct ActorOwner {
+    _pool: WorkerPool,
+    state: Arc<ActorState>,
 }
 impl Drop for ActorOwner {
     fn drop(&mut self) {
-        self.cancel.cancel();
-        self.wake.notify_one();
+        self.state.cancel.cancel();
+        self.state.wake.notify_one();
     }
 }
 
 /// Cloneable submission/control handle. Its store is owned by exactly one actor.
 #[derive(Clone)]
-pub struct PluginActor {
+pub(crate) struct PluginActor {
     inner: Arc<ActorOwner>,
 }
 impl PluginActor {
     /// Bounded owned snapshots; no guest execution or filesystem work.
-    pub fn diagnostics(&self) -> (usize, RequestTimings, Vec<DiagnosticEntry>) {
+    pub(crate) fn diagnostics(&self) -> (usize, RequestTimings, Vec<DiagnosticEntry>) {
         let queued = self
             .inner
+            .state
             .mailbox
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .len();
         let diagnostics = self
             .inner
+            .state
             .diagnostics
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -807,9 +724,10 @@ impl PluginActor {
     }
     /// The host records this only for a successfully returned guest response.
     /// A rejected application changes the provisional successful outcome.
-    pub fn record_application(&self, duration_us: u64, error: Option<&ServiceError>) {
+    pub(crate) fn record_application(&self, duration_us: u64, error: Option<&ServiceError>) {
         let mut diagnostics = self
             .inner
+            .state
             .diagnostics
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -820,12 +738,13 @@ impl PluginActor {
             diagnostics.failed(error);
         }
     }
-    pub fn is_active(&self) -> bool {
-        self.inner.active.load(Ordering::Acquire) && !self.inner.cancel.is_cancelled()
+    pub(crate) fn is_active(&self) -> bool {
+        self.inner.state.active.load(Ordering::Acquire) && !self.inner.state.cancel.is_cancelled()
     }
-    pub fn is_busy(&self) -> bool {
+    pub(crate) fn is_busy(&self) -> bool {
         let mailbox = self
             .inner
+            .state
             .mailbox
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -833,12 +752,14 @@ impl PluginActor {
             || !mailbox.notifications.is_empty()
             || self
                 .inner
+                .state
                 .current
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .is_some()
     }
-    pub fn invoke(
+    #[cfg(test)]
+    fn invoke(
         &self,
         request: Request,
         services: Arc<dyn HostServices>,
@@ -846,7 +767,8 @@ impl PluginActor {
         let target = InvocationTarget::from_context(&request.editor);
         self.invoke_with_target(request, services, target)
     }
-    pub fn invoke_with_target(
+    #[cfg(test)]
+    fn invoke_with_target(
         &self,
         request: Request,
         services: Arc<dyn HostServices>,
@@ -869,6 +791,7 @@ impl PluginActor {
         }
         let admission = self
             .inner
+            .state
             .admission
             .clone()
             .try_acquire_owned()
@@ -880,11 +803,12 @@ impl PluginActor {
                 "plugin configured request exceeds its byte limit",
             ));
         }
-        let cancel = self.inner.cancel.child_token();
+        let cancel = self.inner.state.cancel.child_token();
         let (send, receive) = oneshot::channel();
         let command = request.event == Event::Command;
         let mut mailbox = self
             .inner
+            .state
             .mailbox
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -918,7 +842,7 @@ impl PluginActor {
             mailbox.notifications.push_back(envelope);
         }
         drop(mailbox);
-        self.inner.wake.notify_one();
+        self.inner.state.wake.notify_one();
         Ok(Completion {
             receiver: receive,
             _admission: admission,
@@ -926,19 +850,19 @@ impl PluginActor {
         })
     }
     /// Cancel obsolete calls without executing a guest or awaiting native work.
-    pub fn job_target(&self, job: u64) -> Option<InvocationTarget> {
-        self.inner.job_controls.target(job)
+    pub(crate) fn job_target(&self, job: u64) -> Option<InvocationTarget> {
+        self.inner.state.job_controls.target(job)
     }
-    pub fn cancel_target(&self, document: Option<u64>, view: Option<u64>) {
+    pub(crate) fn cancel_target(&self, document: Option<u64>, view: Option<u64>) {
         self.cancel_target_except(document, view, None);
     }
-    pub fn cancel_target_except(
+    pub(crate) fn cancel_target_except(
         &self,
         document: Option<u64>,
         view: Option<u64>,
         call_sequence: Option<u64>,
     ) {
-        self.inner.job_controls.cancel_target(document, view);
+        self.inner.state.job_controls.cancel_target(document, view);
         let matches = |target: InvocationTarget| {
             document.is_some_and(|id| target.document == Some(id))
                 || view.is_some_and(|id| target.view == Some(id))
@@ -947,11 +871,13 @@ impl PluginActor {
         // request between its mailbox and active-call ownership.
         let mut mailbox = self
             .inner
+            .state
             .mailbox
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(active) = &*self
             .inner
+            .state
             .current
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -973,6 +899,7 @@ impl PluginActor {
                 if matches(envelope.target) {
                     removed += envelope.bytes;
                     self.inner
+                        .state
                         .diagnostics
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -990,16 +917,16 @@ impl PluginActor {
         }
         mailbox.bytes -= removed;
     }
-    pub fn revoke(&self) {
-        self.inner.cancel.cancel();
-        self.inner.wake.notify_one();
+    pub(crate) fn revoke(&self) {
+        self.inner.state.cancel.cancel();
+        self.inner.state.wake.notify_one();
     }
-    pub async fn shutdown(&self) -> Result<(), ServiceError> {
+    pub(crate) async fn shutdown(&self) -> Result<(), ServiceError> {
         self.revoke();
         let deadline = Instant::now() + SHUTDOWN_DEADLINE;
         loop {
-            let notified = self.inner.done.wake.notified();
-            if self.inner.done.finished.load(Ordering::Acquire) {
+            let notified = self.inner.state.done.wake.notified();
+            if self.inner.state.done.finished.load(Ordering::Acquire) {
                 break;
             }
             tokio::time::timeout_at(deadline.into(), notified)
@@ -1094,7 +1021,7 @@ async fn compiled(
         Ok((
             Arc::new(Compiled {
                 component,
-                _reservation: CodeReservation {
+                _reservation: ByteReservation {
                     counter: native_bytes,
                     bytes: weight,
                 },
@@ -1120,26 +1047,27 @@ async fn compiled(
     Ok((engine, component))
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn actor_loop(
     pool: Weak<PoolInner>,
     actors: Arc<Actors>,
-    reservation: SourceReservation,
-    bytes: Arc<[u8]>,
+    reservation: ByteReservation,
     generation: u64,
-    declared: CapabilitySet,
-    granted: CapabilitySet,
-    mut instance: Option<Instance>,
-    result_bytes: Arc<AtomicUsize>,
-    job_controls: Arc<component::JobControls>,
-    mailbox: Arc<Mutex<Mailbox>>,
-    wake: Arc<Notify>,
-    cancel: CancellationToken,
-    active: Arc<AtomicBool>,
-    current: Arc<Mutex<Option<ActiveCall>>>,
-    done: Arc<ActorDone>,
-    diagnostics: Arc<Mutex<ActorDiagnostics>>,
+    instance: Instance,
+    state: Arc<ActorState>,
 ) {
+    let mut instance = Some(instance);
+    let ActorState {
+        job_controls,
+        mailbox,
+        wake,
+        cancel,
+        active,
+        current,
+        done,
+        diagnostics,
+        result_bytes,
+        ..
+    } = state.as_ref();
     let _activity = Activity(actors);
     let _reservation = reservation;
     loop {
@@ -1208,10 +1136,6 @@ async fn actor_loop(
         let result = async {
             let pool = pool.upgrade().ok_or_else(cancelled)?;
             let permit = tokio::select! { _ = invocation_cancel.cancelled() => return Err(cancelled()), _ = tokio::time::sleep_until(deadline.into()) => return Err(deadline_exceeded()), permit = pool.execute.clone().acquire_owned() => permit.map_err(|_| cancelled())? };
-            if instance.is_none() {
-                let (engine, component) = compiled(&pool, bytes.clone(), &invocation_cancel, deadline).await?;
-                instance = Some(Instance::new(&engine, &component, component::InstanceOptions { generation, declared: declared.clone(), granted: granted.clone(), cancel: invocation_cancel.clone(), deadline, shared_memory: pool.memory.clone() }).await?);
-            }
             let _permit = permit;
             match instance.as_mut().unwrap().call(component::Invocation { request: envelope.request, services: envelope.services, cancel: invocation_cancel, owner_cancel: cancel.clone(), deadline, target: envelope.target, job_controls: job_controls.clone(), config_json: envelope.config_json }).await {
                 Ok(response) => deliver(response, result_bytes.clone(), pool.result_bytes.clone()),
@@ -1221,16 +1145,6 @@ async fn actor_loop(
         *current
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        if instance.is_none()
-            && result.as_ref().is_err_and(|error| {
-                matches!(
-                    error.code,
-                    ErrorCode::GuestTrap | ErrorCode::UnsupportedInterface
-                )
-            })
-        {
-            active.store(false, Ordering::Release);
-        }
         if initializing && result.is_err() {
             active.store(false, Ordering::Release);
         }
@@ -1262,7 +1176,7 @@ async fn actor_loop(
     mailbox
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .fail(cancelled(), &diagnostics);
+        .fail(cancelled(), diagnostics);
     done.finish();
 }
 
@@ -1279,9 +1193,6 @@ fn request_bytes(request: &Request) -> Result<usize, ServiceError> {
         return Err(exhausted(
             "plugin request arguments or selection summary exceed their limit",
         ));
-    }
-    if bytes > MAX_MESSAGE_BYTES {
-        return Err(exhausted("plugin request exceeds its byte limit"));
     }
     Ok(bytes)
 }

@@ -10,22 +10,22 @@ use anyhow::{ensure, Context};
 use cap_std::fs::OpenOptionsExt;
 use cap_std::fs::{Dir, OpenOptions};
 
-pub const MAX_FILE_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: usize = 4 * 1024 * 1024;
 
 /// A root selected by the host, never by a guest-supplied absolute path.
-pub struct ScopedDirectory {
+pub(crate) struct ScopedDirectory {
     dir: Dir,
 }
 
 impl ScopedDirectory {
-    pub fn open(root: &Path) -> anyhow::Result<Self> {
+    pub(crate) fn open(root: &Path) -> anyhow::Result<Self> {
         Ok(Self {
             dir: Dir::open_ambient_dir(root, cap_std::ambient_authority())
                 .with_context(|| format!("opening granted directory {}", root.display()))?,
         })
     }
 
-    pub fn read(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
+    pub(crate) fn read(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
         self.read_bounded(path, MAX_FILE_BYTES)
     }
 
@@ -46,7 +46,7 @@ impl ScopedDirectory {
         Ok(bytes)
     }
 
-    pub fn write(&self, path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    pub(crate) fn write(&self, path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         relative_path(path)?;
         ensure!(
             bytes.len() <= MAX_FILE_BYTES,
@@ -66,7 +66,7 @@ impl ScopedDirectory {
         Ok(())
     }
 
-    pub fn directory(&self) -> &Dir {
+    pub(crate) fn directory(&self) -> &Dir {
         &self.dir
     }
 }

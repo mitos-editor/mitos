@@ -83,7 +83,7 @@ async fn load(fixture: &mut Fixture, dir: &Path, packages: BTreeMap<String, Plug
             assert!(
                 fixture
                     .editor
-                    .plugin_command_doc(&format!("{name}.run"))
+                    .plugin_command(&format!("{name}.run"))
                     .is_some(),
                 "service package '{name}' did not activate: status={:?}; diagnostics={:?}",
                 fixture.editor.get_status(),

@@ -35,6 +35,7 @@ struct Prepared {
     _open_quota: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
+#[derive(Clone)]
 pub(super) struct Scope {
     pub owner: Weak<Shared>,
     pub callbacks: EditorCallbackSender,
@@ -63,7 +64,7 @@ pub(super) fn request(request: EditorRequest, scope: Scope) -> HostFuture<Editor
                 "editor request exceeds 4 KiB",
             ));
         }
-        for cap in request.capabilities() {
+        for &cap in request.capabilities() {
             policy.require(cap)?;
         }
         let shared = owner.upgrade().ok_or_else(cancelled)?;
@@ -181,7 +182,7 @@ pub(super) fn request(request: EditorRequest, scope: Scope) -> HostFuture<Editor
                     if !Arc::ptr_eq(&shared, &editor.plugins.shared) || editor.plugins.stopped {
                         return Err(cancelled());
                     }
-                    for cap in request.capabilities() {
+                    for &cap in request.capabilities() {
                         policy.require(cap)?;
                     }
                     if mutates(&request)

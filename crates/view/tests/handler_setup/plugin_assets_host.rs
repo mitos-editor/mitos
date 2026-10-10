@@ -212,7 +212,7 @@ async fn deferred_scoped_open_failure_is_counted_once_as_host_failure() -> anyho
         .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
     drain(&mut fixture).await;
     assert!(
-        fixture.editor.plugin_command_doc("fixture.run").is_some(),
+        fixture.editor.plugin_command("fixture.run").is_some(),
         "deferred-open host did not activate: status={:?}; diagnostics={:?}",
         fixture.editor.get_status(),
         fixture.editor.plugin_diagnostics()

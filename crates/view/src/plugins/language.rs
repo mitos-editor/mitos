@@ -22,12 +22,12 @@ use std::{
     io::Write,
     time::{Duration, Instant},
 };
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::oneshot;
 
 const MAX_DOCUMENT_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SYNTAX_DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RANGE_BYTES: usize = 1024 * 1024;
-const MAX_PATTERNS: usize = plugin_api::query::STRUCTURAL_LIMITS.patterns;
+const MAX_PATTERNS: usize = plugin_api::query::MAX_STRUCTURAL_PATTERNS;
 const MAX_MATCHES: usize = 4096;
 const MAX_HOVER_BYTES: usize = 64 * 1024;
 
@@ -66,13 +66,14 @@ pub(super) fn handles(request: &EditorRequest) -> bool {
     )
 }
 
-pub(super) fn request(
-    request: EditorRequest,
-    owner: Weak<Shared>,
-    callbacks: EditorCallbackSender,
-    policy: Arc<::plugins::policy::AccessPolicy>,
-    work: Arc<Semaphore>,
-) -> HostFuture<EditorReply> {
+pub(super) fn request(request: EditorRequest, scope: services::Scope) -> HostFuture<EditorReply> {
+    let services::Scope {
+        owner,
+        callbacks,
+        policy,
+        work,
+        ..
+    } = scope;
     Box::pin(async move {
         request.validate()?;
         check_json_bytes(
@@ -613,11 +614,7 @@ fn validate_query(query: &str) -> Result<(), ServiceError> {
             "syntax query source is empty",
         ));
     }
-    plugin_api::query::validate(
-        query,
-        plugin_api::query::STRUCTURAL_LIMITS,
-        plugin_api::query::Predicates::Structural,
-    )
+    plugin_api::query::validate_structural(query)
 }
 
 fn query_captures(

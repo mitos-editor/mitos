@@ -3251,7 +3251,6 @@ name = "plugin-sdk"
 version = "0.1.0"
 dependencies = [
  "plugin-api",
- "serde",
  "serde_json",
  "wit-bindgen 0.62.0",
 ]

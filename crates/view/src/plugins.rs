@@ -712,19 +712,12 @@ impl Editor {
         self.plugins.manager.available_commands()
     }
 
-    pub fn plugin_command_doc(&self, name: &str) -> Option<String> {
-        self.plugins.manager.get_doc_for_identifier(name)
+    pub fn plugin_command(&self, name: &str) -> Option<&::plugins::CommandMetadata> {
+        self.plugins.manager.command(name)
     }
 
     pub fn plugin_diagnostics(&self) -> Vec<plugin_api::diagnostics::PluginDiagnostics> {
         self.plugins.manager.diagnostics()
-    }
-
-    pub fn plugin_command_arguments(
-        &self,
-        name: &str,
-    ) -> Option<plugin_api::commands::CommandArguments> {
-        self.plugins.manager.get_arguments_for_identifier(name)
     }
 
     /// Replace plugin instances, discard stale callbacks and initialize the new
@@ -771,7 +764,7 @@ impl Editor {
             !self.plugins.stopped && !self.plugins.shutting_down,
             "plugins have been shut down or are being replaced"
         );
-        if self.plugin_command_doc(name).is_none() {
+        if self.plugin_command(name).is_none() {
             return Ok(false);
         }
         let plugin = name.split_once('.').unwrap().0;
@@ -787,7 +780,7 @@ impl Editor {
             .lock()
             .provenance(self.plugins.shared.generation);
         let services = self.plugin_services(plugin, &provenance, Event::Command)?;
-        let result = self.plugins.manager.call_command_with_target(
+        let result = self.plugins.manager.call_command(
             name,
             args,
             context.clone(),
@@ -982,10 +975,6 @@ impl Editor {
         }
     }
 
-    pub fn queue_plugin_document_saved(&self, id: DocumentId) {
-        self.queue_plugin_document_event(Event::DocumentSaved, id);
-    }
-
     pub(crate) fn queue_plugin_document_event(&self, event: Event, id: DocumentId) {
         if let Some(sender) = self.plugins.sender(&self.handlers.callbacks)
             && let Some(doc) = self.document(id)
@@ -1097,7 +1086,7 @@ impl Editor {
             let result = self
                 .plugin_services(&name, &provenance, event)
                 .and_then(|services| {
-                    self.plugins.manager.call_event_with_target(
+                    self.plugins.manager.call_event(
                         &name,
                         event,
                         context.clone(),

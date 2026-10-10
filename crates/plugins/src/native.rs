@@ -112,20 +112,12 @@ impl NativeServices {
         }
     }
 
-    pub fn new(
-        policy: Arc<AccessPolicy>,
-        editor: Arc<dyn HostServices>,
-        storage: Option<&Path>,
-    ) -> Result<Self, ServiceError> {
-        Self::with_budget(policy, editor, storage, NativeBudget::default())
-    }
-
     pub fn with_budget(
         policy: Arc<AccessPolicy>,
         editor: Arc<dyn HostServices>,
         storage: Option<&Path>,
         budget: NativeBudget,
-    ) -> Result<Self, ServiceError> {
+    ) -> Self {
         let storage = if policy.require(Capability::Storage).is_ok() {
             storage.map(|path| {
                 Arc::new(PrivateStorage {
@@ -136,7 +128,7 @@ impl NativeServices {
         } else {
             None
         };
-        Ok(Self {
+        Self {
             policy,
             editor,
             jobs: Arc::new(Semaphore::new(MAX_JOBS)),
@@ -144,7 +136,7 @@ impl NativeServices {
             io: budget.io,
             storage,
             storage_lock: Arc::new(tokio::sync::Mutex::new(())),
-        })
+        }
     }
 
     fn storage(&self, key: &str) -> Result<(Arc<PrivateStorage>, String), ServiceError> {
@@ -182,7 +174,7 @@ impl HostServices for NativeServices {
     ) -> HostFuture<plugin_api::editor::EditorReply> {
         let authorized = (|| {
             request.validate()?;
-            for capability in request.capabilities() {
+            for &capability in request.capabilities() {
                 self.policy.require(capability)?;
             }
             Ok::<_, ServiceError>(())
@@ -858,12 +850,12 @@ mod tests {
             Path::new("."),
         )
         .unwrap();
-        NativeServices::new(
+        NativeServices::with_budget(
             Arc::new(policy),
             Arc::new(NoEditor),
             Some(&root.join("storage")),
+            NativeBudget::default(),
         )
-        .unwrap()
     }
 
     async fn next(job: &Arc<dyn HostJob>) -> JobPoll {
@@ -1014,10 +1006,12 @@ mod tests {
                 AccessPolicy::new(Default::default(), Permissions::default(), Path::new("."))
                     .unwrap(),
             );
-            hosts.push(
-                NativeServices::with_budget(policy, Arc::new(NoEditor), None, budget.clone())
-                    .unwrap(),
-            );
+            hosts.push(NativeServices::with_budget(
+                policy,
+                Arc::new(NoEditor),
+                None,
+                budget.clone(),
+            ));
         }
         let mut jobs = Vec::new();
         for host in &hosts[..2] {
@@ -1065,15 +1059,12 @@ mod tests {
                 Path::new("."),
             )
             .unwrap();
-            hosts.push(
-                NativeServices::with_budget(
-                    Arc::new(policy),
-                    Arc::new(NoEditor),
-                    None,
-                    budget.clone(),
-                )
-                .unwrap(),
-            );
+            hosts.push(NativeServices::with_budget(
+                Arc::new(policy),
+                Arc::new(NoEditor),
+                None,
+                budget.clone(),
+            ));
         }
         let mut jobs = Vec::new();
         for host in &hosts[..2] {

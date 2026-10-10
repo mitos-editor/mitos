@@ -287,7 +287,7 @@ impl Editor {
                         || binding.keys.iter().any(|key| key.len() > 64)
                         || !paths.insert((binding.mode, binding.keys.clone()))
                         || self
-                            .plugin_command_doc(&format!("{plugin}.{}", binding.command))
+                            .plugin_command(&format!("{plugin}.{}", binding.command))
                             .is_none()
                     {
                         return Err(failure(ErrorCode::InvalidRequest,"plugin keybinding must name a declared local command and unique bounded key path"));

@@ -42,17 +42,11 @@ pub struct UiIdentity {
 }
 
 /// The view binding at submission. Closing or rebinding it cancels the UI.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UiOrigin {
-    pub view: u64,
-    pub document: u64,
-    pub binding_revision: u64,
-    /// UI liveness follows the binding. Editing/composition additionally checks
-    /// these revisions before acting on the originating selection.
-    pub version: i32,
-    pub selection_revision: u64,
-}
+///
+/// UI liveness checks the binding only. Editing, navigation and builtin
+/// composition additionally check the text and selection revisions before
+/// acting on the originating selection.
+pub type UiOrigin = crate::editor::ViewTarget;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -288,24 +282,6 @@ pub enum BuiltinCommand {
 }
 
 impl BuiltinCommand {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::MoveCharLeft => "move_char_left",
-            Self::MoveCharRight => "move_char_right",
-            Self::MoveLineUp => "move_line_up",
-            Self::MoveLineDown => "move_line_down",
-            Self::SelectAll => "select_all",
-            Self::CollapseSelection => "collapse_selection",
-            Self::KeepPrimarySelection => "keep_primary_selection",
-            Self::DeleteSelectionNoYank => "delete_selection_noyank",
-            Self::ChangeSelectionNoYank => "change_selection_noyank",
-            Self::Undo => "undo",
-            Self::Redo => "redo",
-            Self::InsertMode => "insert_mode",
-            Self::NormalMode => "normal_mode",
-        }
-    }
-
     pub fn capabilities(self) -> &'static [Capability] {
         match self {
             Self::DeleteSelectionNoYank | Self::Undo | Self::Redo => {
@@ -389,6 +365,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ui_origin_preserves_view_target_record_semantics() {
+        let value = serde_json::json!({
+            "view": 7,
+            "document": 9,
+            "binding_revision": 2,
+            "version": 4,
+            "selection_revision": 3,
+        });
+        let origin: UiOrigin = serde_json::from_value(value.clone()).unwrap();
+        let target: crate::editor::ViewTarget = origin;
+        assert_eq!(serde_json::to_value(target).unwrap(), value);
+        let mut invalid = value;
+        invalid["owner"] = serde_json::json!("another-plugin");
+        assert!(serde_json::from_value::<UiOrigin>(invalid).is_err());
+    }
+
+    #[test]
     fn terminal_controls_are_removed_and_preview_line_breaks_preserved() {
         assert_eq!(
             terminal_text("μ\x1b[31m\x07\n\tX\u{009b}", false),
@@ -452,10 +445,6 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<BuiltinCommand>(serde_json::json!(command)).is_err());
         }
-        assert_eq!(
-            BuiltinCommand::DeleteSelectionNoYank.name(),
-            "delete_selection_noyank"
-        );
     }
 
     #[test]

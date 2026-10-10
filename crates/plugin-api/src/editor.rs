@@ -312,8 +312,14 @@ pub enum EditorReply {
 
 impl EditorRequest {
     /// Native authorization still checks declaration AND live user grants.
-    pub fn capabilities(&self) -> Vec<Capability> {
-        let mut required = match self {
+    pub fn capabilities(&self) -> &'static [Capability] {
+        match self {
+            Self::ReadRegister {
+                name: '*' | '+', ..
+            } => &[Capability::EditorRead, Capability::Clipboard],
+            Self::WriteRegister {
+                name: '*' | '+', ..
+            } => &[Capability::EditorSelection, Capability::Clipboard],
             Self::DocumentStatus { .. }
             | Self::UnsavedDocuments { .. }
             | Self::SyntaxQuery { .. }
@@ -322,8 +328,8 @@ impl EditorRequest {
             | Self::LanguageFormat { .. }
             | Self::LanguageCodeActions { .. }
             | Self::ReadRegister { .. }
-            | Self::ReadSettings { .. } => vec![Capability::EditorRead],
-            Self::OpenAt { .. } => vec![
+            | Self::ReadSettings { .. } => &[Capability::EditorRead],
+            Self::OpenAt { .. } => &[
                 Capability::EditorNavigate,
                 Capability::EditorSelection,
                 Capability::WorkspaceRead,
@@ -332,25 +338,12 @@ impl EditorRequest {
             | Self::Focus { .. }
             | Self::Split { .. }
             | Self::CloseView { .. }
-            | Self::CloseDocument { .. } => vec![Capability::EditorNavigate],
-            Self::WriteRegister { .. } => vec![Capability::EditorSelection],
+            | Self::CloseDocument { .. } => &[Capability::EditorNavigate],
+            Self::WriteRegister { .. } => &[Capability::EditorSelection],
             Self::OverrideSetting { .. } | Self::ClearSettings { .. } => {
-                vec![Capability::EditorSettings]
+                &[Capability::EditorSettings]
             }
-        };
-        if matches!(
-            self,
-            Self::ReadRegister {
-                name: '*' | '+',
-                ..
-            } | Self::WriteRegister {
-                name: '*' | '+',
-                ..
-            }
-        ) {
-            required.push(Capability::Clipboard);
         }
-        required
     }
 
     /// Check operation bounds before grammar compilation or native dispatch.
@@ -472,13 +465,13 @@ mod tests {
         };
         assert_eq!(
             clipboard.capabilities(),
-            vec![Capability::EditorSelection, Capability::Clipboard]
+            &[Capability::EditorSelection, Capability::Clipboard]
         );
         let settings = EditorRequest::OverrideSetting {
             scope: SettingsScope::Editor,
             value: SettingValue::AutoFormat(false),
         };
-        assert_eq!(settings.capabilities(), vec![Capability::EditorSettings]);
+        assert_eq!(settings.capabilities(), &[Capability::EditorSettings]);
         assert!(serde_json::from_str::<EditorRequest>(r#"{"kind":"override-setting","scope":{"kind":"editor"},"value":{"kind":"shell","value":"sh"}}"#).is_err());
     }
 
@@ -559,7 +552,7 @@ mod tests {
             kinds: vec!["source.organizeImports".into()],
             server: Some("gopls".into()),
         };
-        assert_eq!(request.capabilities(), vec![Capability::EditorRead]);
+        assert_eq!(request.capabilities(), &[Capability::EditorRead]);
         request.validate().unwrap();
         assert_eq!(
             serde_json::from_value::<EditorRequest>(serde_json::to_value(&request).unwrap())
@@ -594,7 +587,7 @@ mod tests {
     #[test]
     fn unsaved_catalog_is_readonly_bounded_and_reports_partial_information() {
         let request = EditorRequest::UnsavedDocuments { max_documents: 0 };
-        assert_eq!(request.capabilities(), vec![Capability::EditorRead]);
+        assert_eq!(request.capabilities(), &[Capability::EditorRead]);
         request.validate().unwrap();
         assert_eq!(
             EditorRequest::UnsavedDocuments { max_documents: 129 }

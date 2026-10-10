@@ -159,13 +159,13 @@ fn execute_named_command(
         .as_ref()
         .map(|completion| cx.jobs.enter_command(cx.editor, completion.clone()));
     let result = (|| {
-        if let Some(specification) = cx.editor.plugin_command_arguments(command) {
+        if let Some(metadata) = cx.editor.plugin_command(command) {
             // Plugin signatures declare only positional values. Use the native
             // end-of-flags marker so literals such as -1 and -- are forwarded.
             let positional_input = format!("-- {args}");
             let args = Args::parse(
                 &positional_input,
-                plugin_signature(&specification),
+                plugin_signature(&metadata.arguments),
                 true,
                 |token| {
                     expansion::expand(cx.editor, token, positional_args.as_slice())
@@ -466,9 +466,9 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
         TYPABLE_COMMAND_MAP.get(command).map_or_else(
             || {
                 editor
-                    .plugin_command_arguments(command)
-                    .map_or_else(Vec::new, |specification| {
-                        complete_plugin_args(&specification, rest, command.len() + 2)
+                    .plugin_command(command)
+                    .map_or_else(Vec::new, |metadata| {
+                        complete_plugin_args(&metadata.arguments, rest, command.len() + 2)
                     })
             },
             |cmd| {
@@ -485,9 +485,9 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
         TYPABLE_COMMAND_MAP.get(completer_command).map_or_else(
             || {
                 editor
-                    .plugin_command_arguments(completer_command)
-                    .map_or_else(Vec::new, |specification| {
-                        complete_plugin_args(&specification, rest, command.len() + 1)
+                    .plugin_command(completer_command)
+                    .map_or_else(Vec::new, |metadata| {
+                        complete_plugin_args(&metadata.arguments, rest, command.len() + 1)
                     })
             },
             |cmd| {

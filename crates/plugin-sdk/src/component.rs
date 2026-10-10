@@ -37,6 +37,26 @@ fn unavailable() -> ServiceError {
     )
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+fn editor_reply(payload: &str) -> Result<crate::editor::EditorReply, ServiceError> {
+    serde_json::from_str(payload).map_err(|_| {
+        ServiceError::new(
+            crate::ErrorCode::HostFailure,
+            "host returned an invalid editor result",
+        )
+    })
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn job_poll(payload: &str) -> Result<JobPoll, ServiceError> {
+    serde_json::from_str(payload).map_err(|_| {
+        ServiceError::new(
+            crate::ErrorCode::HostFailure,
+            "host returned an invalid typed job result",
+        )
+    })
+}
+
 /// Read one snapshot region; offsets count Unicode scalar values.
 pub fn read_document(
     document: u64,
@@ -69,19 +89,14 @@ pub fn editor_request(
                 "editor request cannot be encoded",
             )
         })?;
-        if payload.len() > 4096 {
+        if payload.len() > crate::editor::MAX_EDITOR_REQUEST_BYTES {
             return Err(ServiceError::new(
                 crate::ErrorCode::ResourceExhausted,
                 "editor request exceeds its byte limit",
             ));
         }
         let reply = host::editor_request(&payload).map_err(native_error)?;
-        serde_json::from_str(&reply).map_err(|_| {
-            ServiceError::new(
-                crate::ErrorCode::InvalidRequest,
-                "host returned an invalid editor result",
-            )
-        })
+        editor_reply(&reply)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -188,12 +203,7 @@ impl Job {
         #[cfg(target_arch = "wasm32")]
         {
             let value = self.handle.poll().map_err(native_error)?;
-            serde_json::from_str(&value).map_err(|_| {
-                ServiceError::new(
-                    crate::ErrorCode::InvalidRequest,
-                    "host returned an invalid typed job result",
-                )
-            })
+            job_poll(&value)
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -254,6 +264,14 @@ fn invalid(message: impl Into<String>) -> types::Failure {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn host_failure(message: &str) -> types::Failure {
+    types::Failure {
+        code: types::ErrorCode::HostFailure,
+        message: message.to_owned(),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
 pub fn dispatch(
     request: types::Request,
@@ -294,9 +312,9 @@ pub fn dispatch(
         command: request.command,
         args: request.args,
         config: serde_json::from_str(&request.config_json)
-            .map_err(|_| invalid("host configuration is invalid JSON"))?,
+            .map_err(|_| host_failure("host configuration is invalid JSON"))?,
         data: serde_json::from_str(&request.data_json)
-            .map_err(|_| invalid("host event data is invalid JSON"))?,
+            .map_err(|_| host_failure("host event data is invalid JSON"))?,
         editor: EditorContext {
             generation: request.editor.generation,
             mode: request.editor.mode,
@@ -527,4 +545,36 @@ macro_rules! export_component {
             $crate::component::bindings::export!(MitosComponent with_types_in $crate::component::bindings);
         };
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_host_replies_are_host_failures() {
+        for payload in ["not JSON", r#"{"kind":"unknown"}"#] {
+            assert_eq!(
+                editor_reply(payload).unwrap_err().code,
+                crate::ErrorCode::HostFailure
+            );
+            assert_eq!(
+                job_poll(payload).unwrap_err().code,
+                crate::ErrorCode::HostFailure
+            );
+        }
+        assert_eq!(
+            editor_reply(r#"{"kind":"updated"}"#).unwrap(),
+            crate::editor::EditorReply::Updated
+        );
+        assert_eq!(
+            job_poll(
+                r#"{"state":"failed","error":{"code":"permission-denied","message":"denied"}}"#
+            )
+            .unwrap(),
+            JobPoll::Failed {
+                error: ServiceError::new(crate::ErrorCode::PermissionDenied, "denied"),
+            }
+        );
+    }
 }

@@ -250,7 +250,7 @@ async fn public_workflows_deny_tools_cancel_jobs_and_remove_dialogs_on_reload() 
     );
     assert!(app
         .editor
-        .plugin_command_doc(&format!("{name}.format"))
+        .plugin_command(&format!("{name}.format"))
         .is_some());
     plugin.permissions.processes = vec![ProcessGrant {
         command: tool.to_string_lossy().into(),

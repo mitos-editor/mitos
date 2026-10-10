@@ -140,7 +140,9 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
     assert_eq!(commands[0].name, "fixture.run");
     assert_eq!(commands[0].doc, "Run the fixture guest");
     assert_eq!(
-        app.editor.plugin_command_doc("fixture.run").as_deref(),
+        app.editor
+            .plugin_command("fixture.run")
+            .map(|command| command.doc.as_str()),
         Some("Run the fixture guest")
     );
     assert!(!app.editor.is_err());
@@ -399,7 +401,16 @@ async fn post_command_waits_for_callbacks_and_follow_up_keys() -> anyhow::Result
         let after = |app: &term::application::Application| {
             assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "after");
         };
-        let observed: &dyn Fn(&term::application::Application) = &assert_observed;
+        let observed = |app: &term::application::Application| {
+            assert!(
+                app.editor.get_status().is_some(),
+                "No command observation for {keys:?}: text={:?}; plugins={:?}",
+                view::doc!(app.editor).text().to_string(),
+                app.editor.plugin_diagnostics(),
+            );
+            assert_observed(app);
+        };
+        let observed: &dyn Fn(&term::application::Application) = &observed;
         let mut inputs = vec![(Some(keys), Some(observed))];
         if origin == "palette" {
             inputs.push((Some("echo after<ret>"), Some(&after)));

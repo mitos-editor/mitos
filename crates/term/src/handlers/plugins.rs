@@ -15,9 +15,9 @@ use std::{
 
 use plugin_api::{
     ui::{
-        terminal_text, BuiltinResponse, KeymapResponse, UiCancellation, UiIdentity, UiKind,
-        UiOpenAction, UiOutcome, UiRequest, UiResponse, UiRow, UiValue, MAX_BUILTIN_SELECTION_WORK,
-        MAX_UI_INPUT_BYTES,
+        terminal_text, BuiltinCommand, BuiltinResponse, KeymapResponse, UiCancellation, UiIdentity,
+        UiKind, UiOpenAction, UiOutcome, UiRequest, UiResponse, UiRow, UiValue,
+        MAX_BUILTIN_SELECTION_WORK, MAX_UI_INPUT_BYTES,
     },
     ErrorCode, ServiceError,
 };
@@ -126,10 +126,7 @@ impl Frontend {
                     };
                     // This conversion uses a closed reviewed enum, never a
                     // guest-supplied command line, macro or expansion string.
-                    let command: MappableCommand =
-                        invocation.command.name().parse().map_err(|error| {
-                            ServiceError::new(ErrorCode::HostFailure, format!("{error}"))
-                        })?;
+                    let command = builtin_command(invocation.command);
                     command.execute_with_origin(&mut command_cx, CommandOrigin::Programmatic);
                     let callbacks = std::mem::take(&mut command_cx.callback);
                     let mut callback_cx = Context {
@@ -217,6 +214,24 @@ impl Frontend {
         if let Some(view) = compositor.find::<ui::EditorView>() {
             self.keymaps.retain(&mut view.keymaps, |_| false);
         }
+    }
+}
+
+fn builtin_command(command: BuiltinCommand) -> MappableCommand {
+    match command {
+        BuiltinCommand::MoveCharLeft => MappableCommand::move_char_left,
+        BuiltinCommand::MoveCharRight => MappableCommand::move_char_right,
+        BuiltinCommand::MoveLineUp => MappableCommand::move_line_up,
+        BuiltinCommand::MoveLineDown => MappableCommand::move_line_down,
+        BuiltinCommand::SelectAll => MappableCommand::select_all,
+        BuiltinCommand::CollapseSelection => MappableCommand::collapse_selection,
+        BuiltinCommand::KeepPrimarySelection => MappableCommand::keep_primary_selection,
+        BuiltinCommand::DeleteSelectionNoYank => MappableCommand::delete_selection_noyank,
+        BuiltinCommand::ChangeSelectionNoYank => MappableCommand::change_selection_noyank,
+        BuiltinCommand::Undo => MappableCommand::undo,
+        BuiltinCommand::Redo => MappableCommand::redo,
+        BuiltinCommand::InsertMode => MappableCommand::insert_mode,
+        BuiltinCommand::NormalMode => MappableCommand::normal_mode,
     }
 }
 
