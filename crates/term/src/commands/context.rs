@@ -155,13 +155,16 @@ struct CommandState {
     error: Option<String>,
     cancelled: bool,
     accepted: bool,
-    parent: Option<CommandToken>,
+    parent: Option<Arc<dyn view::callbacks::InvocationTasks>>,
 }
 
 impl CommandToken {
-    pub(crate) fn new(completion: CommandCompletion, parent: Option<Self>) -> Self {
+    pub(crate) fn new(
+        completion: CommandCompletion,
+        parent: Option<Arc<dyn view::callbacks::InvocationTasks>>,
+    ) -> Self {
         if let Some(parent) = &parent {
-            view::callbacks::InvocationTasks::started(parent);
+            parent.started();
         }
         Self(Arc::new(Mutex::new(CommandState {
             completion: Some(completion),
@@ -241,9 +244,9 @@ impl CommandToken {
         completion.finish_outcome(editor, error, cancelled, accepted);
         if let Some(parent) = parent {
             if accepted {
-                parent.mark_accepted();
+                parent.detached();
             }
-            view::callbacks::InvocationTasks::finished(&parent, outcome);
+            parent.finished(outcome);
         }
         true
     }
@@ -479,8 +482,9 @@ mod tests {
         cx.jobs.spawn(std::future::pending());
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn command_outcomes_wait_for_owned_jobs_and_followups() -> anyhow::Result<()> {
+        let _permit = guest::compilation_permit().await;
         for (run, outcome) in [
             (followup as fn(&mut Context), "success"),
             (failure as fn(&mut Context), "error"),

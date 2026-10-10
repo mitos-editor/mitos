@@ -9,7 +9,7 @@ use view::{
     handlers::completion::{self, CompletionEvent, CompletionHandler},
 };
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn declarative_snippets_use_native_completion_and_inspection() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     std::fs::write(

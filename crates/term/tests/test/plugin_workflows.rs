@@ -97,9 +97,10 @@ fn dialog(app: &Application) -> bool {
     app.has_plugin_ui()
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_workflows_persist_recent_files_and_search_unicode_locations() -> anyhow::Result<()>
 {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let root = tempfile::tempdir()?;
     let first = root.path().join("first.txt");
     let second = root.path().join("second.txt");
@@ -154,9 +155,10 @@ async fn public_workflows_persist_recent_files_and_search_unicode_locations() ->
 }
 
 #[cfg(unix)]
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_formatter_applies_revisioned_output_and_rejects_typing_races() -> anyhow::Result<()>
 {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir()?;
     let tool = root.path().join("formatter");
@@ -185,7 +187,7 @@ async fn public_formatter_applies_revisioned_output_and_rejects_typing_races() -
     let format = format!(":{name}.format<ret>");
     keys(&mut app, &format).await?;
     until(&mut app, |app| {
-        view::doc!(app.editor).text().to_string() == "FORMATTED\n"
+        view::doc!(app.editor).text() == "FORMATTED\n"
     })
     .await?;
     assert_eq!(
@@ -218,9 +220,10 @@ async fn public_formatter_applies_revisioned_output_and_rejects_typing_races() -
 }
 
 #[cfg(unix)]
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_workflows_deny_tools_cancel_jobs_and_remove_dialogs_on_reload() -> anyhow::Result<()>
 {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir()?;
     let tool = root.path().join("formatter");

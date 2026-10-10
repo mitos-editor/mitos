@@ -1,6 +1,6 @@
 [package]
 name = "plugin-sdk"
-description = "Language-neutral WebAssembly plugin protocol and Rust guest SDK for Mitos"
+description = "Rust SDK and generated WebAssembly component bindings for Mitos plugins"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

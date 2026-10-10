@@ -177,9 +177,11 @@ impl Queue {
 #[derive(Default)]
 struct Shared {
     queue: Mutex<Queue>,
+    captures: actor::ReadCaptures,
     subscriptions: Mutex<BTreeMap<Event, HashSet<String>>>,
     readers: Mutex<HashSet<String>>,
     accepting: AtomicBool,
+    quiescing: AtomicBool,
     generation: u64,
     async_woken: AtomicBool,
     async_pending: AtomicBool,
@@ -995,6 +997,7 @@ impl Editor {
     /// Nonblocking editor-owned pump. It also recovers a wake rejected by a
     /// full callback destination; no task is spawned per event or retry.
     pub fn poll_plugin_events(&mut self) {
+        self.poll_plugin_read_captures();
         self.poll_plugin_completions();
         let mut delivered_gap = false;
         let mut admission_blocked = false;

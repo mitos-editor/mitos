@@ -183,9 +183,15 @@ Contribution queries are checked before native compilation: at most 64 nesting
 levels, 256 patterns, 4,096 tokens, 1,024 capture uses, and 128 quantifiers; names
 and literals are limited to 128 bytes. Predicates support literal equality and
 bounded `any-of`, reviewed native property setters, and node-position checks.
-Regex and capture-to-capture text comparisons are unsupported. Native query
-compilation and highlighting are outside WASM epoch interruption; these source
-bounds reduce their work and do not promise a hard rendering deadline.
+Regex and capture-to-capture text comparisons are unsupported. Native local
+lookups (`#is? local`, `#is-not? local`, `@local.reference`, and
+`@local.definition.*`) and captured injection language/filename/shebang markers
+are also unsupported: those native paths can copy or scan an entire captured
+node. Use ordinary highlight captures and a literal
+`(#set! injection.language "json")` instead. Approved base language queries and
+metadata-only structural query services retain their native capture labels.
+Native query compilation and highlighting are outside WASM epoch interruption;
+these source bounds reduce their work and do not promise a hard rendering deadline.
 
 Snippet files contain native snippet definitions:
 

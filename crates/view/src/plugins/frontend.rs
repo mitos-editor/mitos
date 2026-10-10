@@ -265,6 +265,7 @@ impl Editor {
                 let document = self
                     .plugin_document(origin.document, origin.version)
                     .map_err(|error| failure(ErrorCode::StaleState, error.to_string()))?;
+                self.validate_plugin_builtin_editable(document, &request.commands)?;
                 request.validate_work(
                     self.documents[&document]
                         .selection(ViewId::from_u64(origin.view))
@@ -593,6 +594,7 @@ impl Editor {
         let document = self
             .plugin_document(request.origin.document, request.origin.version)
             .map_err(|error| failure(ErrorCode::StaleState, error.to_string()))?;
+        self.validate_plugin_builtin_editable(document, &request.commands)?;
         request.validate_work(
             self.documents[&document]
                 .selection(ViewId::from_u64(request.origin.view))
@@ -610,6 +612,26 @@ impl Editor {
         let previous = std::mem::replace(&mut owner.queue.lock().origin, source.origin);
         let _guard = ApplyingGuard { owner, previous };
         run(self)
+    }
+
+    fn validate_plugin_builtin_editable(
+        &self,
+        document: DocumentId,
+        commands: &[plugin_api::ui::BuiltinInvocation],
+    ) -> Result<(), ServiceError> {
+        if commands.iter().any(|command| {
+            command
+                .command
+                .capabilities()
+                .contains(&Capability::EditorEdit)
+        }) && (self.documents[&document].readonly || self.documents[&document].is_binary())
+        {
+            return Err(failure(
+                ErrorCode::PermissionDenied,
+                "plugin builtin cannot edit a readonly or binary document",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_plugin_builtin_origin(&self, origin: UiOrigin) -> Result<(), ServiceError> {

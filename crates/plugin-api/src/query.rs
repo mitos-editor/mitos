@@ -48,8 +48,9 @@ fn unsupported() -> ServiceError {
 }
 
 /// Comments and quoted text cannot hide syntax work from the counters. Literal
-/// predicates compare only bounded strings; regex and capture-text comparisons
-/// are excluded. Native grammar/query validation still checks actual syntax.
+/// predicates compare only bounded strings; regex, capture-text comparisons,
+/// and native text lookup roles are excluded from contributed queries. Native
+/// grammar/query validation still checks actual syntax.
 pub fn validate(
     source: &str,
     limits: QueryLimits,
@@ -154,6 +155,23 @@ pub fn validate(
                 let value = &source[start..index];
                 match prefix {
                     b'@' => {
+                        if predicates == Predicates::Declarative
+                            && (value == "@local.reference"
+                                || value.starts_with("@local.definition.")
+                                || matches!(
+                                    value,
+                                    "@injection.language"
+                                        | "@injection.filename"
+                                        | "@injection.shebang"
+                                ))
+                        {
+                            return Err(ServiceError::new(
+                                ErrorCode::UnsupportedInterface,
+                                format!(
+                                    "query capture '{value}' requires unbounded native text lookup; use ordinary highlight captures or a literal injection.language property"
+                                ),
+                            ));
+                        }
                         captures += 1;
                         if captures > 1024 {
                             return Err(exhausted("query capture uses exceed 1024"));
@@ -200,6 +218,14 @@ pub fn validate(
 }
 
 fn validate_predicate(name: &str, args: &[Token<'_>]) -> Result<(), ServiceError> {
+    if matches!(name, "#is?" | "#is-not?")
+        && matches!(args, [Token::Atom("local") | Token::String("local")])
+    {
+        return Err(ServiceError::new(
+            ErrorCode::UnsupportedInterface,
+            "local lookup predicates require unbounded native capture text; use literal or node-position predicates",
+        ));
+    }
     let literal = |arg| matches!(arg, Token::String(_));
     let capture = |arg| matches!(arg, Token::Capture(_));
     let accepted = match name {
@@ -213,9 +239,6 @@ fn validate_predicate(name: &str, args: &[Token<'_>]) -> Result<(), ServiceError
         }
         "#same-line?" | "#not-same-line?" => args.len() == 2 && args.iter().copied().all(capture),
         "#one-line?" | "#not-one-line?" => args.len() == 1 && capture(args[0]),
-        "#is?" | "#is-not?" => {
-            matches!(args, [Token::Atom("local") | Token::String("local")])
-        }
         "#set!" => match args {
             [Token::Atom(key) | Token::String(key)] => matches!(
                 *key,
@@ -274,6 +297,38 @@ mod tests {
             "((string) @injection.content (#set! injection.language \"json\"))",
             DECLARATIVE_LIMITS,
             Predicates::Declarative
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn declarative_queries_reject_native_text_lookup_roles() {
+        for capture in [
+            "local.reference",
+            "local.definition.variable",
+            "injection.language",
+            "injection.filename",
+            "injection.shebang",
+        ] {
+            // Even a one-pattern query could capture the entire document. A
+            // structural service only returns bounded node metadata, so these
+            // same capture labels remain valid there.
+            let source = format!("(document) @{capture}");
+            let error = validate(&source, DECLARATIVE_LIMITS, Predicates::Declarative).unwrap_err();
+            assert_eq!(error.code, ErrorCode::UnsupportedInterface);
+            assert!(error.message.contains(capture));
+            assert!(validate(&source, STRUCTURAL_LIMITS, Predicates::Structural).is_ok());
+        }
+        for predicate in ["#is? local", "#is-not? \"local\""] {
+            let source = format!("((document) @variable ({predicate}))");
+            let error = validate(&source, DECLARATIVE_LIMITS, Predicates::Declarative).unwrap_err();
+            assert_eq!(error.code, ErrorCode::UnsupportedInterface);
+            assert!(error.message.contains("local lookup"));
+        }
+        assert!(validate(
+            "((document) @variable (#not-eq? @variable \"tiny\"))\n((string) @injection.content (#set! injection.language \"json\"))",
+            DECLARATIVE_LIMITS,
+            Predicates::Declarative,
         )
         .is_ok());
     }

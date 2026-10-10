@@ -62,12 +62,13 @@ impl MappableCommand {
 
     pub(super) fn execute_with_invocation(&self, cx: &mut Context, invocation: CommandInvocation) {
         let callback_start = cx.callback.len();
-        let completion = (!matches!(self, Self::Typable { .. })).then(|| {
-            cx.jobs.begin_command(CommandCompletion::new(
+        let completion = (!matches!(self, Self::Typable { .. })
+            && cx.jobs.should_track_command(cx.editor))
+        .then(|| {
+            cx.jobs.begin_command(
                 cx.editor,
-                self.name(),
-                invocation.clone(),
-            ))
+                CommandCompletion::new(cx.editor, self.name(), invocation.clone()),
+            )
         });
         let scope = completion
             .as_ref()

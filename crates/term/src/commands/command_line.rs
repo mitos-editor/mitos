@@ -96,12 +96,13 @@ fn execute_command_line(
                         invocation.clone(),
                     )?;
                 } else if event == PromptEvent::Validate {
-                    let command: MappableCommand =
-                        configured.parse().map_err(|error| {
+                    let command: MappableCommand = configured.parse().map_err(|error| {
+                        if cx.jobs.should_track_command(cx.editor) {
                             CommandCompletion::new(cx.editor, configured, invocation.clone())
                                 .finish(cx.editor, Some(format!("{error}")), false);
-                            error
-                        })?;
+                        }
+                        error
+                    })?;
                     let mut command_cx = super::Context {
                         config: cx.config,
                         register: invocation.register,
@@ -149,10 +150,14 @@ fn execute_named_command(
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    let mut completion = CommandCompletion::new(cx.editor, command, invocation);
-    completion.raw_args = args.to_owned();
-    let completion = cx.jobs.begin_command(completion);
-    let scope = cx.jobs.enter_command(cx.editor, completion.clone());
+    let completion = cx.jobs.should_track_command(cx.editor).then(|| {
+        let mut completion = CommandCompletion::new(cx.editor, command, invocation);
+        completion.raw_args = args.to_owned();
+        cx.jobs.begin_command(cx.editor, completion)
+    });
+    let scope = completion
+        .as_ref()
+        .map(|completion| cx.jobs.enter_command(cx.editor, completion.clone()));
     let result = (|| {
         if let Some(specification) = cx.editor.plugin_command_arguments(command) {
             // Plugin signatures declare only positional values. Use the native
@@ -169,7 +174,9 @@ fn execute_named_command(
             )
             .map_err(|err| anyhow!("'{command}': {err}"))?;
             let args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
-            completion.metadata(|completion| completion.args = args.clone());
+            if let Some(completion) = &completion {
+                completion.metadata(|completion| completion.args = args.clone());
+            }
             if cx
                 .editor
                 .execute_plugin_command(command, args)
@@ -180,13 +187,19 @@ fn execute_named_command(
         }
         Err(anyhow!("no such command: '{command}'"))
     })();
-    completion.capture_effects(cx.editor);
-    cx.jobs.leave_command(cx.editor, scope);
-    completion.finish_dispatch(
-        cx.editor,
-        result.as_ref().err().map(ToString::to_string),
-        false,
-    );
+    if let Some(completion) = &completion {
+        completion.capture_effects(cx.editor);
+    }
+    if let Some(scope) = scope {
+        cx.jobs.leave_command(cx.editor, scope);
+    }
+    if let Some(completion) = completion {
+        completion.finish_dispatch(
+            cx.editor,
+            result.as_ref().err().map(ToString::to_string),
+            false,
+        );
+    }
     result
 }
 
@@ -198,11 +211,12 @@ fn execute_command(
     event: PromptEvent,
     invocation: CommandInvocation,
 ) -> anyhow::Result<()> {
-    let completion = (event == PromptEvent::Validate).then(|| {
-        let mut completion = CommandCompletion::new(cx.editor, cmd.name, invocation);
-        completion.raw_args = raw_args.to_owned();
-        cx.jobs.begin_command(completion)
-    });
+    let completion = (event == PromptEvent::Validate && cx.jobs.should_track_command(cx.editor))
+        .then(|| {
+            let mut completion = CommandCompletion::new(cx.editor, cmd.name, invocation);
+            completion.raw_args = raw_args.to_owned();
+            cx.jobs.begin_command(cx.editor, completion)
+        });
     let scope = completion
         .as_ref()
         .map(|completion| cx.jobs.enter_command(cx.editor, completion.clone()));

@@ -63,6 +63,74 @@ fn request(command: &str) -> Request {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_unix_traps_recover_guest_faults_and_forward_native_signals() {
+    const PROBE: &str = "MITOS_PLUGIN_NATIVE_TRAP_PROBE";
+    if std::env::var_os(PROBE).is_some() {
+        extern "C" fn native_signal(_: libc::c_int) {
+            unsafe { libc::_exit(42) }
+        }
+        // Install the prior native handler in the isolated process. The guest
+        // fault must remain a Wasmtime trap; a later native signal reaches this
+        // handler while the same engine/store is still alive.
+        unsafe {
+            assert_ne!(
+                libc::signal(
+                    libc::SIGSEGV,
+                    native_signal as *const () as libc::sighandler_t,
+                ),
+                libc::SIG_ERR
+            );
+        }
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let engine = component::engine().unwrap();
+                let bytes = wat::parse_str(
+                    r#"(module (memory 1)
+                        (func (export "read") (param i32) (result i32)
+                            local.get 0 i32.load))"#,
+                )
+                .unwrap();
+                let module = wasmtime::Module::from_binary(&engine, &bytes).unwrap();
+                let mut store = wasmtime::Store::new(&engine, ());
+                store.set_epoch_deadline(u64::MAX);
+                let instance = wasmtime::Instance::new_async(&mut store, &module, &[])
+                    .await
+                    .unwrap();
+                let read = instance
+                    .get_typed_func::<i32, i32>(&mut store, "read")
+                    .unwrap();
+                let trap = read.call_async(&mut store, 65536).await.unwrap_err();
+                assert_eq!(
+                    trap.downcast_ref::<wasmtime::Trap>(),
+                    Some(&wasmtime::Trap::MemoryOutOfBounds)
+                );
+                eprintln!("guest memory fault recovered");
+                unsafe { libc::raise(libc::SIGSEGV) };
+                panic!("native SIGSEGV was swallowed");
+            });
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "worker::tests::macos_unix_traps_recover_guest_faults_and_forward_native_signals",
+            "--nocapture",
+        ])
+        .env(PROBE, "1")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("guest memory fault recovered"));
+}
+
 #[test]
 fn initialization_precedes_reserved_commands_and_notifications() {
     let envelope = |event| {

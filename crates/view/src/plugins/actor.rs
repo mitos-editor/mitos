@@ -18,6 +18,49 @@ use std::{
 const MAX_CALLS: usize = 64;
 const DEADLINE: Duration = Duration::from_secs(6);
 const MAX_ASSET_RETRIES: u8 = 3;
+const MAX_READ_CAPTURES: usize = 8;
+
+type CapturedRegion = (editor_core::Rope, usize, usize);
+
+struct ReadCapture {
+    request: ReadRequest,
+    policy: Arc<::plugins::policy::AccessPolicy>,
+    reply: tokio::sync::oneshot::Sender<Result<CapturedRegion, ServiceError>>,
+}
+
+/// Only bounded read metadata crosses this queue. It remains pumpable after a
+/// frontend closes its generic callback channel, without admitting mutations.
+#[derive(Default)]
+pub(super) struct ReadCaptures {
+    pending: Mutex<VecDeque<ReadCapture>>,
+    closed: AtomicBool,
+}
+
+impl ReadCaptures {
+    fn enqueue(&self, capture: ReadCapture) -> Result<(), ServiceError> {
+        let mut pending = self.pending.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        pending.retain(|capture| !capture.reply.is_closed());
+        if pending.len() >= MAX_READ_CAPTURES {
+            return Err(ServiceError::new(
+                ErrorCode::ResourceExhausted,
+                "editor document capture queue is full",
+            ));
+        }
+        pending.push_back(capture);
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        let mut pending = self.pending.lock();
+        self.closed.store(true, Ordering::Release);
+        for capture in pending.drain(..) {
+            let _ = capture.reply.send(Err(cancelled()));
+        }
+    }
+}
 
 struct Ready {
     plugin: String,
@@ -108,6 +151,63 @@ impl Wake for EditorWake {
 }
 
 impl Editor {
+    pub(super) fn poll_plugin_read_captures(&self) {
+        for _ in 0..MAX_READ_CAPTURES {
+            let Some(capture) = self.plugins.shared.captures.pending.lock().pop_front() else {
+                break;
+            };
+            if capture.reply.is_closed() {
+                continue;
+            }
+            let request = capture.request;
+            let result = (|| {
+                capture.policy.require(Capability::EditorRead)?;
+                if self.plugins.stopped || request.generation != self.plugins.shared.generation {
+                    return Err(cancelled());
+                }
+                if request.start > request.end || request.max_bytes > ::plugins::MAX_MESSAGE_BYTES {
+                    return Err(ServiceError::new(
+                        ErrorCode::InvalidRequest,
+                        "invalid or oversized document read",
+                    ));
+                }
+                let doc = self
+                    .documents
+                    .values()
+                    .find(|doc| doc.id().as_u64() == request.document)
+                    .ok_or_else(|| stale("document is closed"))?;
+                // The shared permit spans capture/materialization, including
+                // close and replacement. Bound the retained source as well as
+                // its requested region before cloning the Rope.
+                if doc.text().len_bytes() > 128 * 1024 * 1024 {
+                    return Err(ServiceError::new(
+                        ErrorCode::ResourceExhausted,
+                        "document source exceeds the 128 MiB retained snapshot limit",
+                    ));
+                }
+                if doc.version() != request.version {
+                    return Err(stale("document version changed"));
+                }
+                let start = usize::try_from(request.start)
+                    .map_err(|_| stale("read offset is out of bounds"))?;
+                let end = usize::try_from(request.end)
+                    .map_err(|_| stale("read offset is out of bounds"))?;
+                if end > doc.text().len_chars() {
+                    return Err(stale("read range is out of bounds"));
+                }
+                if doc.text().char_to_byte(end) - doc.text().char_to_byte(start) > request.max_bytes
+                {
+                    return Err(ServiceError::new(
+                        ErrorCode::ResourceExhausted,
+                        "document region exceeds requested byte limit",
+                    ));
+                }
+                Ok((doc.text().clone(), start, end))
+            })();
+            let _ = capture.reply.send(result);
+        }
+    }
+
     pub(crate) fn cancel_plugin_target(&self, document: Option<u64>, view: Option<u64>) {
         if let Some(origin) = self.plugins.shared.queue.lock().origin.as_ref() {
             self.plugins.manager.cancel_target_except(
@@ -209,6 +309,12 @@ impl Editor {
         provenance: &Provenance,
         event: Event,
     ) -> Result<Arc<dyn HostServices>, ServiceError> {
+        if event == Event::Shutdown {
+            // Retained resource handles still own cancellation/drop cleanup.
+            // A final hook may log or return Status/Error, but cannot acquire
+            // new native work through the service adapter.
+            return Ok(Arc::new(ShutdownServices));
+        }
         let policy = self.plugins.manager.policy(plugin).ok_or_else(cancelled)?;
         let adapter: Arc<dyn HostServices> = Arc::new(EditorServices {
             owner: Arc::downgrade(&self.plugins.shared),
@@ -243,7 +349,10 @@ impl Editor {
                 .insert(plugin.into(), native.clone());
             native
         };
-        Ok(Arc::new(native.with_editor(adapter)))
+        Ok(Arc::new(LifecycleServices {
+            owner: Arc::downgrade(&self.plugins.shared),
+            native: Arc::new(native.with_editor(adapter)),
+        }))
     }
 
     fn prepare_plugin_assets(&mut self, prepared: PreparedManager, transition: AssetTransition) {
@@ -301,6 +410,7 @@ impl Editor {
             return;
         }
         self.plugins.shutting_down = true;
+        self.plugins.shared.quiescing.store(true, Ordering::Release);
         self.cancel_plugin_frontend();
         self.plugins
             .shared
@@ -768,6 +878,7 @@ impl Editor {
             .shared
             .accepting
             .store(false, Ordering::Release);
+        self.plugins.shared.captures.cancel();
         self.plugins.shared = Arc::new(Shared {
             generation: self.plugins.manager.generation(),
             accepting: AtomicBool::new(true),
@@ -810,6 +921,7 @@ impl Editor {
             || self.plugins.asynchronous.asset_loading.is_some()
             || self.plugins.asynchronous.replacement.is_some()
             || !self.plugins.asynchronous.cleanup.is_empty()
+            || !self.plugins.shared.captures.pending.lock().is_empty()
             || !queue.pending.is_empty()
             || queue.gap.is_some()
     }
@@ -820,6 +932,7 @@ impl Editor {
         }
         let first = !self.plugins.shutting_down;
         self.plugins.shutting_down = true;
+        self.plugins.shared.quiescing.store(true, Ordering::Release);
         self.plugins.asynchronous.loading = None;
         self.plugins.asynchronous.asset_loading = None;
         self.plugins.asynchronous.replacement = None;
@@ -893,6 +1006,7 @@ impl Editor {
         self.plugins.asynchronous.calls.clear();
         self.plugins.asynchronous.call_count = 0;
         self.plugins.asynchronous.navigation.clear();
+        self.plugins.shared.captures.cancel();
         self.plugins.shared.queue.lock().pending.clear();
         self.plugins.shared.queue.lock().bytes = 0;
         if let Err(error) = self.plugins.manager.shutdown().await {
@@ -919,6 +1033,112 @@ fn cancelled() -> ServiceError {
 fn stale(message: &str) -> ServiceError {
     ServiceError::new(ErrorCode::StaleState, message)
 }
+
+fn shutdown_denied<T: Send + 'static>() -> HostFuture<T> {
+    Box::pin(async {
+        Err(ServiceError::new(
+            ErrorCode::PermissionDenied,
+            "shutdown hooks only support diagnostics and owned-resource cleanup",
+        ))
+    })
+}
+
+struct ShutdownServices;
+impl HostServices for ShutdownServices {
+    fn read_document(&self, _request: ReadRequest) -> HostFuture<String> {
+        shutdown_denied()
+    }
+    fn notify_job_ready(&self, _job: u64) -> HostFuture<()> {
+        shutdown_denied()
+    }
+    fn editor_request(
+        &self,
+        _request: plugin_api::editor::EditorRequest,
+    ) -> HostFuture<plugin_api::editor::EditorReply> {
+        shutdown_denied()
+    }
+    fn read_file(&self, _root: u32, _path: String) -> HostFuture<String> {
+        shutdown_denied()
+    }
+    fn write_file(&self, _root: u32, _path: String, _value: String) -> HostFuture<()> {
+        shutdown_denied()
+    }
+    fn start_job(
+        &self,
+        _request: plugin_api::JobRequest,
+    ) -> HostFuture<Arc<dyn plugin_api::HostJob>> {
+        shutdown_denied()
+    }
+    fn storage_read(&self, _key: String) -> HostFuture<Option<String>> {
+        shutdown_denied()
+    }
+    fn storage_write(&self, _key: String, _value: String) -> HostFuture<()> {
+        shutdown_denied()
+    }
+}
+
+/// Existing accepted lifecycle invocations retain bounded reads, while close
+/// or replacement prevents them from starting new native mutations or jobs.
+/// Futures already admitted before quiescence keep their normal owned cleanup.
+struct LifecycleServices {
+    owner: Weak<Shared>,
+    native: Arc<dyn HostServices>,
+}
+
+impl LifecycleServices {
+    fn active<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(Arc<dyn HostServices>) -> HostFuture<T> + Send + 'static,
+    ) -> HostFuture<T> {
+        let owner = self.owner.clone();
+        let native = self.native.clone();
+        Box::pin(async move {
+            let shared = owner.upgrade().ok_or_else(cancelled)?;
+            if shared.quiescing.load(Ordering::Acquire) {
+                return Err(ServiceError::new(
+                    ErrorCode::PermissionDenied,
+                    "plugin work is draining; new native operations are denied",
+                ));
+            }
+            operation(native).await
+        })
+    }
+}
+
+impl HostServices for LifecycleServices {
+    fn read_document(&self, request: ReadRequest) -> HostFuture<String> {
+        self.native.read_document(request)
+    }
+    fn notify_job_ready(&self, job: u64) -> HostFuture<()> {
+        self.active(move |native| native.notify_job_ready(job))
+    }
+    fn editor_request(
+        &self,
+        request: plugin_api::editor::EditorRequest,
+    ) -> HostFuture<plugin_api::editor::EditorReply> {
+        self.active(move |native| native.editor_request(request))
+    }
+    fn read_file(&self, root: u32, path: String) -> HostFuture<String> {
+        self.native.read_file(root, path)
+    }
+    fn write_file(&self, root: u32, path: String, value: String) -> HostFuture<()> {
+        self.active(move |native| native.write_file(root, path, value))
+    }
+    fn start_job(
+        &self,
+        request: plugin_api::JobRequest,
+    ) -> HostFuture<Arc<dyn plugin_api::HostJob>> {
+        self.active(move |native| native.start_job(request))
+    }
+    fn storage_read(&self, key: String) -> HostFuture<Option<String>> {
+        // A first private read can lazily create its storage directory.
+        self.active(move |native| native.storage_read(key))
+    }
+    fn storage_write(&self, key: String, value: String) -> HostFuture<()> {
+        self.active(move |native| native.storage_write(key, value))
+    }
+}
+
 struct EditorServices {
     owner: Weak<Shared>,
     callbacks: EditorCallbackSender,
@@ -1032,13 +1252,17 @@ impl HostServices for EditorServices {
         let policy = self.policy.clone();
         let reads = self.reads.clone();
         let generation = self.source.generation;
+        let event = self.event;
         Box::pin(async move {
             policy.require(Capability::EditorRead)?;
+            if event == Event::Shutdown {
+                return Err(ServiceError::new(
+                    ErrorCode::PermissionDenied,
+                    "shutdown hooks only support diagnostics",
+                ));
+            }
             let shared = owner.upgrade().ok_or_else(cancelled)?;
-            if shared.generation != generation
-                || shared.generation != request.generation
-                || !shared.accepting.load(Ordering::Acquire)
-            {
+            if shared.generation != generation || shared.generation != request.generation {
                 return Err(cancelled());
             }
             if request.start > request.end || request.max_bytes > ::plugins::MAX_MESSAGE_BYTES {
@@ -1049,51 +1273,14 @@ impl HostServices for EditorServices {
             }
             let permit = reads.acquire_owned().await.map_err(|_| cancelled())?;
             let (send, receive) = tokio::sync::oneshot::channel();
-            let weak = owner.clone();
-            callbacks
-                .send(move |editor| {
-                    let result = (|| {
-                        let shared = weak.upgrade().ok_or_else(cancelled)?;
-                        if !Arc::ptr_eq(&shared, &editor.plugins.shared) || editor.plugins.stopped {
-                            return Err(cancelled());
-                        }
-                        let doc = editor
-                            .documents
-                            .values()
-                            .find(|doc| doc.id().as_u64() == request.document)
-                            .ok_or_else(|| stale("document is closed"))?;
-                        // One editor-wide permit spans captures/materialization and
-                        // replacement generations. The retained source is capped too:
-                        // a tiny region cannot pin an arbitrarily large old document.
-                        if doc.text().len_bytes() > 128 * 1024 * 1024 {
-                            return Err(ServiceError::new(
-                                ErrorCode::ResourceExhausted,
-                                "document source exceeds the 128 MiB retained snapshot limit",
-                            ));
-                        }
-                        if doc.version() != request.version {
-                            return Err(stale("document version changed"));
-                        }
-                        let start = usize::try_from(request.start)
-                            .map_err(|_| stale("read offset is out of bounds"))?;
-                        let end = usize::try_from(request.end)
-                            .map_err(|_| stale("read offset is out of bounds"))?;
-                        if end > doc.text().len_chars() {
-                            return Err(stale("read range is out of bounds"));
-                        }
-                        if doc.text().char_to_byte(end) - doc.text().char_to_byte(start)
-                            > request.max_bytes
-                        {
-                            return Err(ServiceError::new(
-                                ErrorCode::ResourceExhausted,
-                                "document region exceeds requested byte limit",
-                            ));
-                        }
-                        Ok((doc.text().clone(), start, end))
-                    })();
-                    let _ = send.send(result);
-                })
-                .await;
+            policy.require(Capability::EditorRead)?;
+            shared.captures.enqueue(ReadCapture {
+                request,
+                policy: policy.clone(),
+                reply: send,
+            })?;
+            shared.async_woken.store(true, Ordering::Release);
+            PluginEventSender { owner, callbacks }.schedule_wake();
             let (text, start, end) = tokio::time::timeout(DEADLINE, receive)
                 .await
                 .map_err(|_| {
@@ -1107,9 +1294,6 @@ impl HostServices for EditorServices {
             .await
             .map_err(|cause| ServiceError::new(ErrorCode::HostFailure, cause.to_string()))?;
             policy.require(Capability::EditorRead)?;
-            if !shared.accepting.load(Ordering::Acquire) {
-                return Err(cancelled());
-            }
             Ok(value)
         })
     }

@@ -1314,7 +1314,8 @@ impl Application {
         self.plugin_frontend
             .shutdown(&mut self.compositor, &mut self.editor);
         self.jobs.cancel_commands(&self.editor);
-        self.editor.poll_plugin_events();
+        // Enter quiescence before polling accepted save/command hooks. Their
+        // bounded document reads can finish without admitting new native work.
         self.editor.shutdown_plugins();
         self.editor.finish_plugin_shutdown().await;
         self.jobs.poll_commands(&self.editor);

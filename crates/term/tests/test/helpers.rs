@@ -1,6 +1,8 @@
 pub(crate) mod callbacks;
 pub(crate) mod isolation;
 pub(crate) mod lsp;
+#[path = "../../../view/tests/support/plugin_guest.rs"]
+pub(crate) mod plugin_guest;
 
 use std::{
     io::{Read, Write},
