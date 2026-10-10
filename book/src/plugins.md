@@ -59,6 +59,38 @@ native execution, and resource limits.
 Plugins are loaded only from explicit configuration; Mitos does not discover or
 automatically run modules from a workspace directory.
 
+## Reference packages
+
+The repository's `plugins/` directory contains six independently installable
+packages: text tools, project bookmarks, TODO navigation, Markdown editing,
+writing mode, and the Cyberdream theme. Executable packages use only the public
+SDK; Cyberdream contributes a native theme without a WASM module or capabilities.
+Each package includes its own permissions, configuration, and keybinding examples.
+
+From the repository root, build the packages with Python 3.11+:
+
+```sh
+rustup target add wasm32-unknown-unknown
+python3 plugins/build.py
+```
+
+Copy selected directories from `plugins/dist/` into your configuration directory's
+`plugins/` subdirectory, then follow their README files. Packages are opt-in and
+are not loaded or granted permissions automatically. The builder also accepts
+package names, such as `python3 plugins/build.py cyberdream`, and `--offline`.
+Theme-only builds require neither a WASM target nor component compilation.
+
+For Cyberdream, add:
+
+```toml
+[plugins.cyberdream]
+path = "plugins/cyberdream/plugin.toml"
+```
+
+Run `:config-reload` and choose `:theme cyberdream.dark`. A writing-mode package
+can select this theme temporarily; owner cleanup restores the previous native
+settings and theme when the writing package is disabled or unloaded.
+
 ## Plugin manifests
 
 This is the manifest for the example plugin:
