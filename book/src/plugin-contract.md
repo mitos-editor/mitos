@@ -1,9 +1,11 @@
 # Plugin API contract
 
-The plugin interface is experimental. The prototype at commit `37776c06` uses
-core WASM and JSON ABI 1. The production implementation uses the experimental `mitos:plugin@0.1.0`
-component world and metadata protocol 3; the prototype transport is retired.
-This contract defines editor behavior independently of the transport.
+This page is for plugin authors. For installation and everyday use, see
+[Plugins](plugins.md).
+
+The plugin interface is experimental. It uses the `mitos:plugin@0.1.0` component
+world and metadata protocol 3. This contract defines the behavior that plugin
+authors can expect from the editor.
 
 ## Ownership and identifiers
 
@@ -156,8 +158,8 @@ and quotas for guest memory/stack/tables, handles, input/output, retained
 snapshots, host allocations, storage, jobs, subprocesses, and network results.
 Control messages have reserved capacity; repeated notifications can coalesce.
 
-Instruction fuel and epoch yielding do not replace total deadlines, cancellation,
-or host-work limits. Cancellation revokes permission to apply effects immediately
+Epoch yielding does not replace total deadlines, cancellation, or host-work limits.
+Cancellation revokes permission to apply effects immediately
 and propagates to associated jobs/resources. Reload and target close cancel
 obsolete work; late results cannot revive it. A guest trap or interruption can
 leave guest state inconsistent, so the host discards that store when recovery
@@ -206,7 +208,7 @@ explicit precedence. Failed replacement preparation preserves the running
 instance and reports a useful error.
 
 On shutdown, complete accepted writes, deliver their lifecycle results, allow
-bounded completion, quiesce mutation, then close instances and cancel remaining
+bounded completion with mutations quiesced, then close instances and cancel remaining
 jobs. Accepted hooks retain bounded region reads through a typed editor-owned
 capture queue after the frontend's generic callback receiver closes. Quiescence
 denies new editor requests, external writes, private storage operations, and jobs,

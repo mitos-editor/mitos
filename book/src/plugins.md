@@ -1,435 +1,218 @@
-# WebAssembly plugins
+# Plugins
 
-Mitos plugins are WebAssembly components with a versioned WIT interface.
-They run in a lean Wasmtime host on dedicated workers and receive document/view
-metadata with explicit revisions. Text is read through bounded host services;
-status commands do not copy the current document. The Rust SDK supplies generated
-bindings, owned request types, and an `export_plugin!` macro. Other languages can
-generate bindings from `crates/plugin-api/wit/plugin.wit`.
+Plugins add commands, editing tools, prompts, and pickers to Mitos. Packages can
+also provide themes, snippets, and language highlighting without running plugin
+code. Executable plugins use WebAssembly components.
 
-The API is experimental. The old core-WASM allocator/JSON ABI is retired;
-rebuild prototype plugins with the component SDK.
+Plugins are optional: Mitos loads only the packages you list in your
+configuration. The plugin API is experimental, so use packages built for your
+version of Mitos.
 
-## Installing and configuring a plugin
+## Build or install Mitos
 
-A plugin consists of a `plugin.toml` manifest and, for executable plugins, a
-`.wasm` component. Put the package files in
-the same directory, for example `~/.config/mitos/plugins/uppercase`, and add an
-entry to your `config.toml`:
+Use a Mitos build that includes plugin support. If you are building this checkout,
+run this from the repository root:
+
+```sh
+cargo build -p term --bin ms --release --locked
+```
+
+Start `target/release/ms` (`target/release/ms.exe` on Windows). Follow
+[Building from source](./building-from-source.md) to set up the runtime files,
+then run `ms --health` to check your installation. No extra Cargo feature is
+needed for plugins. Do not add `--features integration`: that feature is for the
+headless test frontend, not the editor you use in a terminal.
+
+Installing a ready-made plugin does not require Rust or a WebAssembly compiler.
+
+## Install a package
+
+Obtain a compatible package from its author and copy the complete package into a
+directory you control. Keep its `plugin.toml`, component, and any theme, snippet,
+or other asset files together. A plain core-WASM binary is not a Mitos component;
+use the packaged component supplied by the author.
+
+A convenient location is a `plugins` subdirectory of your Mitos configuration
+directory:
+
+| Platform | Configuration directory |
+| --- | --- |
+| Linux and macOS | `$XDG_CONFIG_HOME/mitos`, or `~/.config/mitos` when unset |
+| Windows | `%AppData%\mitos` |
+
+For example, a package might be arranged like this:
+
+```text
+mitos/
+  config.toml
+  plugins/
+    example/
+      plugin.toml
+      example.component.wasm
+      ...other package files...
+```
+
+The following examples assume this hypothetical package provides a command named
+`tidy`. Replace the names and permissions with those in your package's
+instructions.
+
+Open your user configuration with `:config-open` and add:
 
 ```toml
-[plugins.uppercase]
-path = "plugins/uppercase/plugin.toml"
+[plugins.example]
+path = "plugins/example/plugin.toml"
 enabled = true
 config = {}
 
-[plugins.uppercase.permissions]
+[plugins.example.permissions]
 capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
+```
 
+`path` may point to the manifest or to the directory containing `plugin.toml`.
+Absolute paths work too. Relative paths always start at the standard
+configuration directory above, even when you launch Mitos with
+`--config /another/location/config.toml`. `--config` changes the user configuration
+file; it does not change the base directory for plugin paths or permission roots.
+
+`enabled` defaults to `true`. The optional `config` table contains the plugin's
+own settings; follow its documentation for supported keys. The permissions in
+this example let a text-editing plugin read buffers, edit text, update selections,
+and show UI. They are not a requirement for every plugin. Without an explicit
+permissions list, only `ui` is granted. Read
+[Plugin permissions](./plugin-permissions.md) before granting access to files,
+programs, environment variables, or the clipboard.
+
+Save the configuration and run `:config-reload`. Loading happens in the
+background; commands become available when the package finishes loading. Use
+`:plugin-inspect example` to check its status if a command does not appear.
+
+## Run commands
+
+The name in `[plugins.example]` is the plugin's ID in your configuration. It
+prefixes its commands, so the package's `tidy` command becomes `:example.tidy`.
+Changing that ID changes its command names, contributed theme and language names,
+and private storage location.
+
+There are several ways to run a plugin command:
+
+- Press `:` in normal mode, type `example.tidy`, and press Enter.
+- Start typing `:example.` and use Tab to complete a command name. Descriptions
+  and any argument choices supplied by the package appear in the command prompt.
+- Press Space followed by `?` to open the default command palette, then search for
+  `example.tidy`. Commands that require arguments are easier to run from `:`.
+- Bind the command to a key in `config.toml`.
+
+For example, bind Alt+t in normal and select modes:
+
+```toml
 [keys.normal]
-U = ":uppercase.uppercase"
+"A-t" = ":example.tidy"
+
+[keys.select]
+"A-t" = ":example.tidy"
 ```
 
-`path` points to the manifest; the containing directory is also accepted.
-Relative paths resolve from the standard Mitos configuration directory, including
-when a custom `--config` file is used. `enabled`
-defaults to `true`. The optional `config` table is passed to the plugin on each
-invocation; its keys and values are defined by that plugin.
+Keep the leading `:` in a keybinding. Add entries to existing key tables rather
+than declaring the same table twice. See [Key remapping](./remapping.md) for other
+keys and sequences. Your keybindings take precedence over bindings supplied by a
+plugin.
 
-The name following `[plugins.]` is the plugin's ID. Its manifest command names
-are qualified with that ID: the `uppercase` command from `[plugins.uppercase]`
-becomes `:uppercase.uppercase`. Plugin commands appear in command completion and
-the command palette, and work in key bindings and custom commands. Arguments
-use the editor's existing command parsing, including quoting and expansions.
-Commands can declare a positional argument count and literal completion choices.
-These choices run through native completion without calling the guest or reading
-the filesystem.
+Plugin arguments use the normal [command-line quoting and
+expansions](./command-line.md). For example, `:example.choose 'two words'` passes
+one argument if the package provides a `choose` command. Argument completion
+uses choices declared by the package; it does not run plugin code.
 
-Apply configuration changes with `:config-reload`. After rebuilding a module,
-use `:plugin-reload` to load the new binary. Failed plugins report an error while
-the editor and other plugins continue running. A trapped plugin is disabled
-until it is reloaded.
-
-Trusted workspace configuration can override plugin entries by their configured
-name, following the existing [workspace trust](./workspace-trust.md) policy.
-Only global user configuration grants permissions. Workspace overrides cannot
-expand grants or move them to a different package path. See
-[plugin permissions](./plugin-permissions.md) for filesystem roots, digest pins,
-native execution, and resource limits.
-Plugins are loaded only from explicit configuration; Mitos does not discover or
-automatically run modules from a workspace directory.
-
-## Reference packages
-
-The repository's `plugins/` directory contains six independently installable
-packages: text tools, project bookmarks, TODO navigation, Markdown editing,
-writing mode, and the Cyberdream theme. Executable packages use only the public
-SDK; Cyberdream contributes a native theme without a WASM module or capabilities.
-Each package includes its own permissions, configuration, and keybinding examples.
-
-From the repository root, build the packages with Python 3.11+:
-
-```sh
-rustup target add wasm32-unknown-unknown
-python3 plugins/build.py
-```
-
-Copy selected directories from `plugins/dist/` into your configuration directory's
-`plugins/` subdirectory, then follow their README files. Packages are opt-in and
-are not loaded or granted permissions automatically. The builder also accepts
-package names, such as `python3 plugins/build.py cyberdream`, and `--offline`.
-Theme-only builds require neither a WASM target nor component compilation.
-
-For Cyberdream, add:
+You can also create a shorter [custom command](./custom-commands.md):
 
 ```toml
-[plugins.cyberdream]
-path = "plugins/cyberdream/plugin.toml"
+[commands]
+":tidy" = ":example.tidy"
 ```
 
-Run `:config-reload` and choose `:theme cyberdream.dark`. A writing-mode package
-can select this theme temporarily; owner cleanup restores the previous native
-settings and theme when the writing package is disabled or unloaded.
+After `:config-reload`, `:tidy` runs the plugin command. If a custom command
+shadows a plugin command's full name, prefix it with `^` to call the plugin
+directly, for example `:^example.tidy`.
 
-## Plugin manifests
+Plugin work can finish after the command prompt closes. Wait for a formatter's
+completion before saving if you want its changes included in that write. An edit
+can be rejected when you have changed the document or selection while the plugin
+was working; this protects newer input.
 
-This is the manifest for the example plugin:
+## Themes, snippets, and language packages
 
-```toml
-manifest-version = 1
-api-version = "0.1.0"
-minimum-host-version = "0.1.0"
-abi-version = 3
-module = "uppercase.component.wasm"
-capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
+Install and configure these packages the same way. A package with only themes,
+snippets, or highlighting files needs no WebAssembly component.
 
-[commands.uppercase]
-doc = "Uppercase each selection, preserving Unicode and multiple selections."
+A theme named `tone` from `[plugins.example]` is available as `example.tone`:
+
+```text
+:theme example.tone
 ```
 
-`module` resolves relative to the manifest and must remain inside its directory.
-Each command declares the documentation shown in completion. A plugin can also
-subscribe to editor events with a top-level `events` list, before the command
-tables:
+Snippets appear through the editor's completion UI for their configured language
+and use native snippet tabstops. Language packages use grammars already installed
+in Mitos. They cannot install a native grammar library or configure a language
+server or formatter. Your native file associations take precedence over package
+associations.
 
-```toml
-abi-version = 3
-module = "my-plugin.component.wasm"
-events = ["document-saved", "selection-changed"]
-
-[commands.example]
-doc = "Run the example command."
-```
-
-Available hooks are `document-opened`, `document-changed`, `document-saved`,
-`document-closed`, `selection-changed`, `mode-changed`, `post-command`,
-`post-insert-char`, `document-focus-lost`, `terminal-focus-gained`, and
-`terminal-focus-lost`.
-`document-saved` runs after a successful write. Every plugin receives `init`
-and `shutdown`; these lifecycle events do not need to be listed. `command`
-invocations are dispatched from the manifest's command declarations.
-
-`manifest-version` and `api-version` default to the values above. The service API
-version identifies the frozen `mitos:plugin@0.1.0` WIT world; `abi-version = 3`
-identifies its owned metadata protocol. They are separate from the host release
-version. `minimum-host-version`, when present, uses a numeric `major.minor.patch`
-release. Unsupported requirements and artifact imports are rejected before init.
-
-Capabilities are declared in `capabilities` and `optional-capabilities`; neither
-table grants permission. A capability listed in `required-capabilities` must
-also be declared and granted by the user, or preparation fails. Optional services
-can instead return a typed permission error while the plugin remains usable.
-
-For example, a command accepting one or two arguments can declare:
-
-```toml
-[commands.choose]
-doc = "Choose a mode and an optional label."
-
-[commands.choose.arguments]
-min = 1
-max = 2
-completions = [["compact", "expanded"], ["two words", "μ"]]
-```
-
-The default accepts zero to 32 positional arguments. Each position can offer at
-most 32 literal candidates, each at most 128 bytes. Native parsing preserves
-quoted values and leading hyphens; command arguments do not declare flags or
-guest, filesystem, or shell completion callbacks.
-
-## Declarative packages
-
-A package can contribute themes, language profiles, queries, and snippets without
-a component. Omit `module`, commands, and event subscriptions for such a package:
-
-```toml
-manifest-version = 1
-api-version = "0.1.0"
-abi-version = 3
-
-[[contributions.themes]]
-name = "tone"
-path = "themes/tone.toml"
-
-[[contributions.languages]]
-name = "data"
-path = "languages/data.toml"
-
-[[contributions.snippets]]
-language = "json"
-path = "snippets/json.toml"
-```
-
-Theme and language names use the configured namespace: `[plugins.notes]` exposes
-`notes.tone` and `notes.data`. User and native file associations take precedence.
-Unloading removes only that package's sources and restores native registrations.
-Files must be relative to the package directory. Each source is limited to
-128 KiB, with 2 MiB of contribution source per package, at most 16 themes,
-16 language profiles, and 256 snippets. Assets prepare and validate off-thread;
-invalid themes, queries, or snippets preserve the active generation.
-
-A theme file uses the normal theme format. It can inherit a native theme, or
-another theme in its own package; inheritance is bounded and cycles are rejected.
-Choose the contributed theme with `:theme notes.tone`.
-
-A language profile contains only a host-approved base language, syntax scope,
-literal extensions, and optional query files:
-
-```toml
-base-language = "json"
-scope = "source.notes-data"
-extensions = ["notesdata"]
-
-[queries]
-highlights = "queries/data-highlights.scm"
-```
-
-Query paths resolve from the package root. Missing query kinds use the base
-language's native queries. Query `inherits` directives are unsupported; the
-profile already supplies that fallback. Profiles reuse an installed approved
-grammar and cannot install native grammar libraries. They do not inherit the
-base language's formatter, language servers, debugger, or process settings.
-Removing a profile returns affected documents to native filename/shebang
-detection, without transferring the base language's providers.
-Contribution queries are checked before native compilation: at most 64 nesting
-levels, 256 patterns, 4,096 tokens, 1,024 capture uses, and 128 quantifiers; names
-and literals are limited to 128 bytes. Predicates support literal equality and
-bounded `any-of`, reviewed native property setters, and node-position checks.
-Regex and capture-to-capture text comparisons are unsupported. Native local
-lookups (`#is? local`, `#is-not? local`, `@local.reference`, and
-`@local.definition.*`) and captured injection language/filename/shebang markers
-are also unsupported: those native paths can copy or scan an entire captured
-node. Use ordinary highlight captures and a literal
-`(#set! injection.language "json")` instead. Approved base language queries and
-metadata-only structural query services retain their native capture labels.
-Native query compilation and highlighting are outside WASM epoch interruption;
-these source bounds reduce their work and do not promise a hard rendering deadline.
-
-Snippet files contain native snippet definitions:
-
-```toml
-[[snippets]]
-prefix = "obj"
-body = '{"${1:key}": ${2:value}}$0'
-description = "JSON object"
-```
-
-Completion uses the editor's snippet parser, previews, and tabstop navigation.
-Bodies are limited to 8 KiB, nesting to 32 levels, and expanded work is bounded
-before rendering across selections. Transforms are unsupported. Variables use
-their declared defaults; they do not read the environment or clipboard. Snippets
-can target a native language or a contributed qualified name such as `notes.data`.
-
-## Inspecting plugins
-
-`:plugin-inspect [name]` opens a native report of configured owners, generation,
-engine, effective permissions, queue depth, and outcomes. `:plugin-logs [name]`
-shows the bounded recent diagnostic ring, and `:plugin-timings [name]` shows actual
-queue, guest execution, and host application timings in microseconds. These
-commands read owned snapshots and never invoke guest code. Failed preparation
-remains visible while the previous generation stays active. Logs retain at most
-128 entries per plugin, each bounded to 2 KiB and sanitized for terminal display.
-
-## Writing a Rust plugin
-
-The source repository's `crates/plugin-sdk` crate supplies request and response
-types and an `export_plugin!` macro. Compile a `cdylib` for
-`wasm32-unknown-unknown`, then package its embedded interface metadata into a
-component. This world imports no WASI interfaces or ambient filesystem services.
-
-```rust
-use plugin_sdk::{Action, Event, Request, Response, export_plugin};
-
-fn handle(request: Request) -> Response {
-    if request.event == Event::Command {
-        return Response {
-            actions: vec![Action::Status {
-                message: "Hello from WebAssembly".into(),
-            }],
-            error: None,
-        };
-    }
-    Response::default()
-}
-
-export_plugin!(handle);
-```
-
-For a complete working example, see `examples/plugins/uppercase` in the
-repository. It transforms all selections and preserves their directions and
-the primary selection, including Unicode uppercase expansion such as `ß` to
-`SS`. From the repository root, build and install it with:
-
-```sh
-rustup target add wasm32-unknown-unknown
-cargo build --manifest-path examples/plugins/uppercase/Cargo.toml \
-  --target wasm32-unknown-unknown --release --locked
-mkdir -p ~/.config/mitos/plugins/uppercase
-cp examples/plugins/uppercase/plugin.toml ~/.config/mitos/plugins/uppercase/
-cargo run --manifest-path tools/plugin-pack/Cargo.toml --locked -- \
-  examples/plugins/uppercase/target/wasm32-unknown-unknown/release/uppercase.wasm \
-  ~/.config/mitos/plugins/uppercase/uppercase.component.wasm
-```
-
-Add the configuration above, reload it, select text, and run
-`:uppercase.uppercase`.
-
-## Protocol and limits
-
-The component exports the typed `handle` function from `mitos:plugin@0.1.0`.
-Generated canonical bindings lift the request and call capability-checked imports.
-Edits and other effects stream through bounded resources; finishing a resource
-stages its contents. The host applies effects only after successful handler
-completion and full editor preflight. Traps and rejected batches discard staged
-edits. Configuration and event-specific data remain bounded JSON inside the
-versioned interface. Packages supply source components; guest-provided native
-compiled artifacts are never accepted.
-
-Document offsets count Unicode scalar values, matching Mitos's text coordinates.
-An edit replaces the half-open range `start..end` and includes the original
-document ID and version. Edits from stale snapshots, overlapping ranges, and
-invalid selections are rejected. Edits within one action use its preceding
-projected text; later actions use the text after earlier edits, while retaining
-the original version precondition. Selection actions include the originating
-view's ID, binding revision, and selection revision. A changed selection, closed
-view, or view switched away and back rejects the batch before mutation. Both
-edit and selection actions must precede any open action in the response,
-because opening a path can replace their view. Snapshots can omit the current
-document, path, or language; handlers must account for these cases.
-
-Document-only edits can target hidden documents and compose into one undo step.
-Selection changes require their explicit live view; the host does not substitute
-the focused split. A plugin does not receive its own mutation echoes; other
-plugins can observe those changes. Event `data.provenance` includes the host
-generation, sequence, parent sequence, originating plugin, and causal depth.
-Feedback is limited to eight causal generations.
-
-Pending document-change events coalesce per document and selection events per
-view. The queue reserves 32 data and 32 control entries, with an aggregate 8 MiB
-limit. Overflow or a causal cutoff emits `resync-required`, including the lost
-sequence range. `Action::RequestState` requests a catalog page or a selected
-document/view; the requesting plugin receives a targeted `state` event. These
-two recovery events are delivered without a manifest subscription. Catalog
-pages contain at most 64 documents and views with exclusive continuation cursors.
-
-Saved events name the path and revision actually written, even when newer edits
-exist. Both ordinary writes and headless flushes use the same completion path.
-Shutdown drains accepted callbacks and writes before delivering saved events and
-the final shutdown hook. Failed writes do not emit saved success.
-
-Post-command metadata records the canonical command, arguments, count, register,
-origin, and outcome. Success, error, or cancellation follows that invocation's
-callbacks, next-key continuation, jobs, and exact submitted writes. Unrelated
-later status changes do not change its outcome. Detached LSP command/stop/restart,
-backend code-action-resolution dispatch, and external URL opening report
-`accepted`; this outcome does not promise completion of the external operation.
-Character hooks cover ordinary insertion and macro replay;
-bulk paste is observed through document changes. Hooks are observations and must
-validate revisions before editing in response.
-
-Guest execution is serialized per instance on two dedicated workers. An
-independent 2 ms epoch ticker provides yielding and interrupt progress; each
-invocation also has a five-second deadline. Reload, target close, and shutdown
-cancel obsolete work and await owned job cleanup. Typed permission/stale-state
-errors preserve a healthy instance; guest traps or interruption discard its store.
-Replacement packages prepare off-thread before the editor switches generations.
-A failed replacement leaves the previous generation active.
-
-The host lazily creates the engine only when executable plugins are enabled.
-Source components are capped at 16 MiB. Guest memory is bounded to an aggregate
-64 MiB per store and 256 MiB per worker pool across component memories. Effects
-are limited to 256 actions, 4,096 entries, and 4 MiB retained bytes. Calls,
-compilation, cached code, handles, jobs, and completed results have separate
-budgets. Each region read is bounded to 4 MiB and requires its live text version.
-One retained source snapshot is admitted per editor, including across reloads,
-with a 128 MiB source limit. Oversized selections are rejected before allocation.
-A saved event describes the written version; if the document has changed since
-then, reading that old version returns `stale-state` rather than retaining
-unbounded historical buffers. See the [runtime limits](../../crates/plugins/RUNTIME.md)
-and [permission policy](./plugin-permissions.md) for the full boundary.
-
-In-process guest limits do not promise hard editor-process RSS containment:
-compilation and canonical string lifting use host allocations. Explicitly granted
-native tools execute with operating-system authority outside WASM memory isolation.
-
-This integration adapts the lifecycle, command registration, and event-hook
-boundaries of [Helix PR #8675](https://github.com/helix-editor/helix/pull/8675),
-reviewed at revision `c16fac096a9dd162d46f53bf2411f36251d755f3`, to Mitos's current
-editor structure. Its Steel runtime and bindings are replaced with the
-WebAssembly protocol described here.
-
-## Editor services and interactive workflows
-
-Use `component::editor_request` with the closed `EditorRequest` enum for named
-scratch buffers, scoped file navigation, focus/split/close, registers, settings,
-structural syntax captures, hover, and symbols. Every operation checks its own
-capabilities and explicit document/view revisions. `OpenAt` counts lines and
-Unicode scalar columns from zero and rejects invalid coordinates. Closing a
-modified document requires a separate native user decision.
-
-Successful mutating service replies mean the native operation already applied;
-a later guest trap does not roll it back. Returned handles can be used in the
-same invocation. Staged `Response` edit batches keep their separate transactional
-preflight and undo behavior.
-
-`Action::ShowUi` supplies a prompt, picker with cached previews, or bounded next-key
-request. The native frontend presents it and returns a targeted `ui-result` event;
-`data.response` contains its typed `UiResponse`. Job readiness instead carries
-`data.job`. An instance is available for other invocations while the user decides.
-Cancellation, timeout, origin loss, and reload close the owned native layer.
-Scoped keymaps can invoke only the package's declared commands; user mappings
-win conflicts, and unload restores surviving registrations. Builtin composition
-uses a reviewed clipboard-free enum and reports partial completion on failure.
-
-Register values are limited to 64 entries and 4 KiB in total. Clipboard registers
-`*` and `+` additionally require `clipboard`. Clipboard IPC runs off the editor
-thread with two shared slots, a 4 KiB text limit, and a two-second caller deadline.
-Unix command providers terminate and reap their process group on failure or
-cancellation. Custom providers additionally require the exact configured program
-and argv in both process declarations and user grants. Native desktop clipboard
-owners can intentionally persist after success. Terminal OSC52 and Windows native
-IPC cannot be hard-interrupted; their slots stay charged until the OS operation
-finishes. Command providers are unavailable on platforms without process-tree
-cleanup; Windows native clipboard access remains available.
-
-Settings overrides cover auto-format, soft-wrap, cursorline, and native theme
-selection. Overrides belong to a package generation, retain the current native
-baseline, and disappear when that owner unloads or traps. Plugins cannot change
-filesystem roots, process policy, providers, or executable configuration through
+Disabling or removing a package removes its contributed commands, bindings, and
+assets. Temporary settings owned by the plugin are restored to the current user
 settings.
 
-Syntax queries return owned structural capture ranges from the existing grammar,
-with bounded source/range/result counts. Predicates are initially unsupported.
-A native query already running cannot be interrupted by the caller deadline;
-one shared worker permit stays held until it finishes. Hover and symbol requests
-use already attached servers and never start providers. They expire after two
-seconds, send LSP cancellation, bound pending plugin requests to 64 per client,
-and reject replies if the original document revision changed.
+## Update, reload, or disable
 
-The public SDK [workflows example](https://github.com/mitos-editor/mitos/tree/main/examples/plugins/workflows)
-contains a persistent recent-files picker, streamed project search with cached
-previews and Unicode navigation, and a manual formatter with exact process grants.
-Formatting supplies a later revisioned edit; wait for completion before saving.
-Reload revokes unfinished dialogs and jobs. Provider registration for automatic
-save, diagnostics, completion, debug, task, or MCP integrations will be added only
-with a concrete native lifecycle contract.
+Use `:config-reload` after changing paths, settings, permissions, keybindings, or
+which plugins are enabled. To reload changed package files without rereading
+`config.toml`, run `:plugin-reload`. This command reloads all configured plugins;
+it does not accept a plugin name.
+
+Replace a package's files together, then reload. Reload clears its in-memory
+state and cancels its unfinished dialogs and jobs. Private storage survives
+reload. If replacement preparation fails, the previous working plugins remain
+active; inspect the error before retrying. A plugin that traps or is interrupted
+is disabled until a successful reload.
+
+To disable a package, keep its entry and change:
+
+```toml
+[plugins.example]
+path = "plugins/example/plugin.toml"
+enabled = false
+```
+
+Then run `:config-reload`. Removing the entry and reloading also unloads it;
+neither action deletes its package files or private stored data.
+
+Trusted workspace configuration may override plugin settings, but it cannot
+grant more permissions. Mitos does not scan project directories for plugins or
+run a package just because it is present. See [Workspace trust](./workspace-trust.md)
+and [Plugin permissions](./plugin-permissions.md) for the exact rules.
+
+## Troubleshooting
+
+These commands open reports in a scratch buffer. Supply your configured plugin
+ID to focus on one package, or omit it to see all packages:
+
+| Command | Shows |
+| --- | --- |
+| `:plugin-inspect [name]` | Load status, declared and effective permissions, and pending work |
+| `:plugin-logs [name]` | Recent plugin messages and failures |
+| `:plugin-timings [name]` | Time spent waiting, executing the plugin, and applying its result |
+
+For a missing command, check the configured ID, manifest path, load status, and
+whether the package actually declares that command. For a permission error,
+compare the package's requested permissions with your grants and check that any
+configured directory exists. For an incompatible API or binary, obtain a package
+built for this Mitos version. `:log-open` opens the editor log when you need more
+detail.
+
+Mitos limits plugin execution, memory, text reads, jobs, and output. A resource
+limit or deadline error means that work was rejected or stopped; it is not a
+request to grant broader permissions. Report repeated failures to the package's
+author with the plugin ID, Mitos version (`ms --version`), and relevant log entry.
+
+## For plugin authors
+
+The [Plugin API contract](./plugin-contract.md) describes commands, events,
+revision checks, services, and lifecycle rules. It is an advanced reference for
+authors; installing a package does not require learning the author API.
