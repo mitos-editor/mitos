@@ -1,0 +1,83 @@
+name: Plugin runtime
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/plugin-api/**'
+      - 'crates/plugin-sdk/**'
+      - 'crates/plugins/**'
+      - 'crates/core/**'
+      - 'crates/loader/**'
+      - 'crates/snippets/**'
+      - 'crates/lsp/**'
+      - 'crates/view/**'
+      - 'crates/term/**'
+      - 'tools/plugin-pack/**'
+      - '.github/workflows/plugins.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  components:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native architecture labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
+      XDG_CONFIG_HOME: /tmp/mitos-plugin-config
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/rust-setup
+        with:
+          toolchain: '1.97.1'
+          components: rustfmt, clippy
+          cache-key: plugins
+      - name: Install guest and C toolchains
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y clang lld
+          else
+            brew install llvm
+            echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Fetch locked harness dependencies
+        run: |
+          cargo fetch --locked --manifest-path tools/plugin-pack/Cargo.toml
+          cargo fetch --locked --manifest-path crates/plugins/tests/fixtures/component-guest/Cargo.toml
+          cargo fetch --locked --manifest-path crates/plugins/tests/fixtures/sdk-guest/Cargo.toml
+          cargo fetch --locked --manifest-path crates/plugins/tests/fixtures/router-guest/Cargo.toml
+          cargo fetch --locked --manifest-path crates/plugins/tests/fixtures/workflow-guest/Cargo.toml
+      - name: Rebuild production guest fixtures
+        run: |
+          crates/plugins/tests/fixtures/regenerate.sh --offline
+          crates/plugins/tests/fixtures/regenerate-c.sh --offline
+      - name: Exercise production components and SDK
+        run: cargo test -p plugin-api -p plugin-sdk -p plugins --locked
+      - name: Build approved native grammar fixtures
+        run: |
+          mkdir -p "$XDG_CONFIG_HOME/mitos"
+          echo 'use-grammars = { only = ["rust", "json"] }' > "$XDG_CONFIG_HOME/mitos/languages.toml"
+          cargo run -p loader --locked
+          cargo run -p term --locked -- --grammar build --strict
+      - name: Exercise native editor services and workflows
+        run: |
+          cargo test -p view --lib plugins::language::tests --locked
+          cargo test -p view --test plugin_assets --locked
+          cargo test -p view --test handler_setup plugin --locked
+          cargo test -p term --features integration --test integration plugin --locked

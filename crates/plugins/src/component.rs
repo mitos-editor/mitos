@@ -1247,6 +1247,10 @@ impl wasmtime::component::HasData for HostState {
 
 pub(crate) fn engine() -> Result<Engine, ServiceError> {
     let mut config = Config::new();
+    // The editor spawns native children and handles process signals. Wasmtime's
+    // supported Unix trap path avoids the macOS Mach helper's receive aborts.
+    #[cfg(target_os = "macos")]
+    config.macos_use_mach_ports(false);
     config
         .wasm_component_model(true)
         .epoch_interruption(true)
@@ -1372,19 +1376,22 @@ impl Instance {
                 .map_err(|error| wasmtime::Error::msg(error.message))?;
             Ok(UpdateDeadline::Yield(1))
         });
-        let binding = binding.instantiate_async(&mut store).await.map_err(|error| {
-            let state = store.data();
-            let code = if state.cancel.is_cancelled() {
-                ErrorCode::Cancelled
-            } else if Instant::now() >= state.deadline {
-                ErrorCode::DeadlineExceeded
-            } else if state.limits.exhausted {
-                ErrorCode::ResourceExhausted
-            } else {
-                ErrorCode::GuestTrap
-            };
-            ServiceError::new(code, format!("instantiating plugin component: {error}"))
-        })?;
+        let binding = binding
+            .instantiate_async(&mut store)
+            .await
+            .map_err(|error| {
+                let state = store.data();
+                let code = if state.cancel.is_cancelled() {
+                    ErrorCode::Cancelled
+                } else if Instant::now() >= state.deadline {
+                    ErrorCode::DeadlineExceeded
+                } else if state.limits.exhausted {
+                    ErrorCode::ResourceExhausted
+                } else {
+                    ErrorCode::GuestTrap
+                };
+                ServiceError::new(code, format!("instantiating plugin component: {error}"))
+            })?;
         Ok(Self {
             binding,
             store,

@@ -35,7 +35,8 @@ capabilities = ["editor-read", "editor-edit", "editor-selection", "ui"]
 | `storage` | Private plugin storage with its own quota |
 | `process` | Native executable and argument rules, selected working directory |
 | `environment` | Only explicitly listed environment variables |
-| `network`, `clipboard`, `provider` | Reserved authority; a grant does not create an unavailable service |
+| `clipboard` | Bounded native clipboard read/write; custom command providers also require the exact process grant |
+| `network`, `provider` | Reserved authority; a grant does not create an unavailable service |
 
 Workspace configuration cannot grant authority. An override of the same plugin
 path keeps the user's permissions and optional module digest pin; an override to
@@ -64,6 +65,14 @@ cannot reopen their bookkeeping paths. An explicit native open, reload, save, or
 provider restart adopts normal user authority. Plugin opening currently rejects
 binary files. Syntax grammars, queries, and spelling dictionaries remain existing
 host-configured native services; plugin packages cannot supply a native DLL path.
+Closed builtin composition applies the same read-only and binary-buffer guards
+as direct plugin transactions. Registers require editor-read/editor-selection
+as appropriate; clipboard reads and writes always require clipboard authority.
+The native clipboard adapter admits at most two requests with 4 KiB input/output
+and a two-second admission/execution deadline. Native Windows clipboard IPC and
+terminal OSC52 writes retain their worker permit until the underlying operation
+finishes; they cannot promise hard interruption of a blocked OS call.
+
 Edits to documents already opened natively follow the user's existing save and
 autosave policy.
 
@@ -95,6 +104,16 @@ access. Mitos does not claim an OS sandbox for these tools. Unix process jobs
 run in their own process group, terminate the group on timeout/cancellation, and
 reap the child. Platforms without implemented process-tree cleanup reject this
 service with `unsupported-interface`.
+
+## Declarative assets
+
+Packages can contribute bounded themes, static snippets, syntax query sources,
+and closed language profiles without an executable module. Profiles use already
+installed, host-approved grammars. They cannot configure formatters, language
+servers, debuggers, or native DLL paths. Native user registrations take precedence;
+owned overlays are removed or restored on unload. Query preflight limits source
+complexity before native compilation and rejects regex predicates. It does not
+turn native query compilation/execution into interruptible WASM work.
 
 ## Resource and failure policy
 

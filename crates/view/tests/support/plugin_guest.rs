@@ -4,6 +4,22 @@ use std::path::Path;
 use plugin_api::{Action, Response};
 use plugins::PluginConfig;
 
+/// Each proof owns a production engine and compiles the real SDK component.
+/// Run one compilation-heavy proof at a time so cold debug compilation on a
+/// small runner stays within unchanged production deadlines. Multiple editors
+/// inside a proof still exercise independent concurrent instances normally.
+/// Acquire once per test (not per Fixture: some cases create multiple editors).
+pub(crate) async fn compilation_permit() -> tokio::sync::OwnedSemaphorePermit {
+    static PERMITS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    PERMITS
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(1)))
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("test compilation budget closed")
+}
+
 #[derive(Default, serde::Serialize)]
 pub(crate) struct Route<'a> {
     pub event: &'a str,
@@ -29,6 +45,32 @@ pub(crate) fn observing(
     routes: &[Route<'_>],
     before_shutdown: Option<&str>,
 ) -> anyhow::Result<PluginConfig> {
+    let mut routes = serde_json::to_value(routes)?;
+    for route in routes.as_array_mut().unwrap() {
+        let mut metadata = Vec::new();
+        let mut reads = Vec::new();
+        // UiResult owns the literal text submitted to a native prompt. Its
+        // `text` is result metadata, unlike the legacy document-text checks.
+        let document_text = route["event"] != "ui-result";
+        for fragment in route["expected"].as_array().unwrap() {
+            let fragment = fragment.as_str().unwrap();
+            if let Some(value) = fragment.strip_prefix("\"text\":").filter(|_| document_text) {
+                let text: String = serde_json::from_str(value)?;
+                reads.push(serde_json::json!({
+                    "start":0, "end":text.chars().count(), "expected":text,
+                }));
+            } else {
+                metadata.push(fragment.to_owned());
+            }
+        }
+        // Metadata ABI 3 deliberately omits document text. The real guest uses
+        // this invocation's document ID and version for bounded region reads;
+        // its config is removed before metadata matching, so expected fragments
+        // cannot match themselves. Stale saved versions must return typed stale
+        // errors in explicit read routes rather than silently refreshing here.
+        route["expected"] = serde_json::to_value(metadata)?;
+        route["reads"] = serde_json::to_value(reads)?;
+    }
     std::fs::write(
         dir.join("plugin.component.wasm"),
         include_bytes!("../../../plugins/tests/fixtures/router-guest.component.wasm"),

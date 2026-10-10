@@ -67,8 +67,9 @@ async fn execute(fixture: &mut Fixture, name: &str, args: Vec<String>) -> anyhow
     Ok(accepted)
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lifecycle_opens_without_a_view_and_runs_for_large_documents() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let view = current_ref!(fixture.editor).0.id;
     fixture.editor.close(view);
@@ -126,8 +127,9 @@ async fn lifecycle_opens_without_a_view_and_runs_for_large_documents() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn edits_use_character_offsets_and_are_one_undo_step() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("ßéx\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let id = doc.id().as_u64();
@@ -179,8 +181,9 @@ async fn edits_use_character_offsets_and_are_one_undo_step() -> anyhow::Result<(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_batches_and_stale_selections_leave_documents_unchanged() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let id = doc.id().as_u64();
@@ -265,8 +268,9 @@ async fn invalid_batches_and_stale_selections_leave_documents_unchanged() -> any
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reload_discards_queued_events_and_edit_hooks_do_not_recurse() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let config = plugin(
@@ -318,8 +322,9 @@ async fn reload_discards_queued_events_and_edit_hooks_do_not_recurse() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn open_cannot_invalidate_prepared_document_actions() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let (_, doc) = current_ref!(fixture.editor);
     let dir = tempfile::tempdir()?;
@@ -361,8 +366,9 @@ async fn open_cannot_invalidate_prepared_document_actions() -> anyhow::Result<()
 
 // A checked-in component built through the public SDK exercises real bounded
 // read imports and streamed effects without an optional contributor toolchain.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rust_sdk_plugin_runs_through_the_editor() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new("ßé hello\n")?;
     let (view, doc) = current!(fixture.editor);
@@ -403,8 +409,9 @@ fn selection_action(editor: &Editor, view: ViewId, range: Range) -> Action {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn background_selection_hooks_keep_the_originating_split() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let foreground = view.id;
@@ -450,8 +457,9 @@ async fn background_selection_hooks_keep_the_originating_split() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn selection_only_changes_expire_queued_snapshots_without_text_edits() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let view = view.id;
@@ -494,8 +502,9 @@ async fn selection_only_changes_expire_queued_snapshots_without_text_edits() -> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closed_and_rebound_views_are_typed_conflicts_before_any_edit() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let id = current_ref!(fixture.editor).1.id();
     fixture.editor.switch(id, EditorAction::VerticalSplit);
@@ -568,8 +577,9 @@ async fn closed_and_rebound_views_are_typed_conflicts_before_any_edit() -> anyho
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hidden_document_edits_compose_and_undo_without_a_view() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("ßéx\n")?;
     let id = current_ref!(fixture.editor).1.id();
     let version = current_ref!(fixture.editor).1.version();
@@ -632,8 +642,9 @@ async fn hidden_document_edits_compose_and_undo_without_a_view() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_edits_sync_prior_history_in_every_split() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let foreground = current_ref!(fixture.editor).0.id;
     let id = current_ref!(fixture.editor).1.id();
@@ -702,9 +713,10 @@ async fn plugin_edits_sync_prior_history_in_every_split() -> anyhow::Result<()> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn composed_edits_project_interleaved_multi_view_selections_and_one_undo(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let origin = current_ref!(fixture.editor).0.id;
     let id = current_ref!(fixture.editor).1.id();
@@ -767,8 +779,9 @@ async fn composed_edits_project_interleaved_multi_view_selections_and_one_undo(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn readonly_targets_reject_the_complete_batch() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("abcdef\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let id = doc.id();
@@ -818,8 +831,9 @@ async fn readonly_targets_reject_the_complete_batch() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
@@ -830,7 +844,7 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
     doc.append_changes_to_history(view);
     let saved_version = doc.version();
     let saved_revision = doc.get_current_revision();
-    let config = BTreeMap::from([(
+    let mut config = BTreeMap::from([(
         "observer".into(),
         observing(
             dir.path(),
@@ -861,6 +875,10 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
             Some("document-saved"),
         )?,
     )]);
+    // The event records the written version. Reading it after a newer edit
+    // must reject stale state; the helper must not substitute the current text.
+    config.get_mut("observer").unwrap().config["routes"][0]["reads"] =
+        serde_json::json!([{"start":0,"end":10,"error_code":"stale-state"}]);
     assert!(fixture.editor.reload_plugins(&config, dir.path()));
     drain(&mut fixture).await;
     fixture.editor.save(id, Some(target.clone()), false)?;
@@ -885,9 +903,10 @@ async fn flushed_saves_describe_written_text_and_precede_shutdown() -> anyhow::R
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn write_flush_continues_after_failure_and_reports_only_successful_saves(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("first\n")?;
     let first = current_ref!(fixture.editor).1.id();
@@ -933,9 +952,93 @@ async fn write_flush_continues_after_failure_and_reports_only_successful_saves(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_drains_saved_and_command_region_reads_after_frontend_callbacks_close(
+) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
+    use crate::support::plugin_guest::{observing, status, Route};
+    let mut fixture = Fixture::new("éß\n")?;
+    let dir = tempfile::tempdir()?;
+    let id = current_ref!(fixture.editor).1.id();
+    let mut config = observing(
+        dir.path(),
+        &["document-saved", "post-command"],
+        &[
+            Route {
+                event: "document-saved",
+                response: status("saved text read"),
+                expected: vec![r#""text":"éß\n""#.into()],
+                ..Route::default()
+            },
+            Route {
+                event: "post-command",
+                response: status("command text read"),
+                expected: vec![r#""text":"éß\n""#.into()],
+                ..Route::default()
+            },
+            Route {
+                event: "shutdown",
+                response: status("shutdown remains diagnostics only"),
+                ..Route::default()
+            },
+        ],
+        Some("post-command"),
+    )?;
+    config.config["routes"][2]["reads"] =
+        serde_json::json!([{"start":0,"end":3,"error_code":"permission-denied"}]);
+    config.config["routes"][0]["operation"] = "quiescent-services-denied".into();
+    config.config["routes"][1]["operation"] = "quiescent-services-denied".into();
+    config.config["routes"][2]["operation"] = "shutdown-services-denied".into();
+    // These grants make the denial a lifecycle boundary rather than a missing
+    // capability. Neither a private write nor a timer may start in Shutdown.
+    config.permissions.capabilities.extend([
+        plugin_api::Capability::Storage,
+        plugin_api::Capability::WorkspaceWrite,
+    ]);
+    config.permissions.write_roots = vec![dir.path().to_owned()];
+    let manifest = dir.path().join("plugin.toml");
+    let mut data: toml::Value = toml::from_str(&std::fs::read_to_string(&manifest)?)?;
+    data["capabilities"] = toml::Value::try_from(&config.permissions.capabilities)?;
+    std::fs::write(manifest, toml::to_string(&data)?)?;
+    assert!(fixture
+        .editor
+        .reload_plugins(&BTreeMap::from([("observer".into(), config)]), dir.path()));
+    drain(&mut fixture).await;
+    let errors = fixture.editor.error_revision();
+    // The terminal quiesces generic native callbacks before flushing writes.
+    // Finishing accepted guest hooks must need neither that receiver nor a full
+    // snapshot, and must not reopen generic callbacks during shutdown.
+    fixture.callbacks.close();
+    while let Ok(callback) = fixture.callbacks.try_recv() {
+        callback(&mut fixture.editor);
+    }
+    fixture.editor.save(id, None::<std::path::PathBuf>, false)?;
+    fixture.editor.flush_writes().await?;
+    fixture.editor.queue_plugin_event(
+        plugin_api::Event::PostCommand,
+        serde_json::json!({"command":"write","outcome":"success"}),
+    );
+    fixture.editor.shutdown_plugins();
+    fixture.editor.finish_plugin_shutdown().await;
+    assert_eq!(
+        fixture.editor.error_revision(),
+        errors,
+        "shutdown read failed: status={:?}; diagnostics={:?}",
+        fixture.editor.get_status(),
+        fixture.editor.plugin_diagnostics()
+    );
+    assert_eq!(
+        fixture.editor.get_status().unwrap().0,
+        "shutdown remains diagnostics only"
+    );
+    assert!(!dir.path().join("forbidden-write.txt").exists());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn other_plugins_observe_mutations_with_provenance_without_own_echoes() -> anyhow::Result<()>
 {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("original\n")?;
     let (_, doc) = current_ref!(fixture.editor);
@@ -1011,8 +1114,9 @@ async fn other_plugins_observe_mutations_with_provenance_without_own_echoes() ->
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     use plugin_api::{StateCatalog, StateQuery};
     use view::callbacks::{EditorCallback, EditorCallbackSender};
@@ -1119,8 +1223,9 @@ async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> a
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queue_bytes_and_causal_feedback_have_explicit_recovery_limits() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("small\n")?;
     let dir = tempfile::tempdir()?;
@@ -1213,8 +1318,9 @@ async fn queue_bytes_and_causal_feedback_have_explicit_recovery_limits() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn focus_lost_identifies_the_previous_document_and_split() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("first\n")?;
     let (view, doc) = current_ref!(fixture.editor);
@@ -1250,9 +1356,10 @@ async fn focus_lost_identifies_the_previous_document_and_split() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn event_recipients_share_one_frozen_snapshot_and_conflicts_are_deterministic(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use super::support::plugin_guest::{observing, Route};
     let mut fixture = Fixture::new("original\n")?;
     let (_, doc) = current_ref!(fixture.editor);
@@ -1321,9 +1428,10 @@ async fn event_recipients_share_one_frozen_snapshot_and_conflicts_are_determinis
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_disabled_guest_stops_snapshot_capture_and_callback_wakes_immediately(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let mut package = crate::support::plugin_guest::observing(
@@ -1360,9 +1468,10 @@ async fn a_disabled_guest_stops_snapshot_capture_and_callback_wakes_immediately(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn write_invocation_observers_finish_once_for_success_failure_and_cancellation(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -1456,8 +1565,9 @@ async fn write_invocation_observers_finish_once_for_success_failure_and_cancella
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use crate::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("original\n")?;
     let (view, doc) = current_ref!(fixture.editor);
@@ -1552,8 +1662,9 @@ async fn delayed_frontend_events_retain_the_original_view_binding() -> anyhow::R
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn capability_denial_rejects_the_complete_response() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use plugin_api::Capability;
     let mut fixture = Fixture::new("original\n")?;
     let doc = current_ref!(fixture.editor).1;
@@ -1608,8 +1719,9 @@ async fn capability_denial_rejects_the_complete_response() -> anyhow::Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn status_only_guests_do_not_capture_large_buffer_text() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use crate::support::plugin_guest::{observing, status, Route};
     use plugin_api::{Capability, Permissions};
     let mut fixture = Fixture::new(&"sensitive".repeat(300_000))?;
@@ -1652,9 +1764,10 @@ async fn status_only_guests_do_not_capture_large_buffer_text() -> anyhow::Result
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adoption(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("opened.txt");
@@ -1708,9 +1821,10 @@ async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adopt
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unsafe_or_binary_opens_leave_earlier_edits_and_navigation_unapplied() -> anyhow::Result<()>
 {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     for target in ["missing.txt", "binary.png"] {
         let mut fixture = Fixture::new("original\n")?;
         let doc = current_ref!(fixture.editor).1;
@@ -1767,8 +1881,9 @@ async fn unsafe_or_binary_opens_leave_earlier_edits_and_navigation_unapplied() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_status_is_bounded_and_has_no_terminal_controls() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let config = plugin(
@@ -1790,8 +1905,9 @@ async fn plugin_status_is_bounded_and_has_no_terminal_controls() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn delayed_open_rejects_changed_selection_text_or_focus() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     for change in ["selection", "text", "focus"] {
         let mut fixture = Fixture::new("original\n")?;
         let dir = tempfile::tempdir()?;
@@ -1844,8 +1960,9 @@ async fn delayed_open_rejects_changed_selection_text_or_focus() -> anyhow::Resul
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_rejects_guest_navigation_and_edits_before_any_effect() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     for open in [false, true] {
         let mut fixture = Fixture::new("original\n")?;
         let doc = current_ref!(fixture.editor).1;
@@ -1902,8 +2019,9 @@ async fn shutdown_rejects_guest_navigation_and_edits_before_any_effect() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn metadata_only_hooks_read_unicode_regions_in_large_documents() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let text = format!("ßé😀\n{}", "x".repeat(10 * 1024 * 1024));
     let mut fixture = Fixture::new(&text)?;
     let dir = tempfile::tempdir()?;
@@ -1929,8 +2047,9 @@ async fn metadata_only_hooks_read_unicode_regions_in_large_documents() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn excessive_native_selections_fail_before_guest_snapshot_allocation() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new(&"x".repeat(8192))?;
     let dir = tempfile::tempdir()?;
     let config = plugin(dir.path(), Response::default(), &[])?;
@@ -1962,8 +2081,9 @@ async fn excessive_native_selections_fail_before_guest_snapshot_allocation() -> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn running_guest_does_not_block_native_edits_and_reload_cancels_it() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let mut package = crate::support::plugin_guest::observing(dir.path(), &[], &[], None)?;
@@ -1989,8 +2109,9 @@ async fn running_guest_does_not_block_native_edits_and_reload_cancels_it() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_async_preparation_keeps_the_previous_generation_usable() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let config = plugin(
@@ -2016,9 +2137,10 @@ async fn failed_async_preparation_keeps_the_previous_generation_usable() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closing_a_read_origin_cancels_the_worker_before_effect_application() -> anyhow::Result<()>
 {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let (view, doc) = current_ref!(fixture.editor);
     let origin = view.id;

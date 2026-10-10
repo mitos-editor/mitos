@@ -1,13 +1,13 @@
 //! Backend hooks at real terminal save/close boundaries.
-use super::helpers::{test_config, test_key_sequences, AppBuilder};
-
-#[path = "../../../view/tests/support/plugin_guest.rs"]
-mod guest;
+use super::helpers::{
+    plugin_guest as guest, run_event_loop_until_idle, test_config, test_key_sequences, AppBuilder,
+};
 
 use guest::{observing, status, Route};
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn normal_save_and_write_quit_deliver_saved_text_before_shutdown() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     for write_quit in [false, true] {
         let dir = tempfile::tempdir()?;
         let source = dir.path().join("document.txt");
@@ -49,7 +49,6 @@ async fn normal_save_and_write_quit_deliver_saved_text_before_shutdown() -> anyh
                                 r#""view":null"#.into(),
                                 r#""outcome":"success""#.into(),
                             ],
-                            ..Route::default()
                         },
                         Route {
                             event: "shutdown",
@@ -98,8 +97,9 @@ async fn normal_save_and_write_quit_deliver_saved_text_before_shutdown() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closing_the_last_split_keeps_its_post_command_hook() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let mut config = test_config();
     config.keys = toml::from_str("[normal]\nF12 = 'wclose'\n")?;
@@ -118,7 +118,6 @@ async fn closing_the_last_split_keeps_its_post_command_hook() -> anyhow::Result<
                         r#""view":null"#.into(),
                         r#""outcome":"success""#.into(),
                     ],
-                    ..Route::default()
                 },
                 Route {
                     event: "shutdown",
@@ -139,8 +138,9 @@ async fn closing_the_last_split_keeps_its_post_command_hook() -> anyhow::Result<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saved_hooks_cannot_reopen_the_editor_after_write_quit() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let source = dir.path().join("document.txt");
     std::fs::write(&source, "original\n")?;
@@ -181,8 +181,9 @@ async fn saved_hooks_cannot_reopen_the_editor_after_write_quit() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn callbacks_accepted_before_close_can_save_before_plugin_shutdown() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let source = dir.path().join("document.txt");
     std::fs::write(&source, "original\n")?;
@@ -213,6 +214,11 @@ async fn callbacks_accepted_before_close_can_save_before_plugin_shutdown() -> an
         .with_config(config)
         .with_file(&source, None)
         .build()?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        run_event_loop_until_idle(&mut app),
+    )
+    .await?;
     let (view, doc) = view::current!(app.editor);
     let id = doc.id();
     let transaction = editor_core::Transaction::change(
@@ -239,8 +245,9 @@ async fn callbacks_accepted_before_close_can_save_before_plugin_shutdown() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_required_jobs_do_not_skip_other_accepted_writes() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let source = dir.path().join("document.txt");
     std::fs::write(&source, "original\n")?;
@@ -270,6 +277,11 @@ async fn failed_required_jobs_do_not_skip_other_accepted_writes() -> anyhow::Res
         .with_config(config)
         .with_file(&source, None)
         .build()?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        run_event_loop_until_idle(&mut app),
+    )
+    .await?;
     let (view, doc) = view::current!(app.editor);
     let id = doc.id();
     let transaction = editor_core::Transaction::change(

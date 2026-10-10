@@ -11,3 +11,5 @@ cp "$fixture_target/wasm32-unknown-unknown/release/mitos_router_test_guest.wasm"
 cargo run --manifest-path "$fixture_dir/../../../../tools/plugin-pack/Cargo.toml" --locked "$@" -- "$fixture_dir/router-guest.wasm" "$fixture_dir/router-guest.component.wasm"
 cargo build --manifest-path "$fixture_dir/workflow-guest/Cargo.toml" --target-dir "$fixture_target" --target wasm32-unknown-unknown --release --locked "$@"
 cargo run --manifest-path "$fixture_dir/../../../../tools/plugin-pack/Cargo.toml" --locked "$@" -- "$fixture_target/wasm32-unknown-unknown/release/mitos_workflow_test_guest.wasm" "$fixture_dir/workflows.component.wasm"
+
+chmod 644 "$fixture_dir"/*.wasm

@@ -112,8 +112,12 @@ fn handle(mut request: Request) -> Response {
                 };
                 let result = component::read_document(doc.id, doc.version, read.start, read.end);
                 if let Some(expected) = &read.expected {
-                    if result.as_ref().ok() != Some(expected) {
-                        return failure("region text mismatch");
+                    match result {
+                        Ok(text) if text == *expected => (),
+                        Ok(_) => return failure("region text mismatch"),
+                        Err(error) => {
+                            return failure(&format!("region read failed: {:?}", error.code))
+                        }
                     }
                 } else if let Some(code) = read.error_code {
                     if result.err().map(|error| error.code) != Some(code) {
@@ -156,6 +160,37 @@ fn handle(mut request: Request) -> Response {
                 }
                 Some("uppercase") => return uppercase(&request),
                 Some("scratch") => return scratch(&request),
+                Some(operation @ ("shutdown-services-denied" | "quiescent-services-denied")) => {
+                    if operation == "shutdown-services-denied" && request.event != Event::Shutdown {
+                        return failure("shutdown denial proof requires shutdown");
+                    }
+                    let outcomes = [
+                        component::storage_write("shutdown-proof", "unexpected")
+                            .err()
+                            .map(|error| error.code),
+                        component::storage_read("shutdown-proof")
+                            .err()
+                            .map(|error| error.code),
+                        component::start_job(plugin_sdk::JobRequest::Timer { milliseconds: 1 })
+                            .err()
+                            .map(|error| error.code),
+                        component::write_file(0, "forbidden-write.txt", "unexpected")
+                            .err()
+                            .map(|error| error.code),
+                        component::editor_request(EditorRequest::ReadRegister {
+                            name: 'a',
+                            origin: None,
+                        })
+                        .err()
+                        .map(|error| error.code),
+                    ];
+                    if outcomes
+                        .iter()
+                        .any(|outcome| *outcome != Some(plugin_sdk::ErrorCode::PermissionDenied))
+                    {
+                        return failure("quiescence acquired a new native service");
+                    }
+                }
                 _ => (),
             }
             return route.response.clone();

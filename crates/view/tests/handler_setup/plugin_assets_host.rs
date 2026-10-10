@@ -19,9 +19,10 @@ async fn drain(fixture: &mut Fixture) {
     .expect("package preparation did not settle");
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_contribution_keeps_active_code_and_assets_then_unload_restores_native_sources(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use crate::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::with_languages(
         "{}\n",
@@ -98,9 +99,10 @@ async fn invalid_contribution_keeps_active_code_and_assets_then_unload_restores_
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_theme_loader_change_while_shutdown_drains_rebases_before_publication(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use crate::support::plugin_guest::{observing, status, Route};
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
@@ -111,9 +113,14 @@ async fn native_theme_loader_change_while_shutdown_drains_rebases_before_publica
         .editor
         .reload_plugins(&BTreeMap::from([("fixture".into(), old)]), dir.path()));
     drain(&mut fixture).await;
-    assert!(fixture
-        .editor
-        .plugin_event_interested(plugin_api::Event::DocumentOpened));
+    assert!(
+        fixture
+            .editor
+            .plugin_event_interested(plugin_api::Event::DocumentOpened),
+        "initial asset host did not activate: status={:?}; diagnostics={:?}",
+        fixture.editor.get_status(),
+        fixture.editor.plugin_diagnostics()
+    );
     let replacement = observing(
         dir.path(),
         &["document-opened"],
@@ -177,8 +184,9 @@ async fn native_theme_loader_change_while_shutdown_drains_rebases_before_publica
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deferred_scoped_open_failure_is_counted_once_as_host_failure() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     use crate::support::plugin_guest::{observing, Route};
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
@@ -203,6 +211,12 @@ async fn deferred_scoped_open_failure_is_counted_once_as_host_failure() -> anyho
         .editor
         .reload_plugins(&BTreeMap::from([("fixture".into(), config)]), dir.path()));
     drain(&mut fixture).await;
+    assert!(
+        fixture.editor.plugin_command_doc("fixture.run").is_some(),
+        "deferred-open host did not activate: status={:?}; diagnostics={:?}",
+        fixture.editor.get_status(),
+        fixture.editor.plugin_diagnostics()
+    );
     let before = fixture
         .editor
         .plugin_diagnostics()

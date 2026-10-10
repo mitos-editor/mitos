@@ -71,12 +71,35 @@ async fn drain(fixture: &mut Fixture) {
     .expect("editor service work did not settle");
 }
 async fn load(fixture: &mut Fixture, dir: &Path, packages: BTreeMap<String, PluginConfig>) {
-    assert!(fixture.editor.reload_plugins(&packages, dir));
+    assert!(
+        fixture.editor.reload_plugins(&packages, dir),
+        "service package reload was rejected: status={:?}; diagnostics={:?}",
+        fixture.editor.get_status(),
+        fixture.editor.plugin_diagnostics()
+    );
     drain(fixture).await;
+    for (name, package) in packages {
+        if package.enabled {
+            assert!(
+                fixture
+                    .editor
+                    .plugin_command_doc(&format!("{name}.run"))
+                    .is_some(),
+                "service package '{name}' did not activate: status={:?}; diagnostics={:?}",
+                fixture.editor.get_status(),
+                fixture.editor.plugin_diagnostics()
+            );
+        }
+    }
 }
 async fn run(fixture: &mut Fixture, name: &str) -> anyhow::Result<()> {
     let errors = fixture.editor.error_revision();
-    assert!(fixture.editor.execute_plugin_command(name, vec![])?);
+    assert!(
+        fixture.editor.execute_plugin_command(name, vec![])?,
+        "service command '{name}' is unavailable: status={:?}; diagnostics={:?}",
+        fixture.editor.get_status(),
+        fixture.editor.plugin_diagnostics()
+    );
     drain(fixture).await;
     anyhow::ensure!(
         fixture.editor.error_revision() == errors,
@@ -90,8 +113,9 @@ async fn run(fixture: &mut Fixture, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owned_scratch_can_be_read_and_edited_in_the_creating_invocation() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let original = target(&fixture);
     let dir = tempfile::tempdir()?;
@@ -114,8 +138,9 @@ async fn owned_scratch_can_be_read_and_edited_in_the_creating_invocation() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn open_at_uses_its_explicit_unfocused_origin_and_unicode_column() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let origin = target(&fixture);
     let original_doc = current_ref!(fixture.editor).1.id();
@@ -159,9 +184,10 @@ async fn open_at_uses_its_explicit_unfocused_origin_and_unicode_column() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_navigation_and_invalid_coordinates_leave_focus_and_documents_untouched(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let origin = target(&fixture);
     let (view, doc) = current!(fixture.editor);
@@ -211,9 +237,10 @@ async fn stale_navigation_and_invalid_coordinates_leave_focus_and_documents_unto
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn registers_and_setting_overrides_use_owned_limits_and_current_native_baselines(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("éß text\n")?;
     let origin = target(&fixture);
     let scope = SettingsScope::Document {
@@ -307,9 +334,10 @@ async fn registers_and_setting_overrides_use_owned_limits_and_current_native_bas
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn trapped_owner_restores_settings_but_keeps_completed_native_register_milestones(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let mut config = package(
@@ -354,9 +382,10 @@ async fn trapped_owner_restores_settings_but_keeps_completed_native_register_mil
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_setting_grant_and_large_native_register_return_typed_errors() -> anyhow::Result<()>
 {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     fixture
         .editor
@@ -398,8 +427,9 @@ async fn missing_setting_grant_and_large_native_register_return_typed_errors() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owned_theme_unload_preserves_later_native_theme_changes() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     let dir = tempfile::tempdir()?;
     let config = package(
@@ -430,9 +460,10 @@ async fn owned_theme_unload_preserves_later_native_theme_changes() -> anyhow::Re
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn own_last_view_close_completes_but_modified_document_close_is_rejected(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     fixture.replace("modified\n");
     let origin = target(&fixture);
@@ -513,9 +544,10 @@ impl ClipboardBackend for ClipboardProbe {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clipboard_custom_provider_requires_the_exact_executed_argv_before_backend_dispatch(
 ) -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     fixture.configure(|config| {
         config.clipboard_provider = serde_json::from_value(serde_json::json!({"custom":{
@@ -573,5 +605,68 @@ async fn clipboard_custom_provider_requires_the_exact_executed_argv_before_backe
     .await;
     run(&mut fixture, "fixture.run").await?;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_builtins_reject_readonly_and_binary_documents_before_any_response_effect(
+) -> anyhow::Result<()> {
+    use plugin_api::ui::{BuiltinCommand, BuiltinInvocation, UiOrigin};
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
+    for binary in [false, true] {
+        let mut fixture = Fixture::new("original\n")?;
+        if binary {
+            let path = fixture.dir.path().join("binary.bin");
+            std::fs::write(&path, [0, 1, 0, 2, 0, 3])?;
+            fixture.editor.open(&path, Action::Replace)?;
+            assert!(current_ref!(fixture.editor).1.is_binary());
+            // The explicit binary guard must stand even if a host toggles
+            // the ordinary readonly flag independently.
+            current!(fixture.editor).1.readonly = false;
+        } else {
+            current!(fixture.editor).1.readonly = true;
+        }
+        let origin = target(&fixture);
+        let before = current_ref!(fixture.editor).1.text().to_string();
+        let dir = tempfile::tempdir()?;
+        let mut config = package(dir.path(), vec![], &[])?;
+        config.config["routes"][0]["response"] = serde_json::to_value(plugin_api::Response {
+            actions: vec![
+                plugin_api::Action::Status {
+                    message: "earlier status must not apply".into(),
+                },
+                plugin_api::Action::InvokeBuiltin {
+                    request: 1,
+                    origin: UiOrigin {
+                        view: origin.view,
+                        document: origin.document,
+                        binding_revision: origin.binding_revision,
+                        version: origin.version,
+                        selection_revision: origin.selection_revision,
+                    },
+                    commands: vec![BuiltinInvocation {
+                        command: BuiltinCommand::DeleteSelectionNoYank,
+                        count: None,
+                    }],
+                },
+            ],
+            error: None,
+        })?;
+        load(
+            &mut fixture,
+            dir.path(),
+            BTreeMap::from([("fixture".into(), config)]),
+        )
+        .await;
+        assert!(run(&mut fixture, "fixture.run").await.is_err());
+        assert!(fixture
+            .editor
+            .get_status()
+            .unwrap()
+            .0
+            .contains("readonly or binary"));
+        assert!(fixture.editor.take_plugin_builtin_requests().is_empty());
+        assert_eq!(current_ref!(fixture.editor).1.text().to_string(), before);
+    }
     Ok(())
 }

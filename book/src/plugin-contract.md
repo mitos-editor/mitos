@@ -163,6 +163,11 @@ obsolete work; late results cannot revive it. A guest trap or interruption can
 leave guest state inconsistent, so the host discards that store when recovery
 cannot be guaranteed.
 
+Attached-language requests expire after two seconds and queue an LSP
+cancellation. If a server stops reading stdin while the transport writes an
+earlier frame, local cancellation processing can be delayed. The 64-request
+admission cap remains charged until reply, cancellation processing, or disconnect.
+
 Errors distinguish invalid requests, stale state, permission denial, resource
 exhaustion, cancellation/deadline, unsupported interfaces, guest traps, and host
 service failures. Return useful plugin-scoped diagnostics. A too-large payload
@@ -184,6 +189,11 @@ them. Native associations win, and unloading restores native detection without
 adopting a profile's base provider authority. Parsing, query validation, and
 snippet expansion preflight occur off-thread. A delayed preparation must still
 match the current native resource configuration before publication.
+Contributed queries reject native local text lookup captures/predicates and
+dynamic injection language/filename/shebang captures, whose native consumers
+can copy or scan document-sized nodes. Literal comparisons and static injection
+language properties remain available; inherited native queries and bounded
+structural metadata queries are unaffected.
 
 Developer inspection reads bounded owned metadata, diagnostic rings, and actual
 queue/guest/application measurements. It never executes a guest. Failed preparation
@@ -197,7 +207,14 @@ instance and reports a useful error.
 
 On shutdown, complete accepted writes, deliver their lifecycle results, allow
 bounded completion, quiesce mutation, then close instances and cancel remaining
-jobs. Specify how hook failures and write failures affect shutdown. Post-save
+jobs. Accepted hooks retain bounded region reads through a typed editor-owned
+capture queue after the frontend's generic callback receiver closes. Quiescence
+denies new editor requests, external writes, private storage operations, and jobs,
+while previously admitted native work keeps its owned completion and cleanup.
+Workspace reads remain bounded and require live grants. Private reads are denied
+because opening storage can create its directory. The final `Shutdown` hook permits diagnostics
+and cleanup of retained resources; every new service operation is denied.
+Hook and write failures are reported while cleanup continues. Post-save
 mutation does not format the file that was already written; formatting before
 save uses a separate bounded asynchronous protocol.
 

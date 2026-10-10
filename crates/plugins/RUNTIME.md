@@ -6,6 +6,13 @@ not attach WASI, ambient filesystem handles, network sockets, or native symbols.
 Guest code is compiled from source WASM. Package-provided native artifacts are
 never deserialized.
 
+On macOS the engine uses Wasmtime's supported Unix signal trap handling via
+[`macos_use_mach_ports(false)`](https://docs.wasmtime.dev/api/wasmtime/struct.Config.html#method.macos_use_mach_ports).
+The editor spawns native children and handles process signals; Wasmtime documents
+this trap path for fork-capable embeddings. It avoids the Mach helper's abort on
+an interrupted receive while retaining guest trap recovery and forwarding native
+faults to the previous signal handler.
+
 The owning editor creates a worker pool only when an enabled code package needs
 one. Each plugin has one serialized actor and Store. The dedicated executor has
 two guest worker threads, one blocking compiler thread, and Tokio event/global
@@ -81,4 +88,5 @@ resource destruction, stale generations, typed denials, traps, cancellation,
 fairness while services suspend, transactional preparation, and per-plugin and
 aggregate memory/result quotas. Fixture regeneration is explicit and never
 silently skipped by a host test. The separate benchmark workspace records the
-single-machine measurements and remaining Linux/editor integration limitations.
+macOS ARM64 and native Linux ARM64 measurements, actual editor input/link-size
+gates, and the remaining pinned Linux x86-64 CI gate.

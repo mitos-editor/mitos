@@ -1,15 +1,14 @@
 //! Native plugin dialogs and command composition with real guest callbacks.
 
-use super::helpers::{run_event_loop_until_idle, test_config, test_key_sequences, AppBuilder};
+use super::helpers::{
+    plugin_guest as guest, run_event_loop_until_idle, test_config, test_key_sequences, AppBuilder,
+};
 use plugin_api::{
     ui::{
         BuiltinCommand, BuiltinInvocation, KeymapMode, PluginKeybinding, UiKind, UiOrigin, UiRow,
     },
     Action, Response,
 };
-
-#[path = "../../../view/tests/support/plugin_guest.rs"]
-mod guest;
 
 fn effects(actions: Vec<Action>) -> Response {
     Response {
@@ -18,8 +17,9 @@ fn effects(actions: Vec<Action>) -> Response {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompts_and_pickers_deliver_targeted_native_results() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     for (kind, input, expected) in [
         (
             UiKind::Prompt {
@@ -99,8 +99,9 @@ async fn prompts_and_pickers_deliver_targeted_native_results() -> anyhow::Result
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn next_key_times_out_then_reused_request_id_opens_a_fresh_prompt() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let mut config = test_config();
     config.plugins.insert(
@@ -139,7 +140,6 @@ async fn next_key_times_out_then_reused_request_id_opens_a_fresh_prompt() -> any
                     filter: Some(r#""outcome":"accepted""#.into()),
                     response: guest::status("fresh dialog observed"),
                     expected: vec![r#""kind":"prompt""#.into(), r#""text":"μ""#.into()],
-                    ..guest::Route::default()
                 },
             ],
             Some("ui-result"),
@@ -163,8 +163,9 @@ async fn next_key_times_out_then_reused_request_id_opens_a_fresh_prompt() -> any
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reviewed_builtin_group_uses_one_original_preflight() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let mut app = AppBuilder::new().with_input_text("#[a|]#bc\n").build()?;
     run_event_loop_until_idle(&mut app).await;
     let (view, doc) = view::current_ref!(app.editor);
@@ -224,8 +225,9 @@ async fn reviewed_builtin_group_uses_one_original_preflight() -> anyhow::Result<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_keymap_registration_routes_to_its_declared_command() -> anyhow::Result<()> {
+    let _permit = guest::compilation_permit().await;
     let dir = tempfile::tempdir()?;
     let mut config = test_config();
     config.plugins.insert(

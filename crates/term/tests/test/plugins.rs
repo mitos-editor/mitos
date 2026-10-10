@@ -18,6 +18,50 @@ fn fixture(response: Value, expected_args: Option<&[&str]>) -> anyhow::Result<(T
     fixture_matching(response, "command", "", &expected, false)
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn text_expectations_read_guest_regions_and_cannot_match_fixture_configuration(
+) -> anyhow::Result<()> {
+    use super::helpers::plugin_guest::{observing, status, Route};
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
+    let dir = tempfile::tempdir()?;
+    let mut config = test_config();
+    config.plugins.insert(
+        "fixture".into(),
+        observing(
+            dir.path(),
+            &[],
+            &[Route {
+                event: "command",
+                response: status("incorrectly matched configuration"),
+                expected: vec![r#""text":"μ!""#.into()],
+                ..Route::default()
+            }],
+            None,
+        )?,
+    );
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[λ|]#!\n")
+        .build()?;
+    let rejected = |app: &term::application::Application| {
+        assert!(app
+            .editor
+            .get_status()
+            .unwrap()
+            .0
+            .contains("region text mismatch"));
+        assert_eq!(view::doc!(app.editor).text().to_string(), "λ!\n");
+        assert!(app.editor.error_revision() > 0);
+    };
+    test_key_sequences(
+        &mut app,
+        vec![(Some(":fixture.run<ret>"), Some(&rejected))],
+        false,
+    )
+    .await?;
+    Ok(())
+}
+
 fn fixture_matching(
     response: Value,
     event: &str,
@@ -68,9 +112,10 @@ fn fixture_matching(
     Ok((dir, config))
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
 ) -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let (_dir, mut config) = fixture(
         json!({"actions": [{"type": "status", "message": "Wasm command ran"}]}),
         None,
@@ -126,8 +171,9 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
     .await
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plugin_arguments_preserve_quotes_and_editor_and_custom_expansions() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let (_dir, mut config) = fixture(
         json!({"actions": [{"type": "status", "message": "Arguments matched"}]}),
         Some(&["hello world", "line1"]),
@@ -157,8 +203,9 @@ async fn plugin_arguments_preserve_quotes_and_editor_and_custom_expansions() -> 
     .await
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_plugin_commands_and_guest_errors_are_visible() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let (_dir, config) = fixture(json!({"error": "fixture rejected command"}), None)?;
     let mut app = AppBuilder::new().with_config(config).build()?;
     test_key_sequences(
@@ -201,9 +248,10 @@ fn assert_observed(app: &term::application::Application) {
     assert_eq!(*severity, Severity::Info);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_command_reports_canonical_arguments_origins_and_one_completion() -> anyhow::Result<()>
 {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let cases = [
         (
             ":fixture.run 'hello world' \"line%{cursor_line}\"<ret>",
@@ -276,8 +324,9 @@ async fn post_command_reports_canonical_arguments_origins_and_one_completion() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_command_waits_for_callbacks_and_follow_up_keys() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     for (keys, command, origin, extra) in [
         (
             ":hello<ret>",
@@ -350,10 +399,8 @@ async fn post_command_waits_for_callbacks_and_follow_up_keys() -> anyhow::Result
         let after = |app: &term::application::Application| {
             assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "after");
         };
-        let mut inputs: Vec<(
-            Option<&str>,
-            Option<&dyn Fn(&term::application::Application)>,
-        )> = vec![(Some(keys), Some(&assert_observed))];
+        let observed: &dyn Fn(&term::application::Application) = &assert_observed;
+        let mut inputs = vec![(Some(keys), Some(observed))];
         if origin == "palette" {
             inputs.push((Some("echo after<ret>"), Some(&after)));
         }
@@ -362,8 +409,9 @@ async fn post_command_waits_for_callbacks_and_follow_up_keys() -> anyhow::Result
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn insertion_and_terminal_focus_hooks_capture_the_originating_view() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     let mut expected = metadata_fragments(json!({"character": "μ", "source": "insert-char"}));
     expected.push("\"text\":\"μ\\n\"".to_owned());
     expected.push("\"view\":{\"id\":".to_owned());
@@ -421,8 +469,9 @@ async fn insertion_and_terminal_focus_hooks_capture_the_originating_view() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mode_hooks_follow_prompt_custom_keymap_and_palette_dispatch() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     for (keys, command, origin, old, new) in [
         ("i", "insert_mode", "keymap", "normal", "insert"),
         (":hello<ret>", "insert_mode", "custom", "normal", "insert"),
@@ -455,8 +504,9 @@ async fn mode_hooks_follow_prompt_custom_keymap_and_palette_dispatch() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn non_key_input_completes_pending_commands_as_cancelled() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     #[cfg(windows)]
     use crossterm::event::{Event, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
     #[cfg(not(windows))]
@@ -501,8 +551,9 @@ async fn non_key_input_completes_pending_commands_as_cancelled() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn write_completion_waits_for_its_actual_save_result() -> anyhow::Result<()> {
+    let _permit = super::helpers::plugin_guest::compilation_permit().await;
     #[cfg(windows)]
     use crossterm::event::{Event, KeyEvent};
     #[cfg(not(windows))]

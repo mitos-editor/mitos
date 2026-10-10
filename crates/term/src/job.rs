@@ -192,10 +192,27 @@ impl Jobs {
         self.add(Job::with_callback(f));
     }
 
-    pub(crate) fn begin_command(&self, completion: CommandCompletion) -> CommandToken {
-        let token = CommandToken::new(completion, self.command.borrow().clone());
+    pub(crate) fn begin_command(
+        &self,
+        editor: &Editor,
+        completion: CommandCompletion,
+    ) -> CommandToken {
+        let parent = self
+            .command
+            .borrow()
+            .clone()
+            .map(|token| Arc::new(token) as Arc<dyn InvocationTasks>)
+            .or_else(|| editor.invocation_tasks());
+        let token = CommandToken::new(completion, parent);
         self.commands.borrow_mut().push(token.clone());
         token
+    }
+
+    pub(crate) fn should_track_command(&self, editor: &Editor) -> bool {
+        self.command.borrow().is_some()
+            || editor.invocation_tasks().is_some()
+            || editor.plugin_event_interested(plugin_api::Event::PostCommand)
+            || editor.plugin_event_interested(plugin_api::Event::ModeChanged)
     }
 
     pub(crate) fn enter_command(&self, editor: &mut Editor, token: CommandToken) -> CommandScope {
@@ -220,9 +237,10 @@ impl Jobs {
     pub(crate) fn poll_commands(&self, editor: &Editor) {
         loop {
             let tokens = self.commands.borrow().clone();
-            let changed = tokens.iter().fold(false, |changed, token| {
-                token.publish_if_ready(editor) || changed
-            });
+            let mut changed = false;
+            for token in tokens {
+                changed |= token.publish_if_ready(editor);
+            }
             self.commands
                 .borrow_mut()
                 .retain(|token| !token.published());
@@ -264,7 +282,7 @@ impl Jobs {
     fn apply_callback(
         &self,
         editor: &mut Editor,
-        mut compositor: Option<&mut Compositor>,
+        compositor: Option<&mut Compositor>,
         call: anyhow::Result<Option<Callback>>,
     ) -> anyhow::Result<Option<Job>> {
         match call {
@@ -288,7 +306,7 @@ impl Jobs {
                         && matches!(&result, Ok(Some(callback)) if matches!(callback.as_ref(), Callback::EditorCompositor(_)));
                     let result = self.apply_callback(
                         editor,
-                        compositor.as_deref_mut(),
+                        compositor,
                         result.map(|callback| callback.map(|callback| *callback)),
                     );
                     // The follow-up must inherit ownership before its parent
@@ -375,6 +393,129 @@ impl Jobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "integration")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn idle_commands_skip_tokens_and_existing_observers_keep_eventual_outcomes(
+    ) -> anyhow::Result<()> {
+        use crate::{
+            application::Application, args::Args, commands::Context, commands::MappableCommand,
+            config::Config,
+        };
+        use std::sync::{atomic::AtomicUsize, atomic::Ordering, Mutex};
+
+        #[derive(Default)]
+        struct Observer {
+            started: AtomicUsize,
+            outcomes: Mutex<Vec<TaskOutcome>>,
+            detached: AtomicUsize,
+        }
+        impl InvocationTasks for Observer {
+            fn started(&self) {
+                self.started.fetch_add(1, Ordering::Relaxed);
+            }
+            fn finished(&self, outcome: TaskOutcome) {
+                self.outcomes.lock().unwrap().push(outcome);
+            }
+            fn detached(&self) {
+                self.detached.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        fn failure(cx: &mut Context) {
+            cx.jobs
+                .add(Job::new(async { anyhow::bail!("owned failure") }).wait_before_exiting());
+        }
+        fn detached(cx: &mut Context) {
+            cx.editor.invocation_tasks().unwrap().detached();
+        }
+
+        let _guard = QUEUE_TEST_LOCK.lock().await;
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.file_watcher.enable = false;
+        config.editor.auto_reload.enable = false;
+        let mut app = Application::new(
+            Args::default(),
+            config.clone(),
+            editor_core::syntax::Loader::new(
+                toml::from_str("language = []")?,
+                loader::syntax::Resources::default(),
+            )?,
+            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        )?;
+        let mut jobs = Jobs::new();
+        let (updates, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let dispatch = |editor: &mut Editor, jobs: &mut Jobs, command: MappableCommand| {
+            let mut cx = Context {
+                config: crate::config::Context {
+                    current: &config,
+                    updates: &updates,
+                },
+                editor,
+                jobs,
+                count: None,
+                register: None,
+                callback: Vec::new(),
+                on_next_key_callback: None,
+            };
+            command.execute(&mut cx);
+            assert!(cx.callback.is_empty());
+        };
+
+        assert!(!jobs.should_track_command(&app.editor));
+        dispatch(
+            &mut app.editor,
+            &mut jobs,
+            MappableCommand::Static {
+                name: "idle-command",
+                fun: |_| {},
+                doc: "test",
+            },
+        );
+        dispatch(&mut app.editor, &mut jobs, ":echo idle".parse()?);
+        assert!(jobs.commands.borrow().is_empty());
+
+        let observer = Arc::new(Observer::default());
+        app.editor.replace_invocation_tasks(Some(observer.clone()));
+        assert!(jobs.should_track_command(&app.editor));
+        dispatch(
+            &mut app.editor,
+            &mut jobs,
+            MappableCommand::Static {
+                name: "owned-command",
+                fun: failure,
+                doc: "test",
+            },
+        );
+        jobs.poll_commands(&app.editor);
+        assert_eq!(observer.started.load(Ordering::Relaxed), 1);
+        assert!(observer.outcomes.lock().unwrap().is_empty());
+        assert!(jobs.finish(&mut app.editor, None).await.is_err());
+        jobs.poll_commands(&app.editor);
+        assert_eq!(
+            *observer.outcomes.lock().unwrap(),
+            vec![TaskOutcome::Error("owned failure".into())]
+        );
+        assert!(jobs.commands.borrow().is_empty());
+
+        dispatch(
+            &mut app.editor,
+            &mut jobs,
+            MappableCommand::Static {
+                name: "detached-command",
+                fun: detached,
+                doc: "test",
+            },
+        );
+        jobs.poll_commands(&app.editor);
+        assert_eq!(observer.detached.load(Ordering::Relaxed), 1);
+        assert_eq!(observer.started.load(Ordering::Relaxed), 2);
+        assert_eq!(observer.outcomes.lock().unwrap().len(), 2);
+        app.editor.replace_invocation_tasks(None);
+        assert!(!jobs.should_track_command(&app.editor));
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
 
     // Without the integration-test feature, the selected queue is process-global.
     static QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

@@ -85,6 +85,9 @@ async fn owned_assets_validate_before_swap_and_restore_native_sources() -> anyho
 
     for source in [
         "(missing_node) @string".to_owned(),
+        // Valid native syntax, but the whole-document local reference would
+        // materialize captured text during highlighting.
+        "(document) @local.reference".to_owned(),
         "(".repeat(65),
         "((string) @string (#match? @string \"a{99999999}\"))".to_owned(),
     ] {
