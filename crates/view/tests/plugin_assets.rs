@@ -11,6 +11,81 @@ use plugin_api::assets::{
 };
 use view::plugins::assets::AssetRegistry;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn declarative_package_provides_native_theme_without_guest_execution() -> anyhow::Result<()> {
+    use plugin_api::diagnostics::{PluginEngine, PluginStatus};
+    use plugins::{PluginConfig, PluginManager};
+    use view::theme::Color;
+
+    let mut fixture = support::Fixture::new("Theme package\n")?;
+    let native_name = fixture.editor.theme.name().to_owned();
+    assert!(fixture.editor.theme_loader.load("fixture.dark").is_err());
+    let package = tempfile::tempdir()?;
+    let root = package.path();
+    std::fs::create_dir(root.join("themes"))?;
+    std::fs::write(
+        root.join("plugin.toml"),
+        r#"
+manifest-version = 1
+api-version = "0.1.0"
+minimum-host-version = "0.1.0"
+abi-version = 3
+capabilities = []
+[[contributions.themes]]
+name = "dark"
+path = "themes/dark.toml"
+"#,
+    )?;
+    std::fs::write(
+        root.join("themes/dark.toml"),
+        r##"
+"ui.background" = { bg = "#16181a" }
+"ui.text" = "#ffffff"
+"ui.selection" = { bg = "#3c4048" }
+"ui.selection.primary" = { bg = "#3c4048" }
+"##,
+    )?;
+    let config = PluginConfig {
+        path: root.join("plugin.toml"),
+        permissions: plugin_api::Permissions {
+            capabilities: Default::default(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let prepared = PluginManager::default()
+        .prepare([("fixture".into(), config)].into(), root.to_owned(), 1)?
+        .await?;
+    let mut registry = AssetRegistry::default();
+    let assets = registry.capture(&fixture.editor, prepared.assets());
+    let assets = tokio::task::spawn_blocking(move || assets.prepare()).await??;
+    assets.activate(&mut registry, &mut fixture.editor)?;
+    let manager = prepared.activate()?;
+    assert!(manager.available_commands().is_empty());
+    let report = manager.diagnostics();
+    assert_eq!(report.len(), 1);
+    assert!(matches!(report[0].engine, Some(PluginEngine::Declarative)));
+    assert!(matches!(report[0].status, PluginStatus::Ready));
+    assert!(report[0].declared.is_empty() && report[0].effective.is_empty());
+    assert_eq!(report[0].timings.completed, 0);
+    let (theme, warnings) = fixture
+        .editor
+        .theme_loader
+        .load_with_warnings("fixture.dark")?;
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(theme.get("ui.background").bg, Some(Color::Rgb(22, 24, 26)));
+    assert_eq!(theme.get("ui.text").fg, Some(Color::Rgb(255, 255, 255)));
+    assert_eq!(
+        theme.get("ui.selection.primary").bg,
+        Some(Color::Rgb(60, 64, 72))
+    );
+    fixture.editor.set_theme(theme)?;
+    registry.restore(&mut fixture.editor);
+    assert_eq!(fixture.editor.theme.name(), native_name);
+    assert!(fixture.editor.theme_loader.load("fixture.dark").is_err());
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn owned_assets_validate_before_swap_and_restore_native_sources() -> anyhow::Result<()> {
     let mut fixture = support::Fixture::with_languages(

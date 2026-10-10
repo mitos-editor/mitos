@@ -1,7 +1,7 @@
 # plugins
 
 Mitos's capability-checked WebAssembly component runtime and command registry.
-The command/lifecycle semantics reuse Helix's plugin proposal
+The command/lifecycle semantics reuse Matthew Paras's Helix plugin proposal
 ([helix-editor/helix#8675](https://github.com/helix-editor/helix/pull/8675)); execution
 uses lean Wasmtime 48.0.5 and the versioned WIT world in `plugin-api`.
 
@@ -26,7 +26,6 @@ reload; typed denials and ordinary handler errors leave a healthy Store usable.
 Result-byte reservations remain held through the editor's application callback.
 
 See [the execution contract](RUNTIME.md) for budgets, cancellation, compiler and
-memory limits; [the SDK](../plugin-sdk/README.md) for authoring; and [the frozen
-Wasmi baseline](BASELINE.md) for comparison. Normal runtime tests execute checked
+memory limits, and [the SDK](../plugin-sdk/README.md) for authoring. Normal runtime tests execute checked
 Rust SDK, generated Rust, and generated C source-WASM fixtures without silently
 requiring or skipping a guest compiler.

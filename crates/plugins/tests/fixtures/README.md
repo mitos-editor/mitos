@@ -16,8 +16,8 @@ serialized engine artifact.
 
 The second checked core fixture, `c-guest.wasm`, uses C bindings generated from
 the same production WIT by wit-bindgen 0.62.0. `regenerate-c.sh --offline` needs
-Clang with a wasm32 target and `wasm-ld`; its build tools use the separate locked
-benchmark workspace. `MITOS_C_BINDINGS` may point to an already built generator.
+Clang with a wasm32 target and `wasm-ld`; its generator lives in the separate locked
+`tools/plugin-pack` workspace. `MITOS_C_BINDINGS` may point to an already built generator.
 The freestanding allocator in `c-guest/guest.c` belongs to this small test only.
 The normal C smoke test checks repeated resource destruction, scoped Unicode
 reads, and staged edits without a C toolchain or WASI in the host test process.
@@ -28,3 +28,7 @@ ordering guards, revisioned reads, Unicode transformations, and intentional
 faults through the real component host. Expected fragments are checked against
 a request with fixture configuration removed, so assertions cannot accidentally
 match themselves. The same regeneration script rebuilds and packages it.
+
+`workflow-guest` is a dedicated regression fixture for asynchronous formatting,
+search, private storage, and native pickers. Its component and manifest are used
+by editor tests and do not require installing a reference plugin package.

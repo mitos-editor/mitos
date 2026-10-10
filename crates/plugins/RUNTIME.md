@@ -87,6 +87,9 @@ component actor. They cover Unicode reads/edits, state, streamed UI models,
 resource destruction, stale generations, typed denials, traps, cancellation,
 fairness while services suspend, transactional preparation, and per-plugin and
 aggregate memory/result quotas. Fixture regeneration is explicit and never
-silently skipped by a host test. The separate benchmark workspace records the
-macOS ARM64 and native Linux ARM64 measurements, actual editor input/link-size
-gates, and the remaining pinned Linux x86-64 CI gate.
+silently skipped by a host test.
+
+Native process jobs default to ten seconds. A caller can choose a deadline from
+one millisecond to five minutes before starting the job. Timeout, cancellation,
+target close, and unload terminate and reap the process group. Output remains
+bounded to 1 MiB per stream, with no interactive terminal or shell expansion.
