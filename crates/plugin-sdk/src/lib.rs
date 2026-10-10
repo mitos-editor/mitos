@@ -8,6 +8,7 @@
 pub use plugin_api::protocol::*;
 pub use plugin_api::{editor, ui, ErrorCode, JobOutput, JobPoll, JobRequest, ServiceError};
 pub mod component;
+pub mod transform;
 
 /// Export a handler through the typed component interface.
 ///
