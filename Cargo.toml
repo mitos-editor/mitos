@@ -23,7 +23,7 @@ members = [
   "crates/plugins",
   "xtask",
 ]
-exclude = ["examples/plugins/uppercase"]
+exclude = ["examples/plugins/uppercase", "plugins"]
 
 default-members = [
   "crates/term"
