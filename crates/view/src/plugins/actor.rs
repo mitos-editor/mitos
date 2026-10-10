@@ -1045,6 +1045,9 @@ fn shutdown_denied<T: Send + 'static>() -> HostFuture<T> {
 
 struct ShutdownServices;
 impl HostServices for ShutdownServices {
+    fn read_roots(&self) -> HostFuture<Vec<plugin_api::ReadRoot>> {
+        shutdown_denied()
+    }
     fn read_document(&self, _request: ReadRequest) -> HostFuture<String> {
         shutdown_denied()
     }
@@ -1106,6 +1109,9 @@ impl LifecycleServices {
 }
 
 impl HostServices for LifecycleServices {
+    fn read_roots(&self) -> HostFuture<Vec<plugin_api::ReadRoot>> {
+        self.native.read_roots()
+    }
     fn read_document(&self, request: ReadRequest) -> HostFuture<String> {
         self.native.read_document(request)
     }

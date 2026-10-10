@@ -1,7 +1,10 @@
 //! Immediate, capability checked native milestones. These are not staged edits.
 use super::*;
 use plugin_api::{
-    editor::{EditorReply, EditorRequest, OpenDisposition, SettingValue, ViewTarget},
+    editor::{
+        DocumentTarget, EditorReply, EditorRequest, OpenDisposition, SettingValue, UnsavedDocument,
+        ViewTarget, MAX_UNSAVED_DOCUMENTS,
+    },
     ui::UiOwner,
     HostFuture,
 };
@@ -228,11 +231,15 @@ pub(super) fn request(request: EditorRequest, scope: Scope) -> HostFuture<Editor
 fn mutates(request: &EditorRequest) -> bool {
     !matches!(
         request,
-        EditorRequest::ReadRegister { .. }
+        EditorRequest::DocumentStatus { .. }
+            | EditorRequest::UnsavedDocuments { .. }
+            | EditorRequest::ReadRegister { .. }
             | EditorRequest::ReadSettings { .. }
             | EditorRequest::SyntaxQuery { .. }
             | EditorRequest::LanguageHover { .. }
             | EditorRequest::LanguageSymbols { .. }
+            | EditorRequest::LanguageFormat { .. }
+            | EditorRequest::LanguageCodeActions { .. }
     )
 }
 
@@ -291,6 +298,41 @@ fn apply(
     caller: UiOwner,
 ) -> Result<EditorReply, ServiceError> {
     match request {
+        EditorRequest::DocumentStatus { target } => {
+            let id = editor
+                .plugin_document(target.document, target.version)
+                .map_err(stale)?;
+            let doc = editor
+                .document(id)
+                .ok_or_else(|| stale("document is closed"))?;
+            Ok(EditorReply::DocumentStatus {
+                target,
+                modified: doc.is_modified(),
+            })
+        }
+        EditorRequest::UnsavedDocuments { max_documents } => {
+            let limit = if max_documents == 0 {
+                MAX_UNSAVED_DOCUMENTS
+            } else {
+                max_documents
+            } as usize;
+            let mut modified = editor.documents().filter(|doc| doc.is_modified());
+            let documents = modified
+                .by_ref()
+                .take(limit)
+                .map(|doc| UnsavedDocument {
+                    target: DocumentTarget {
+                        document: doc.id().as_u64(),
+                        version: doc.version(),
+                    },
+                    path: doc.path().map(|path| path.to_string_lossy().into_owned()),
+                })
+                .collect();
+            Ok(EditorReply::UnsavedDocuments {
+                documents,
+                truncated: modified.next().is_some(),
+            })
+        }
         EditorRequest::Focus { target } => {
             let id = view(editor, target)?;
             editor.focus(id);

@@ -9,6 +9,20 @@ fn handle(request: Request) -> Response {
         return Response::default();
     }
     let actions = match request.command.as_deref() {
+        Some("read-roots") => match component::read_roots() {
+            Ok(roots) => roots
+                .into_iter()
+                .map(|root| Action::Status {
+                    message: format!("{}|{}|{}", root.index, root.path, root.configured_path),
+                })
+                .collect(),
+            Err(error) => {
+                return Response {
+                    error: Some(error.message),
+                    ..Response::default()
+                }
+            }
+        },
         Some("uppercase") => {
             let document = request.editor.document.unwrap();
             let text = match component::read_document(document.id, document.version, 0, 6) {

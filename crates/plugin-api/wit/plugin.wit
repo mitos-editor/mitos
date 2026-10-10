@@ -6,6 +6,7 @@ interface types {
     cancelled, deadline-exceeded, unsupported-interface, guest-trap, host-failure,
   }
   record failure { code: error-code, message: string }
+  record read-root { index: u32, path: string, configured-path: string }
   enum event {
     init, shutdown, command, document-opened, document-changed, document-saved,
     document-closed, selection-changed, mode-changed, post-command,
@@ -43,7 +44,7 @@ interface types {
 }
 
 interface host {
-  use types.{failure, state-query, ui-origin, ui-location, keymap-mode, builtin-command};
+  use types.{failure, read-root, state-query, ui-origin, ui-location, keymap-mode, builtin-command};
   // Text offsets count Unicode scalar values. There is no default text payload.
   read-document: func(document: u64, version: s32, start: u64, end: u64) -> result<string, failure>;
 
@@ -121,6 +122,8 @@ interface host {
   start-search: func(root: u32, query: string) -> result<job, failure>;
   process: func(command: string, root: u32) -> result<process-request, failure>;
   editor-request: func(payload: string) -> result<string, failure>;
+  // Paths are prepared grant metadata, not ambient workspace discovery.
+  read-roots: func() -> result<list<read-root>, failure>;
   read-file: func(root: u32, path: string) -> result<string, failure>;
   write-file: func(root: u32, path: string) -> result<writer, failure>;
   storage-read: func(key: string) -> result<option<string>, failure>;

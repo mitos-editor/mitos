@@ -118,6 +118,12 @@ even if it does not use the `workspace-read` service. The host passes arguments
 directly, without shell parsing. Allowing a shell program explicitly still gives
 that shell the authority to execute its arguments.
 
+Programs run as bounded background jobs. The default timeout is ten seconds;
+a package can request up to five minutes. Cancelling the job, closing its
+originating document or view, or unloading the package stops its process tree.
+Output is limited to 1 MiB per stream. Interactive terminal programs are not
+supported by this service.
+
 Programs receive piped input and output and an empty environment by default. To
 allow particular variables, grant `environment` as well as `process`, then list
 only the names needed:

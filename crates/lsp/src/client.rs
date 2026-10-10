@@ -18,7 +18,7 @@ use editor_core::{
 };
 use loader::VERSION_AND_GIT_HASH;
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf};
 use std::{
@@ -83,6 +83,64 @@ pub struct Client {
 struct RequestCancellation {
     sender: UnboundedSender<Payload>,
     id: Option<jsonrpc::Id>,
+}
+
+/// The general LSP OneOf decoder accepts annotation-bearing edits as plain
+/// TextEdit. Plugin queries must classify them before that metadata is lost.
+struct PluginCodeActionRequest<R>(std::marker::PhantomData<R>);
+impl<R: lsp::request::Request> lsp::request::Request for PluginCodeActionRequest<R> {
+    type Params = R::Params;
+    type Result = PluginCodeActionResponse<R::Result>;
+    const METHOD: &'static str = R::METHOD;
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct PluginCodeActionResponse<T>(T);
+impl<'de, T: serde::de::DeserializeOwned> Deserialize<'de> for PluginCodeActionResponse<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        fn classify(action: &mut Value) {
+            let Some(workspace) = action.get("edit") else {
+                return;
+            };
+            let annotated = workspace
+                .get("documentChanges")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|document| document.get("edits").and_then(Value::as_array))
+                .flatten()
+                .any(|edit| edit.get("annotationId").is_some())
+                || workspace
+                    .get("changes")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|changes| changes.values())
+                    .filter_map(Value::as_array)
+                    .flatten()
+                    .any(|edit| edit.get("annotationId").is_some());
+            if annotated && let Some(object) = action.as_object_mut() {
+                object.remove("edit");
+                object.insert(
+                    "disabled".into(),
+                    serde_json::json!({
+                        "reason": "plugin code actions do not support annotated edits"
+                    }),
+                );
+            }
+        }
+        let mut value = Value::deserialize(deserializer)?;
+        if let Some(actions) = value.as_array_mut() {
+            actions.iter_mut().for_each(classify);
+        } else {
+            classify(&mut value);
+        }
+        serde_json::from_value(value)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
 }
 impl Drop for RequestCancellation {
     fn drop(&mut self) {
@@ -1333,6 +1391,30 @@ impl Client {
         Some(self.call_with_ref::<lsp::request::CodeActionResolveRequest>(code_action))
     }
 
+    /// Read-only plugin resolution of an action returned by this attached
+    /// server. Uses bounded transport admission and cancellation on Drop.
+    pub fn resolve_code_action_cancellable(
+        &self,
+        code_action: &lsp::CodeAction,
+    ) -> Result<Option<impl Future<Output = Result<lsp::CodeAction>> + use<>>> {
+        if !matches!(
+            self.capabilities().code_action_provider,
+            Some(lsp::CodeActionProviderCapability::Options(
+                lsp::CodeActionOptions {
+                    resolve_provider: Some(true),
+                    ..
+                }
+            ))
+        ) {
+            return Ok(None);
+        }
+        let future = self
+            .call_cancellable::<PluginCodeActionRequest<lsp::request::CodeActionResolveRequest>>(
+                code_action,
+            )?;
+        Ok(Some(async move { future.await.map(|response| response.0) }))
+    }
+
     pub fn text_document_signature_help(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -1513,6 +1595,29 @@ impl Client {
         options: lsp::FormattingOptions,
         work_done_token: Option<lsp::ProgressToken>,
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        let params = self.formatting_params(text_document, options, work_done_token)?;
+        Some(self.call::<lsp::request::Formatting>(params))
+    }
+
+    /// Bounded request admission and cancellation on timeout or caller drop.
+    pub fn text_document_formatting_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        options: lsp::FormattingOptions,
+    ) -> Result<Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>>> {
+        let Some(params) = self.formatting_params(text_document, options, None) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::Formatting>(&params)
+            .map(Some)
+    }
+
+    fn formatting_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        options: lsp::FormattingOptions,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<lsp::DocumentFormattingParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support formatting.
@@ -1523,13 +1628,11 @@ impl Client {
 
         let options = self.get_merged_formatting_options(options);
 
-        let params = lsp::DocumentFormattingParams {
+        Some(lsp::DocumentFormattingParams {
             text_document,
             options,
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
-        };
-
-        Some(self.call::<lsp::request::Formatting>(params))
+        })
     }
 
     pub fn text_document_range_formatting(
@@ -1951,6 +2054,33 @@ impl Client {
         Some(self.call::<lsp::request::CodeActionRequest>(params))
     }
 
+    /// Attached plugin code actions with a two-second timeout, Drop
+    /// cancellation and the same bounded admission as other plugin LSP calls.
+    /// This returns observations and never executes their commands or edits.
+    pub fn code_actions_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        range: lsp::Range,
+        context: lsp::CodeActionContext,
+    ) -> Result<Option<impl Future<Output = Result<Option<Vec<lsp::CodeActionOrCommand>>>> + use<>>>
+    {
+        if !self.supports_feature(LanguageServerFeature::CodeAction) {
+            return Ok(None);
+        }
+        let params = lsp::CodeActionParams {
+            text_document,
+            range,
+            context,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let future = self
+            .call_cancellable::<PluginCodeActionRequest<lsp::request::CodeActionRequest>>(
+                &params,
+            )?;
+        Ok(Some(async move { future.await.map(|response| response.0) }))
+    }
+
     pub fn rename_symbol(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -2080,5 +2210,122 @@ mod cancellable_tests {
             Payload::Request { permit: None, .. }
         ));
         assert!(receive.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn code_action_query_and_lazy_resolution_keep_owned_transport_admission() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(1));
+        let params = lsp::CodeActionParams {
+            text_document: lsp::TextDocumentIdentifier::new(
+                lsp::Url::parse("file:///test.go").unwrap(),
+            ),
+            range: lsp::Range::new(lsp::Position::new(0, 0), lsp::Position::new(0, 1)),
+            context: lsp::CodeActionContext {
+                diagnostics: vec![],
+                only: Some(vec![lsp::CodeActionKind::SOURCE_ORGANIZE_IMPORTS]),
+                trigger_kind: Some(lsp::CodeActionTriggerKind::INVOKED),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let future = request_with_options::<PluginCodeActionRequest<lsp::request::CodeActionRequest>>(
+            sender.clone(),
+            jsonrpc::Id::Num(1),
+            &params,
+            2,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let Payload::Request {
+            chan,
+            value,
+            permit,
+        } = receive.try_recv().unwrap()
+        else {
+            panic!("not request")
+        };
+        let encoded = serde_json::to_value(value).unwrap();
+        assert_eq!(encoded["method"], "textDocument/codeAction");
+        assert_eq!(
+            encoded["params"]["context"],
+            serde_json::json!({
+                "diagnostics":[], "only":["source.organizeImports"], "triggerKind":1
+            })
+        );
+        let action = lsp::CodeAction {
+            title: "Organize imports".into(),
+            kind: Some(lsp::CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
+            data: Some(serde_json::json!({"server-owned": 1})),
+            ..Default::default()
+        };
+        chan.send(Ok(serde_json::to_value(vec![action.clone()]).unwrap()))
+            .await
+            .unwrap();
+        drop(permit);
+        assert_eq!(
+            future.await.unwrap().0,
+            Some(vec![lsp::CodeActionOrCommand::CodeAction(action.clone())])
+        );
+        assert!(receive.try_recv().is_err());
+
+        let future = request_with_options::<
+            PluginCodeActionRequest<lsp::request::CodeActionResolveRequest>,
+        >(
+            sender,
+            jsonrpc::Id::Num(2),
+            &action,
+            2,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let outgoing = receive.try_recv().unwrap();
+        let Payload::Request { value, .. } = &outgoing else {
+            panic!("not resolution")
+        };
+        let encoded = serde_json::to_value(value).unwrap();
+        assert_eq!(encoded["method"], "codeAction/resolve");
+        assert_eq!(
+            encoded["params"]["data"],
+            serde_json::json!({"server-owned": 1})
+        );
+        drop(future);
+        assert!(matches!(
+            receive.try_recv().unwrap(),
+            Payload::Cancel(jsonrpc::Id::Num(2))
+        ));
+        assert!(receive.try_recv().is_err());
+        assert_eq!(permits.available_permits(), 0);
+        drop(outgoing);
+        assert_eq!(permits.available_permits(), 1);
+    }
+
+    #[test]
+    fn plugin_code_actions_classify_annotations_before_general_oneof_decoding() {
+        let action = serde_json::json!({
+            "title":"Confirm edit", "edit":{"documentChanges":[{
+                "textDocument":{"uri":"file:///test.go","version":7},
+                "edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                    "newText":"changed","annotationId":"confirmation"}]
+            }]}
+        });
+        let ordinary: lsp::CodeAction = serde_json::from_value(action.clone()).unwrap();
+        let Some(lsp::DocumentChanges::Edits(edits)) = ordinary.edit.unwrap().document_changes
+        else {
+            panic!("not edits")
+        };
+        assert!(
+            matches!(edits[0].edits[0], lsp::OneOf::Left(_)),
+            "general LSP decoder drops annotation metadata"
+        );
+        let resolved: PluginCodeActionResponse<lsp::CodeAction> =
+            serde_json::from_value(action.clone()).unwrap();
+        assert!(resolved.0.disabled.is_some());
+        assert!(resolved.0.edit.is_none());
+        let queried: PluginCodeActionResponse<Option<Vec<lsp::CodeActionOrCommand>>> =
+            serde_json::from_value(serde_json::json!([action])).unwrap();
+        let lsp::CodeActionOrCommand::CodeAction(action) = queried.0.unwrap().pop().unwrap() else {
+            panic!("not action")
+        };
+        assert!(action.disabled.is_some());
+        assert!(action.edit.is_none());
     }
 }

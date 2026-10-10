@@ -1,6 +1,6 @@
 //! Generated component bindings and bounded host-service helpers.
 
-use crate::{JobPoll, JobRequest, ServiceError};
+use crate::{JobPoll, JobRequest, ReadRoot, ServiceError};
 
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
@@ -90,6 +90,8 @@ pub fn editor_request(
 }
 
 /// Read a UTF-8 file relative to a granted root, without ambient filesystem access.
+///
+/// Use [`read_roots`] to obtain root indices and configured/physical path aliases.
 pub fn read_file(root: u32, path: &str) -> Result<String, ServiceError> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -98,6 +100,30 @@ pub fn read_file(root: u32, path: &str) -> Result<String, ServiceError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = (root, path);
+        Err(unavailable())
+    }
+}
+
+/// Return the configured and physical paths of already granted read roots.
+/// Requires WorkspaceRead; this performs no filesystem discovery or new grant.
+pub fn read_roots() -> Result<Vec<ReadRoot>, ServiceError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        host::read_roots()
+            .map(|roots| {
+                roots
+                    .into_iter()
+                    .map(|root| ReadRoot {
+                        index: root.index,
+                        path: root.path,
+                        configured_path: root.configured_path,
+                    })
+                    .collect()
+            })
+            .map_err(native_error)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
         Err(unavailable())
     }
 }

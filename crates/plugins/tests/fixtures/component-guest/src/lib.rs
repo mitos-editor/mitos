@@ -22,6 +22,14 @@ impl Guest for Plugin {
                 "call {}",
                 COUNT.fetch_add(1, Ordering::Relaxed) + 1
             )),
+            "read-roots" => {
+                let roots = host::read_roots()?;
+                let root = roots.first().unwrap();
+                effects(&format!(
+                    "{}|{}|{}",
+                    root.index, root.path, root.configured_path
+                ))
+            }
             "uppercase" => {
                 let doc = request.editor.document.unwrap();
                 let view = request.editor.view.unwrap();

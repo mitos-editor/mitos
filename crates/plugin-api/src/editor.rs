@@ -32,6 +32,10 @@ pub const MAX_EDITOR_REQUEST_BYTES: usize = 4 * 1024;
 pub const MAX_EDITOR_REPLY_BYTES: usize = 1024 * 1024;
 pub const MAX_SYNTAX_CAPTURES: u32 = 256;
 pub const MAX_LANGUAGE_SYMBOLS: u32 = 256;
+pub const MAX_LANGUAGE_CODE_ACTIONS: usize = 64;
+pub const MAX_LANGUAGE_CODE_ACTION_EDITS: usize = 256;
+pub const MAX_LANGUAGE_CODE_ACTION_KINDS: usize = 16;
+pub const MAX_UNSAVED_DOCUMENTS: u32 = 128;
 pub const MAX_REGISTER_VALUES: usize = 64;
 pub const MAX_REGISTER_BYTES: usize = 4 * 1024;
 pub const LANGUAGE_DEADLINE_MILLIS: u64 = 2_000;
@@ -75,6 +79,18 @@ pub enum OpenDisposition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum EditorRequest {
+    /// Whether the captured buffer differs from its last successful save.
+    /// Disk-based tools must not assume that an editor snapshot was saved.
+    DocumentStatus {
+        target: DocumentTarget,
+    },
+    /// List current modified buffers before invoking a disk-based project tool.
+    /// A truncated list cannot prove that the rest of the project is saved.
+    UnsavedDocuments {
+        /// Zero chooses 128. Paths are metadata of already-open documents.
+        #[serde(default)]
+        max_documents: u32,
+    },
     SyntaxQuery {
         target: DocumentTarget,
         range: TextRange,
@@ -99,6 +115,28 @@ pub enum EditorRequest {
         server: Option<String>,
         #[serde(default)]
         max_symbols: u32,
+    },
+    /// Request edits from an already attached formatting server. This does not
+    /// execute a configured external formatter or apply the returned edits.
+    LanguageFormat {
+        target: DocumentTarget,
+        #[serde(default)]
+        server: Option<String>,
+    },
+    /// Query an already attached code-action server. Returned actions contain
+    /// only edits for this document at this version, never executable commands.
+    /// Lazy data-only actions may be resolved within the same host deadline.
+    /// Source documents are limited to 1 MiB to bound native position conversion.
+    /// Applying a returned action separately requires `EditorEdit`.
+    LanguageCodeActions {
+        target: DocumentTarget,
+        range: TextRange,
+        /// Hierarchical LSP kinds, for example `source.organizeImports` or
+        /// `refactor.rewrite`. An empty list requests all available kinds.
+        #[serde(default)]
+        kinds: Vec<String>,
+        #[serde(default)]
+        server: Option<String>,
     },
     /// Scoped text-file navigation. Coordinates count lines and Unicode scalar
     /// columns from zero; invalid coordinates are rejected rather than clamped.
@@ -200,9 +238,35 @@ pub struct LanguageSymbol {
     pub parent: Option<u32>,
 }
 
+/// An actionable, owned patch to the reply's original document and version.
+/// Command-bearing, disabled, multi-document and file-operation actions are
+/// omitted. No opaque LSP data or executable command crosses this boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LanguageCodeAction {
+    pub title: String,
+    pub kind: Option<String>,
+    pub edits: Vec<crate::TextEdit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnsavedDocument {
+    pub target: DocumentTarget,
+    pub path: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum EditorReply {
+    DocumentStatus {
+        target: DocumentTarget,
+        modified: bool,
+    },
+    UnsavedDocuments {
+        documents: Vec<UnsavedDocument>,
+        truncated: bool,
+    },
     Syntax {
         target: DocumentTarget,
         captures: Vec<SyntaxCapture>,
@@ -217,6 +281,17 @@ pub enum EditorReply {
     Symbols {
         target: DocumentTarget,
         symbols: Vec<LanguageSymbol>,
+        truncated: bool,
+    },
+    Edits {
+        target: DocumentTarget,
+        edits: Vec<crate::TextEdit>,
+    },
+    CodeActions {
+        target: DocumentTarget,
+        actions: Vec<LanguageCodeAction>,
+        /// True when actions were omitted as unsupported or to preserve
+        /// bounds. An empty, truncated reply is not a usable action.
         truncated: bool,
     },
     View {
@@ -239,9 +314,13 @@ impl EditorRequest {
     /// Native authorization still checks declaration AND live user grants.
     pub fn capabilities(&self) -> Vec<Capability> {
         let mut required = match self {
-            Self::SyntaxQuery { .. }
+            Self::DocumentStatus { .. }
+            | Self::UnsavedDocuments { .. }
+            | Self::SyntaxQuery { .. }
             | Self::LanguageHover { .. }
             | Self::LanguageSymbols { .. }
+            | Self::LanguageFormat { .. }
+            | Self::LanguageCodeActions { .. }
             | Self::ReadRegister { .. }
             | Self::ReadSettings { .. } => vec![Capability::EditorRead],
             Self::OpenAt { .. } => vec![
@@ -279,6 +358,9 @@ impl EditorRequest {
     /// document lengths, revisions, server attachment and owner liveness.
     pub fn validate(&self) -> Result<(), ServiceError> {
         match self {
+            Self::UnsavedDocuments { max_documents } if *max_documents > MAX_UNSAVED_DOCUMENTS => {
+                return Err(exhausted("unsaved document limit exceeds 128"));
+            }
             Self::OpenAt { path, .. }
                 if path.is_empty() || path.len() > 4096 || path.chars().any(char::is_control) =>
             {
@@ -299,6 +381,19 @@ impl EditorRequest {
             }
             Self::LanguageSymbols { max_symbols, .. } if *max_symbols > MAX_LANGUAGE_SYMBOLS => {
                 return Err(exhausted("language symbol limit exceeds 256"));
+            }
+            Self::LanguageCodeActions { range, kinds, .. } => {
+                if range.start > range.end {
+                    return Err(invalid("code actions need an ordered range"));
+                }
+                if kinds.len() > MAX_LANGUAGE_CODE_ACTION_KINDS {
+                    return Err(exhausted("code action kinds exceed 16"));
+                }
+                if kinds.iter().any(|kind| {
+                    kind.is_empty() || kind.len() > 128 || kind.chars().any(char::is_control)
+                }) {
+                    return Err(invalid("code action kinds must be nonempty bounded text"));
+                }
             }
             Self::Scratch { name, .. }
                 if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) =>
@@ -451,5 +546,76 @@ mod tests {
             .validate()
             .unwrap();
         }
+    }
+
+    #[test]
+    fn code_actions_are_readonly_bounded_requests_without_command_results() {
+        let mut request = EditorRequest::LanguageCodeActions {
+            target: DocumentTarget {
+                document: 1,
+                version: 7,
+            },
+            range: TextRange { start: 1, end: 2 },
+            kinds: vec!["source.organizeImports".into()],
+            server: Some("gopls".into()),
+        };
+        assert_eq!(request.capabilities(), vec![Capability::EditorRead]);
+        request.validate().unwrap();
+        assert_eq!(
+            serde_json::from_value::<EditorRequest>(serde_json::to_value(&request).unwrap())
+                .unwrap(),
+            request
+        );
+        let EditorRequest::LanguageCodeActions { range, .. } = &mut request else {
+            unreachable!()
+        };
+        range.start = 3;
+        assert_eq!(
+            request.validate().unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+        let EditorRequest::LanguageCodeActions { range, kinds, .. } = &mut request else {
+            unreachable!()
+        };
+        range.start = 1;
+        *kinds = vec!["refactor".into(); MAX_LANGUAGE_CODE_ACTION_KINDS + 1];
+        assert_eq!(
+            request.validate().unwrap_err().code,
+            ErrorCode::ResourceExhausted
+        );
+        assert!(
+            serde_json::from_value::<LanguageCodeAction>(serde_json::json!({
+                "title": "Unsafe", "kind": null, "edits": [], "command": "gopls.apply_fix"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn unsaved_catalog_is_readonly_bounded_and_reports_partial_information() {
+        let request = EditorRequest::UnsavedDocuments { max_documents: 0 };
+        assert_eq!(request.capabilities(), vec![Capability::EditorRead]);
+        request.validate().unwrap();
+        assert_eq!(
+            EditorRequest::UnsavedDocuments { max_documents: 129 }
+                .validate()
+                .unwrap_err()
+                .code,
+            ErrorCode::ResourceExhausted
+        );
+        let reply = EditorReply::UnsavedDocuments {
+            documents: vec![UnsavedDocument {
+                target: DocumentTarget {
+                    document: 1,
+                    version: 7,
+                },
+                path: None,
+            }],
+            truncated: true,
+        };
+        assert_eq!(
+            serde_json::from_value::<EditorReply>(serde_json::to_value(&reply).unwrap()).unwrap(),
+            reply
+        );
     }
 }

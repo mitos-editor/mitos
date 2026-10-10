@@ -17,5 +17,6 @@ pub use capabilities::{
 };
 pub use protocol::*;
 pub use services::{
-    HostFuture, HostJob, HostServices, JobOutput, JobPoll, JobRequest, ReadRequest, SearchMatch,
+    HostFuture, HostJob, HostServices, JobOutput, JobPoll, JobRequest, ReadRequest, ReadRoot,
+    SearchMatch, MAX_READ_ROOTS, MAX_READ_ROOT_METADATA_BYTES,
 };
