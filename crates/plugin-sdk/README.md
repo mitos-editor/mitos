@@ -68,6 +68,14 @@ rejects the invocation's staged effects. Finishing a resource does not apply any
 editor changes: the handler must succeed and the owning editor validates the
 entire response before applying native transactions.
 
+For selection transforms, `transform::selections(&request.editor, convert)` reads
+the selected regions and emits one document edit plus revisioned selections.
+It preserves multiple selections, their directions, and the primary selection;
+all conversions must succeed before any effects are returned. Input and output
+are each limited to 1 MiB across at most 128 selections. The
+`transform::selections_with_read` variant accepts a reader for native handler tests.
+See `plugins/text-tools` for case, JSON, and Base64 examples.
+
 Bounded host helpers are in `component`:
 
 - `read_document` for a versioned document region.
