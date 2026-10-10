@@ -453,7 +453,13 @@ impl HostState {
                 }
             }
             JobRequest::Search { .. } => self.require(Capability::WorkspaceRead)?,
-            JobRequest::Process { .. } => self.require(Capability::Process)?,
+            JobRequest::Process {
+                timeout_milliseconds,
+                ..
+            } => {
+                self.require(Capability::Process)?;
+                JobRequest::validate_process_timeout(*timeout_milliseconds)?;
+            }
         }
         let services = self.services.as_ref().ok_or_else(stale)?.clone();
         // The service contract makes creation cancellation-safe. When ownership
@@ -643,6 +649,7 @@ impl host::Host for HostState {
                         input: String::new(),
                         root,
                         args: Vec::new(),
+                        timeout_milliseconds: JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS,
                     }),
                     bytes,
                     input_set: false,
@@ -1118,6 +1125,30 @@ impl host::HostJob for HostState {
     }
 }
 impl host::HostProcessRequest for HostState {
+    async fn timeout(
+        &mut self,
+        process: Resource<ProcessHandle>,
+        milliseconds: u64,
+    ) -> wasmtime::Result<Result<(), types::Failure>> {
+        let result = (|| {
+            self.require(Capability::Process)?;
+            JobRequest::validate_process_timeout(milliseconds)?;
+            let handle = self.table.get_mut(&process).map_err(|_| stale())?;
+            if handle.invocation != self.invocation {
+                return Err(stale());
+            }
+            let Some(JobRequest::Process {
+                timeout_milliseconds,
+                ..
+            }) = &mut handle.request
+            else {
+                return Err(stale());
+            };
+            *timeout_milliseconds = milliseconds;
+            Ok(())
+        })();
+        Ok(result.map_err(failure))
+    }
     async fn input(
         &mut self,
         process: Resource<ProcessHandle>,

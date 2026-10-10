@@ -276,8 +276,10 @@ impl HostServices for NativeServices {
                     args,
                     input,
                     root,
+                    timeout_milliseconds,
                 } => {
                     self.policy.process_root(*root, command, args)?;
+                    JobRequest::validate_process_timeout(*timeout_milliseconds)?;
                     if args.len() > 64
                         || args.iter().map(String::len).sum::<usize>() > 64 * 1024
                         || input.len() > MAX_OUTPUT
@@ -342,14 +344,8 @@ impl HostServices for NativeServices {
                             .await
                             .map_err(host_failure)?
                         }
-                        JobRequest::Process {
-                            command,
-                            args,
-                            input,
-                            root,
-                        } => {
-                            let output =
-                                process(&policy, root, &command, &args, input, &token).await?;
+                        request @ JobRequest::Process { .. } => {
+                            let output = process(&policy, request, &token).await?;
                             sender.send(Ok(output)).await.map_err(|_| cancelled())?;
                             task_progress
                                 .send_modify(|sequence| *sequence = sequence.saturating_add(1));
@@ -729,17 +725,25 @@ impl Drop for ChildProcess {
 #[cfg(unix)]
 async fn process(
     policy: &AccessPolicy,
-    root: u32,
-    executable: &str,
-    args: &[String],
-    input: String,
+    request: JobRequest,
     cancel: &CancellationToken,
 ) -> Result<JobOutput, ServiceError> {
     use std::process::Stdio;
-    let cwd = policy.process_root(root, executable, args)?;
+    let JobRequest::Process {
+        command: executable,
+        args,
+        input,
+        root,
+        timeout_milliseconds,
+    } = request
+    else {
+        unreachable!()
+    };
+    JobRequest::validate_process_timeout(timeout_milliseconds)?;
+    let cwd = policy.process_root(root, &executable, &args)?;
     let mut command = tokio::process::Command::new(executable);
     command
-        .args(args)
+        .args(&args)
         .current_dir(cwd)
         .env_clear()
         .stdin(Stdio::piped())
@@ -800,7 +804,7 @@ async fn process(
     };
     let result = tokio::select! {
         _ = cancel.cancelled() => Err(cancelled()),
-        result = tokio::time::timeout(JOB_DEADLINE, operation) => result.unwrap_or_else(|_| Err(failure(ErrorCode::DeadlineExceeded, "native tool exceeded 10 seconds"))),
+        result = tokio::time::timeout(Duration::from_millis(timeout_milliseconds), operation) => result.unwrap_or_else(|_| Err(failure(ErrorCode::DeadlineExceeded, "native tool exceeded its process timeout"))),
     };
     if result.is_err() {
         child.terminate();
@@ -812,10 +816,7 @@ async fn process(
 #[cfg(not(unix))]
 async fn process(
     _policy: &AccessPolicy,
-    _root: u32,
-    _executable: &str,
-    _args: &[String],
-    _input: String,
+    _request: JobRequest,
     _cancel: &CancellationToken,
 ) -> Result<JobOutput, ServiceError> {
     Err(failure(
@@ -1080,6 +1081,78 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn process_timeout_is_bounded_and_deadline_or_cancellation_stops_work() {
+        let root = tempfile::tempdir().unwrap();
+        let host = services(
+            root.path(),
+            [Capability::Process].into(),
+            vec![ProcessGrant {
+                command: "/bin/sh".into(),
+                args: vec!["-c".into(), "**".into()],
+            }],
+        );
+        let request = |timeout_milliseconds, script: &str| JobRequest::Process {
+            command: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            input: String::new(),
+            root: 0,
+            timeout_milliseconds,
+        };
+        for milliseconds in [
+            0,
+            JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS + 1,
+            u64::MAX,
+        ] {
+            assert!(matches!(
+                host.start_job(request(milliseconds, "exit 0")).await,
+                Err(ServiceError {
+                    code: ErrorCode::InvalidRequest,
+                    ..
+                })
+            ));
+        }
+        let job = host
+            .start_job(request(40, "/bin/sleep 0.3; printf leaked > expired"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next(&job).await,
+            JobPoll::Failed {
+                error: ServiceError {
+                    code: ErrorCode::DeadlineExceeded,
+                    ..
+                }
+            }
+        ));
+        job.cancel().await.unwrap();
+        drop(job);
+
+        let job = host
+            .start_job(request(
+                JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS,
+                "printf started > started; /bin/sleep 0.3; printf leaked > cancelled",
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !root.path().join("started").exists() {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), job.cancel())
+            .await
+            .unwrap()
+            .unwrap();
+        drop(job);
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        assert!(!root.path().join("expired").exists());
+        assert!(!root.path().join("cancelled").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn process_checks_arguments_bounds_output_and_cleans_up_descendant_pipes() {
         let root = tempfile::tempdir().unwrap();
         let script = "cat";
@@ -1096,6 +1169,7 @@ mod tests {
             args: vec!["-c".into(), script.into()],
             input: "input".into(),
             root: 0,
+            timeout_milliseconds: JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS,
         };
         assert!(matches!(
             host.start_job(request("/bin/bash", script)).await,

@@ -110,6 +110,8 @@ interface host {
   resource process-request {
     argument: func(value: string) -> result<_, failure>;
     input: func(value: string) -> result<_, failure>;
+    // Omission preserves the ten-second default. Maximum is five minutes.
+    timeout: func(milliseconds: u64) -> result<_, failure>;
     start: func() -> result<job, failure>;
   }
   resource writer {

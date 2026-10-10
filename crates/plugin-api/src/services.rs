@@ -33,7 +33,30 @@ pub enum JobRequest {
         args: Vec<String>,
         input: String,
         root: u32,
+        /// Wall time for the native child, independent of guest call deadlines.
+        #[serde(default = "default_process_timeout")]
+        timeout_milliseconds: u64,
     },
+}
+
+fn default_process_timeout() -> u64 {
+    JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS
+}
+
+impl JobRequest {
+    pub const DEFAULT_PROCESS_TIMEOUT_MILLISECONDS: u64 = 10_000;
+    pub const MAX_PROCESS_TIMEOUT_MILLISECONDS: u64 = 300_000;
+
+    pub fn validate_process_timeout(milliseconds: u64) -> Result<(), ServiceError> {
+        if (1..=Self::MAX_PROCESS_TIMEOUT_MILLISECONDS).contains(&milliseconds) {
+            Ok(())
+        } else {
+            Err(ServiceError::new(
+                ErrorCode::InvalidRequest,
+                "process timeout must be between 1 and 300000 milliseconds",
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,4 +154,55 @@ pub trait HostServices: Send + Sync + 'static {
 
 fn unsupported(message: &str) -> ServiceError {
     ServiceError::new(ErrorCode::UnsupportedInterface, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_timeout_defaults_and_rejects_unbounded_values() {
+        let request: JobRequest = serde_json::from_value(serde_json::json!({
+            "kind": "process", "command": "gofmt", "args": [], "input": "", "root": 0,
+        }))
+        .unwrap();
+        assert!(matches!(
+            request,
+            JobRequest::Process {
+                timeout_milliseconds: JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS,
+                ..
+            }
+        ));
+        for milliseconds in [
+            0,
+            JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS + 1,
+            u64::MAX,
+        ] {
+            assert_eq!(
+                JobRequest::validate_process_timeout(milliseconds)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        for milliseconds in [1, JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS] {
+            JobRequest::validate_process_timeout(milliseconds).unwrap();
+        }
+        let mut encoded = serde_json::to_value(request).unwrap();
+        encoded["timeout_milliseconds"] = serde_json::json!(300_000);
+        assert!(matches!(
+            serde_json::from_value::<JobRequest>(encoded).unwrap(),
+            JobRequest::Process {
+                timeout_milliseconds: JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS,
+                ..
+            }
+        ));
+        assert!(serde_json::from_str::<JobRequest>(
+            r#"{
+            "kind":"process","command":"gofmt","args":[],"input":"","root":0,
+            "timeout_milliseconds":18446744073709551616
+        }"#
+        )
+        .is_err());
+    }
 }

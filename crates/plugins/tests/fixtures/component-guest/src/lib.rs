@@ -81,6 +81,15 @@ impl Guest for Plugin {
                 *JOB.lock().unwrap() = Some(host::start_timer(60_000)?);
                 Ok(())
             }
+            "process-timeout" => {
+                let process = host::process("gofmt", 0)?;
+                if let Some(value) = request.args.first() {
+                    process.timeout(value.parse().unwrap())?;
+                }
+                let job = process.start()?;
+                job.cancel()?;
+                effects("process timeout accepted")
+            }
             "job-poll" => {
                 let result = JOB.lock().unwrap().as_ref().unwrap().poll()?;
                 effects(&result)
