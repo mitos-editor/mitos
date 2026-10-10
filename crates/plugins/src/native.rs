@@ -14,7 +14,7 @@ use std::{
 use parking_lot::Mutex;
 use plugin_api::{
     Capability, ErrorCode, HostFuture, HostJob, HostServices, JobOutput, JobPoll, JobRequest,
-    ReadRequest, SearchMatch, ServiceError,
+    ReadRequest, ReadRoot, SearchMatch, ServiceError,
 };
 use sha2::{Digest, Sha256};
 use tokio::{
@@ -197,6 +197,11 @@ impl HostServices for NativeServices {
             Ok(()) => self.editor.read_document(request),
             Err(error) => Box::pin(async { Err(error) }),
         }
+    }
+
+    fn read_roots(&self) -> HostFuture<Vec<ReadRoot>> {
+        let policy = self.policy.clone();
+        Box::pin(async move { policy.read_roots() })
     }
 
     fn read_file(&self, root: u32, path: String) -> HostFuture<String> {
@@ -873,6 +878,28 @@ mod tests {
         })
         .await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn read_root_metadata_requires_grants_and_rechecks_revocation_when_polled() {
+        let root = tempfile::tempdir().unwrap();
+        let denied = services(root.path(), Default::default(), vec![]);
+        assert_eq!(
+            denied.read_roots().await.unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+        let host = services(root.path(), [Capability::WorkspaceRead].into(), vec![]);
+        assert_eq!(
+            host.read_roots().await.unwrap(),
+            vec![ReadRoot {
+                index: 0,
+                path: root.path().canonicalize().unwrap().to_str().unwrap().into(),
+                configured_path: root.path().to_str().unwrap().into(),
+            }]
+        );
+        let pending = host.read_roots();
+        host.policy.revoke();
+        assert_eq!(pending.await.unwrap_err().code, ErrorCode::Cancelled);
     }
 
     #[tokio::test]

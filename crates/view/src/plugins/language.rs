@@ -7,13 +7,14 @@ use editor_core::{
 use futures_util::future::BoxFuture;
 use lsp_client::{
     lsp,
-    util::{lsp_pos_to_pos, pos_to_lsp_pos},
+    util::{diagnostic_to_lsp_diagnostic, lsp_pos_to_pos, pos_to_lsp_pos},
     LanguageServerId, OffsetEncoding,
 };
 use plugin_api::{
     editor::{
-        DocumentTarget, EditorReply, EditorRequest, LanguageSymbol, SyntaxCapture, TextRange,
-        LANGUAGE_DEADLINE_MILLIS, MAX_EDITOR_REPLY_BYTES,
+        DocumentTarget, EditorReply, EditorRequest, LanguageCodeAction, LanguageSymbol,
+        SyntaxCapture, TextRange, LANGUAGE_DEADLINE_MILLIS, MAX_EDITOR_REPLY_BYTES,
+        MAX_EDITOR_REQUEST_BYTES, MAX_LANGUAGE_CODE_ACTIONS, MAX_LANGUAGE_CODE_ACTION_EDITS,
     },
     HostFuture,
 };
@@ -60,6 +61,8 @@ pub(super) fn handles(request: &EditorRequest) -> bool {
         EditorRequest::SyntaxQuery { .. }
             | EditorRequest::LanguageHover { .. }
             | EditorRequest::LanguageSymbols { .. }
+            | EditorRequest::LanguageFormat { .. }
+            | EditorRequest::LanguageCodeActions { .. }
     )
 }
 
@@ -72,13 +75,20 @@ pub(super) fn request(
 ) -> HostFuture<EditorReply> {
     Box::pin(async move {
         request.validate()?;
+        check_json_bytes(
+            &request,
+            MAX_EDITOR_REQUEST_BYTES,
+            "language request exceeds 4 KiB",
+        )?;
         if let EditorRequest::SyntaxQuery { query, .. } = &request {
             validate_query(query)?;
         }
         let target = match &request {
             EditorRequest::SyntaxQuery { target, .. }
             | EditorRequest::LanguageHover { target, .. }
-            | EditorRequest::LanguageSymbols { target, .. } => *target,
+            | EditorRequest::LanguageSymbols { target, .. }
+            | EditorRequest::LanguageFormat { target, .. }
+            | EditorRequest::LanguageCodeActions { target, .. } => *target,
             _ => return Err(unsupported("not a syntax or language request")),
         };
         let shared = owner.upgrade().ok_or_else(cancelled)?;
@@ -145,6 +155,36 @@ pub(super) fn request(
                     let symbols = future.await.map_err(language_failure)?;
                     symbol_reply(target, &text, encoding, &uri, symbols, limit)?
                 }
+                Captured::Format {
+                    text,
+                    encoding,
+                    future,
+                    ..
+                } => {
+                    let _permit = permit;
+                    let edits = future.await.map_err(language_failure)?.unwrap_or_default();
+                    format_reply(target, &text, encoding, edits)?
+                }
+                Captured::CodeActions {
+                    text,
+                    encoding,
+                    uri,
+                    kinds,
+                    client,
+                    future,
+                } => {
+                    let _permit = permit;
+                    let actions = future.await.map_err(language_failure)?;
+                    code_action_reply(target, &text, encoding, &uri, &kinds, actions, |action| {
+                        client
+                            .resolve_code_action_cancellable(&action)
+                            .map(|future| {
+                                future.map(|future| Box::pin(future) as BoxFuture<'static, _>)
+                            })
+                            .map_err(language_failure)
+                    })
+                    .await?
+                }
             };
             validate_reply_bytes(&reply)?;
             let (send, receive) = oneshot::channel();
@@ -208,6 +248,20 @@ enum Captured {
         future: BoxFuture<'static, lsp_client::Result<Option<lsp::DocumentSymbolResponse>>>,
         limit: usize,
     },
+    Format {
+        text: Rope,
+        encoding: OffsetEncoding,
+        server: LanguageServerId,
+        future: BoxFuture<'static, lsp_client::Result<Option<Vec<lsp::TextEdit>>>>,
+    },
+    CodeActions {
+        text: Rope,
+        encoding: OffsetEncoding,
+        uri: lsp::Url,
+        kinds: Vec<String>,
+        client: Arc<lsp_client::Client>,
+        future: BoxFuture<'static, lsp_client::Result<Option<Vec<lsp::CodeActionOrCommand>>>>,
+    },
 }
 #[derive(Clone, Copy)]
 enum CompletionCheck {
@@ -223,6 +277,12 @@ impl Captured {
             }
             Self::Symbols { server, .. } => {
                 CompletionCheck::Server(*server, LanguageServerFeature::DocumentSymbols)
+            }
+            Self::Format { server, .. } => {
+                CompletionCheck::Server(*server, LanguageServerFeature::Format)
+            }
+            Self::CodeActions { client, .. } => {
+                CompletionCheck::Server(client.id(), LanguageServerFeature::CodeAction)
             }
         }
     }
@@ -342,6 +402,103 @@ fn capture(
                 },
             })
         }
+        EditorRequest::LanguageFormat { server, .. } => {
+            check_server_name(server.as_deref())?;
+            if doc.text().len_bytes() > MAX_RANGE_BYTES {
+                return Err(exhausted("formatting documents are limited to 1 MiB"));
+            }
+            let client = doc
+                .language_servers_with_feature(LanguageServerFeature::Format)
+                .find(|client| server.as_ref().is_none_or(|name| client.name() == name))
+                .ok_or_else(|| unsupported("no attached initialized formatting server matches"))?;
+            let uri = doc
+                .url()
+                .ok_or_else(|| unsupported("formatting target has no document URI"))?;
+            let future = client
+                .text_document_formatting_cancellable(
+                    lsp::TextDocumentIdentifier::new(uri),
+                    lsp::FormattingOptions {
+                        tab_size: doc.tab_width() as u32,
+                        insert_spaces: matches!(
+                            doc.indent_style,
+                            editor_core::indent::IndentStyle::Spaces(_)
+                        ),
+                        ..Default::default()
+                    },
+                )
+                .map_err(language_failure)?
+                .ok_or_else(|| unsupported("attached server does not support formatting"))?;
+            Ok(Captured::Format {
+                text: doc.text().clone(),
+                encoding: client.offset_encoding(),
+                server: client.id(),
+                future: Box::pin(future),
+            })
+        }
+        EditorRequest::LanguageCodeActions {
+            range,
+            kinds,
+            server,
+            ..
+        } => {
+            check_server_name(server.as_deref())?;
+            // UTF-16 position conversion scans line prefixes on this editor
+            // callback. A tiny range must not cause a document-sized scan.
+            if doc.text().len_bytes() > MAX_RANGE_BYTES {
+                return Err(exhausted("code action documents are limited to 1 MiB"));
+            }
+            let start = usize::try_from(range.start)
+                .map_err(|_| stale("code action range exceeds document"))?;
+            let end = usize::try_from(range.end)
+                .map_err(|_| stale("code action range exceeds document"))?;
+            if start > end || end > doc.text().len_chars() {
+                return Err(stale("code action range exceeds document"));
+            }
+            if doc.text().char_to_byte(end) - doc.text().char_to_byte(start) > MAX_RANGE_BYTES {
+                return Err(exhausted("code action range exceeds 1 MiB"));
+            }
+            let client = doc
+                .language_servers_with_feature(LanguageServerFeature::CodeAction)
+                .find(|client| server.as_ref().is_none_or(|name| client.name() == name))
+                .ok_or_else(|| unsupported("no attached initialized code action server matches"))?;
+            let uri = doc
+                .url()
+                .ok_or_else(|| unsupported("code action target has no document URI"))?;
+            let encoding = client.offset_encoding();
+            let range = lsp::Range::new(
+                pos_to_lsp_pos(doc.text(), start, encoding),
+                pos_to_lsp_pos(doc.text(), end, encoding),
+            );
+            let context = code_action_context(doc, client.id(), start, end, encoding, &kinds)?;
+            let params = lsp::CodeActionParams {
+                text_document: lsp::TextDocumentIdentifier::new(uri.clone()),
+                range,
+                context,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            };
+            check_json_bytes(
+                &params,
+                MAX_EDITOR_REQUEST_BYTES,
+                "code action LSP request exceeds 4 KiB",
+            )?;
+            let future = client
+                .code_actions_cancellable(params.text_document, params.range, params.context)
+                .map_err(language_failure)?
+                .ok_or_else(|| unsupported("attached server does not support code actions"))?;
+            Ok(Captured::CodeActions {
+                text: doc.text().clone(),
+                encoding,
+                uri,
+                kinds,
+                client: doc
+                    .language_servers
+                    .get(client.name())
+                    .cloned()
+                    .ok_or_else(cancelled)?,
+                future: Box::pin(future),
+            })
+        }
         _ => Err(unsupported("not a syntax or language request")),
     }
 }
@@ -355,6 +512,72 @@ fn check_server_name(server: Option<&str>) -> Result<(), ServiceError> {
         ));
     }
     Ok(())
+}
+
+fn code_action_context(
+    doc: &Document,
+    server: LanguageServerId,
+    start: usize,
+    end: usize,
+    encoding: OffsetEncoding,
+    kinds: &[String],
+) -> Result<lsp::CodeActionContext, ServiceError> {
+    if doc.diagnostics().len() > MAX_MATCHES {
+        return Err(exhausted(
+            "code action diagnostic scan exceeds 4096 entries",
+        ));
+    }
+    let mut context = lsp::CodeActionContext {
+        diagnostics: Vec::new(),
+        only: (!kinds.is_empty()).then(|| kinds.iter().cloned().map(Into::into).collect()),
+        trigger_kind: Some(lsp::CodeActionTriggerKind::INVOKED),
+    };
+    for diagnostic in doc.diagnostics().iter().filter(|diagnostic| {
+        diagnostic.provider.language_server_id() == Some(server)
+            && if start == end {
+                diagnostic.range.start <= start && start <= diagnostic.range.end
+            } else {
+                diagnostic.range.start < end && start <= diagnostic.range.end
+            }
+    }) {
+        if context.diagnostics.len() == MAX_LANGUAGE_CODE_ACTIONS
+            || diagnostic.message.len() > MAX_EDITOR_REQUEST_BYTES
+            || diagnostic
+                .source
+                .as_ref()
+                .is_some_and(|value| value.len() > 128)
+            || matches!(&diagnostic.code, Some(editor_core::diagnostic::NumberOrString::String(value)) if value.len() > 128)
+            || diagnostic.tags.len() > 16
+        {
+            return Err(exhausted("code action diagnostics exceed request limits"));
+        }
+        if diagnostic.range.start > diagnostic.range.end
+            || diagnostic.range.end > doc.text().len_chars()
+        {
+            return Err(failure(
+                ErrorCode::HostFailure,
+                "invalid native diagnostic range",
+            ));
+        }
+        if let Some(data) = &diagnostic.data {
+            check_json_bytes(
+                data,
+                MAX_EDITOR_REQUEST_BYTES,
+                "code action diagnostic data exceeds 4 KiB",
+            )?;
+        }
+        context.diagnostics.push(diagnostic_to_lsp_diagnostic(
+            doc.text(),
+            diagnostic,
+            encoding,
+        ));
+        check_json_bytes(
+            &context,
+            MAX_EDITOR_REQUEST_BYTES,
+            "code action diagnostics exceed 4 KiB",
+        )?;
+    }
+    Ok(context)
 }
 fn check_current(
     editor: &Editor,
@@ -462,6 +685,232 @@ fn query_captures(
         truncated,
     })
 }
+fn format_reply(
+    target: DocumentTarget,
+    text: &Rope,
+    encoding: OffsetEncoding,
+    edits: Vec<lsp::TextEdit>,
+) -> Result<EditorReply, ServiceError> {
+    Ok(EditorReply::Edits {
+        target,
+        edits: language_edits(text, encoding, edits)?,
+    })
+}
+
+fn language_edits(
+    text: &Rope,
+    encoding: OffsetEncoding,
+    edits: Vec<lsp::TextEdit>,
+) -> Result<Vec<plugin_api::TextEdit>, ServiceError> {
+    let bytes = edits
+        .iter()
+        .try_fold(0usize, |total, edit| total.checked_add(edit.new_text.len()));
+    if edits.len() > MAX_LANGUAGE_CODE_ACTION_EDITS
+        || bytes.is_none_or(|bytes| bytes > MAX_RANGE_BYTES)
+    {
+        return Err(exhausted("language edits exceed 256 edits or 1 MiB"));
+    }
+    let mut edits = edits
+        .into_iter()
+        .map(|edit| {
+            let range = strict_range(text, edit.range, encoding)?;
+            Ok(plugin_api::TextEdit {
+                start: range.start as usize,
+                end: range.end as usize,
+                text: edit.new_text,
+            })
+        })
+        .collect::<Result<Vec<_>, ServiceError>>()?;
+    edits.sort_by_key(|edit| (edit.start, edit.end));
+    if edits
+        .windows(2)
+        .any(|pair| pair[0].end > pair[1].start || pair[0].start == pair[1].start)
+    {
+        return Err(failure(
+            ErrorCode::HostFailure,
+            "language server returned overlapping edits",
+        ));
+    }
+    Ok(edits)
+}
+
+fn requested_kind(kind: Option<&lsp::CodeActionKind>, kinds: &[String]) -> bool {
+    kinds.is_empty()
+        || kind.is_some_and(|kind| {
+            kinds.iter().any(|requested| {
+                kind.as_str() == requested
+                    || kind
+                        .as_str()
+                        .strip_prefix(requested.as_str())
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+            })
+        })
+}
+
+/// Retain whole actions only. An unsupported edit never leaks its usable subset.
+fn action_edits(
+    target: DocumentTarget,
+    uri: &lsp::Url,
+    workspace: lsp::WorkspaceEdit,
+) -> Option<Vec<lsp::TextEdit>> {
+    if workspace
+        .change_annotations
+        .is_some_and(|annotations| !annotations.is_empty())
+        || (workspace.changes.is_some() && workspace.document_changes.is_some())
+    {
+        return None;
+    }
+    if let Some(changes) = workspace.changes {
+        if changes.len() != 1 {
+            return None;
+        }
+        return changes
+            .into_iter()
+            .find_map(|(document, edits)| (document == *uri).then_some(edits));
+    }
+    let documents = match workspace.document_changes? {
+        lsp::DocumentChanges::Edits(documents) => documents,
+        lsp::DocumentChanges::Operations(operations) => operations
+            .into_iter()
+            .map(|operation| match operation {
+                lsp::DocumentChangeOperation::Edit(document) => Some(document),
+                lsp::DocumentChangeOperation::Op(_) => None,
+            })
+            .collect::<Option<Vec<_>>>()?,
+    };
+    let mut edits = Vec::new();
+    for document in documents {
+        if document.text_document.uri != *uri
+            || document
+                .text_document
+                .version
+                .is_some_and(|version| version != target.version)
+            || document.edits.len() > MAX_LANGUAGE_CODE_ACTION_EDITS.saturating_sub(edits.len())
+        {
+            return None;
+        }
+        for edit in document.edits {
+            match edit {
+                lsp::OneOf::Left(edit) => edits.push(edit),
+                // Annotated edits may require user confirmation; this API does
+                // not remove or pretend to honor those annotations.
+                lsp::OneOf::Right(_) => return None,
+            }
+        }
+    }
+    Some(edits)
+}
+
+type ActionResolution = BoxFuture<'static, lsp_client::Result<lsp::CodeAction>>;
+
+async fn code_action_reply(
+    target: DocumentTarget,
+    text: &Rope,
+    encoding: OffsetEncoding,
+    uri: &lsp::Url,
+    kinds: &[String],
+    response: Option<Vec<lsp::CodeActionOrCommand>>,
+    mut resolve: impl FnMut(lsp::CodeAction) -> Result<Option<ActionResolution>, ServiceError>,
+) -> Result<EditorReply, ServiceError> {
+    check_json_bytes(
+        &response,
+        MAX_EDITOR_REPLY_BYTES,
+        "code action server reply exceeds 1 MiB",
+    )?;
+    let response = response.unwrap_or_default();
+    let mut truncated = response.len() > MAX_LANGUAGE_CODE_ACTIONS;
+    let mut actions = Vec::new();
+    let mut edit_count = 0usize;
+    let mut edit_bytes = 0usize;
+    for returned in response.into_iter().take(MAX_LANGUAGE_CODE_ACTIONS) {
+        let lsp::CodeActionOrCommand::CodeAction(mut action) = returned else {
+            truncated = true;
+            continue;
+        };
+        if action.command.is_some()
+            || action.disabled.is_some()
+            || !requested_kind(action.kind.as_ref(), kinds)
+        {
+            truncated = true;
+            continue;
+        }
+        if action.edit.is_none() && action.data.is_some() {
+            // A resolve request is generated only from this server's own
+            // data-only response, never from plugin-supplied RPC parameters.
+            if check_json_bytes(
+                &action,
+                MAX_EDITOR_REQUEST_BYTES,
+                "code action resolve request exceeds 4 KiB",
+            )
+            .is_err()
+            {
+                truncated = true;
+                continue;
+            }
+            let Some(future) = resolve(action)? else {
+                truncated = true;
+                continue;
+            };
+            action = future.await.map_err(language_failure)?;
+            check_json_bytes(
+                &action,
+                MAX_EDITOR_REPLY_BYTES,
+                "resolved code action exceeds 1 MiB",
+            )?;
+        }
+        if action.command.is_some()
+            || action.disabled.is_some()
+            || !requested_kind(action.kind.as_ref(), kinds)
+        {
+            truncated = true;
+            continue;
+        }
+        if action.title.is_empty()
+            || action.title.len() > 4096
+            || action.kind.as_ref().is_some_and(|kind| {
+                kind.as_str().len() > 128 || kind.as_str().chars().any(char::is_control)
+            })
+        {
+            return Err(failure(
+                ErrorCode::HostFailure,
+                "code action title or kind is invalid",
+            ));
+        }
+        let Some(workspace) = action.edit else {
+            truncated = true;
+            continue;
+        };
+        let Some(edits) = action_edits(target, uri, workspace) else {
+            truncated = true;
+            continue;
+        };
+        let edits = language_edits(text, encoding, edits)?;
+        if edits.is_empty() {
+            truncated = true;
+            continue;
+        }
+        let bytes = edits.iter().map(|edit| edit.text.len()).sum::<usize>();
+        if edit_count + edits.len() > MAX_LANGUAGE_CODE_ACTION_EDITS
+            || edit_bytes + bytes > MAX_RANGE_BYTES
+        {
+            truncated = true;
+            break;
+        }
+        edit_count += edits.len();
+        edit_bytes += bytes;
+        actions.push(LanguageCodeAction {
+            title: plugin_api::ui::terminal_text(&action.title, false),
+            kind: action.kind.map(|kind| kind.as_str().to_owned()),
+            edits,
+        });
+    }
+    Ok(EditorReply::CodeActions {
+        target,
+        actions,
+        truncated,
+    })
+}
+
 fn strict_range(
     text: &Rope,
     range: lsp::Range,
@@ -643,11 +1092,14 @@ fn check_symbol_text(name: &str, detail: Option<&str>) -> Result<(), ServiceErro
     }
     Ok(())
 }
-struct ReplyBytes(usize);
+struct ReplyBytes {
+    used: usize,
+    limit: usize,
+}
 impl Write for ReplyBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 = self.0.saturating_add(bytes.len());
-        if self.0 > MAX_EDITOR_REPLY_BYTES {
+        self.used = self.used.saturating_add(bytes.len());
+        if self.used > self.limit {
             return Err(std::io::Error::other("editor reply limit exceeded"));
         }
         Ok(bytes.len())
@@ -657,8 +1109,18 @@ impl Write for ReplyBytes {
     }
 }
 fn validate_reply_bytes(reply: &EditorReply) -> Result<(), ServiceError> {
-    serde_json::to_writer(&mut ReplyBytes(0), reply)
-        .map_err(|_| exhausted("language reply exceeds 1 MiB"))
+    check_json_bytes(
+        reply,
+        MAX_EDITOR_REPLY_BYTES,
+        "language reply exceeds 1 MiB",
+    )
+}
+fn check_json_bytes(
+    value: &impl serde::Serialize,
+    limit: usize,
+    message: &str,
+) -> Result<(), ServiceError> {
+    serde_json::to_writer(&mut ReplyBytes { used: 0, limit }, value).map_err(|_| exhausted(message))
 }
 
 #[cfg(test)]
@@ -669,6 +1131,326 @@ mod tests {
         DocumentTarget {
             document: 1,
             version: 7,
+        }
+    }
+
+    fn code_action(uri: &lsp::Url, edits: Vec<lsp::TextEdit>) -> lsp::CodeAction {
+        lsp::CodeAction {
+            title: "Fill struct".into(),
+            kind: Some("refactor.rewrite.fillStruct".into()),
+            edit: Some(lsp::WorkspaceEdit {
+                changes: Some(std::collections::HashMap::from([(uri.clone(), edits)])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn text_edit(start: u32, end: u32) -> lsp::TextEdit {
+        lsp::TextEdit {
+            range: lsp::Range::new(lsp::Position::new(0, start), lsp::Position::new(0, end)),
+            new_text: "字段".into(),
+        }
+    }
+
+    fn never_resolve(_: lsp::CodeAction) -> Result<Option<ActionResolution>, ServiceError> {
+        panic!("an unsafe or already actionable action must not be resolved")
+    }
+
+    #[tokio::test]
+    async fn code_actions_resolve_data_only_and_return_owned_unicode_edits() {
+        let uri = lsp::Url::parse("file:///test.go").unwrap();
+        let text = Rope::from_str("é😀x\n");
+        let mut lazy = code_action(&uri, vec![]);
+        lazy.edit = None;
+        lazy.data = Some(serde_json::json!({"server-owned": true}));
+        let mut resolved = code_action(&uri, vec![text_edit(1, 3)]);
+        resolved.title.push('\u{1b}');
+        let command =
+            lsp::Command::new("Run arbitrary action".into(), "unsafe.execute".into(), None);
+        let mut unsafe_action = lazy.clone();
+        unsafe_action.command = Some(command.clone());
+        let mut resolutions = 0;
+        let reply = code_action_reply(
+            target(),
+            &text,
+            OffsetEncoding::Utf16,
+            &uri,
+            &["refactor.rewrite".into()],
+            Some(vec![
+                lsp::CodeActionOrCommand::CodeAction(lazy),
+                lsp::CodeActionOrCommand::Command(command),
+                lsp::CodeActionOrCommand::CodeAction(unsafe_action),
+            ]),
+            |action| {
+                resolutions += 1;
+                assert_eq!(action.data, Some(serde_json::json!({"server-owned": true})));
+                let resolved = resolved.clone();
+                Ok(Some(
+                    Box::pin(async move { Ok(resolved) }) as ActionResolution
+                ))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolutions, 1);
+        assert_eq!(
+            reply,
+            EditorReply::CodeActions {
+                target: target(),
+                truncated: true,
+                actions: vec![LanguageCodeAction {
+                    title: "Fill struct".into(),
+                    kind: Some("refactor.rewrite.fillStruct".into()),
+                    edits: vec![plugin_api::TextEdit {
+                        start: 1,
+                        end: 2,
+                        text: "字段".into()
+                    }],
+                }],
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn code_actions_omit_complete_unsafe_workspaces_and_stale_server_versions() {
+        let uri = lsp::Url::parse("file:///test.go").unwrap();
+        let mut multi_document = code_action(&uri, vec![text_edit(0, 1)]);
+        multi_document
+            .edit
+            .as_mut()
+            .unwrap()
+            .changes
+            .as_mut()
+            .unwrap()
+            .insert(
+                lsp::Url::parse("file:///other.go").unwrap(),
+                vec![text_edit(0, 1)],
+            );
+        let mut wrong_version = code_action(&uri, vec![]);
+        wrong_version.edit = Some(lsp::WorkspaceEdit {
+            document_changes: Some(lsp::DocumentChanges::Edits(vec![lsp::TextDocumentEdit {
+                text_document: lsp::OptionalVersionedTextDocumentIdentifier::new(
+                    uri.clone(),
+                    target().version + 1,
+                ),
+                edits: vec![lsp::OneOf::Left(text_edit(0, 1))],
+            }])),
+            ..Default::default()
+        });
+        let mut file_operation = code_action(&uri, vec![]);
+        file_operation.edit = Some(
+            serde_json::from_value(serde_json::json!({
+                "documentChanges": [{"kind":"delete","uri":"file:///test.go"}]
+            }))
+            .unwrap(),
+        );
+        let mut annotated = code_action(&uri, vec![]);
+        annotated.edit = Some(lsp::WorkspaceEdit {
+            document_changes: Some(lsp::DocumentChanges::Edits(vec![lsp::TextDocumentEdit {
+                text_document: lsp::OptionalVersionedTextDocumentIdentifier::new(
+                    uri.clone(),
+                    target().version,
+                ),
+                edits: vec![lsp::OneOf::Right(lsp::AnnotatedTextEdit {
+                    text_edit: text_edit(0, 1),
+                    annotation_id: "confirmation".into(),
+                })],
+            }])),
+            ..Default::default()
+        });
+        let reply = code_action_reply(
+            target(),
+            &Rope::from_str("abc\n"),
+            OffsetEncoding::Utf8,
+            &uri,
+            &[],
+            Some(
+                [multi_document, wrong_version, file_operation, annotated]
+                    .into_iter()
+                    .map(lsp::CodeActionOrCommand::CodeAction)
+                    .collect(),
+            ),
+            never_resolve,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            reply,
+            EditorReply::CodeActions {
+                target: target(),
+                actions: vec![],
+                truncated: true
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn code_actions_reject_malformed_edits_and_bound_resolution_and_results() {
+        let uri = lsp::Url::parse("file:///test.go").unwrap();
+        let text = Rope::from_str("é😀x\n");
+        for edits in [
+            vec![text_edit(2, 3)],
+            vec![text_edit(0, 4), text_edit(1, 3)],
+        ] {
+            let reply = code_action_reply(
+                target(),
+                &text,
+                OffsetEncoding::Utf16,
+                &uri,
+                &[],
+                Some(vec![lsp::CodeActionOrCommand::CodeAction(code_action(
+                    &uri, edits,
+                ))]),
+                never_resolve,
+            )
+            .await;
+            assert_eq!(reply.unwrap_err().code, ErrorCode::HostFailure);
+        }
+        let mut lazy = code_action(&uri, vec![]);
+        lazy.edit = None;
+        lazy.data = Some(serde_json::json!("x".repeat(MAX_EDITOR_REQUEST_BYTES + 1)));
+        assert_eq!(
+            code_action_reply(
+                target(),
+                &text,
+                OffsetEncoding::Utf16,
+                &uri,
+                &[],
+                Some(vec![lsp::CodeActionOrCommand::CodeAction(lazy)]),
+                never_resolve
+            )
+            .await
+            .unwrap(),
+            EditorReply::CodeActions {
+                target: target(),
+                actions: vec![],
+                truncated: true
+            }
+        );
+        let actions =
+            vec![
+                lsp::CodeActionOrCommand::CodeAction(code_action(&uri, vec![text_edit(1, 3)]));
+                MAX_LANGUAGE_CODE_ACTIONS + 1
+            ];
+        let EditorReply::CodeActions {
+            actions, truncated, ..
+        } = code_action_reply(
+            target(),
+            &text,
+            OffsetEncoding::Utf16,
+            &uri,
+            &[],
+            Some(actions),
+            never_resolve,
+        )
+        .await
+        .unwrap()
+        else {
+            panic!("not code actions")
+        };
+        assert_eq!(actions.len(), MAX_LANGUAGE_CODE_ACTIONS);
+        assert!(truncated);
+
+        let text = Rope::from_str(&format!(
+            "{}\n",
+            "x".repeat(MAX_LANGUAGE_CODE_ACTION_EDITS + 1)
+        ));
+        let full = code_action(
+            &uri,
+            (0..MAX_LANGUAGE_CODE_ACTION_EDITS as u32)
+                .map(|offset| text_edit(offset, offset + 1))
+                .collect(),
+        );
+        let extra = code_action(&uri, vec![text_edit(0, 1)]);
+        let EditorReply::CodeActions {
+            actions, truncated, ..
+        } = code_action_reply(
+            target(),
+            &text,
+            OffsetEncoding::Utf8,
+            &uri,
+            &[],
+            Some(vec![
+                lsp::CodeActionOrCommand::CodeAction(full),
+                lsp::CodeActionOrCommand::CodeAction(extra),
+            ]),
+            never_resolve,
+        )
+        .await
+        .unwrap()
+        else {
+            panic!("not code actions")
+        };
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].edits.len(), MAX_LANGUAGE_CODE_ACTION_EDITS);
+        assert!(
+            truncated,
+            "an extra action must not leak a partial edit group"
+        );
+    }
+
+    #[tokio::test]
+    async fn code_actions_never_expose_commands_returned_by_lazy_resolution() {
+        let uri = lsp::Url::parse("file:///test.go").unwrap();
+        let mut lazy = code_action(&uri, vec![]);
+        lazy.edit = None;
+        lazy.data = Some(serde_json::json!({"server-owned": true}));
+        let reply = code_action_reply(
+            target(),
+            &Rope::from_str("abc\n"),
+            OffsetEncoding::Utf8,
+            &uri,
+            &[],
+            Some(vec![lsp::CodeActionOrCommand::CodeAction(lazy)]),
+            |mut action| {
+                action.command = Some(lsp::Command::new(
+                    "Unsafe".into(),
+                    "gopls.apply_fix".into(),
+                    None,
+                ));
+                Ok(Some(Box::pin(async move { Ok(action) }) as ActionResolution))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            reply,
+            EditorReply::CodeActions {
+                target: target(),
+                actions: vec![],
+                truncated: true
+            }
+        );
+    }
+
+    #[test]
+    fn formatting_edits_use_scalar_offsets_and_reject_invalid_ranges() {
+        let text = Rope::from_str("é😀x\n");
+        let edit = |start, end| lsp::TextEdit {
+            range: lsp::Range::new(lsp::Position::new(0, start), lsp::Position::new(0, end)),
+            new_text: "formatted".into(),
+        };
+        let EditorReply::Edits { edits, .. } =
+            format_reply(target(), &text, OffsetEncoding::Utf16, vec![edit(1, 3)]).unwrap()
+        else {
+            panic!("not formatting edits");
+        };
+        assert_eq!(
+            edits,
+            vec![plugin_api::TextEdit {
+                start: 1,
+                end: 2,
+                text: "formatted".into()
+            }]
+        );
+        for edits in [vec![edit(2, 3)], vec![edit(0, 4), edit(1, 3)]] {
+            assert_eq!(
+                format_reply(target(), &text, OffsetEncoding::Utf16, edits)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::HostFailure
+            );
         }
     }
 

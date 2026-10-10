@@ -1,7 +1,7 @@
 use super::*;
 use plugin_api::{
     Action, Capability, DocumentSnapshot, EditorContext, HostFuture, HostJob, JobPoll, JobRequest,
-    ReadRequest, SelectionRange, ViewSnapshot,
+    ReadRequest, ReadRoot, SelectionRange, ViewSnapshot,
 };
 use std::sync::atomic::AtomicUsize;
 
@@ -172,6 +172,111 @@ struct Services {
     notifications: Arc<Mutex<Vec<u64>>>,
     job_ready: bool,
     reject_notification: bool,
+}
+
+struct RootMetadataServices {
+    roots: Vec<ReadRoot>,
+    calls: Arc<AtomicUsize>,
+}
+impl HostServices for RootMetadataServices {
+    fn read_document(&self, _: ReadRequest) -> HostFuture<String> {
+        Box::pin(async {
+            Err(error(
+                ErrorCode::UnsupportedInterface,
+                "not a document service",
+            ))
+        })
+    }
+    fn read_roots(&self) -> HostFuture<Vec<ReadRoot>> {
+        self.calls.fetch_add(1, Ordering::AcqRel);
+        let roots = self.roots.clone();
+        Box::pin(async move { Ok(roots) })
+    }
+}
+
+#[tokio::test]
+async fn component_root_metadata_checks_permission_and_preserves_bounded_aliases() {
+    let pool = WorkerPool::new().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let root = ReadRoot {
+        index: 0,
+        path: "/private/tmp/project".into(),
+        configured_path: "/tmp/project".into(),
+    };
+    let services = |roots| {
+        Arc::new(RootMetadataServices {
+            roots,
+            calls: calls.clone(),
+        })
+    };
+    let allowed: CapabilitySet = [Capability::Ui, Capability::WorkspaceRead].into();
+    let ui: CapabilitySet = [Capability::Ui].into();
+    for (declared, granted) in [(ui.clone(), allowed.clone()), (allowed.clone(), ui)] {
+        let actor = pool.spawn(fixture(), 1, declared, granted).unwrap();
+        assert_eq!(
+            actor
+                .invoke(request("read-roots"), services(vec![root.clone()]))
+                .unwrap()
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        actor.shutdown().await.unwrap();
+    }
+    assert_eq!(
+        calls.load(Ordering::Acquire),
+        0,
+        "deny before querying metadata"
+    );
+    let actor = pool
+        .spawn(fixture(), 1, allowed.clone(), allowed.clone())
+        .unwrap();
+    let response = actor
+        .invoke(request("read-roots"), services(vec![root.clone()]))
+        .unwrap()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.actions,
+        vec![Action::Status {
+            message: "0|/private/tmp/project|/tmp/project".into()
+        }]
+    );
+    for roots in [
+        vec![root.clone(); 17],
+        vec![ReadRoot {
+            path: "x".repeat(plugin_api::MAX_READ_ROOT_METADATA_BYTES),
+            ..root.clone()
+        }],
+    ] {
+        assert_eq!(
+            actor
+                .invoke(request("read-roots"), services(roots))
+                .unwrap()
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::ResourceExhausted
+        );
+    }
+    actor.shutdown().await.unwrap();
+    let actor = pool
+        .spawn(sdk_fixture(), 1, allowed.clone(), allowed)
+        .unwrap();
+    let response = actor
+        .invoke(request("read-roots"), services(vec![root]))
+        .unwrap()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.actions,
+        vec![Action::Status {
+            message: "0|/private/tmp/project|/tmp/project".into()
+        }]
+    );
+    actor.shutdown().await.unwrap();
+    pool.shutdown().await.unwrap();
 }
 impl HostServices for Services {
     fn read_document(&self, request: ReadRequest) -> HostFuture<String> {

@@ -6,6 +6,22 @@ use crate::{ErrorCode, ServiceError};
 
 pub type HostFuture<T> = Pin<Box<dyn Future<Output = Result<T, ServiceError>> + Send + 'static>>;
 
+pub const MAX_READ_ROOTS: usize = 16;
+pub const MAX_READ_ROOT_METADATA_BYTES: usize = 64 * 1024;
+
+/// Metadata of an already granted filesystem root. Both paths are absolute;
+/// neither spelling grants access outside this indexed root. No filesystem
+/// lookup is performed when this metadata is requested.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadRoot {
+    pub index: u32,
+    /// Physical canonical path captured when the permission was prepared.
+    pub path: String,
+    /// Absolute path from user configuration, preserving symlink spelling.
+    pub configured_path: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadRequest {
     pub generation: u64,
@@ -113,6 +129,12 @@ pub trait HostJob: Send + Sync + 'static {
 /// checks generation, live grants, targets, revisions, and sizes on every call.
 pub trait HostServices: Send + Sync + 'static {
     fn read_document(&self, request: ReadRequest) -> HostFuture<String>;
+
+    /// WorkspaceRead-authorized metadata for at most sixteen granted roots.
+    /// Paths are immutable policy state, not discoveries in the current project.
+    fn read_roots(&self) -> HostFuture<Vec<ReadRoot>> {
+        Box::pin(async { Err(unsupported("workspace root metadata is unavailable")) })
+    }
 
     /// Admit one owner/generation-scoped readiness control. The adapter
     /// coalesces by job handle and acknowledges admission without awaiting the

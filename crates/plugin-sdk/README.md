@@ -74,17 +74,39 @@ It preserves multiple selections, their directions, and the primary selection;
 all conversions must succeed before any effects are returned. Input and output
 are each limited to 1 MiB across at most 128 selections. The
 `transform::selections_with_read` variant accepts a reader for native handler tests.
-See `plugins/text-tools` for case, JSON, and Base64 examples.
+For example, `transform::selections(&request.editor, |text| Ok(text.to_uppercase()))`
+converts every selection as one undoable edit.
 
 Bounded host helpers are in `component`:
 
 - `read_document` for a versioned document region.
 - `editor_request` for the closed `editor::EditorRequest` schema, including
-  bounded syntax/language requests and narrow editor operations.
+  document save status, unsaved-buffer lists, bounded syntax/language requests,
+  and narrow editor operations.
 - `read_file`/`write_file` for relative UTF-8 paths under user-granted roots.
+- `read_roots` for up to 16 already granted root indices and their absolute
+  canonical/configured paths (64 KiB of total path text). This requires
+  `WorkspaceRead` and performs no filesystem I/O or project discovery. Compare
+  both path spellings when matching native document paths to a selected root;
+  do not guess platform-specific symlink aliases or canonicalize guest paths.
 - `storage_read`/`storage_write` for private package storage, when supplied by the host.
 - `start_job` with the closed Timer, Search, or Process request types.
   The owned job exposes `poll` and `cancel`; dropping it awaits host cleanup.
+
+`LanguageFormat` and `LanguageCodeActions` query an already attached server, with
+source documents limited to 1 MiB; they never start a provider. Code actions
+return at most 64 owned choices and 256 total
+text edits for the original document/version. Data-only lazy actions may resolve
+within the same two-second deadline. Command-bearing, disabled, multi-document,
+annotated and file-operation actions are omitted with `truncated = true`.
+Queries require `EditorRead`; apply a chosen patch through `Action::Edit`, which
+separately requires `EditorEdit` and a still-current document version. Neither
+query applies edits or executes an LSP command.
+
+Before running a disk-based project tool, query `DocumentStatus` for the current
+version and `UnsavedDocuments` for other modified buffers. The latter defaults
+to at most 128 document targets and paths; a truncated reply cannot prove that
+the rest of the project is saved. Both queries require `EditorRead`.
 
 For asynchronous workflows, retain the owned `Job` across invocations, record
 `Job::id()`, and return from the handler. A targeted `Event::JobReady` carries

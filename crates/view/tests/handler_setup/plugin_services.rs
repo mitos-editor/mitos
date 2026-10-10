@@ -114,6 +114,111 @@ async fn run(fixture: &mut Fixture, name: &str) -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn document_status_reports_unsaved_changes_and_rejects_old_versions() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
+    let mut fixture = Fixture::new("original\n")?;
+    view::doc_mut!(fixture.editor).reset_modified();
+    let initial = target(&fixture);
+    let saved = DocumentTarget {
+        document: initial.document,
+        version: initial.version,
+    };
+    let dir = tempfile::tempdir()?;
+    let config = package(
+        dir.path(),
+        vec![
+            service(
+                EditorRequest::DocumentStatus { target: saved },
+                &["\"modified\":false"],
+            ),
+            service(
+                EditorRequest::UnsavedDocuments { max_documents: 0 },
+                &["\"documents\":[]", "\"truncated\":false"],
+            ),
+        ],
+        &[],
+    )?;
+    load(
+        &mut fixture,
+        dir.path(),
+        BTreeMap::from([("fixture".into(), config)]),
+    )
+    .await;
+    run(&mut fixture, "fixture.run").await?;
+    let (view, doc) = current!(fixture.editor);
+    let change =
+        editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "changed".into());
+    doc.apply(&change, view.id);
+    let current = DocumentTarget {
+        document: doc.id().as_u64(),
+        version: doc.version(),
+    };
+    let config = package(
+        dir.path(),
+        vec![
+            service(
+                EditorRequest::DocumentStatus { target: current },
+                &["\"modified\":true"],
+            ),
+            error(
+                EditorRequest::DocumentStatus { target: saved },
+                ErrorCode::StaleState,
+            ),
+        ],
+        &[],
+    )?;
+    load(
+        &mut fixture,
+        dir.path(),
+        BTreeMap::from([("fixture".into(), config)]),
+    )
+    .await;
+    run(&mut fixture, "fixture.run").await?;
+    fixture.editor.new_file(Action::Replace);
+    let (view, doc) = current!(fixture.editor);
+    let change =
+        editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "second".into());
+    doc.apply(&change, view.id);
+    let second = DocumentTarget {
+        document: doc.id().as_u64(),
+        version: doc.version(),
+    };
+    let first_json = serde_json::to_string(&current)?;
+    let second_json = serde_json::to_string(&second)?;
+    let config = package(
+        dir.path(),
+        vec![
+            service(
+                EditorRequest::UnsavedDocuments { max_documents: 0 },
+                &[
+                    &first_json,
+                    &second_json,
+                    "\"path\":null",
+                    "\"truncated\":false",
+                ],
+            ),
+            service(
+                EditorRequest::UnsavedDocuments { max_documents: 1 },
+                &["\"truncated\":true"],
+            ),
+            error(
+                EditorRequest::UnsavedDocuments { max_documents: 129 },
+                ErrorCode::ResourceExhausted,
+            ),
+        ],
+        &[],
+    )?;
+    load(
+        &mut fixture,
+        dir.path(),
+        BTreeMap::from([("fixture".into(), config)]),
+    )
+    .await;
+    run(&mut fixture, "fixture.run").await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn owned_scratch_can_be_read_and_edited_in_the_creating_invocation() -> anyhow::Result<()> {
     let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;

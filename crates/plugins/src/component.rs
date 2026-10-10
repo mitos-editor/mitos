@@ -13,7 +13,7 @@ use std::{
 use plugin_api::{
     Action, Capability, CapabilitySet, ErrorCode, Event, HostJob, HostServices, JobRequest,
     ReadRequest, Request as ApiRequest, Response, SelectionRange, ServiceError, StateQuery,
-    TextEdit,
+    TextEdit, MAX_READ_ROOTS, MAX_READ_ROOT_METADATA_BYTES,
 };
 use tokio_util::sync::CancellationToken;
 use wasmtime::component::{Linker, Resource, ResourceTable};
@@ -682,6 +682,39 @@ impl host::Host for HostState {
         .await;
         Ok(result.map_err(failure))
     }
+    async fn read_roots(
+        &mut self,
+    ) -> wasmtime::Result<Result<Vec<types::ReadRoot>, types::Failure>> {
+        let result = async {
+            self.require(Capability::WorkspaceRead)?;
+            let services = self.services.as_ref().ok_or_else(stale)?.clone();
+            let roots = self.await_service(services.read_roots()).await?;
+            if roots.len() > MAX_READ_ROOTS {
+                return Err(exhausted("host read root metadata exceeds 16 roots"));
+            }
+            let bytes = roots.iter().try_fold(0usize, |total, root| {
+                total
+                    .checked_add(root.path.len())?
+                    .checked_add(root.configured_path.len())
+            });
+            if bytes.is_none_or(|bytes| bytes > MAX_READ_ROOT_METADATA_BYTES) {
+                return Err(exhausted(
+                    "host read root metadata exceeds 16 roots or 64 KiB",
+                ));
+            }
+            Ok(roots
+                .into_iter()
+                .map(|root| types::ReadRoot {
+                    index: root.index,
+                    path: root.path,
+                    configured_path: root.configured_path,
+                })
+                .collect())
+        }
+        .await;
+        Ok(result.map_err(failure))
+    }
+
     async fn read_file(
         &mut self,
         root: u32,

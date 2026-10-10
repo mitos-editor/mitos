@@ -5,7 +5,10 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use plugin_api::{Capability, CapabilitySet, ErrorCode, Permissions, ServiceError};
+use plugin_api::{
+    Capability, CapabilitySet, ErrorCode, Permissions, ReadRoot, ServiceError, MAX_READ_ROOTS,
+    MAX_READ_ROOT_METADATA_BYTES,
+};
 
 use crate::filesystem::ScopedDirectory;
 
@@ -24,7 +27,7 @@ impl AccessPolicy {
         base: &Path,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
-            permissions.read_roots.len() <= 16 && permissions.write_roots.len() <= 16,
+            permissions.read_roots.len() <= MAX_READ_ROOTS && permissions.write_roots.len() <= 16,
             "plugin grants exceed the directory limit"
         );
         anyhow::ensure!(
@@ -115,6 +118,44 @@ impl AccessPolicy {
             })
     }
 
+    /// Identities captured when the granted directory handles were opened.
+    /// Reporting them neither re-resolves aliases nor opens filesystem paths.
+    pub fn read_roots(&self) -> Result<Vec<ReadRoot>, ServiceError> {
+        self.require(Capability::WorkspaceRead)?;
+        let mut bytes = 0usize;
+        for (path, configured, _) in &self.read_roots {
+            for path in [path, configured] {
+                let path = path.to_str().ok_or_else(|| {
+                    ServiceError::new(
+                        ErrorCode::InvalidRequest,
+                        "plugin read root metadata requires UTF-8 paths",
+                    )
+                })?;
+                bytes = bytes
+                    .checked_add(path.len())
+                    .filter(|bytes| *bytes <= MAX_READ_ROOT_METADATA_BYTES)
+                    .ok_or_else(|| {
+                        ServiceError::new(
+                            ErrorCode::ResourceExhausted,
+                            "plugin read root metadata exceeds 64 KiB",
+                        )
+                    })?;
+            }
+        }
+        let roots = self
+            .read_roots
+            .iter()
+            .enumerate()
+            .map(|(index, (path, configured, _))| ReadRoot {
+                index: index as u32,
+                path: path.to_str().unwrap().to_owned(),
+                configured_path: configured.to_str().unwrap().to_owned(),
+            })
+            .collect();
+        self.check_live()?;
+        Ok(roots)
+    }
+
     pub fn process_root(
         &self,
         index: u32,
@@ -178,11 +219,20 @@ mod tests {
             Path::new("."),
         )
         .unwrap();
+        let identities = vec![ReadRoot {
+            index: 0,
+            path: root.path().canonicalize().unwrap().to_str().unwrap().into(),
+            configured_path: alias.to_str().unwrap().into(),
+        }];
+        assert_eq!(policy.read_roots().unwrap(), identities);
         assert_eq!(policy.read_path(&alias.join("file")).unwrap().1, b"allowed");
         std::fs::remove_file(&alias).unwrap();
         std::os::unix::fs::symlink(outside.path(), &alias).unwrap();
+        assert_eq!(policy.read_roots().unwrap(), identities);
         assert_eq!(policy.read_path(&alias.join("file")).unwrap().1, b"allowed");
         assert!(policy.read_path(&outside.path().join("file")).is_err());
+        policy.revoke();
+        assert_eq!(policy.read_roots().unwrap_err().code, ErrorCode::Cancelled);
     }
 
     #[test]

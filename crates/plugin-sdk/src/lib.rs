@@ -6,7 +6,9 @@
 //! Document offsets count Unicode scalar values, not UTF-8 byte offsets.
 
 pub use plugin_api::protocol::*;
-pub use plugin_api::{editor, ui, ErrorCode, JobOutput, JobPoll, JobRequest, ServiceError};
+pub use plugin_api::{
+    editor, ui, ErrorCode, JobOutput, JobPoll, JobRequest, ReadRoot, ServiceError,
+};
 pub mod component;
 pub mod transform;
 

@@ -115,6 +115,27 @@ regions, chunks, or deltas. Startup, shutdown, and status-only commands do not
 require a full document. The host retains owned snapshots where needed and
 accounts for their lifetime and bytes.
 
+`DocumentStatus` reports whether a captured buffer has unsaved changes.
+`UnsavedDocuments` lists up to 128 modified buffers, including hidden buffers;
+a truncated result cannot prove that a whole project is saved. These are metadata
+queries and require `editor-read`.
+
+`LanguageFormat` and `LanguageCodeActions` query an already attached language
+server for source documents up to 1 MiB. They return edits for the captured
+document and version; applying them separately requires `editor-edit`. Code
+actions return up to 64 choices and 256 total edits. Lazy actions may resolve
+within the same two-second deadline. Commands, edits to other documents, file
+operations, disabled actions, and annotated edits are omitted, with a truncated
+reply indicating that not every action is available. No raw LSP request or command
+is exposed to the guest.
+
+`read-roots` returns the indexes, physical paths, and configured path spellings
+of the read roots already granted to this package. It requires `workspace-read`
+and returns at most 16 roots and 64 KiB of path text. The paths describe the
+directory handles captured when permissions were prepared; replacing a symlink
+does not change their identity or grant more access. Plugins can use both
+spellings to recognize document paths after native navigation.
+
 Document/view/workspace, job, UI, and storage resources are scoped to the owning
 editor, plugin, and generation. Resources contain host-owned state; handles do
 not expose native pointers or internal object layouts. UI and slow services
@@ -169,6 +190,11 @@ Attached-language requests expire after two seconds and queue an LSP
 cancellation. If a server stops reading stdin while the transport writes an
 earlier frame, local cancellation processing can be delayed. The 64-request
 admission cap remains charged until reply, cancellation processing, or disconnect.
+
+Native process jobs default to ten seconds. Plugins may choose a timeout from one
+millisecond to five minutes before starting a job. Expiry, cancellation, target
+close, and unload terminate and reap its process group; stdout and stderr each
+remain limited to 1 MiB.
 
 Errors distinguish invalid requests, stale state, permission denial, resource
 exhaustion, cancellation/deadline, unsupported interfaces, guest traps, and host
