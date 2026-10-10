@@ -196,8 +196,12 @@ pub fn start_job(request: JobRequest) -> Result<Job, ServiceError> {
                 args,
                 input,
                 root,
+                timeout_milliseconds,
             } => {
                 let process = host::process(&command, root).map_err(native_error)?;
+                process
+                    .timeout(timeout_milliseconds)
+                    .map_err(native_error)?;
                 process.input(&input).map_err(native_error)?;
                 for argument in args {
                     process.argument(&argument).map_err(native_error)?;

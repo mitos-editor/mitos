@@ -250,6 +250,7 @@ fn handle(request: Request) -> Response {
                         ],
                         input: text,
                         root: 0,
+                        timeout_milliseconds: JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS,
                     }) {
                         Ok(job) => job,
                         Err(error) => return fail(error.message),

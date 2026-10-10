@@ -166,6 +166,7 @@ struct Services {
     starts: Arc<AtomicUsize>,
     jobs: Arc<AtomicUsize>,
     creating: Arc<AtomicUsize>,
+    requests: Arc<Mutex<Vec<JobRequest>>>,
     read_delay: Duration,
     creation_delay: Duration,
     notifications: Arc<Mutex<Vec<u64>>>,
@@ -191,12 +192,14 @@ impl HostServices for Services {
             Ok("straße".into())
         })
     }
-    fn start_job(&self, _request: JobRequest) -> HostFuture<Arc<dyn HostJob>> {
+    fn start_job(&self, request: JobRequest) -> HostFuture<Arc<dyn HostJob>> {
         let jobs = self.jobs.clone();
         let creating = self.creating.clone();
         let delay = self.creation_delay;
         let job_ready = self.job_ready;
+        let requests = self.requests.clone();
         Box::pin(async move {
+            requests.lock().unwrap().push(request);
             struct Creating(Arc<AtomicUsize>);
             impl Drop for Creating {
                 fn drop(&mut self) {
@@ -296,6 +299,64 @@ fn capabilities() -> CapabilitySet {
 fn plugin_actor(pool: &WorkerPool) -> PluginActor {
     pool.spawn(fixture(), 1, capabilities(), capabilities())
         .unwrap()
+}
+
+#[tokio::test]
+async fn component_process_timeout_defaults_and_rejects_invalid_bounds_before_creation() {
+    let pool = WorkerPool::new().unwrap();
+    let declared: CapabilitySet = [Capability::Ui, Capability::Process].into();
+    let actor = pool
+        .spawn(fixture(), 1, declared.clone(), declared)
+        .unwrap();
+    let services = Arc::new(Services::default());
+    for milliseconds in [None, Some(JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS)] {
+        let mut command = request("process-timeout");
+        if let Some(milliseconds) = milliseconds {
+            command.args.push(milliseconds.to_string());
+        }
+        actor
+            .invoke(command, services.clone())
+            .unwrap()
+            .await
+            .unwrap();
+    }
+    let recorded = services.requests.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(
+        recorded[0],
+        JobRequest::Process {
+            timeout_milliseconds: JobRequest::DEFAULT_PROCESS_TIMEOUT_MILLISECONDS,
+            ..
+        }
+    ));
+    assert!(matches!(
+        recorded[1],
+        JobRequest::Process {
+            timeout_milliseconds: JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS,
+            ..
+        }
+    ));
+    for milliseconds in [
+        0,
+        JobRequest::MAX_PROCESS_TIMEOUT_MILLISECONDS + 1,
+        u64::MAX,
+    ] {
+        let mut command = request("process-timeout");
+        command.args.push(milliseconds.to_string());
+        assert_eq!(
+            actor
+                .invoke(command, services.clone())
+                .unwrap()
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    assert_eq!(services.requests.lock().unwrap().len(), 2);
+    assert_eq!(services.jobs.load(Ordering::Acquire), 0);
+    actor.shutdown().await.unwrap();
+    pool.shutdown().await.unwrap();
 }
 
 #[tokio::test]
