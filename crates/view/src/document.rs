@@ -2665,6 +2665,21 @@ impl Document {
                     .is_some_and(|source| unchanged_sources.iter().any(|s| **s == **source))
             });
         }
+        self.extend_diagnostics(diagnostics);
+    }
+
+    /// Refresh cached language-server diagnostics without discarding diagnostics
+    /// owned by spelling or plugins.
+    pub fn replace_language_server_diagnostics(
+        &mut self,
+        diagnostics: impl IntoIterator<Item = Diagnostic>,
+    ) {
+        self.diagnostics
+            .retain(|diagnostic| !matches!(diagnostic.provider, DiagnosticProvider::Lsp { .. }));
+        self.extend_diagnostics(diagnostics);
+    }
+
+    fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
         self.diagnostics.extend(diagnostics);
         self.diagnostics.sort_by_key(|diagnostic| {
             (
@@ -2698,14 +2713,7 @@ impl Document {
                     .iter()
                     .any(|region| d.range.start < region.end && region.start < d.range.end)
         });
-        self.diagnostics.extend(diagnostics);
-        self.diagnostics.sort_by_key(|diagnostic| {
-            (
-                diagnostic.range,
-                diagnostic.severity,
-                diagnostic.provider.clone(),
-            )
-        });
+        self.extend_diagnostics(diagnostics);
     }
 
     /// clears diagnostics for a given language server id if set, otherwise all diagnostics are cleared

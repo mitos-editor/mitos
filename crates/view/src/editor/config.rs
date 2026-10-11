@@ -40,7 +40,7 @@ impl Editor {
             document.detect_language(&loader);
             let diagnostics =
                 Self::doc_diagnostics(&self.language_servers, &self.diagnostics, document);
-            document.replace_diagnostics(diagnostics, &[], None);
+            document.replace_language_server_diagnostics(diagnostics);
         }
         theme_result
     }

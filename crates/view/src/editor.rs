@@ -665,7 +665,7 @@ impl Editor {
         self.refresh_language_servers(doc_id);
         let doc = doc_mut!(self, &doc_id);
         let diagnostics = Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, doc);
-        doc.replace_diagnostics(diagnostics, &[], None);
+        doc.replace_language_server_diagnostics(diagnostics);
         doc.reset_all_inlay_hints();
         doc.clear_document_symbols();
         self.refresh_spelling(doc_id);
@@ -1040,7 +1040,7 @@ impl Editor {
 
             let diagnostics =
                 Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, &doc);
-            doc.replace_diagnostics(diagnostics, &[], None);
+            doc.replace_language_server_diagnostics(diagnostics);
 
             let trust_full = self
                 .workspace_trust

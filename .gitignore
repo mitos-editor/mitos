@@ -5,3 +5,6 @@ result
 runtime/grammars
 .DS_Store
 website/
+
+/benchmarks/
+/plugins/

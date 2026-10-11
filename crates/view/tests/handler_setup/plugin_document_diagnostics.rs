@@ -493,3 +493,60 @@ async fn owned_annotations_expire_on_edit_reload_trap_and_permission_removal() -
     assert!(plugin_diagnostics(&fixture, revised).is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn language_refresh_and_failed_replacement_preserve_owned_annotations() -> anyhow::Result<()>
+{
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
+    let mut fixture = Fixture::new("original\n")?;
+    native_providers(&mut fixture);
+    let document = target(&fixture);
+    let dir = tempfile::tempdir()?;
+    let config = package(
+        dir.path(),
+        vec![route(
+            "publish",
+            vec![service(publish(document, vec![annotation(0, 1, "owned")]))],
+        )],
+    )?;
+    let packages = BTreeMap::from([("fixture".into(), config)]);
+    load(&mut fixture, dir.path(), &packages).await;
+    run(&mut fixture, "fixture", "publish").await?;
+
+    let languages = editor_core::syntax::Loader::new(
+        toml::from_str("language = []")?,
+        loader::syntax::Resources::default(),
+    )?;
+    let theme = fixture.editor.theme.clone();
+    fixture.editor.apply_language_config(languages, theme)?;
+    let id = current_ref!(fixture.editor).1.id();
+    assert_eq!(plugin_diagnostics(&fixture, document).len(), 1);
+    assert!(diagnostics(&fixture, document)
+        .iter()
+        .any(|d| d.message.as_ref() == "native spelling"));
+    assert!(!diagnostics(&fixture, document)
+        .iter()
+        .any(|d| matches!(d.provider, DiagnosticProvider::Lsp { .. })));
+
+    // A language refresh explicitly rechecks spelling, but plugin annotations
+    // remain valid while the document text and owner are unchanged.
+    fixture.editor.refresh_doc_language(id);
+    assert_eq!(plugin_diagnostics(&fixture, document).len(), 1);
+
+    let missing = BTreeMap::from([(
+        "missing".into(),
+        PluginConfig {
+            path: dir.path().join("missing.toml"),
+            enabled: true,
+            ..PluginConfig::default()
+        },
+    )]);
+    assert!(fixture.editor.reload_plugins(&missing, dir.path()));
+    drain(&mut fixture).await;
+    assert_eq!(plugin_diagnostics(&fixture, document).len(), 1);
+    run(&mut fixture, "fixture", "publish").await?;
+
+    load(&mut fixture, dir.path(), &packages).await;
+    assert!(plugin_diagnostics(&fixture, document).is_empty());
+    Ok(())
+}
