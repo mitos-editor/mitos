@@ -1,3 +1,5 @@
+pub mod migration;
+
 use std::str::from_utf8;
 
 use crate::workspace_trust::{TrustQuery, WorkspaceTrust};
@@ -33,7 +35,7 @@ pub fn user_lang_config(trust: &WorkspaceTrust) -> Result<toml::Value, toml::de:
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .fold(default_lang_config(), |a, b| {
-            crate::merge_toml_values(a, b, 3)
+            migration::merge_languages(a, b)
         });
 
     Ok(config)

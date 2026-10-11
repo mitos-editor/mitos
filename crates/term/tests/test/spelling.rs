@@ -653,10 +653,10 @@ async fn editorconfig_and_manual_override_take_precedence() -> anyhow::Result<()
     );
     let mut config = (*app.editor.config()).clone();
     config.spelling.languages = Some(Vec::new());
-    config.editor_config = false;
+    config.files.editor_config = false;
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
     wait_for_mistakes(&mut app, &[]).await?;
-    config.editor_config = true;
+    config.files.editor_config = true;
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     wait_for_mistakes(&mut app, &["teh"]).await?;
     keys(&mut app, ":spelling off<ret>").await?;

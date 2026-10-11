@@ -115,10 +115,10 @@ FLAGS:
         return Ok(1);
     }
 
-    let config = match Config::load_default() {
-        Ok(config) => config,
+    let (config, migrations) = match Config::load_default_migrating() {
+        Ok(loaded) => loaded,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
-            Config::default()
+            (Config::default(), Vec::new())
         }
         Err(ConfigLoadError::Error(err)) => return Err(Error::new(err)),
         Err(ConfigLoadError::BadConfig(err)) => {
@@ -126,7 +126,7 @@ FLAGS:
             eprintln!("Press <ENTER> to continue with default config");
             use std::io::Read;
             let _ = std::io::stdin().read(&mut []);
-            Config::default()
+            (Config::default(), Vec::new())
         }
     };
 
@@ -147,6 +147,7 @@ FLAGS:
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader, workspace_trust)
         .context("unable to start Mitos")?;
+    app.notify_config_migration(migrations);
     let mut events = app.event_stream();
 
     let exit_code = app.run(&mut events).await?;

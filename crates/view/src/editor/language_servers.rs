@@ -114,8 +114,8 @@ impl Editor {
                     server,
                     &config,
                     path.as_deref(),
-                    &editor_config.workspace_lsp_roots,
-                    editor_config.lsp.snippets,
+                    &editor_config.lsp.workspace_roots,
+                    editor_config.lsp.completion.snippets,
                 )
                 .transpose()
             {

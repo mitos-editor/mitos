@@ -74,14 +74,14 @@ These configuration keys are available:
 | `soft-wrap`           | [editor.softwrap](./editor.md#editorsoft-wrap-section)
 | `text-width`          |  Maximum line length. Used for the `:reflow` command and soft-wrapping if `soft-wrap.wrap-at-text-width` is set, defaults to `editor.text-width`   |
 | `rulers`              | Overrides the `editor.rulers` config key for the language. |
-| `path-completion`     | Overrides the `editor.path-completion` config key for the language. |
-| `word-completion`     | Overrides the [`editor.word-completion`](./editor.md#editorword-completion-section) configuration for the language. |
+| `path-completion`     | Overrides the `editor.completion.path.enable` config key for the language. |
+| `word-completion`     | Overrides the [`editor.completion.word`](./editor.md#editorcompletionword-section) configuration for the language. |
 | `spelling` | Layers over [`editor.spelling`](./configuration.md#editorspelling): `languages` and `min-word-length` replace the global value; `words` and `ignore-regexes` extend it. |
 | `auto-pairs`          | Overrides the [`editor.auto-pairs`](./editor.md#editorauto-pairs-section) configuration for the language. |
 | `debugger`            | Defines the language's debug adapter, transport, and launch/attach templates. See [Debugging (DAP)](./debugging.md) and the [complete reference](./configuration.md#languagedebugger). |
 | `workspace-lsp-roots`     | Directories (relative to the workspace root) that stop the upward root search early. Meant for project-specific hard overrides in a local `.mitos/config.toml`; |
 | `persistent-diagnostic-sources` | An array of LSP diagnostic sources assumed unchanged when the language server resends the same set of diagnostics. Mitos can track the position for these diagnostics internally instead. Useful for diagnostics that are recomputed on save.
-| `rainbow-brackets` | Overrides the `editor.rainbow-brackets` config key for the language |
+| `rainbow-brackets` | Overrides the `editor.rainbow-brackets.enable` config key for the language |
 | `code-actions-on-save`    | List of LSP code actions to be run in order on save, for example `["source.organizeImports"]` |
 
 ## Project and LSP root selection

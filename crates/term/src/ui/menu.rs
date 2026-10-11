@@ -318,9 +318,9 @@ impl<T: Item + 'static> Component for Menu<T> {
         if !pending
             && (event == key!(Tab) || event == shift!(Tab))
             && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
-            && cx.editor.config().auto_completion
+            && cx.editor.config().completion.auto_trigger
             && matches!(
-                cx.editor.config().smart_tab,
+                cx.editor.config().indent.smart_tab,
                 Some(SmartTabConfig {
                     enable: true,
                     supersede_menu: true,

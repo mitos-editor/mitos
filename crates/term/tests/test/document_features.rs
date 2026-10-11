@@ -52,7 +52,7 @@ impl Fixture {
         std::fs::write(path, text)?;
         let mut config = test_config();
         config.editor.lsp.enable = true;
-        config.editor.lsp.auto_document_highlight = true;
+        config.editor.lsp.document_highlight.auto_trigger = true;
         config.editor.breadcrumb.enable = true;
         let gates: Vec<_> = servers
             .iter()

@@ -14,7 +14,11 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
     .named(":check-custom".into())]);
     let mut app = AppBuilder::new().with_config(config).build()?;
 
-    for name in ["true-color", "undercurl", "kitty-keyboard-protocol"] {
+    for name in [
+        "terminal.true-color",
+        "terminal.undercurl",
+        "terminal.keyboard.kitty-protocol",
+    ] {
         assert!(term::ui::completers::setting(&app.editor, name)
             .iter()
             .any(|(_, span)| span.content == name));
@@ -22,7 +26,7 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
 
     // An editor-only update must preserve frontend state and custom commands.
     let mut editor_config = (*app.editor.config()).clone();
-    editor_config.scrolloff = 11;
+    editor_config.scroll.padding = 11;
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(editor_config)));
 
     test_key_sequences(
@@ -32,7 +36,7 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
                 Some(":get true-color<ret>"),
                 Some(&|app| {
                     assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "true");
-                    assert_eq!(app.editor.config().scrolloff, 11);
+                    assert_eq!(app.editor.config().scroll.padding, 11);
                 }),
             ),
             (Some(":set true-color false<ret>"), None),
@@ -309,6 +313,42 @@ async fn custom_macro_runs_after_the_prompt_closes() -> anyhow::Result<()> {
                 format!("hello{}", editor_core::NATIVE_LINE_ENDING.as_str())
             );
         }),
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feature_commands_use_canonical_paths_and_accept_legacy_aliases() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let names = term::ui::completers::setting(&app.editor, "lsp.inlay-hints");
+    assert!(names
+        .iter()
+        .any(|(_, span)| span.content == "lsp.inlay-hints.enable"));
+    assert!(!names
+        .iter()
+        .any(|(_, span)| span.content == "lsp.display-inlay-hints"));
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(":set completion.trigger-delay 100<ret>"), None),
+            (Some(":toggle lsp.display-inlay-hints<ret>"), None),
+            (
+                Some(":get lsp.inlay-hints.enable<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "true");
+                    let config = app.editor.config();
+                    assert!(config.lsp.inlay_hints.enable);
+                    assert_eq!(config.completion.trigger_delay.as_millis(), 100);
+                    assert!(config.lsp.messages.enable);
+                }),
+            ),
+            (Some(":toggle lsp.inlay-hints.enable<ret>"), None),
+            (
+                Some(":get lsp.display-inlay-hints<ret>"),
+                Some(&|app| assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "false")),
+            ),
+        ],
         false,
     )
     .await

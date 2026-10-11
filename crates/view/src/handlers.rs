@@ -195,7 +195,7 @@ fn register_hooks() {
         lsp::register_hooks();
         word_index::register_hooks();
         register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            event.editor.file_watcher.reload(&event.new.file_watcher);
+            event.editor.file_watcher.reload(&event.new.files.watch);
             event.editor.refresh_vcs_watches();
             Ok(())
         });

@@ -252,7 +252,7 @@ fn goto_window(cx: &mut Context, align: Align) {
     // - 1 so we have at least one gap in the middle.
     // a height of 6 with padding of 3 on each side will keep shifting the view back and forth
     // as we type
-    let scrolloff = config.scrolloff.min(height.saturating_sub(1) / 2);
+    let scrolloff = config.scroll.padding.min(height.saturating_sub(1) / 2);
 
     let last_visual_line = view.last_visual_line(doc);
 
@@ -619,7 +619,7 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
     let cursor = range.cursor(text);
     let height = view.inner_height(doc);
 
-    let scrolloff = config.scrolloff.min(height.saturating_sub(1) / 2);
+    let scrolloff = config.scroll.padding.min(height.saturating_sub(1) / 2);
     let offset = match direction {
         Forward => offset as isize,
         Backward => -(offset as isize),

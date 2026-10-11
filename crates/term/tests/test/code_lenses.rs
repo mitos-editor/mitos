@@ -126,6 +126,8 @@ impl Fixture {
             let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::from(key));
             self.app.handle_terminal_events(Ok(event)).await;
         }
+        // Menu input can be consumed without EditorView resetting the idle timer.
+        self.app.editor.reset_idle_timer();
         tokio::time::timeout(
             Duration::from_secs(10),
             run_event_loop_until_idle(&mut self.app),
@@ -305,7 +307,7 @@ async fn disabling_lenses_discards_queued_results_and_enabling_requests_them_aga
     code_lenses::refresh_for_language_server(&mut fixture.app.editor, server);
     let queued = fixture.response().await?;
     let mut config = fixture.app.editor.config().clone();
-    config.lsp.display_code_lenses = false;
+    config.lsp.code_lenses.enable = false;
     fixture
         .app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
@@ -319,7 +321,7 @@ async fn disabling_lenses_discards_queued_results_and_enabling_requests_them_aga
         .code_lenses()
         .is_empty());
     assert!(code_lenses::resolve_code_lenses(&mut fixture.app.editor, fixture.doc, 0).is_none());
-    config.lsp.display_code_lenses = true;
+    config.lsp.code_lenses.enable = true;
     fixture
         .app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));

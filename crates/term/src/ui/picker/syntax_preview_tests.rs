@@ -22,9 +22,9 @@ impl Fixture {
     fn new() -> anyhow::Result<Self> {
         let mut config = Config::default();
         config.editor.lsp.enable = false;
-        config.editor.file_watcher.enable = false;
-        config.editor.auto_reload.enable = false;
-        config.editor.word_completion.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.enable = false;
+        config.editor.completion.word.enable = false;
         let loader = syntax::Loader::new(
             toml::from_str(
                 r#"

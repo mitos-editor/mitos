@@ -47,7 +47,7 @@ fn request_document_code_lenses(
     doc_id: DocumentId,
     exited_server: Option<LanguageServerId>,
 ) {
-    if !editor.config().lsp.enable || !editor.config().lsp.display_code_lenses {
+    if !editor.config().lsp.enable || !editor.config().lsp.code_lenses.enable {
         return;
     }
     let callbacks = editor.handlers.code_lenses.callbacks.clone();
@@ -118,7 +118,7 @@ fn request_document_code_lenses(
             .send(move |editor| {
                 if request.is_current(editor)
                     && editor.config().lsp.enable
-                    && editor.config().lsp.display_code_lenses
+                    && editor.config().lsp.code_lenses.enable
                 {
                     let doc = editor.document_mut(doc_id).unwrap();
                     doc.code_lenses.version = Some(doc.version());
@@ -161,7 +161,7 @@ pub struct CodeLensCommand {
 /// Frontends call this preparation step when the viewport or cached lenses change;
 /// the renderer itself only reads the cache. Repeated frames do not repeat attempts.
 pub fn prepare_visible_code_lenses(editor: &mut Editor) {
-    if !editor.config().lsp.enable || !editor.config().lsp.display_code_lenses {
+    if !editor.config().lsp.enable || !editor.config().lsp.code_lenses.enable {
         return;
     }
     let mut pending = Vec::new();
@@ -266,7 +266,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
                 .send(move |editor| {
                     if request.is_current(editor)
                         && editor.config().lsp.enable
-                        && editor.config().lsp.display_code_lenses
+                        && editor.config().lsp.code_lenses.enable
                     {
                         editor.document_mut(doc_id).unwrap().code_lenses.cache[index].lens = lens;
                         event::request_redraw();
@@ -311,7 +311,7 @@ impl ResolvedCodeLenses {
     pub fn is_current(&self, editor: &Editor) -> bool {
         self.request.is_current(editor)
             && editor.config().lsp.enable
-            && editor.config().lsp.display_code_lenses
+            && editor.config().lsp.code_lenses.enable
     }
 
     /// Cache by original index, preserving distinct lenses with equal ranges/data.
@@ -333,7 +333,7 @@ pub fn resolve_code_lenses(
     doc_id: DocumentId,
     line: usize,
 ) -> Option<impl Future<Output = Option<ResolvedCodeLenses>> + Send + use<>> {
-    if !editor.config().lsp.enable || !editor.config().lsp.display_code_lenses {
+    if !editor.config().lsp.enable || !editor.config().lsp.code_lenses.enable {
         return None;
     }
     let slots = editor.handlers.code_lenses.resolution_slots.clone();

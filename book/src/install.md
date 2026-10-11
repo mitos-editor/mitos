@@ -119,6 +119,14 @@ runtime, shell completions, and desktop entry. ARM64 users can use the release
 archive or the installer. If your system's glibc is too old, see
 [building the Debian package](./building-from-source.md#building-the-debian-package).
 
+## Configuration after upgrading
+
+On your next normal launch, Mitos automatically migrates known legacy settings in
+your user configuration and the current trusted project's configuration. It
+preserves settings and comments, creates backups, and shows their locations.
+See [automatic configuration migration](./configuration.md#automatic-configuration-migration)
+for details. `languages.toml` is left unchanged.
+
 ## Verify the installation
 
 ```sh

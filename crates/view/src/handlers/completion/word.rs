@@ -20,7 +20,7 @@ pub(super) fn completion(
     if !doc!(editor).word_completion_enabled() {
         return None;
     }
-    let config = editor.config().word_completion;
+    let config = editor.config().completion.word;
     let doc_config = doc!(editor)
         .language_config()
         .and_then(|config| config.word_completion);

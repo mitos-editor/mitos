@@ -321,7 +321,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
             let (view, doc) = (view_mut!(cx.editor), doc_mut!(cx.editor, &meta.id));
             doc.set_selection(view.id, meta.selection.clone());
             if action.align_view(view, doc.id()) {
-                view.ensure_cursor_in_view_center(doc, config.scrolloff);
+                view.ensure_cursor_in_view_center(doc, config.scroll.padding);
             }
         },
     )
@@ -548,7 +548,7 @@ pub(super) mod typed {
 
     fn abort_goto_line_number_preview(cx: &mut compositor::Context) {
         if let Some(last_selection) = cx.editor.last_selection.take() {
-            let scrolloff = cx.editor.config().scrolloff;
+            let scrolloff = cx.editor.config().scroll.padding;
 
             let (view, doc) = current!(cx.editor);
             doc.set_selection(view.id, last_selection);
@@ -565,7 +565,7 @@ pub(super) mod typed {
             doc.selection(view.id).clone()
         });
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let line = args[0].parse::<usize>()?;
         goto_line_without_jumplist(
             cx.editor,

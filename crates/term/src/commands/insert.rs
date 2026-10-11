@@ -71,7 +71,7 @@ pub fn smart_tab(cx: &mut Context) {
     let view_id = view.id;
 
     if matches!(
-        cx.editor.config().smart_tab,
+        cx.editor.config().indent.smart_tab,
         Some(SmartTabConfig { enable: true, .. })
     ) {
         let cursors_after_whitespace = doc.selection(view_id).ranges().iter().all(|range| {
@@ -223,7 +223,7 @@ pub fn insert_newline(cx: &mut Context) {
                 _ => indent::indent_for_newline(
                     &loader,
                     doc.syntax(),
-                    &config.indent_heuristic,
+                    &config.indent.heuristic,
                     &doc.indent_style,
                     doc.tab_width(),
                     text,
@@ -592,7 +592,7 @@ fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
             let indent = indent::indent_for_newline(
                 &loader,
                 syntax,
-                &doc.config.load().indent_heuristic,
+                &doc.config.load().indent.heuristic,
                 &doc.indent_style,
                 tab_width,
                 text,
@@ -723,7 +723,7 @@ pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentCo
             _ => indent::indent_for_newline(
                 &loader,
                 doc.syntax(),
-                &config.indent_heuristic,
+                &config.indent.heuristic,
                 &doc.indent_style,
                 doc.tab_width(),
                 text,

@@ -138,7 +138,7 @@ impl AsyncHook for Debounce {
         if let Some(target) = self.target.take() {
             self.callbacks.send_blocking(move |editor| {
                 if !target.cancel.is_canceled()
-                    && editor.config().inline_completion_auto_trigger
+                    && editor.config().inline_completion.auto_trigger
                     && editor.tree.focus == target.view
                     && editor
                         .tree
@@ -380,7 +380,7 @@ pub(super) fn register_hooks() {
             trigger.cancel_document(event.doc.id());
         }
         if !event.ghost_transaction
-            && event.doc.config.load().inline_completion_auto_trigger
+            && event.doc.config.load().inline_completion.auto_trigger
             && let Some(tx) = &event.doc.inline_completions.trigger
         {
             tx.schedule(
@@ -391,7 +391,7 @@ pub(super) fn register_hooks() {
                     .selection(event.view)
                     .primary()
                     .cursor(event.doc.text().slice(..)),
-                event.doc.config.load().inline_completion_timeout,
+                event.doc.config.load().inline_completion.trigger_delay,
             );
         }
         Ok(())

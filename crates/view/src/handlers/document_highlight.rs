@@ -28,7 +28,7 @@ impl DocumentHighlightHandler {
 
 fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id: ViewId) {
     let callbacks = editor.handlers.document_highlight.callbacks.clone();
-    if !editor.config().lsp.auto_document_highlight {
+    if !editor.config().lsp.document_highlight.auto_trigger {
         return;
     }
 
@@ -149,7 +149,7 @@ fn apply_document_highlights(
     view_id: ViewId,
     ranges: Vec<std::ops::Range<usize>>,
 ) {
-    if !editor.config().lsp.auto_document_highlight {
+    if !editor.config().lsp.document_highlight.auto_trigger {
         return;
     }
 
@@ -180,7 +180,7 @@ fn apply_document_highlights(
 
 pub(super) fn register_hooks() {
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        if event.doc.config.load().lsp.auto_document_highlight
+        if event.doc.config.load().lsp.document_highlight.auto_trigger
             && event
                 .doc
                 .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
@@ -198,7 +198,7 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        if !event.editor.config().lsp.auto_document_highlight {
+        if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
         let view_id = event.editor.tree.focus;
@@ -210,7 +210,7 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if event.doc.config.load().lsp.auto_document_highlight
+        if event.doc.config.load().lsp.document_highlight.auto_trigger
             && !event.ghost_transaction
             && event
                 .doc
@@ -229,7 +229,7 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        if !event.editor.config().lsp.auto_document_highlight {
+        if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
         let view_id = event.editor.tree.focus;
@@ -253,7 +253,9 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         // When auto document highlight is turned on, request highlights immediately
         // for the focused view instead of waiting for the next selection change.
-        if !event.old.lsp.auto_document_highlight && event.new.lsp.auto_document_highlight {
+        if !event.old.lsp.document_highlight.auto_trigger
+            && event.new.lsp.document_highlight.auto_trigger
+        {
             let view_id = event.editor.tree.focus;
             let Some(view) = event.editor.tree.try_get(view_id) else {
                 return Ok(());
@@ -265,7 +267,9 @@ pub(super) fn register_hooks() {
 
         // When auto document highlight is turned off, clear any highlights that were
         // previously rendered across open documents.
-        if event.old.lsp.auto_document_highlight && !event.new.lsp.auto_document_highlight {
+        if event.old.lsp.document_highlight.auto_trigger
+            && !event.new.lsp.document_highlight.auto_trigger
+        {
             for doc in event.editor.documents_mut() {
                 doc.clear_all_document_highlights();
             }

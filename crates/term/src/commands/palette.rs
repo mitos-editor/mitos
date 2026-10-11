@@ -104,7 +104,7 @@ pub fn command_palette(cx: &mut Context) {
                     let view = view_mut!(ctx.editor, focus);
                     let doc = doc_mut!(ctx.editor, &view.doc);
 
-                    view.ensure_cursor_in_view(doc, config.scrolloff);
+                    view.ensure_cursor_in_view(doc, config.scroll.padding);
 
                     if mode != Mode::Insert {
                         doc.append_changes_to_history(view);

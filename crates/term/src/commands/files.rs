@@ -971,7 +971,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let trust_full = doc_trust_full(cx.editor);
         let (view, doc) = current!(cx.editor);
         doc.reload(view, &cx.editor.diff_providers, trust_full)
@@ -999,7 +999,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let view_id = view!(cx.editor).id;
 
         let docs_view_ids: Vec<(DocumentId, Vec<ViewId>)> = cx
@@ -1228,7 +1228,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
 
         let filename = args.first().unwrap();

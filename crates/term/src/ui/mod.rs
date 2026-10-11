@@ -162,7 +162,7 @@ pub fn raw_regex_prompt(
                             fun(cx, regex, input, event);
 
                             let (view, doc) = current!(cx.editor);
-                            view.ensure_cursor_in_view(doc, config.scrolloff);
+                            view.ensure_cursor_in_view(doc, config.scroll.padding);
                         }
                         Err(err) => {
                             let doc = doc_mut!(cx.editor, &doc_id);

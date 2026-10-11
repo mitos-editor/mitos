@@ -149,16 +149,16 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
     let config_path = root.join("config/mitos/config.toml");
     let config = r#"
         theme = "base16_default"
-        [editor]
-        scrolloff = 7
+        [editor.scroll]
+        padding = 7
         [editor.lsp]
         enable = false
-        [editor.file-watcher]
+        [editor.files.watch]
         enable = false
         watch-vcs = false
-        [editor.auto-reload]
+        [editor.files.reload]
         enable = false
-        [editor.word-completion]
+        [editor.completion.word]
         enable = false
         [editor.workspace-trust]
         level = "insecure"
@@ -182,8 +182,8 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
     event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        assert_eq!(event.new.scrolloff, 7);
-        assert_eq!(event.editor.config().scrolloff, 7);
+        assert_eq!(event.new.scroll.padding, 7);
+        assert_eq!(event.editor.config().scroll.padding, 7);
         assert_eq!(
             current_ref!(event.editor)
                 .1
@@ -220,7 +220,7 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
         &config_path,
         config
             .replace("insecure", "none")
-            .replace("scrolloff = 7", "scrolloff = 9"),
+            .replace("padding = 7", "padding = 9"),
     )?;
     std::fs::write(root.join("config/mitos/languages.toml"), "invalid = [")?;
     app.handle_config_events(ConfigEvent::Refresh);
@@ -231,7 +231,7 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
         .0
         .starts_with("Failed to parse language config:"));
     assert_eq!(calls.load(Ordering::SeqCst), 3);
-    assert_eq!(app.editor.config().scrolloff, 7);
+    assert_eq!(app.editor.config().scroll.padding, 7);
     assert!(matches!(
         app.editor.workspace_trust.implicit_level(),
         ImplicitTrustLevel::None
@@ -339,5 +339,71 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
         false,
     )
     .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn config_reload_migrates_user_and_trusted_project_configs() -> anyhow::Result<()> {
+    use super::helpers::{isolation, test_key_sequences};
+    use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
+    let Some(root) = isolation::workspace(
+        "test::config_application::config_reload_migrates_user_and_trusted_project_configs",
+    )?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    let user = loader::config_file();
+    let project = loader::workspace_config_file();
+    let global = "[editor]\nscrolloff = 7\n[editor.workspace-trust]\nlevel = 'none'\n";
+    let local = "# Project settings\n[editor]\nscrolloff = 17\n";
+    std::fs::write(&user, global)?;
+    std::fs::write(&project, local)?;
+    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    let mut app = AppBuilder::new().build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":config-reload<ret>"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(app.editor.config().scroll.padding, 17);
+                    let (message, severity) = app.editor.get_status().unwrap();
+                    assert!(message.contains(&user.display().to_string()), "{message}");
+                    assert!(
+                        message.contains(&project.display().to_string()),
+                        "{message}"
+                    );
+                    assert!(message.contains("backup:"), "{message}");
+                    assert_eq!(*severity, editor_core::diagnostic::Severity::Info);
+                    assert_eq!(
+                        WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+                        TrustStatus::Trusted
+                    );
+                }),
+            ),
+            (
+                Some(":config-reload<ret>"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(app.editor.config().scroll.padding, 17);
+                    assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
+                    for path in [&user, &project] {
+                        assert!(path.with_extension("toml.bak").is_file());
+                        assert!(!path.with_extension("toml.bak.1").exists());
+                    }
+                }),
+            ),
+        ],
+        false,
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(user.with_extension("toml.bak"))?,
+        global
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.with_extension("toml.bak"))?,
+        local
+    );
     Ok(())
 }

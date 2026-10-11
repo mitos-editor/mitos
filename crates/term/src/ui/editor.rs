@@ -289,11 +289,11 @@ impl EditorView {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
         }
 
-        if is_focused && config.cursorline {
+        if is_focused && config.cursor.highlight_line {
             decorations.add_decoration(Self::cursorline(doc, view, theme));
         }
 
-        if is_focused && config.cursorcolumn {
+        if is_focused && config.cursor.highlight_column {
             Self::highlight_cursorcolumn(doc, view, surface, theme, inner, &text_annotations);
         }
 
@@ -325,7 +325,7 @@ impl EditorView {
         if doc
             .language_config()
             .and_then(|config| config.rainbow_brackets)
-            .unwrap_or(config.rainbow_brackets)
+            .unwrap_or(config.rainbow_brackets.enable)
             && let Some(overlay) =
                 Self::doc_rainbow_highlights(doc, view_offset.anchor, inner.height, theme, &loader)
         {
@@ -339,7 +339,7 @@ impl EditorView {
         Self::doc_diagnostics_highlights_into(doc, theme, &mut overlays);
 
         if is_focused {
-            if config.lsp.auto_document_highlight
+            if config.lsp.document_highlight.auto_trigger
                 && let Some(overlay) = Self::doc_document_highlights(doc, view, theme)
             {
                 overlays.push(overlay);
@@ -352,7 +352,7 @@ impl EditorView {
                 doc,
                 view,
                 theme,
-                &config.cursor_shape,
+                &config.cursor.shape,
                 self.terminal_focused,
                 cx.is_cursor_owner,
             ));
@@ -412,16 +412,16 @@ impl EditorView {
         let enable_cursor_line = view
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
-        let inline_diagnostic_config = config.inline_diagnostics.prepare(width, enable_cursor_line);
+        let inline_diagnostic_config = config.diagnostics.inline.prepare(width, enable_cursor_line);
         decorations.add_decoration(InlineDiagnostics::new(
             doc,
             theme,
             primary_cursor,
             inline_diagnostic_config,
-            config.end_of_line_diagnostics,
+            config.diagnostics.end_of_line.severity,
             config.icons,
         ));
-        if config.lsp.enable && config.lsp.display_code_lenses {
+        if config.lsp.enable && config.lsp.code_lenses.enable {
             let hidden_line = if is_focused && editor.mode() == Mode::Insert {
                 doc.inline_completion(view.id)
                     .map(|completion| doc.text().char_to_line(completion.cursor))
@@ -460,8 +460,8 @@ impl EditorView {
 
         Self::render_view_border(editor, view, viewport, surface);
 
-        if config.inline_diagnostics.disabled()
-            && config.end_of_line_diagnostics == DiagnosticFilter::Disable
+        if config.diagnostics.inline.disabled()
+            && config.diagnostics.end_of_line.severity == DiagnosticFilter::Disable
         {
             Self::render_diagnostics(doc, view, inner, surface, theme);
         }
@@ -1716,7 +1716,7 @@ impl EditorView {
                     None => return EventResult::Ignored(None),
                 }
 
-                let offset = config.scroll_lines.unsigned_abs();
+                let offset = config.scroll.wheel_lines.unsigned_abs();
                 commands::scroll(cxt, offset, direction, false);
 
                 cxt.editor.tree.focus = current_view;
@@ -1726,7 +1726,7 @@ impl EditorView {
             }
 
             MouseEventKind::Up(MouseButton::Left) => {
-                if !config.middle_click_paste {
+                if !config.mouse.middle_click_paste {
                     return EventResult::Ignored(None);
                 }
 
@@ -1748,7 +1748,7 @@ impl EditorView {
                 if should_yank {
                     commands::yank_main_selection_to_register(
                         cxt.editor,
-                        config.mouse_yank_register,
+                        config.mouse.yank_register,
                     );
                     EventResult::Consumed(None)
                 } else {
@@ -1784,14 +1784,14 @@ impl EditorView {
 
             MouseEventKind::Up(MouseButton::Middle) => {
                 let editor = &mut cxt.editor;
-                if !config.middle_click_paste {
+                if !config.mouse.middle_click_paste {
                     return EventResult::Ignored(None);
                 }
 
                 if modifiers == KeyModifiers::ALT {
                     commands::replace_selections_with_register(
                         cxt.editor,
-                        config.mouse_yank_register,
+                        config.mouse.yank_register,
                         cxt.count(),
                     );
 
@@ -1805,7 +1805,7 @@ impl EditorView {
 
                     commands::paste(
                         cxt.editor,
-                        config.mouse_yank_register,
+                        config.mouse.yank_register,
                         commands::Paste::Before,
                         cxt.count(),
                     );
@@ -1872,7 +1872,7 @@ impl Component for EditorView {
                 let config = cx.editor.config();
                 let mode = cx.editor.mode();
                 let (view, doc) = current!(cx.editor);
-                view.ensure_cursor_in_view(doc, config.scrolloff);
+                view.ensure_cursor_in_view(doc, config.scroll.padding);
 
                 // Store a history state if not in insert mode. Otherwise wait till we exit insert
                 // to include any edits to the paste in the history state.
@@ -1971,7 +1971,7 @@ impl Component for EditorView {
                 let mode = cx.editor.mode();
                 let (view, doc) = current!(cx.editor);
 
-                view.ensure_cursor_in_view(doc, config.scrolloff);
+                view.ensure_cursor_in_view(doc, config.scroll.padding);
 
                 // Store a history state if not in insert mode. This also takes care of
                 // committing changes when leaving insert mode.
@@ -2013,7 +2013,7 @@ impl Component for EditorView {
         let config = cx.editor.config();
 
         // check if bufferline should be rendered
-        let use_bufferline = match config.bufferline {
+        let use_bufferline = match config.bufferline.show {
             BufferLine::Always => true,
             BufferLine::Multiple if cx.editor.documents.len() > 1 => true,
             _ => false,

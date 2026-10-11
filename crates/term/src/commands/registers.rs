@@ -12,7 +12,7 @@ pub(super) fn yank(cx: &mut Context) {
     yank_impl(
         cx.editor,
         cx.register
-            .unwrap_or(cx.editor.config().default_yank_register),
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register),
     );
     exit_select_mode(cx);
 }
@@ -78,7 +78,7 @@ pub(super) fn yank_joined(cx: &mut Context) {
         cx.editor,
         separator,
         cx.register
-            .unwrap_or(cx.editor.config().default_yank_register),
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register),
     );
     exit_select_mode(cx);
 }
@@ -242,7 +242,7 @@ pub(super) fn replace_with_yanked(cx: &mut Context) {
     replace_selections_with_register(
         cx.editor,
         cx.register
-            .unwrap_or(cx.editor.config().default_yank_register),
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         cx.count(),
     );
     exit_select_mode(cx);
@@ -256,7 +256,7 @@ pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: ch
     else {
         return;
     };
-    let scrolloff = editor.config().scrolloff;
+    let scrolloff = editor.config().scroll.padding;
     let (view, doc) = current_ref!(editor);
 
     let map_value = |value: &Cow<str>| {
@@ -315,7 +315,7 @@ pub(super) fn paste_after(cx: &mut Context) {
     paste(
         cx.editor,
         cx.register
-            .unwrap_or(cx.editor.config().default_yank_register),
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         Paste::After,
         cx.count(),
     );
@@ -326,7 +326,7 @@ pub(super) fn paste_before(cx: &mut Context) {
     paste(
         cx.editor,
         cx.register
-            .unwrap_or(cx.editor.config().default_yank_register),
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         Paste::Before,
         cx.count(),
     );
@@ -361,7 +361,7 @@ pub(super) fn insert_register(cx: &mut Context) {
             paste(
                 cx.editor,
                 cx.register
-                    .unwrap_or(cx.editor.config().default_yank_register),
+                    .unwrap_or(cx.editor.config().clipboard.default_yank_register),
                 Paste::Cursor,
                 count,
             );
@@ -456,7 +456,7 @@ pub(super) mod typed {
         let register = cx
             .editor
             .selected_register
-            .unwrap_or(cx.editor.config().default_yank_register);
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register);
         yank_joined_impl(cx.editor, separator, register);
         Ok(())
     }

@@ -34,14 +34,60 @@ workspace is trusted; see [Workspace trust](./workspace-trust.md).
 Unknown `config.toml` editor keys are rejected. This makes misspelled settings
 fail visibly instead of being silently ignored.
 
+## Structure and compatibility
+
+Settings are grouped by feature. For example, use `editor.lsp.messages.enable`
+and `editor.completion.trigger-delay`. Feature tables can be written explicitly
+or with TOML dotted keys. Editor durations are milliseconds; language-server
+request timeouts are seconds.
+
+Legacy paths remain accepted, including `editor.lsp.display-messages`,
+`editor.auto-format`, and the old boolean or string feature shorthands. Each
+file is normalized before layering, so a project override wins regardless of
+which spelling is used. Defining the same logical setting with both spellings
+in one file is an error. Tables merge recursively and ordinary arrays replace
+the earlier value, including an explicit empty array.
+
+Runtime commands use editor-relative paths, for example
+`:toggle lsp.inlay-hints.enable` and `:set completion.trigger-delay 100`.
+Terminal settings use `terminal.*`, such as `:toggle terminal.true-color`.
+Legacy command paths remain accepted; completions show canonical paths.
+
+## Automatic configuration migration
+
+On normal startup and configuration reload, Mitos rewrites known legacy settings
+in your user `config.toml` and the current trusted project's `.mitos/config.toml`
+into the current feature sections. A file selected with `-c` or `--config` is your
+user configuration for that session. Projects whose local configuration is blocked
+by workspace trust, including stale or excluded projects, are not rewritten.
+
+Migration preserves values, comments, keybindings, and custom commands. All loaded
+configuration layers must validate before any rewrite. Each changed file receives
+an adjacent backup named `config.toml.bak`; existing backups are preserved with
+numbered suffixes such as `config.toml.bak.1`. Replacements are atomic and preserve
+file permissions and symlinks. For symlinks, the target file is updated and the
+backup is placed beside that target. A status message reports the updated files
+and backup paths. Project migration changes the project's working tree.
+
+Already migrated files are left unchanged, and missing user files are not created.
+If a backup or rewrite fails, Mitos warns and keeps using the successfully loaded
+settings through compatibility aliases. Reload configuration to retry.
+
+An existing explicit workspace trust grant is updated only when the migration and
+its backup explain every change to the trusted configuration fingerprint. Other
+changes still require review and renewed trust; migration never grants trust to
+an untrusted project. `languages.toml` is unchanged. Health checks, help, and version
+output also leave both configuration files untouched.
+
 ## `config.toml` reference
 
-`config.toml` accepts four top-level entries:
+`config.toml` accepts five top-level entries:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | string or table | `{ light = "modus_operandi", dark = "modus_vivendi" }` | Theme name, or `{ light = "...", dark = "...", fallback = "..." }`. `fallback` is optional and defaults to `dark`. See [Themes](./themes.md). |
-| `editor` | table | See below | Editor behavior and UI settings. |
+| `editor` | table | See below | Shared editor behavior and UI settings. |
+| `terminal` | table | See below | Terminal capabilities, keyboard protocol, and external launcher. |
 | `keys` | table | Built-in keymap | Per-mode key bindings under `[keys.normal]`, `[keys.insert]`, and `[keys.select]`. Entries are merged with the built-in keymap. See [Key remapping](./remapping.md). |
 | `commands` | table | `{}` | User-defined command-mode commands. See [Custom commands](./custom-commands.md). |
 
@@ -52,10 +98,10 @@ theme = "onedark"
 
 [editor]
 line-number = "relative"
-mouse = false
+mouse.enable = false
 icons = true # Requires a Nerd Font.
 
-[editor.cursor-shape]
+[editor.cursor.shape]
 insert = "bar"
 normal = "block"
 select = "underline"
@@ -74,34 +120,13 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `welcome-screen` | boolean | `true` | Show the welcome screen when Mitos starts without a file. |
-| `scrolloff` | integer | `5` | Minimum screen lines kept above and below the cursor when possible. |
-| `scroll-lines` | integer | `3` | Lines moved by one scroll-wheel step. |
-| `mouse` | boolean | `true` | Enable mouse input. |
-| `mouse-yank-register` | character | `"*"` | Register used for selections made with the mouse. |
-| `middle-click-paste` | boolean | `true` | Paste the primary selection on middle click. |
-| `default-yank-register` | character | `"\""` | Register used by yank and paste commands when none is selected explicitly. |
 | `shell` | array of strings | Unix: `["sh", "-c"]`; Windows: `["cmd", "/C"]` | Command prefix used to execute shell commands. |
 | `line-number` | `"absolute"` or `"relative"` | `"absolute"` | Line-number display mode. Relative numbers become absolute in insert mode and when the view is unfocused. |
-| `cursorline` | boolean | `false` | Highlight every line containing a cursor. |
-| `cursorcolumn` | boolean | `false` | Highlight every column containing a cursor. |
 | `gutters` | array or table | `["diagnostics", "spacer", "line-numbers", "spacer", "diff"]` | Gutter layout and options. See [`[editor.gutters]`](#editorgutters). |
-| `auto-pairs` | boolean or character map | `true` | Insert matching delimiters. See [`[editor.auto-pairs]`](#editorauto-pairs). |
-| `auto-completion` | boolean | `true` | Show completion automatically. |
-| `path-completion` | boolean | `true` | Complete filesystem paths recognized at the cursor. |
+| `auto-pairs` | table | `{ enable = true }` | Insert matching delimiters. See [`[editor.auto-pairs]`](#editorauto-pairs). |
 | `spelling` | table | Disabled | Dictionaries, accepted words, and token filters. See [`[editor.spelling]`](#editorspelling). |
-| `word-completion` | table | `{ enable = true, trigger-length = 7 }` | Complete words from open buffers. See [`[editor.word-completion]`](#editorword-completion). |
-| `auto-format` | boolean | `true` | Format on save when the current language also enables `auto-format`. |
-| `auto-save` | boolean or table | `false` | A boolean controls save-on-focus-loss; a table can also configure delayed saves. See [`[editor.auto-save]`](#editorauto-save). |
-| `auto-reload` | table | See below | Reload buffers when files change externally. See [`[editor.auto-reload]`](#editorauto-reload). |
-| `file-watcher` | table | See below | Native file watching, traversal, and Git refreshes. See [`[editor.file-watcher]`](#editorfile-watcher). |
 | `text-width` | integer | `80` | Width used by `:reflow` and optionally soft wrapping. |
 | `idle-timeout` | milliseconds | `250` | Idle delay used by editor UI timers. |
-| `inline-completion-timeout` | milliseconds | `150` | Delay after editing before requesting LSP ghost text. |
-| `inline-completion-auto-trigger` | boolean | `true` | Request LSP ghost text automatically in insert mode. |
-| `completion-timeout` | milliseconds | `250` | Delay after typing a word character before completion is shown; use `5` for effectively immediate completion. |
-| `preview-completion-insert` | boolean | `true` | Temporarily insert the selected completion item while browsing the menu. |
-| `completion-trigger-len` | integer | `2` | Minimum word length that triggers automatic completion. |
-| `completion-replace` | boolean | `false` | Ask LSP completions to replace the whole word instead of only the text before the cursor. |
 | `continue-comments` | boolean | `true` | Continue a line comment when Enter creates a new line inside it. |
 | `auto-info` | boolean | `true` | Display contextual information popups. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
@@ -109,35 +134,146 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
 | `statusline` | table | See below | Statusline layout and labels. See [`[editor.statusline]`](#editorstatusline). |
-| `cursor-shape` | table | All modes `"block"` | Cursor shape by mode. See [`[editor.cursor-shape]`](#editorcursor-shape). |
-| `true-color` | boolean | `false` | Force true-color support when terminal detection produces a false negative. |
-| `undercurl` | boolean | `false` | Force undercurl support when terminal detection produces a false negative. |
 | `search` | table | See below | Search matching and wrap behavior. See [`[editor.search]`](#editorsearch). |
 | `lsp` | table | See below | Global LSP behavior. See [`[editor.lsp]`](#editorlsp). |
-| `terminal` | table | Environment-dependent | External terminal command used by features such as DAP `runInTerminal`. See [`[editor.terminal]`](#editorterminal). |
 | `rulers` | array of integers | `[]` | Columns at which to draw rulers; a language may override this. |
 | `whitespace` | table | See below | Visible whitespace rendering. See [`[editor.whitespace]`](#editorwhitespace). |
-| `bufferline` | `"never"`, `"always"`, or `"multiple"` | `"never"` | When to show open buffers at the top of the editor. |
 | `breadcrumb` | table | See below | Breadcrumb navigation bar. See [`[editor.breadcrumb]`](#editorbreadcrumb). |
 | `indent-guides` | table | See below | Vertical indentation guides. See [`[editor.indent-guides]`](#editorindent-guides). |
-| `color-modes` | boolean | `false` | Color the statusline mode indicator according to the current mode. |
 | `soft-wrap` | table | See below | Soft wrapping. See [`[editor.soft-wrap]`](#editorsoft-wrap). |
-| `workspace-lsp-roots` | array of paths | `[]` | Workspace-relative directories that stop LSP root discovery. Intended for project `.mitos/config.toml`. |
+| `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
+| `workspace-trust` | table | See below | Implicit workspace trust policy. See [`[editor.workspace-trust]`](#editorworkspace-trust). |
+| `bufferline` | table | See below | See [`[editor.bufferline]`](#editorbufferline). |
+| `clipboard` | table | See below | See [`[editor.clipboard]`](#editorclipboard). |
+| `completion` | table | See below | See [`[editor.completion]`](#editorcompletion). |
+| `cursor` | table | See below | See [`[editor.cursor]`](#editorcursor). |
+| `diagnostics` | table | See below | See [`[editor.diagnostics]`](#editordiagnostics). |
+| `files` | table | See below | See [`[editor.files]`](#editorfiles). |
+| `format` | table | See below | See [`[editor.format]`](#editorformat). |
+| `indent` | table | See below | See [`[editor.indent]`](#editorindent). |
+| `inline-completion` | table | See below | See [`[editor.inline-completion]`](#editorinline-completion). |
+| `mouse` | table | See below | See [`[editor.mouse]`](#editormouse). |
+| `rainbow-brackets` | table | See below | See [`[editor.rainbow-brackets]`](#editorrainbow-brackets). |
+| `scroll` | table | See below | See [`[editor.scroll]`](#editorscroll). |
+
+### `[editor.scroll]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `padding` | integer | `5` | Minimum screen lines kept above and below the cursor when possible. |
+| `wheel-lines` | integer | `3` | Lines moved by one scroll-wheel step. |
+
+### `[editor.mouse]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `enable` | boolean | `true` | Enable mouse input. |
+| `yank-register` | character | `"*"` | Register used for selections made with the mouse. |
+| `middle-click-paste` | boolean | `true` | Paste the primary selection on middle click. |
+
+### `[editor.clipboard]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `default-yank-register` | character | `"\""` | Register used by yank and paste commands when none is selected explicitly. |
+| `provider` | provider name or custom table | Auto-detected | Clipboard integration. See [`[editor.clipboard.provider]`](#editorclipboardprovider). |
+
+### `[editor.cursor]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `highlight-line` | boolean | `false` | Highlight every line containing a cursor. |
+| `highlight-column` | boolean | `false` | Highlight every column containing a cursor. |
+| `shape` | table | All modes `"block"` | Cursor shape by mode. See [`[editor.cursor.shape]`](#editorcursorshape). |
+
+### `[editor.completion]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `auto-trigger` | boolean | `true` | Show completion automatically. |
+| `word` | table | `{ enable = true, trigger-length = 7 }` | Complete words from open buffers. See [`[editor.completion.word]`](#editorcompletionword). |
+| `trigger-delay` | milliseconds | `250` | Delay after typing a word character before completion is shown; use `5` for effectively immediate completion. |
+| `preview-insert` | boolean | `true` | Temporarily insert the selected completion item while browsing the menu. |
+| `trigger-length` | integer | `2` | Minimum word length that triggers automatic completion. |
+| `replace` | boolean | `false` | Ask LSP completions to replace the whole word instead of only the text before the cursor. |
+
+Path completion is configured by `path.enable` (default `true`); word
+completion has its own [`[editor.completion.word]`](#editorcompletionword) table.
+
+### `[editor.completion.path]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `enable` | boolean | `true` | Complete filesystem paths recognized at the cursor. |
+
+### `[editor.format]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `on-save` | boolean | `true` | Format on save when the current language also enables `auto-format`. |
+
+### `[editor.files]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `auto-save` | table | Disabled | Save on focus loss and/or after a delay. See [`[editor.files.auto-save]`](#editorfilesauto-save). |
+| `reload` | table | See below | Reload buffers when files change externally. See [`[editor.files.reload]`](#editorfilesreload). |
+| `watch` | table | See below | Native file watching, traversal, and Git refreshes. See [`[editor.files.watch]`](#editorfileswatch). |
 | `default-line-ending` | `"native"`, `"lf"`, `"crlf"`, `"ff"`, `"cr"`, or `"nel"` | `"native"` | Line ending for new documents. The last three values require the `unicode-lines` build feature. |
+| `editor-config` | boolean | `true` | Apply supported settings from `.editorconfig` files. |
+
+Saving, autosave, reloads, and native watching are configured in the
+`save`, `auto-save`, `reload`, and `watch` subsections.
+
+### `[editor.inline-completion]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `trigger-delay` | milliseconds | `150` | Delay after editing before requesting LSP ghost text. |
+| `auto-trigger` | boolean | `true` | Request LSP ghost text automatically in insert mode. |
+
+### `[editor.bufferline]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `show` | `"never"`, `"always"`, or `"multiple"` | `"never"` | When to show open buffers at the top of the editor. |
+
+### `[editor.files.save]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
 | `insert-final-newline` | boolean | `true` | Add a final line ending on write when missing. |
-| `atomic-save` | boolean | `true` | Write through a temporary file and replace the original. Safer against interruption, but may confuse file watchers. |
+| `atomic` | boolean | `true` | Write through a temporary file and replace the original. Safer against interruption, but may confuse file watchers. |
 | `trim-final-newlines` | boolean | `false` | Remove line endings after the final line ending on write. |
 | `trim-trailing-whitespace` | boolean | `false` | Remove whitespace before line endings on write. |
-| `smart-tab` | table | See below | Syntax-aware Tab behavior. See [`[editor.smart-tab]`](#editorsmart-tab). |
-| `indent-heuristic` | `"simple"`, `"tree-sitter"`, or `"hybrid"` | `"hybrid"` | Indentation strategy. Unavailable strategies fall back from hybrid to tree-sitter to simple. |
-| `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
-| `inline-diagnostics` | table | See below | Diagnostics rendered within buffer text. See [`[editor.inline-diagnostics]`](#editorinline-diagnostics). |
-| `end-of-line-diagnostics` | `"disable"`, `"hint"`, `"info"`, `"warning"`, or `"error"` | `"hint"` | Minimum severity shown at the end of a line. |
-| `clipboard-provider` | provider name or custom table | Auto-detected | Clipboard integration. See [`[editor.clipboard-provider]`](#editorclipboard-provider). |
-| `editor-config` | boolean | `true` | Apply supported settings from `.editorconfig` files. |
-| `rainbow-brackets` | boolean | `false` | Color matching bracket levels. The language needs a `rainbows.scm` query. |
-| `kitty-keyboard-protocol` | `"auto"`, `"enabled"`, or `"disabled"` | `"auto"` | Policy for the Kitty enhanced keyboard protocol. |
-| `workspace-trust` | table | See below | Implicit workspace trust policy. See [`[editor.workspace-trust]`](#editorworkspace-trust). |
+
+### `[editor.indent]`
+
+The `smart-tab` subsection controls syntax-aware Tab behavior.
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `smart-tab` | table | See below | Syntax-aware Tab behavior. See [`[editor.indent.smart-tab]`](#editorindentsmart-tab). |
+| `heuristic` | `"simple"`, `"tree-sitter"`, or `"hybrid"` | `"hybrid"` | Indentation strategy. Unavailable strategies fall back from hybrid to tree-sitter to simple. |
+
+### `[editor.diagnostics]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `inline` | table | See below | Diagnostics rendered within buffer text. See [`[editor.diagnostics.inline]`](#editordiagnosticsinline). |
+| `end-of-line` | table | `{ severity = "hint" }` | End-of-line diagnostic severity. |
+
+### `[editor.diagnostics.end-of-line]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `severity` | `"disable"`, `"hint"`, `"info"`, `"warning"`, or `"error"` | `"hint"` | Minimum severity shown at the end of a line. |
+
+### `[editor.rainbow-brackets]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `enable` | boolean | `false` | Color matching bracket levels. The language needs a `rainbows.scm` query. |
 
 ### `[editor.breadcrumb]`
 
@@ -146,9 +282,9 @@ For examples and behavioral details, see the [Editor](./editor.md) chapter.
 | `enable` | boolean | `false` | Show the breadcrumb bar. |
 | `path` | `"full"`, `"file"`, or `"none"` | `"full"` | Include the full path, only the file name, or no path before symbols. |
 
-### `[editor.clipboard-provider]`
+### `[editor.clipboard.provider]`
 
-Set `clipboard-provider` to `"pasteboard"`, `"wayland"`, `"x-clip"`,
+Set `provider` to `"pasteboard"`, `"wayland"`, `"x-clip"`,
 `"x-sel"`, `"win32-yank"`, `"tmux"`, `"windows"`, `"termux"`,
 `"termcode"`, or `"none"`. Availability is platform- and build-dependent.
 Without an explicit value, Mitos selects a usable provider from the current
@@ -157,7 +293,7 @@ platform and environment.
 A custom provider uses this shape:
 
 ```toml
-[editor.clipboard-provider.custom]
+[editor.clipboard.provider.custom]
 yank = { command = "copy-command", args = ["--clipboard"] }
 paste = { command = "paste-command", args = ["--clipboard"] }
 yank-primary = { command = "copy-command", args = ["--primary"] }   # optional
@@ -180,6 +316,7 @@ single statusline at the bottom of the editor for the focused view.
 | `left` | array of element names | `["mode", "spinner", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
 | `right` | array of element names | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
+| `mode.color` | boolean | `false` |
 | `mode.normal` | string | `"NOR"` |
 | `mode.insert` | string | `"INS"` |
 | `mode.select` | string | `"SEL"` |
@@ -194,25 +331,41 @@ Valid elements and their behavior are listed in the
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Enable LSP integration globally. |
-| `display-progress-messages` | boolean | `false` | Show `$/progress` messages below the statusline. |
-| `display-messages` | boolean | `true` | Show `window/showMessage` messages below the statusline. |
-| `auto-signature-help` | boolean | `true` | Open signature help automatically. |
-| `display-signature-help-docs` | boolean | `true` | Show documentation in signature help. |
-| `display-inlay-hints` | boolean | `false` | Render inlay hints. The server may also require configuration. |
-| `auto-document-highlight` | boolean | `true` | Highlight references to the symbol at the cursor. |
-| `inlay-hints-length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
-| `display-color-swatches` | boolean | `true` | Render swatches beside document colors. |
-| `display-code-lenses` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space+l` provide access to the full commands. |
-| `snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
-| `goto-reference-include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
+| `workspace-roots` | array of paths | `[]` | Workspace-relative directories that stop LSP root discovery. |
+| `progress.enable` | boolean | `false` | Show `$/progress` messages below the statusline. |
+| `messages.enable` | boolean | `true` | Show `window/showMessage` messages below the statusline. |
+| `signature-help.auto-trigger` | boolean | `true` | Open signature help automatically. |
+| `signature-help.show-documentation` | boolean | `true` | Show documentation in signature help. |
+| `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
+| `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
+| `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
+| `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
+| `code-lenses.enable` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space+l` provide access to the full commands. |
+| `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
+| `references.include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
 
-### `[editor.cursor-shape]`
+The dotted paths above are feature subsections. For example:
+
+```toml
+[editor.lsp.messages]
+enable = true
+
+[editor.lsp.signature-help]
+auto-trigger = true
+show-documentation = false
+
+[editor.lsp.inlay-hints]
+enable = true
+length-limit = 40
+```
+
+### `[editor.cursor.shape]`
 
 `normal`, `insert`, and `select` each accept `"block"`, `"bar"`,
 `"underline"`, or `"hidden"`; all default to `"block"`. Terminals can change
 only the primary cursor's shape.
 
-### `[editor.auto-reload]`
+### `[editor.files.reload]`
 
 Mitos reloads unmodified buffers when their files change externally, preserving
 undo history and updating selections in every split. If a buffer has unsaved
@@ -234,16 +387,16 @@ active when `poll.enable` is `false`. Git refreshes use the same polling schedul
 and can continue when buffer auto-reload is disabled.
 
 ```toml
-[editor.auto-reload]
+[editor.files.reload]
 enable = true
 prompt-if-modified = true
 
-[editor.auto-reload.poll]
+[editor.files.reload.poll]
 enable = true
 interval = 30000
 ```
 
-### `[editor.file-watcher]`
+### `[editor.files.watch]`
 
 Native file events also notify language servers registered for file creation,
 changes, and deletion. Relative LSP patterns may add watch roots outside the
@@ -268,7 +421,7 @@ priority over the other filters. Changes to workspace ignore files refresh the
 watcher's filters. Configuration reloads and `:cd` update watch coverage.
 
 ```toml
-[editor.file-watcher]
+[editor.files.watch]
 enable = true
 watch-vcs = true
 require-workspace = true
@@ -313,21 +466,20 @@ max-depth = 10
 
 ### `[editor.auto-pairs]`
 
-`auto-pairs = false` disables pairing and `true` uses the default pairs
-<code>(){}[]''""``</code>. A table maps each single opening character to its
-closing character:
+`enable` defaults to `true`. Omit `pairs` to use the built-in delimiter pairs.
+A `pairs` table maps each single opening character to its closing character;
+an empty map enables no pairs. `enable = false` disables pairing while retaining
+any configured pairs.
 
 ```toml
 [editor.auto-pairs]
-'(' = ')'
-'[' = ']'
-'{' = '}'
-'"' = '"'
-'`' = '`'
-'<' = '>'
+enable = true
+pairs = { '(' = ')', '[' = ']', '{' = '}', '"' = '"' }
 ```
 
-### `[editor.auto-save]`
+Legacy booleans and direct character maps remain accepted.
+
+### `[editor.files.auto-save]`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -335,7 +487,7 @@ closing character:
 | `after-delay.enable` | boolean | `false` | Save after no edits occur for the configured delay. |
 | `after-delay.timeout` | milliseconds | `3000` | Delay used when `after-delay.enable` is true. |
 
-The legacy shorthand `auto-save = true` enables only `focus-lost`; it does not
+The legacy shorthand `editor.auto-save = true` enables only `focus-lost`; it does not
 enable delayed saving.
 
 ### `[editor.search]`
@@ -391,14 +543,14 @@ component-specific settings.
 | `wrap-indicator` | string | `"↪ "` | Text shown before continuation lines. |
 | `wrap-at-text-width` | boolean | `false` | Wrap at `editor.text-width` when it is narrower than the viewport. |
 
-### `[editor.smart-tab]`
+### `[editor.indent.smart-tab]`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
 | `supersede-menu` | boolean | `false` | Give smart-tab precedence over completion-menu navigation. |
 
-### `[editor.inline-diagnostics]`
+### `[editor.diagnostics.inline]`
 
 Severity settings accept `"disable"`, `"hint"`, `"info"`, `"warning"`, or
 `"error"`.
@@ -438,14 +590,23 @@ ignore-regexes = ["^[A-Z0-9_]+$"]
 ```
 
 
-### `[editor.word-completion]`
+### `[editor.completion.word]`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Complete words found in open buffers. |
 | `trigger-length` | non-zero integer | `7` | Word length at which this completion source activates. |
 
-### `[editor.terminal]`
+### `[terminal]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `true-color` | boolean | `false` | Force true-color support when detection produces a false negative. |
+| `undercurl` | boolean | `false` | Force undercurl support when detection produces a false negative. |
+| `keyboard.kitty-protocol` | `"auto"`, `"enabled"`, or `"disabled"` | `"auto"` | Policy for the Kitty enhanced keyboard protocol. |
+| `launcher` | table | Environment-dependent | External terminal or multiplexer command. See below. |
+
+### `[terminal.launcher]`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -504,6 +665,10 @@ overrides are merged.
 See [Languages](./languages.md) for file detection, root selection, LSP feature
 routing, formatters, and complete examples.
 
+`languages.toml` retains its existing keys, including `auto-format`,
+`path-completion`, and `word-completion`. The feature-table restructuring
+applies to `config.toml` for now.
+
 ### `[[language]]`
 
 | Key | Type / default | Description |
@@ -518,12 +683,12 @@ routing, formatters, and complete examples.
 | `block-comment-tokens` | table or table array; unset | `{ start = "...", end = "..." }` pairs for block comments. |
 | `text-width` | integer; inherits editor | Language override for `editor.text-width`. |
 | `soft-wrap` | table; inherits editor | Language override using the same keys as [`editor.soft-wrap`](#editorsoft-wrap). |
-| `auto-format` | boolean; `false` | Permit formatting this language on save. Global `editor.auto-format` must also be enabled. |
+| `auto-format` | boolean; inherits editor | Permit formatting this language on save. Global `editor.format.on-save` must also be enabled. |
 | `code-actions-on-save` | string array; unset | LSP code-action kinds run in order on save. |
 | `formatter` | table; unset | External formatter. `command` is required; `args` defaults to `[]`. |
-| `path-completion` | boolean; inherits editor | Override `editor.path-completion`. |
+| `path-completion` | boolean; inherits editor | Override `editor.completion.path.enable`. |
 | `spelling` | table; inherits editor | `languages` and `min-word-length` replace global values; `words` and `ignore-regexes` extend them. See [spell checking](./spell-checking.md). |
-| `word-completion` | table; inherits editor | Override `enable` and/or `trigger-length` from `editor.word-completion`. |
+| `word-completion` | table; inherits editor | Override `enable` and/or `trigger-length` from `editor.completion.word`. |
 | `diagnostic-severity` | `"hint"`, `"info"`, `"warning"`, or `"error"`; `"hint"` | Minimum accepted diagnostic severity. |
 | `grammar` | string; defaults to `name` | Tree-sitter grammar name. |
 | `injection-regex` | regex string; unset | Match this language at tree-sitter injection sites. |

@@ -129,7 +129,7 @@ pub(super) fn rsearch(cx: &mut Context) {
 fn searcher(cx: &mut Context, direction: Direction) {
     let reg = cx.register.unwrap_or('/');
     let config = cx.editor.config();
-    let scrolloff = config.scrolloff;
+    let scrolloff = config.scroll.padding;
     let wrap_around = config.search.wrap_around;
     let movement = if cx.editor.mode() == Mode::Select {
         Movement::Extend
@@ -176,7 +176,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         .register
         .unwrap_or(cx.editor.registers.last_search_register);
     let config = cx.editor.config();
-    let scrolloff = config.scrolloff;
+    let scrolloff = config.scroll.padding;
     if let Some(query) = cx.editor.registers.first(register, cx.editor) {
         let search_config = &config.search;
         let case_insensitive = if search_config.smart_case {

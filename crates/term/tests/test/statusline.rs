@@ -77,7 +77,7 @@ async fn split_statuslines_default_to_each_view_and_can_toggle_global() -> anyho
         std::fs::write(&first, "first\n")?;
         std::fs::write(&second, "second\n")?;
         let mut config = test_config();
-        config.editor.bufferline = BufferLine::Never;
+        config.editor.bufferline.show = BufferLine::Never;
         config.editor.statusline.left =
             vec![StatusLineElement::Mode, StatusLineElement::FileBaseName];
         config.editor.statusline.right = vec![StatusLineElement::Position];

@@ -546,7 +546,7 @@ fn render_preview_content(
     if doc
         .language_config()
         .and_then(|config| config.rainbow_brackets)
-        .unwrap_or(config.rainbow_brackets)
+        .unwrap_or(config.rainbow_brackets.enable)
         && let Some(overlay) = EditorView::doc_rainbow_highlights(
             doc,
             offset.anchor,

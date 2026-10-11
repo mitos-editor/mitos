@@ -88,8 +88,11 @@ async fn live_settings_are_visible_to_hooks_and_all_views_are_adjusted_afterward
     });
     let mut settings = (*f.editor.config()).clone();
     settings.soft_wrap.enable = Some(true);
-    settings.auto_pairs = AutoPairConfig::Enable(false);
-    settings.scrolloff = 3;
+    settings.auto_pairs = AutoPairConfig {
+        enable: false,
+        ..AutoPairConfig::default()
+    };
+    settings.scroll.padding = 3;
     f.configure(|config| *config = settings);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     for (view, _) in f.editor.tree.views_mut() {

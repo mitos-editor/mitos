@@ -765,7 +765,7 @@ impl Document {
         syn_loader: Arc<ArcSwap<syntax::Loader>>,
     ) -> Self {
         let (encoding, has_bom) = encoding_with_bom_info.unwrap_or((encoding::UTF_8, false));
-        let line_ending = config.load().default_line_ending.into();
+        let line_ending = config.load().files.default_line_ending.into();
         let changes = ChangeSet::new(text.slice(..));
         let old_state = None;
 
@@ -832,7 +832,7 @@ impl Document {
         config: Arc<dyn DynAccess<Config>>,
         syn_loader: Arc<ArcSwap<syntax::Loader>>,
     ) -> Self {
-        let line_ending: LineEnding = config.load().default_line_ending.into();
+        let line_ending: LineEnding = config.load().files.default_line_ending.into();
         let text = Rope::from(line_ending.as_str());
         Self::from(text, None, config, syn_loader)
     }
@@ -859,7 +859,7 @@ impl Document {
             return Err(DocumentOpenError::IrregularFile);
         }
 
-        let editor_config = if config.load().editor_config {
+        let editor_config = if config.load().files.editor_config {
             EditorConfig::find(path)
         } else {
             EditorConfig::default()
@@ -873,7 +873,7 @@ impl Document {
         } else {
             let line_ending = editor_config
                 .line_ending
-                .unwrap_or_else(|| config.load().default_line_ending.into());
+                .unwrap_or_else(|| config.load().files.default_line_ending.into());
             let encoding = encoding.unwrap_or(encoding::UTF_8);
             (Rope::from(line_ending.as_str()), encoding, false, false)
         };
@@ -904,7 +904,7 @@ impl Document {
         if self
             .language_config()?
             .auto_format
-            .unwrap_or(editor.config().auto_format)
+            .unwrap_or(editor.config().format.on_save)
         {
             self.format(editor)
         } else {
@@ -1090,7 +1090,7 @@ impl Document {
         // mark changes up to now as saved
         let current_rev = self.get_current_revision();
         let doc_id = self.id();
-        let atomic_save = self.config.load().atomic_save;
+        let atomic_save = self.config.load().files.save.atomic;
 
         let encoding_with_bom_info = (self.encoding, self.has_bom);
         let last_saved_time = self.last_saved_time;
@@ -1322,7 +1322,7 @@ impl Document {
             .editor_config
             .spelling_language
             .as_ref()
-            .filter(|_| config.editor_config)
+            .filter(|_| config.files.editor_config)
         {
             vec![language.clone()]
         } else {
@@ -1341,7 +1341,7 @@ impl Document {
     }
 
     pub fn detect_editor_config(&mut self) {
-        if self.config.load().editor_config
+        if self.config.load().files.editor_config
             && let Some(path) = self.path.as_ref()
         {
             self.editor_config = EditorConfig::find(path);
@@ -2034,14 +2034,14 @@ impl Document {
 
     pub fn word_completion_enabled(&self) -> bool {
         self.language_config()
-            .and_then(|lang_config| lang_config.word_completion.and_then(|c| c.enable))
-            .unwrap_or_else(|| self.config.load().word_completion.enable)
+            .and_then(|lang_config| lang_config.word_completion.and_then(|config| config.enable))
+            .unwrap_or_else(|| self.config.load().completion.word.enable)
     }
 
     pub fn path_completion_enabled(&self) -> bool {
         self.language_config()
             .and_then(|lang_config| lang_config.path_completion)
-            .unwrap_or_else(|| self.config.load().path_completion)
+            .unwrap_or_else(|| self.config.load().completion.path.enable)
     }
 
     /// maintains the order as configured in the language_servers TOML array
@@ -2169,14 +2169,14 @@ impl Document {
     pub fn insert_final_newline(&self) -> bool {
         self.editor_config
             .insert_final_newline
-            .unwrap_or_else(|| self.config.load().insert_final_newline)
+            .unwrap_or_else(|| self.config.load().files.save.insert_final_newline)
     }
 
     /// Whether the document should trim whitespace preceding line endings on save.
     pub fn trim_trailing_whitespace(&self) -> bool {
         self.editor_config
             .trim_trailing_whitespace
-            .unwrap_or_else(|| self.config.load().trim_trailing_whitespace)
+            .unwrap_or_else(|| self.config.load().files.save.trim_trailing_whitespace)
     }
 
     pub fn changes(&self) -> &ChangeSet {

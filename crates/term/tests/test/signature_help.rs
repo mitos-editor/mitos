@@ -54,7 +54,7 @@ impl Fixture {
         let loader = lsp::syntax_loader("signature-test", "signature-test", names, &servers);
         let mut config = test_config();
         config.editor.lsp.enable = true;
-        config.editor.lsp.auto_signature_help = true;
+        config.editor.lsp.signature_help.auto_trigger = true;
         let (sender, callbacks) =
             super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
@@ -142,7 +142,7 @@ impl Fixture {
 
     fn automatic(&mut self, enabled: bool) {
         let mut config = (*self.app.editor.config()).clone();
-        config.lsp.auto_signature_help = enabled;
+        config.lsp.signature_help.auto_trigger = enabled;
         self.app
             .handle_config_events(ConfigEvent::Update(Box::new(config)));
     }

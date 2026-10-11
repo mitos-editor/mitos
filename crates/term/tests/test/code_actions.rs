@@ -54,10 +54,10 @@ impl Fixture {
         let languages =
             fixture_lsp::syntax_loader("action-test", "action-test", &["alpha"], &server);
         let mut config = Config::default();
-        config.file_watcher.enable = false;
-        config.auto_reload.enable = false;
-        config.auto_completion = false;
-        config.lsp.display_color_swatches = false;
+        config.files.watch.enable = false;
+        config.files.reload.enable = false;
+        config.completion.auto_trigger = false;
+        config.lsp.color_swatches.enable = false;
         let (sender, callbacks) = callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut handlers = Handlers::new(&config, sender);
         // Links and syntax publish empty async results even without a provider.

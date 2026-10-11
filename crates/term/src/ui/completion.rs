@@ -147,8 +147,8 @@ impl Completion {
     pub const ID: &'static str = "completion";
 
     pub fn new(editor: &Editor, items: Vec<CompletionItem>, trigger_offset: usize) -> Self {
-        let preview_completion_insert = editor.config().preview_completion_insert;
-        let replace_mode = editor.config().completion_replace;
+        let preview_completion_insert = editor.config().completion.preview_insert;
+        let replace_mode = editor.config().completion.replace;
 
         let data = CompletionData {
             directory_style: editor.theme.get("ui.text.directory"),

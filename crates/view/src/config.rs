@@ -243,49 +243,16 @@ where
 pub struct Config {
     /// Whether to show the welcome screen when Mitos starts without a file. Defaults to true.
     pub welcome_screen: bool,
-    /// Padding to keep between the edge of the screen and the cursor when scrolling. Defaults to 5.
-    pub scrolloff: usize,
-    /// Number of lines to scroll at once. Defaults to 3
-    pub scroll_lines: isize,
-    /// Mouse support. Defaults to true.
-    pub mouse: bool,
-    /// Which register to use for mouse yank.
-    pub mouse_yank_register: char,
     /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
     pub shell: Vec<String>,
     /// Line number mode.
     pub line_number: LineNumber,
-    /// Highlight the lines cursors are currently on. Defaults to false.
-    pub cursorline: bool,
-    /// Highlight the columns cursors are currently on. Defaults to false.
-    pub cursorcolumn: bool,
     #[serde(deserialize_with = "deserialize_gutter_seq_or_struct")]
     pub gutters: GutterConfig,
-    /// Middle click paste support. Defaults to true.
-    pub middle_click_paste: bool,
     /// Automatic insertion of pairs to parentheses, brackets,
-    /// etc. Optionally, this can be a list of 2-tuples to specify a
-    /// global list of characters to pair. Defaults to true.
+    /// etc. A custom `pairs` table maps opening to closing characters.
+    /// Defaults to enabled with the built-in pairs.
     pub auto_pairs: AutoPairConfig,
-    /// Automatic auto-completion, automatically pop up without user trigger. Defaults to true.
-    pub auto_completion: bool,
-    /// Enable filepath completion.
-    /// Show files and directories if an existing path at the cursor was recognized,
-    /// either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved).
-    /// Defaults to true.
-    pub path_completion: bool,
-    /// Configures completion of words from open buffers.
-    /// Defaults to enabled with a trigger length of 7.
-    pub word_completion: WordCompletion,
-    /// Automatic formatting on save. Defaults to true.
-    pub auto_format: bool,
-    /// Default register used for yank/paste. Defaults to '"'
-    pub default_yank_register: char,
-    /// Automatic save on focus lost and/or after delay.
-    /// Time delay in milliseconds since last edit after which auto save timer triggers.
-    /// Time delay defaults to false with 3000ms delay. Focus lost defaults to false.
-    #[serde(deserialize_with = "deserialize_auto_save")]
-    pub auto_save: AutoSave,
     /// Set a global text_width
     pub text_width: usize,
     /// Time in milliseconds since last keypress before idle timers trigger.
@@ -295,27 +262,6 @@ pub struct Config {
         deserialize_with = "deserialize_duration_millis"
     )]
     pub idle_timeout: Duration,
-    /// Time in milliseconds after typing a word character before auto completions
-    /// are shown, set to 5 for instant. Defaults to 250ms.
-    #[serde(
-        serialize_with = "serialize_duration_millis",
-        deserialize_with = "deserialize_duration_millis"
-    )]
-    pub completion_timeout: Duration,
-    /// Delay after editing before requesting ghost text.
-    #[serde(
-        serialize_with = "serialize_duration_millis",
-        deserialize_with = "deserialize_duration_millis"
-    )]
-    pub inline_completion_timeout: Duration,
-    /// Request ghost text automatically in insert mode.
-    pub inline_completion_auto_trigger: bool,
-    /// Whether to insert the completion suggestion on hover. Defaults to true.
-    pub preview_completion_insert: bool,
-    pub completion_trigger_len: u8,
-    /// Whether to instruct the LSP to replace the entire word when applying a completion
-    /// or to only insert new text
-    pub completion_replace: bool,
     /// `true` if mitos should automatically add a line comment token if you're currently in a comment
     /// and press `enter`.
     pub continue_comments: bool,
@@ -327,74 +273,49 @@ pub struct Config {
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,
-    /// Shape for cursor in each mode
-    pub cursor_shape: CursorShapeConfig,
     /// Search configuration.
     #[serde(default)]
     pub search: SearchConfig,
     pub lsp: LspConfig,
+    /// External terminal launcher selected by the frontend.
+    #[serde(skip)]
     pub terminal: Option<TerminalConfig>,
     /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
     pub rulers: Vec<u16>,
     #[serde(default)]
     pub whitespace: WhitespaceConfig,
-    /// Persistently display open buffers along the top
-    pub bufferline: BufferLine,
     /// Persistently display breadcrumb along the top of each view, below any bufferline.
     pub breadcrumb: BreadcrumbConfig,
     /// Vertical indent width guides.
     pub indent_guides: IndentGuidesConfig,
-    /// Whether to color modes with different colors. Defaults to `false`.
-    pub color_modes: bool,
     pub soft_wrap: SoftWrap,
-    /// Workspace specific lsp ceiling dirs
-    pub workspace_lsp_roots: Vec<PathBuf>,
-    /// Which line ending to choose for new documents. Defaults to `native`. i.e. `crlf` on Windows, otherwise `lf`.
-    pub default_line_ending: LineEndingConfig,
-    /// Whether to automatically insert a trailing line-ending on write if missing. Defaults to `true`.
-    pub insert_final_newline: bool,
-    /// Whether to use atomic operations to write documents to disk.
-    /// This prevents data loss if the editor is interrupted while writing the file, but may
-    /// confuse some file watching/hot reloading programs. Defaults to `true`.
-    pub atomic_save: bool,
-    /// Whether to automatically remove all trailing line-endings after the final one on write.
-    /// Defaults to `false`.
-    pub trim_final_newlines: bool,
-    /// Whether to automatically remove all whitespace characters preceding line-endings on write.
-    /// Defaults to `false`.
-    pub trim_trailing_whitespace: bool,
-    /// Enables smart tab
-    pub smart_tab: Option<SmartTabConfig>,
-    /// Which indent heuristic to use when a new line is inserted
-    #[serde(default)]
-    pub indent_heuristic: IndentationHeuristic,
     /// labels characters used in jumpmode
     #[serde(
         serialize_with = "serialize_alphabet",
         deserialize_with = "deserialize_alphabet"
     )]
     pub jump_label_alphabet: Vec<char>,
-    /// Display diagnostic below the line they occur.
-    pub inline_diagnostics: InlineDiagnosticsConfig,
-    pub end_of_line_diagnostics: DiagnosticFilter,
-    // Set to override the default clipboard provider
-    pub clipboard_provider: ClipboardProvider,
-    /// Whether to read settings from [EditorConfig](https://editorconfig.org) files. Defaults to
-    /// `true`.
-    pub editor_config: bool,
     /// Spell checking: which dictionaries to use and how to filter tokens. Off by default (no
     /// dictionaries); languages can override this in `languages.toml`.
     pub spelling: SpellingConfig,
-    /// Whether to render rainbow colors for matching brackets. Defaults to `false`.
-    pub rainbow_brackets: bool,
     pub buffer_picker: BufferPickerConfig,
-    pub auto_reload: AutoReloadConfig,
-    pub file_watcher: file_watcher::Config,
     /// Workspace-trust configuration.
     pub workspace_trust: WorkspaceTrustConfig,
     /// Commands defined in the top-level `[commands]` configuration table.
     #[serde(skip)]
     pub commands: CustomCommands,
+    pub scroll: ScrollConfig,
+    pub mouse: MouseConfig,
+    pub cursor: CursorConfig,
+    pub completion: CompletionConfig,
+    pub inline_completion: InlineCompletionConfig,
+    pub format: FormatConfig,
+    pub clipboard: ClipboardConfig,
+    pub files: FilesConfig,
+    pub diagnostics: DiagnosticsConfig,
+    pub indent: IndentConfig,
+    pub bufferline: BufferLineConfig,
+    pub rainbow_brackets: RainbowBracketsConfig,
 }
 
 /// User-facing configuration for `[editor.workspace-trust]`.
@@ -471,7 +392,7 @@ impl Config {
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "kebab-case")]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct BreadcrumbConfig {
     pub enable: bool,
     #[serde(default)]
@@ -488,7 +409,7 @@ pub enum BreadcrumbPathOptions {
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "kebab-case")]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct BufferPickerConfig {
     pub start_position: PickerStartPosition,
 }
@@ -585,48 +506,137 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspConfig {
-    /// Enables LSP
     pub enable: bool,
-    /// Display LSP messagess from $/progress below statusline
-    pub display_progress_messages: bool,
-    /// Display LSP messages from window/showMessage below statusline
-    pub display_messages: bool,
-    /// Enable automatic pop up of signature help (parameter hints)
-    pub auto_signature_help: bool,
-    /// Display docs under signature help popup
-    pub display_signature_help_docs: bool,
-    /// Display inlay hints
-    pub display_inlay_hints: bool,
-    /// Automatically highlight symbol references at the cursor.
-    pub auto_document_highlight: bool,
-    /// Maximum displayed length of inlay hints (excluding the added trailing `…`).
-    /// If it's `None`, there's no limit
-    pub inlay_hints_length_limit: Option<NonZeroU8>,
-    /// Display document color swatches
-    pub display_color_swatches: bool,
-    /// Display code lens labels and gutter indicators, resolving visible commands.
-    pub display_code_lenses: bool,
-    /// Whether to enable snippet support
-    pub snippets: bool,
-    /// Whether to include declaration in the goto reference query
-    pub goto_reference_include_declaration: bool,
+    /// Workspace-relative ceilings for language-server root discovery.
+    pub workspace_roots: Vec<PathBuf>,
+    pub progress: LspProgressConfig,
+    pub messages: LspMessagesConfig,
+    pub signature_help: LspSignatureHelpConfig,
+    pub inlay_hints: LspInlayHintsConfig,
+    pub document_highlight: LspDocumentHighlightConfig,
+    pub color_swatches: LspColorSwatchesConfig,
+    pub code_lenses: LspCodeLensesConfig,
+    pub completion: LspCompletionConfig,
+    pub references: LspReferencesConfig,
 }
 
 impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
-            display_progress_messages: false,
-            display_messages: true,
-            auto_signature_help: true,
-            display_signature_help_docs: true,
-            display_inlay_hints: false,
-            auto_document_highlight: true,
-            inlay_hints_length_limit: None,
-            snippets: true,
-            goto_reference_include_declaration: true,
-            display_color_swatches: true,
-            display_code_lenses: true,
+            workspace_roots: Vec::new(),
+            progress: LspProgressConfig::default(),
+            messages: LspMessagesConfig::default(),
+            signature_help: LspSignatureHelpConfig::default(),
+            inlay_hints: LspInlayHintsConfig::default(),
+            document_highlight: LspDocumentHighlightConfig::default(),
+            color_swatches: LspColorSwatchesConfig::default(),
+            code_lenses: LspCodeLensesConfig::default(),
+            completion: LspCompletionConfig::default(),
+            references: LspReferencesConfig::default(),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspProgressConfig {
+    pub enable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspMessagesConfig {
+    pub enable: bool,
+}
+
+impl Default for LspMessagesConfig {
+    fn default() -> Self {
+        Self { enable: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspSignatureHelpConfig {
+    pub auto_trigger: bool,
+    pub show_documentation: bool,
+}
+
+impl Default for LspSignatureHelpConfig {
+    fn default() -> Self {
+        Self {
+            auto_trigger: true,
+            show_documentation: true,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspInlayHintsConfig {
+    pub enable: bool,
+    pub length_limit: Option<NonZeroU8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspDocumentHighlightConfig {
+    pub auto_trigger: bool,
+}
+
+impl Default for LspDocumentHighlightConfig {
+    fn default() -> Self {
+        Self { auto_trigger: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspColorSwatchesConfig {
+    pub enable: bool,
+}
+
+impl Default for LspColorSwatchesConfig {
+    fn default() -> Self {
+        Self { enable: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspCodeLensesConfig {
+    pub enable: bool,
+}
+
+impl Default for LspCodeLensesConfig {
+    fn default() -> Self {
+        Self { enable: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspCompletionConfig {
+    pub snippets: bool,
+}
+
+impl Default for LspCompletionConfig {
+    fn default() -> Self {
+        Self { snippets: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspReferencesConfig {
+    pub include_declaration: bool,
+}
+
+impl Default for LspReferencesConfig {
+    fn default() -> Self {
+        Self {
+            include_declaration: true,
         }
     }
 }
@@ -685,6 +695,7 @@ impl Default for StatusLineConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct ModeConfig {
+    pub color: bool,
     pub normal: String,
     pub insert: String,
     pub select: String,
@@ -693,6 +704,7 @@ pub struct ModeConfig {
 impl Default for ModeConfig {
     fn default() -> Self {
         Self {
+            color: false,
             normal: String::from("NOR"),
             insert: String::from("INS"),
             select: String::from("SEL"),
@@ -899,7 +911,7 @@ impl std::str::FromStr for GutterType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WhitespaceConfig {
     pub render: WhitespaceRender,
     pub characters: WhitespaceCharacters,
@@ -915,7 +927,7 @@ impl Default for WhitespaceConfig {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "kebab-case")]
+#[serde(untagged, rename_all = "kebab-case", deny_unknown_fields)]
 pub enum WhitespaceRender {
     Basic(WhitespaceRenderValue),
     Specific {
@@ -981,7 +993,7 @@ impl WhitespaceRender {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct AutoSave {
     /// Auto save after a delay in milliseconds. Defaults to disabled.
     #[serde(default)]
@@ -1036,7 +1048,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WhitespaceCharacters {
     pub space: char,
     pub nbsp: char,
@@ -1060,7 +1072,7 @@ impl Default for WhitespaceCharacters {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case")]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct IndentGuidesConfig {
     pub render: bool,
     pub character: char,
@@ -1137,75 +1149,50 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             welcome_screen: true,
-            scrolloff: 5,
-            scroll_lines: 3,
-            mouse: true,
-            mouse_yank_register: '*',
             shell: if cfg!(windows) {
                 vec!["cmd".to_owned(), "/C".to_owned()]
             } else {
                 vec!["sh".to_owned(), "-c".to_owned()]
             },
             line_number: LineNumber::Absolute,
-            cursorline: false,
-            cursorcolumn: false,
             gutters: GutterConfig::default(),
-            middle_click_paste: true,
             auto_pairs: AutoPairConfig::default(),
-            auto_completion: true,
-            path_completion: true,
-            word_completion: WordCompletion::default(),
-            auto_format: true,
-            default_yank_register: '"',
-            auto_save: AutoSave::default(),
+            text_width: 80,
             idle_timeout: Duration::from_millis(250),
-            completion_timeout: Duration::from_millis(250),
-            inline_completion_timeout: Duration::from_millis(150),
-            inline_completion_auto_trigger: true,
-            preview_completion_insert: true,
-            completion_trigger_len: 2,
+            continue_comments: true,
             auto_info: true,
             icons: false,
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
-            cursor_shape: CursorShapeConfig::default(),
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
             terminal: get_terminal_provider(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
-            bufferline: BufferLine::default(),
             breadcrumb: BreadcrumbConfig::default(),
             indent_guides: IndentGuidesConfig::default(),
-            color_modes: false,
             soft_wrap: SoftWrap {
                 enable: Some(false),
                 ..SoftWrap::default()
             },
-            text_width: 80,
-            completion_replace: false,
-            continue_comments: true,
-            workspace_lsp_roots: Vec::new(),
-            default_line_ending: LineEndingConfig::default(),
-            insert_final_newline: true,
-            atomic_save: true,
-            trim_final_newlines: false,
-            trim_trailing_whitespace: false,
-            smart_tab: Some(SmartTabConfig::default()),
-            indent_heuristic: IndentationHeuristic::default(),
             jump_label_alphabet: ('a'..='z').collect(),
-            inline_diagnostics: InlineDiagnosticsConfig::default(),
-            end_of_line_diagnostics: DiagnosticFilter::Enable(Severity::Hint),
-            clipboard_provider: ClipboardProvider::default(),
-            editor_config: true,
             spelling: SpellingConfig::default(),
-            rainbow_brackets: false,
             buffer_picker: BufferPickerConfig::default(),
-            file_watcher: file_watcher::Config::default(),
-            auto_reload: AutoReloadConfig::default(),
             workspace_trust: WorkspaceTrustConfig::default(),
             commands: CustomCommands::default(),
+            scroll: ScrollConfig::default(),
+            mouse: MouseConfig::default(),
+            cursor: CursorConfig::default(),
+            completion: CompletionConfig::default(),
+            inline_completion: InlineCompletionConfig::default(),
+            format: FormatConfig::default(),
+            clipboard: ClipboardConfig::default(),
+            files: FilesConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
+            indent: IndentConfig::default(),
+            bufferline: BufferLineConfig::default(),
+            rainbow_brackets: RainbowBracketsConfig::default(),
         }
     }
 }
@@ -1255,5 +1242,276 @@ impl Default for AutoReloadPoll {
             enable: true,
             interval: 30000,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ScrollConfig {
+    /// Padding to keep between the edge of the screen and the cursor when scrolling. Defaults to 5.
+    pub padding: usize,
+    /// Number of lines to scroll at once. Defaults to 3
+    pub wheel_lines: isize,
+}
+
+impl Default for ScrollConfig {
+    fn default() -> Self {
+        Self {
+            padding: 5,
+            wheel_lines: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct MouseConfig {
+    /// Mouse support. Defaults to true.
+    pub enable: bool,
+    /// Which register to use for mouse yank.
+    pub yank_register: char,
+    /// Middle click paste support. Defaults to true.
+    pub middle_click_paste: bool,
+}
+
+impl Default for MouseConfig {
+    fn default() -> Self {
+        Self {
+            enable: true,
+            yank_register: '*',
+            middle_click_paste: true,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CursorConfig {
+    /// Highlight the lines cursors are currently on. Defaults to false.
+    pub highlight_line: bool,
+    /// Highlight the columns cursors are currently on. Defaults to false.
+    pub highlight_column: bool,
+    /// Shape for cursor in each mode
+    pub shape: CursorShapeConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CompletionConfig {
+    /// Automatic auto-completion, automatically pop up without user trigger. Defaults to true.
+    pub auto_trigger: bool,
+    /// Configures completion of words from open buffers.
+    /// Defaults to enabled with a trigger length of 7.
+    pub word: WordCompletion,
+    /// Time in milliseconds after typing a word character before auto completions
+    /// are shown, set to 5 for instant. Defaults to 250ms.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub trigger_delay: Duration,
+    /// Whether to insert the completion suggestion on hover. Defaults to true.
+    pub preview_insert: bool,
+    pub trigger_length: u8,
+    /// Whether to instruct the LSP to replace the entire word when applying a completion
+    /// or to only insert new text
+    pub replace: bool,
+    pub path: PathCompletionConfig,
+}
+
+impl Default for CompletionConfig {
+    fn default() -> Self {
+        Self {
+            auto_trigger: true,
+            word: WordCompletion::default(),
+            trigger_delay: Duration::from_millis(250),
+            preview_insert: true,
+            trigger_length: 2,
+            replace: false,
+            path: PathCompletionConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct InlineCompletionConfig {
+    /// Delay after editing before requesting ghost text.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub trigger_delay: Duration,
+    /// Request ghost text automatically in insert mode.
+    pub auto_trigger: bool,
+}
+
+impl Default for InlineCompletionConfig {
+    fn default() -> Self {
+        Self {
+            trigger_delay: Duration::from_millis(150),
+            auto_trigger: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct FormatConfig {
+    /// Automatic formatting on save. Defaults to true.
+    pub on_save: bool,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self { on_save: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ClipboardConfig {
+    /// Default register used for yank/paste. Defaults to '"'
+    pub default_yank_register: char,
+    // Set to override the default clipboard provider
+    pub provider: ClipboardProvider,
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        Self {
+            default_yank_register: '"',
+            provider: ClipboardProvider::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct FilesConfig {
+    /// Automatic save on focus lost and/or after delay.
+    /// Time delay in milliseconds since last edit after which auto save timer triggers.
+    /// Time delay defaults to false with 3000ms delay. Focus lost defaults to false.
+    #[serde(deserialize_with = "deserialize_auto_save")]
+    pub auto_save: AutoSave,
+    /// Which line ending to choose for new documents. Defaults to `native`. i.e. `crlf` on Windows, otherwise `lf`.
+    pub default_line_ending: LineEndingConfig,
+    /// Whether to read settings from [EditorConfig](https://editorconfig.org) files. Defaults to
+    /// `true`.
+    pub editor_config: bool,
+    pub reload: AutoReloadConfig,
+    pub watch: file_watcher::Config,
+    pub save: SaveConfig,
+}
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            auto_save: AutoSave::default(),
+            default_line_ending: LineEndingConfig::default(),
+            editor_config: true,
+            reload: AutoReloadConfig::default(),
+            watch: file_watcher::Config::default(),
+            save: SaveConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct SaveConfig {
+    /// Whether to automatically insert a trailing line-ending on write if missing. Defaults to `true`.
+    pub insert_final_newline: bool,
+    /// Whether to use atomic operations to write documents to disk.
+    /// This prevents data loss if the editor is interrupted while writing the file, but may
+    /// confuse some file watching/hot reloading programs. Defaults to `true`.
+    pub atomic: bool,
+    /// Whether to automatically remove all trailing line-endings after the final one on write.
+    /// Defaults to `false`.
+    pub trim_final_newlines: bool,
+    /// Whether to automatically remove all whitespace characters preceding line-endings on write.
+    /// Defaults to `false`.
+    pub trim_trailing_whitespace: bool,
+}
+
+impl Default for SaveConfig {
+    fn default() -> Self {
+        Self {
+            insert_final_newline: true,
+            atomic: true,
+            trim_final_newlines: false,
+            trim_trailing_whitespace: false,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct DiagnosticsConfig {
+    /// Display diagnostic below the line they occur.
+    pub inline: InlineDiagnosticsConfig,
+    pub end_of_line: EndOfLineDiagnosticsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct EndOfLineDiagnosticsConfig {
+    pub severity: DiagnosticFilter,
+}
+
+impl Default for EndOfLineDiagnosticsConfig {
+    fn default() -> Self {
+        Self {
+            severity: DiagnosticFilter::Enable(Severity::Hint),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct IndentConfig {
+    /// Enables smart tab
+    pub smart_tab: Option<SmartTabConfig>,
+    /// Which indent heuristic to use when a new line is inserted
+    #[serde(default)]
+    pub heuristic: IndentationHeuristic,
+}
+
+impl Default for IndentConfig {
+    fn default() -> Self {
+        Self {
+            smart_tab: Some(SmartTabConfig::default()),
+            heuristic: IndentationHeuristic::default(),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct BufferLineConfig {
+    /// Persistently display open buffers along the top
+    pub show: BufferLine,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct RainbowBracketsConfig {
+    /// Whether to render rainbow colors for matching brackets. Defaults to `false`.
+    pub enable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PathCompletionConfig {
+    /// Enable filepath completion.
+    /// Show files and directories if an existing path at the cursor was recognized,
+    /// either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved).
+    /// Defaults to true.
+    pub enable: bool,
+}
+
+impl Default for PathCompletionConfig {
+    fn default() -> Self {
+        Self { enable: true }
     }
 }

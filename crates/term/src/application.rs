@@ -20,7 +20,7 @@ mod render;
 use crate::{
     args::Args,
     compositor::{Compositor, Event},
-    config::{Config, EditorSettings},
+    config::{Config, ConfigMigration, EditorSettings},
     handlers,
     job::Jobs,
     keymap::Keymaps,
@@ -67,9 +67,9 @@ type Terminal = tui::Terminal<TerminalBackend>;
 
 fn terminal_config(config: &Config) -> tui::terminal::Config {
     tui::terminal::Config {
-        enable_mouse_capture: config.editor.mouse,
+        enable_mouse_capture: config.editor.mouse.enable,
         force_enable_extended_underlines: config.terminal.undercurl,
-        kitty_keyboard_protocol: config.terminal.kitty_keyboard_protocol,
+        kitty_keyboard_protocol: config.terminal.keyboard.kitty_protocol,
     }
 }
 
@@ -451,9 +451,33 @@ impl Application {
         self.config.store(Arc::new(app_config));
     }
 
+    pub fn notify_config_migration(&mut self, migrations: Vec<ConfigMigration>) {
+        if migrations.is_empty() {
+            return;
+        }
+        let warning = migrations
+            .iter()
+            .any(|notice| matches!(notice, ConfigMigration::Warning(_)));
+        let message = migrations
+            .into_iter()
+            .map(|notice| match notice {
+                ConfigMigration::Updated { path, backup } => {
+                    format!("Updated {}; backup: {}", path.display(), backup.display())
+                }
+                ConfigMigration::Warning(message) => message,
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        if warning {
+            self.editor.set_warning(|| message);
+        } else {
+            self.editor.set_status(message);
+        }
+    }
+
     fn refresh_config(&mut self) {
-        let mut refresh_config = || -> Result<(), Error> {
-            let default_config = Config::load_default()
+        let mut refresh_config = || -> Result<Vec<ConfigMigration>, Error> {
+            let (default_config, migrations) = Config::load_default_migrating()
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
             let lang_loader = self.editor.load_language_config(&default_config.editor)?;
@@ -470,12 +494,13 @@ impl Application {
                 .reconfigure(terminal_config(&default_config))?;
             // Store new config
             self.config.store(Arc::new(default_config));
-            Ok(())
+            Ok(migrations)
         };
 
         match refresh_config() {
-            Ok(_) => {
+            Ok(migrations) => {
                 self.editor.set_status("Config refreshed");
+                self.notify_config_migration(migrations);
             }
             Err(err) => {
                 self.editor.set_error(|| err.to_string());
@@ -928,7 +953,7 @@ impl Application {
                             }
                         };
 
-                        if self.editor.config().lsp.display_progress_messages {
+                        if self.editor.config().lsp.progress.enable {
                             let title =
                                 title.or_else(|| self.lsp_progress.title(server_id, &token));
                             if title.is_some() || percentage.is_some() || message.is_some() {
@@ -1118,7 +1143,7 @@ impl Application {
     }
 
     fn handle_show_message(&mut self, message_type: lsp::MessageType, message: String) {
-        if self.config.load().editor.lsp.display_messages {
+        if self.config.load().editor.lsp.messages.enable {
             match message_type {
                 lsp::MessageType::ERROR => self.editor.set_error(|| message),
                 lsp::MessageType::WARNING => self.editor.set_warning(|| message),

@@ -59,7 +59,7 @@ fn app(root: &std::path::Path) -> anyhow::Result<term::application::Application>
     std::fs::write(&path, "text\n")?;
     let mut app = AppBuilder::new().with_file(path, None).build()?;
     app.handle_config_events(ConfigEvent::Refresh);
-    assert_eq!(app.editor.config().scrolloff, 7);
+    assert_eq!(app.editor.config().scroll.padding, 7);
     opened(&mut app.editor);
     drain_theme_events(&mut app.editor);
     Ok(app)
@@ -88,7 +88,7 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
                         app.editor.workspace_trust.status(&workspace),
                         TrustStatus::Trusted
                     );
-                    assert_eq!(app.editor.config().scrolloff, 17);
+                    assert_eq!(app.editor.config().scroll.padding, 17);
                 }),
             ),
             (
@@ -98,7 +98,7 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
                         app.editor.workspace_trust.status(&workspace),
                         TrustStatus::Untrusted
                     );
-                    assert_eq!(app.editor.config().scrolloff, 7);
+                    assert_eq!(app.editor.config().scroll.padding, 7);
                 }),
             ),
             (
@@ -108,7 +108,7 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
                         app.editor.workspace_trust.status(&workspace),
                         TrustStatus::Trusted
                     );
-                    assert_eq!(app.editor.config().scrolloff, 17);
+                    assert_eq!(app.editor.config().scroll.padding, 17);
                 }),
             ),
             (
@@ -118,7 +118,7 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
                         app.editor.workspace_trust.status(&workspace),
                         TrustStatus::Excluded
                     );
-                    assert_eq!(app.editor.config().scrolloff, 7);
+                    assert_eq!(app.editor.config().scroll.padding, 7);
                 }),
             ),
         ],
@@ -152,7 +152,7 @@ async fn modal_never_persists_exclusion() -> anyhow::Result<()> {
                 app.editor.workspace_trust.status(&root.join("workspace")),
                 TrustStatus::Excluded
             );
-            assert_eq!(app.editor.config().scrolloff, 7);
+            assert_eq!(app.editor.config().scroll.padding, 7);
         }),
         false,
     )
@@ -184,7 +184,7 @@ async fn modal_escape_dismisses_without_persisting() -> anyhow::Result<()> {
                 app.editor.workspace_trust.status(&root.join("workspace")),
                 TrustStatus::Untrusted
             );
-            assert_eq!(app.editor.config().scrolloff, 7);
+            assert_eq!(app.editor.config().scroll.padding, 7);
         }),
         false,
     )

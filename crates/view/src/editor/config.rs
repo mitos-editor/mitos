@@ -60,7 +60,7 @@ impl Editor {
 
         // Hooks may change document layout; keep every view's cursor visible after
         // they have observed the newly installed settings (including soft wrapping).
-        let scrolloff = self.config().scrolloff;
+        let scrolloff = self.config().scroll.padding;
         for (view, _) in self.tree.views() {
             let doc = doc_mut!(self, &view.doc);
             view.ensure_cursor_in_view(doc, scrolloff);

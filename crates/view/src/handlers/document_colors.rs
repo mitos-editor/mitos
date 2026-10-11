@@ -37,7 +37,7 @@ fn request_document_colors(
     exited_server: Option<lsp_client::LanguageServerId>,
 ) {
     let callbacks = editor.handlers.document_colors.callbacks.clone();
-    if !editor.config().lsp.display_color_swatches {
+    if !editor.config().lsp.color_swatches.enable {
         return;
     }
 
@@ -110,7 +110,7 @@ fn attach_document_colors(
     doc_id: DocumentId,
     mut doc_colors: Vec<(usize, lsp::Color)>,
 ) {
-    if !editor.config().lsp.display_color_swatches {
+    if !editor.config().lsp.color_swatches.enable {
         return;
     }
 

@@ -243,7 +243,7 @@ impl Editor {
         let auto_pairs = (&conf.auto_pairs).into();
 
         // Initialize file watcher and diff providers
-        let file_watcher = Watcher::new(&conf.file_watcher, handlers.callbacks.clone());
+        let file_watcher = Watcher::new(&conf.files.watch, handlers.callbacks.clone());
         let diff_providers = DiffProviderRegistry::default();
 
         // HAXX: offset the render area height by 1 to account for prompt/commandline
@@ -274,7 +274,7 @@ impl Editor {
             quicklist: Quicklist::default(),
             registers: Registers::new(crate::clipboard::Clipboard::native(Box::new(
                 arc_swap::access::Map::new(Arc::clone(&config), |config: &Config| {
-                    &config.clipboard_provider
+                    &config.clipboard.provider
                 }),
             ))),
             status_msg: None,
@@ -660,7 +660,7 @@ impl Editor {
         };
         let (lang, path) = (doc.language.clone(), doc.path());
         let config = doc.config.load();
-        let root_dirs = &config.workspace_lsp_roots;
+        let root_dirs = &config.lsp.workspace_roots;
 
         let workspace = doc.workspace_root();
         let trust = self.workspace_trust.query(workspace, TrustQuery::Lsp);
@@ -671,7 +671,7 @@ impl Editor {
         // store only successfully started language servers
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
             self.language_servers
-                .get(language, path, root_dirs, config.lsp.snippets)
+                .get(language, path, root_dirs, config.lsp.completion.snippets)
                 .filter_map(|(lang, client)| match client {
                     Ok(client) => Some((lang, client)),
                     Err(err) => {
@@ -740,7 +740,7 @@ impl Editor {
         // We can't simply check this config when rendering because inlay hints are only parts of
         // the possible annotations, and others could still be active, so we need to selectively
         // drop the inlay hints.
-        if !config.lsp.display_inlay_hints {
+        if !config.lsp.inlay_hints.enable {
             for doc in self.documents_mut() {
                 doc.reset_all_inlay_hints();
             }
@@ -750,12 +750,12 @@ impl Editor {
             let doc = doc_mut!(self, &view.doc);
             view.sync_changes(doc);
             view.gutters = config.gutters.clone();
-            view.ensure_cursor_in_view(doc, config.scrolloff)
+            view.ensure_cursor_in_view(doc, config.scroll.padding)
         }
     }
 
     fn replace_document_in_view(&mut self, current_view: ViewId, doc_id: DocumentId) {
-        let scrolloff = self.config().scrolloff;
+        let scrolloff = self.config().scroll.padding;
         let view = self.tree.get_mut(current_view);
 
         view.doc = doc_id;
@@ -1196,7 +1196,7 @@ impl Editor {
         let config = self.config();
         let view = self.tree.get(id);
         let doc = doc_mut!(self, &view.doc);
-        view.ensure_cursor_in_view(doc, config.scrolloff)
+        view.ensure_cursor_in_view(doc, config.scroll.padding)
     }
 
     #[inline]
@@ -1305,7 +1305,7 @@ impl Editor {
             let inner = view.inner_area(doc);
             pos.col += inner.x as usize;
             pos.row += inner.y as usize;
-            let cursorkind = config.cursor_shape.from_mode(self.mode);
+            let cursorkind = config.cursor.shape.from_mode(self.mode);
             (Some(pos), cursorkind)
         } else {
             (None, CursorKind::default())
@@ -1481,7 +1481,7 @@ impl Editor {
     /// Include repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
-        if self.config().file_watcher.watch_vcs {
+        if self.config().files.watch.watch_vcs {
             for doc in self.documents.values() {
                 let Some(path) = doc.path().and_then(|path| path.parent()) else {
                     continue;
@@ -1502,8 +1502,7 @@ impl Editor {
     pub fn set_cwd(&mut self, path: &Path) -> std::io::Result<()> {
         self.last_cwd = stdx::env::set_current_working_dir(path)?;
         self.clear_doc_relative_paths();
-        self.file_watcher
-            .reload(&self.config().file_watcher.clone());
+        self.file_watcher.reload(&self.config().files.watch.clone());
         self.refresh_vcs_watches();
         Ok(())
     }
@@ -1560,7 +1559,7 @@ impl Editor {
         }
         let (view, doc) = current!(self);
         doc.set_selection(view_id, selection);
-        view.ensure_cursor_in_view_center(doc, self.config.load().scrolloff);
+        view.ensure_cursor_in_view_center(doc, self.config.load().scroll.padding);
     }
 
     fn jump_quicklist(
@@ -1635,7 +1634,7 @@ impl Editor {
                 true
             }
             QuicklistPosition::Selection(selection) => {
-                let scrolloff = self.config.load().scrolloff;
+                let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
                     Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
@@ -1669,7 +1668,7 @@ impl Editor {
                     (start, end)
                 };
 
-                let scrolloff = self.config.load().scrolloff;
+                let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
                     Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
@@ -1705,7 +1704,7 @@ impl Editor {
                     Selection::single(start, end).ensure_invariants(text.slice(..))
                 };
 
-                let scrolloff = self.config.load().scrolloff;
+                let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
                     Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
@@ -1735,7 +1734,7 @@ impl Editor {
                     Selection::single(range.head, range.anchor)
                 };
 
-                let scrolloff = self.config.load().scrolloff;
+                let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
                     Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,

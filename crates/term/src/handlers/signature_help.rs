@@ -67,7 +67,7 @@ pub fn show_signature_help(
         .map(|s| {
             let active_param_range = active_param_range(&s, response.active_parameter);
 
-            let signature_doc = if config.lsp.display_signature_help_docs {
+            let signature_doc = if config.lsp.signature_help.show_documentation {
                 s.documentation.map(|doc| match doc {
                     lsp::Documentation::String(s) => s,
                     lsp::Documentation::MarkupContent(markup) => markup.value,

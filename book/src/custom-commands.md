@@ -7,7 +7,7 @@ Custom commands define short command-mode (`:`) commands in `config.toml`. A cus
 ":wq" = [":write", ":quit"]
 ":f" = ":format"
 ":W" = ":write!"
-":hints" = ":toggle lsp.display-inlay-hints"
+":hints" = ":toggle lsp.inlay-hints.enable"
 ```
 
 Typable commands start with `:`. Static commands, such as `move_char_right`, use their bare names. Key macros start with `@`, for example `@miw`. A macro must be the only item in a custom command because command sequences and macros use different execution models.

@@ -35,8 +35,8 @@ fn assert_editor_cursor(app: &Application, native: bool) {
 
 fn cursor_app(cursorline: bool, normal: &str, text: &str) -> Application {
     let mut config = test_config();
-    config.editor.cursorline = cursorline;
-    config.editor.cursor_shape = toml::from_str(&format!(
+    config.editor.cursor.highlight_line = cursorline;
+    config.editor.cursor.shape = toml::from_str(&format!(
         "normal = '{normal}'\ninsert = 'bar'\nselect = 'underline'"
     ))
     .unwrap();

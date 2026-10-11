@@ -27,16 +27,17 @@ keys are listed below.
 | Rename symbol | `Space-r` |
 | Code actions | `Space-a` |
 | Document / workspace symbols | `Space-s` / `Space-S` |
-| Format document | `:format`, or set `auto-format` to format on save |
-| Inlay hints | enable with `display-inlay-hints` (see below) |
+| Format document | `:format`, or set `format.on-save` to format on save |
+| Inlay hints | enable with `lsp.inlay-hints.enable` (see below) |
 
 ## Configuration
 
 The [`[editor.lsp]`](./editor.md#editorlsp-section) section of `config.toml`
-toggles LSP behaviour — `display-inlay-hints`, `auto-signature-help`,
-`auto-document-highlight`, `snippets`, and `enable` to disable LSP entirely. How
+groups LSP behaviour into feature subsections, including `inlay-hints.enable`,
+`signature-help.auto-trigger`, `document-highlight.auto-trigger`, and
+`completion.snippets`. Set `enable = false` to disable LSP entirely. How
 much diagnostic detail is shown inline at the cursor is configured separately in
-[`[editor.inline-diagnostics]`](./editor.md#editorinline-diagnostics-section).
+[`[editor.diagnostics.inline]`](./editor.md#editordiagnosticsinline-section).
 
 Which server(s) a language uses, the server's command and arguments, and any
 language-specific settings are configured in `languages.toml` (see

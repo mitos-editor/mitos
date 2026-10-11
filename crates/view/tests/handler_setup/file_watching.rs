@@ -8,8 +8,8 @@ use super::Fixture;
 async fn native_file_watching_reloads_without_terminal_setup() -> anyhow::Result<()> {
     let mut f = Fixture::new("before\n")?;
     f.configure(|config| {
-        config.auto_reload.enable = true;
-        config.file_watcher.enable = true;
+        config.files.reload.enable = true;
+        config.files.watch.enable = true;
     });
     f.editor.file_watcher.add_root(f.dir.path());
     let path = f.dir.path().join("document.words");

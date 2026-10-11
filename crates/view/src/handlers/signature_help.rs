@@ -76,7 +76,7 @@ impl SignatureHelpHandler {
 
     pub fn trigger(&self, editor: &Editor, invoked: SignatureHelpInvoked) {
         if invoked == SignatureHelpInvoked::Automatic
-            && (!editor.config().lsp.auto_signature_help || editor.mode() != Mode::Insert)
+            && (!editor.config().lsp.signature_help.auto_trigger || editor.mode() != Mode::Insert)
         {
             return;
         }
@@ -161,7 +161,7 @@ impl SignatureHelpTrigger {
         if id != doc.id() || view.is_some_and(|view| view != target_view) {
             return;
         }
-        if doc.config.load().lsp.auto_signature_help {
+        if doc.config.load().lsp.signature_help.auto_trigger {
             schedule(
                 &shared,
                 &self.events,
@@ -191,7 +191,8 @@ impl Request {
             .ptr_eq(&Arc::downgrade(&editor.handlers.signature_hints.shared))
             && self.document.is_current(editor)
             && (self.invoked == SignatureHelpInvoked::Manual
-                || (editor.config().lsp.auto_signature_help && editor.mode() == Mode::Insert))
+                || (editor.config().lsp.signature_help.auto_trigger
+                    && editor.mode() == Mode::Insert))
             && editor.tree.focus == self.view
             && editor
                 .tree
@@ -373,7 +374,7 @@ pub fn mode_changed(editor: &Editor, old: Mode) {
 
 /// Interpret trigger characters using the first supported server's capabilities.
 pub fn post_insert_char(editor: &Editor) {
-    if !editor.config().lsp.auto_signature_help {
+    if !editor.config().lsp.signature_help.auto_trigger {
         return;
     }
     let Some(view) = editor.tree.try_get(editor.tree.focus) else {
@@ -441,7 +442,8 @@ pub(super) fn register_hooks() {
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable
-            || (event.old.lsp.auto_signature_help && !event.new.lsp.auto_signature_help)
+            || (event.old.lsp.signature_help.auto_trigger
+                && !event.new.lsp.signature_help.auto_trigger)
         {
             event.editor.handlers.signature_hints.cancel();
         }

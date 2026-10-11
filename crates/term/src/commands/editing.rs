@@ -654,7 +654,7 @@ pub(super) fn replace(cx: &mut Context) {
 }
 
 pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
-    let scrolloff = editor.config().scrolloff;
+    let scrolloff = editor.config().scroll.padding;
     let (view, doc) = current!(editor);
     view::editing::replace_selections(doc, view, replacement);
     view.ensure_cursor_in_view(doc, scrolloff);
@@ -699,7 +699,7 @@ fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
         let values: Vec<String> = selection.fragments(text).map(Cow::into_owned).collect();
         let reg_name = cx
             .register
-            .unwrap_or_else(|| cx.editor.config.load().default_yank_register);
+            .unwrap_or_else(|| cx.editor.config.load().clipboard.default_yank_register);
         if let Err(err) = cx.editor.registers.write(reg_name, values) {
             cx.editor.set_error(|| err.to_string());
             return;
@@ -990,7 +990,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
         let text = doc.text().slice(..);
 
@@ -1039,7 +1039,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scrolloff;
+        let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
 
         // Find the text_width by checking the following sources in order:

@@ -90,11 +90,11 @@ model data, such as view geometry, theme styles, and gutter settings, remains sh
 editor state and applies configuration updates. Import shared settings from
 `view::config`, their owning module.
 
-Terminal capability overrides live in `term::config::TerminalConfig`. The
-terminal application composes them with `view::config::Config` through an
-`EditorSettings` representation that preserves the `[editor]` configuration
-table and the `:get`, `:set`, and `:toggle` commands. Frontend command contexts
-receive a configuration snapshot and an update sender; the application applies
+Terminal capabilities, keyboard protocol, and external launcher settings live
+in `term::config::TerminalConfig` under `[terminal]`. The terminal application
+composes them with `view::config::Config` through an `EditorSettings` representation
+that exposes editor-relative paths and `terminal.*` paths to the `:get`, `:set`,
+and `:toggle` commands. Frontend command contexts receive a configuration snapshot and an update sender; the application applies
 updates and reconfigures its backend. Shared editor events continue to carry
 only shared settings.
 

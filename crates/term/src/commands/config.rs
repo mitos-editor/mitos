@@ -67,7 +67,7 @@ pub(super) fn get_option(
         return Ok(());
     }
 
-    let key = &args[0].to_lowercase();
+    let key = &loader::config::migration::editor_path(&args[0].to_lowercase());
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
     let config = serde_json::json!(cx.config.current.editor_settings());
@@ -90,7 +90,10 @@ pub(super) fn set_option(
         return Ok(());
     }
 
-    let (key, arg) = (&args[0].to_lowercase(), args[1].trim());
+    let (key, arg) = (
+        &loader::config::migration::editor_path(&args[0].to_lowercase()),
+        args[1].trim(),
+    );
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
     let field_error = |_| anyhow::anyhow!("Could not parse field `{}`", arg);
@@ -125,7 +128,7 @@ pub(super) fn toggle_option(
         return Ok(());
     }
 
-    let key = &args[0].to_lowercase();
+    let key = &loader::config::migration::editor_path(&args[0].to_lowercase());
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 

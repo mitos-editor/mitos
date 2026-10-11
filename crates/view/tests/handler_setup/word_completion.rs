@@ -22,7 +22,7 @@ impl Fixture {
     }
 
     fn word_completion(&mut self, enabled: bool) {
-        self.configure(|config| config.word_completion.enable = enabled);
+        self.configure(|config| config.completion.word.enable = enabled);
     }
 }
 

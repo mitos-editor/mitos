@@ -13,9 +13,9 @@ impl Fixture {
             "language = []",
             loader::syntax::Resources::default(),
             |config| {
-                config.word_completion.enable = false;
-                config.auto_save.after_delay.enable = true;
-                config.auto_save.after_delay.timeout = 10;
+                config.completion.word.enable = false;
+                config.files.auto_save.after_delay.enable = true;
+                config.files.auto_save.after_delay.timeout = 10;
             },
             move |handlers, _| {
                 handlers.auto_save = auto_save::AutoSaveHandler::new(sender);
@@ -40,8 +40,8 @@ impl Fixture {
 
     fn settings(&mut self, delayed: bool, focus: bool) {
         self.configure(|config| {
-            config.auto_save.after_delay.enable = delayed;
-            config.auto_save.focus_lost = focus;
+            config.files.auto_save.after_delay.enable = delayed;
+            config.files.auto_save.focus_lost = focus;
         });
     }
 

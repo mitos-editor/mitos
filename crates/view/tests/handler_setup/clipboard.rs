@@ -82,7 +82,7 @@ async fn clipboard_backends_are_editor_owned_and_follow_live_configuration() -> 
         .registers
         .set_clipboard_backend(Box::new(MemoryClipboard(b.clone())));
     let mut settings = (**first.config.load()).clone();
-    settings.clipboard_provider = ClipboardProvider::None;
+    settings.clipboard.provider = ClipboardProvider::None;
     first.config.store(Arc::new(settings));
     first
         .editor
@@ -101,7 +101,7 @@ async fn clipboard_backends_are_editor_owned_and_follow_live_configuration() -> 
 
     let old = (*first.editor.config()).clone();
     let mut settings = old.clone();
-    settings.clipboard_provider = ClipboardProvider::Termcode;
+    settings.clipboard.provider = ClipboardProvider::Termcode;
     first.config.store(Arc::new(settings));
     first.editor.refresh_config(&old);
     assert_eq!(

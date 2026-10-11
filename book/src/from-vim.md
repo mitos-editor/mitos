@@ -132,7 +132,7 @@ Unlike Vim, under Mitos, the cursor shape is the same (block) in insert mode and
 This can be adjusted in configuration:
 
 ```toml
-[editor.cursor-shape]
+[editor.cursor.shape]
 insert = "bar"
 ```
 

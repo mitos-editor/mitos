@@ -108,7 +108,7 @@ pub(super) async fn make_format_callback(
             return;
         }
 
-        let scrolloff = editor.config().scrolloff;
+        let scrolloff = editor.config().scroll.padding;
         let doc = doc_mut!(editor, &doc_id);
         let view = view_mut!(editor, view_id);
 

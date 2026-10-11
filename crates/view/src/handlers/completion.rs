@@ -60,7 +60,7 @@ impl CompletionHandler {
             callbacks,
             epoch: AtomicU64::new(0),
             trigger: Mutex::new(None),
-            timeout: Mutex::new(config.completion_timeout),
+            timeout: Mutex::new(config.completion.trigger_delay),
         });
         let event_tx = Debounce::new(Arc::downgrade(&shared)).spawn();
         Self {
@@ -187,7 +187,7 @@ impl Session {
         !self.cancel.is_canceled()
             && belongs_to(&self.owner, editor, self.epoch)
             && editor.mode() == Mode::Insert
-            && (self.trigger.kind == TriggerKind::Manual || editor.config().auto_completion)
+            && (self.trigger.kind == TriggerKind::Manual || editor.config().completion.auto_trigger)
             && editor.tree.focus == self.trigger.view
             && editor
                 .tree
@@ -525,14 +525,14 @@ pub(super) fn register_hooks() {
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         let handler = &mut event.editor.handlers.completions;
-        *handler.shared.timeout.lock() = event.new.completion_timeout;
+        *handler.shared.timeout.lock() = event.new.completion.trigger_delay;
         let automatic = handler
             .shared
             .trigger
             .lock()
             .is_some_and(|trigger| trigger.kind != TriggerKind::Manual);
         if (event.old.lsp.enable && !event.new.lsp.enable)
-            || (automatic && !event.new.auto_completion)
+            || (automatic && !event.new.completion.auto_trigger)
         {
             invalidate(event.editor);
         }
@@ -577,7 +577,7 @@ pub enum CompletionEvent {
 }
 pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
     let config = editor.config.load();
-    if !config.auto_completion {
+    if !config.completion.auto_trigger {
         return;
     }
     let (view, doc): (&crate::View, &crate::Document) = current_ref!(editor);
@@ -618,7 +618,7 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
             .text()
             .chars_at(cursor)
             .reversed()
-            .take(config.completion_trigger_len as usize)
+            .take(config.completion.trigger_length as usize)
             .all(char_is_word);
 
     if is_auto_trigger {

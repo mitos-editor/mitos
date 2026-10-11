@@ -165,21 +165,21 @@ mod tests {
                 serde_json::from_str(&format!("\"{expected}\"")).unwrap();
             assert_eq!(default_provider(), provider);
             assert_ne!(ClipboardProvider::default(), ClipboardProvider::Termcode);
-            assert_eq!(Config::default().editor.clipboard_provider, provider);
+            assert_eq!(Config::default().editor.clipboard.provider, provider);
             assert_eq!(
-                EditorSettings::default().editor.clipboard_provider,
+                EditorSettings::default().editor.clipboard.provider,
                 provider
             );
             for source in ["", "[editor]", "[editor]\nscrolloff = 7"] {
                 let config =
                     Config::load(Ok(&source.to_owned()), Err(ConfigLoadError::default())).unwrap();
-                assert_eq!(config.editor.clipboard_provider, provider);
+                assert_eq!(config.editor.clipboard.provider, provider);
             }
             for explicit in ["none", "termcode"] {
                 let source = format!("[editor]\nclipboard-provider = '{explicit}'");
                 let config = Config::load(Ok(&source), Err(ConfigLoadError::default())).unwrap();
                 assert_eq!(
-                    serde_json::to_value(config.editor.clipboard_provider).unwrap(),
+                    serde_json::to_value(config.editor.clipboard.provider).unwrap(),
                     explicit
                 );
             }

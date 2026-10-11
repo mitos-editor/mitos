@@ -111,7 +111,7 @@ pub fn diagnostic<'doc>(
 
 pub fn code_lens<'doc>(editor: &'doc Editor, doc: &'doc Document, theme: &Theme) -> GutterFn<'doc> {
     let info = theme.get("info");
-    let enabled = editor.config().lsp.enable && editor.config().lsp.display_code_lenses;
+    let enabled = editor.config().lsp.enable && editor.config().lsp.code_lenses.enable;
     Box::new(move |line, _, first_visual_line, out| {
         if !enabled || !first_visual_line {
             return None;

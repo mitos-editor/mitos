@@ -481,7 +481,7 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        if event.old.word_completion.enable != event.new.word_completion.enable {
+        if event.old.completion.word.enable != event.new.completion.word.enable {
             let handler = &event.editor.handlers.word_index;
             // Rebuild from current document settings, including language overrides.
             // Route the reset and inserts through the edit queue to preserve their order.

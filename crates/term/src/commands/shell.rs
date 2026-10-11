@@ -222,7 +222,7 @@ pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: &ShellBeh
 
     // after replace cursor may be out of bounds, do this to
     // make sure cursor is in view and update scroll as well
-    view.ensure_cursor_in_view(doc, config.scrolloff);
+    view.ensure_cursor_in_view(doc, config.scroll.padding);
 }
 
 fn shell_prompt<F>(cx: &mut Context, prompt: Cow<'static, str>, mut callback_fn: F)

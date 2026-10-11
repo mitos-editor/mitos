@@ -31,7 +31,13 @@ impl Fixture {
 
     fn new(keys: &str) -> anyhow::Result<Self> {
         let mut config = test_config();
-        config.editor.smart_tab.as_mut().unwrap().supersede_menu = true;
+        config
+            .editor
+            .indent
+            .smart_tab
+            .as_mut()
+            .unwrap()
+            .supersede_menu = true;
         config.component_keys = Self::load_config(keys).component_keys;
         Ok(Self {
             app: AppBuilder::new().with_config(config.clone()).build()?,

@@ -4,7 +4,7 @@ use crate::keymap::component::{
     PromptAction,
 };
 use crate::keymap::KeyTrie;
-use loader::merge_toml_values;
+use loader::config::migration;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
@@ -25,8 +25,8 @@ pub struct Config {
     pub terminal: TerminalConfig,
 }
 
-/// Terminal capability overrides. Their TOML keys remain under `[editor]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+/// Frontend-owned terminal settings from the top-level `[terminal]` table.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct TerminalConfig {
     /// Override automatic detection of true color support.
@@ -34,26 +34,41 @@ pub struct TerminalConfig {
     /// Override automatic detection of extended underline support.
     pub undercurl: bool,
     /// Policy for enabling the Kitty keyboard protocol.
-    pub kitty_keyboard_protocol: KittyKeyboardProtocolConfig,
+    pub keyboard: KeyboardConfig,
+    pub launcher: Option<view::config::TerminalConfig>,
 }
 
-/// The user-facing `[editor]` table, composed from editor and frontend settings.
-/// This compatibility representation is also used by `:get`, `:set`, and `:toggle`.
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            true_color: false,
+            undercurl: false,
+            keyboard: KeyboardConfig::default(),
+            launcher: view::config::get_terminal_provider(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct KeyboardConfig {
+    pub kitty_protocol: KittyKeyboardProtocolConfig,
+}
+
+/// Runtime command settings: editor-relative paths and `terminal.*` paths.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EditorSettings {
     #[serde(flatten)]
     pub editor: view::config::Config,
-    #[serde(flatten)]
     pub terminal: TerminalConfig,
 }
 
 impl Default for EditorSettings {
     fn default() -> Self {
+        let mut editor = view::config::Config::default();
+        editor.clipboard.provider = crate::clipboard::default_provider();
         Self {
-            editor: view::config::Config {
-                clipboard_provider: crate::clipboard::default_provider(),
-                ..Default::default()
-            },
+            editor,
             terminal: TerminalConfig::default(),
         }
     }
@@ -64,26 +79,27 @@ impl<'de> Deserialize<'de> for EditorSettings {
     where
         D: Deserializer<'de>,
     {
-        // Partition before deserializing so both schemas retain strict unknown-field
-        // validation. Flattened deserialization cannot preserve that boundary reliably.
+        // Partition frontend settings before deserializing to preserve strict
+        // unknown-field validation on both sides of the ownership boundary.
         let mut editor = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
-        let mut terminal = serde_json::Map::new();
-        for key in ["true-color", "undercurl", "kitty-keyboard-protocol"] {
-            if let Some(value) = editor.remove(key) {
-                terminal.insert(key.to_owned(), value);
-            }
+        let terminal: TerminalConfig = editor
+            .remove("terminal")
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(serde::de::Error::custom)?
+            .unwrap_or_default();
+        let clipboard = editor
+            .entry("clipboard".to_owned())
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(clipboard) = clipboard.as_object_mut() {
+            clipboard
+                .entry("provider".to_owned())
+                .or_insert_with(|| serde_json::json!(crate::clipboard::default_provider()));
         }
-        if !editor.contains_key("clipboard-provider") {
-            editor.insert(
-                "clipboard-provider".into(),
-                serde_json::to_value(crate::clipboard::default_provider())
-                    .map_err(serde::de::Error::custom)?,
-            );
-        }
-        Ok(Self {
-            editor: serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?,
-            terminal: serde_json::from_value(terminal.into()).map_err(serde::de::Error::custom)?,
-        })
+        let mut editor: view::config::Config =
+            serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?;
+        editor.terminal = terminal.launcher.clone();
+        Ok(Self { editor, terminal })
     }
 }
 
@@ -185,6 +201,7 @@ pub struct ConfigRaw {
     pub theme: Option<theme::Config>,
     pub keys: Option<Keys>,
     pub editor: Option<toml::Value>,
+    pub terminal: Option<toml::Value>,
     commands: Option<Commands>,
 }
 
@@ -242,6 +259,62 @@ impl Display for ConfigLoadError {
     }
 }
 
+/// Nonblocking notices from automatic configuration migration.
+#[derive(Debug)]
+pub enum ConfigMigration {
+    Updated {
+        path: std::path::PathBuf,
+        backup: std::path::PathBuf,
+    },
+    Warning(String),
+}
+
+fn migrate_file(
+    path: &std::path::Path,
+    global: &str,
+    local: Option<&str>,
+    is_user: bool,
+) -> anyhow::Result<Option<migration::FileMigration>> {
+    migration::file(path, |source| {
+        // Project tables can inherit required fields from the user layer.
+        // Validate the candidate in the same context in which it was loaded.
+        let global = if is_user { source } else { global }.to_owned();
+        let local = if is_user { local } else { Some(source) }
+            .map(str::to_owned)
+            .ok_or_else(ConfigLoadError::default);
+        Config::load(Ok(&global), local)
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!(err.to_string()))
+    })
+}
+
+fn parse_source(source: &str) -> Result<ConfigRaw, TomlError> {
+    let mut value = toml::from_str(source)?;
+    migration::config(&mut value)?;
+    value.try_into()
+}
+
+fn settings_from_sources(
+    global_editor: Option<toml::Value>,
+    global_terminal: Option<toml::Value>,
+    local_editor: Option<toml::Value>,
+    local_terminal: Option<toml::Value>,
+) -> Result<EditorSettings, ConfigLoadError> {
+    let table = || toml::Value::Table(Default::default());
+    let mut editor = migration::merge(
+        global_editor.unwrap_or_else(table),
+        local_editor.unwrap_or_else(table),
+    );
+    let terminal = migration::merge(
+        global_terminal.unwrap_or_else(table),
+        local_terminal.unwrap_or_else(table),
+    );
+    if let Some(editor) = editor.as_table_mut() {
+        editor.insert("terminal".into(), terminal);
+    }
+    editor.try_into().map_err(ConfigLoadError::BadConfig)
+}
+
 impl Config {
     pub fn editor_settings(&self) -> EditorSettings {
         EditorSettings {
@@ -255,23 +328,20 @@ impl Config {
         local: Result<String, ConfigLoadError>,
     ) -> Result<Config, ConfigLoadError> {
         let global_config: Result<ConfigRaw, ConfigLoadError> =
-            global.and_then(|file| toml::from_str(file).map_err(ConfigLoadError::BadConfig));
+            global.and_then(|file| parse_source(file).map_err(ConfigLoadError::BadConfig));
         let local_config: Result<ConfigRaw, ConfigLoadError> =
-            local.and_then(|file| toml::from_str(&file).map_err(ConfigLoadError::BadConfig));
+            local.and_then(|file| parse_source(&file).map_err(ConfigLoadError::BadConfig));
         let res = match (global_config, local_config) {
             (Ok(mut global), Ok(local)) => {
                 let (keys, component_keys) =
                     resolve_keymaps(global.keys.into_iter().chain(local.keys));
 
-                let mut settings: EditorSettings = match (global.editor, local.editor) {
-                    (None, None) => EditorSettings::default(),
-                    (None, Some(val)) | (Some(val), None) => {
-                        val.try_into().map_err(ConfigLoadError::BadConfig)?
-                    }
-                    (Some(global), Some(local)) => merge_toml_values(global, local, 3)
-                        .try_into()
-                        .map_err(ConfigLoadError::BadConfig)?,
-                };
+                let mut settings = settings_from_sources(
+                    global.editor,
+                    global.terminal,
+                    local.editor,
+                    local.terminal,
+                )?;
 
                 if let Some(local_commands) = local.commands {
                     if let Some(global_commands) = &mut global.commands {
@@ -299,10 +369,8 @@ impl Config {
             }
             (Ok(config), Err(_)) | (Err(_), Ok(config)) => {
                 let (keys, component_keys) = resolve_keymaps(config.keys);
-                let mut settings: EditorSettings = config.editor.map_or_else(
-                    || Ok(EditorSettings::default()),
-                    |val| val.try_into().map_err(ConfigLoadError::BadConfig),
-                )?;
+                let mut settings =
+                    settings_from_sources(config.editor, config.terminal, None, None)?;
                 if let Some(commands) = config.commands {
                     settings.editor.commands = commands.into_custom_commands();
                 }
@@ -323,37 +391,94 @@ impl Config {
         Ok(res)
     }
 
+    /// Load without rewriting files, for health checks and read-only consumers.
     pub fn load_default() -> Result<Config, ConfigLoadError> {
-        let global_config =
-            fs::read_to_string(loader::config_file()).map_err(ConfigLoadError::Error)?;
-        let local_config =
-            fs::read_to_string(loader::workspace_config_file()).map_err(ConfigLoadError::Error);
+        Self::load_default_impl(false).map(|(config, _)| config)
+    }
 
-        let phony_config = ConfigLoadError::Error(IOError::other("hacky placeholder"));
-        let global_parsed = Config::load(Ok(&global_config), Err(phony_config))?;
+    /// Persist known renames in user and trusted project configuration.
+    /// Write failures become notices while loaded legacy settings remain usable.
+    pub fn load_default_migrating() -> Result<(Config, Vec<ConfigMigration>), ConfigLoadError> {
+        Self::load_default_impl(true)
+    }
 
-        // We need to build a transient `WorkspaceTrust` just to ask whether the workspace is
-        // trusted enough to load its `.mitos/config.toml`. The persisted-trust file on disk is the
-        // source of truth either way; this transient instance has an empty cache and is dropped
-        // after the check.
-        let trust = loader::workspace_trust::WorkspaceTrust::new(
-            (&global_parsed.editor.workspace_trust).into(),
-        );
-        if trust
-            .query_current(loader::workspace_trust::TrustQuery::LocalConfig)
+    fn load_default_impl(rewrite: bool) -> Result<(Config, Vec<ConfigMigration>), ConfigLoadError> {
+        use loader::workspace_trust::{TrustQuery, TrustStatus, WorkspaceTrust};
+        let user_path = loader::config_file();
+        let (global_config, user_exists) = match fs::read_to_string(&user_path) {
+            Ok(source) => (source, true),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (String::new(), false),
+            Err(err) => return Err(ConfigLoadError::Error(err)),
+        };
+        let global_parsed = Config::load(Ok(&global_config), Err(ConfigLoadError::default()))?;
+        let trust_config = (&global_parsed.editor.workspace_trust).into();
+        let trust = WorkspaceTrust::new(trust_config);
+        let workspace = loader::find_workspace().0;
+        let project_path = workspace.join(".mitos/config.toml");
+        let mut paths = Vec::new();
+        if user_exists {
+            paths.push((user_path, true));
+        }
+
+        let mut local_source = None;
+        // Check user-scope trust before even reading the project config.
+        let config = if trust
+            .query(&workspace, TrustQuery::LocalConfig)
             .is_trusted()
         {
-            let mut merged = Config::load(Ok(&global_config), local_config)?;
-            // editor.workspace-trust is global/user-scope only. Without this override, a
-            // workspace's `.mitos/config.toml` could set `level = "insecure"`; once the user trusted
-            // *that* workspace, refresh_config would re-load with the override merged in and from
-            // then on every subsequent workspace in the session would be implicitly trusted. Pin
-            // the gate's own configuration to the global file.
+            let local = fs::read_to_string(&project_path).map_err(ConfigLoadError::Error);
+            if let Ok(source) = &local {
+                local_source = Some(source.clone());
+                paths.push((project_path, false));
+            }
+            let mut merged = Config::load(Ok(&global_config), local)?;
+            // A project cannot change the policy used to decide whether to load it.
             merged.editor.workspace_trust = global_parsed.editor.workspace_trust;
-            Ok(merged)
+            merged
         } else {
-            Ok(global_parsed)
+            global_parsed
+        };
+        let mut notices = Vec::new();
+        if rewrite {
+            // All loaded layers must validate before either file is rewritten.
+            for (path, is_user) in paths {
+                match migrate_file(&path, &global_config, local_source.as_deref(), is_user) {
+                    Ok(Some(written)) => {
+                        // Never create a grant for implicit trust. Preserve an existing
+                        // grant only when the exact migration accounts for the changes.
+                        if trust.status(&workspace) == TrustStatus::Trusted
+                            && !trust.record_config_migration(&workspace, &written)
+                            && WorkspaceTrust::new((&config.editor.workspace_trust).into())
+                                .status(&workspace)
+                                != TrustStatus::Trusted
+                        {
+                            notices.push(ConfigMigration::Warning(
+                                "Workspace trust could not be preserved; review the changes and trust the workspace again".into()
+                            ));
+                        }
+                        log::info!(
+                            "Updated {}; backup: {}",
+                            path.display(),
+                            written.backup.display()
+                        );
+                        notices.push(ConfigMigration::Updated {
+                            path,
+                            backup: written.backup,
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        let message = format!(
+                            "Could not update {}; using loaded settings: {err:#}",
+                            path.display()
+                        );
+                        log::warn!("{message}");
+                        notices.push(ConfigMigration::Warning(message));
+                    }
+                }
+            }
         }
+        Ok((config, notices))
     }
 }
 
@@ -578,12 +703,15 @@ mod tests {
             TerminalConfig {
                 true_color: false,
                 undercurl: true,
-                kitty_keyboard_protocol: KittyKeyboardProtocolConfig::Enabled,
+                keyboard: KeyboardConfig {
+                    kitty_protocol: KittyKeyboardProtocolConfig::Enabled
+                },
+                ..TerminalConfig::default()
             }
         );
-        assert_eq!(config.editor.scrolloff, 7);
-        assert!(config.editor.auto_save.after_delay.enable);
-        assert_eq!(config.editor.auto_save.after_delay.timeout, 2500);
+        assert_eq!(config.editor.scroll.padding, 7);
+        assert!(config.editor.files.auto_save.after_delay.enable);
+        assert_eq!(config.editor.files.auto_save.after_delay.timeout, 2500);
 
         // The shared editor schema no longer contains terminal capabilities.
         let shared = serde_json::to_value(&config.editor).unwrap();
@@ -614,9 +742,9 @@ mod tests {
         let config = Config::load_test("[editor]\ntrue-color = true\nundercurl = true\nkitty-keyboard-protocol = 'disabled'\nidle-timeout = 123\n[editor.cursor-shape]\ninsert = 'bar'");
         let settings = config.editor_settings();
         let value = serde_json::to_value(&settings).unwrap();
-        assert_eq!(value["true-color"], true);
+        assert_eq!(value["terminal"]["true-color"], true);
         assert_eq!(value["idle-timeout"], 123);
-        assert_eq!(value["cursor-shape"]["insert"], "bar");
+        assert_eq!(value["cursor"]["shape"]["insert"], "bar");
         assert_eq!(
             serde_json::from_value::<EditorSettings>(value).unwrap(),
             settings
@@ -721,7 +849,7 @@ completer = ":write"
         let global = "[editor]\nclipboard-provider = 'termcode'".to_owned();
         let local = "[editor]\nclipboard-provider = 'none'".to_owned();
         let config = Config::load(Ok(&global), Ok(local)).unwrap();
-        assert_eq!(config.editor.clipboard_provider, ClipboardProvider::None);
+        assert_eq!(config.editor.clipboard.provider, ClipboardProvider::None);
         let custom = Config::load_test(
             r#"
             [editor.clipboard-provider.custom]
@@ -733,11 +861,11 @@ completer = ":write"
         let settings = custom.editor_settings();
         let serialized = serde_json::to_value(&settings).unwrap();
         assert_eq!(
-            serialized["clipboard-provider"]["custom"]["yank"]["command"],
+            serialized["clipboard"]["provider"]["custom"]["yank"]["command"],
             "read-clipboard"
         );
         assert_eq!(
-            serialized["clipboard-provider"]["custom"]["paste"]["args"],
+            serialized["clipboard"]["provider"]["custom"]["paste"]["args"],
             serde_json::json!([])
         );
         assert_eq!(
@@ -745,5 +873,171 @@ completer = ":write"
             settings
         );
         assert!(Config::load_test_result("[editor]\nclipboard-provider = 'unknown'").is_err());
+    }
+    #[test]
+    fn reorganized_defaults_keep_existing_behavior() {
+        let config = Config::load_test("");
+        let editor = config.editor;
+        assert!(editor.lsp.enable);
+        assert!(editor.lsp.messages.enable);
+        assert!(!editor.lsp.progress.enable);
+        assert!(editor.lsp.signature_help.auto_trigger);
+        assert!(editor.lsp.signature_help.show_documentation);
+        assert!(!editor.lsp.inlay_hints.enable);
+        assert_eq!(editor.lsp.inlay_hints.length_limit, None);
+        assert!(editor.lsp.document_highlight.auto_trigger);
+        assert!(editor.lsp.color_swatches.enable);
+        assert!(editor.lsp.code_lenses.enable);
+        assert!(editor.lsp.completion.snippets);
+        assert!(editor.lsp.references.include_declaration);
+        assert!(editor.completion.auto_trigger);
+        assert_eq!(editor.completion.trigger_delay.as_millis(), 250);
+        assert_eq!(editor.inline_completion.trigger_delay.as_millis(), 150);
+        assert!(editor.format.on_save);
+        assert!(editor.files.save.atomic);
+        assert!(editor.files.save.insert_final_newline);
+        assert!(!editor.files.save.trim_final_newlines);
+        assert!(!editor.files.save.trim_trailing_whitespace);
+        assert!(!editor.statusline.mode.color);
+        assert!(!editor.rainbow_brackets.enable);
+    }
+
+    #[test]
+    fn canonical_features_preserve_legacy_behavior_and_runtime_shape() {
+        let old = Config::load_test(
+            r#"
+            [editor]
+            mouse = false
+            middle-click-paste = false
+            bufferline = "always"
+            color-modes = true
+            cursorline = true
+            auto-pairs = { '(' = ')' }
+            auto-save = true
+            auto-format = false
+            rainbow-brackets = true
+            completion-trigger-len = 1
+            trim-final-newlines = true
+            [editor.lsp]
+            display-progress-messages = true
+            display-inlay-hints = true
+            inlay-hints-length-limit = 30
+            [editor.cursor-shape]
+            insert = "bar"
+        "#,
+        );
+        let canonical = Config::load_test(
+            r#"
+            [editor.mouse]
+            enable = false
+            middle-click-paste = false
+            [editor.bufferline]
+            show = "always"
+            [editor.statusline.mode]
+            color = true
+            [editor.cursor]
+            highlight-line = true
+            [editor.cursor.shape]
+            insert = "bar"
+            [editor.auto-pairs]
+            pairs = { '(' = ')' }
+            [editor.files.auto-save]
+            focus-lost = true
+            [editor.format]
+            on-save = false
+            [editor.rainbow-brackets]
+            enable = true
+            [editor.completion]
+            trigger-length = 1
+            [editor.files.save]
+            trim-final-newlines = true
+            [editor.lsp.progress]
+            enable = true
+            [editor.lsp.inlay-hints]
+            enable = true
+            length-limit = 30
+        "#,
+        );
+        assert_eq!(old, canonical);
+        let value = serde_json::to_value(canonical.editor_settings()).unwrap();
+        assert_eq!(value["lsp"]["progress"]["enable"], true);
+        assert_eq!(value["completion"]["trigger-length"], 1);
+        assert!(value["lsp"].get("display-progress-messages").is_none());
+        assert!(value.get("completion-trigger-len").is_none());
+    }
+
+    #[test]
+    fn mixed_spellings_respect_precedence_deep_inheritance_and_array_replacement() {
+        for (global, local) in [
+            (
+                "[editor.lsp]\ndisplay-messages = false",
+                "[editor.lsp.messages]\nenable = true",
+            ),
+            (
+                "[editor.lsp.messages]\nenable = false",
+                "[editor.lsp]\ndisplay-messages = true",
+            ),
+        ] {
+            let config = Config::load(Ok(&global.to_owned()), Ok(local.to_owned())).unwrap();
+            assert!(config.editor.lsp.messages.enable);
+        }
+        let global = r#"
+            [editor]
+            rulers = [80, 120]
+            [editor.files.auto-save.after-delay]
+            enable = true
+            timeout = 1700
+            [editor.files.reload.poll]
+            enable = false
+            interval = 2000
+            [terminal]
+            true-color = true
+            [terminal.launcher]
+            command = "tmux"
+            args = ["split-window"]
+        "#
+        .to_owned();
+        let local = r#"
+            [editor]
+            rulers = []
+            [editor.auto-save.after-delay]
+            timeout = 900
+            [editor.files.reload.poll]
+            interval = 4000
+        "#
+        .to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        assert!(config.editor.files.auto_save.after_delay.enable);
+        assert_eq!(config.editor.files.auto_save.after_delay.timeout, 900);
+        assert!(!config.editor.files.reload.poll.enable);
+        assert_eq!(config.editor.files.reload.poll.interval, 4000);
+        assert!(config.editor.rulers.is_empty());
+        assert!(config.terminal.true_color);
+        assert_eq!(config.editor.terminal, config.terminal.launcher);
+        assert_eq!(config.editor.terminal.unwrap().command, "tmux");
+    }
+
+    #[test]
+    fn duplicate_aliases_and_unknown_nested_settings_are_rejected() {
+        for source in [
+            "[editor.lsp]\ndisplay-messages = true\nmessages.enable = false",
+            "[editor]\nauto-format = true\nformat.on-save = false",
+            "[editor]\ntrue-color = true\n[terminal]\ntrue-color = false",
+            "[editor.lsp.messages]\nenabled = true",
+            "[editor.files.reload.poll]\nintervall = 1000",
+            "[editor.completion.path]\nunknown = false",
+            "[editor.auto-pairs]\nenabel = false",
+            "[terminal.keyboard]\nkitty-protcol = 'auto'",
+        ] {
+            assert!(Config::load_test_result(source).is_err(), "{source}");
+        }
+        // Disjoint leaves in legacy and canonical containers can coexist.
+        let config = Config::load_test("[editor.word-completion]\nenable = false\n[editor.completion.word]\ntrigger-length = 3");
+        assert!(!config.editor.completion.word.enable);
+        assert_eq!(config.editor.completion.word.trigger_length.get(), 3);
+        let config = Config::load_test(
+            "[editor]\nword-completion = {}\n[editor.completion.word]\nenable = false",
+        );
+        assert!(!config.editor.completion.word.enable);
     }
 }

@@ -55,13 +55,13 @@ impl Fixture {
         setup: impl FnOnce(&mut Handlers, &Config),
     ) -> anyhow::Result<Self> {
         let mut config = Config::default();
-        config.file_watcher.enable = false;
-        config.auto_reload.enable = false;
-        config.auto_reload.poll.enable = false;
+        config.files.watch.enable = false;
+        config.files.reload.enable = false;
+        config.files.reload.poll.enable = false;
         config.lsp.enable = false;
-        config.auto_completion = false;
-        config.word_completion.enable = true;
-        config.path_completion = false;
+        config.completion.auto_trigger = false;
+        config.completion.word.enable = true;
+        config.completion.path.enable = false;
         configure(&mut config);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let (callbacks_tx, callbacks) = callback_channel();

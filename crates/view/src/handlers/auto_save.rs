@@ -134,7 +134,7 @@ impl AsyncHook for Debounce {
         state.callbacks.send_blocking(move |editor| {
             let state = &editor.handlers.auto_save.state;
             if !owner.ptr_eq(&Arc::downgrade(state))
-                || !editor.config().auto_save.after_delay.enable
+                || !editor.config().files.auto_save.after_delay.enable
                 || state.generation.load(Ordering::Relaxed) != generation
             {
                 return;
@@ -158,7 +158,7 @@ fn request_auto_save(editor: &mut Editor) {
 
 /// Focus-loss saves have their own setting and also run while in insert mode.
 pub fn focus_lost(editor: &mut Editor) {
-    if editor.config().auto_save.focus_lost {
+    if editor.config().files.auto_save.focus_lost {
         request_auto_save(editor);
     }
 }
@@ -166,15 +166,15 @@ pub fn focus_lost(editor: &mut Editor) {
 pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
-        if config.auto_save.after_delay.enable
+        if config.files.auto_save.after_delay.enable
             && let Some(trigger) = &event.doc.auto_save_trigger
         {
-            trigger.changed(config.auto_save.after_delay.timeout);
+            trigger.changed(config.files.auto_save.after_delay.timeout);
         }
         Ok(())
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        if !event.new.auto_save.after_delay.enable {
+        if !event.new.files.auto_save.after_delay.enable {
             event.editor.handlers.auto_save.cancel();
         }
         Ok(())

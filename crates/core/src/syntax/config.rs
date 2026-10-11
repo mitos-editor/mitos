@@ -63,9 +63,9 @@ pub struct LanguageConfiguration {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formatter: Option<FormatterConfiguration>,
 
-    /// If set, overrides `editor.path-completion`.
+    /// If set, overrides `editor.completion.path.enable`.
     pub path_completion: Option<bool>,
-    /// If set, overrides `editor.word-completion`.
+    /// If set, overrides `editor.completion.word`.
     pub word_completion: Option<WordCompletion>,
 
     /// Layers over `editor.spelling` for this language.
@@ -95,9 +95,8 @@ pub struct LanguageConfiguration {
     pub debugger: Option<DebugAdapterConfig>,
 
     /// Automatic insertion of pairs to parentheses, brackets,
-    /// etc. Defaults to true. Optionally, this can be a list of 2-tuples
-    /// to specify a list of characters to pair. This overrides the
-    /// global setting.
+    /// etc. A boolean uses or disables the built-in pairs; a character map
+    /// supplies language-specific pairs. Global disablement takes precedence.
     #[serde(default, skip_serializing, deserialize_with = "deserialize_auto_pairs")]
     pub auto_pairs: Option<AutoPairs>,
 
@@ -108,7 +107,7 @@ pub struct LanguageConfiguration {
     pub workspace_lsp_roots: Option<Vec<PathBuf>>,
     #[serde(default)]
     pub persistent_diagnostic_sources: Vec<String>,
-    /// Overrides the `editor.rainbow-brackets` config key for the language.
+    /// Overrides `editor.rainbow-brackets.enable` for the language.
     pub rainbow_brackets: Option<bool>,
 }
 
@@ -491,46 +490,46 @@ pub enum IndentationHeuristic {
     Hybrid,
 }
 
-/// Configuration for auto pairs
+/// Automatic delimiter pairing, shared by global and language configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields, untagged)]
-pub enum AutoPairConfig {
-    /// Enables or disables auto pairing. False means disabled. True means to use the default pairs.
-    Enable(bool),
-
-    /// The mappings of pairs.
-    Pairs(HashMap<char, char>),
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct AutoPairConfig {
+    pub enable: bool,
+    /// Omitted uses the built-in pairs; an empty map disables all pairs.
+    pub pairs: Option<HashMap<char, char>>,
 }
 
 impl Default for AutoPairConfig {
     fn default() -> Self {
-        AutoPairConfig::Enable(true)
-    }
-}
-
-impl From<&AutoPairConfig> for Option<AutoPairs> {
-    fn from(auto_pair_config: &AutoPairConfig) -> Self {
-        match auto_pair_config {
-            AutoPairConfig::Enable(false) => None,
-            AutoPairConfig::Enable(true) => Some(AutoPairs::default()),
-            AutoPairConfig::Pairs(pairs) => Some(AutoPairs::new(pairs.iter())),
+        Self {
+            enable: true,
+            pairs: None,
         }
     }
 }
 
+impl From<&AutoPairConfig> for Option<AutoPairs> {
+    fn from(config: &AutoPairConfig) -> Self {
+        config.enable.then(|| match &config.pairs {
+            Some(pairs) => AutoPairs::new(pairs.iter()),
+            None => AutoPairs::default(),
+        })
+    }
+}
+
 impl From<AutoPairConfig> for Option<AutoPairs> {
-    fn from(auto_pairs_config: AutoPairConfig) -> Self {
-        (&auto_pairs_config).into()
+    fn from(config: AutoPairConfig) -> Self {
+        (&config).into()
     }
 }
 
 impl FromStr for AutoPairConfig {
     type Err = std::str::ParseBoolError;
-
-    // only do bool parsing for runtime setting
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let enable: bool = s.parse()?;
-        Ok(AutoPairConfig::Enable(enable))
+        Ok(Self {
+            enable: s.parse()?,
+            ..Self::default()
+        })
     }
 }
 
@@ -662,7 +661,19 @@ pub fn deserialize_auto_pairs<'de, D>(deserializer: D) -> Result<Option<AutoPair
 where
     D: serde::Deserializer<'de>,
 {
-    Ok(Option::<AutoPairConfig>::deserialize(deserializer)?.and_then(AutoPairConfig::into))
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum LanguageAutoPairs {
+        Enable(bool),
+        Pairs(HashMap<char, char>),
+    }
+    Ok(
+        Option::<LanguageAutoPairs>::deserialize(deserializer)?.and_then(|config| match config {
+            LanguageAutoPairs::Enable(false) => None,
+            LanguageAutoPairs::Enable(true) => Some(AutoPairs::default()),
+            LanguageAutoPairs::Pairs(pairs) => Some(AutoPairs::new(pairs.iter())),
+        }),
+    )
 }
 
 fn default_timeout() -> u64 {

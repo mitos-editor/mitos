@@ -16,10 +16,7 @@ use tempfile::NamedTempFile;
 use term::{application::Application, args::Args, config::Config, keymap::merge_keys};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
-use view::{
-    config::{ImplicitTrustLevelConfig, LspConfig, WordCompletion, WorkspaceTrustConfig},
-    current_ref, doc, Editor,
-};
+use view::{config::ImplicitTrustLevelConfig, current_ref, doc, Editor};
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};
@@ -251,7 +248,7 @@ pub fn test_syntax_loader(overrides: Option<String>) -> editor_core::syntax::Loa
 
     if let Some(overrides) = overrides {
         let override_toml = toml::from_str(&overrides).unwrap();
-        lang = loader::merge_toml_values(lang, override_toml, 3);
+        lang = loader::config::migration::merge_languages(lang, override_toml);
     }
 
     editor_core::syntax::Loader::new(
@@ -317,38 +314,18 @@ pub fn test_config() -> Config {
 }
 
 pub fn test_editor_config() -> view::config::Config {
-    view::config::Config {
-        // Watcher tests opt in; unrelated tests should not crawl the source tree.
-        file_watcher: view::file_watcher::Config {
-            enable: false,
-            watch_vcs: false,
-            ..Default::default()
-        },
-        auto_reload: view::config::AutoReloadConfig {
-            enable: false,
-            poll: view::config::AutoReloadPoll {
-                enable: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        lsp: LspConfig {
-            enable: false,
-            auto_document_highlight: false,
-            ..Default::default()
-        },
-        // Word-completion tests opt in to indexing and its background updates.
-        word_completion: WordCompletion {
-            enable: false,
-            ..Default::default()
-        },
-        // Trust everything implicitly so tests don't hit popups.
-        workspace_trust: WorkspaceTrustConfig {
-            level: ImplicitTrustLevelConfig::Insecure,
-            ..Default::default()
-        },
-        ..Default::default()
-    }
+    let mut config = view::config::Config::default();
+    // Watcher and word-completion tests opt in; unrelated tests avoid background work.
+    config.files.watch.enable = false;
+    config.files.watch.watch_vcs = false;
+    config.files.reload.enable = false;
+    config.files.reload.poll.enable = false;
+    config.lsp.enable = false;
+    config.lsp.document_highlight.auto_trigger = false;
+    config.completion.word.enable = false;
+    // Trust everything implicitly so tests don't hit popups.
+    config.workspace_trust.level = ImplicitTrustLevelConfig::Insecure;
+    config
 }
 
 /// Creates a new temporary file that is set to read only. Useful for

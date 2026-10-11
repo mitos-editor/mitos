@@ -23,7 +23,7 @@ fn changed(path: &Path, text: &str, tick: u64) -> anyhow::Result<()> {
 
 fn app(path: &Path) -> anyhow::Result<Application> {
     let mut config = test_config();
-    config.editor.auto_reload.enable = true;
+    config.editor.files.reload.enable = true;
     AppBuilder::new()
         .with_config(config)
         .with_file(path, None)
@@ -171,8 +171,8 @@ async fn polling_starts_after_config_reload_and_can_be_disabled() -> anyhow::Res
     changed(&path, "before\n", 1)?;
     let mut app = app(&path)?;
     let mut config = (*app.editor.config()).clone();
-    config.auto_reload.poll.enable = true;
-    config.auto_reload.poll.interval = 100;
+    config.files.reload.poll.enable = true;
+    config.files.reload.poll.interval = 100;
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
     changed(&path, "polled\n", 2)?;
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -186,7 +186,7 @@ async fn polling_starts_after_config_reload_and_can_be_disabled() -> anyhow::Res
         }
     })
     .await?;
-    config.auto_reload.enable = false;
+    config.files.reload.enable = false;
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     changed(&path, "disabled\n", 3)?;
     notify(&mut app, &path, EventType::Modified).await;
@@ -218,7 +218,7 @@ impl SharedReload {
                 &self.app.editor.config(),
             ));
         self.app.editor.file_watcher =
-            view::file_watcher::Watcher::new(&self.app.editor.config().file_watcher, callbacks);
+            view::file_watcher::Watcher::new(&self.app.editor.config().files.watch, callbacks);
         self.callbacks = rx;
     }
 
@@ -347,8 +347,8 @@ async fn polling_uses_its_owner_and_queued_polls_respect_disabled_settings() -> 
     let mut second = SharedReload::new(&second_path)?;
     for f in [&mut first, &mut second] {
         let mut config = (*f.app.editor.config()).clone();
-        config.auto_reload.poll.enable = true;
-        config.auto_reload.poll.interval = 100;
+        config.files.reload.poll.enable = true;
+        config.files.reload.poll.interval = 100;
         f.app
             .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     }
@@ -360,7 +360,7 @@ async fn polling_uses_its_owner_and_queued_polls_respect_disabled_settings() -> 
     assert_eq!(text(&second.app), "second\n");
     let callback = second.callback().await?;
     let mut config = (*second.app.editor.config()).clone();
-    config.auto_reload.poll.enable = false;
+    config.files.reload.poll.enable = false;
     second
         .app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
@@ -403,7 +403,7 @@ async fn stale_confirmations_cannot_overwrite_edited_renamed_closed_saved_or_cha
             "disk" => changed(&path, "newer external\n", 3)?,
             "disable" => {
                 let mut config = (*app.editor.config()).clone();
-                config.auto_reload.enable = false;
+                config.files.reload.enable = false;
                 app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
             }
             _ => unreachable!(),
@@ -499,7 +499,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
     resolve_reload(&mut app.editor, request, ReloadDecision::Reload);
     assert_eq!(text(&app), "new\n");
     assert!(!current_ref!(app.editor).1.is_modified());
-    let scrolloff = app.editor.config().scrolloff;
+    let scrolloff = app.editor.config().scroll.padding;
     for (view, _) in app.editor.tree.views_mut() {
         let doc = &app.editor.documents[&view.doc];
         assert!(doc.selection(view.id).primary().head <= doc.text().len_chars());
@@ -551,8 +551,8 @@ async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabl
     git(&["commit", "--quiet", "-m", "fixture"])?;
     git(&["branch", "second"])?;
     let mut config = test_config();
-    config.editor.file_watcher.watch_vcs = true;
-    config.editor.auto_reload.enable = false;
+    config.editor.files.watch.watch_vcs = true;
+    config.editor.files.reload.enable = false;
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_file(&path, None)

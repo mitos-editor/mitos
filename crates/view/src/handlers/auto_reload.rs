@@ -50,11 +50,11 @@ impl AutoReloadHandler {
     }
 
     fn configure(&self, config: &Config) {
-        let event = if config.auto_reload.poll.enable
-            && (config.auto_reload.enable || config.file_watcher.watch_vcs)
+        let event = if config.files.reload.poll.enable
+            && (config.files.reload.enable || config.files.watch.watch_vcs)
         {
             PollEvent::PollAfter {
-                interval: config.auto_reload.poll.interval.max(100),
+                interval: config.files.reload.poll.interval.max(100),
             }
         } else {
             PollEvent::Stop
@@ -97,7 +97,7 @@ impl AsyncHook for PollHandler {
 
     fn finish_debounce(&mut self) {
         dispatch(&self.callbacks, |editor| {
-            if editor.config().auto_reload.poll.enable {
+            if editor.config().files.reload.poll.enable {
                 check_unwatched(editor);
             }
             editor.handlers.auto_reload.configure(&editor.config());
@@ -130,8 +130,8 @@ impl ReloadRequest {
 
     fn is_current(&self, editor: &Editor) -> bool {
         self.belongs_to(editor)
-            && editor.config().auto_reload.enable
-            && editor.config().auto_reload.prompt_if_modified
+            && editor.config().files.reload.enable
+            && editor.config().files.reload.prompt_if_modified
             && editor.document(self.doc).is_some_and(|doc| {
                 doc.path() == Some(self.path.as_path())
                     && doc.version() == self.version
@@ -192,7 +192,7 @@ pub fn resolve_reload(editor: &mut Editor, request: ReloadRequest, decision: Rel
 
 /// Focus checks work even when periodic polling is disabled.
 pub fn check_unwatched(editor: &mut Editor) {
-    if editor.config().auto_reload.enable {
+    if editor.config().files.reload.enable {
         let ids: Vec<_> = editor
             .documents()
             .filter(|doc| {
@@ -216,7 +216,7 @@ pub fn check_unwatched(editor: &mut Editor) {
             handle_document_change(editor, id);
         }
     }
-    if editor.config().file_watcher.watch_vcs && editor.file_watcher.poll_extra_paths() {
+    if editor.config().files.watch.watch_vcs && editor.file_watcher.poll_extra_paths() {
         reload_vcs(editor);
     }
 }
@@ -238,7 +238,7 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
     if doc.is_modified() {
         doc.auto_reload_seen_mtime = Some(mtime);
         let display = doc.display_name().to_string();
-        if editor.config().auto_reload.prompt_if_modified {
+        if editor.config().files.reload.prompt_if_modified {
             let doc = &editor.documents[&doc_id];
             let request = ReloadRequest {
                 owner: Arc::downgrade(&editor.handlers.auto_reload.callbacks),
@@ -265,7 +265,7 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
 /// Use the existing reload transaction so selections, undo history, and LSPs stay in sync.
 fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()> {
     let view_id = editor.get_synced_view_id(doc_id);
-    let scrolloff = editor.config().scrolloff;
+    let scrolloff = editor.config().scroll.padding;
     let doc = doc_mut!(editor, &doc_id);
     let trust_full = editor
         .workspace_trust
@@ -310,8 +310,8 @@ fn reload_vcs(editor: &mut Editor) {
 
 /// Apply filesystem changes using the editor's current settings.
 pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
-    let auto_reload = editor.config().auto_reload.enable;
-    let watch_vcs = editor.config().file_watcher.watch_vcs;
+    let auto_reload = editor.config().files.reload.enable;
+    let watch_vcs = editor.config().files.watch.watch_vcs;
     let mut vcs_changed = false;
     let mut ignores_changed = false;
     for event in events.iter() {

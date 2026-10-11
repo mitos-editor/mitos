@@ -154,7 +154,7 @@ where
         Mode::Normal => &modenames.normal,
     };
     let content = format!(" {mode_str} ");
-    let style = if config.color_modes {
+    let style = if config.statusline.mode.color {
         match context.editor.mode() {
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),

@@ -33,7 +33,7 @@ impl Fixture {
         let loader = lsp::syntax_loader("inline-test", "inline-test", &["inline"], &server.toml());
         let mut config = test_config();
         config.editor.lsp.enable = true;
-        config.editor.auto_completion = false;
+        config.editor.completion.auto_trigger = false;
         config.keys = toml::from_str(
             r#"[insert]
 C-y = "inline_completion_accept"
@@ -43,8 +43,8 @@ A-n = "inline_completion_next"
 A-p = "inline_completion_prev"
 "#,
         )?;
-        config.editor.inline_completion_auto_trigger = true;
-        config.editor.inline_completion_timeout = Duration::from_millis(5);
+        config.editor.inline_completion.auto_trigger = true;
+        config.editor.inline_completion.trigger_delay = Duration::from_millis(5);
         let (sender, callbacks) =
             super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()

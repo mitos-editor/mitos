@@ -299,7 +299,7 @@ pub(super) mod typed {
         }
 
         let editor = &mut cx.editor;
-        let scrolloff = editor.config().scrolloff;
+        let scrolloff = editor.config().scroll.padding;
 
         let (view, doc) = current!(editor);
         let Some(handle) = doc.diff_handle() else {

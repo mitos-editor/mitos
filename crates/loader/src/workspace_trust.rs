@@ -324,6 +324,71 @@ impl WorkspaceTrust {
         );
     }
 
+    /// Preserve an existing grant only when known configuration rewrites and
+    /// their new backups account for every change to the trusted fingerprint.
+    /// Reconstruct the approved hash and the new hash from the same file reads;
+    /// concurrent or unrelated edits must still make the workspace stale.
+    pub fn record_config_migration(
+        &self,
+        workspace: &Path,
+        migration: &crate::config::migration::FileMigration,
+    ) -> bool {
+        let Some(entry) = read_entry(workspace).filter(|entry| !entry.excluded) else {
+            return false;
+        };
+        let Some(approved_hash) = entry.hash else {
+            return false;
+        };
+        let directory = workspace.join(".mitos");
+        let mut files = Vec::new();
+        walk(&directory, &mut files);
+        files.sort();
+        let mut previous = Sha256::new();
+        let mut current = Sha256::new();
+        let mut found_config = false;
+        for file in files {
+            let Ok(bytes) = fs::read(&file) else {
+                return false;
+            };
+            let Ok(target) = fs::canonicalize(&file) else {
+                return false;
+            };
+            let relative = file.strip_prefix(&directory).unwrap();
+            let name = relative.to_string_lossy();
+            hash_field(&mut current, name.as_bytes());
+            hash_field(&mut current, &bytes);
+            if target == migration.backup {
+                if bytes != migration.original.as_bytes() {
+                    return false;
+                }
+                continue;
+            }
+            hash_field(&mut previous, name.as_bytes());
+            if target == migration.target {
+                if bytes != migration.updated.as_bytes() {
+                    return false;
+                }
+                found_config = true;
+                hash_field(&mut previous, migration.original.as_bytes());
+            } else {
+                hash_field(&mut previous, &bytes);
+            }
+        }
+        if !found_config || format!("sha256:{}", hex_encode(&previous.finalize())) != approved_hash
+        {
+            return false;
+        }
+        let entry = DiskEntry {
+            hash: Some(format!("sha256:{}", hex_encode(&current.finalize()))),
+            excluded: false,
+        };
+        if !write_entry(workspace, &entry) {
+            return false;
+        }
+        self.inner.lock().remove(workspace);
+        true
+    }
+
     /// Revoke any persisted trust grant or exclusion for `workspace`.
     pub fn untrust(&self, workspace: &Path) {
         remove_entry(workspace);
@@ -477,11 +542,11 @@ fn read_entry(workspace: &Path) -> Option<DiskEntry> {
     Some(DiskEntry { hash, excluded })
 }
 
-fn write_entry(workspace: &Path, entry: &DiskEntry) {
+fn write_entry(workspace: &Path, entry: &DiskEntry) -> bool {
     let dir = workspace_trust_dir();
     if let Err(err) = fs::create_dir_all(&dir) {
         log::error!("Couldn't create workspace trust dir {dir:?}: {err:?}");
-        return;
+        return false;
     }
     let path = entry_path(workspace);
 
@@ -494,7 +559,9 @@ fn write_entry(workspace: &Path, entry: &DiskEntry) {
 
     if let Err(err) = fs::write(&path, contents) {
         log::error!("Error writing workspace trust file {path:?}: {err:?}");
+        return false;
     }
+    true
 }
 
 fn remove_entry(workspace: &Path) {

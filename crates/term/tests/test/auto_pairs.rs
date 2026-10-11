@@ -143,7 +143,10 @@ async fn insert_configured_multi_byte_chars() -> anyhow::Result<()> {
 
     let config = Config {
         editor: view::config::Config {
-            auto_pairs: AutoPairConfig::Pairs(pairs.clone()),
+            auto_pairs: AutoPairConfig {
+                pairs: Some(pairs.clone()),
+                ..AutoPairConfig::default()
+            },
             ..helpers::test_editor_config()
         },
         ..helpers::test_config()
@@ -287,7 +290,10 @@ async fn insert_auto_pairs_disabled() -> anyhow::Result<()> {
         test_with_config(
             AppBuilder::new().with_config(Config {
                 editor: view::config::Config {
-                    auto_pairs: AutoPairConfig::Enable(false),
+                    auto_pairs: AutoPairConfig {
+                        enable: false,
+                        ..AutoPairConfig::default()
+                    },
                     ..helpers::test_editor_config()
                 },
                 ..helpers::test_config()
@@ -843,7 +849,10 @@ async fn delete_configured_multi_byte_chars() -> anyhow::Result<()> {
 
     let config = Config {
         editor: view::config::Config {
-            auto_pairs: AutoPairConfig::Pairs(pairs.clone()),
+            auto_pairs: AutoPairConfig {
+                pairs: Some(pairs.clone()),
+                ..AutoPairConfig::default()
+            },
             ..helpers::test_editor_config()
         },
         ..helpers::test_config()
@@ -1067,7 +1076,10 @@ async fn delete_auto_pairs_disabled() -> anyhow::Result<()> {
         test_with_config(
             AppBuilder::new().with_config(Config {
                 editor: view::config::Config {
-                    auto_pairs: AutoPairConfig::Enable(false),
+                    auto_pairs: AutoPairConfig {
+                        enable: false,
+                        ..AutoPairConfig::default()
+                    },
                     ..helpers::test_editor_config()
                 },
                 ..helpers::test_config()

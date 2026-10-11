@@ -70,7 +70,7 @@ fn prepare_with_config(
     if doc.trim_trailing_whitespace() {
         trim_trailing_whitespace(doc, view_id);
     }
-    if config.trim_final_newlines {
+    if config.files.save.trim_final_newlines {
         trim_final_newlines(doc, view_id);
     }
     if doc.insert_final_newline() {
@@ -89,7 +89,7 @@ fn prepare_with_config(
         view_id,
         path,
         force: options.force,
-        auto_format: config.auto_format && options.auto_format,
+        auto_format: config.format.on_save && options.auto_format,
         code_actions,
     }
 }

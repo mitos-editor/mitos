@@ -5,16 +5,16 @@ list of every setting and default, see the [`config.toml` reference](./configura
 
 - [`[editor]` Section](#editor-section)
 - [`[editor.breadcrumb]` Section](#editorbreadcrumb-section)
-- [`[editor.clipboard-provider]` Section](#editorclipboard-provider-section)
+- [`[editor.clipboard]` Section](#editorclipboard-section)
 - [`[editor.statusline]` Section](#editorstatusline-section)
 - [`[editor.lsp]` Section](#editorlsp-section)
-- [`[editor.terminal]` Section](#editorterminal-section)
-- [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
+- [`[terminal.launcher]` Section](#terminallauncher-section)
+- [`[editor.cursor.shape]` Section](#editorcursorshape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
 - [`[editor.buffer-picker]` Section](#editorbuffer-picker-section)
 - [`[editor.auto-pairs]` Section](#editorauto-pairs-section)
-- [`[editor.auto-save]` Section](#editorauto-save-section)
+- [`[editor.files.auto-save]` Section](#editorfilesauto-save-section)
 - [`[editor.search]` Section](#editorsearch-section)
 - [`[editor.whitespace]` Section](#editorwhitespace-section)
 - [`[editor.indent-guides]` Section](#editorindent-guides-section)
@@ -25,9 +25,9 @@ list of every setting and default, see the [`config.toml` reference](./configura
   - [`[editor.gutters.spacer]` Section](#editorguttersspacer-section)
   - [`[editor.gutters.code-action-hint]` Section](#editorgutterscode-action-hint-section)
 - [`[editor.soft-wrap]` Section](#editorsoft-wrap-section)
-- [`[editor.smart-tab]` Section](#editorsmart-tab-section)
-- [`[editor.inline-diagnostics]` Section](#editorinline-diagnostics-section)
-- [`[editor.word-completion]` Section](#editorword-completion-section)
+- [`[editor.indent.smart-tab]` Section](#editorindentsmart-tab-section)
+- [`[editor.diagnostics.inline]` Section](#editordiagnosticsinline-section)
+- [`[editor.completion.word]` Section](#editorcompletionword-section)
 - [`[editor.spelling]` Section](#editorspelling-section)
 - [`[editor.workspace-trust]` Section](#editorworkspace-trust-section)
 
@@ -35,49 +35,45 @@ list of every setting and default, see the [`config.toml` reference](./configura
 
 | Key | Description | Default |
 |--|--|---------|
-| `scrolloff` | Number of lines of padding around the edge of the screen when scrolling | `5` |
-| `mouse` | Enable mouse mode | `true` |
-| `mouse-yank-register` | Which register to use for mouse yanks. | `*` |
-| `middle-click-paste` | Middle click paste support | `true` |
-| `default-yank-register` | Default register used for yank/paste | `'"'` |
-| `scroll-lines` | Number of lines to scroll per scroll wheel step | `3` |
+| `scroll.padding` | Number of lines of padding around the edge of the screen when scrolling | `5` |
+| `mouse.enable` | Enable mouse mode | `true` |
+| `mouse.yank-register` | Which register to use for mouse yanks. | `*` |
+| `mouse.middle-click-paste` | Middle click paste support | `true` |
+| `clipboard.default-yank-register` | Default register used for yank/paste | `'"'` |
+| `scroll.wheel-lines` | Number of lines to scroll per scroll wheel step | `3` |
 | `shell` | Shell to use when running external commands | Unix: `["sh", "-c"]`<br/>Windows: `["cmd", "/C"]` |
 | `line-number` | Line number display: `absolute` simply shows each line's number, while `relative` shows the distance from the current line. When unfocused or in insert mode, `relative` will still show absolute line numbers | `"absolute"` |
-| `cursorline` | Highlight all lines with a cursor | `false` |
-| `cursorcolumn` | Highlight all columns with a cursor | `false` |
+| `cursor.highlight-line` | Highlight all lines with a cursor | `false` |
+| `cursor.highlight-column` | Highlight all columns with a cursor | `false` |
 | `continue-comments` | if mitos should automatically add a line comment token if you create a new line inside a comment. | `true` |
 | `gutters` | Gutters to display: Available are `diagnostics` and `diff` and `line-numbers` and `spacer` and `code-action-hint`, note that `diagnostics` also includes other features like breakpoints, 1-width padding will be inserted if gutters is non-empty | `["diagnostics", "spacer", "line-numbers", "spacer", "diff"]` |
-| `auto-completion` | Enable automatic pop up of auto-completion | `true` |
-| `path-completion` | Enable filepath completion. Show files and directories if an existing path at the cursor was recognized, either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved). Defaults to true. | `true` |
-| `auto-format` | Enable automatic formatting on save[^3] | `true` |
+| `completion.auto-trigger` | Enable automatic pop up of auto-completion | `true` |
+| `completion.path.enable` | Enable filepath completion. Show files and directories if an existing path at the cursor was recognized, either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved). Defaults to true. | `true` |
+| `format.on-save` | Enable automatic formatting on save[^3] | `true` |
 | `idle-timeout` | Time in milliseconds since last keypress before idle timers trigger. | `250` |
-| `completion-timeout` | Time in milliseconds after typing a word character before completions are shown, set to 5 for instant.  | `250` |
-| `preview-completion-insert` | Whether to apply completion item instantly when selected | `true` |
-| `completion-trigger-len` | The min-length of word under cursor to trigger autocompletion | `2` |
-| `completion-replace` | Whether to make completions always replace the entire word and not just the part before the cursor | `false` |
+| `completion.trigger-delay` | Time in milliseconds after typing a word character before completions are shown, set to 5 for instant.  | `250` |
+| `completion.preview-insert` | Whether to apply completion item instantly when selected | `true` |
+| `completion.trigger-length` | The min-length of word under cursor to trigger autocompletion | `2` |
+| `completion.replace` | Whether to make completions always replace the entire word and not just the part before the cursor | `false` |
 | `auto-info` | Whether to display info boxes | `true` |
 | `icons` | Whether to show icons in the UI. Requires a Nerd Font | `false` |
-| `true-color` | Whether to override automatic detection of terminal truecolor support in the event of a false negative | `false` |
-| `undercurl` | Whether to override automatic detection of terminal undercurl support in the event of a false negative | `false` |
 | `rulers` | List of column positions at which to display the rulers. Can be overridden by language specific `rulers` in `languages.toml` file | `[]` |
-| `bufferline` | Renders a line at the top of the editor displaying open buffers. Can be `always`, `never` or `multiple` (only shown if more than one buffer is in use) | `"never"` |
-| `color-modes` | Whether to color the mode indicator with different colors depending on the mode itself | `false` |
+| `bufferline.show` | Renders a line at the top of the editor displaying open buffers. Can be `always`, `never` or `multiple` (only shown if more than one buffer is in use) | `"never"` |
+| `statusline.mode.color` | Whether to color the mode indicator with different colors depending on the mode itself | `false` |
 | `text-width` | Maximum line length. Used for the `:reflow` command and soft-wrapping if `soft-wrap.wrap-at-text-width` is set | `80` |
-| `workspace-lsp-roots` | Directories relative to the workspace root that are treated as LSP roots. Should only be set in `.mitos/config.toml` | `[]` |
-| `default-line-ending` | The line ending to use for new documents. Can be `native`, `lf`, `crlf`, `ff`, `cr` or `nel`. `native` uses the platform's native line ending (`crlf` on Windows, otherwise `lf`). | `"native"` |
-| `insert-final-newline` | Whether to automatically insert a trailing line-ending on write if missing | `true` |
-| `atomic-save` | Whether to use atomic operations to write documents to disk. This prevents data loss if the editor is interrupted while writing the file, but may confuse some file watching/hot reloading programs. | `true` |
-| `trim-final-newlines` | Whether to automatically remove line-endings after the final one on write | `false` |
-| `trim-trailing-whitespace` | Whether to automatically remove whitespace preceding line endings on write | `false` |
-| `indent-heuristic` | How the indentation for a newly inserted line is computed: `simple` just copies the indentation level from the previous line, `tree-sitter` computes the indentation based on the syntax tree and `hybrid` combines both approaches. If the chosen heuristic is not available, a different one will be used as a fallback (the fallback order being `hybrid` -> `tree-sitter` -> `simple`). | `"hybrid"` |
+| `lsp.workspace-roots` | Directories relative to the workspace root that are treated as LSP roots. Should only be set in `.mitos/config.toml` | `[]` |
+| `files.default-line-ending` | The line ending to use for new documents. Can be `native`, `lf`, `crlf`, `ff`, `cr` or `nel`. `native` uses the platform's native line ending (`crlf` on Windows, otherwise `lf`). | `"native"` |
+| `files.save.insert-final-newline` | Whether to automatically insert a trailing line-ending on write if missing | `true` |
+| `files.save.atomic` | Whether to use atomic operations to write documents to disk. This prevents data loss if the editor is interrupted while writing the file, but may confuse some file watching/hot reloading programs. | `true` |
+| `files.save.trim-final-newlines` | Whether to automatically remove line-endings after the final one on write | `false` |
+| `files.save.trim-trailing-whitespace` | Whether to automatically remove whitespace preceding line endings on write | `false` |
+| `indent.heuristic` | How the indentation for a newly inserted line is computed: `simple` just copies the indentation level from the previous line, `tree-sitter` computes the indentation based on the syntax tree and `hybrid` combines both approaches. If the chosen heuristic is not available, a different one will be used as a fallback (the fallback order being `hybrid` -> `tree-sitter` -> `simple`). | `"hybrid"` |
 | `jump-label-alphabet` | The characters that are used to generate two character jump labels. Characters at the start of the alphabet are used first. | `"abcdefghijklmnopqrstuvwxyz"` |
-| `end-of-line-diagnostics` | Minimum severity of diagnostics to render at the end of the line. Set to `disable` to disable entirely. Refer to the setting about `inline-diagnostics` for more details | `"hint"` |
-| `clipboard-provider` | Which API to use for clipboard interaction. One of `pasteboard` (MacOS), `wayland`, `x-clip`, `x-sel`, `win32-yank`, `termux`, `tmux`, `windows`, `termcode`, `none`, or a custom command set. | Platform and environment specific. |
-| `editor-config` | Whether to read settings from [EditorConfig](https://editorconfig.org) files | `true` |
+| `diagnostics.end-of-line.severity` | Minimum severity of diagnostics to render at the end of the line. Set to `disable` to disable entirely. Refer to the setting about `diagnostics.inline` for more details | `"hint"` |
+| `clipboard.provider` | Which API to use for clipboard interaction. One of `pasteboard` (MacOS), `wayland`, `x-clip`, `x-sel`, `win32-yank`, `termux`, `tmux`, `windows`, `termcode`, `none`, or a custom command set. | Platform and environment specific. |
+| `files.editor-config` | Whether to read settings from [EditorConfig](https://editorconfig.org) files | `true` |
 | `welcome-screen` | Whether to show the welcome screen when Mitos starts without a file | `true` |
-| `rainbow-brackets` | Whether to render rainbow colors for matching brackets. Requires tree-sitter `rainbows.scm` queries for the language. | `false` |
-| `kitty-keyboard-protocol` | Whether to enable Kitty Keyboard Protocol. Can be `enabled`, `disabled` or `auto` | `"auto"` |
-| `terminal` | External terminal command used by features such as DAP `runInTerminal` | Environment-dependent |
+| `rainbow-brackets.enable` | Whether to render rainbow colors for matching brackets. Requires tree-sitter `rainbows.scm` queries for the language. | `false` |
 
 [^3]: In most cases, you also need to enable the `auto-format` setting under `languages.toml`. You can find the reasoning [here](https://github.com/helix-editor/helix/discussions/9043#discussioncomment-7811497).
 
@@ -101,7 +97,7 @@ path = "full" # one of: full, file, none
 
 The bar is displayed at the top of the view.
 
-### `[editor.clipboard-provider]` Section
+### `[editor.clipboard]` Section
 
 Mitos can be configured either to use a builtin clipboard configuration or to use
 a provided command.
@@ -109,13 +105,13 @@ a provided command.
 For instance, setting it to use OSC 52 termcodes, the configuration would be:
 ```toml
 [editor]
-clipboard-provider = "termcode"
+clipboard.provider = "termcode"
 ```
 
 Alternatively, Mitos can be configured to use arbitrary commands for clipboard integration:
 
 ```toml
-[editor.clipboard-provider.custom]
+[editor.clipboard.provider.custom]
 yank = { command = "cat",  args = ["test.txt"] }
 paste = { command = "tee",  args = ["test.txt"] }
 yank-primary = { command = "cat",  args = ["test-primary.txt"] } # optional
@@ -195,22 +191,26 @@ The following statusline elements can be configured:
 | Key                   | Description                                                 | Default |
 | ---                   | -----------                                                 | ------- |
 | `enable`              | Enables LSP integration. Setting to false will completely disable language servers regardless of language settings.| `true` |
-| `display-messages`    | Display LSP `window/showMessage` messages below statusline[^1] | `true` |
-| `display-progress-messages` | Display LSP progress messages below statusline[^1]    | `false` |
-| `auto-signature-help` | Enable automatic popup of signature help (parameter hints)  | `true`  |
-| `auto-document-highlight` | Automatically highlight symbol references at the cursor | `true` |
-| `display-inlay-hints` | Display inlay hints[^2]                                     | `false` |
-| `inlay-hints-length-limit` | Maximum displayed length (non-zero number) of inlay hints | Unset by default  |
-| `display-color-swatches` | Show color swatches next to colors | `true` |
-| `display-signature-help-docs` | Display docs under signature help popup             | `true`  |
-| `snippets`      | Enables snippet completions. Requires a server restart (`:lsp-restart`) to take effect after `:config-reload`/`:set`. | `true`  |
-| `goto-reference-include-declaration` | Include declaration in the goto references popup. | `true`  |
+| `messages.enable`    | Display LSP `window/showMessage` messages below statusline[^1] | `true` |
+| `progress.enable` | Display LSP progress messages below statusline[^1]    | `false` |
+| `signature-help.auto-trigger` | Enable automatic popup of signature help (parameter hints)  | `true`  |
+| `document-highlight.auto-trigger` | Automatically highlight symbol references at the cursor | `true` |
+| `inlay-hints.enable` | Display inlay hints[^2]                                     | `false` |
+| `inlay-hints.length-limit` | Maximum displayed length (non-zero number) of inlay hints | Unset by default  |
+| `color-swatches.enable` | Show color swatches next to colors | `true` |
+| `signature-help.show-documentation` | Display docs under signature help popup             | `true`  |
+| `completion.snippets`      | Enables snippet completions. Requires a server restart (`:lsp-restart`) to take effect after `:config-reload`/`:set`. | `true`  |
+| `references.include-declaration` | Include declaration in the goto references popup. | `true`  |
 
 [^1]: By default, a progress spinner is shown in the statusline beside the file path.
 
 [^2]: You may also have to activate them in the language server config for them to appear, not just in Mitos. Inlay hints in Mitos are still being improved on and may be a little bit laggy/janky under some circumstances. Please report any bugs you see so we can fix them!
 
-### `[editor.terminal]` Section
+Terminal capability overrides are configured separately under `[terminal]`:
+`true-color`, `undercurl`, and `keyboard.kitty-protocol`. See the
+[terminal configuration reference](./configuration.md#terminal).
+
+### `[terminal.launcher]` Section
 
 Configures the external terminal command used by features such as DAP
 `runInTerminal` requests.
@@ -225,7 +225,7 @@ Unix socket is available, Windows Terminal when found on Windows, or Conhost as
 the Windows fallback. On other terminals this setting is unset unless
 configured.
 
-### `[editor.cursor-shape]` Section
+### `[editor.cursor.shape]` Section
 
 Defines the shape of cursor in each mode.
 Valid values for these options are `block`, `bar`, `underline`, or `hidden`.
@@ -311,56 +311,27 @@ start-position = "previous"
 
 ### `[editor.auto-pairs]` Section
 
-Enables automatic insertion of pairs to parentheses, brackets, etc. Can be a
-simple boolean value, or a specific mapping of pairs of single characters.
-
-To disable auto-pairs altogether, set `auto-pairs` to `false`:
-
-```toml
-[editor]
-auto-pairs = false # defaults to `true`
-```
-
-The default pairs are <code>(){}[]''""``</code>, but these can be customized by
-setting `auto-pairs` to a TOML table:
+Automatic delimiter pairing uses an `enable` flag and an optional `pairs` map.
+Omit the map to use the built-in pairs, or provide opening and closing characters:
 
 ```toml
 [editor.auto-pairs]
-'(' = ')'
-'{' = '}'
-'[' = ']'
-'"' = '"'
-'`' = '`'
-'<' = '>'
+enable = true
+pairs = { '(' = ')', '[' = ']', '{' = '}', '"' = '"' }
 ```
 
-Additionally, this setting can be used in a language config. Unless
-the editor setting is `false`, this will override the editor config in
-documents with this language.
+Set `enable = false` to disable pairing. The same table is supported per language.
+See the [configuration reference](./configuration.md#editorauto-pairs) for defaults
+and compatibility shorthands.
 
-Example `languages.toml` that adds `<>` and removes `''`
-
-```toml
-[[language]]
-name = "rust"
-
-[language.auto-pairs]
-'(' = ')'
-'{' = '}'
-'[' = ']'
-'"' = '"'
-'`' = '`'
-'<' = '>'
-```
-
-### `[editor.auto-save]` Section
+### `[editor.files.auto-save]` Section
 
 Control auto save behavior.
 
 | Key | Description | Default |
 |--|--|---------|
 | `focus-lost` | Enable automatic saving on the focus moving away from Mitos. Requires [focus event support](https://github.com/helix-editor/helix/wiki/Terminal-Support) from your terminal | `false` |
-| `after-delay.enable` | Enable automatic saving after `auto-save.after-delay.timeout` milliseconds have passed since last edit. | `false` |
+| `after-delay.enable` | Enable automatic saving after `files.auto-save.after-delay.timeout` milliseconds have passed since last edit. | `false` |
 | `after-delay.timeout` | Time in milliseconds since last edit before auto save timer triggers. | `3000` |
 
 ### `[editor.search]` Section
@@ -507,14 +478,14 @@ max-indent-retain = 0
 wrap-indicator = ""  # set wrap-indicator to "" to hide it
 ```
 
-### `[editor.smart-tab]` Section
+### `[editor.indent.smart-tab]` Section
 
 Options for navigating and editing using tab key.
 
 | Key        | Description | Default |
 |------------|-------------|---------|
 | `enable` | If set to true, then when the cursor is in a position with non-whitespace to its left, instead of inserting a tab, it will run `move_parent_node_end`. If there is only whitespace to the left, then it inserts a tab as normal. With the default bindings, to explicitly insert a tab character, press Shift-tab. | `true` |
-| `supersede-menu` | Normally, when a menu is on screen, such as when auto complete is triggered, the tab key is bound to cycling through the items. This means when menus are on screen, one cannot use the tab key to trigger the `smart-tab` command. If this option is set to true, the `smart-tab` command always takes precedence, which means one cannot use the tab key to cycle through menu items. One of the other bindings must be used instead, such as arrow keys or `C-n`/`C-p`. | `false` |
+| `supersede-menu` | Normally, when a menu is on screen, such as when auto complete is triggered, the tab key is bound to cycling through the items. This means when menus are on screen, one cannot use the tab key to trigger the `indent.smart-tab` command. If this option is set to true, the `indent.smart-tab` command always takes precedence, which means one cannot use the tab key to cycle through menu items. One of the other bindings must be used instead, such as arrow keys or `C-n`/`C-p`. | `false` |
 
 
 Due to lack of support for S-tab in some terminals, the default keybindings don't fully embrace smart-tab editing experience. If you enjoy smart-tab navigation and a terminal that supports the [Enhanced Keyboard protocol](https://github.com/helix-editor/helix/wiki/Terminal-Support#enhanced-keyboard-protocol), consider setting extra keybindings:
@@ -532,7 +503,7 @@ tab = "extend_parent_node_end"
 S-tab = "extend_parent_node_start"
 ```
 
-### `[editor.inline-diagnostics]` Section
+### `[editor.diagnostics.inline]` Section
 
 Options for rendering diagnostics inside the text like shown below
 
@@ -554,7 +525,7 @@ fn main() {
 
 The allowed values for `cursor-line` and `other-lines` are: `error`, `warning`, `info`, `hint`.
 
-The (first) diagnostic with the highest severity that is not shown inline is rendered at the end of the line (as long as its severity is higher than the `end-of-line-diagnostics` config option):
+The (first) diagnostic with the highest severity that is not shown inline is rendered at the end of the line (as long as its severity is higher than the `diagnostics.end-of-line.severity` config option):
 
 ```text
 fn main() {
@@ -570,7 +541,7 @@ Spell checking is opt-in. See the [`editor.spelling` configuration reference](./
 for settings and [Spell checking](./spell-checking.md) for dictionaries, corrections,
 and personal word lists.
 
-### `[editor.word-completion]` Section
+### `[editor.completion.word]` Section
 
 Options for controlling completion of words from open buffers.
 
@@ -582,7 +553,7 @@ Options for controlling completion of words from open buffers.
 Example:
 
 ```toml
-[editor.word-completion]
+[editor.completion.word]
 enable = true
 # Set the trigger length lower so that words are completed more often
 trigger-length = 4

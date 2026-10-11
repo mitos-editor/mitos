@@ -517,7 +517,7 @@ impl View {
         };
         let config = doc.config.load();
 
-        if config.lsp.display_color_swatches
+        if config.lsp.color_swatches.enable
             && let Some(DocumentColorSwatches {
                 color_swatches,
                 colors,
@@ -548,7 +548,7 @@ impl View {
         let enable_cursor_line = self
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, self.id);
-        let config = config.inline_diagnostics.prepare(width, enable_cursor_line);
+        let config = config.diagnostics.inline.prepare(width, enable_cursor_line);
         if !config.disabled() {
             let cursor = doc
                 .selection(self.id)

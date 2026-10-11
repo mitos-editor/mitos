@@ -25,8 +25,8 @@ impl Fixture {
         let path = dir.join("autosave.txt");
         std::fs::write(&path, "before\n")?;
         let mut config = test_config();
-        config.editor.auto_save.after_delay.enable = true;
-        config.editor.auto_save.after_delay.timeout = 10;
+        config.editor.files.auto_save.after_delay.enable = true;
+        config.editor.files.auto_save.after_delay.timeout = 10;
         let (sender, callbacks) = super::helpers::callbacks::channel();
         let mut app = AppBuilder::new()
             .with_config(config)

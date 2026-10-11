@@ -65,8 +65,8 @@ impl Fixture {
         }
         let loader = lsp::syntax_loader("completion-test", "completion-test", names, &servers);
         config.editor.lsp.enable = true;
-        config.editor.auto_completion = false;
-        config.editor.path_completion = false;
+        config.editor.completion.auto_trigger = false;
+        config.editor.completion.path.enable = false;
         let (sender, callbacks) =
             super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
@@ -457,7 +457,7 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
     let mut f = Fixture::new(dir.path(), text, &[]).await?;
     let mut config = (*f.app.editor.config()).clone();
     config.lsp.enable = false;
-    config.path_completion = true;
+    config.completion.path.enable = true;
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     while completion::next_update(&mut f.app.editor).is_some() {}
@@ -471,8 +471,8 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
         .iter()
         .any(|item| item.filter_text() == "apple.txt"));
     let mut config = (*f.app.editor.config()).clone();
-    config.word_completion.enable = true;
-    config.path_completion = false;
+    config.completion.word.enable = true;
+    config.completion.path.enable = false;
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     let path = dir.path().join("words.completion-test");
@@ -504,7 +504,7 @@ async fn automatic_triggers_and_configuration_changes_keep_request_lifetimes() -
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 ap.\n", &["alpha"]).await?;
     let mut config = (*f.app.editor.config()).clone();
-    config.auto_completion = true;
+    config.completion.auto_trigger = true;
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     completion::trigger_auto_completion(&f.app.editor, true);
@@ -514,7 +514,7 @@ async fn automatic_triggers_and_configuration_changes_keep_request_lifetimes() -
     assert_eq!(request["context"]["triggerKind"], 2);
     assert_eq!(request["context"]["triggerCharacter"], ".");
     let mut config = (*f.app.editor.config()).clone();
-    config.auto_completion = false;
+    config.completion.auto_trigger = false;
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     assert!(update.apply(&mut f.app.editor).is_none());

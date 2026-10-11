@@ -425,7 +425,7 @@ escaping from insert mode to normal mode.
 | `Tab`                                       | [Smart tab] (configurable)  | `smart_tab`              |
 | `Shift-Tab`                                 | Insert tab                  | `insert_tab`             |
 
-[Smart tab]: ./editor.md#editorsmart-tab-section
+[Smart tab]: ./editor.md#editorindentsmart-tab-section
 
 These keys are not recommended, but are included for new users less familiar
 with modal editors.
