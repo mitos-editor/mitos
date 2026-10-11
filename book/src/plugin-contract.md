@@ -122,7 +122,8 @@ queries and require `editor-read`.
 
 `ReadState` returns the current bounded document/view catalog immediately,
 without waiting for a `State` event. It requires `editor-read` and uses the same
-cursors and page limit (64) as `RequestState`.
+cursors and page limit (64) as `RequestState`. Requested document/view handles
+are validated without constructing selection snapshots.
 
 `PublishDiagnostics` replaces this plugin's annotations on a named document at
 an exact text version. Ranges count Unicode scalars and must lie inside the
@@ -138,6 +139,7 @@ document/version or, with no target, from all open documents. Publishing and
 clearing require both `editor-read` and `ui`. LSP, spelling, and other plugins'
 diagnostics are preserved. Text edits invalidate plugin annotations; unload,
 reload, shutdown, and instance failure remove the retiring instance's reports.
+Language configuration refresh preserves reports from still-active instances.
 Annotations are held only on open documents, without a workspace diagnostic cache.
 
 `LanguageFormat` and `LanguageCodeActions` query an already attached language

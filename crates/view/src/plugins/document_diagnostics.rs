@@ -7,12 +7,12 @@ use editor_core::{
 };
 use plugin_api::{
     editor::{DiagnosticSeverity, DocumentDiagnostic, DocumentTarget},
-    ui::UiOwner,
+    ErrorCode, PluginOwner, ServiceError,
 };
 
-use super::*;
+use crate::{Document, DocumentId, Editor};
 
-fn provider(owner: &UiOwner) -> DiagnosticProvider {
+fn provider(owner: &PluginOwner) -> DiagnosticProvider {
     DiagnosticProvider::Plugin {
         plugin: owner.plugin.clone().into(),
         generation: owner.generation,
@@ -22,7 +22,7 @@ fn provider(owner: &UiOwner) -> DiagnosticProvider {
 impl Editor {
     pub(super) fn publish_plugin_document_diagnostics(
         &mut self,
-        owner: &UiOwner,
+        owner: &PluginOwner,
         target: DocumentTarget,
         diagnostics: Vec<DocumentDiagnostic>,
     ) -> Result<(), ServiceError> {
@@ -95,7 +95,7 @@ impl Editor {
 
     pub(super) fn clear_plugin_document_diagnostics(
         &mut self,
-        owner: &UiOwner,
+        owner: &PluginOwner,
         target: Option<DocumentTarget>,
     ) -> Result<(), ServiceError> {
         let id = target
@@ -113,16 +113,21 @@ impl Editor {
         remove: impl Fn(&DiagnosticProvider) -> bool,
     ) {
         let mut changed = Vec::new();
-        for doc in self
-            .documents
-            .values_mut()
-            .filter(|doc| target.is_none_or(|id| doc.id() == id))
-        {
+        let mut retain = |doc: &mut Document| {
             let previous = doc.diagnostics.len();
             doc.diagnostics
                 .retain(|diagnostic| !remove(&diagnostic.provider));
             if doc.diagnostics.len() != previous {
                 changed.push(doc.id());
+            }
+        };
+        if let Some(target) = target {
+            if let Some(doc) = self.documents.get_mut(&target) {
+                retain(doc);
+            }
+        } else {
+            for doc in self.documents.values_mut() {
+                retain(doc);
             }
         }
         for doc in changed {
@@ -138,21 +143,23 @@ impl Editor {
     }
 
     pub(super) fn prune_plugin_document_diagnostics(&mut self) {
+        // Deduplicate borrowed providers before testing liveness. Only stale
+        // providers need owned keys, and cloning their names shares the Arc.
         let owners = self
             .documents()
             .flat_map(|doc| doc.diagnostics())
-            .filter_map(|diagnostic| match &diagnostic.provider {
-                DiagnosticProvider::Plugin { plugin, generation } => Some(UiOwner {
-                    plugin: plugin.to_string(),
-                    generation: *generation,
-                }),
-                _ => None,
-            })
+            .map(|diagnostic| &diagnostic.provider)
+            .filter(|provider| matches!(provider, DiagnosticProvider::Plugin { .. }))
             .collect::<BTreeSet<_>>();
         let stale = owners
             .into_iter()
-            .filter(|owner| !self.plugin_owner_is_current(owner))
-            .map(|owner| provider(&owner))
+            .filter(|provider| match provider {
+                DiagnosticProvider::Plugin { plugin, generation } => {
+                    !self.plugin_identity_is_current(plugin, *generation)
+                }
+                _ => false,
+            })
+            .cloned()
             .collect::<BTreeSet<_>>();
         if !stale.is_empty() {
             self.remove_plugin_document_diagnostics(None, |provider| stale.contains(provider));

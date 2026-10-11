@@ -45,12 +45,7 @@ pub struct SnippetContribution {
     pub path: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct AssetOwner {
-    pub plugin: String,
-    pub generation: u64,
-}
+pub use crate::PluginOwner as AssetOwner;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

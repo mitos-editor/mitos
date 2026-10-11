@@ -109,16 +109,6 @@ impl Editor {
         });
     }
 
-    /// Owner identity is host assigned and expires on unload, trap or reload.
-    pub fn plugin_owner_is_current(&self, owner: &UiOwner) -> bool {
-        !self.plugins.stopped
-            && owner.generation == self.plugins.shared.generation
-            && self
-                .plugins
-                .manager
-                .receives_event(&owner.plugin, Event::UiResult)
-    }
-
     fn plugin_origin_is_bound(&self, origin: UiOrigin) -> bool {
         self.tree
             .try_get(ViewId::from_u64(origin.view))

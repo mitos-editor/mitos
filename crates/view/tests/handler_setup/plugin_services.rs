@@ -54,61 +54,13 @@ fn package(
         "response":{"actions":[{"type":"status","message":"services completed"}]}}]});
     Ok(package)
 }
-async fn drain(fixture: &mut Fixture) {
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        loop {
-            fixture.editor.poll_plugin_events();
-            while let Ok(callback) = fixture.callbacks.try_recv() {
-                callback(&mut fixture.editor);
-            }
-            if !fixture.editor.has_pending_plugin_work() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-    })
-    .await
-    .expect("editor service work did not settle");
-}
 async fn load(fixture: &mut Fixture, dir: &Path, packages: BTreeMap<String, PluginConfig>) {
-    assert!(
-        fixture.editor.reload_plugins(&packages, dir),
-        "service package reload was rejected: status={:?}; diagnostics={:?}",
-        fixture.editor.get_status(),
-        fixture.editor.plugin_diagnostics()
-    );
-    drain(fixture).await;
-    for (name, package) in packages {
-        if package.enabled {
-            assert!(
-                fixture
-                    .editor
-                    .plugin_command(&format!("{name}.run"))
-                    .is_some(),
-                "service package '{name}' did not activate: status={:?}; diagnostics={:?}",
-                fixture.editor.get_status(),
-                fixture.editor.plugin_diagnostics()
-            );
-        }
-    }
+    crate::support::plugin_host::load(fixture, dir, &packages).await;
 }
 async fn run(fixture: &mut Fixture, name: &str) -> anyhow::Result<()> {
-    let errors = fixture.editor.error_revision();
-    assert!(
-        fixture.editor.execute_plugin_command(name, vec![])?,
-        "service command '{name}' is unavailable: status={:?}; diagnostics={:?}",
-        fixture.editor.get_status(),
-        fixture.editor.plugin_diagnostics()
-    );
-    drain(fixture).await;
     anyhow::ensure!(
-        fixture.editor.error_revision() == errors,
-        "{}",
-        fixture
-            .editor
-            .get_status()
-            .map(|status| status.0.as_ref())
-            .unwrap_or("unknown error")
+        crate::support::plugin_host::execute(fixture, name, vec![]).await?,
+        "plugin command '{name}' unavailable"
     );
     Ok(())
 }
@@ -773,5 +725,67 @@ async fn editing_builtins_reject_readonly_and_binary_documents_before_any_respon
         assert!(fixture.editor.take_plugin_builtin_requests().is_empty());
         assert_eq!(current_ref!(fixture.editor).1.text().to_string(), before);
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn immediate_catalog_reads_do_not_require_selection_snapshots() -> anyhow::Result<()> {
+    let _compilation = crate::support::plugin_guest::compilation_permit().await;
+    let mut fixture = Fixture::new(&"x ".repeat(1025))?;
+    let origin = current_ref!(fixture.editor).0.id;
+    let path = current_ref!(fixture.editor).1.path().unwrap().to_owned();
+    fixture.editor.open(&path, Action::VerticalSplit)?;
+    let (view, doc) = current!(fixture.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::new(
+            (0..1025)
+                .map(|index| editor_core::Range::point(index * 2))
+                .collect(),
+            0,
+        ),
+    );
+    let query = plugin_api::StateQuery {
+        view: Some(view.id.as_u64()),
+        ..Default::default()
+    };
+    let (context, catalog) = fixture.editor.plugin_state(&query);
+    assert!(context.document.is_none() && context.view.is_none());
+    assert!(catalog.error.unwrap().contains("more than 1024 selections"));
+    fixture.editor.tree.focus = origin;
+
+    let dir = tempfile::tempdir()?;
+    let config = package(
+        dir.path(),
+        vec![
+            service(EditorRequest::ReadState { query }, &["\"error\":null"]),
+            service(
+                EditorRequest::ReadState {
+                    query: plugin_api::StateQuery {
+                        view: Some(u64::MAX),
+                        ..Default::default()
+                    },
+                },
+                &["is closed"],
+            ),
+            service(
+                EditorRequest::ReadState {
+                    query: plugin_api::StateQuery {
+                        document: Some(u64::MAX),
+                        ..Default::default()
+                    },
+                },
+                &["is closed"],
+            ),
+        ],
+        &[],
+    )?;
+    load(
+        &mut fixture,
+        dir.path(),
+        BTreeMap::from([("fixture".into(), config)]),
+    )
+    .await;
+    run(&mut fixture, "fixture.run").await?;
     Ok(())
 }

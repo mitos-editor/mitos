@@ -1,23 +1,7 @@
 //! Package discovery, worker preflight and editor activation are one replacement.
 use super::Fixture;
+use crate::support::plugin_host::drain;
 use std::{collections::BTreeMap, sync::Arc};
-
-async fn drain(fixture: &mut Fixture) {
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        loop {
-            fixture.editor.poll_plugin_events();
-            while let Ok(callback) = fixture.callbacks.try_recv() {
-                callback(&mut fixture.editor);
-            }
-            if !fixture.editor.has_pending_plugin_work() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-    })
-    .await
-    .expect("package preparation did not settle");
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_contribution_keeps_active_code_and_assets_then_unload_restores_native_sources(

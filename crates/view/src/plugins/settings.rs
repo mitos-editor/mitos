@@ -3,7 +3,7 @@ use super::*;
 use crate::Theme;
 use plugin_api::{
     editor::{SettingValue, SettingsScope},
-    ui::UiOwner,
+    PluginOwner,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,8 +15,8 @@ pub(crate) enum Setting {
 #[derive(Default)]
 pub(crate) struct Settings {
     sequence: u64,
-    values: BTreeMap<(Option<u64>, Setting, UiOwner), (u64, bool)>,
-    themes: BTreeMap<UiOwner, (u64, Theme)>,
+    values: BTreeMap<(Option<u64>, Setting, PluginOwner), (u64, bool)>,
+    themes: BTreeMap<PluginOwner, (u64, Theme)>,
     baseline: Option<Theme>,
     applied: bool,
 }
@@ -98,7 +98,7 @@ impl Editor {
     }
     pub(super) fn plugin_override_setting(
         &mut self,
-        owner: UiOwner,
+        owner: PluginOwner,
         scope: SettingsScope,
         value: SettingValue,
         theme: Option<Theme>,
@@ -185,7 +185,7 @@ impl Editor {
     }
     pub(super) fn plugin_clear_settings(
         &mut self,
-        owner: &UiOwner,
+        owner: &PluginOwner,
         scope: SettingsScope,
     ) -> Result<(), ServiceError> {
         let document = self.plugin_setting_scope(scope)?;

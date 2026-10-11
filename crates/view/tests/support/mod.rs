@@ -1,5 +1,6 @@
 //! A headless editor with explicit callbacks and a private document directory.
 pub(crate) mod plugin_guest;
+pub(crate) mod plugin_host;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;

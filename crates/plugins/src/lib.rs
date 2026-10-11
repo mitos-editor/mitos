@@ -369,6 +369,16 @@ impl PluginManager {
             .map(|(name, _)| name.clone())
             .collect()
     }
+    /// Live executable instances, independent of their event subscriptions.
+    pub fn active_plugins(&self) -> impl Iterator<Item = &str> {
+        self.plugins
+            .iter()
+            .filter(|(_, plugin)| plugin.active())
+            .map(|(name, _)| name.as_str())
+    }
+    pub fn is_active(&self, name: &str) -> bool {
+        self.plugins.get(name).is_some_and(Plugin::active)
+    }
     pub fn receives_event(&self, name: &str, event: Event) -> bool {
         self.plugins
             .get(name)

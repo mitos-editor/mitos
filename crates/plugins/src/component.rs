@@ -903,7 +903,7 @@ impl host::HostEffects for HostState {
         let result = (|| {
             self.builder(self.table.get(&batch).map_err(|_| stale())?.invocation)?;
             self.require(Capability::EditorRead)?;
-            if query.limit > 64 {
+            if query.limit as usize > plugin_api::MAX_STATE_PAGE_SIZE {
                 return Err(exhausted("state query page exceeds 64 entries"));
             }
             self.action(

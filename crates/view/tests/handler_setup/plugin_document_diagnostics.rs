@@ -1,4 +1,5 @@
 //! Actual SDK guests publish versioned annotations into native documents.
+use crate::support::plugin_host::{drain, load};
 use std::{collections::BTreeMap, path::Path};
 
 use editor_core::{
@@ -54,53 +55,15 @@ fn package(dir: &Path, routes: Vec<serde_json::Value>) -> anyhow::Result<PluginC
     config.permissions.read_roots.clear();
     Ok(config)
 }
-async fn drain(fixture: &mut Fixture) {
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        loop {
-            fixture.editor.poll_plugin_events();
-            while let Ok(callback) = fixture.callbacks.try_recv() {
-                callback(&mut fixture.editor);
-            }
-            if !fixture.editor.has_pending_plugin_work() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-    })
-    .await
-    .expect("plugin diagnostic work did not settle");
-}
-async fn load(fixture: &mut Fixture, base: &Path, packages: &BTreeMap<String, PluginConfig>) {
-    let errors = fixture.editor.error_revision();
-    assert!(fixture.editor.reload_plugins(packages, base));
-    drain(fixture).await;
-    assert_eq!(
-        fixture.editor.error_revision(),
-        errors,
-        "status={:?}; diagnostics={:?}",
-        fixture.editor.get_status(),
-        fixture.editor.plugin_diagnostics()
-    );
-    for (name, package) in packages {
-        if package.enabled {
-            assert!(fixture
-                .editor
-                .plugin_command(&format!("{name}.run"))
-                .is_some());
-        }
-    }
-}
 async fn run(fixture: &mut Fixture, plugin: &str, command: &str) -> anyhow::Result<()> {
-    let errors = fixture.editor.error_revision();
-    assert!(fixture
-        .editor
-        .execute_plugin_command(&format!("{plugin}.run"), vec![command.into()])?);
-    drain(fixture).await;
     anyhow::ensure!(
-        fixture.editor.error_revision() == errors,
-        "status={:?}; diagnostics={:?}",
-        fixture.editor.get_status(),
-        fixture.editor.plugin_diagnostics()
+        crate::support::plugin_host::execute(
+            fixture,
+            &format!("{plugin}.run"),
+            vec![command.into()]
+        )
+        .await?,
+        "plugin command unavailable"
     );
     Ok(())
 }

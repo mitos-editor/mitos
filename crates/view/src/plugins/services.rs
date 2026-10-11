@@ -5,8 +5,7 @@ use plugin_api::{
         DocumentTarget, EditorReply, EditorRequest, OpenDisposition, SettingValue, UnsavedDocument,
         ViewTarget, MAX_UNSAVED_DOCUMENTS,
     },
-    ui::UiOwner,
-    HostFuture,
+    HostFuture, PluginOwner,
 };
 
 fn failure(code: ErrorCode, message: impl Into<String>) -> ServiceError {
@@ -197,7 +196,7 @@ pub(super) fn request(request: EditorRequest, scope: Scope) -> HostFuture<Editor
                         owner: shared,
                         previous,
                     };
-                    let caller = UiOwner {
+                    let caller = PluginOwner {
                         plugin: source.origin.as_ref().ok_or_else(cancelled)?.plugin.clone(),
                         generation: source.generation,
                     };
@@ -297,11 +296,11 @@ fn apply(
     editor: &mut Editor,
     request: EditorRequest,
     prepared: Prepared,
-    caller: UiOwner,
+    caller: PluginOwner,
 ) -> Result<EditorReply, ServiceError> {
     match request {
         EditorRequest::ReadState { query } => Ok(EditorReply::State {
-            catalog: editor.plugin_state(&query).1,
+            catalog: editor.plugin_state_catalog(&query),
         }),
         EditorRequest::PublishDiagnostics {
             target,

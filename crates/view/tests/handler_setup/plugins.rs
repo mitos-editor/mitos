@@ -1,3 +1,4 @@
+use crate::support::plugin_host::{drain, execute};
 use std::{collections::BTreeMap, path::Path};
 
 use editor_core::{Range, Selection, Transaction};
@@ -38,33 +39,6 @@ fn plugin_with_init(
         "fixture".into(),
         observing(dir, events, &routes, None)?,
     )]))
-}
-
-async fn drain(fixture: &mut Fixture) {
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        loop {
-            fixture.editor.poll_plugin_events();
-            while let Ok(callback) = fixture.callbacks.try_recv() {
-                callback(&mut fixture.editor);
-            }
-            if !fixture.editor.has_pending_plugin_work() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
-    })
-    .await
-    .expect("plugin callbacks did not terminate");
-}
-
-async fn execute(fixture: &mut Fixture, name: &str, args: Vec<String>) -> anyhow::Result<bool> {
-    let before = fixture.editor.error_revision();
-    let accepted = fixture.editor.execute_plugin_command(name, args)?;
-    drain(fixture).await;
-    if fixture.editor.error_revision() != before {
-        anyhow::bail!("{}", fixture.editor.get_status().unwrap().0);
-    }
-    Ok(accepted)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

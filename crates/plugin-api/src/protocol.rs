@@ -8,6 +8,18 @@ use serde::{Deserialize, Serialize};
 /// Experimental payload protocol version within the typed component interface.
 pub const ABI_VERSION: u32 = 3;
 
+/// Host-assigned ownership for one plugin generation. Guests cannot choose
+/// another plugin's identity; reload and retirement expire owned resources.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginOwner {
+    pub plugin: String,
+    pub generation: u64,
+}
+
+/// Maximum number of entries in each document or view catalog page.
+pub const MAX_STATE_PAGE_SIZE: usize = 64;
+
 /// The invocation delivered to a plugin's request handler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

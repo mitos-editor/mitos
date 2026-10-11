@@ -23,12 +23,7 @@ pub const MAX_BUILTIN_SELECTION_WORK: usize = 8192;
 pub const MAX_NEXT_KEY_TIMEOUT_MS: u32 = 60_000;
 
 /// Assigned by the host. A guest cannot choose another plugin's identity.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct UiOwner {
-    pub plugin: String,
-    pub generation: u64,
-}
+pub use crate::PluginOwner as UiOwner;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -6,11 +6,13 @@
 
 mod actor;
 pub mod assets;
-mod diagnostics;
+mod document_diagnostics;
 mod frontend;
 mod language;
+mod ownership;
 mod services;
 pub(crate) mod settings;
+mod state;
 
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
@@ -26,12 +28,13 @@ use anyhow::{bail, ensure};
 use editor_core::{Range, Rope, Selection, Transaction};
 use parking_lot::Mutex;
 use plugin_api::{
-    Action, Capability, DocumentInfo, DocumentSnapshot, EditorContext, ErrorCode, Event, Response,
-    SelectionRange, ServiceError, StateCatalog, StateQuery, ViewInfo, ViewSnapshot,
+    Action, Capability, DocumentSnapshot, EditorContext, ErrorCode, Event, PluginOwner, Response,
+    ServiceError, StateQuery,
 };
 use serde_json::Value;
 
 use crate::{callbacks::EditorCallbackSender, Document, DocumentId, Editor, ViewId};
+use state::{bounded_view_snapshot, snapshot, view_snapshot};
 
 const MAX_PENDING_EVENTS: usize = 32;
 const MAX_CONTROL_EVENTS: usize = 32;
@@ -197,6 +200,7 @@ pub(crate) struct PluginHost {
     stopped: bool,
     shutting_down: bool,
     frontend: frontend::FrontendState,
+    active_owners: HashSet<PluginOwner>,
     asynchronous: actor::AsyncState,
 }
 
@@ -492,53 +496,6 @@ fn with_provenance(data: Value, provenance: &Provenance) -> Value {
     Value::Object(fields)
 }
 
-fn snapshot(doc: &Document) -> anyhow::Result<DocumentSnapshot> {
-    Ok(DocumentSnapshot {
-        id: doc.id().as_u64(),
-        version: doc.version(),
-        path: doc.path().map(|path| path.to_string_lossy().into_owned()),
-        language: doc.language_name().map(str::to_owned),
-        char_count: doc.text().len_chars() as u64,
-        byte_count: doc.text().len_bytes() as u64,
-    })
-}
-
-fn view_snapshot(doc: &Document, view: ViewId) -> Option<ViewSnapshot> {
-    let selection = doc.selections().get(&view)?;
-    if selection.len() > 1024 {
-        return None;
-    }
-    Some(ViewSnapshot {
-        id: view.as_u64(),
-        document: doc.id().as_u64(),
-        binding_revision: doc.view_binding_revision(view)?,
-        selection_revision: doc.selection_revision(view)?,
-        selections: selection
-            .iter()
-            .map(|range| SelectionRange {
-                anchor: range.anchor,
-                head: range.head,
-            })
-            .collect(),
-        primary: selection.primary_index(),
-    })
-}
-
-fn bounded_view_snapshot(doc: &Document, view: ViewId) -> anyhow::Result<Option<ViewSnapshot>> {
-    if doc
-        .selections()
-        .get(&view)
-        .is_some_and(|selection| selection.len() > 1024)
-    {
-        return Err(ServiceError::new(
-            ErrorCode::ResourceExhausted,
-            "view has more than 1024 selections; plugin snapshot omitted",
-        )
-        .into());
-    }
-    Ok(view_snapshot(doc, view))
-}
-
 /// A rejected effect is distinguishable from an invalid action or a guest trap.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PluginConflict {
@@ -557,147 +514,6 @@ pub enum PluginConflict {
 }
 
 impl Editor {
-    /// Page the current document/view catalogs, optionally retrieving one text
-    /// and selection snapshot. Handles and cursors belong to this editor session.
-    pub fn plugin_state(&self, query: &StateQuery) -> (EditorContext, StateCatalog) {
-        let limit = if query.limit == 0 {
-            64
-        } else {
-            query.limit.min(64)
-        };
-        let mut documents = self.documents.values().filter(|doc| {
-            query
-                .after_document
-                .is_none_or(|after| doc.id().as_u64() > after)
-        });
-        let page = documents.by_ref().take(limit).collect::<Vec<_>>();
-        let next_document = documents
-            .next()
-            .and_then(|_| page.last().map(|doc| doc.id().as_u64()));
-        let documents = page
-            .into_iter()
-            .map(|doc| DocumentInfo {
-                id: doc.id().as_u64(),
-                version: doc.version(),
-                path: doc.path().map(|path| path.to_string_lossy().into_owned()),
-                language: doc.language_name().map(str::to_owned),
-                readonly: doc.readonly,
-                binary: doc.is_binary(),
-                bytes: doc.text().len_bytes(),
-                chars: doc.text().len_chars(),
-            })
-            .collect();
-        let mut views = self
-            .tree
-            .views()
-            .map(|(view, _)| view)
-            .filter(|view| {
-                query
-                    .after_view
-                    .is_none_or(|after| view.id.as_u64() > after)
-            })
-            .collect::<Vec<_>>();
-        views.sort_by_key(|view| view.id.as_u64());
-        let next_view = (views.len() > limit).then(|| views[limit - 1].id.as_u64());
-        let views = views
-            .into_iter()
-            .take(limit)
-            .map(|view| ViewInfo {
-                id: view.id.as_u64(),
-                document: view.doc.as_u64(),
-                binding_revision: view.binding_revision(),
-                selection_revision: self
-                    .document(view.doc)
-                    .and_then(|doc| doc.selection_revision(view.id))
-                    .unwrap_or(0),
-            })
-            .collect();
-        let mut catalog = StateCatalog {
-            documents,
-            views,
-            next_document,
-            next_view,
-            error: None,
-        };
-        let mut context = EditorContext {
-            generation: self.plugins.shared.generation,
-            mode: self.mode.to_string(),
-            ..EditorContext::default()
-        };
-        let requested = (|| -> anyhow::Result<()> {
-            let view = query
-                .view
-                .map(|id| {
-                    self.tree
-                        .try_get(ViewId::from_u64(id))
-                        .ok_or(PluginConflict::ViewClosed(id))
-                })
-                .transpose()?;
-            let document = query
-                .document
-                .or_else(|| view.map(|view| view.doc.as_u64()));
-            if let Some(id) = document {
-                let doc = self
-                    .documents
-                    .values()
-                    .find(|doc| doc.id().as_u64() == id)
-                    .ok_or(PluginConflict::DocumentClosed(id))?;
-                if let Some(view) = view {
-                    ensure!(
-                        view.doc == doc.id(),
-                        "queried view is bound to another document"
-                    );
-                    context.view = bounded_view_snapshot(doc, view.id)?;
-                }
-                context.document = Some(snapshot(doc)?);
-            }
-            Ok(())
-        })();
-        if let Err(error) = requested {
-            catalog.error = Some(error.to_string());
-            context.document = None;
-            context.view = None;
-        }
-        (context, catalog)
-    }
-
-    fn plugin_context_for_view(&self, origin: Option<ViewId>) -> anyhow::Result<EditorContext> {
-        let view = origin.and_then(|id| self.tree.try_get(id));
-        let doc = view.and_then(|view| self.document(view.doc));
-        Ok(EditorContext {
-            generation: self.plugins.shared.generation,
-            mode: self.mode.to_string(),
-            document: doc.map(snapshot).transpose()?,
-            view: view
-                .zip(doc)
-                .map(|(view, doc)| bounded_view_snapshot(doc, view.id))
-                .transpose()?
-                .flatten(),
-        })
-    }
-
-    fn plugin_context(&self) -> anyhow::Result<EditorContext> {
-        self.plugin_context_for_view(Some(self.tree.focus))
-    }
-
-    fn plugin_invocation_target(&self, view: Option<ViewId>) -> InvocationTarget {
-        let view = view.and_then(|view| self.tree.try_get(view));
-        InvocationTarget {
-            call_sequence: None,
-            document: view.map(|view| view.doc.as_u64()),
-            view: view.map(|view| view.id.as_u64()),
-            binding_revision: view.map(|view| view.binding_revision()),
-        }
-    }
-
-    fn plugin_global_context(&self) -> EditorContext {
-        EditorContext {
-            generation: self.plugins.shared.generation,
-            mode: self.mode.to_string(),
-            ..EditorContext::default()
-        }
-    }
-
     pub fn plugin_event_interested(&self, event: Event) -> bool {
         self.plugins.shared.accepting.load(Ordering::Acquire)
             && self
@@ -729,8 +545,7 @@ impl Editor {
 
     fn refresh_plugin_subscriptions(&mut self) {
         self.prune_plugin_frontend();
-        self.prune_plugin_settings();
-        self.prune_plugin_document_diagnostics();
+        self.refresh_plugin_ownership();
         *self.plugins.shared.readers.lock() = self
             .plugins
             .manager

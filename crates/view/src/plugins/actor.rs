@@ -7,6 +7,7 @@ use ::plugins::{
     CompletedResponse, Completion, ManagerPreparation, PreparedManager,
 };
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, Stream};
+use plugin_api::ViewSnapshot;
 use plugin_api::{HostFuture, HostServices, ReadRequest};
 use std::{
     future::Future,

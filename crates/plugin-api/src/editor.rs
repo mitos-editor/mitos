@@ -398,7 +398,7 @@ impl EditorRequest {
     /// document lengths, revisions, server attachment and owner liveness.
     pub fn validate(&self) -> Result<(), ServiceError> {
         match self {
-            Self::ReadState { query } if query.limit > 64 => {
+            Self::ReadState { query } if query.limit > crate::MAX_STATE_PAGE_SIZE => {
                 return Err(exhausted("state catalog page limit exceeds 64"));
             }
             Self::PublishDiagnostics { diagnostics, .. } => {
