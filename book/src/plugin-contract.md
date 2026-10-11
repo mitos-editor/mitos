@@ -120,6 +120,26 @@ accounts for their lifetime and bytes.
 a truncated result cannot prove that a whole project is saved. These are metadata
 queries and require `editor-read`.
 
+`ReadState` returns the current bounded document/view catalog immediately,
+without waiting for a `State` event. It requires `editor-read` and uses the same
+cursors and page limit (64) as `RequestState`.
+
+`PublishDiagnostics` replaces this plugin's annotations on a named document at
+an exact text version. Ranges count Unicode scalars and must lie inside the
+document; empty ranges are allowed. A request contains at most 32 diagnostics,
+with messages of at most 512 bytes, within the 4 KiB editor-request limit.
+Severities are `error`, `warning`, `info`, and `hint`. The host assigns the plugin
+and generation, sanitizes messages, and displays annotations through native
+diagnostic rendering, navigation, and pickers. Invalid or stale requests leave
+existing annotations intact.
+
+`ClearDiagnostics` removes only the caller's annotations, either from a named
+document/version or, with no target, from all open documents. Publishing and
+clearing require both `editor-read` and `ui`. LSP, spelling, and other plugins'
+diagnostics are preserved. Text edits invalidate plugin annotations; unload,
+reload, shutdown, and instance failure remove the retiring instance's reports.
+Annotations are held only on open documents, without a workspace diagnostic cache.
+
 `LanguageFormat` and `LanguageCodeActions` query an already attached language
 server for source documents up to 1 MiB. They return edits for the captured
 document and version; applying them separately requires `editor-edit`. Code

@@ -7,7 +7,8 @@
 //!
 //! | Operation | Required capabilities |
 //! | --- | --- |
-//! | Syntax, language, settings or register read | `EditorRead` |
+//! | Catalog, syntax, language, settings or register read | `EditorRead` |
+//! | Publish or clear owned document diagnostics | `EditorRead`, `Ui` |
 //! | Scratch, focus, split, close | `EditorNavigate` |
 //! | Ordinary register write | `EditorSelection` |
 //! | Clipboard register read/write | Above capability and `Clipboard` |
@@ -36,6 +37,8 @@ pub const MAX_LANGUAGE_CODE_ACTIONS: usize = 64;
 pub const MAX_LANGUAGE_CODE_ACTION_EDITS: usize = 256;
 pub const MAX_LANGUAGE_CODE_ACTION_KINDS: usize = 16;
 pub const MAX_UNSAVED_DOCUMENTS: u32 = 128;
+pub const MAX_DOCUMENT_DIAGNOSTICS: usize = 32;
+pub const MAX_DOCUMENT_DIAGNOSTIC_MESSAGE_BYTES: usize = 512;
 pub const MAX_REGISTER_VALUES: usize = 64;
 pub const MAX_REGISTER_BYTES: usize = 4 * 1024;
 pub const LANGUAGE_DEADLINE_MILLIS: u64 = 2_000;
@@ -68,6 +71,26 @@ pub struct TextRange {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+/// One native diagnostic annotation at the request's document version.
+/// Ownership is supplied by the host; publishing replaces only this plugin's
+/// annotations for that document. The host checks scalar ranges against text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DocumentDiagnostic {
+    pub range: TextRange,
+    pub severity: DiagnosticSeverity,
+    pub message: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OpenDisposition {
     Replace,
@@ -79,6 +102,23 @@ pub enum OpenDisposition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum EditorRequest {
+    /// Query bounded current document/view metadata without an event snapshot.
+    /// Catalog cursors and page limits follow the existing state-query contract.
+    ReadState {
+        query: crate::StateQuery,
+    },
+    /// Replace this plugin's annotations for the target document and version.
+    /// Native LSP diagnostics and other plugins' annotations are preserved.
+    PublishDiagnostics {
+        target: DocumentTarget,
+        diagnostics: Vec<DocumentDiagnostic>,
+    },
+    /// Clear this plugin's annotations, either for one current document/version
+    /// or, with no target, across all open documents.
+    ClearDiagnostics {
+        #[serde(default)]
+        target: Option<DocumentTarget>,
+    },
     /// Whether the captured buffer differs from its last successful save.
     /// Disk-based tools must not assume that an editor snapshot was saved.
     DocumentStatus {
@@ -259,6 +299,9 @@ pub struct UnsavedDocument {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum EditorReply {
+    State {
+        catalog: crate::StateCatalog,
+    },
     DocumentStatus {
         target: DocumentTarget,
         modified: bool,
@@ -314,13 +357,17 @@ impl EditorRequest {
     /// Native authorization still checks declaration AND live user grants.
     pub fn capabilities(&self) -> &'static [Capability] {
         match self {
+            Self::PublishDiagnostics { .. } | Self::ClearDiagnostics { .. } => {
+                &[Capability::EditorRead, Capability::Ui]
+            }
             Self::ReadRegister {
                 name: '*' | '+', ..
             } => &[Capability::EditorRead, Capability::Clipboard],
             Self::WriteRegister {
                 name: '*' | '+', ..
             } => &[Capability::EditorSelection, Capability::Clipboard],
-            Self::DocumentStatus { .. }
+            Self::ReadState { .. }
+            | Self::DocumentStatus { .. }
             | Self::UnsavedDocuments { .. }
             | Self::SyntaxQuery { .. }
             | Self::LanguageHover { .. }
@@ -351,6 +398,25 @@ impl EditorRequest {
     /// document lengths, revisions, server attachment and owner liveness.
     pub fn validate(&self) -> Result<(), ServiceError> {
         match self {
+            Self::ReadState { query } if query.limit > 64 => {
+                return Err(exhausted("state catalog page limit exceeds 64"));
+            }
+            Self::PublishDiagnostics { diagnostics, .. } => {
+                if diagnostics.len() > MAX_DOCUMENT_DIAGNOSTICS {
+                    return Err(exhausted("document diagnostics exceed 32"));
+                }
+                for diagnostic in diagnostics {
+                    if diagnostic.range.start > diagnostic.range.end {
+                        return Err(invalid("document diagnostic needs an ordered range"));
+                    }
+                    if diagnostic.message.is_empty() {
+                        return Err(invalid("document diagnostic needs a message"));
+                    }
+                    if diagnostic.message.len() > MAX_DOCUMENT_DIAGNOSTIC_MESSAGE_BYTES {
+                        return Err(exhausted("document diagnostic message exceeds 512 bytes"));
+                    }
+                }
+            }
             Self::UnsavedDocuments { max_documents } if *max_documents > MAX_UNSAVED_DOCUMENTS => {
                 return Err(exhausted("unsaved document limit exceeds 128"));
             }
@@ -456,6 +522,108 @@ fn exhausted(message: &str) -> ServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_annotations_have_bounded_content_and_explicit_authority() {
+        let target = DocumentTarget {
+            document: 1,
+            version: 7,
+        };
+        let diagnostic = DocumentDiagnostic {
+            range: TextRange { start: 1, end: 2 },
+            severity: DiagnosticSeverity::Error,
+            message: "test assertion failed".into(),
+        };
+        let publish = |diagnostics| EditorRequest::PublishDiagnostics {
+            target,
+            diagnostics,
+        };
+        let request = publish(vec![diagnostic.clone(); MAX_DOCUMENT_DIAGNOSTICS]);
+        request.validate().unwrap();
+        assert_eq!(
+            request.capabilities(),
+            &[Capability::EditorRead, Capability::Ui]
+        );
+        for target in [Some(target), None] {
+            let clear = EditorRequest::ClearDiagnostics { target };
+            clear.validate().unwrap();
+            assert_eq!(clear.capabilities(), request.capabilities());
+        }
+        assert_eq!(
+            publish(vec![diagnostic.clone(); MAX_DOCUMENT_DIAGNOSTICS + 1])
+                .validate()
+                .unwrap_err()
+                .code,
+            ErrorCode::ResourceExhausted
+        );
+        for (range, message, expected) in [
+            (
+                TextRange { start: 2, end: 1 },
+                diagnostic.message.clone(),
+                ErrorCode::InvalidRequest,
+            ),
+            (diagnostic.range, String::new(), ErrorCode::InvalidRequest),
+            (
+                diagnostic.range,
+                "μ".repeat(MAX_DOCUMENT_DIAGNOSTIC_MESSAGE_BYTES / 2 + 1),
+                ErrorCode::ResourceExhausted,
+            ),
+        ] {
+            assert_eq!(
+                publish(vec![DocumentDiagnostic {
+                    range,
+                    message,
+                    ..diagnostic.clone()
+                }])
+                .validate()
+                .unwrap_err()
+                .code,
+                expected
+            );
+        }
+        publish(vec![DocumentDiagnostic {
+            range: TextRange { start: 2, end: 2 },
+            message: "μ".repeat(MAX_DOCUMENT_DIAGNOSTIC_MESSAGE_BYTES / 2),
+            ..diagnostic
+        }])
+        .validate()
+        .unwrap();
+        assert!(
+            serde_json::from_value::<DocumentDiagnostic>(serde_json::json!({
+                "range": {"start": 1, "end": 2},
+                "severity": "error",
+                "message": "test failed",
+                "owner": "another-plugin"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn immediate_state_queries_require_reads_and_bounded_pages() {
+        for limit in [0, 64] {
+            let request = EditorRequest::ReadState {
+                query: crate::StateQuery {
+                    limit,
+                    ..Default::default()
+                },
+            };
+            assert_eq!(request.capabilities(), &[Capability::EditorRead]);
+            request.validate().unwrap();
+        }
+        assert_eq!(
+            EditorRequest::ReadState {
+                query: crate::StateQuery {
+                    limit: 65,
+                    ..Default::default()
+                },
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            ErrorCode::ResourceExhausted
+        );
+    }
 
     #[test]
     fn clipboard_and_settings_authority_are_explicit() {

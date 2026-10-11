@@ -1821,6 +1821,11 @@ impl Document {
             diff_handle.update_document(self.text.clone(), false);
         }
 
+        // Plugin annotations describe the exact tested/analyzed text version.
+        // An edit invalidates them even if their old positions could be mapped.
+        self.diagnostics
+            .retain(|diagnostic| !matches!(diagnostic.provider, DiagnosticProvider::Plugin { .. }));
+
         // map diagnostics over changes too
         changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
             let assoc = if diagnostic.starts_at_word {

@@ -426,6 +426,7 @@ impl Editor {
             // Shutdown is final: preserve contributed registries for the next
             // explicit reload, but never resume an already shut-down instance.
             self.plugins.manager.retire_instances();
+            self.clear_all_plugin_document_diagnostics();
             self.plugins.shutting_down = false;
             self.plugins
                 .shared
@@ -846,6 +847,7 @@ impl Editor {
             }
         }
         let old = std::mem::replace(&mut self.plugins.manager, manager);
+        self.clear_all_plugin_document_diagnostics();
         old.revoke();
         self.plugins
             .asynchronous
@@ -994,6 +996,7 @@ impl Editor {
         self.plugins.asynchronous.services.clear();
         self.clear_all_plugin_settings();
         let mut registry = std::mem::take(&mut self.plugins.assets);
+        self.clear_all_plugin_document_diagnostics();
         registry.restore(self);
         self.plugins.assets = registry;
         self.plugins.stopped = true;

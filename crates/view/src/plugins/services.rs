@@ -232,7 +232,8 @@ pub(super) fn request(request: EditorRequest, scope: Scope) -> HostFuture<Editor
 fn mutates(request: &EditorRequest) -> bool {
     !matches!(
         request,
-        EditorRequest::DocumentStatus { .. }
+        EditorRequest::ReadState { .. }
+            | EditorRequest::DocumentStatus { .. }
             | EditorRequest::UnsavedDocuments { .. }
             | EditorRequest::ReadRegister { .. }
             | EditorRequest::ReadSettings { .. }
@@ -299,6 +300,20 @@ fn apply(
     caller: UiOwner,
 ) -> Result<EditorReply, ServiceError> {
     match request {
+        EditorRequest::ReadState { query } => Ok(EditorReply::State {
+            catalog: editor.plugin_state(&query).1,
+        }),
+        EditorRequest::PublishDiagnostics {
+            target,
+            diagnostics,
+        } => {
+            editor.publish_plugin_document_diagnostics(&caller, target, diagnostics)?;
+            Ok(EditorReply::Updated)
+        }
+        EditorRequest::ClearDiagnostics { target } => {
+            editor.clear_plugin_document_diagnostics(&caller, target)?;
+            Ok(EditorReply::Updated)
+        }
         EditorRequest::DocumentStatus { target } => {
             let id = editor
                 .plugin_document(target.document, target.version)

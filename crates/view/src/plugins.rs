@@ -6,6 +6,7 @@
 
 mod actor;
 pub mod assets;
+mod diagnostics;
 mod frontend;
 mod language;
 mod services;
@@ -729,6 +730,7 @@ impl Editor {
     fn refresh_plugin_subscriptions(&mut self) {
         self.prune_plugin_frontend();
         self.prune_plugin_settings();
+        self.prune_plugin_document_diagnostics();
         *self.plugins.shared.readers.lock() = self
             .plugins
             .manager

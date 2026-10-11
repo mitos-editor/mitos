@@ -12,6 +12,8 @@ mod configuration;
 mod file_watching;
 #[path = "handler_setup/plugin_assets_host.rs"]
 mod plugin_assets_host;
+#[path = "handler_setup/plugin_document_diagnostics.rs"]
+mod plugin_document_diagnostics;
 #[path = "handler_setup/plugin_services.rs"]
 mod plugin_services;
 #[path = "handler_setup/plugins.rs"]
