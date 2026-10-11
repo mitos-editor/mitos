@@ -1,9 +1,8 @@
 //! Small configured-package metadata survives failed transactional replacements.
 
-use std::{
-    collections::{BTreeMap, VecDeque},
-    sync::Mutex,
-};
+use std::collections::{BTreeMap, VecDeque};
+
+use parking_lot::Mutex;
 
 use plugin_api::{
     diagnostics::{
@@ -32,7 +31,7 @@ struct Record {
 
 impl Catalog {
     pub fn begin(&self, configs: &BTreeMap<String, PluginConfig>, generation: u64) {
-        let mut records = self.records.lock().unwrap();
+        let mut records = self.records.lock();
         let mut previous = std::mem::take(&mut *records);
         for (name, config) in configs {
             let prior = previous.remove(name);
@@ -56,7 +55,7 @@ impl Catalog {
     }
 
     pub fn loaded(&self, name: &str, declared: CapabilitySet, executable: bool) {
-        if let Some(record) = self.records.lock().unwrap().get_mut(name) {
+        if let Some(record) = self.records.lock().get_mut(name) {
             record.declared = declared;
             record.engine = Some(if executable {
                 PluginEngine::Component
@@ -67,7 +66,7 @@ impl Catalog {
     }
 
     pub fn ready(&self) {
-        for record in self.records.lock().unwrap().values_mut() {
+        for record in self.records.lock().values_mut() {
             if !matches!(record.status, PluginStatus::Disabled) {
                 record.status = PluginStatus::Ready;
             }
@@ -75,7 +74,7 @@ impl Catalog {
     }
 
     pub fn failed(&self, message: &str) {
-        for record in self.records.lock().unwrap().values_mut() {
+        for record in self.records.lock().values_mut() {
             if matches!(record.status, PluginStatus::Disabled) {
                 continue;
             }
@@ -98,7 +97,6 @@ impl Catalog {
     pub fn snapshot(&self) -> BTreeMap<String, PluginDiagnostics> {
         self.records
             .lock()
-            .unwrap()
             .iter()
             .map(|(name, record)| {
                 (

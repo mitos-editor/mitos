@@ -5,11 +5,12 @@ use std::{
     io::Write,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::Instant,
 };
 
+use parking_lot::Mutex;
 use plugin_api::{
     Action, Capability, CapabilitySet, ErrorCode, Event, HostJob, HostServices, JobRequest,
     ReadRequest, Request as ApiRequest, Response, SelectionRange, ServiceError, StateQuery,
@@ -269,31 +270,19 @@ impl JobControls {
     pub(crate) fn target(&self, id: u64) -> Option<crate::worker::InvocationTarget> {
         self.entries
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
             .get(&id)
             .filter(|(_, cancel)| !cancel.is_cancelled())
             .map(|(target, _)| *target)
     }
     fn remove(&self, id: u64) {
-        self.entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&id);
+        self.entries.lock().remove(&id);
     }
 
     fn insert(&self, id: u64, target: crate::worker::InvocationTarget, cancel: CancellationToken) {
-        self.entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(id, (target, cancel));
+        self.entries.lock().insert(id, (target, cancel));
     }
     pub(crate) fn cancel_target(&self, document: Option<u64>, view: Option<u64>) {
-        for (target, cancel) in self
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .values()
-        {
+        for (target, cancel) in self.entries.lock().values() {
             if document.is_some_and(|id| target.document == Some(id))
                 || view.is_some_and(|id| target.view == Some(id))
             {

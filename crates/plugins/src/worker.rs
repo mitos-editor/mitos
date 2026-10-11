@@ -6,13 +6,14 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Weak,
     },
     task::{Context, Poll},
     thread,
     time::{Duration, Instant},
 };
 
+use parking_lot::Mutex;
 use plugin_api::{
     diagnostics::{DiagnosticEntry, DiagnosticLevel, RequestTimings, MAX_DIAGNOSTIC_ENTRIES},
     Action, CapabilitySet, ErrorCode, Event, HostServices, Request, Response, ServiceError,
@@ -644,7 +645,6 @@ impl Mailbox {
         for envelope in self.commands.drain(..).chain(self.notifications.drain(..)) {
             diagnostics
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .record(envelope.submitted.elapsed(), Duration::ZERO, Err(&cause));
             let _ = envelope.result.send(Err(cause.clone()));
         }
@@ -703,19 +703,8 @@ pub(crate) struct PluginActor {
 impl PluginActor {
     /// Bounded owned snapshots; no guest execution or filesystem work.
     pub(crate) fn diagnostics(&self) -> (usize, RequestTimings, Vec<DiagnosticEntry>) {
-        let queued = self
-            .inner
-            .state
-            .mailbox
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .len();
-        let diagnostics = self
-            .inner
-            .state
-            .diagnostics
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let queued = self.inner.state.mailbox.lock().len();
+        let diagnostics = self.inner.state.diagnostics.lock();
         (
             queued,
             diagnostics.timings.clone(),
@@ -725,12 +714,7 @@ impl PluginActor {
     /// The host records this only for a successfully returned guest response.
     /// A rejected application changes the provisional successful outcome.
     pub(crate) fn record_application(&self, duration_us: u64, error: Option<&ServiceError>) {
-        let mut diagnostics = self
-            .inner
-            .state
-            .diagnostics
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut diagnostics = self.inner.state.diagnostics.lock();
         diagnostics.timings.apply_last_us = duration_us;
         diagnostics.timings.apply_max_us = diagnostics.timings.apply_max_us.max(duration_us);
         if let Some(error) = error {
@@ -742,21 +726,10 @@ impl PluginActor {
         self.inner.state.active.load(Ordering::Acquire) && !self.inner.state.cancel.is_cancelled()
     }
     pub(crate) fn is_busy(&self) -> bool {
-        let mailbox = self
-            .inner
-            .state
-            .mailbox
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mailbox = self.inner.state.mailbox.lock();
         !mailbox.commands.is_empty()
             || !mailbox.notifications.is_empty()
-            || self
-                .inner
-                .state
-                .current
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .is_some()
+            || self.inner.state.current.lock().is_some()
     }
     #[cfg(test)]
     fn invoke(
@@ -806,12 +779,7 @@ impl PluginActor {
         let cancel = self.inner.state.cancel.child_token();
         let (send, receive) = oneshot::channel();
         let command = request.event == Event::Command;
-        let mut mailbox = self
-            .inner
-            .state
-            .mailbox
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut mailbox = self.inner.state.mailbox.lock();
         // Final draining and this admission share the mailbox lock. A producer
         // must not enqueue behind the final drain after the actor has stopped.
         if !self.is_active() {
@@ -869,18 +837,8 @@ impl PluginActor {
         };
         // Match the actor's dequeue/publication lock order so close cannot miss a
         // request between its mailbox and active-call ownership.
-        let mut mailbox = self
-            .inner
-            .state
-            .mailbox
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(active) = &*self
-            .inner
-            .state
-            .current
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        let mut mailbox = self.inner.state.mailbox.lock();
+        if let Some(active) = &*self.inner.state.current.lock()
             && (document.is_some_and(|id| active.document == Some(id))
                 || view.is_some_and(|id| active.view == Some(id)))
             && !call_sequence.is_some_and(|sequence| active.call_sequence == Some(sequence))
@@ -898,16 +856,11 @@ impl PluginActor {
             for envelope in queue.drain(..) {
                 if matches(envelope.target) {
                     removed += envelope.bytes;
-                    self.inner
-                        .state
-                        .diagnostics
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .record(
-                            envelope.submitted.elapsed(),
-                            Duration::ZERO,
-                            Err(&cancelled()),
-                        );
+                    self.inner.state.diagnostics.lock().record(
+                        envelope.submitted.elapsed(),
+                        Duration::ZERO,
+                        Err(&cancelled()),
+                    );
                     let _ = envelope.result.send(Err(cancelled()));
                 } else {
                     kept.push_back(envelope);
@@ -950,26 +903,16 @@ async fn compiled(
 ) -> Result<(Engine, Arc<Compiled>), ServiceError> {
     let permit = tokio::select! { _ = cancel.cancelled() => return Err(cancelled()), _ = tokio::time::sleep_until(deadline.into()) => return Err(deadline_exceeded()), permit = pool.compile.clone().acquire_owned() => permit.map_err(|_| cancelled())? };
     let engine = {
-        let mut current = pool
-            .engine
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut current = pool.engine.lock();
         if current.is_none() {
             let engine = component::engine()?;
-            *pool
-                .ticker
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                Some(EpochTicker::new(&engine)?);
+            *pool.ticker.lock() = Some(EpochTicker::new(&engine)?);
             *current = Some(engine);
         }
         current.as_ref().unwrap().clone()
     };
     {
-        let mut cache = pool
-            .cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cache = pool.cache.lock();
         if let Some(index) = cache
             .entries
             .iter()
@@ -1030,10 +973,7 @@ async fn compiled(
         ))
     });
     let (component, weight) = tokio::select! { _ = cancel.cancelled() => return Err(cancelled()), _ = tokio::time::sleep_until(deadline.into()) => return Err(deadline_exceeded()), result = task => result.map_err(|_| error(ErrorCode::HostFailure, "plugin compiler worker failed"))?? };
-    let mut cache = pool
-        .cache
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = pool.cache.lock();
     while cache.entries.len() >= MAX_CACHED_COMPONENTS
         || cache.bytes.saturating_add(weight) > MAX_CACHED_BYTES
     {
@@ -1076,14 +1016,10 @@ async fn actor_loop(
         }
         let notified = wake.notified();
         let envelope = {
-            let mut mailbox = mailbox
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut mailbox = mailbox.lock();
             let envelope = mailbox.pop();
             if let Some(envelope) = &envelope {
-                *current
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ActiveCall {
+                *current.lock() = Some(ActiveCall {
                     document: envelope.target.document,
                     view: envelope.target.view,
                     call_sequence: envelope.target.call_sequence,
@@ -1100,11 +1036,8 @@ async fn actor_loop(
         if envelope.result.is_closed() {
             diagnostics
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .record(queued, Duration::ZERO, Err(&cancelled()));
-            *current
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            *current.lock() = None;
             if initializing {
                 active.store(false, Ordering::Release);
                 break;
@@ -1112,16 +1045,13 @@ async fn actor_loop(
             continue;
         }
         if envelope.request.editor.generation != generation {
-            *current
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            *current.lock() = None;
             let cause = error(
                 ErrorCode::StaleState,
                 "plugin request belongs to an old generation",
             );
             diagnostics
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .record(queued, Duration::ZERO, Err(&cause));
             let _ = envelope.result.send(Err(cause));
             if initializing {
@@ -1142,25 +1072,18 @@ async fn actor_loop(
                 Err(failure) => { if failure.discard { instance = None; active.store(false, Ordering::Release); } Err(failure.error) }
             }
         }.await;
-        *current
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *current.lock() = None;
         if initializing && result.is_err() {
             active.store(false, Ordering::Release);
         }
-        diagnostics
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .record(
-                queued,
-                started.elapsed(),
-                result.as_ref().map(|response| &**response),
-            );
+        diagnostics.lock().record(
+            queued,
+            started.elapsed(),
+            result.as_ref().map(|response| &**response),
+        );
         let returned_response = result.is_ok();
         if envelope.result.send(result).is_err() && returned_response {
-            let mut diagnostics = diagnostics
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut diagnostics = diagnostics.lock();
             diagnostics.timings.completed = diagnostics.timings.completed.saturating_sub(1);
             diagnostics.failed(&cancelled());
         }
@@ -1173,10 +1096,7 @@ async fn actor_loop(
         drop(instance);
     }
     active.store(false, Ordering::Release);
-    mailbox
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .fail(cancelled(), diagnostics);
+    mailbox.lock().fail(cancelled(), diagnostics);
     done.finish();
 }
 

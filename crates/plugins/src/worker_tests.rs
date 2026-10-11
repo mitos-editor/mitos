@@ -306,7 +306,7 @@ impl HostServices for Services {
         let job_ready = self.job_ready;
         let requests = self.requests.clone();
         Box::pin(async move {
-            requests.lock().unwrap().push(request);
+            requests.lock().push(request);
             struct Creating(Arc<AtomicUsize>);
             impl Drop for Creating {
                 fn drop(&mut self) {
@@ -349,7 +349,7 @@ impl HostServices for Services {
             if reject {
                 return Err(cancelled());
             }
-            notifications.lock().unwrap().push(job);
+            notifications.lock().push(job);
             Ok(())
         })
     }
@@ -380,7 +380,7 @@ impl HostJob for Job {
         self.cancel.cancel();
         let tasks = self.task.clone();
         Box::pin(async move {
-            let task = tasks.lock().unwrap().take();
+            let task = tasks.lock().take();
             if let Some(task) = task {
                 let _ = task.await;
             }
@@ -438,7 +438,7 @@ async fn component_process_timeout_defaults_and_rejects_invalid_bounds_before_cr
             .await
             .unwrap();
     }
-    let recorded = services.requests.lock().unwrap().clone();
+    let recorded = services.requests.lock().clone();
     assert_eq!(recorded.len(), 2);
     assert!(matches!(
         recorded[0],
@@ -471,7 +471,7 @@ async fn component_process_timeout_defaults_and_rejects_invalid_bounds_before_cr
             ErrorCode::InvalidRequest
         );
     }
-    assert_eq!(services.requests.lock().unwrap().len(), 2);
+    assert_eq!(services.requests.lock().len(), 2);
     assert_eq!(services.jobs.load(Ordering::Acquire), 0);
     actor.shutdown().await.unwrap();
     pool.shutdown().await.unwrap();
@@ -833,10 +833,10 @@ async fn memory_growth_traps_without_affecting_other_stores() {
 #[tokio::test]
 async fn admission_counts_unconsumed_results_and_rejects_old_generations() {
     let pool = WorkerPool::new().unwrap();
-    assert!(pool.inner.engine.lock().unwrap().is_none());
+    assert!(pool.inner.engine.lock().is_none());
     let actor = plugin_actor(&pool).await;
     let services = Arc::new(Services::default());
-    assert!(pool.inner.engine.lock().unwrap().is_some());
+    assert!(pool.inner.engine.lock().is_some());
     let mut old = request("status");
     old.editor.generation = 0;
     assert_eq!(
@@ -1215,14 +1215,14 @@ async fn retained_jobs_notify_once_after_invocation_and_close_cancels_their_chil
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
-        while services.notifications.lock().unwrap().is_empty() {
+        while services.notifications.lock().is_empty() {
             tokio::task::yield_now().await;
         }
     })
     .await
     .unwrap();
     tokio::time::sleep(Duration::from_millis(30)).await;
-    assert_eq!(*services.notifications.lock().unwrap(), [1]);
+    assert_eq!(*services.notifications.lock(), [1]);
     assert_eq!(services.jobs.load(Ordering::Acquire), 1);
     actor.cancel_target(None, Some(1));
     tokio::time::timeout(Duration::from_secs(1), async {
