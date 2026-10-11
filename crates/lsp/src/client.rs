@@ -428,6 +428,7 @@ impl Client {
                         | CallHierarchyServerCapability::Options(_)
                 )
             ),
+            LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
         }
     }
 
@@ -675,6 +676,9 @@ impl Client {
                     diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
+                    code_lens: Some(lsp::CodeLensWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     ..Default::default()
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
@@ -768,6 +772,9 @@ impl Client {
                         ..Default::default()
                     }),
                     inline_completion: Some(lsp::InlineCompletionClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
+                    code_lens: Some(lsp::CodeLensClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
                     inlay_hint: Some(lsp::InlayHintClientCapabilities {
@@ -1863,6 +1870,38 @@ impl Client {
         };
 
         Some(self.call::<lsp::request::Rename>(params))
+    }
+
+    pub fn code_lens(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CodeLens>>>> + use<>> {
+        if !self.supports_feature(LanguageServerFeature::CodeLens) {
+            return None;
+        }
+        Some(
+            self.call::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
+                text_document,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            }),
+        )
+    }
+
+    pub fn resolve_code_lens(
+        &self,
+        lens: lsp::CodeLens,
+    ) -> Option<impl Future<Output = Result<lsp::CodeLens>> + use<>> {
+        if self
+            .capabilities()
+            .code_lens_provider
+            .as_ref()?
+            .resolve_provider
+            != Some(true)
+        {
+            return None;
+        }
+        Some(self.call::<lsp::request::CodeLensResolve>(lens))
     }
 
     pub fn command(

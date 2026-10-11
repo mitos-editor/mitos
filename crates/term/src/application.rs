@@ -1061,6 +1061,14 @@ impl Application {
 
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::CodeLensRefresh) => {
+                        let server_id = language_server!().id();
+                        view::handlers::code_lenses::refresh_for_language_server(
+                            &mut self.editor,
+                            server_id,
+                        );
+                        Ok(serde_json::Value::Null)
+                    }
                     Ok(MethodCall::ShowMessageRequest(params)) => {
                         if let Some(actions) = params.actions.filter(|a| !a.is_empty()) {
                             let id = id.clone();

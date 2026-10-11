@@ -245,7 +245,7 @@ language-servers = [ { name = "typescript-language-server", except-features = [ 
 
 Each requested LSP feature is prioritized in the order of the `language-servers` array.
 For example, the first `goto-definition` supported language server (in this case `typescript-language-server`) will be taken for the relevant LSP request (command `goto_definition`).
-The features `diagnostics`, `code-action`, `completion`, `document-symbols` and `workspace-symbols` are an exception to that rule, as they are working for all language servers at the same time and are merged together, if enabled for the language.
+The features `diagnostics`, `code-action`, `code-lens`, `completion`, `document-symbols` and `workspace-symbols` are an exception to that rule, as they are working for all language servers at the same time and are merged together, if enabled for the language.
 If no `except-features` or `only-features` is given, all features for the language server are enabled.
 If a language server itself doesn't support a feature, the next language server array entry will be tried (and so on).
 
@@ -263,6 +263,7 @@ The list of supported features is:
 - `completion`
 - `inline-completion`
 - `code-action`
+- `code-lens`
 - `document-links`
 - `workspace-command`
 - `document-symbols`

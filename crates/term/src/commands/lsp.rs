@@ -30,6 +30,7 @@ use view::{
     align_view,
     document::{DocumentInlayHints, DocumentInlayHintsId},
     editor::Action,
+    handlers::code_lenses::{self, CodeLensCommand},
     handlers::signature_help::SignatureHelpInvoked,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
@@ -55,6 +56,70 @@ macro_rules! language_server_with_feature {
             }
         }
     }};
+}
+
+impl ui::menu::Item for CodeLensCommand {
+    type Data = ();
+
+    fn format(&self, _: &Self::Data) -> Row<'_> {
+        self.command.title.as_str().into()
+    }
+}
+
+pub fn show_code_lenses_under_cursor(cx: &mut Context) {
+    let (view, doc) = current_ref!(cx.editor);
+    language_server_with_feature!(cx.editor, doc, LanguageServerFeature::CodeLens);
+    let doc_id = doc.id();
+    let view_id = view.id;
+    let selection = doc.selection(view_id).clone();
+    let line = doc
+        .text()
+        .char_to_line(selection.primary().cursor(doc.text().slice(..)));
+    let Some(future) = code_lenses::resolve_code_lenses(cx.editor, doc_id, line) else {
+        cx.editor.set_error(|| "No code lenses available");
+        return;
+    };
+    cx.jobs.callback(async move {
+        let resolved = future.await;
+        Ok(Callback::EditorCompositor(Box::new(
+            move |editor, compositor| {
+                let Some(mut resolved) = resolved else { return };
+                let is_current = move |editor: &Editor| {
+                    editor.tree.focus == view_id
+                        && editor
+                            .tree
+                            .try_get(view_id)
+                            .is_some_and(|view| view.doc == doc_id)
+                        && editor
+                            .document(doc_id)
+                            .is_some_and(|doc| doc.selection(view_id) == &selection)
+                };
+                if !resolved.is_current(editor) || !is_current(editor) {
+                    return;
+                }
+                if resolved.commands.is_empty() {
+                    editor.set_error(|| "No code lenses available");
+                    return;
+                }
+                resolved.cache(editor);
+                let commands = std::mem::take(&mut resolved.commands);
+                let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
+                    if event == PromptEvent::Validate
+                        && resolved.is_current(editor)
+                        && is_current(editor)
+                        && let Some(lens) = lens
+                    {
+                        editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
+                    }
+                });
+                menu.move_down();
+                let popup = Popup::new("code-lens", menu)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-lens", popup);
+            },
+        )))
+    });
 }
 
 /// A wrapper around `lsp::Location` that swaps out the LSP URI for `editor_core::Uri` and adds

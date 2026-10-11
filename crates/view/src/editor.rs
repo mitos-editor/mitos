@@ -439,7 +439,8 @@ impl Editor {
 
     /// Refreshes the language server for a given document
     pub fn refresh_language_servers(&mut self, doc_id: DocumentId) {
-        self.launch_language_servers(doc_id)
+        self.launch_language_servers(doc_id);
+        crate::handlers::code_lenses::refresh_document(self, doc_id);
     }
 
     /// moves/renames a path, invoking any event handlers (currently only lsp)

@@ -9,6 +9,7 @@ use crate::{DocumentId, Editor, ViewId};
 pub mod auto_reload;
 pub mod auto_save;
 pub mod code_action_hint;
+pub mod code_lenses;
 pub mod completion;
 pub mod dap;
 pub mod diagnostics;
@@ -34,6 +35,7 @@ pub struct Handlers {
     pub document_highlight: document_highlight::DocumentHighlightHandler,
     pub document_links: document_links::DocumentLinksHandler,
     pub document_colors: document_colors::DocumentColorsHandler,
+    pub code_lenses: code_lenses::DocumentCodeLensesHandler,
     pub syntax: syntax::SyntaxHandler,
     pub completions: CompletionHandler,
     pub inline_completions: inline_completion::InlineCompletionHandler,
@@ -62,6 +64,7 @@ impl Handlers {
             ),
             document_links: document_links::DocumentLinksHandler::new(callbacks.clone()),
             document_colors: document_colors::DocumentColorsHandler::new(callbacks.clone()),
+            code_lenses: code_lenses::DocumentCodeLensesHandler::new(callbacks.clone()),
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
@@ -80,6 +83,7 @@ impl Handlers {
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.document_colors.handler = Some(self.document_colors.clone());
+        doc.code_lenses.handler = Some(self.code_lenses.clone());
         doc.document_links.handler = Some(self.document_links.clone());
         doc.document_highlights.handler = Some(self.document_highlight.clone());
         doc.document_symbols.handler = Some(self.document_symbols.clone());
@@ -201,6 +205,7 @@ fn register_hooks() {
         diagnostics::pull::register_hooks();
         snippet::register_hooks();
         document_colors::register_hooks();
+        code_lenses::register_hooks();
         document_links::register_hooks();
         inline_completion::register_hooks();
         spelling::register_hooks();

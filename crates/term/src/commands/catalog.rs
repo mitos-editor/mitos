@@ -164,6 +164,7 @@ impl MappableCommand {
         add_newline_below => super::insert::add_newline_below, "Add newline below",
         goto_type_definition => super::lsp::goto_type_definition, "Goto type definition",
         goto_implementation => super::lsp::goto_implementation, "Goto implementation",
+        show_code_lenses_under_cursor => super::lsp::show_code_lenses_under_cursor, "Show code lenses under cursor",
         goto_file_start => super::navigation::goto_file_start, "Goto line number `<n>` else file start",
         goto_file_end => super::navigation::goto_file_end, "Goto file end",
         extend_to_file_start => super::navigation::extend_to_file_start, "Extend to line number `<n>` else file start",

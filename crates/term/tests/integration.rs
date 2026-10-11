@@ -20,6 +20,7 @@ mod test {
     mod auto_save;
     mod code_action_hints;
     mod code_actions;
+    mod code_lenses;
     mod command_line;
     mod commands;
     mod completion;

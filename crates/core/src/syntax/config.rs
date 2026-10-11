@@ -329,6 +329,7 @@ pub enum LanguageServerFeature {
     DocumentColors,
     InlineCompletion,
     CallHierarchy,
+    CodeLens,
 }
 
 impl Display for LanguageServerFeature {
@@ -357,6 +358,7 @@ impl Display for LanguageServerFeature {
             DocumentColors => "document-colors",
             InlineCompletion => "inline-completion",
             CallHierarchy => "call-hierarchy",
+            CodeLens => "code-lens",
         };
         write!(f, "{feature}",)
     }

@@ -10,8 +10,9 @@ use view::{
     current, current_ref,
     editor::Action,
     handlers::{
-        document_colors::DocumentColorsHandler, document_highlight::DocumentHighlightHandler,
-        document_links::DocumentLinksHandler, document_symbols::DocumentSymbolsHandler,
+        code_lenses::DocumentCodeLensesHandler, document_colors::DocumentColorsHandler,
+        document_highlight::DocumentHighlightHandler, document_links::DocumentLinksHandler,
+        document_symbols::DocumentSymbolsHandler,
     },
 };
 
@@ -20,6 +21,7 @@ use super::helpers::{test_config, AppBuilder};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Feature {
+    Lenses,
     Colors,
     Highlights,
     Links,
@@ -74,6 +76,7 @@ impl Fixture {
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
                 handlers.document_colors = DocumentColorsHandler::new(sender(Feature::Colors, &tx));
+                handlers.code_lenses = DocumentCodeLensesHandler::new(sender(Feature::Lenses, &tx));
                 handlers.document_highlight =
                     DocumentHighlightHandler::new(sender(Feature::Highlights, &tx));
                 handlers.document_links = DocumentLinksHandler::new(sender(Feature::Links, &tx));
@@ -175,6 +178,8 @@ impl Fixture {
             (2, text.chars().count())
         );
         assert_eq!(doc.color_swatches().unwrap().color_swatches[0].char_idx, 2);
+        assert_eq!(doc.code_lenses().len(), 1);
+        assert_eq!(doc.code_lenses()[0].char_idx, 2);
     }
 
     fn assert_empty(&self) {
@@ -185,10 +190,12 @@ impl Fixture {
         assert!(doc.document_highlights(view.id).is_none());
         assert!(doc.document_links().is_empty());
         assert!(doc.color_swatches().is_none());
+        assert!(doc.code_lenses().is_empty());
     }
 }
 
 const ALL: &[Feature] = &[
+    Feature::Lenses,
     Feature::Colors,
     Feature::Highlights,
     Feature::Links,
@@ -288,7 +295,7 @@ async fn queued_results_from_detached_servers_are_discarded() -> anyhow::Result<
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::Result<()> {
+async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::with_servers(
         &dir.path().join("exit.feature-test"),
@@ -298,6 +305,7 @@ async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::R
     let initial = fixture.initialize().await?;
     fixture.apply(initial);
     assert_eq!(current_ref!(fixture.app.editor).1.document_links().len(), 2);
+    assert_eq!(current_ref!(fixture.app.editor).1.code_lenses().len(), 2);
     fixture.edit("updated");
     let old = fixture.batch(ALL).await?;
     let server_id = current_ref!(fixture.app.editor)
@@ -312,11 +320,15 @@ async fn remaining_servers_refresh_colors_and_links_after_an_exit() -> anyhow::R
     });
     fixture.app.editor.language_servers.remove_by_id(server_id);
     fixture.apply(old);
-    let responses = fixture.batch(&[Feature::Colors, Feature::Links]).await?;
+    let responses = fixture
+        .batch(&[Feature::Lenses, Feature::Colors, Feature::Links])
+        .await?;
     fixture.apply(responses);
     let (_, doc) = current_ref!(fixture.app.editor);
     assert_eq!(doc.document_links().len(), 1);
     assert_eq!(doc.color_swatches().unwrap().color_swatches.len(), 1);
+    assert_eq!(doc.code_lenses().len(), 1);
+    assert_ne!(doc.code_lenses()[0].language_server_id, server_id);
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }

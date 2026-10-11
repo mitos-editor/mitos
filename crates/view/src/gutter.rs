@@ -109,6 +109,28 @@ pub fn diagnostic<'doc>(
     )
 }
 
+pub fn code_lens<'doc>(editor: &'doc Editor, doc: &'doc Document, theme: &Theme) -> GutterFn<'doc> {
+    let info = theme.get("info");
+    let enabled = editor.config().lsp.enable && editor.config().lsp.display_code_lenses;
+    Box::new(move |line, _, first_visual_line, out| {
+        if !enabled || !first_visual_line {
+            return None;
+        }
+        let start = doc.text().try_line_to_char(line).ok()?;
+        let lenses = doc.code_lenses();
+        let index = lenses.partition_point(|lens| lens.char_idx < start);
+        if lenses
+            .get(index)
+            .is_some_and(|lens| doc.text().char_to_line(lens.char_idx) == line)
+        {
+            out.push('▶');
+            Some(info)
+        } else {
+            None
+        }
+    })
+}
+
 pub fn diff<'doc>(
     _editor: &'doc Editor,
     doc: &'doc Document,
@@ -347,11 +369,13 @@ pub fn diagnostics_or_breakpoints<'doc>(
     let mut diagnostics = diagnostic(editor, doc, view, theme, is_focused);
     let mut breakpoints = breakpoints(editor, doc, view, theme, is_focused);
     let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
+    let mut lenses = code_lens(editor, doc, theme);
 
     Box::new(move |line, selected, first_visual_line: bool, out| {
         execution_pause_indicator(line, selected, first_visual_line, out)
             .or_else(|| breakpoints(line, selected, first_visual_line, out))
             .or_else(|| diagnostics(line, selected, first_visual_line, out))
+            .or_else(|| lenses(line, selected, first_visual_line, out))
     })
 }
 

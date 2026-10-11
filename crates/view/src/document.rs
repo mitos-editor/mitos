@@ -1,10 +1,12 @@
 mod code_action_hints;
+mod code_lenses;
 mod colors;
 mod highlights;
 mod inline_completion;
 mod links;
 mod symbols;
 
+pub use code_lenses::CodeLens;
 pub use colors::DocumentColorSwatches;
 pub use highlights::DocumentHighlights;
 pub use inline_completion::{InlineCompletion, InlineCompletionRow};
@@ -195,6 +197,7 @@ pub struct Document {
     // Dropping the document drops those controllers and cancels in-flight work.
     pub(crate) inline_completions: inline_completion::InlineCompletions,
     pub(crate) document_colors: colors::DocumentColors,
+    pub(crate) code_lenses: code_lenses::DocumentCodeLenses,
     pub(crate) document_links: links::DocumentLinks,
     pub(crate) document_highlights: highlights::DocumentHighlightsState,
     pub(crate) code_action_hints: code_action_hints::CodeActionHints,
@@ -817,6 +820,7 @@ impl Document {
             code_action_hints: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),
+            code_lenses: Default::default(),
             document_symbols: Default::default(),
             syn_loader,
             pull_diagnostics: Default::default(),
@@ -2727,12 +2731,18 @@ mod test {
     async fn dropping_a_document_cancels_all_feature_requests() {
         let mut doc = feature_document();
         let view = ViewId::default();
+        let mut title_controller = event::TaskController::new();
+        let title = title_controller.restart();
+        doc.code_lenses.titles.insert(0, title_controller);
         let requests = [
             doc.document_highlight_controller(view).restart(),
             doc.code_action_controller(view).restart(),
             doc.document_symbols.request.restart(),
             doc.document_colors.request.restart(),
             doc.document_links.request.restart(),
+            doc.code_lenses.request.restart(),
+            doc.code_lenses.resolve.restart(),
+            title,
         ];
         drop(doc);
         assert!(requests.iter().all(event::TaskHandle::is_canceled));

@@ -30,6 +30,9 @@ fn main() -> anyhow::Result<()> {
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
+    let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
+    let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
+    let mut held_lenses = Vec::<Value>::new();
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
@@ -41,6 +44,7 @@ fn main() -> anyhow::Result<()> {
         || completion
         || inline_completion
         || action_execution
+        || code_lenses
     {
         Some(std::fs::File::create(&args[2])?)
     } else {
@@ -75,7 +79,7 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if action_execution {
+        if action_execution || code_lenses {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
             request_log.as_mut().unwrap().flush()?;
         }
@@ -101,6 +105,13 @@ fn main() -> anyhow::Result<()> {
                     uri.into(),
                     params["textDocument"]["text"].as_str().unwrap().into(),
                 );
+                if code_lenses && args.iter().any(|arg| arg == "--refresh") {
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc": "2.0", "id": "lens-refresh",
+                        "method": "workspace/codeLens/refresh", "params": null}),
+                    )?;
+                }
                 if lifecycle {
                     respond(
                         &mut output,
@@ -312,8 +323,53 @@ fn main() -> anyhow::Result<()> {
             }
             continue;
         }
+        if method == "codeLens/resolve" && code_lenses {
+            if hold_lenses {
+                held_lenses.push(message.clone());
+                continue;
+            }
+            let mut lens = params.clone();
+            // Fail one lens and leave another unresolved to exercise partial results.
+            if params["data"]["kind"] == "failure" {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32603, "message": "fixture resolution failure"}}),
+                )?;
+                continue;
+            }
+            if params["data"]["kind"] != "empty" {
+                lens["command"] = json!({"title": format!("{} resolved", args[1]),
+                    "command": "fixture.lens", "arguments": [args[1], params["data"]]});
+            }
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": lens}),
+            )?;
+            continue;
+        }
+        if method == "workspace/executeCommand"
+            && code_lenses
+            && params["command"] == "fixture.release-lenses"
+        {
+            hold_lenses = false;
+            for message in std::mem::take(&mut held_lenses) {
+                let mut lens = message["params"].clone();
+                lens["command"] = json!({"title": format!("{} resolved", args[1]),
+                    "command": "fixture.lens", "arguments": [args[1], lens["data"]]});
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": message["id"], "result": lens}),
+                )?;
+            }
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if code_lenses => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "codeLensProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},
+                "executeCommandProvider": {"commands": ["fixture.lens"]}
+            }}),
             "initialize" if action_execution => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "codeActionProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},
@@ -346,7 +402,7 @@ fn main() -> anyhow::Result<()> {
             "initialize" => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "documentSymbolProvider": true, "documentHighlightProvider": true,
-                "colorProvider": true, "documentLinkProvider": {}
+                "colorProvider": true, "documentLinkProvider": {}, "codeLensProvider": {}
             }}),
             "textDocument/documentSymbol" => json!([{
                 "name": text, "kind": 12, "range": range(0, end), "selectionRange": range(3, end)
@@ -360,6 +416,33 @@ fn main() -> anyhow::Result<()> {
             "textDocument/documentLink" => json!([{
                 "range": range(3, end), "target": "https://example.test/target"
             }]),
+            "textDocument/codeLens" if code_lenses && text.contains("no lenses") => Value::Null,
+            "textDocument/codeLens"
+                if code_lenses && args.iter().any(|arg| arg == "--per-line") =>
+            {
+                Value::Array(
+                    documents
+                        .get(uri)
+                        .unwrap()
+                        .lines()
+                        .enumerate()
+                        .map(|(line, text)| {
+                            json!({"range": {"start": {"line": line, "character": 0},
+                        "end": {"line": line, "character": text.encode_utf16().count()}},
+                        "data": {"server": args[1], "kind": "resolve", "line": line}})
+                        })
+                        .collect(),
+                )
+            }
+            "textDocument/codeLens" if code_lenses => json!([
+                {"range": range(3, end), "command": {"title": format!("{} ready", args[1]),
+                    "command": "fixture.lens", "arguments": [args[1]]}},
+                {"range": range(3, end), "data": {"server": args[1], "kind": "resolve"}},
+                {"range": range(3, end), "data": {"server": args[1], "kind": "empty"}},
+                {"range": range(3, end), "data": {"server": args[1], "kind": "failure"}},
+                {"range": {"start": {"line": 99, "character": 0}, "end": {"line": 99, "character": 0}}}
+            ]),
+            "textDocument/codeLens" => json!([{"range": range(3, end)}]),
             _ => Value::Null,
         };
         respond(

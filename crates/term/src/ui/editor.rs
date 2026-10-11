@@ -421,6 +421,22 @@ impl EditorView {
             config.end_of_line_diagnostics,
             config.icons,
         ));
+        if config.lsp.enable && config.lsp.display_code_lenses {
+            let hidden_line = if is_focused && editor.mode() == Mode::Insert {
+                doc.inline_completion(view.id)
+                    .map(|completion| doc.text().char_to_line(completion.cursor))
+            } else {
+                None
+            };
+            decorations.add_decoration(text_decorations::code_lenses::CodeLensDecoration::new(
+                doc.text(),
+                doc.code_lenses(),
+                theme
+                    .try_get_exact("ui.virtual.code-lens")
+                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
+                hidden_line,
+            ));
+        }
         render_document(
             surface,
             inner,

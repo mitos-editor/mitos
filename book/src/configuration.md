@@ -198,6 +198,7 @@ Valid elements and their behavior are listed in the
 | `auto-document-highlight` | boolean | `true` | Highlight references to the symbol at the cursor. |
 | `inlay-hints-length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `display-color-swatches` | boolean | `true` | Render swatches beside document colors. |
+| `display-code-lenses` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space+l` provide access to the full commands. |
 | `snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
 | `goto-reference-include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
 
