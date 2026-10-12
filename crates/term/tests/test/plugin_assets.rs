@@ -27,8 +27,8 @@ description = 'Native object snippet'
     let path = dir.path().join("document.sample");
     std::fs::write(&path, "obj\n")?;
     let mut config = test_config();
-    config.editor.auto_completion = false;
-    config.editor.path_completion = false;
+    config.editor.completion.auto_trigger = false;
+    config.editor.completion.path.enable = false;
     config.plugins.insert(
         "assets".into(),
         plugins::PluginConfig {

@@ -1114,7 +1114,7 @@ async fn full_callback_and_lifecycle_queues_recover_all_startup_documents() -> a
         "original\n",
         "language = []",
         loader::syntax::Resources::default(),
-        |config| config.word_completion.enable = false,
+        |config| config.completion.word.enable = false,
         move |handlers, config| *handlers = view::handlers::Handlers::new(config, sender),
     )?;
     let config = BTreeMap::from([(
@@ -1775,7 +1775,7 @@ async fn scoped_plugin_opens_suppress_ambient_reload_and_save_until_native_adopt
         .is_restricted_adoption());
     std::fs::write(&path, "external change\n")?;
     let mut config = (**fixture.config.load()).clone();
-    config.auto_reload.enable = true;
+    config.files.reload.poll.enable = true;
     fixture.config.store(std::sync::Arc::new(config));
     view::handlers::auto_reload::check_unwatched(&mut fixture.editor);
     assert_eq!(

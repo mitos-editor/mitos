@@ -121,6 +121,10 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
         None,
     )?;
     config.keys = toml::from_str("[normal]\nF11 = ':echo builtin'\nF12 = ':fixture.run'\n")?;
+    let picker_keys = "[keys.picker]\nF10 = 'accept'".to_owned();
+    config.component_keys = Config::load(Ok(&picker_keys), Err(Default::default()))
+        .unwrap()
+        .component_keys;
     config.editor.commands = CustomCommands::new(vec![
         CustomCommand {
             commands: vec![":fixture.run".into()],
@@ -167,6 +171,8 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
             ),
             (Some(":fixture.ru<tab><ret>"), Some(&ran)),
             (Some("<space>?fixture.run<ret>"), Some(&ran)),
+            // F11 changes the status first, so a missing callback cannot pass.
+            (Some("<F11><space>?fixture.run<F10>"), Some(&ran)),
         ],
         false,
     )
@@ -581,7 +587,7 @@ async fn write_completion_waits_for_its_actual_save_result() -> anyhow::Result<(
             })),
             true,
         )?;
-        config.editor.auto_format = false;
+        config.editor.format.on_save = false;
         let directory = tempfile::tempdir()?;
         let source = directory.path().join("saved.txt");
         std::fs::write(&source, "original\n")?;

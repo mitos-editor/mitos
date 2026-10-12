@@ -432,8 +432,8 @@ mod tests {
         let _guard = QUEUE_TEST_LOCK.lock().await;
         let mut config = Config::default();
         config.editor.lsp.enable = false;
-        config.editor.file_watcher.enable = false;
-        config.editor.auto_reload.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.poll.enable = false;
         let mut app = Application::new(
             Args::default(),
             config.clone(),

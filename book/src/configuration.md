@@ -101,7 +101,7 @@ an untrusted project. `languages.toml` is unchanged.
 
 ## `config.toml` reference
 
-`config.toml` accepts five top-level entries:
+`config.toml` accepts six top-level entries:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |

@@ -441,7 +441,7 @@ impl Editor {
                 doc.set_selection(view, Selection::point(location.offset));
                 self.tree
                     .get_mut(view)
-                    .ensure_cursor_in_view(doc, self.config.load().scrolloff);
+                    .ensure_cursor_in_view(doc, self.config.load().scroll.padding);
                 Ok::<_, ServiceError>(())
             })();
             if let Err(error) = result {

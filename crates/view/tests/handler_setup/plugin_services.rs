@@ -364,8 +364,8 @@ async fn registers_and_setting_overrides_use_owned_limits_and_current_native_bas
     run(&mut fixture, "fixture.run").await?;
     assert!(current_ref!(fixture.editor).1.plugin_cursorline(false));
     fixture.configure(|config| {
-        config.cursorline = false;
-        config.auto_format = true;
+        config.cursor.highlight_line = false;
+        config.format.on_save = true;
     });
     assert!(current_ref!(fixture.editor).1.plugin_cursorline(false));
     load(&mut fixture, dir.path(), BTreeMap::new()).await;
@@ -607,7 +607,7 @@ async fn clipboard_custom_provider_requires_the_exact_executed_argv_before_backe
     let _compilation = crate::support::plugin_guest::compilation_permit().await;
     let mut fixture = Fixture::new("original\n")?;
     fixture.configure(|config| {
-        config.clipboard_provider = serde_json::from_value(serde_json::json!({"custom":{
+        config.clipboard.provider = serde_json::from_value(serde_json::json!({"custom":{
             "yank":{"command":"actual-read","args":["safe"]},
             "paste":{"command":"actual-write","args":[]},
             "yank-primary":{"command":"other-read","args":[]}

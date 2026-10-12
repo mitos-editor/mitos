@@ -1514,7 +1514,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
                         let result = (self.callback_fn)(ctx, option, self.default_action);
-                        if let Some(Some(callback)) = self.apply_callback_result(result, ctx.editor) {
+                        if let Some(Some(callback)) = self.apply_callback_result(result, ctx.editor)
+                        {
                             return EventResult::Consumed(Some(callback));
                         }
                     }
@@ -1552,7 +1553,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         {
                             ctx.editor.set_error(|| err.to_string());
                         }
-                        if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor) {
+                        if let Some(callback) =
+                            self.apply_callback_result(callback_result, ctx.editor)
+                        {
                             return close_fn(self, callback);
                         }
                     }
@@ -1567,7 +1570,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         .map_or(PickerCallbackResult::Close, |option| {
                             (self.callback_fn)(ctx, option, action)
                         });
-                    if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor) {
+                    if let Some(callback) = self.apply_callback_result(callback_result, ctx.editor)
+                    {
                         return close_fn(self, callback);
                     }
                 }

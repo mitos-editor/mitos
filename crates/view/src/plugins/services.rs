@@ -415,7 +415,7 @@ fn apply(
                 .document_mut(id)
                 .unwrap()
                 .set_selection(view, Selection::point(offset));
-            let scrolloff = editor.config().scrolloff;
+            let scrolloff = editor.config().scroll.padding;
             editor
                 .tree
                 .get_mut(view)

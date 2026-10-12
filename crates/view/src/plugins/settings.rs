@@ -74,7 +74,7 @@ impl Editor {
             .unwrap_or_else(|| {
                 doc.and_then(|doc| doc.language_config())
                     .and_then(|lang| lang.auto_format)
-                    .unwrap_or(config.auto_format)
+                    .unwrap_or(config.format.on_save)
             });
         let soft_wrap = state.value(document, Setting::SoftWrap).unwrap_or_else(|| {
             doc.and_then(|doc| doc.language_config())
@@ -85,7 +85,7 @@ impl Editor {
         });
         let cursorline = state
             .value(document, Setting::CursorLine)
-            .unwrap_or(config.cursorline);
+            .unwrap_or(config.cursor.highlight_line);
         let mut values = vec![
             SettingValue::AutoFormat(auto_format),
             SettingValue::SoftWrap(soft_wrap),
