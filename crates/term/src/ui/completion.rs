@@ -466,12 +466,22 @@ impl Completion {
         self.popup.contents_mut().replace_option(old_item, new_item);
     }
 
+    pub(crate) fn accept(&mut self, cx: &mut Context) -> EventResult {
+        self.popup
+            .contents_mut()
+            .execute_action(crate::keymap::component::MenuAction::Accept, cx)
+    }
+
     pub fn area(&mut self, viewport: Rect, editor: &Editor) -> Rect {
         self.popup.area(viewport, editor)
     }
 }
 
 impl Component for Completion {
+    fn has_pending_keys(&self) -> bool {
+        self.popup.has_pending_keys()
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         self.popup.handle_event(event, cx)
     }

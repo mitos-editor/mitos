@@ -18,12 +18,14 @@ mod test {
     mod auto_pairs;
     mod auto_reload;
     mod auto_save;
+    mod buffer_picker;
     mod code_action_hints;
     mod code_actions;
     mod code_lenses;
     mod command_line;
     mod commands;
     mod completion;
+    mod component_keymaps;
     mod config_application;
     mod cursor;
     mod document_features;

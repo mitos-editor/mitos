@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ui_core::keymap::{KeymapState, Lookup};
 
 use arc_swap::ArcSwap;
 use editor_core::syntax;
@@ -11,10 +12,11 @@ use view::graphics::Rect;
 
 use crate::compositor::{Component, Context, EventResult};
 
-use crate::alt;
+use crate::keymap::component::PageAction;
 use crate::ui::{panel, Markdown};
 
 pub struct Hover {
+    keys: KeymapState,
     active_index: usize,
     contents: Vec<(Option<Markdown>, Markdown)>,
 }
@@ -47,6 +49,7 @@ impl Hover {
 
         Self {
             active_index: usize::default(),
+            keys: KeymapState::default(),
             contents,
         }
     }
@@ -132,26 +135,43 @@ impl Component for Hover {
         Some((width, height))
     }
 
-    fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+    fn has_pending_keys(&self) -> bool {
+        self.keys.is_pending()
+    }
+
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         let Event::Key(event) = event else {
+            if matches!(event, Event::Paste(_)) {
+                self.keys.clear();
+            }
             return EventResult::Ignored(None);
         };
-
-        match event {
-            alt!('p') => {
-                let index = self
-                    .active_index
-                    .checked_sub(1)
-                    .unwrap_or(self.contents.len() - 1);
-                self.set_index(index);
-                EventResult::Consumed(None)
+        let actions = match self
+            .keys
+            .lookup(&cx.config.current.component_keys.hover, *event)
+        {
+            Lookup::Actions(actions) => actions,
+            Lookup::Pending => return EventResult::Consumed(None),
+            Lookup::Unbound => return EventResult::Ignored(None),
+        };
+        for &action in actions {
+            if self.contents.len() <= 1 {
+                continue;
             }
-            alt!('n') => {
-                self.set_index((self.active_index + 1) % self.contents.len());
-                EventResult::Consumed(None)
+            match action {
+                PageAction::Previous => {
+                    let index = self
+                        .active_index
+                        .checked_sub(1)
+                        .unwrap_or(self.contents.len() - 1);
+                    self.set_index(index);
+                }
+                PageAction::Next => {
+                    self.set_index((self.active_index + 1) % self.contents.len());
+                }
             }
-            _ => EventResult::Ignored(None),
         }
+        EventResult::Consumed(None)
     }
 }
 

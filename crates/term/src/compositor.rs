@@ -46,7 +46,10 @@ pub trait Component: Any + AnyComponent {
     fn handle_event(&mut self, _event: &Event, _ctx: &mut Context) -> EventResult {
         EventResult::Ignored(None)
     }
-    // , args: ()
+    /// Whether this component or a child owns the continuation of a key sequence.
+    fn has_pending_keys(&self) -> bool {
+        false
+    }
 
     /// Should redraw? Useful for saving redraw cycles if we know component didn't change.
     fn should_update(&self) -> bool {

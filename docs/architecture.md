@@ -8,7 +8,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `core` | Ropes, selections, transactions, history, syntax analysis, and editing algorithms |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
-| `ui-core` | Shared geometry, input, colors, and styles |
+| `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
 | `loader` | Resource paths, grammar/query/theme sources, workspace trust policy and persistence |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
@@ -23,6 +23,9 @@ Features live with the state they change; frontends adapt input and present resu
 terminal crate. `view` coordinates feature and protocol crates. For example,
 `view` → `spelling` → `core` keeps dictionary algorithms independent of editor
 state. `ui-core` supplies UI value types without owning editor services.
+Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
+defaults, configuration composition, and execution belong to `term`. Buffer picker
+item actions call editor lifecycle operations from `term::commands::buffers`.
 
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.

@@ -68,6 +68,10 @@ impl<T: Component + 'static> Component for Overlay<T> {
         Some((width, height))
     }
 
+    fn has_pending_keys(&self) -> bool {
+        self.content.has_pending_keys()
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         self.content.handle_event(event, ctx)
     }

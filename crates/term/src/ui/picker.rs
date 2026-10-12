@@ -1,3 +1,5 @@
+use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction};
+use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod handlers;
 mod query;
 
@@ -6,9 +8,7 @@ mod syntax_preview_tests;
 
 use crate::ui::image::{cached_image, render_image, PreparedImage};
 use crate::{
-    alt,
     compositor::{self, Component, Compositor, Context, Cursor, Event, EventResult},
-    ctrl, key, shift,
     ui::{
         self,
         document::{render_document, LinePos, TextRenderer},
@@ -713,6 +713,9 @@ type DynQueryCallback<T, D> =
     fn(&str, &mut Editor, Arc<D>, &Injector<T, D>) -> BoxFuture<'static, anyhow::Result<()>>;
 
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
+    keys: KeymapState,
+    keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
+    item_action_fn: Option<PickerItemCallback<T, D>>,
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
     editor_data: Arc<D>,
@@ -723,6 +726,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     completion_height: u16,
 
     cursor: u32,
+    refreshing: bool,
     prompt: Prompt,
     query: PickerQuery,
 
@@ -877,6 +881,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data,
             version,
             cursor: 0,
+            refreshing: false,
+            keys: KeymapState::default(),
+            keymap: |maps| &maps.picker,
+            item_action_fn: None,
             prompt,
             query,
             truncate_start: true,
@@ -959,6 +967,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Install the bindings and selected-item actions for a specific picker.
+    pub(crate) fn with_item_actions(
+        mut self,
+        keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
+        callback: impl Fn(&mut Context, &T, PickerItemAction) -> PickerCallbackResult<T, D> + 'static,
+    ) -> Self {
+        self.keymap = keymap;
+        self.item_action_fn = Some(Box::new(callback));
+        self
+    }
+
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
         let len = self.matcher.snapshot().matched_item_count();
@@ -1024,18 +1043,31 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 self.replace_options(options, editor_data, editor);
                 false
             }
+            PickerCallbackResult::Refresh {
+                options,
+                editor_data,
+            } => {
+                self.refreshing = true;
+                self.reset_options(options, editor_data);
+                false
+            }
         }
     }
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
+        self.cursor = 0;
+        self.refreshing = false;
+        self.prompt.clear(editor);
+        self.handle_prompt_change(false);
+        self.reset_options(options, editor_data);
+    }
+
+    fn reset_options(&mut self, options: Vec<T>, editor_data: D) {
         // Cancel existing injectors before replacing the matcher contents.
         self.version.fetch_add(1, atomic::Ordering::Relaxed);
         self.matcher.restart(true);
         self.editor_data = Arc::new(editor_data);
 
-        self.cursor = 0;
-        self.prompt.clear(editor);
-        self.handle_prompt_change(false);
         self.widths = visible_column_widths(&self.columns);
         self.preview.clear();
 
@@ -1185,7 +1217,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
         let snapshot = self.matcher.snapshot();
-        if status.changed {
+        let was_refreshing = self.refreshing;
+        self.refreshing &= status.running;
+        if !self.refreshing && (status.changed || was_refreshing) {
             self.cursor = self
                 .cursor
                 .min(snapshot.matched_item_count().saturating_sub(1))
@@ -1393,6 +1427,154 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             render_preview_content(preview, range, area, inner, surface, cx);
         }
     }
+
+    fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
+        let close_fn = |picker: &mut Self| {
+            picker.preview.cancel_loads(None);
+            // if the picker is very large don't store it as last_picker to avoid
+            // excessive memory consumption
+            let callback: compositor::Callback =
+                if picker.matcher.snapshot().item_count() > 1_000_000 {
+                    Box::new(|compositor: &mut Compositor, _ctx| {
+                        // remove the layer
+                        compositor.pop();
+                    })
+                } else {
+                    // stop streaming in new items in the background, really we should
+                    // be restarting the stream somehow once the picker gets
+                    // reopened instead (like for an FS crawl) that would also remove the
+                    // need for the special case above but that is pretty tricky
+                    picker.version.fetch_add(1, atomic::Ordering::Relaxed);
+                    Box::new(|compositor: &mut Compositor, _ctx| {
+                        // remove the layer
+                        compositor.last_picker = compositor.pop();
+                    })
+                };
+            EventResult::Consumed(Some(callback))
+        };
+
+        for &action in actions {
+            // A refreshed row is usable only after matching and cursor clamping.
+            // Query editing and cancellation remain available while matching runs.
+            if self.refreshing
+                && !matches!(action, PickerAction::Cancel | PickerAction::TogglePreview)
+            {
+                return EventResult::Consumed(None);
+            }
+            match action {
+                PickerAction::MoveUp => {
+                    self.move_by(1, Direction::Backward);
+                }
+                PickerAction::MoveDown => {
+                    self.move_by(1, Direction::Forward);
+                }
+                PickerAction::PageDown => {
+                    self.page_down();
+                }
+                PickerAction::PageUp => {
+                    self.page_up();
+                }
+                PickerAction::MoveStart => {
+                    self.to_start();
+                }
+                PickerAction::MoveEnd => {
+                    self.to_end();
+                }
+                PickerAction::Cancel => return close_fn(self),
+                PickerAction::PopulateQuicklist => {
+                    // Pickers can provide explicit quicklist entries when they have
+                    // more precise jump data. Everything else falls back to preview
+                    // locations, which are still usually just path + line span.
+                    let entries = self.quicklist_entries(ctx.editor);
+                    let count = entries.len();
+                    ctx.editor.replace_quicklist(entries);
+                    if count == 0 {
+                        ctx.editor
+                            .set_status("No quicklist entries available for this picker");
+                    } else {
+                        ctx.editor
+                            .set_status(format!("Quicklist populated with {count} entries"));
+                    }
+                }
+                PickerAction::AcceptKeepOpen => {
+                    if let Some(option) = self.selection() {
+                        let result = (self.callback_fn)(ctx, option, self.default_action);
+                        self.apply_callback_result(result, ctx.editor);
+                    }
+                }
+                PickerAction::Accept => {
+                    // If the prompt has a history completion and is empty, use enter to accept
+                    // that completion
+                    if let Some(completion) = self
+                        .prompt
+                        .first_history_completion(ctx.editor)
+                        .filter(|_| self.prompt.line().is_empty())
+                    {
+                        // The percent character is used by the query language and needs to be
+                        // escaped with a backslash.
+                        let completion = if completion.contains('%') {
+                            completion.replace('%', "\\%")
+                        } else {
+                            completion.into_owned()
+                        };
+                        self.prompt.set_line(completion, ctx.editor);
+
+                        // Inserting from the history register is a paste.
+                        self.handle_prompt_change(true);
+                    } else {
+                        let callback_result = self
+                            .selection()
+                            .map_or(PickerCallbackResult::Close, |option| {
+                                (self.callback_fn)(ctx, option, self.default_action)
+                            });
+                        if let Some(history_register) = self.prompt.history_register()
+                            && let Err(err) = ctx
+                                .editor
+                                .registers
+                                .push(history_register, self.primary_query().to_string())
+                        {
+                            ctx.editor.set_error(|| err.to_string());
+                        }
+                        if self.apply_callback_result(callback_result, ctx.editor) {
+                            return close_fn(self);
+                        }
+                    }
+                }
+                PickerAction::AcceptHorizontalSplit | PickerAction::AcceptVerticalSplit => {
+                    let action = match action {
+                        PickerAction::AcceptHorizontalSplit => Action::HorizontalSplit,
+                        _ => Action::VerticalSplit,
+                    };
+                    let callback_result = self
+                        .selection()
+                        .map_or(PickerCallbackResult::Close, |option| {
+                            (self.callback_fn)(ctx, option, action)
+                        });
+                    if self.apply_callback_result(callback_result, ctx.editor) {
+                        return close_fn(self);
+                    }
+                }
+                PickerAction::TogglePreview => {
+                    self.toggle_preview();
+                }
+                PickerAction::Item(action) => {
+                    if let Some(handler) = &self.item_action_fn
+                        && let Some(item) = self.selection()
+                    {
+                        let result = handler(ctx, item, action);
+                        if self.apply_callback_result(result, ctx.editor) {
+                            return close_fn(self);
+                        }
+                    }
+                    // The action may replace the asynchronous matcher contents.
+                    // Further actions must wait for the refreshed selection.
+                    return EventResult::Consumed(None);
+                }
+            }
+        }
+
+        EventResult::Consumed(None)
+    }
 }
 
 fn render_preview_placeholder(
@@ -1428,12 +1610,19 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         }
     }
 
+    fn has_pending_keys(&self) -> bool {
+        self.keys.is_pending() || self.prompt.has_pending_keys()
+    }
+
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         // TODO: keybinds for scrolling preview
 
         let key_event = match event {
             Event::Key(event) => *event,
-            Event::Paste(..) => return self.prompt_handle_event(event, ctx),
+            Event::Paste(..) => {
+                self.keys.clear();
+                return self.prompt_handle_event(event, ctx);
+            }
             Event::Resize(..) => return EventResult::Consumed(None),
             // Picker is a modal and should consume mouse events so clicks don't fall
             // through to the editor underneath
@@ -1441,138 +1630,21 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             _ => return EventResult::Ignored(None),
         };
 
-        let close_fn = |picker: &mut Self| {
-            picker.preview.cancel_loads(None);
-            // if the picker is very large don't store it as last_picker to avoid
-            // excessive memory consumption
-            let callback: compositor::Callback =
-                if picker.matcher.snapshot().item_count() > 1_000_000 {
-                    Box::new(|compositor: &mut Compositor, _ctx| {
-                        // remove the layer
-                        compositor.pop();
-                    })
-                } else {
-                    // stop streaming in new items in the background, really we should
-                    // be restarting the stream somehow once the picker gets
-                    // reopened instead (like for an FS crawl) that would also remove the
-                    // need for the special case above but that is pretty tricky
-                    picker.version.fetch_add(1, atomic::Ordering::Relaxed);
-                    Box::new(|compositor: &mut Compositor, _ctx| {
-                        // remove the layer
-                        compositor.last_picker = compositor.pop();
-                    })
-                };
-            EventResult::Consumed(Some(callback))
+        // Once the embedded prompt starts a key sequence or register selection,
+        // it owns subsequent keys, including keys normally handled by the picker.
+        if self.prompt.has_pending_keys() {
+            return self.prompt_handle_event(event, ctx);
+        }
+        let actions = match self
+            .keys
+            .lookup((self.keymap)(&ctx.config.current.component_keys), key_event)
+        {
+            Lookup::Actions(actions) => actions,
+            Lookup::Pending => return EventResult::Consumed(None),
+            Lookup::Unbound => return self.prompt_handle_event(event, ctx),
         };
 
-        match key_event {
-            shift!(Tab) | key!(Up) | ctrl!('p') => {
-                self.move_by(1, Direction::Backward);
-            }
-            key!(Tab) | key!(Down) | ctrl!('n') => {
-                self.move_by(1, Direction::Forward);
-            }
-            key!(PageDown) | ctrl!('d') => {
-                self.page_down();
-            }
-            key!(PageUp) | ctrl!('u') => {
-                self.page_up();
-            }
-            key!(Home) => {
-                self.to_start();
-            }
-            key!(End) => {
-                self.to_end();
-            }
-            key!(Esc) | ctrl!('c') => return close_fn(self),
-            ctrl!('q') => {
-                // Pickers can provide explicit quicklist entries when they have
-                // more precise jump data. Everything else falls back to preview
-                // locations, which are still usually just path + line span.
-                let entries = self.quicklist_entries(ctx.editor);
-                let count = entries.len();
-                ctx.editor.replace_quicklist(entries);
-                if count == 0 {
-                    ctx.editor
-                        .set_status("No quicklist entries available for this picker");
-                } else {
-                    ctx.editor
-                        .set_status(format!("Quicklist populated with {count} entries"));
-                }
-            }
-            alt!(Enter) => {
-                if let Some(option) = self.selection() {
-                    let result = (self.callback_fn)(ctx, option, self.default_action);
-                    self.apply_callback_result(result, ctx.editor);
-                }
-            }
-            key!(Enter) => {
-                // If the prompt has a history completion and is empty, use enter to accept
-                // that completion
-                if let Some(completion) = self
-                    .prompt
-                    .first_history_completion(ctx.editor)
-                    .filter(|_| self.prompt.line().is_empty())
-                {
-                    // The percent character is used by the query language and needs to be
-                    // escaped with a backslash.
-                    let completion = if completion.contains('%') {
-                        completion.replace('%', "\\%")
-                    } else {
-                        completion.into_owned()
-                    };
-                    self.prompt.set_line(completion, ctx.editor);
-
-                    // Inserting from the history register is a paste.
-                    self.handle_prompt_change(true);
-                } else {
-                    let callback_result = self
-                        .selection()
-                        .map_or(PickerCallbackResult::Close, |option| {
-                            (self.callback_fn)(ctx, option, self.default_action)
-                        });
-                    if let Some(history_register) = self.prompt.history_register()
-                        && let Err(err) = ctx
-                            .editor
-                            .registers
-                            .push(history_register, self.primary_query().to_string())
-                    {
-                        ctx.editor.set_error(|| err.to_string());
-                    }
-                    if self.apply_callback_result(callback_result, ctx.editor) {
-                        return close_fn(self);
-                    }
-                }
-            }
-            ctrl!('s') => {
-                let callback_result = self
-                    .selection()
-                    .map_or(PickerCallbackResult::Close, |option| {
-                        (self.callback_fn)(ctx, option, Action::HorizontalSplit)
-                    });
-                if self.apply_callback_result(callback_result, ctx.editor) {
-                    return close_fn(self);
-                }
-            }
-            ctrl!('v') => {
-                let callback_result = self
-                    .selection()
-                    .map_or(PickerCallbackResult::Close, |option| {
-                        (self.callback_fn)(ctx, option, Action::VerticalSplit)
-                    });
-                if self.apply_callback_result(callback_result, ctx.editor) {
-                    return close_fn(self);
-                }
-            }
-            ctrl!('t') => {
-                self.toggle_preview();
-            }
-            _ => {
-                self.prompt_handle_event(event, ctx);
-            }
-        }
-
-        EventResult::Consumed(None)
+        self.execute_actions(actions, ctx)
     }
 
     fn owns_cursor(&self) -> bool {
@@ -1607,13 +1679,23 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
     }
 }
 
-pub(super) enum PickerCallbackResult<T, D> {
+pub(crate) enum PickerCallbackResult<T, D> {
     Close,
     KeepOpen,
-    Replace { options: Vec<T>, editor_data: D },
+    Replace {
+        options: Vec<T>,
+        editor_data: D,
+    },
+    /// Preserve the query and restore the nearest row after matching finishes.
+    Refresh {
+        options: Vec<T>,
+        editor_data: D,
+    },
 }
 
 type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D>>;
+type PickerItemCallback<T, D> =
+    Box<dyn Fn(&mut Context, &T, PickerItemAction) -> PickerCallbackResult<T, D>>;
 
 #[cfg(test)]
 mod tests {
@@ -1665,5 +1747,99 @@ mod tests {
         ];
 
         assert_eq!(visible_column_widths(&columns), [Constraint::Length(4)]);
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn refresh_preserves_cursor_and_blocks_acceptance_until_matching_finishes(
+    ) -> anyhow::Result<()> {
+        use super::*;
+        use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+        use std::{cell::RefCell, rc::Rc, time::Duration};
+
+        let mut config = AppConfig::default();
+        config.editor.file_watcher.enable = false;
+        config.editor.file_watcher.watch_vcs = false;
+        let syntax = editor_core::syntax::Loader::new(
+            editor_core::syntax::config::Configuration {
+                language: vec![],
+                language_server: Default::default(),
+            },
+            Default::default(),
+        )?;
+        let mut app = Application::new(
+            Default::default(),
+            config.clone(),
+            syntax,
+            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        )?;
+        let mut jobs = Jobs::new();
+        let updates = tokio::sync::mpsc::unbounded_channel().0;
+        let mut cx = Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut app.editor,
+            jobs: &mut jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: false,
+        };
+        let accepted = Rc::new(RefCell::new(Vec::new()));
+        let recorded = accepted.clone();
+        let mut picker = Picker::new_with_callback_result(
+            [Column::new("name", |item: &u8, _: &()| {
+                item.to_string().into()
+            })],
+            0,
+            [1, 2, 3],
+            (),
+            move |_, item, _| {
+                recorded.borrow_mut().push(*item);
+                PickerCallbackResult::Refresh {
+                    options: vec![1, 2],
+                    editor_data: (),
+                }
+            },
+        )
+        .with_initial_cursor(2);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while picker.matcher.tick(10).running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        let accept = Event::Key("ret".parse().unwrap());
+        assert!(matches!(
+            picker.handle_event(&accept, &mut cx),
+            EventResult::Consumed(None)
+        ));
+        assert!(matches!(
+            picker.handle_event(&accept, &mut cx),
+            EventResult::Consumed(None)
+        ));
+        assert_eq!(*accepted.borrow(), [3]);
+        assert_eq!(picker.cursor, 2);
+        let area = Rect::new(0, 0, 80, 24);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while picker.refreshing {
+                picker.render(area, &mut Surface::empty(area), &mut cx);
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        assert_eq!(picker.cursor, 1);
+        assert!(matches!(
+            picker.handle_event(&accept, &mut cx),
+            EventResult::Consumed(None)
+        ));
+        assert_eq!(*accepted.borrow(), [3, 2]);
+        assert!(matches!(
+            picker.handle_event(&Event::Key("esc".parse().unwrap()), &mut cx),
+            EventResult::Consumed(Some(_))
+        ));
+        assert!(app.close().await.is_empty());
+        Ok(())
     }
 }

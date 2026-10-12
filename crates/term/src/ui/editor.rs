@@ -1918,14 +1918,10 @@ impl Component for EditorView {
                                             consumed = true;
                                             Some(callback)
                                         }
-                                        _ => {
-                                            match completion
-                                                .handle_event(&Event::Key(key!(Enter)), &mut cx)
-                                            {
-                                                EventResult::Consumed(callback) => Some(callback),
-                                                _ => None,
-                                            }
-                                        }
+                                        _ => match completion.accept(&mut cx) {
+                                            EventResult::Consumed(callback) => Some(callback),
+                                            _ => None,
+                                        },
                                     }
                                 };
 

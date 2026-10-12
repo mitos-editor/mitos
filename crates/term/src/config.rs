@@ -1,5 +1,9 @@
 use crate::keymap;
-use crate::keymap::{merge_keys, KeyTrie};
+use crate::keymap::component::{
+    ComponentKeymaps, MenuAction, PageAction, PickerAction, PickerItemAction, PopupAction,
+    PromptAction,
+};
+use crate::keymap::KeyTrie;
 use loader::merge_toml_values;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -8,7 +12,7 @@ use std::fs;
 use std::io::Error as IOError;
 use tokio::sync::mpsc::UnboundedSender;
 use toml::de::Error as TomlError;
-use ui_core::terminal::KittyKeyboardProtocolConfig;
+use ui_core::{keymap::Keymap, terminal::KittyKeyboardProtocolConfig};
 use view::custom_commands::{CustomCommand, CustomCommands};
 use view::{document::Mode, theme};
 
@@ -16,6 +20,7 @@ use view::{document::Mode, theme};
 pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
+    pub component_keys: ComponentKeymaps,
     pub editor: view::config::Config,
     pub terminal: TerminalConfig,
 }
@@ -96,11 +101,89 @@ pub struct Context<'a> {
     pub updates: &'a UnboundedSender<ConfigEvent>,
 }
 
+/// The buffer picker accepts shared actions and its own item actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BufferPickerAction(PickerAction);
+
+impl<'de> Deserialize<'de> for BufferPickerAction {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::IntoDeserializer;
+        let action = String::deserialize(deserializer)?;
+        let action = match action.as_str() {
+            "close_buffer" => PickerAction::Item(PickerItemAction::CloseBuffer),
+            action => PickerAction::deserialize(action.into_deserializer())?,
+        };
+        Ok(Self(action))
+    }
+}
+
+/// User-facing `[keys]` table keeps editor and component schemas separate.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct Keys {
+    normal: Option<keymap::KeyTrieNode>,
+    insert: Option<keymap::KeyTrieNode>,
+    select: Option<keymap::KeyTrieNode>,
+    prompt: Keymap<PromptAction>,
+    picker: Keymap<PickerAction>,
+    buffer_picker: Keymap<BufferPickerAction>,
+    menu: Keymap<MenuAction>,
+    popup: Keymap<PopupAction>,
+    hover: Keymap<PageAction>,
+    signature_help: Keymap<PageAction>,
+}
+
+impl Keys {
+    fn apply(
+        self,
+        editor: &mut HashMap<Mode, KeyTrie>,
+        components: &mut ComponentKeymaps,
+    ) -> Keymap<PickerAction> {
+        for (mode, keys) in [
+            (Mode::Normal, self.normal),
+            (Mode::Insert, self.insert),
+            (Mode::Select, self.select),
+        ] {
+            if let Some(keys) = keys {
+                editor
+                    .get_mut(&mode)
+                    .unwrap()
+                    .node_mut()
+                    .unwrap()
+                    .merge(keys);
+            }
+        }
+        components.prompt.merge(self.prompt);
+        components.picker.merge(self.picker);
+        components.menu.merge(self.menu);
+        components.popup.merge(self.popup);
+        components.hover.merge(self.hover);
+        components.signature_help.merge(self.signature_help);
+        self.buffer_picker.map_actions(|action| action.0)
+    }
+}
+
+fn resolve_keymaps(
+    configured: impl IntoIterator<Item = Keys>,
+) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
+    let mut editor = keymap::default();
+    let mut components = ComponentKeymaps::default();
+    let mut buffer_overrides = Keymap::default();
+    for keys in configured {
+        buffer_overrides.merge(keys.apply(&mut editor, &mut components));
+    }
+    // Resolve inheritance after both configuration layers: buffer-specific
+    // bindings take priority even over workspace changes to shared bindings.
+    components.buffer_picker = components.picker.clone();
+    components.buffer_picker.merge(buffer_overrides);
+    (editor, components)
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRaw {
     pub theme: Option<theme::Config>,
-    pub keys: Option<HashMap<Mode, KeyTrie>>,
+    pub keys: Option<Keys>,
     pub editor: Option<toml::Value>,
     commands: Option<Commands>,
 }
@@ -131,6 +214,7 @@ impl Default for Config {
         Config {
             theme: None,
             keys: keymap::default(),
+            component_keys: ComponentKeymaps::default(),
             editor: EditorSettings::default().editor,
             terminal: TerminalConfig::default(),
         }
@@ -176,13 +260,8 @@ impl Config {
             local.and_then(|file| toml::from_str(&file).map_err(ConfigLoadError::BadConfig));
         let res = match (global_config, local_config) {
             (Ok(mut global), Ok(local)) => {
-                let mut keys = keymap::default();
-                if let Some(global_keys) = global.keys {
-                    merge_keys(&mut keys, global_keys)
-                }
-                if let Some(local_keys) = local.keys {
-                    merge_keys(&mut keys, local_keys)
-                }
+                let (keys, component_keys) =
+                    resolve_keymaps(global.keys.into_iter().chain(local.keys));
 
                 let mut settings: EditorSettings = match (global.editor, local.editor) {
                     (None, None) => EditorSettings::default(),
@@ -208,6 +287,7 @@ impl Config {
                 Config {
                     theme: local.theme.or(global.theme),
                     keys,
+                    component_keys,
                     editor: settings.editor,
                     terminal: settings.terminal,
                 }
@@ -218,10 +298,7 @@ impl Config {
                 return Err(ConfigLoadError::BadConfig(err))
             }
             (Ok(config), Err(_)) | (Err(_), Ok(config)) => {
-                let mut keys = keymap::default();
-                if let Some(keymap) = config.keys {
-                    merge_keys(&mut keys, keymap);
-                }
+                let (keys, component_keys) = resolve_keymaps(config.keys);
                 let mut settings: EditorSettings = config.editor.map_or_else(
                     || Ok(EditorSettings::default()),
                     |val| val.try_into().map_err(ConfigLoadError::BadConfig),
@@ -233,6 +310,7 @@ impl Config {
                 Config {
                     theme: config.theme,
                     keys,
+                    component_keys,
                     editor: settings.editor,
                     terminal: settings.terminal,
                 }
@@ -282,6 +360,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keymap::merge_keys;
 
     impl Config {
         fn load_test(config: &str) -> Config {
@@ -340,6 +419,151 @@ mod tests {
         // From the Default trait
         let default_keys = Config::default().keys;
         assert_eq!(default_keys, keymap::default());
+    }
+
+    #[test]
+    fn component_keys_merge_defaults_global_and_workspace_recursively() {
+        use crate::keymap::component::PickerAction;
+        use ui_core::keymap::{KeymapState, Lookup};
+
+        let global =
+            "[keys.picker]\nC-j = 'move_down'\n[ keys.picker.g ]\nj = 'move_down'\nk = 'move_up'"
+                .to_owned();
+        let local = "[keys.picker]\nC-j = 'move_up'\nC-n = 'unbound'\n[ keys.picker.g ]\nj = ['move_start', 'move_down']".to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        let mut state = KeymapState::default();
+        let keys = &config.component_keys.picker;
+        let mut lookup = |key: &str| state.lookup(keys, key.parse().unwrap());
+        assert_eq!(lookup("C-j"), Lookup::Actions(&[PickerAction::MoveUp]));
+        assert_eq!(lookup("C-n"), Lookup::Unbound);
+        assert_eq!(lookup("tab"), Lookup::Actions(&[PickerAction::MoveDown]));
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(
+            lookup("j"),
+            Lookup::Actions(&[PickerAction::MoveStart, PickerAction::MoveDown])
+        );
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(lookup("k"), Lookup::Actions(&[PickerAction::MoveUp]));
+        assert_eq!(config.keys, keymap::default());
+        assert_eq!(
+            Config::load_test("").component_keys,
+            ComponentKeymaps::default()
+        );
+    }
+
+    #[test]
+    fn workspace_keymap_replacements_do_not_restore_removed_defaults() {
+        use crate::keymap::component::PickerAction;
+        use ui_core::keymap::{KeymapState, Lookup};
+
+        let global =
+            "[keys.normal]\ng = 'no_op'\n[keys.picker]\ntab = { j = 'move_down', k = 'move_up' }"
+                .to_owned();
+        let local =
+            "[keys.normal]\ng = { x = 'move_char_left' }\n[keys.picker]\ntab = 'no_op'".to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        // Replacing a prefix, then restoring it, must not resurrect its defaults.
+        let keymap::KeyTrie::Node(prefix) = &config.keys[&Mode::Normal].node().unwrap()
+            [&"g".parse::<ui_core::input::KeyEvent>().unwrap()]
+        else {
+            panic!("expected the workspace prefix");
+        };
+        assert_eq!(prefix.len(), 1);
+        assert!(prefix.contains_key(&"x".parse::<ui_core::input::KeyEvent>().unwrap()));
+        let mut state = KeymapState::default();
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "tab".parse().unwrap()),
+            Lookup::Actions(&[])
+        );
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "j".parse().unwrap()),
+            Lookup::Unbound
+        );
+        assert_eq!(
+            state.lookup(
+                &config.component_keys.buffer_picker,
+                "down".parse().unwrap()
+            ),
+            Lookup::Actions(&[PickerAction::MoveDown])
+        );
+    }
+
+    #[test]
+    fn component_keys_reject_invalid_actions_shapes_and_contexts() {
+        for config in [
+            "[keys.unknown]\nj = 'move_down'",
+            "[keys.picker]\nj = 'scroll_down'",
+            "[keys.picker]\nC-x = 'close_buffer'",
+            "[keys.menu]\nC-x = 'close_buffer'",
+            "[keys.buffer-picker]\nC-x = 'scroll_down'",
+            "[keys.prompt]\nj = 'move_down'",
+            "[keys.menu]\nj = ':write'",
+            "[keys.popup]\nj = '@abc'",
+            "[keys.hover]\nj = 'missing_action'",
+            "[keys.signature-help]\nj = 1",
+            "[keys.picker]\nj = ['move_down', 'unbound']",
+            "[keys.picker]\nnot-a-key = 'move_down'",
+            "[keys]\nnormal = 'no_op'",
+            // Both notations normalize to the same key event.
+            "[keys.picker]\nC-S-a = 'move_down'\nS-C-a = 'move_up'",
+        ] {
+            assert!(Config::load_test_result(config).is_err(), "{config}");
+        }
+    }
+
+    #[test]
+    fn buffer_picker_keys_inherit_shared_bindings_with_specific_overrides() {
+        use crate::keymap::component::{PickerAction as P, PickerItemAction};
+        use ui_core::keymap::{KeymapState, Lookup};
+
+        let global = r#"
+            [keys.picker]
+            C-j = 'move_down'
+            g = { j = 'move_up' }
+            [keys.buffer-picker]
+            C-j = 'move_up'
+            C-x = ['move_down', 'close_buffer']
+            g = { x = 'close_buffer' }
+        "#
+        .to_owned();
+        let local = r#"
+            [keys.picker]
+            C-j = 'move_start'
+            g = { j = 'move_end' }
+            [keys.buffer-picker]
+            C-n = 'unbound'
+            C-p = 'no_op'
+        "#
+        .to_owned();
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        let mut state = KeymapState::default();
+        let keys = &config.component_keys.buffer_picker;
+        let mut lookup = |key: &str| state.lookup(keys, key.parse().unwrap());
+        assert_eq!(lookup("C-j"), Lookup::Actions(&[P::MoveUp]));
+        assert_eq!(
+            lookup("C-x"),
+            Lookup::Actions(&[P::MoveDown, P::Item(PickerItemAction::CloseBuffer)])
+        );
+        assert_eq!(lookup("C-n"), Lookup::Unbound);
+        assert_eq!(lookup("C-p"), Lookup::Actions(&[]));
+        assert_eq!(lookup("tab"), Lookup::Actions(&[P::MoveDown]));
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(lookup("j"), Lookup::Actions(&[P::MoveEnd]));
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(
+            lookup("x"),
+            Lookup::Actions(&[P::Item(PickerItemAction::CloseBuffer)])
+        );
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "C-j".parse().unwrap()),
+            Lookup::Actions(&[P::MoveStart])
+        );
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
+            Lookup::Unbound
+        );
+        let defaults = Config::default().component_keys;
+        assert_eq!(defaults.buffer_picker, defaults.picker);
     }
 
     #[test]

@@ -1,8 +1,10 @@
+use crate::keymap::component::MenuAction;
 use crate::{
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
-    ctrl, key, shift,
+    key, shift,
 };
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Table};
+use ui_core::keymap::{KeymapState, Lookup};
 
 pub use tui::widgets::{Cell, Row};
 
@@ -18,7 +20,14 @@ pub trait Item: Sync + Send + 'static {
 
 pub type MenuCallback<T> = Box<dyn Fn(&mut Editor, Option<&T>, MenuEvent)>;
 
+fn close_callback() -> Option<Callback> {
+    Some(Box::new(|compositor: &mut Compositor, _| {
+        compositor.pop();
+    }))
+}
+
 pub struct Menu<T: Item> {
+    keys: KeymapState,
     options: Vec<T>,
     editor_data: T::Data,
 
@@ -54,6 +63,7 @@ impl<T: Item> Menu<T> {
             editor_data,
             matches,
             cursor: None,
+            keys: KeymapState::default(),
             widths: Vec::new(),
             callback_fn: Box::new(callback_fn),
             scroll: 0,
@@ -64,7 +74,32 @@ impl<T: Item> Menu<T> {
         }
     }
 
+    /// Execute an action directly when the caller already knows the intent.
+    /// Internal acceptance must not depend on the user's Enter binding.
+    pub(crate) fn execute_action(&mut self, action: MenuAction, cx: &mut Context) -> EventResult {
+        match action {
+            MenuAction::Cancel => {
+                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
+                return EventResult::Consumed(close_callback());
+            }
+            MenuAction::Accept => {
+                if let Some(selection) = self.selection() {
+                    (self.callback_fn)(cx.editor, Some(selection), MenuEvent::Validate);
+                    return EventResult::Consumed(close_callback());
+                }
+                return EventResult::Ignored(close_callback());
+            }
+            MenuAction::MoveUp => self.move_up(),
+            MenuAction::MoveDown => self.move_down(),
+            MenuAction::PageUp => self.move_half_page_up(),
+            MenuAction::PageDown => self.move_half_page_down(),
+        }
+        (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
+        EventResult::Consumed(None)
+    }
+
     pub fn reset_cursor(&mut self) {
+        self.keys.clear();
         self.cursor = None;
         self.scroll = 0;
         self.recalculate = true;
@@ -89,6 +124,7 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn clear(&mut self) {
+        self.keys.clear();
         self.matches.clear();
 
         // reset cursor position
@@ -97,6 +133,9 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn move_up(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
         let len = self.matches.len();
         let max_index = len.saturating_sub(1);
         let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
@@ -105,6 +144,9 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn move_half_page_up(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
         let len = self.matches.len();
         let max_index = len.saturating_sub((self.size.1 as usize / 2).max(1));
         let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
@@ -113,6 +155,9 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn move_down(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
         let len = self.matches.len();
         let pos = self.cursor.map_or(0, |i| i + 1) % len;
         self.cursor = Some(pos);
@@ -120,6 +165,9 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn move_half_page_down(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
         let len = self.matches.len();
         let pos = self
             .cursor
@@ -232,23 +280,44 @@ impl<T: Item + PartialEq> Menu<T> {
 use super::PromptEvent as MenuEvent;
 
 impl<T: Item + 'static> Component for Menu<T> {
+    fn has_pending_keys(&self) -> bool {
+        self.keys.is_pending()
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         let event = match event {
             Event::Key(event) => *event,
             // Menu is a modal and should consume mouse events so clicks don't fall
             // through to the editor underneath
             Event::Mouse(_) => return EventResult::Consumed(None),
+            Event::Paste(_) => {
+                self.keys.clear();
+                return EventResult::Ignored(None);
+            }
             _ => return EventResult::Ignored(None),
         };
 
-        let close_fn: Option<Callback> = Some(Box::new(|compositor: &mut Compositor, _| {
-            // remove the layer
-            compositor.pop();
-        }));
+        let pending = self.keys.is_pending();
+        let actions = match self
+            .keys
+            .lookup(&cx.config.current.component_keys.menu, event)
+        {
+            Lookup::Actions(actions) => actions,
+            Lookup::Pending => return EventResult::Consumed(None),
+            Lookup::Unbound => {
+                if self.auto_close {
+                    (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
+                    return EventResult::Ignored(close_callback());
+                }
+                return EventResult::Ignored(None);
+            }
+        };
 
-        // Ignore tab key when supertab is turned on in order not to interfere
-        // with it. (Is there a better way to do this?)
-        if (event == key!(Tab) || event == shift!(Tab))
+        // Smart tab supersedes the default tab navigation, but explicit actions
+        // such as accept or no_op still belong to the menu.
+        if !pending
+            && (event == key!(Tab) || event == shift!(Tab))
+            && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
             && cx.editor.config().auto_completion
             && matches!(
                 cx.editor.config().smart_tab,
@@ -261,67 +330,13 @@ impl<T: Item + 'static> Component for Menu<T> {
             return EventResult::Ignored(None);
         }
 
-        match event {
-            // esc or ctrl-c aborts the completion and closes the menu
-            key!(Esc) | ctrl!('c') => {
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
-                return EventResult::Consumed(close_fn);
+        for &action in actions {
+            match self.execute_action(action, cx) {
+                EventResult::Consumed(None) => (),
+                result => return result,
             }
-            // arrow up/ctrl-p/shift-tab prev completion choice (including updating the doc)
-            shift!(Tab) | key!(Up) | ctrl!('p') => {
-                self.move_up();
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
-                return EventResult::Consumed(None);
-            }
-            key!(Tab) | key!(Down) | ctrl!('n') => {
-                // arrow down/ctrl-n/tab advances completion choice (including updating the doc)
-                self.move_down();
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
-                return EventResult::Consumed(None);
-            }
-            key!(PageUp) | ctrl!('u') => {
-                // page up moves back in the completion choice (including updating the doc)
-                self.move_half_page_up();
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
-                return EventResult::Consumed(None);
-            }
-            key!(PageDown) | ctrl!('d') => {
-                // page down advances completion choice (including updating the doc)
-                self.move_half_page_down();
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
-                return EventResult::Consumed(None);
-            }
-            key!(Enter) => {
-                if let Some(selection) = self.selection() {
-                    (self.callback_fn)(cx.editor, Some(selection), MenuEvent::Validate);
-                    return EventResult::Consumed(close_fn);
-                } else {
-                    return EventResult::Ignored(close_fn);
-                }
-            }
-            // KeyEvent {
-            //     code: KeyCode::Char(c),
-            //     modifiers: KeyModifiers::NONE,
-            // } => {
-            //     self.insert_char(c);
-            //     (self.callback_fn)(cx.editor, &self.line, MenuEvent::Update);
-            // }
-
-            // / -> edit_filter?
-            //
-            // enter confirms the match and closes the menu
-            // typing filters the menu
-            // if we run out of options the menu closes itself
-            _ if self.auto_close => {
-                (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
-                return EventResult::Ignored(close_fn);
-            }
-            _ => (),
         }
-        // for some events, we want to process them but send ignore, specifically all input except
-        // tab/enter/ctrl-k or whatever will confirm the selection/ ctrl-n/ctrl-p for scroll.
-        // EventResult::Consumed(None)
-        EventResult::Ignored(None)
+        EventResult::Consumed(None)
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {

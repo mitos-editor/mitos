@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ui_core::keymap::{KeymapState, Lookup};
 
 use arc_swap::ArcSwap;
 use editor_core::syntax::{self, OverlayHighlights};
@@ -11,7 +12,7 @@ use view::graphics::Rect;
 
 use crate::compositor::{Component, Compositor, Context, EventResult};
 
-use crate::alt;
+use crate::keymap::component::PageAction;
 use crate::ui::{panel, Markdown};
 
 use crate::ui::Popup;
@@ -24,6 +25,7 @@ pub struct Signature {
 }
 
 pub struct SignatureHelp {
+    keys: KeymapState,
     language: String,
     config_loader: Arc<ArcSwap<syntax::Loader>>,
     active_signature: usize,
@@ -43,6 +45,7 @@ impl SignatureHelp {
     ) -> Self {
         Self {
             language,
+            keys: KeymapState::default(),
             config_loader,
             active_signature,
             lsp_signature,
@@ -68,29 +71,42 @@ impl SignatureHelp {
 }
 
 impl Component for SignatureHelp {
-    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+    fn has_pending_keys(&self) -> bool {
+        self.keys.is_pending()
+    }
+
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         let Event::Key(event) = event else {
+            if matches!(event, Event::Paste(_)) {
+                self.keys.clear();
+            }
             return EventResult::Ignored(None);
         };
-
-        if self.signatures.len() <= 1 {
-            return EventResult::Ignored(None);
-        }
-
-        match event {
-            alt!('p') => {
-                self.active_signature = self
-                    .active_signature
-                    .checked_sub(1)
-                    .unwrap_or(self.signatures.len() - 1);
-                EventResult::Consumed(None)
+        let actions = match self
+            .keys
+            .lookup(&cx.config.current.component_keys.signature_help, *event)
+        {
+            Lookup::Actions(actions) => actions,
+            Lookup::Pending => return EventResult::Consumed(None),
+            Lookup::Unbound => return EventResult::Ignored(None),
+        };
+        for &action in actions {
+            if self.signatures.len() <= 1 {
+                continue;
             }
-            alt!('n') => {
-                self.active_signature = (self.active_signature + 1) % self.signatures.len();
-                EventResult::Consumed(None)
+            match action {
+                PageAction::Previous => {
+                    self.active_signature = self
+                        .active_signature
+                        .checked_sub(1)
+                        .unwrap_or(self.signatures.len() - 1);
+                }
+                PageAction::Next => {
+                    self.active_signature = (self.active_signature + 1) % self.signatures.len();
+                }
             }
-            _ => EventResult::Ignored(None),
         }
+        EventResult::Consumed(None)
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {

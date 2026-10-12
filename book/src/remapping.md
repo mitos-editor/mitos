@@ -66,6 +66,98 @@ c = ":run-shell-command cargo build"
 t = ":run-shell-command cargo test"
 ```
 
+## Component keys
+
+Prompts, pickers, menus, and popups have their own action maps. Hover pages and
+signature overloads can also be remapped. Each table accepts the actions listed
+below; action names are local to that component.
+
+```toml
+[keys.picker]
+C-j = "move_down"
+C-k = "move_up"
+C-space = "accept"
+C-n = "unbound" # Release this key to the picker's prompt.
+
+[keys.buffer-picker]
+C-x = "close_buffer" # Close the selected buffer and keep the picker open.
+
+[keys.prompt]
+C-j = "accept"
+C-x = { h = "move_start", l = "move_end" }
+A-backspace = ["delete_word_backward", "delete_word_backward"]
+
+[keys.menu]
+C-j = "move_down"
+C-k = "move_up"
+
+[keys.popup]
+C-j = "scroll_down"
+C-k = "scroll_up"
+
+[keys.signature-help]
+A-j = "next"
+A-k = "previous"
+
+[keys.hover]
+A-j = "next"
+A-k = "previous"
+```
+
+Bindings merge over the existing defaults. Trusted workspace configuration
+overrides global configuration, including individual keys in nested maps.
+`:config-reload` applies changes to open components as well.
+
+`no_op` consumes a key without performing an action. `unbound` removes its
+component action and lets the usual fallback handle the key: printable text in
+a prompt, the embedded prompt in a picker, or the next component for menus and
+popups. Nested content has priority over its container: completion menus use
+`keys.menu` before `keys.popup`. To release `C-d` from both layers to an editor
+binding, set `C-d = "unbound"` in both tables.
+
+Nested maps wait for another key. Escape or an invalid continuation cancels
+the sequence and consumes that key. Prefix state belongs to each component
+instance. Pasting into a prompt cancels its prefix and inserts the pasted text.
+Action lists run in order and stop when an action closes the component, starts
+register selection, or performs an item action. Editor commands and macros belong
+to the editor mode maps and cannot be used as component actions.
+
+Picker actions take priority over prompt actions. Prompt editing bindings apply
+to a picker's query when the picker leaves that key unbound; use picker actions
+to accept or cancel a picker. Smart Tab still supersedes default menu Tab
+navigation when enabled, while explicit `accept` or `no_op` bindings take effect.
+Insert-mode popups normally pass Escape through to the editor; Escape cancels
+pending component sequences first, and an explicit popup `no_op` binding consumes
+it. To remap Escape inside an insert-mode menu or page selector, also set
+`esc = "unbound"` in `keys.popup` so the container passes it to its content.
+
+| Table | Actions |
+| --- | --- |
+| `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
+| `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `populate_quicklist` |
+| `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
+| `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
+| `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
+| `keys.hover`, `keys.signature-help` | `previous`, `next` |
+
+All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
+paging move by half a page. Picker paging moves by a full page.
+
+`keys.buffer-picker` inherits `keys.picker` and accepts all shared picker actions
+plus `close_buffer`. Buffer-specific bindings override shared bindings, including
+individual keys in nested maps. A workspace override replaces a global binding
+within the same table; buffer-specific bindings take priority over shared bindings
+from either configuration file.
+
+`close_buffer` operates on the selected row. It waits for pending saves, refuses
+to discard unsaved changes, and reports errors while leaving the picker open.
+On success, it refreshes the buffer list, keeps the query, and selects the nearest
+remaining row. It also ends the current action sequence so subsequent actions
+cannot use a selection that is still being refreshed. The action is available
+only in `keys.buffer-picker`; it has no default binding.
+The picker accepts another row once the refreshed results are ready; query editing
+and cancellation remain available while the matcher runs.
+
 ## Special keys and modifiers
 
 Ctrl, Shift and Alt modifiers are encoded respectively with the prefixes `C-`, `S-` and `A-`.

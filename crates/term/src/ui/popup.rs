@@ -1,11 +1,13 @@
+use crate::keymap::component::PopupAction;
 use crate::{
     commands::Open,
     compositor::{Callback, Component, Context, Event, EventResult},
-    ctrl, key,
+    key,
     ui::panel,
 };
 use tui::buffer::BufferExt as _;
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Widget};
+use ui_core::keymap::{Binding, KeymapState, Lookup};
 
 use editor_core::Position;
 use ui_core::input::{MouseEvent, MouseEventKind};
@@ -32,6 +34,7 @@ enum PopupKind {
 // a width/height hint. maybe Popup(Box<Component>)
 
 pub struct Popup<T: Component> {
+    keys: KeymapState,
     contents: T,
     position: Option<Position>,
     area: Rect,
@@ -48,6 +51,7 @@ impl<T: Component> Popup<T> {
     pub fn new(id: &'static str, contents: T) -> Self {
         Self {
             contents,
+            keys: KeymapState::default(),
             position: None,
             position_bias: Open::Below,
             area: Rect::new(0, 0, 0, 0),
@@ -256,6 +260,10 @@ impl<T: Component> Popup<T> {
 }
 
 impl<T: Component> Component for Popup<T> {
+    fn has_pending_keys(&self) -> bool {
+        self.keys.is_pending() || self.contents.has_pending_keys()
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         let key = match event {
             Event::Key(event) => *event,
@@ -264,50 +272,58 @@ impl<T: Component> Component for Popup<T> {
                 // TODO: calculate inner area, call component's handle_event with that area
                 return EventResult::Ignored(None);
             }
+            Event::Paste(_) => {
+                self.keys.clear();
+                return self.contents.handle_event(event, cx);
+            }
             _ => return EventResult::Ignored(None),
         };
 
-        if key!(Esc) == key && self.ignore_escape_key {
+        if key!(Esc) == key
+            && self.ignore_escape_key
+            && !self.has_pending_keys()
+            && matches!(cx.config.current.component_keys.popup.0.get(&key), Some(Binding::Actions(actions)) if actions == &[PopupAction::Cancel])
+        {
             return EventResult::Ignored(None);
         }
 
-        let close_fn: Callback = Box::new(|compositor, _| {
-            // remove the layer
-            compositor.remove(self.id.as_ref());
+        let id = self.id;
+        let close_fn: Callback = Box::new(move |compositor, _| {
+            compositor.remove(id.as_ref());
         });
 
-        // Code completion handles arrows and page up/down itself,
-        // but code lens does not. First check whether content knows
-        // about the key event. When not, check the default keys.
-        match self.contents.handle_event(event, cx) {
-            EventResult::Ignored(fn_once) => {
-                match key {
-                    // esc or ctrl-c aborts the completion and closes the menu
-                    key!(Esc) | ctrl!('c') => {
-                        let _ = self.contents.handle_event(event, cx);
-                        EventResult::Consumed(Some(close_fn))
-                    }
-                    key!(PageDown) | ctrl!('d') => {
-                        self.scroll_half_page_down();
-                        EventResult::Consumed(None)
-                    }
-                    key!(PageUp) | ctrl!('u') => {
-                        self.scroll_half_page_up();
-                        EventResult::Consumed(None)
-                    }
-                    _ => {
-                        // for some events, we want to process them but send ignore, specifically all input except
-                        // tab/enter/ctrl-k or whatever will confirm the selection/ ctrl-n/ctrl-p for scroll.
-
-                        if self.auto_close {
-                            EventResult::Ignored(Some(close_fn))
-                        } else {
-                            EventResult::Ignored(fn_once)
-                        }
+        // A pending popup prefix owns its next key. Otherwise, nested menus
+        // and page selectors have priority over their container's bindings.
+        let child_callback = if self.keys.is_pending() {
+            None
+        } else {
+            match self.contents.handle_event(event, cx) {
+                EventResult::Consumed(callback) => return EventResult::Consumed(callback),
+                EventResult::Ignored(callback) => callback,
+            }
+        };
+        match self
+            .keys
+            .lookup(&cx.config.current.component_keys.popup, key)
+        {
+            Lookup::Pending => EventResult::Consumed(None),
+            Lookup::Actions(actions) => {
+                for &action in actions {
+                    match action {
+                        PopupAction::Cancel => return EventResult::Consumed(Some(close_fn)),
+                        PopupAction::ScrollDown => self.scroll_half_page_down(),
+                        PopupAction::ScrollUp => self.scroll_half_page_up(),
                     }
                 }
+                EventResult::Consumed(None)
             }
-            ev => ev,
+            Lookup::Unbound => {
+                if self.auto_close {
+                    EventResult::Ignored(Some(close_fn))
+                } else {
+                    EventResult::Ignored(child_callback)
+                }
+            }
         }
     }
 

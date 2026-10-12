@@ -49,6 +49,10 @@ impl<T: Item> Component for Select<T> {
         true
     }
 
+    fn has_pending_keys(&self) -> bool {
+        self.options.has_pending_keys()
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         self.options.handle_event(event, cx)
     }

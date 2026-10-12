@@ -1,3 +1,4 @@
+pub mod component;
 pub mod default;
 pub mod macros;
 

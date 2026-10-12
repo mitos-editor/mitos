@@ -2,42 +2,73 @@
 
 use crate::{
     commands::{context::Context, picker::PathStyleConfig},
-    ui::{overlay::overlaid, Picker, PickerColumn},
+    keymap::component::PickerItemAction,
+    ui::{overlay::overlaid, picker::PickerCallbackResult, Picker, PickerColumn},
 };
 use std::{borrow::Cow, path::Path};
-use view::{Document, DocumentId};
+use view::{DocumentId, Editor};
+
+struct BufferMeta {
+    id: DocumentId,
+    path: Option<Cow<'static, Path>>,
+    is_modified: bool,
+    is_current: bool,
+    focused_at: std::time::Instant,
+}
+
+fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
+    let current = view!(editor).doc;
+    let mut items: Vec<_> = editor
+        .documents()
+        .map(|doc| BufferMeta {
+            id: doc.id(),
+            path: doc
+                .path()
+                .map(ToOwned::to_owned)
+                .map(stdx::path::get_relative_path),
+            is_modified: doc.is_modified(),
+            is_current: doc.id() == current,
+            focused_at: doc.focused_at,
+        })
+        .collect();
+    // MRU order is stable when an inactive buffer is closed.
+    items.sort_unstable_by_key(|item| std::cmp::Reverse(item.focused_at));
+    items
+}
+
+fn close_selected_buffer(
+    cx: &mut crate::compositor::Context,
+    meta: &BufferMeta,
+    action: PickerItemAction,
+) -> PickerCallbackResult<BufferMeta, PathStyleConfig> {
+    match action {
+        PickerItemAction::CloseBuffer => {
+            if let Err(err) = cx.block_try_flush_writes() {
+                cx.editor.set_error(|| err.to_string());
+                return PickerCallbackResult::KeepOpen;
+            }
+            match cx.editor.close_document(meta.id, false) {
+                Ok(()) | Err(view::editor::CloseError::DoesNotExist) => (),
+                Err(view::editor::CloseError::BufferModified(name)) => {
+                    cx.editor
+                        .set_error(|| format!("Buffer '{name}' has unsaved changes"));
+                    return PickerCallbackResult::KeepOpen;
+                }
+                Err(view::editor::CloseError::SaveError(err)) => {
+                    cx.editor.set_error(|| err.to_string());
+                    return PickerCallbackResult::KeepOpen;
+                }
+            }
+            PickerCallbackResult::Refresh {
+                options: buffer_items(cx.editor),
+                editor_data: PathStyleConfig::new(cx.editor),
+            }
+        }
+    }
+}
 
 pub(super) fn buffer_picker(cx: &mut Context) {
-    let current = view!(cx.editor).doc;
-
-    struct BufferMeta<'a> {
-        id: DocumentId,
-        path: Option<Cow<'a, Path>>,
-        is_modified: bool,
-        is_current: bool,
-        focused_at: std::time::Instant,
-    }
-
-    let new_meta = |doc: &Document| BufferMeta {
-        id: doc.id(),
-        path: doc
-            .path()
-            .map(ToOwned::to_owned)
-            .map(stdx::path::get_relative_path),
-        is_modified: doc.is_modified(),
-        is_current: doc.id() == current,
-        focused_at: doc.focused_at,
-    };
-
-    let mut items = cx
-        .editor
-        .documents
-        .values()
-        .map(new_meta)
-        .collect::<Vec<BufferMeta>>();
-
-    // mru
-    items.sort_unstable_by_key(|item| std::cmp::Reverse(item.focused_at));
+    let items = buffer_items(cx.editor);
 
     let columns = [
         PickerColumn::new("id", |meta: &BufferMeta, _| meta.id.to_string().into()),
@@ -78,6 +109,7 @@ pub(super) fn buffer_picker(cx: &mut Context) {
             cx.editor.switch(meta.id, action);
         },
     )
+    .with_item_actions(|maps| &maps.buffer_picker, close_selected_buffer)
     .with_initial_cursor(initial_cursor)
     .with_preview(|editor, meta| {
         let doc = &editor.documents.get(&meta.id)?;

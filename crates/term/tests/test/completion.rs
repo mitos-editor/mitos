@@ -38,6 +38,15 @@ impl Fixture {
     }
 
     fn uninitialized(dir: &Path, text: &str, names: &[&str]) -> anyhow::Result<Self> {
+        Self::uninitialized_with_config(dir, text, names, test_config())
+    }
+
+    fn uninitialized_with_config(
+        dir: &Path,
+        text: &str,
+        names: &[&str],
+        mut config: term::config::Config,
+    ) -> anyhow::Result<Self> {
         let gate = Gate::new(dir.join("initialize-ready"));
         gate.close()?;
         let response_gate = dir.join("alpha-ready");
@@ -55,7 +64,6 @@ impl Fixture {
             );
         }
         let loader = lsp::syntax_loader("completion-test", "completion-test", names, &servers);
-        let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.auto_completion = false;
         config.editor.path_completion = false;
@@ -591,5 +599,43 @@ async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyho
         assert!(!f.text().contains("apricot"));
         assert!(f.app.close().await.is_empty());
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn component_keymaps_completion_acceptance_does_not_synthesize_remapped_enter(
+) -> anyhow::Result<()> {
+    use term::config::{Config, ConfigLoadError};
+
+    let dir = tempfile::tempdir()?;
+    let mut config = test_config();
+    config.component_keys = Config::load(
+        Ok(&"[keys.menu]\nret = 'no_op'\nC-j = 'move_down'\nC-space = 'accept'".into()),
+        Err(ConfigLoadError::default()),
+    )
+    .unwrap()
+    .component_keys;
+    let mut f = Fixture::uninitialized_with_config(dir.path(), "😀 ap\n", &["alpha"], config)?;
+    f.initialize().await?;
+    f.show().await?;
+    f.key("<C-j>").await?;
+    assert_eq!(f.text(), "😀 apricot\n");
+    f.key("<ret>").await?;
+    assert_eq!(f.text(), "😀 apricot\n");
+    // A character passing through the menu accepts the preview before editing.
+    // Acceptance used to send a fake Enter, which is now disabled by this config.
+    f.key("x").await?;
+    assert_eq!(f.text(), "😀 apricotx\n");
+    assert!(!completion::is_active(&f.app.editor));
+    f.key("<esc>").await?;
+    f.key("u").await?;
+    assert_eq!(f.text(), "😀 ap\n");
+    f.key("i").await?;
+    f.show().await?;
+    f.key("<C-j>").await?;
+    f.key("<C-space>").await?;
+    assert_eq!(f.text(), "😀 apricot\n");
+    assert!(!completion::is_active(&f.app.editor));
+    assert!(f.app.close().await.is_empty());
     Ok(())
 }
