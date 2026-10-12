@@ -275,7 +275,7 @@ impl EditorView {
             return;
         }
         let inner = view.inner_area(doc);
-        let area = view.area;
+        let area = view.content_area(doc);
         let theme = &editor.theme;
         let config = editor.config();
         let loader = editor.syn_loader.load();
@@ -367,7 +367,7 @@ impl EditorView {
                 editor,
                 doc,
                 view,
-                view.area,
+                area,
                 theme,
                 is_focused & self.terminal_focused,
                 &mut decorations,
@@ -2019,8 +2019,7 @@ impl Component for EditorView {
             _ => false,
         };
 
-        // Keep one command line and one global status line at the bottom of the editor.
-        let layout = ApplicationLayout::new(area, use_bufferline);
+        let layout = ApplicationLayout::new(area, use_bufferline, config.statusline.global);
 
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(layout.editor);
@@ -2038,11 +2037,11 @@ impl Component for EditorView {
         });
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
-            if doc.is_binary() && !view.area.is_empty() {
+            let content = view.content_area(doc);
+            if doc.is_binary() && !content.is_empty() {
                 let style = cx.editor.theme.get("ui.text");
                 if let Some(picker) = cx.image_picker {
-                    let size =
-                        Size::new(view.area.width, view.area.height.saturating_sub(2).max(1));
+                    let size = Size::new(content.width, content.height.saturating_sub(2).max(1));
                     let image = self
                         .images
                         .entry(view.id)
@@ -2050,12 +2049,14 @@ impl Component for EditorView {
                     if !image.matches(doc, size) {
                         *image = ImageDocumentView::new(doc, picker.clone(), size);
                     }
-                    image.render(view.area, surface, style);
+                    image.render(content, surface, style);
                 } else {
-                    render_placeholder("<Binary file>", view.area, surface, style);
+                    render_placeholder("<Binary file>", content, surface, style);
                 }
             }
             self.render_view(cx, doc, view, area, surface, is_focused);
+            let mut context = statusline::RenderContext::new(cx.editor, doc, view, &self.spinners);
+            statusline::render(&mut context, view.statusline_area(doc), surface);
         }
 
         if layout.statusline.height > 0 {

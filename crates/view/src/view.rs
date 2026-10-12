@@ -207,14 +207,30 @@ impl View {
         self.docs_access_history.push(id);
     }
 
-    pub fn inner_area(&self, doc: &Document) -> Rect {
+    /// The view's content, excluding its statusline but including breadcrumbs and gutters.
+    pub fn content_area(&self, doc: &Document) -> Rect {
         self.area
+            .clip_bottom(u16::from(!doc.config.load().statusline.global))
+    }
+
+    pub fn statusline_area(&self, doc: &Document) -> Rect {
+        let content = self.content_area(doc);
+        Rect::new(
+            self.area.x,
+            content.bottom(),
+            self.area.width,
+            self.area.height - content.height,
+        )
+    }
+
+    pub fn inner_area(&self, doc: &Document) -> Rect {
+        self.content_area(doc)
             .clip_top(self.breadcrumb_offset(doc))
             .clip_left(self.gutter_offset(doc))
     }
 
     pub fn inner_height(&self, doc: &Document) -> usize {
-        self.area
+        self.content_area(doc)
             .clip_top(self.breadcrumb_offset(doc))
             .height
             .into()
@@ -771,10 +787,10 @@ mod tests {
                 40 + DEFAULT_GUTTER_OFFSET,
                 41,
                 40 - DEFAULT_GUTTER_OFFSET,
-                39,
+                38,
             )
         );
-        assert_eq!(view.inner_height(&doc), 39);
+        assert_eq!(view.inner_height(&doc), 38);
         assert_eq!(view.gutter_coords_at_screen_coords(&doc, 40, 40), None);
         assert_eq!(
             view.gutter_coords_at_screen_coords(&doc, 41, 40),
@@ -802,9 +818,67 @@ mod tests {
                 40 + DEFAULT_GUTTER_OFFSET,
                 40,
                 40 - DEFAULT_GUTTER_OFFSET,
-                40,
+                39,
             )
         );
+    }
+
+    #[tokio::test]
+    async fn statusline_reserves_content_and_rejects_mouse_input_until_made_global() {
+        let config = Arc::new(ArcSwap::from_pointee(Config::default()));
+        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        view.area = Rect::new(3, 5, 40, 3);
+        let mut doc = Document::from(
+            Rope::from_str("first\nsecond\nthird\n"),
+            None,
+            config.clone(),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+        );
+        doc.ensure_view_init(view.id);
+
+        assert_eq!(view.content_area(&doc), Rect::new(3, 5, 40, 2));
+        assert_eq!(view.statusline_area(&doc), Rect::new(3, 7, 40, 1));
+        assert_eq!(view.inner_height(&doc), 2);
+        assert_eq!(view.pos_at_screen_coords(&doc, 7, 10, true), None);
+        assert_eq!(view.gutter_coords_at_screen_coords(&doc, 7, 3), None);
+        assert_eq!(
+            view.screen_coords_at_pos(&doc, doc.text().slice(..), 13),
+            None
+        );
+
+        let mut updated = (**config.load()).clone();
+        updated.statusline.global = true;
+        config.store(Arc::new(updated));
+
+        assert_eq!(view.content_area(&doc), view.area);
+        assert!(view.statusline_area(&doc).is_empty());
+        assert_eq!(view.inner_height(&doc), 3);
+        assert_eq!(view.pos_at_screen_coords(&doc, 7, 10, true), Some(13));
+        assert_eq!(
+            view.gutter_coords_at_screen_coords(&doc, 7, 3),
+            Some(Position::new(2, 0))
+        );
+        assert_eq!(
+            view.screen_coords_at_pos(&doc, doc.text().slice(..), 13),
+            Some(Position::new(2, 0))
+        );
+
+        for global in [false, true] {
+            let mut updated = (**config.load()).clone();
+            updated.statusline.global = global;
+            config.store(Arc::new(updated));
+            for height in [0, 1] {
+                view.area.height = height;
+                assert_eq!(
+                    view.content_area(&doc).height,
+                    height.saturating_sub(u16::from(!global))
+                );
+                assert_eq!(
+                    view.statusline_area(&doc).height,
+                    u16::from(!global).min(height)
+                );
+            }
+        }
     }
 
     #[tokio::test]

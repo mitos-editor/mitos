@@ -126,7 +126,9 @@ For custom commands the contents of the yank/paste is communicated over stdin/st
 
 ### `[editor.statusline]` Section
 
-Allows configuring the statusline at the bottom of the editor.
+Allows configuring the statusline at the bottom of each view. Set `global = true`
+to show a single statusline at the bottom of the editor for the focused view.
+Use `:toggle statusline.global` to switch between the two layouts at runtime.
 
 The configuration distinguishes between two areas of the status line:
 
@@ -149,6 +151,7 @@ The `[editor.statusline]` key takes the following sub-keys:
 
 | Key           | Description | Default |
 | ---           | ---         | ---     |
+| `global`      | Show one statusline for the focused view instead of one per view | `false` |
 | `left`        | A list of elements aligned to the left of the statusline | `["mode", "spinner", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
 | `right`       | A list of elements aligned to the right of the statusline | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
 | `separator`   | The character used to separate elements in the statusline | `"│"` |

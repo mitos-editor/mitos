@@ -643,6 +643,8 @@ pub struct SearchConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct StatusLineConfig {
+    /// Show one statusline for the focused view instead of one per view.
+    pub global: bool,
     pub left: Vec<StatusLineElement>,
     pub right: Vec<StatusLineElement>,
     pub separator: String,
@@ -656,6 +658,7 @@ impl Default for StatusLineConfig {
         use StatusLineElement as E;
 
         Self {
+            global: false,
             left: vec![
                 E::Mode,
                 E::Spinner,

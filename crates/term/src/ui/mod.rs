@@ -35,6 +35,7 @@ pub use spinner::{ProgressSpinners, Spinner};
 use stdx::rope;
 pub use text::Text;
 use view::{
+    graphics::RectExt as _,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Editor, Theme,
@@ -175,8 +176,7 @@ pub fn raw_regex_prompt(
                                         move |_editor: &mut Editor, compositor: &mut Compositor| {
                                             let contents = Text::new(format!("{}", err));
                                             let size = compositor.size();
-                                            let editor_area =
-                                                layout::ApplicationLayout::new(size, false).editor;
+                                            let editor_area = size.clip_bottom(2);
                                             let popup = Popup::new("invalid-regex", contents)
                                                 .position(Some(editor_core::Position::new(
                                                     editor_area.bottom().saturating_sub(1) as usize,

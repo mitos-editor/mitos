@@ -44,6 +44,10 @@ impl<'a> RenderContext<'a> {
             parts: RenderBuffer::default(),
         }
     }
+
+    fn is_focused(&self) -> bool {
+        self.view.id == self.editor.tree.focus
+    }
 }
 
 #[derive(Default)]
@@ -53,7 +57,15 @@ pub struct RenderBuffer<'a> {
 }
 
 pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface) {
-    let base_style = context.editor.theme.get("ui.statusline");
+    if viewport.is_empty() {
+        return;
+    }
+
+    let base_style = context.editor.theme.get(if context.is_focused() {
+        "ui.statusline"
+    } else {
+        "ui.statusline.inactive"
+    });
 
     surface.set_style(viewport.with_height(1), base_style);
 
@@ -130,6 +142,10 @@ fn render_mode<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
+    if !context.is_focused() {
+        return;
+    }
+
     let config = context.editor.config();
     let modenames = &config.statusline.mode;
     let mode_str = match context.editor.mode() {

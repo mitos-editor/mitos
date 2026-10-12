@@ -1,8 +1,10 @@
 use tui::buffer::Buffer;
-use view::{graphics::Rect, Editor};
+use view::{
+    graphics::{Rect, RectExt as _},
+    Editor,
+};
 
 use crate::compositor::{Component, Context, Cursor, Event, EventResult};
-use crate::ui::layout::ApplicationLayout;
 
 pub const FULL_OVERLAID_MAX_WIDTH: u16 = 200;
 
@@ -24,7 +26,7 @@ pub fn overlaid<T>(content: T) -> Overlay<T> {
             } else {
                 90
             };
-            let content = ApplicationLayout::new(rect, false).editor;
+            let content = rect.clip_bottom(2);
             clip_rect_relative(content, percentage, percentage)
         }),
     }

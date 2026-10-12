@@ -171,8 +171,12 @@ they handle the primary selection where the platform has one.
 
 ### `[editor.statusline]`
 
+Each view has its own statusline by default. Set `global = true` to show a
+single statusline at the bottom of the editor for the focused view.
+
 | Key | Type | Default |
 | --- | --- | --- |
+| `global` | boolean | `false` |
 | `left` | array of element names | `["mode", "spinner", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
 | `right` | array of element names | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
