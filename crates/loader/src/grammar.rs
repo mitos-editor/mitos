@@ -591,7 +591,7 @@ fn build_tree_sitter_library(
     let compiler = config.get_compiler();
     let mut command = Command::new(compiler.path());
     command.current_dir(src_path);
-    for (key, value) in compiler.env() {
+    for (key, value) in compiler.get_envs() {
         command.env(key, value);
     }
 
@@ -611,7 +611,7 @@ fn build_tree_sitter_library(
             } else {
                 let mut cpp_command = Command::new(compiler.path());
                 cpp_command.current_dir(src_path);
-                for (key, value) in compiler.env() {
+                for (key, value) in compiler.get_envs() {
                     cpp_command.env(key, value);
                 }
                 cpp_command.args(compiler.args());
@@ -663,7 +663,7 @@ fn build_tree_sitter_library(
             } else {
                 let mut cpp_command = Command::new(compiler.path());
                 cpp_command.current_dir(src_path);
-                for (key, value) in compiler.env() {
+                for (key, value) in compiler.get_envs() {
                     cpp_command.env(key, value);
                 }
                 cpp_command.args(compiler.args());

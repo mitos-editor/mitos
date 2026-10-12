@@ -59,7 +59,6 @@ log.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 
-kstring.workspace = true
 arrayvec.workspace = true
 
 [target.'cfg(windows)'.dependencies]

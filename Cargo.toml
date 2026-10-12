@@ -82,7 +82,6 @@ bitflags = "2.12"
 foldhash = "0.2"
 hashbrown = "0.17"
 indexmap = "2.14"
-kstring = "2.0"
 slotmap = "1.1.1"
 smallvec = "1.15"
 smartstring = "1.0.1"
@@ -146,7 +145,7 @@ windows-sys = "0.61"
 gix = { version = "0.85.0", default-features = false }
 
 # Grammar build tooling
-cc = "1"
+cc = "1.7"
 sha2 = "0.11"
 threadpool = "1.0"
 
