@@ -3195,7 +3195,7 @@ language-servers = [ "bass" ]
 
 [[grammar]]
 name = "bass"
-source = { git = "https://github.com/vito/tree-sitter-bass", rev = "501133e260d768ed4e1fd7374912ed5c86d6fd90" }
+source = { git = "https://github.com/vito/tree-sitter-bass", rev = "28dc7059722be090d04cd751aed915b2fee2f89a" }
 
 [[language]]
 name = "wat"

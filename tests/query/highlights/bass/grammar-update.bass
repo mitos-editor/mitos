@@ -1,0 +1,6 @@
+(list true 12 ./file)
+;     ^ @constant.builtin.boolean
+(list true 12 ./file)
+;          ^ @constant.numeric.integer
+(list true 12 ./file)
+;             ^ @string.special.path

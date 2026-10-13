@@ -55,9 +55,9 @@
   },
   "bass": {
     "git": "https://github.com/vito/tree-sitter-bass",
-    "rev": "501133e260d768ed4e1fd7374912ed5c86d6fd90",
-    "url": "https://github.com/vito/tree-sitter-bass/archive/501133e260d768ed4e1fd7374912ed5c86d6fd90.tar.gz",
-    "hash": "sha256-9tVjuhTObBpOVqKYeGEXv1+4CzwgzLXUJCAwR23QvIg="
+    "rev": "28dc7059722be090d04cd751aed915b2fee2f89a",
+    "url": "https://github.com/vito/tree-sitter-bass/archive/28dc7059722be090d04cd751aed915b2fee2f89a.tar.gz",
+    "hash": "sha256-sj9bc3/YCbeJTJkKz7CdJSh1bc5ko511hCQUe4UvDjY="
   },
   "batch": {
     "git": "https://github.com/wharflab/tree-sitter-batch",
