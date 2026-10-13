@@ -1218,7 +1218,7 @@ formatter = { command = "nixfmt" }
 
 [[grammar]]
 name = "nix"
-source = { git = "https://github.com/numtide/tree-sitter-nix", rev = "70f34e95e30b7ebcc40815d4385d68576c4a15cd" }
+source = { git = "https://github.com/numtide/tree-sitter-nix", rev = "381ec8d119d9d24fd345174e2dc7b2e90f5d2b05" }
 
 [[language]]
 name = "ruby"

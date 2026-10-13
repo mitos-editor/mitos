@@ -69,10 +69,10 @@
 ; Attrset members -----------------------------------------------------
 
 (binding
-  attrpath: (attrpath (identifier)) @variable.other.member)
+  attrpath: (attrpath (identifier) @variable.other.member))
 
 (select_expression
-  attrpath: (attrpath (identifier)) @variable.other.member)
+  attrpath: (attrpath (identifier) @variable.other.member))
 
 (inherit attrs: (inherited_attrs attr: (identifier) @variable.other.member))
 (inherit_from attrs: (inherited_attrs attr: (identifier) @variable.other.member))

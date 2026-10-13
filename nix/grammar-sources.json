@@ -1045,9 +1045,9 @@
   },
   "nix": {
     "git": "https://github.com/numtide/tree-sitter-nix",
-    "rev": "70f34e95e30b7ebcc40815d4385d68576c4a15cd",
-    "url": "https://github.com/numtide/tree-sitter-nix/archive/70f34e95e30b7ebcc40815d4385d68576c4a15cd.tar.gz",
-    "hash": "sha256-494NIJXdsoulkp8r6NfXZzNBJIPOk73RTakI+intlf4="
+    "rev": "381ec8d119d9d24fd345174e2dc7b2e90f5d2b05",
+    "url": "https://github.com/numtide/tree-sitter-nix/archive/381ec8d119d9d24fd345174e2dc7b2e90f5d2b05.tar.gz",
+    "hash": "sha256-moQQTJw4vjuaegFINDDolGIC85tpl6EoL161c/JE71k="
   },
   "nu": {
     "git": "https://github.com/nushell/tree-sitter-nu",

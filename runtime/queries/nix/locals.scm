@@ -29,7 +29,8 @@
   (binding_set
     (binding
       attrpath: (attrpath
-        attr: (identifier) @local.definition.variable) .)))
+         .
+        attr: (identifier) @local.definition.variable .))))
 
 ; References
 
@@ -44,3 +45,10 @@
 (apply_expression
   function: (variable_expression
     name: (identifier) @_))
+
+; Function-valued let bindings retain their class when referenced as values.
+(let_expression
+  (binding_set
+    (binding
+      attrpath: (attrpath . attr: (identifier) @local.definition.function .)
+      expression: (function_expression))))
