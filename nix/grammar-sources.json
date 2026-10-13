@@ -1345,9 +1345,9 @@
   },
   "rst": {
     "git": "https://github.com/stsewd/tree-sitter-rst",
-    "rev": "6322f2629f29d8b442f4ca897904d407672ebb78",
-    "url": "https://github.com/stsewd/tree-sitter-rst/archive/6322f2629f29d8b442f4ca897904d407672ebb78.tar.gz",
-    "hash": "sha256-9H9t1q87ygCHDq4W88S6YCdz/u++Eck/6EhxThEKdzk="
+    "rev": "a60f1070b824cb8bb8409b4b6d7da0d07997c30e",
+    "url": "https://github.com/stsewd/tree-sitter-rst/archive/a60f1070b824cb8bb8409b4b6d7da0d07997c30e.tar.gz",
+    "hash": "sha256-45Vtxb8IdN4yxs8++FgZOEtXDAMZTHjACzsiDww8g/w="
   },
   "ruby": {
     "git": "https://github.com/tree-sitter/tree-sitter-ruby",

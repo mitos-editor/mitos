@@ -3722,7 +3722,7 @@ file-types = ["rst"]
 
 [[grammar]]
 name = "rst"
-source = { git = "https://github.com/stsewd/tree-sitter-rst", rev = "6322f2629f29d8b442f4ca897904d407672ebb78" }
+source = { git = "https://github.com/stsewd/tree-sitter-rst", rev = "a60f1070b824cb8bb8409b4b6d7da0d07997c30e" }
 
 [[language]]
 name = "capnp"

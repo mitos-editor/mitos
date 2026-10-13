@@ -35,4 +35,4 @@
 
 (interpreted_text) @markup.raw.inline
 
-(interpreted_text (role)) @keyword
+(interpreted_text (role) @keyword)

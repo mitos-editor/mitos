@@ -1,1 +1,1 @@
-(section (title) @definition.section)
+(section (title) @name) @definition.section
