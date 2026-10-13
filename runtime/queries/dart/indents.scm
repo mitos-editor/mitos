@@ -30,32 +30,32 @@
 
 (for_statement
   body: _ @indent
-  (#not-kind-eq? @indent block)
-
+  (#not-kind-eq? @indent "block")
+  (#set! "scope" "header")
 )
 
 (while_statement
   body: _ @indent
-  (#not-kind-eq? @indent block)
-
+  (#not-kind-eq? @indent "block")
+  (#set! "scope" "header")
 )
 
 (do_statement
   body: _ @indent
-  (#not-kind-eq? @indent block)
-
+  (#not-kind-eq? @indent "block")
+  (#set! "scope" "header")
 )
 
 (if_statement
   consequence: _ @indent
-  (#not-kind-eq? @indent block)
-
+  (#not-kind-eq? @indent "block")
+  (#set! "scope" "header")
 )
 (if_statement
   alternative: _ @indent
   (#not-kind-eq? @indent if_statement)
-  (#not-kind-eq? @indent block)
-
+  (#not-kind-eq? @indent "block")
+  (#set! "scope" "header")
 )
 (if_statement
   "else" @else

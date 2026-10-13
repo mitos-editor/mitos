@@ -247,9 +247,9 @@
   },
   "dart": {
     "git": "https://github.com/UserNobody14/tree-sitter-dart",
-    "rev": "a9bdfa3db2fbc9b9f12c93450d04a671f33a5102",
-    "url": "https://github.com/UserNobody14/tree-sitter-dart/archive/a9bdfa3db2fbc9b9f12c93450d04a671f33a5102.tar.gz",
-    "hash": "sha256-MED4KTvbNEh3zvY6s2rqIyXWauaREiWRx7UmIci2OPs="
+    "rev": "be07cf7118d3dba06236a3f19541685a68209934",
+    "url": "https://github.com/UserNobody14/tree-sitter-dart/archive/be07cf7118d3dba06236a3f19541685a68209934.tar.gz",
+    "hash": "sha256-sSbvuN/uuotx8MauHwzQnPiyBVYHhrMdRMwWsoPngvI="
   },
   "dbml": {
     "git": "https://github.com/dynamotn/tree-sitter-dbml",

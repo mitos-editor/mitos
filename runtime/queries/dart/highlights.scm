@@ -1,3 +1,6 @@
+((identifier) @namespace
+ (#match? @namespace "^_?[A-Z].*[a-z]")) ; catch Classes or IClasses not CLASSES
+
 (dotted_identifier_list) @string
 
 ; Methods
@@ -60,8 +63,7 @@
 ; Variables
 ; --------------------
 ; the "File" in var file = File();
-((identifier) @namespace
- (#match? @namespace "^_?[A-Z].*[a-z]")) ; catch Classes or IClasses not CLASSES
+
 
 ("Function" @type.builtin)
 (inferred_type) @type.builtin
@@ -84,10 +86,10 @@
 ; Parameters
 ; --------------------
 (formal_parameter
-    name: (identifier) @variable)
+    name: (identifier) @variable.parameter)
 
 (named_argument
-  (label (identifier) @variable))
+  (label (identifier) @variable.parameter))
 
 ; Dart 3 dot-shorthand (`.red`): the member resolved from the context type.
 (dot_shorthand
@@ -102,10 +104,11 @@
 [
   (hex_integer_literal)
   (decimal_integer_literal)
-  (decimal_floating_point_literal)
   ;(octal_integer_literal)
   ;(hex_floating_point_literal)
 ] @constant.numeric.integer
+
+(decimal_floating_point_literal) @constant.numeric.float
 
 (symbol_literal) @string.special.symbol
 (string_literal) @string
