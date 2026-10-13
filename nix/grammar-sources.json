@@ -1567,9 +1567,9 @@
   },
   "templ": {
     "git": "https://github.com/vrischmann/tree-sitter-templ",
-    "rev": "68d6707ed20159ae7525241b8161c126dc1c620c",
-    "url": "https://github.com/vrischmann/tree-sitter-templ/archive/68d6707ed20159ae7525241b8161c126dc1c620c.tar.gz",
-    "hash": "sha256-veaI/GWsbAYmWxnG4ZA0nICcfPRkUzzIjfWGtShGgBM="
+    "rev": "2c0a72e907d2a95a7b6dd29703e38c95818e956a",
+    "url": "https://github.com/vrischmann/tree-sitter-templ/archive/2c0a72e907d2a95a7b6dd29703e38c95818e956a.tar.gz",
+    "hash": "sha256-yOgkuufzRbtEk8+WqdDBYDVUzOlIURtsoI98q3re09o="
   },
   "tera": {
     "git": "https://github.com/uncenter/tree-sitter-tera",

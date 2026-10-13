@@ -10,6 +10,8 @@
 ; Elements
 
 (tag_start name: (_) @tag)
+(void_element name: (_) @tag)
+(void_element ["<" ">"] @punctuation.bracket)
 (tag_end name: (_) @tag)
 (self_closing_tag name: (_) @tag)
 

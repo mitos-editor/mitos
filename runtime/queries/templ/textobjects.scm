@@ -22,3 +22,5 @@
 
 (script_declaration
   (script_block) @function.inside) @function.around
+
+(void_element) @xml-element.around
