@@ -139,9 +139,9 @@
   },
   "cel": {
     "git": "https://github.com/bufbuild/tree-sitter-cel",
-    "rev": "9f2b65da14c216df53933748e489db0f11121464",
-    "url": "https://github.com/bufbuild/tree-sitter-cel/archive/9f2b65da14c216df53933748e489db0f11121464.tar.gz",
-    "hash": "sha256-LYDAwT/gQEahxBRcZeYbQjWKEF2afiwq1QnkVu6cc7c="
+    "rev": "fd2e8efaa07e71e46dcc1d5c4c85556a742d8c36",
+    "url": "https://github.com/bufbuild/tree-sitter-cel/archive/fd2e8efaa07e71e46dcc1d5c4c85556a742d8c36.tar.gz",
+    "hash": "sha256-51hMmbmBD3HxMioJbwNWhiOuH03uF/RP0nh7Y3QuahY="
   },
   "chuck": {
     "git": "https://github.com/tymbalodeon/tree-sitter-chuck",

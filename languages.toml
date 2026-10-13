@@ -870,7 +870,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "cel"
-source = { git = "https://github.com/bufbuild/tree-sitter-cel", rev = "9f2b65da14c216df53933748e489db0f11121464" }
+source = { git = "https://github.com/bufbuild/tree-sitter-cel", rev = "fd2e8efaa07e71e46dcc1d5c4c85556a742d8c36" }
 
 [[language]]
 name = "spicedb"

@@ -1,0 +1,6 @@
+request.name.startsWith("x")
+// ^ @variable
+//      ^ @variable.other.member
+//           ^ @function.method
+b"abc"
+// ^ @string

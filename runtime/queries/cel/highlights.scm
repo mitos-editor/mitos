@@ -20,18 +20,18 @@
 
 [
 "in"
-] @keyword
+] @keyword.operator
 
 ; Identifiers
 
-(identifier) @variable.other.member
+(identifier) @variable
+(reserved_keyword) @keyword
 
 (select_expression
-  operand: (identifier) @type)
+  member: [(identifier) (reserved_keyword)] @variable.other.member)
 
-(select_expression
-  operand: (select_expression
-    member: (identifier) @type))
+(field_initializer
+  key: [(identifier) (reserved_keyword)] @variable.other.member)
 
 ; Function calls
 
@@ -39,11 +39,12 @@
   function: (identifier) @function)
 
 (member_call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.method)
 
 ; Literals
 
 [
+  (bytes_literal)
   (double_quote_string_literal)
   (single_quoted_string_literal)
   (triple_double_quote_string_literal)
@@ -64,3 +65,6 @@
 (null) @constant.builtin
 
 (comment) @comment
+
+(struct_expression type: (identifier) @type)
+(struct_expression type: (select_expression member: (identifier) @type))
