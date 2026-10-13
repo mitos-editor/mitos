@@ -61,20 +61,16 @@
 
 ; Identifiers
 
-(identifier_or_member_expression) @type
-
-; Imports
-
-(import_statement
-  (quoted_string_literal) @string.special.path)
+(identifier_or_member_expression (identifier) @type)
+(member_expression base: (identifier) @namespace member: (identifier) @type)
 
 ; Namespaces
 
 (using_statement
-  module: (identifier_or_member_expression) @namespace)
+  module: (identifier_or_member_expression [(identifier) @namespace (member_expression (identifier) @namespace)]))
 
 (namespace_statement
-  name: (identifier_or_member_expression) @namespace)
+  name: (identifier_or_member_expression [(identifier) @namespace (member_expression (identifier) @namespace)]))
 
 ; Comments
 
@@ -90,13 +86,11 @@
 
 (decorator
   "@" @attribute
-  name: (identifier_or_member_expression) @attribute)
+  name: (identifier_or_member_expression [(identifier) @attribute (member_expression member: (identifier) @attribute .)]))
 
 (augment_decorator_statement
-  name: (identifier_or_member_expression) @attribute)
+  name: (identifier_or_member_expression [(identifier) @attribute (member_expression member: (identifier) @attribute .)]))
 
-(decorator
-  (decorator_arguments) @variable.parameter)
 
 ; Scalars
 
@@ -114,7 +108,7 @@
 ; Operations
 
 (operation_statement
-  name: (identifier) @function.method)
+  name: (identifier) @function)
 
 (operation_arguments
   (model_property
@@ -169,9 +163,18 @@
 (boolean_literal) @constant.builtin.boolean
 
 [
-  (decimal_literal)
   (hex_integer_literal)
   (binary_integer_literal)
 ] @constant.numeric.integer
 
 (builtin_type) @type.builtin
+
+(decimal_literal) @constant.numeric
+"const" @keyword.storage.modifier
+"typeof" @keyword.operator
+(const_statement name: (identifier) @constant)
+(object_member key: (identifier) @variable.other.member)
+(directive "#" @keyword.directive name: (identifier_or_member_expression (identifier) @keyword.directive))
+
+; Paths override the general string rule on the same span.
+(import_statement (quoted_string_literal) @string.special.path)

@@ -16,3 +16,5 @@
   ">"
   "]"
 ] @outdent
+
+[(array_value) (object_value)] @indent

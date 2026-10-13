@@ -1639,9 +1639,9 @@
   },
   "typespec": {
     "git": "https://github.com/happenslol/tree-sitter-typespec",
-    "rev": "0ee05546d73d8eb64635ed8125de6f35c77759fe",
-    "url": "https://github.com/happenslol/tree-sitter-typespec/archive/0ee05546d73d8eb64635ed8125de6f35c77759fe.tar.gz",
-    "hash": "sha256-1ac85oHOE0UbtuLT3MIWerK/pe6kGaNdDGH41HFkrCc="
+    "rev": "395bef1e1eb4dd18365401642beb534e8a244056",
+    "url": "https://github.com/happenslol/tree-sitter-typespec/archive/395bef1e1eb4dd18365401642beb534e8a244056.tar.gz",
+    "hash": "sha256-gUv//9ExZ/QQIFIME48VnDXsfnRFQFCL7BwyHsl70vc="
   },
   "typst": {
     "git": "https://github.com/uben0/tree-sitter-typst",

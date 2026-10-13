@@ -40,7 +40,7 @@
   (function_parameter)? @parameter.inside)* @function.inside
 
 (decorator_arguments
-  (expression_list
+  (value_list
     (_) @parameter.inside)*) @function.inside
 
 (operation_arguments
