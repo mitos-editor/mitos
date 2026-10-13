@@ -3579,7 +3579,7 @@ formatter = { command = "dhall" , args = ["format"] }
 
 [[grammar]]
 name = "dhall"
-source = { git = "https://github.com/jbellerb/tree-sitter-dhall", rev = "affb6ee38d629c9296749767ab832d69bb0d9ea8" }
+source = { git = "https://github.com/jbellerb/tree-sitter-dhall", rev = "62013259b26ac210d5de1abf64cf1b047ef88000" }
 
 [[language]]
 name = "sage"

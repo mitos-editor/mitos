@@ -271,9 +271,9 @@
   },
   "dhall": {
     "git": "https://github.com/jbellerb/tree-sitter-dhall",
-    "rev": "affb6ee38d629c9296749767ab832d69bb0d9ea8",
-    "url": "https://github.com/jbellerb/tree-sitter-dhall/archive/affb6ee38d629c9296749767ab832d69bb0d9ea8.tar.gz",
-    "hash": "sha256-5fT+3bS25vUfSC2GB7QiA2Ad+KSGtwod7xXCL3ID9lU="
+    "rev": "62013259b26ac210d5de1abf64cf1b047ef88000",
+    "url": "https://github.com/jbellerb/tree-sitter-dhall/archive/62013259b26ac210d5de1abf64cf1b047ef88000.tar.gz",
+    "hash": "sha256-guVUAaIyMctRgObcu55IYpvKOEBQMLyNZoC/CIcnY50="
   },
   "diff": {
     "git": "https://github.com/the-mikedavis/tree-sitter-diff",

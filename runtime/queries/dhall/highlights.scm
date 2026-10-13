@@ -7,6 +7,7 @@
 
 ;; Text
 (text_literal) @string
+(bytes_literal) @string
 (interpolation "}" @string)
 (double_quote_escaped) @constant.character.escape
 (single_quote_escaped) @constant.character.escape
@@ -18,21 +19,11 @@
 (env_variable) @string.special
 (import_hash) @string.special
 (missing_import) @keyword.control.import
-[ (import_as_location) (import_as_text) ] @type
+[ (import_as_location) (import_as_text) (import_as_bytes) ] @type
 
 ;; Comments
 (block_comment) @comment.block
 (line_comment) @comment.line
-
-;; Types
-([
-  (let_binding (label) @type)
-  (union_type_entry (label) @type)
-] (#match? @type "^[A-Z]"))
-((primitive_expression
-  (identifier (label) @type)
-  (selector (label) @type)?) @whole_identifier
-  (#match? @whole_identifier "(?:^|\\.)[A-Z][^.]*$"))
 
 ;; Variables
 (identifier [
@@ -43,7 +34,17 @@
 (lambda_expression label: (label) @variable.parameter)
 (record_literal_entry (label) @variable.other.member)
 (record_type_entry (label) @variable.other.member)
-(selector) @variable.other.member
+(selector (label) @variable.other.member)
+
+;; Types
+([
+  (let_binding (label) @type)
+  (union_type_entry (label) @type)
+] (#match? @type "^[A-Z]"))
+((primitive_expression
+  (identifier (label) @type)
+  (selector (label) @type)?) @whole_identifier
+  (#match? @whole_identifier "(?:^|\\.)[A-Z][^.]*$"))
 
 ;; Keywords
 [
@@ -74,6 +75,7 @@
 (builtin_function) @function.builtin
 (builtin [
   "Bool"
+  "Bytes"
   "Optional"
   "Natural"
   "Integer"
