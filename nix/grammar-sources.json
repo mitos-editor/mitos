@@ -1483,9 +1483,9 @@
   },
   "strace": {
     "git": "https://github.com/sigmaSd/tree-sitter-strace",
-    "rev": "2b18fdf9a01e7ec292cc6006724942c81beb7fd5",
-    "url": "https://github.com/sigmaSd/tree-sitter-strace/archive/2b18fdf9a01e7ec292cc6006724942c81beb7fd5.tar.gz",
-    "hash": "sha256-erfRg52eJzVsYccFKKfefc58kKha2+IfVj5SL99FQpE="
+    "rev": "ac874ddfcc08d689fee1f4533789e06d88388f29",
+    "url": "https://github.com/sigmaSd/tree-sitter-strace/archive/ac874ddfcc08d689fee1f4533789e06d88388f29.tar.gz",
+    "hash": "sha256-ZNbJkfTNAR3cfasNnmVLOJWGwcZe+GpsKDxAO08q7hk="
   },
   "strictdoc": {
     "git": "https://github.com/manueldiagostino/tree-sitter-strictdoc",
