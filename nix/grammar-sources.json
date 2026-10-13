@@ -1051,9 +1051,9 @@
   },
   "nu": {
     "git": "https://github.com/nushell/tree-sitter-nu",
-    "rev": "cc4624fbc6ec3563d98fbe8f215a8b8e10b16f32",
-    "url": "https://github.com/nushell/tree-sitter-nu/archive/cc4624fbc6ec3563d98fbe8f215a8b8e10b16f32.tar.gz",
-    "hash": "sha256-OFOUPxOKXlGLlIX70KAKwKfVFVLoGoWJjxw+aK+4m6g="
+    "rev": "4f577aaa735154f934594b598a69ed7b1b707cf6",
+    "url": "https://github.com/nushell/tree-sitter-nu/archive/4f577aaa735154f934594b598a69ed7b1b707cf6.tar.gz",
+    "hash": "sha256-97G1vtuO7P8LnOtwhjxNPOL9N2bi7Nw/AtrwqigXXwA="
   },
   "ocaml": {
     "git": "https://github.com/tree-sitter/tree-sitter-ocaml",

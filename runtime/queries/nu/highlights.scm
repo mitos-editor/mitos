@@ -201,7 +201,7 @@ file_path: (val_string) @variable.parameter
 (param_value
   "=" @punctuation.special)
 
-(param_cmd
+(param_completer
   "@" @punctuation.special)
 
 (attribute
@@ -225,11 +225,9 @@ file_path: (val_string) @variable.parameter
   "...{"
 ] @punctuation.bracket
 
-(val_record
-  (record_entry
-    ":" @punctuation.delimiter))
+(record_entry ":" @punctuation.delimiter)
 
-key: (identifier) @property
+key: (identifier) @variable.other.member
 
 ; ---
 ; identifiers
@@ -242,7 +240,7 @@ key: (identifier) @property
 (parameter
   param_name: (_) @variable.parameter)
 
-(param_cmd
+(param_completer
   (cmd_identifier) @string)
 
 (param_long_flag
@@ -283,7 +281,11 @@ key: (identifier) @property
 
 (command
   head: (cmd_identifier) @keyword.control.repeat
-  (#any-of? @keyword.control.repeat "break" "continue" "return"))
+  (#any-of? @keyword.control.repeat "break" "continue"))
+
+(command
+  head: (cmd_identifier) @keyword.control.return
+  (#eq? @keyword.control.return "return"))
 
 (command
   head: (cmd_identifier) @keyword
@@ -336,8 +338,7 @@ key: (identifier) @property
 (val_cellpath
   "$" @punctuation.special)
 
-(record_entry
-  ":" @punctuation.special)
+
 
 ; ---
 ; types
