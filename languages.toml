@@ -1474,7 +1474,7 @@ text-width = 100
 
 [[grammar]]
 name = "lean"
-source = { git = "https://github.com/Julian/tree-sitter-lean", rev = "d98426109258b266e1e92358c5f11716d2e8f638" }
+source = { git = "https://github.com/Julian/tree-sitter-lean", rev = "916c44f4d89c970f66dd34a49e7ce848f4d29e72" }
 
 [[language]]
 name = "lpf"

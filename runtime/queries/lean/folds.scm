@@ -1,15 +1,20 @@
-[
-  (namespace)
-  (section)
+; Fold definitions for tree-sitter-lean.
 
-  (instance)
+[
   (def)
   (theorem)
   (example)
-
-  (product)
-  (array)
-  (list)
-
-  (string)
+  (abbrev)
+  (instance)
+  (axiom)
+  (opaque)
+  (constant)
+  (structure)
+  (inductive)
+  (by)
+  (do_block)
+  (match)
+  (block_comment)
+  (doc_comment)
+  (module_doc_comment)
 ] @fold

@@ -877,9 +877,9 @@
   },
   "lean": {
     "git": "https://github.com/Julian/tree-sitter-lean",
-    "rev": "d98426109258b266e1e92358c5f11716d2e8f638",
-    "url": "https://github.com/Julian/tree-sitter-lean/archive/d98426109258b266e1e92358c5f11716d2e8f638.tar.gz",
-    "hash": "sha256-YWzCHOgZ/l1fIm3BuduSULdbFJMvEimRxpTLD4xO8pE="
+    "rev": "916c44f4d89c970f66dd34a49e7ce848f4d29e72",
+    "url": "https://github.com/Julian/tree-sitter-lean/archive/916c44f4d89c970f66dd34a49e7ce848f4d29e72.tar.gz",
+    "hash": "sha256-kzRlzPyimMqIi3GrNbhLlKbxJ4BgIrNJBwneTSJ5AmA="
   },
   "ledger": {
     "git": "https://github.com/cbarrete/tree-sitter-ledger",
