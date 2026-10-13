@@ -1756,7 +1756,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "haskell-persistent"
-source = { git = "https://github.com/MercuryTechnologies/tree-sitter-haskell-persistent", rev = "58a6ccfd56d9f1de8fb9f77e6c42151f8f0d0f3d" }
+source = { git = "https://github.com/MercuryTechnologies/tree-sitter-haskell-persistent", rev = "577259b4068b2c281c9ebf94c109bd50a74d5857" }
 
 [[language]]
 name = "haskell-literate"

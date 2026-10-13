@@ -637,9 +637,9 @@
   },
   "haskell-persistent": {
     "git": "https://github.com/MercuryTechnologies/tree-sitter-haskell-persistent",
-    "rev": "58a6ccfd56d9f1de8fb9f77e6c42151f8f0d0f3d",
-    "url": "https://github.com/MercuryTechnologies/tree-sitter-haskell-persistent/archive/58a6ccfd56d9f1de8fb9f77e6c42151f8f0d0f3d.tar.gz",
-    "hash": "sha256-UUiJvpwD4NCgZPnswNnElKFAw/V1G/GhmkiaxsiwYFY="
+    "rev": "577259b4068b2c281c9ebf94c109bd50a74d5857",
+    "url": "https://github.com/MercuryTechnologies/tree-sitter-haskell-persistent/archive/577259b4068b2c281c9ebf94c109bd50a74d5857.tar.gz",
+    "hash": "sha256-L8bxccQn4hR+ueXHdsBKeFoTdSi0pTjQmLFbQzVJ1A4="
   },
   "haxe": {
     "git": "https://github.com/vantreeseba/tree-sitter-haxe",
