@@ -985,9 +985,9 @@
   },
   "meson": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-meson",
-    "rev": "c84f3540624b81fc44067030afce2ff78d6ede05",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-meson/archive/c84f3540624b81fc44067030afce2ff78d6ede05.tar.gz",
-    "hash": "sha256-0VNpx+g/hLIqxxqjCtjUA6MirDhu97Vi2F6ce1Qyztg="
+    "rev": "aa8d472034956f94f51f2ef2cbfec4cc07efbfde",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-meson/archive/aa8d472034956f94f51f2ef2cbfec4cc07efbfde.tar.gz",
+    "hash": "sha256-oDJKW4W3QTnnMDFFjIbJ5l/YxHATw77tl4NhFoTQiR8="
   },
   "metamath": {
     "git": "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath",
