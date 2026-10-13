@@ -3028,7 +3028,7 @@ language-servers = [ "dot-language-server" ]
 
 [[grammar]]
 name = "dot"
-source = { git = "https://github.com/rydesun/tree-sitter-dot", rev = "917230743aa10f45a408fea2ddb54bbbf5fbe7b7" }
+source = { git = "https://github.com/rydesun/tree-sitter-dot", rev = "80327abbba6f47530edeb0df9f11bd5d5c93c14d" }
 
 [[language]]
 name = "cue"

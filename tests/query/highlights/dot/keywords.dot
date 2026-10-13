@@ -1,0 +1,6 @@
+digraph example {
+//^ @keyword
+  node [shape=box];
+//^ @keyword
+//      ^ @attribute
+}
