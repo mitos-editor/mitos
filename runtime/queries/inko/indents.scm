@@ -22,6 +22,7 @@
   (reopen_class)
   (replace_field)
   (replace_local)
+  (replace_receiver_field)
   (symbols)
   (trait)
   (tuple)

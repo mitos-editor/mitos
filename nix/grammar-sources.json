@@ -727,9 +727,9 @@
   },
   "inko": {
     "git": "https://github.com/inko-lang/tree-sitter-inko",
-    "rev": "f58a87ac4dc6a7955c64c9e4408fbd693e804686",
-    "url": "https://github.com/inko-lang/tree-sitter-inko/archive/f58a87ac4dc6a7955c64c9e4408fbd693e804686.tar.gz",
-    "hash": "sha256-yj1xklid0autjxD4jixXxa0FEqSVTsdth0GXsvEJpQc="
+    "rev": "a2bef1fc87e64adbf65f353b86e10275e693b5fe",
+    "url": "https://github.com/inko-lang/tree-sitter-inko/archive/a2bef1fc87e64adbf65f353b86e10275e693b5fe.tar.gz",
+    "hash": "sha256-nA0iKdK0mTywFQqR9oPpqbrGU3CYlviuatSQSNwRO9U="
   },
   "janet-simple": {
     "git": "https://github.com/sogaiu/tree-sitter-janet-simple",

@@ -66,6 +66,8 @@
   "uni"
   "move"
   "recover"
+  (async)
+  (await)
 ] @keyword
 
 "fn" @keyword.function
@@ -191,3 +193,5 @@
   name: _ @function)
 
 (field) @variable.other.member
+
+(not "!" @operator)

@@ -1,0 +1,6 @@
+fn main {
+  let value = !false
+#             ^ @operator
+  let future = async { true }
+#              ^ @keyword
+}

@@ -3497,7 +3497,7 @@ formatter = { command = "inko", args = ["fmt", "-"] }
 
 [[grammar]]
 name = "inko"
-source = { git = "https://github.com/inko-lang/tree-sitter-inko", rev = "f58a87ac4dc6a7955c64c9e4408fbd693e804686" }
+source = { git = "https://github.com/inko-lang/tree-sitter-inko", rev = "a2bef1fc87e64adbf65f353b86e10275e693b5fe" }
 
 [[language]]
 name = "bicep"

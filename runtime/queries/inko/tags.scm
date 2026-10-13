@@ -1,14 +1,14 @@
 (class
-  name: _ @definition.struct)
+  name: _ @name) @definition.struct
 
 (trait
-  name: _ @definition.interface)
+  name: _ @name) @definition.interface
 
 (external_function
-  name: _ @definition.function)
+  name: _ @name) @definition.function
 
 (method
-  name: _ @definition.function)
+  name: _ @name) @definition.function
 
 (define_constant
-  name: _ @definition.constant)
+  name: _ @name) @definition.constant
