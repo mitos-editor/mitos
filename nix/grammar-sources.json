@@ -397,9 +397,9 @@
   },
   "esdl": {
     "git": "https://github.com/hongquan/tree-sitter-esdl",
-    "rev": "c824fe2bbbed6b29e50c694420aa2b377782f80a",
-    "url": "https://github.com/hongquan/tree-sitter-esdl/archive/c824fe2bbbed6b29e50c694420aa2b377782f80a.tar.gz",
-    "hash": "sha256-gUupiC/jADQr7ZoFyMIMMW/OxpVNDYk0Ra2do/MeejM="
+    "rev": "7e6692b2e2b4f73b03f1371e8d8b83f23bc1c6c8",
+    "url": "https://github.com/hongquan/tree-sitter-esdl/archive/7e6692b2e2b4f73b03f1371e8d8b83f23bc1c6c8.tar.gz",
+    "hash": "sha256-bCYkmtcYf3BCOdcnA2k0y63I6UqvwPVP9dLnpc+jQHE="
   },
   "fennel": {
     "git": "https://github.com/alexmozaidze/tree-sitter-fennel",

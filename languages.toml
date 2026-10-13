@@ -3108,7 +3108,7 @@ roots = ["gel.toml", "edgedb.toml"]
 
 [[grammar]]
 name ="esdl"
-source = { git = "https://github.com/hongquan/tree-sitter-esdl", rev = "c824fe2bbbed6b29e50c694420aa2b377782f80a" }
+source = { git = "https://github.com/hongquan/tree-sitter-esdl", rev = "7e6692b2e2b4f73b03f1371e8d8b83f23bc1c6c8" }
 
 [[language]]
 name = "pascal"

@@ -21,21 +21,21 @@
 (identifier) @variable
 
 (modifier) @keyword
-(extending) @keyword
+"extending" @keyword
 
 (module name: (identifier) @namespace)
-(object_type) @type
+(object_type name: (identifier) @type)
 
 (comment) @comment
 
 ; Properties (includes both property and link declarations, since link keyword is optional)
-(property) @variable.other.member
+(property name: (identifier) @variable.other.member)
 
 (string) @string
 (edgeql_fragment) @string
 
 ; Builtins
-(type) @type
+(type (identifier) @type)
 [
   "str"
   "bool"
