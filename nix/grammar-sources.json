@@ -619,9 +619,9 @@
   },
   "hare": {
     "git": "https://git.sr.ht/~ecs/tree-sitter-hare",
-    "rev": "07035a248943575444aa0b893ffe306e1444c0ab",
-    "url": "https://git.sr.ht/~ecs/tree-sitter-hare/archive/07035a248943575444aa0b893ffe306e1444c0ab.tar.gz",
-    "hash": "sha256-pZB0//Vs5z/YwrLlYJl3ts4ixqorQUUvVzIznBtxhqQ="
+    "rev": "fb6ea01461441ec7c312e64e326649f5e9011a64",
+    "url": "https://git.sr.ht/~ecs/tree-sitter-hare/archive/fb6ea01461441ec7c312e64e326649f5e9011a64.tar.gz",
+    "hash": "sha256-2b9zZueVfaxNhxJJKAeUvIxRFVONRRclzJB7KLpuxaA="
   },
   "haskell": {
     "git": "https://github.com/tree-sitter/tree-sitter-haskell",

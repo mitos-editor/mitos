@@ -1,3 +1,5 @@
+(name) @variable
+
 (type) @type
 (type "const" @type)
 
@@ -111,14 +113,10 @@
 
 (comment) @comment
 
-[
-  "false"
-  "null"
-  "true"
-] @constant.builtin
+["false" "true"] @constant.builtin.boolean
+"null" @constant.builtin
 (literal "void") @constant.builtin
 
-(identifier) @variable
 
 (string_literal) @string
 (escape_sequence) @constant.character.escape
@@ -127,11 +125,13 @@
 (floating_literal) @constant.numeric.float
 
 (call_expression
-  (postfix_expression) @function)
+  (postfix_expression (nested_expression (identifier (name) @function))))
+(call_expression
+  (postfix_expression (field_access_expression selector: (name) @function.method)))
 (size_expression "size" @function.builtin)
 
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier (name) @function))
 
 (parameter (name) @variable.parameter)
 
@@ -140,4 +140,7 @@
 (decl_attr) @special
 (fndec_attrs) @special
 
-(struct_union_field (name)) @variable
+(struct_union_field (name) @variable.other.member)
+
+(alias_type (identifier (name) @type))
+(unwrapped_alias (identifier (name) @type))
