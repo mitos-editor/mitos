@@ -1687,9 +1687,9 @@
   },
   "vento": {
     "git": "https://github.com/ventojs/tree-sitter-vento",
-    "rev": "3b32474bc29584ea214e4e84b47102408263fe0e",
-    "url": "https://github.com/ventojs/tree-sitter-vento/archive/3b32474bc29584ea214e4e84b47102408263fe0e.tar.gz",
-    "hash": "sha256-WEwTbKZl7gAHj/v3MFXo22ifq//GqRGweSoFocrfxKo="
+    "rev": "4569bc1fb81f050ca4ef3ceefdd31cfeb35c4f0a",
+    "url": "https://github.com/ventojs/tree-sitter-vento/archive/4569bc1fb81f050ca4ef3ceefdd31cfeb35c4f0a.tar.gz",
+    "hash": "sha256-zlJ8hUkIPSMTc0WRM6MM2ExJz+5d5Xv4gLCl7sjDJRI="
   },
   "verilog": {
     "git": "https://github.com/tree-sitter/tree-sitter-verilog",
