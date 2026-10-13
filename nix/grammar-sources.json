@@ -355,9 +355,9 @@
   },
   "elisp": {
     "git": "https://github.com/Wilfred/tree-sitter-elisp",
-    "rev": "29b4e49275f4a947ce17c8533bc20a1f97768c70",
-    "url": "https://github.com/Wilfred/tree-sitter-elisp/archive/29b4e49275f4a947ce17c8533bc20a1f97768c70.tar.gz",
-    "hash": "sha256-5YMU0xoXbdlPVrxeyLmYfK2o0vwgLAZZgmhz2WNWgng="
+    "rev": "0cbf0906d9ee707c8c109422fba9cdd17ae13dcf",
+    "url": "https://github.com/Wilfred/tree-sitter-elisp/archive/0cbf0906d9ee707c8c109422fba9cdd17ae13dcf.tar.gz",
+    "hash": "sha256-HLEDS0AbeONi2CWhu30Z/LiwWzrIUDu8QZNY8yBWCzc="
   },
   "elixir": {
     "git": "https://github.com/elixir-lang/tree-sitter-elixir",

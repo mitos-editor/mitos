@@ -4570,7 +4570,7 @@ comment-tokens = [";"]
 
 [[grammar]]
 name = "elisp"
-source = { git = "https://github.com/Wilfred/tree-sitter-elisp", rev = "29b4e49275f4a947ce17c8533bc20a1f97768c70" }
+source = { git = "https://github.com/Wilfred/tree-sitter-elisp", rev = "0cbf0906d9ee707c8c109422fba9cdd17ae13dcf" }
 
 [[language]]
 name = "gjs"
