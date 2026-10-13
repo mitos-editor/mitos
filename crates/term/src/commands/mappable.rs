@@ -35,6 +35,7 @@ pub enum MappableCommand {
     Macro {
         name: String,
         keys: Vec<KeyEvent>,
+        doc: String,
     },
 }
 
@@ -93,11 +94,26 @@ impl MappableCommand {
         }
     }
 
+    /// Override the keybinding description without changing its command identity.
+    pub fn with_label(mut self, label: String) -> anyhow::Result<Self> {
+        if !label.is_empty() {
+            match &mut self {
+                Self::Typable { doc, .. } | Self::Macro { doc, .. } => *doc = label,
+                Self::Static { .. } => {
+                    return Err(anyhow!(
+                        "custom labels are only available for typable commands and macros"
+                    ));
+                }
+            }
+        }
+        Ok(self)
+    }
+
     pub fn doc(&self) -> &str {
         match &self {
             Self::Typable { doc, .. } => doc,
             Self::Static { doc, .. } => doc,
-            Self::Macro { name, .. } => name,
+            Self::Macro { doc, .. } => doc,
         }
     }
 }
@@ -154,6 +170,7 @@ impl std::str::FromStr for MappableCommand {
             input::parse_macro(suffix).map(|keys| Self::Macro {
                 name: s.to_string(),
                 keys,
+                doc: s.to_string(),
             })
         } else {
             MappableCommand::STATIC_COMMAND_LIST

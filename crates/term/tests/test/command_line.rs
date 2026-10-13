@@ -4,6 +4,54 @@ use editor_core::diagnostic::Severity;
 use view::custom_commands::{CustomCommand, CustomCommands};
 
 #[tokio::test(flavor = "multi_thread")]
+async fn labeled_keybindings_execute_typable_commands_macros_and_sequences() -> anyhow::Result<()> {
+    let source = r#"
+        [keys.normal."+"]
+        label = "Tools"
+        e = { label = "Show message", command = ":echo typable" }
+        m = { label = "Insert Unicode", command = "@i界<esc>" }
+        s = { label = "Replace selection", command = ["select_all", ":echo sequence", "delete_selection"] }
+    "#.to_owned();
+    let mut config = test_config();
+    config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+        .unwrap()
+        .keys;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("+e"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "typable");
+                }),
+            ),
+            (
+                Some("+m"),
+                Some(&|app| {
+                    let (_, doc) = view::current_ref!(app.editor);
+                    assert_eq!(
+                        doc.text().to_string(),
+                        format!("界{}", editor_core::NATIVE_LINE_ENDING.as_str())
+                    );
+                    assert_eq!(app.editor.mode(), view::document::Mode::Normal);
+                }),
+            ),
+            (
+                Some("+s"),
+                Some(&|app| {
+                    let (_, doc) = view::current_ref!(app.editor);
+                    assert_eq!(doc.text().to_string(), "");
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "sequence");
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn terminal_options_remain_available_through_commands() -> anyhow::Result<()> {
     let mut config = test_config();
     config.terminal.true_color = true;

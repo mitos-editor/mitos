@@ -536,6 +536,201 @@ mod tests {
     }
 
     #[test]
+    fn labeled_editor_bindings_preserve_commands_and_descriptions() {
+        use crate::keymap::MappableCommand;
+        use ui_core::input::KeyEvent;
+
+        let config = Config::load_test(
+            r#"
+            [keys.normal.space.f]
+            label = "File"
+            s = { label = "Save", command = ":w" }
+            c = { command = ":open ~/.config/mitos/config.toml", label = "Edit Config" }
+            m = { label = "Delete word", command = "@wd" }
+            h = { label = "Split left", command = ["vsplit", "normal_mode", "swap_view_left"] }
+            j = ["hsplit", "normal_mode", "swap_view_down"]
+            k = { command = "move_char_left" }
+            n = { label = "One command", command = ["move_char_left"] }
+            e = { label = "Empty", command = [] }
+            [keys.normal.space.f.x]
+            label = "Extra"
+            r = { label = "Reload", command = ":reload" }
+            [keys.insert]
+            C-s = { label = "Save", command = ":write" }
+            [keys.select]
+            C-s = { label = "Save", command = ":write" }
+        "#,
+        );
+        let path: Vec<KeyEvent> = ["space", "f"].map(|key| key.parse().unwrap()).into();
+        let menu = config.keys[&Mode::Normal]
+            .search(&path)
+            .unwrap()
+            .node()
+            .unwrap();
+        let binding = |key: &str| &menu[&key.parse::<KeyEvent>().unwrap()];
+        let KeyTrie::MappableCommand(save) = binding("s") else {
+            panic!("expected typable command");
+        };
+        assert_eq!(save.name(), "write");
+        assert_eq!(save.doc(), "Save");
+        let KeyTrie::MappableCommand(MappableCommand::Typable { name, args, doc }) = binding("c")
+        else {
+            panic!("expected open command");
+        };
+        assert_eq!(name, "open");
+        assert_eq!(args, "~/.config/mitos/config.toml");
+        assert_eq!(doc, "Edit Config");
+        let KeyTrie::MappableCommand(mac) = binding("m") else {
+            panic!("expected macro");
+        };
+        assert_eq!(mac.name(), "@wd");
+        assert_eq!(mac.to_string(), "@wd");
+        assert_eq!(mac.doc(), "Delete word");
+        let MappableCommand::Macro { keys, .. } = mac else {
+            panic!("expected macro keys");
+        };
+        assert_eq!(*keys, ui_core::input::parse_macro("wd").unwrap());
+        assert_eq!(
+            binding("k"),
+            &KeyTrie::MappableCommand(MappableCommand::move_char_left)
+        );
+        assert_eq!(
+            binding("n"),
+            &KeyTrie::Sequence("One command".into(), vec![MappableCommand::move_char_left])
+        );
+        assert_eq!(binding("e"), &KeyTrie::Sequence("Empty".into(), vec![]));
+        let info = menu.infobox();
+        assert_eq!(info.title, "File");
+        for description in [
+            "Save",
+            "Edit Config",
+            "Delete word",
+            "Split left",
+            KeyTrie::DEFAULT_SEQUENCE_LABEL,
+            "Extra",
+        ] {
+            assert!(info.text.contains(description), "{}", info.text);
+        }
+        assert_eq!(binding("x").node().unwrap().infobox().title, "Extra");
+        assert!(binding("x")
+            .node()
+            .unwrap()
+            .infobox()
+            .text
+            .contains("Reload"));
+        assert_eq!(
+            config.keys[&Mode::Normal].reverse_map()["write"],
+            vec![vec![
+                "space".parse().unwrap(),
+                "f".parse().unwrap(),
+                "s".parse().unwrap()
+            ]]
+        );
+        for mode in [Mode::Insert, Mode::Select] {
+            let KeyTrie::MappableCommand(cmd) = config.keys[&mode]
+                .search(&["C-s".parse().unwrap()])
+                .unwrap()
+            else {
+                panic!("expected a labeled binding in {mode:?}");
+            };
+            assert_eq!(cmd.doc(), "Save");
+        }
+    }
+
+    #[test]
+    fn menu_labels_merge_defaults_global_and_workspace_recursively() {
+        use ui_core::input::KeyEvent;
+
+        let global = r#"
+            [keys.normal]
+            label = "Custom normal"
+            [keys.normal.g]
+            label = "Navigate"
+            x = { label = "Global", command = ":echo global" }
+            [keys.normal.g.z]
+            label = "Nested"
+            e = ":echo nested"
+        "#
+        .to_owned();
+        for (label, expected) in [
+            ("", "Navigate"),
+            ("label = ''", "Navigate"),
+            ("label = 'Project navigation'", "Project navigation"),
+        ] {
+            let local = format!("[keys.normal.g]\n{label}\nx = {{ label = 'Local', command = ':echo local' }}\n[keys.normal.g.z]\nr = ':reload'");
+            let config = Config::load(Ok(&global), Ok(local)).unwrap();
+            let root = config.keys[&Mode::Normal].node().unwrap();
+            assert_eq!(root.infobox().title, "Custom normal");
+            let goto = root[&"g".parse::<KeyEvent>().unwrap()].node().unwrap();
+            assert_eq!(goto.infobox().title, expected);
+            assert_eq!(
+                goto[&"g".parse::<KeyEvent>().unwrap()],
+                KeyTrie::MappableCommand(crate::commands::MappableCommand::goto_file_start)
+            );
+            assert!(goto.infobox().text.contains("Local"));
+            let nested = goto[&"z".parse::<KeyEvent>().unwrap()].node().unwrap();
+            assert_eq!(nested.infobox().title, "Nested");
+            assert!(nested.contains_key(&"e".parse::<KeyEvent>().unwrap()));
+            assert!(nested.contains_key(&"r".parse::<KeyEvent>().unwrap()));
+        }
+    }
+
+    #[test]
+    fn empty_binding_labels_keep_default_descriptions() {
+        use ui_core::input::KeyEvent;
+
+        let config = Config::load_test(
+            r#"
+            [keys.normal]
+            a = { label = "", command = ":buffer-close" }
+            b = ":buffer-close"
+            c = { label = "", command = "@wd" }
+            d = "@wd"
+            e = { label = "", command = ["select_all"] }
+            f = ["select_all"]
+            h = { label = "", command = "move_char_left" }
+        "#,
+        );
+        let root = config.keys[&Mode::Normal].node().unwrap();
+        for (left, right) in [("a", "b"), ("c", "d"), ("e", "f")] {
+            let description = |key: &str| match &root[&key.parse::<KeyEvent>().unwrap()] {
+                KeyTrie::MappableCommand(cmd) => cmd.doc(),
+                KeyTrie::Sequence(label, _) => label,
+                KeyTrie::Node(_) => panic!("expected a command or sequence"),
+            };
+            assert_eq!(description(left), description(right));
+        }
+    }
+
+    #[test]
+    fn labeled_bindings_reject_invalid_commands_and_shapes() {
+        for binding in [
+            "{ label = 'Static', command = 'move_char_left' }",
+            "{ label = 'Unknown', command = ':missing-command' }",
+            "{ label = 'Unknown', command = 'missing_command' }",
+            "{ label = 'Mixed', command = ':write', x = 'no_op' }",
+            "{ label = 'Macro sequence', command = ['@wd', ':write'] }",
+            "{ command = ['@wd'] }",
+            "{ command = 1 }",
+            "{ command = [':write', 1] }",
+            "{ command = { command = ':write' } }",
+            "{ label = 1, command = ':write' }",
+            "{ lable = 'Misspelled', command = ':write' }",
+            "{ label = 'Duplicates', C-S-a = ':write', S-C-a = ':write' }",
+            "['@wd', ':write']",
+        ] {
+            assert!(
+                Config::load_test_result(&format!("[keys.normal]\nx = {binding}")).is_err(),
+                "{binding}"
+            );
+        }
+        // Mode roots must remain keymaps, even with the command table syntax.
+        assert!(
+            Config::load_test_result("[keys.normal]\nlabel = 'Save'\ncommand = ':write'").is_err()
+        );
+    }
+
+    #[test]
     fn keys_resolve_to_correct_defaults() {
         // From serde default
         let default_keys = Config::load_test("").keys;

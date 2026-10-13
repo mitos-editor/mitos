@@ -37,10 +37,31 @@ g = { a = "code_action" } # Maps `ga` to show possible code actions
 "ret" = ["open_below", "normal_mode"] # Maps the enter key to open_below then re-enter normal mode
 "A-x" = "@x<A-d>" # Maps Alt-x to a macro selecting the whole line and deleting it without yanking it
 
+# Label a nested menu and its typable commands, macros, or command sequences
+[keys.normal.space.f]
+label = "File"
+f = "file_picker"
+s = { label = "Save", command = ":write" }
+c = { label = "Edit Config", command = ":open ~/.config/mitos/config.toml" }
+w = { label = "Delete word", command = "@wd" }
+h = { label = "Split left", command = ["vsplit", "normal_mode", "swap_view_left"] }
+
 [keys.insert]
 "A-x" = "normal_mode"     # Maps Alt-X to enter normal mode
 j = { k = "normal_mode" } # Maps `jk` to exit insert mode
 ```
+
+`label` sets the menu title or the description shown for a command binding.
+Menus can be nested and labeled at any depth. Labels also override the names of
+built-in menus while keeping their other bindings. Trusted workspace labels
+override global labels; omitting a label or setting it to an empty string keeps
+the existing menu title or command description.
+
+The `command` field accepts a command string or an array of commands. A binding
+cannot contain both `command` and nested keybindings. Individual static commands
+keep their built-in descriptions; sequences may contain static and typable
+commands and have their own label. Macros cannot be used in command sequences.
+These labels apply to editor mode maps (`normal`, `insert`, and `select`).
 
 ## Minor modes
 

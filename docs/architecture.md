@@ -26,6 +26,9 @@ state. `ui-core` supplies UI value types without owning editor services.
 Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
 defaults, configuration composition, and execution belong to `term`. Buffer picker
 item actions call editor lifecycle operations from `term::commands::buffers`.
+Editor mode keymaps and their menu and binding labels also belong to `term`,
+where static commands, typable commands, and macros are resolved and executed.
+They reuse input types from `ui-core`; `command-line` only parses command arguments.
 
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.
