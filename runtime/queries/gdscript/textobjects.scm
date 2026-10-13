@@ -1,6 +1,6 @@
 
 (class_definition
-  (body) @class.inside) @class.around
+  (class_body) @class.inside) @class.around
 
 (function_definition
   (body) @function.inside) @function.around
@@ -12,7 +12,8 @@
     (identifier)
     (typed_parameter)
     (default_parameter)    
-    (typed_default_parameter)  
+    (typed_default_parameter)
+    (variadic_parameter)
   ] @parameter.inside @parameter.around)
 
 (arguments (_expression) @parameter.inside @parameter.around)

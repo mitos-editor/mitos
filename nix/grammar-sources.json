@@ -463,9 +463,9 @@
   },
   "gdscript": {
     "git": "https://github.com/PrestonKnopp/tree-sitter-gdscript",
-    "rev": "1f1e782fe2600f50ae57b53876505b8282388d77",
-    "url": "https://github.com/PrestonKnopp/tree-sitter-gdscript/archive/1f1e782fe2600f50ae57b53876505b8282388d77.tar.gz",
-    "hash": "sha256-utVRgO1aAt9Kx4yEHphRWy3SUYv+UaIN7y9ojFM1NoI="
+    "rev": "f337a5f4deec29c9ed56cfc022d8d9a6e1bcd467",
+    "url": "https://github.com/PrestonKnopp/tree-sitter-gdscript/archive/f337a5f4deec29c9ed56cfc022d8d9a6e1bcd467.tar.gz",
+    "hash": "sha256-vuTnPhJW8pS5dHQvYeSawOGx9aVgcbMuHdf77QsPszY="
   },
   "gemini": {
     "git": "https://git.sr.ht/~nbsp/tree-sitter-gemini",

@@ -1,3 +1,5 @@
+(identifier) @variable
+
 ; Identifier naming conventions
 
 (
@@ -11,7 +13,7 @@
 
 ; Function calls
 
-(attribute_call (identifier) @function)
+(attribute_call (identifier) @function.method)
 (base_call (identifier) @function)
 (call (identifier) @function)
 (lambda (name) @function)
@@ -20,21 +22,20 @@
 
 (function_definition 
   name: (name) @function
-  parameters: (parameters) @variable.parameter )
+  parameters: (parameters) )
 (constructor_definition "_init" @function)
-(lambda (parameters) @variable.parameter)
+
 
 
 ;; Literals
 (comment) @comment
 (string) @string
 
-(type) @type
-(expression_statement (array (identifier) @type))
-(binary_operator (identifier) @type)
+(type (identifier) @type)
 (enum_definition (name) @type.enum)
 (enumerator (identifier) @type.enum.variant)
-(underscore) @type.builtin
+((identifier) @variable.builtin
+ (#eq? @variable.builtin "_"))
 
 
 (variable_statement (identifier) @variable)
@@ -116,9 +117,6 @@
   "func"
 ] @keyword.function
 
-[
-  "export"
-] @keyword.control.import
 
 [
   "in"
@@ -138,7 +136,6 @@
 
 
 [
-  (remote_keyword)
   (static_keyword)
   "const"
   "signal"
@@ -146,11 +143,17 @@
 ] @keyword.storage.modifier
 
 [
-  "setget"
-  "onready"
   "extends"
   "set"
   "get"
   "await"
 ] @keyword
 
+
+(parameters (identifier) @variable.parameter)
+[(typed_parameter . (identifier) @variable.parameter)
+ (default_parameter . (identifier) @variable.parameter)
+ (typed_default_parameter . (identifier) @variable.parameter)]
+(region_start) @comment
+(region_end) @comment
+(region_label) @comment

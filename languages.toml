@@ -2649,7 +2649,7 @@ language-servers = [ "godot" ]
 
 [[grammar]]
 name = "gdscript"
-source = { git = "https://github.com/PrestonKnopp/tree-sitter-gdscript", rev = "1f1e782fe2600f50ae57b53876505b8282388d77" }
+source = { git = "https://github.com/PrestonKnopp/tree-sitter-gdscript", rev = "f337a5f4deec29c9ed56cfc022d8d9a6e1bcd467" }
 
 [[language]]
 name = "godot-resource"
