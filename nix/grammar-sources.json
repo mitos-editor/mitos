@@ -235,9 +235,9 @@
   },
   "cython": {
     "git": "https://github.com/b0o/tree-sitter-cython",
-    "rev": "62f44f5e7e41dde03c5f0a05f035e293bcf2bcf8",
-    "url": "https://github.com/b0o/tree-sitter-cython/archive/62f44f5e7e41dde03c5f0a05f035e293bcf2bcf8.tar.gz",
-    "hash": "sha256-c0YiGAqN1ak3Tm+9ImalYxrZn5uyuEKVQcPaL0Ajees="
+    "rev": "756a20c4d601b715f7b321eaad144f4cb14031bf",
+    "url": "https://github.com/b0o/tree-sitter-cython/archive/756a20c4d601b715f7b321eaad144f4cb14031bf.tar.gz",
+    "hash": "sha256-nGZSwLTD8MmGSObKSE2Y4o2pe0R9r4QOCj/so9yTQoc="
   },
   "d": {
     "git": "https://github.com/gdamore/tree-sitter-d",

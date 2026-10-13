@@ -113,3 +113,5 @@
 
 ; REFERENCES
 (identifier) @local.reference
+
+(function_definition) @local.scope

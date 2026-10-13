@@ -5177,7 +5177,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "cython"
-source = { git = "https://github.com/b0o/tree-sitter-cython", rev = "62f44f5e7e41dde03c5f0a05f035e293bcf2bcf8" }
+source = { git = "https://github.com/b0o/tree-sitter-cython", rev = "756a20c4d601b715f7b321eaad144f4cb14031bf" }
 
 [[language]]
 name = "shellcheckrc"

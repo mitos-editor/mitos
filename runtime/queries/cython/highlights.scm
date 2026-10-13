@@ -200,3 +200,5 @@
 
 (aliased_import
   alias: (identifier) @namespace)
+
+(type_modifier) @keyword.storage.modifier
