@@ -31,8 +31,10 @@
   "[" "]"
   "(" ")"
   "{" "}"
-  "<" ">"
   "$("
-  "::<"
-  "::$<"
 ] @rainbow.bracket
+
+(generic_list ["<" ">"] @rainbow.bracket) @rainbow.scope
+(generic_parameters ["<" ">"] @rainbow.bracket) @rainbow.scope
+(turbofish ["::<" "::$<" ">"] @rainbow.bracket) @rainbow.scope
+(named_type_unpack) @rainbow.scope

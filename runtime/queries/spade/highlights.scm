@@ -1,3 +1,14 @@
+((identifier) @type
+  (#match? @type "[A-Z]"))
+
+((scoped_identifier
+    name: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+
+((identifier) @constant
+ (#match? @constant "^[A-Z][A-Z\\d_]*$"))
+
+
 (self) @variable.builtin
 
 (unit_definition (identifier) @function)
@@ -134,15 +145,3 @@
 [
   (doc_comment)
 ] @comment.block.documentation
-
-
-((identifier) @type
-  (#match? @type "[A-Z]"))
-
-((scoped_identifier
-    name: (identifier) @type)
- (#match? @type "^[A-Z]"))
-
-((identifier) @constant
- (#match? @constant "^[A-Z][A-Z\\d_]*$"))
-

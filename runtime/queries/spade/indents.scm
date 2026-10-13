@@ -14,8 +14,7 @@
   (paren_expression)
   (turbofish)
   (generic_parameters)
-  (named_unpack)
-  (positional_unpack)
+  (named_type_unpack)
   (tuple_pattern)
   (match_expression)
 ] @indent

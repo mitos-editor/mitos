@@ -1459,9 +1459,9 @@
   },
   "spade": {
     "git": "https://codeberg.org/spade-lang/tree-sitter-spade",
-    "rev": "4eb2fc0173e48564421721f8e4f25a0fde89ac70",
-    "url": "https://codeberg.org/spade-lang/tree-sitter-spade/archive/4eb2fc0173e48564421721f8e4f25a0fde89ac70.tar.gz",
-    "hash": "sha256-5qlkRqcB8NNCdWrUfFkrT4SUVV4RweZuQwGEh6aGj5A="
+    "rev": "cdf5556875d72cbbe52e2473d168dcb243bcb337",
+    "url": "https://codeberg.org/spade-lang/tree-sitter-spade/archive/cdf5556875d72cbbe52e2473d168dcb243bcb337.tar.gz",
+    "hash": "sha256-0DEySAzQE/GKdv6ReX3kCK+WBLf48xmthHW2bRr0Ndg="
   },
   "spicedb": {
     "git": "https://github.com/jzelinskie/tree-sitter-spicedb",
