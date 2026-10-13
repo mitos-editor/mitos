@@ -4681,7 +4681,7 @@ args = ["-"]
 
 [[grammar]]
 name = "snakemake"
-source = { git = "https://github.com/osthomas/tree-sitter-snakemake", rev = "e909815acdbe37e69440261ebb1091ed52e1dec6" }
+source = { git = "https://github.com/osthomas/tree-sitter-snakemake", rev = "68010430c3e51c0e84c1ce21c6551df0e2469f51" }
 
 [[language]]
 name = "cylc"

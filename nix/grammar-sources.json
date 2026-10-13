@@ -1441,9 +1441,9 @@
   },
   "snakemake": {
     "git": "https://github.com/osthomas/tree-sitter-snakemake",
-    "rev": "e909815acdbe37e69440261ebb1091ed52e1dec6",
-    "url": "https://github.com/osthomas/tree-sitter-snakemake/archive/e909815acdbe37e69440261ebb1091ed52e1dec6.tar.gz",
-    "hash": "sha256-Pl72h5oOF++PYlvcGn7Lkm4eOaBbRZTkSIR3QNUIiH0="
+    "rev": "68010430c3e51c0e84c1ce21c6551df0e2469f51",
+    "url": "https://github.com/osthomas/tree-sitter-snakemake/archive/68010430c3e51c0e84c1ce21c6551df0e2469f51.tar.gz",
+    "hash": "sha256-YdtaTo4THs5ynYtZxSWMhR9h4HXQ4qjUedjYC2xVevk="
   },
   "solidity": {
     "git": "https://github.com/JoranHonig/tree-sitter-solidity",
