@@ -469,9 +469,9 @@
   },
   "gemini": {
     "git": "https://git.sr.ht/~nbsp/tree-sitter-gemini",
-    "rev": "3cc5e4bdf572d5df4277fc2e54d6299bd59a54b3",
-    "url": "https://git.sr.ht/~nbsp/tree-sitter-gemini/archive/3cc5e4bdf572d5df4277fc2e54d6299bd59a54b3.tar.gz",
-    "hash": "sha256-jabA22bXHbQjIT3r2hKYqgI/AOF5duPI5Ws27IriuJU="
+    "rev": "b60a42df3f76bd4e8f988465309d705a007dc506",
+    "url": "https://git.sr.ht/~nbsp/tree-sitter-gemini/archive/b60a42df3f76bd4e8f988465309d705a007dc506.tar.gz",
+    "hash": "sha256-dcGONPrmti44WEfsBWyUzEUBmptLJYjZjKtEBLLko/M="
   },
   "gherkin": {
     "git": "https://github.com/SamyAB/tree-sitter-gherkin",
