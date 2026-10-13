@@ -54,7 +54,10 @@
     operand: (identifier) @_module
     field: (field_identifier) @_func)
   arguments: (argument_list
-    . (interpreted_string_literal) @injection.content))
+    . [
+      (interpreted_string_literal (interpreted_string_literal_content) @injection.content)
+      (raw_string_literal (raw_string_literal_content) @injection.content)
+    ]))
   (#eq? @_module "fmt")
   (#any-of? @_func "Printf" "Sprintf" "Scanf" "Errorf")
   (#set! injection.language "go-format-string"))
@@ -62,18 +65,19 @@
 ; https://pkg.go.dev/fmt#Fprintf
 ; https://pkg.go.dev/fmt#Fscanf
 ; https://pkg.go.dev/fmt#Sscanf
+; https://pkg.go.dev/fmt#Appendf
 ((call_expression
   function: (selector_expression
     operand: (identifier) @_module
     field: (field_identifier) @_func)
   arguments: (argument_list
-    ; [(identifier) (interpreted_string_literal)]
-    (_)
-    ; (identifier)
-    .
-    (interpreted_string_literal) @injection.content))
+    . (_)
+    . [
+      (interpreted_string_literal (interpreted_string_literal_content) @injection.content)
+      (raw_string_literal (raw_string_literal_content) @injection.content)
+    ]))
   (#eq? @_module "fmt")
-  (#any-of? @_func "Fprintf" "Fscanf" "Sscanf")
+  (#any-of? @_func "Fprintf" "Fscanf" "Sscanf" "Appendf")
   (#set! injection.language "go-format-string"))
 
 ; https://pkg.go.dev/log#Printf
@@ -87,6 +91,9 @@
     operand: (identifier)
     field: (field_identifier) @_func)
   arguments: (argument_list
-    . (interpreted_string_literal) @injection.content))
+    . [
+      (interpreted_string_literal (interpreted_string_literal_content) @injection.content)
+      (raw_string_literal (raw_string_literal_content) @injection.content)
+    ]))
   (#any-of? @_func "Printf" "Fatalf" "Panicf")
   (#set! injection.language "go-format-string"))

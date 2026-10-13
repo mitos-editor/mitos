@@ -7,12 +7,17 @@
 (method_declaration
   body: (block)? @function.inside) @function.around
 
-;; struct and interface declaration as class textobject?
+; Struct and interface declarations, including constraints and embedded types.
 (type_declaration
-  (type_spec (type_identifier) (struct_type (field_declaration_list (_)?) @class.inside))) @class.around
+  (type_spec type: (struct_type (field_declaration_list) @class.inside))) @class.around
 
 (type_declaration
-  (type_spec (type_identifier) (interface_type (method_elem)+ @class.inside))) @class.around
+  (type_spec type: (interface_type))) @class.around
+
+; Capture the first and last members explicitly so mixed method/type lists
+; form one inside selection. Empty interfaces still have an around selection.
+(interface_type . (_) @class.inside .)
+(interface_type . (_) @class.inside (_)* (_) @class.inside .)
 
 (type_parameter_list
   ((_) @parameter.inside . ","? @parameter.around) @parameter.around)

@@ -19,20 +19,26 @@
 
 (label_name) @label
 
-(const_spec
-  name: (identifier) @constant)
-
 ; Function calls
 
 (call_expression
-  function: (identifier) @function)
+  function: [
+    (identifier) @function
+    (parenthesized_expression (identifier) @function)
+  ])
 
 (call_expression
-  function: (selector_expression
-    field: (field_identifier) @function.method))
+  function: [
+    (selector_expression field: (field_identifier) @function.method)
+    (parenthesized_expression
+      (selector_expression field: (field_identifier) @function.method))
+  ])
 
 (call_expression
-  function: (identifier) @function.builtin
+  function: [
+    (identifier) @function.builtin
+    (parenthesized_expression (identifier) @function.builtin)
+  ]
   (#match? @function.builtin "^(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover|min|max|clear)$"))
 
 ; Types
@@ -42,6 +48,18 @@
 (type_parameter_list
   (type_parameter_declaration
     name: (identifier) @type.parameter))
+
+; Generic receiver type arguments introduce type parameters.
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: [
+        (generic_type
+          type_arguments: (type_arguments (type_elem (type_identifier) @type.parameter)))
+        (pointer_type
+          (generic_type
+            type_arguments: (type_arguments (type_elem (type_identifier) @type.parameter))))
+      ])))
 
 ((type_identifier) @type.builtin
   (#match? @type.builtin "^(any|bool|byte|comparable|complex128|complex64|error|float32|float64|int|int16|int32|int64|int8|rune|string|uint|uint16|uint32|uint64|uint8|uintptr)$"))
@@ -92,7 +110,6 @@
   "!"
   "!="
   "..."
-  "*"
   "*"
   "*="
   "/"

@@ -109,3 +109,36 @@ first
 last`
 	return query
 }
+
+type Box[
+	T any,
+] struct {
+	Value T
+}
+
+type Values[
+	T any,
+] = []T
+
+func Combine[
+	T any,
+	U any,
+](first T, second U) {
+	_ = pkg.Helper[
+		T,
+		U,
+	](first, second)
+	_ = helper[
+		T,
+		U,
+	]
+}
+
+type (
+	GroupedBox[T any] struct {
+		Value T
+	}
+	GroupedReader interface {
+		Read() error
+	}
+)

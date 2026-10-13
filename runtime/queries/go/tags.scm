@@ -11,9 +11,9 @@
   (comment)* @doc
   .
   (method_declaration
-    name: (field_identifier) @name) @definition.method
+    name: (field_identifier) @name) @definition.function
   (#strip! @doc "^//\\s*")
-  (#select-adjacent! @doc @definition.method)
+  (#select-adjacent! @doc @definition.function)
 )
 
 (call_expression

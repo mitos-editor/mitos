@@ -1,8 +1,10 @@
 [
   (import_declaration)
   (const_declaration)
-  (type_declaration)
-  (type_spec)
+  (type_parameter_list)
+  (type_arguments)
+  (type_instantiation_expression)
+  (interface_type)
   (func_literal)
   (literal_value)
   (literal_element)
@@ -19,6 +21,10 @@
   (selector_expression)
   (binary_expression)
 ] @indent
+
+; Only grouped type declarations add an outer indentation level. A named
+; type's fields and type parameters provide their own indentation scopes.
+(type_declaration "(") @indent
 
 [
   "]"

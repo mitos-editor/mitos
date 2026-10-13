@@ -1,7 +1,7 @@
 [
   (import_spec_list)
   (const_declaration)
-  (var_declaration)
+  (var_spec_list)
   (type_parameter_list)
   (parameter_list)
   (type_declaration)
@@ -23,6 +23,7 @@
   (slice_expression)
   (type_assertion_expression)
   (type_conversion_expression)
+  (type_instantiation_expression)
   (literal_value)
 ] @rainbow.scope
 
