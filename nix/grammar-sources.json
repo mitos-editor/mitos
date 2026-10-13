@@ -1615,9 +1615,9 @@
   },
   "tql": {
     "git": "https://github.com/tenzir/tree-sitter-tql",
-    "rev": "477e8ba230867b9135deb7af88ea96f160900173",
-    "url": "https://github.com/tenzir/tree-sitter-tql/archive/477e8ba230867b9135deb7af88ea96f160900173.tar.gz",
-    "hash": "sha256-do8MFnkX+/5gr9PiJd48GADlv96ggMhSMzN/3pPPWmY="
+    "rev": "90c5ce2bbda14ca044d1dd4453a7eec0f892af04",
+    "url": "https://github.com/tenzir/tree-sitter-tql/archive/90c5ce2bbda14ca044d1dd4453a7eec0f892af04.tar.gz",
+    "hash": "sha256-ZeFS16h2AuH1z9Nn186L9bGgKjq/br4PQziv0fsNUno="
   },
   "tsx": {
     "git": "https://github.com/tree-sitter/tree-sitter-typescript",

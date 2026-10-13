@@ -5540,7 +5540,7 @@ comment-token = "//"
 
 [[grammar]]
 name = "tql"
-source = { git = "https://github.com/tenzir/tree-sitter-tql", rev = "477e8ba230867b9135deb7af88ea96f160900173" }
+source = { git = "https://github.com/tenzir/tree-sitter-tql", rev = "90c5ce2bbda14ca044d1dd4453a7eec0f892af04" }
 
 [[language]]
 name = "moonbit"

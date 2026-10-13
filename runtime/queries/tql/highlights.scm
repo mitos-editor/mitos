@@ -1,3 +1,5 @@
+(identifier) @variable
+
 ;; Upstream: https://github.com/tenzir/tree-sitter-tql/blob/main/queries/tql/highlights.scm
 
 "move" @keyword
@@ -84,9 +86,10 @@
 (comment) @comment
 
 (invocation
-  operator: (entity) @function)
+  operator: (entity (identifier) @function .))
 (call_expression
-  (entity) @function)
+  (entity (identifier) @function .))
 (call_expression
-  method: (entity) @function.method)
-(identifier) @variable
+  method: (entity (identifier) @function.method .))
+
+(qualified_dollar_var module: (identifier) @namespace)
