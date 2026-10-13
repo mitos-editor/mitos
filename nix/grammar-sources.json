@@ -85,9 +85,9 @@
   },
   "bitbake": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-bitbake",
-    "rev": "10bacac929ff36a1e8f4056503fe4f8717b21b94",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-bitbake/archive/10bacac929ff36a1e8f4056503fe4f8717b21b94.tar.gz",
-    "hash": "sha256-G+vJ8/T331wad4H2i39LqxgLVJEUBlnTJudxerl6nc0="
+    "rev": "a5d04fdb5a69a02b8fa8eb5525a60dfb5309b73b",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-bitbake/archive/a5d04fdb5a69a02b8fa8eb5525a60dfb5309b73b.tar.gz",
+    "hash": "sha256-64wYQyCBPGDA8tNCFJIc7UX53/YPuXklsus6mgrlZso="
   },
   "blade": {
     "git": "https://github.com/EmranMR/tree-sitter-blade",

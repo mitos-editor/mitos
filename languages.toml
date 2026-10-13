@@ -4186,7 +4186,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "bitbake"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-bitbake", rev = "10bacac929ff36a1e8f4056503fe4f8717b21b94" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-bitbake", rev = "a5d04fdb5a69a02b8fa8eb5525a60dfb5309b73b" }
 
 [[language]]
 name = "log"

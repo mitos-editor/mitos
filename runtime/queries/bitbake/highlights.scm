@@ -5,7 +5,7 @@
 (unset_statement (identifier) @variable.other.member)
 (export_statement (identifier) @variable.other.member)
 (variable_expansion (identifier) @variable.other.member)
-(python_function_definition (parameters (python_identifier) @variable.other.member))
+(python_function_definition (parameters (python_identifier) @variable.parameter))
 
 (variable_assignment (override) @keyword.storage.modifier)
 (overrides_statement (identifier) @keyword.storage.modifier)
@@ -80,3 +80,4 @@
 
 (string) @string
 (comment) @comment
+(line_continuation) @punctuation.special
