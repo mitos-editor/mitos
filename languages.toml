@@ -2361,7 +2361,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "elm"
-source = { git = "https://github.com/elm-tooling/tree-sitter-elm", rev = "6d9511c28181db66daee4e883f811f6251220943" }
+source = { git = "https://github.com/elm-tooling/tree-sitter-elm", rev = "e1e8fea161a1e66f3997855d316be2a43e4e956f" }
 
 [[language]]
 name = "iex"

@@ -25,9 +25,9 @@
 (function_declaration_left
   pattern: (_ (lower_case_identifier) @local.definition.variable.parameter))
 (anonymous_function_expr
-  param: (pattern (_ (lower_case_identifier)) @local.definition.variable.parameter))
+  param: (pattern (_ (lower_case_identifier) @local.definition.variable.parameter)))
 
 ; References
-(value_expr (value_qid (upper_case_identifier)) @local.reference)
-(value_expr (value_qid (lower_case_identifier)) @local.reference)
-(type_ref (upper_case_qid) @local.reference)
+(value_expr (value_qid (upper_case_identifier) @local.reference))
+(value_expr (value_qid (lower_case_identifier) @local.reference))
+(type_ref (upper_case_qid (upper_case_identifier) @local.reference))

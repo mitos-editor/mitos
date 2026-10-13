@@ -367,9 +367,9 @@
   },
   "elm": {
     "git": "https://github.com/elm-tooling/tree-sitter-elm",
-    "rev": "6d9511c28181db66daee4e883f811f6251220943",
-    "url": "https://github.com/elm-tooling/tree-sitter-elm/archive/6d9511c28181db66daee4e883f811f6251220943.tar.gz",
-    "hash": "sha256-fca6mhBzq8V9lgXR6r/F9POEte8mEXw/qgROBLFf5Tk="
+    "rev": "e1e8fea161a1e66f3997855d316be2a43e4e956f",
+    "url": "https://github.com/elm-tooling/tree-sitter-elm/archive/e1e8fea161a1e66f3997855d316be2a43e4e956f.tar.gz",
+    "hash": "sha256-Pg4lYiRua28A46me+LcXYq3kmZh0lndD7FfOOiXEkcU="
   },
   "elvish": {
     "git": "https://github.com/ckafi/tree-sitter-elvish",

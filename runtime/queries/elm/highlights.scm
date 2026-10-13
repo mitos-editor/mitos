@@ -1,3 +1,5 @@
+(lower_case_identifier) @variable
+
 ; Keywords
 [
     "if"
@@ -26,8 +28,8 @@
 (port_annotation(lower_case_identifier) @function)
 (file (value_declaration (function_declaration_left(lower_case_identifier) @function)))
 
-(field name: (lower_case_identifier) @attribute)
-(field_access_expr(lower_case_identifier) @attribute)
+(field name: (lower_case_identifier) @variable.other.member)
+(field_access_expr(lower_case_identifier) @variable.other.member)
 
 (operator_identifier) @keyword.operator
 (eq) @operator
@@ -57,7 +59,7 @@
 (type) @type
 
 (type_declaration(upper_case_identifier) @type)
-(type_ref) @type
+(type_ref (upper_case_qid (upper_case_identifier) @type))
 (type_alias_declaration name: (upper_case_identifier) @type)
 
 (union_pattern constructor: (upper_case_qid (upper_case_identifier) @label (dot) (upper_case_identifier) @constructor))
@@ -66,7 +68,7 @@
 (union_variant(upper_case_identifier) @constructor)
 (value_expr name: (value_qid (upper_case_identifier) @label))
 (value_expr (upper_case_qid (upper_case_identifier) @label (dot) (upper_case_identifier) @constructor))
-(value_expr(upper_case_qid(upper_case_identifier)) @constructor)
+(value_expr (upper_case_qid (upper_case_identifier) @constructor))
 
 ; comments
 (line_comment) @comment
@@ -81,3 +83,6 @@
 
 (open_char) @constant.character
 (close_char) @constant.character
+
+(function_call_expr
+  target: (value_expr (value_qid (lower_case_identifier) @function)))
