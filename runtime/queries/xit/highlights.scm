@@ -2,6 +2,7 @@
 
 (open_checkbox) @markup.list
 (ongoing_checkbox) @keyword.control
+(in_question_checkbox) @keyword.control
 (checked_checkbox) @diff.plus
 (obsolete_checkbox) @comment.unused
 

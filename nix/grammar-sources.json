@@ -1771,9 +1771,9 @@
   },
   "xit": {
     "git": "https://github.com/synaptiko/tree-sitter-xit",
-    "rev": "7d7902456061bc2ad21c64c44054f67b5515734c",
-    "url": "https://github.com/synaptiko/tree-sitter-xit/archive/7d7902456061bc2ad21c64c44054f67b5515734c.tar.gz",
-    "hash": "sha256-J75zHEvUmO98n5jCaBF0EeYmvAJkwmv/hs4EKqeuqIo="
+    "rev": "a4fad351bfa5efdcb379b40c36671413fbe9caac",
+    "url": "https://github.com/synaptiko/tree-sitter-xit/archive/a4fad351bfa5efdcb379b40c36671413fbe9caac.tar.gz",
+    "hash": "sha256-Neg7I9Rymr2Z6nOlGLC2az9V1SBiCWqOHierJDmSYeg="
   },
   "xml": {
     "git": "https://github.com/RenjiSann/tree-sitter-xml",

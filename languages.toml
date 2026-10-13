@@ -3095,7 +3095,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "xit"
-source = { git = "https://github.com/synaptiko/tree-sitter-xit", rev = "7d7902456061bc2ad21c64c44054f67b5515734c" }
+source = { git = "https://github.com/synaptiko/tree-sitter-xit", rev = "a4fad351bfa5efdcb379b40c36671413fbe9caac" }
 
 [[language]]
 name = "esdl"
