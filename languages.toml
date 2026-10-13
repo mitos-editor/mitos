@@ -4292,7 +4292,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "groovy"
-source = { git = "https://github.com/murtaza64/tree-sitter-groovy", rev = "235009aad0f580211fc12014bb0846c3910130c1" }
+source = { git = "https://github.com/murtaza64/tree-sitter-groovy", rev = "2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c" }
 
 [[language]]
 name = "fidl"

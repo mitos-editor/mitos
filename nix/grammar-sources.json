@@ -613,9 +613,9 @@
   },
   "groovy": {
     "git": "https://github.com/murtaza64/tree-sitter-groovy",
-    "rev": "235009aad0f580211fc12014bb0846c3910130c1",
-    "url": "https://github.com/murtaza64/tree-sitter-groovy/archive/235009aad0f580211fc12014bb0846c3910130c1.tar.gz",
-    "hash": "sha256-wK671w10tj3Pv1ugzD0ZJzlR9bsst+1DXlfPvpoJgnA="
+    "rev": "2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c",
+    "url": "https://github.com/murtaza64/tree-sitter-groovy/archive/2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c.tar.gz",
+    "hash": "sha256-ADIMZQ/faDM32KH//S8vNv1GBvJtd/FU0/D7eyaKWJI="
   },
   "hare": {
     "git": "https://git.sr.ht/~ecs/tree-sitter-hare",

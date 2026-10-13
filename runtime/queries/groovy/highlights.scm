@@ -272,3 +272,5 @@
 (groovy_doc
   (groovy_doc_throws
     (identifier) @type))
+
+(label (identifier) @label)
