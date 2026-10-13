@@ -23,7 +23,7 @@
 (primitive_type) @type.builtin
 (cast_type) @type.builtin
 (named_type (name) @type) @type
-(named_type (qualified_name) @type) @type
+(named_type (qualified_name (name) @type))
 
 ; Functions
 
@@ -34,7 +34,7 @@
   name: (name) @function.method)
 
 (function_call_expression
-  function: [(qualified_name (name)) (name)] @function)
+  function: [(qualified_name (name) @function) (name) @function])
 
 (scoped_call_expression
   name: (name) @function)
