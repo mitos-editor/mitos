@@ -1165,9 +1165,9 @@
   },
   "po": {
     "git": "https://github.com/erasin/tree-sitter-po",
-    "rev": "417cee9abb2053ed26b19e7de972398f2da9b29e",
-    "url": "https://github.com/erasin/tree-sitter-po/archive/417cee9abb2053ed26b19e7de972398f2da9b29e.tar.gz",
-    "hash": "sha256-HrsPd5AFAArsoKb4UhcpWHK71UcaOwxnN/a7OrlZJ+4="
+    "rev": "bd860a0f57f697162bf28e576674be9c1500db5e",
+    "url": "https://github.com/erasin/tree-sitter-po/archive/bd860a0f57f697162bf28e576674be9c1500db5e.tar.gz",
+    "hash": "sha256-WoiL0L+/ZUsHVbJWfQasjyTCcE33ixFOGD5J6VZ2gZU="
   },
   "pod": {
     "git": "https://github.com/tree-sitter-perl/tree-sitter-pod",
