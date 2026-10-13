@@ -385,9 +385,9 @@
   },
   "embedded-template": {
     "git": "https://github.com/tree-sitter/tree-sitter-embedded-template",
-    "rev": "5bce9d580d3b78f48e13e331f69dfa0abd4ff68b",
-    "url": "https://github.com/tree-sitter/tree-sitter-embedded-template/archive/5bce9d580d3b78f48e13e331f69dfa0abd4ff68b.tar.gz",
-    "hash": "sha256-NGczH91ytU2Dd2PWZa9HfYY58u4WrbAIp/XYrSEKvJ4="
+    "rev": "3499d85f0a0d937c507a4a65368f2f63772786e1",
+    "url": "https://github.com/tree-sitter/tree-sitter-embedded-template/archive/3499d85f0a0d937c507a4a65368f2f63772786e1.tar.gz",
+    "hash": "sha256-xqsRXzIbXm4yadXvvy/Pwsx77lDOupyh+SKlTE8lVJE="
   },
   "erlang": {
     "git": "https://github.com/the-mikedavis/tree-sitter-erlang",
