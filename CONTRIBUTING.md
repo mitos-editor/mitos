@@ -65,6 +65,28 @@ if needed.
 
 Run `./book/build-site.sh` to rebuild the site and check the screenshots.
 
+# Grammar updates
+
+`cargo xtask update-grammars --dry-run` checks grammar pins against each
+upstream repository's default-branch HEAD. Drop `--dry-run` to update
+`languages.toml`, then run `cargo xtask update-nix-grammar-sources` to refresh
+the matching archive hashes. Optional grammar names restrict the update, for
+example `cargo xtask update-grammars rust toml`; `--jobs` controls concurrent
+repository checks.
+
+The updater preserves TOML comments and skips revisions without a committed
+`src/parser.c` at the configured grammar subpath. It reports skipped sources
+without blocking updates from other repositories. SCM queries remain subject
+to review and the existing grammar CI checks.
+
+The `Update grammars` workflow runs on Mondays at 05:23 UTC and can also be
+dispatched manually on `main`. It opens one draft PR on `automation/grammars`,
+assigned to `matoous`, with both grammar pins and Nix hashes. While that PR is
+open, subsequent runs leave its branch alone so manual query fixes are
+preserved. Once it is merged or closed, a later run can propose another batch.
+The workflow uses the existing `RELEASE_PAT` secret only for PR creation, so
+the PR triggers normal CI without GitHub Actions token approval requirements.
+
 # Testing
 
 ## Unit Tests/Documentation Tests

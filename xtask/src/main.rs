@@ -6,6 +6,7 @@
 
 mod docgen;
 mod grammar_sources;
+mod grammar_updates;
 mod helpers;
 mod path;
 
@@ -551,6 +552,9 @@ Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
         update-nix-grammar-sources [--jobs <count>]
                                    Update nix/grammar-sources.json from the Git revisions configured in
                                    languages.toml, prefetching changed archives with Nix.
+        update-grammars [--dry-run] [--jobs <count>] [grammars]
+                                   Pin grammars to upstream HEAD when the configured subpath contains
+                                   a committed parser. Preserve queries for review through grammar CI.
 "
         );
     }
@@ -568,6 +572,7 @@ fn main() -> Result<(), DynError> {
             "highlight-check" => tasks::highlightcheck(args)?,
             "theme-check" => tasks::themecheck(args)?,
             "update-nix-grammar-sources" => grammar_sources::update(args)?,
+            "update-grammars" => grammar_updates::update(args)?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

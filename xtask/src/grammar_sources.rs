@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     fs,
     io::Write,
+    path::Path,
     process::Command,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -53,6 +54,10 @@ struct PrefetchResult {
 pub fn update(args: impl Iterator<Item = String>) -> Result<(), DynError> {
     let jobs = parse_jobs(args)?;
     let root = crate::path::project_root();
+    update_at(&root, jobs)
+}
+
+fn update_at(root: &Path, jobs: usize) -> Result<(), DynError> {
     let lock_path = root.join("nix/grammar-sources.json");
     let languages: Languages = toml::from_str(&fs::read_to_string(root.join("languages.toml"))?)?;
     let old: BTreeMap<String, LockedSource> = match fs::read(&lock_path) {
@@ -70,12 +75,15 @@ pub fn update(args: impl Iterator<Item = String>) -> Result<(), DynError> {
         let (Some(git), Some(rev)) = (source.git, source.rev) else {
             continue;
         };
-        let url = archive_url(&git, &rev)?;
         match old.get(&grammar.name) {
-            Some(previous) if previous.git == git && previous.rev == rev && previous.url == url => {
+            // Keep working alternate archive URLs for unchanged revisions.
+            Some(previous) if previous.git == git && previous.rev == rev => {
                 locked.insert(grammar.name, previous.clone());
             }
-            _ => changed.push((grammar.name, PendingSource { git, rev, url })),
+            _ => {
+                let url = archive_url(&git, &rev)?;
+                changed.push((grammar.name, PendingSource { git, rev, url }));
+            }
         }
     }
 
@@ -124,7 +132,7 @@ pub fn update(args: impl Iterator<Item = String>) -> Result<(), DynError> {
         .into());
     }
 
-    let mut temporary = tempfile::NamedTempFile::new_in(&root)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(root)?;
     serde_json::to_writer_pretty(&mut temporary, &locked)?;
     writeln!(temporary)?;
     temporary.persist(&lock_path)?;
@@ -220,7 +228,32 @@ fn prefetch(name: &str, source: &PendingSource) -> Result<LockedSource, String> 
 
 #[cfg(test)]
 mod tests {
-    use super::archive_url;
+    use super::{archive_url, update_at};
+
+    #[test]
+    fn reuses_hash_and_alternate_url_for_unchanged_revision() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("nix")).unwrap();
+        std::fs::write(
+            root.path().join("languages.toml"),
+            "[[grammar]]\nname = 'example'\nsource = { git = 'https://gitlab.com/group/example', rev = 'abc' }\n",
+        )
+        .unwrap();
+        let path = root.path().join("nix/grammar-sources.json");
+        let locked = serde_json::json!({
+            "example": {
+                "git": "https://gitlab.com/group/example",
+                "rev": "abc",
+                "url": "https://gitlab.com/group/example/-/archive/abc/example-abc.tar.gz",
+                "hash": "sha256-existing-archive-hash"
+            }
+        });
+        std::fs::write(&path, serde_json::to_vec(&locked).unwrap()).unwrap();
+        update_at(root.path(), 1).unwrap();
+        let actual: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(actual, locked);
+    }
 
     #[test]
     fn archive_urls() {

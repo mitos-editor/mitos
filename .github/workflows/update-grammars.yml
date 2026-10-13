@@ -1,0 +1,87 @@
+name: Update grammars
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: update-grammars
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'mitos-editor/mitos' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check for an existing update PR
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          count=$(gh pr list --state open --head automation/grammars --json number --jq 'length')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" != 0 ]; then
+            echo 'An existing grammar update PR needs review. Its branch and manual query changes are preserved.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Rust
+        if: steps.existing.outputs.count == '0'
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: '1.97.1'
+          cache-key: update-grammars
+
+      - name: Update upstream grammar revisions
+        if: steps.existing.outputs.count == '0'
+        id: grammars
+        shell: bash
+        run: |
+          cargo xtask update-grammars --jobs 8 | tee -a "$GITHUB_STEP_SUMMARY"
+          if git diff --quiet -- languages.toml; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Nix
+        if: steps.grammars.outputs.changed == 'true'
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Update matching Nix source hashes
+        if: steps.grammars.outputs.changed == 'true'
+        run: cargo xtask update-nix-grammar-sources
+
+      - name: Open a grammar update PR
+        if: steps.existing.outputs.count == '0'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          branch: automation/grammars
+          delete-branch: true
+          base: main
+          draft: true
+          assignees: matoous
+          add-paths: |
+            languages.toml
+            nix/grammar-sources.json
+          commit-message: |
+            chore(grammar): bump upstream grammars
+
+            Update grammar revisions and matching Nix source hashes.
+          title: 'chore(grammar): bump upstream grammars'
+          body: Update grammar revisions and matching Nix source hashes.

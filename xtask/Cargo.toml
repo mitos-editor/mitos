@@ -20,6 +20,8 @@ view.workspace = true
 stdx.workspace = true
 ropey.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+gix = { workspace = true, features = ["blocking-http-transport-curl", "sha1", "sha256"] }
