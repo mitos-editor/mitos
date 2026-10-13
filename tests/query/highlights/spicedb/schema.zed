@@ -1,0 +1,6 @@
+use expiration
+//  ^ @keyword.directive
+definition user {}
+//         ^ @type
+caveat allowed(value int) { value > 0 }
+//     ^ @function

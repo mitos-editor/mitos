@@ -1465,9 +1465,9 @@
   },
   "spicedb": {
     "git": "https://github.com/jzelinskie/tree-sitter-spicedb",
-    "rev": "a4e4645651f86d6684c15dfa9931b7841dc52a66",
-    "url": "https://github.com/jzelinskie/tree-sitter-spicedb/archive/a4e4645651f86d6684c15dfa9931b7841dc52a66.tar.gz",
-    "hash": "sha256-ObtaioiC4UiJ8FiB81L/SBrVdzovW0NHUunR2NYFN0w="
+    "rev": "6bba27682a2f4e297a8f6fd19539f550d27009e2",
+    "url": "https://github.com/jzelinskie/tree-sitter-spicedb/archive/6bba27682a2f4e297a8f6fd19539f550d27009e2.tar.gz",
+    "hash": "sha256-67e69+NHEUQMbwVChu91gyDzS7prb4UrLG64zMWLIbM="
   },
   "sql": {
     "git": "https://github.com/DerekStride/tree-sitter-sql",
