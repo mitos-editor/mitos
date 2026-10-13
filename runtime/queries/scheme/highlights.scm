@@ -12,15 +12,16 @@
 
 ; variables
 
+(symbol) @variable
+
 ((symbol) @variable.builtin
   (#eq? @variable.builtin "..."))
 
 ((symbol) @variable.builtin
   (#eq? @variable.builtin "."))
 
-(symbol) @variable
 
-["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+["(" ")" "[" "]" ] @punctuation.bracket
 
 (quote "'") @operator
 (unquote_splicing ",@") @operator
@@ -136,3 +137,8 @@
     "syntax-rules" "unquote" "begin" "quote" "let-syntax" "and" "if" "quasiquote" "letrec" "delay"
     "or" "when" "unless" "identifier-syntax" "assert" "library" "export" "import" "rename" "only"
     "except" "prefix" "define-values"))
+
+(dot) @punctuation.delimiter
+(datum_label_id) @label
+(sexp_comment "#;" @comment)
+["#'" "#`" "#," "#,@"] @operator

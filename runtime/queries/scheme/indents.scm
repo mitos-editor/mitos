@@ -11,12 +11,12 @@
 ; If the first element in a list is also a list and on a line by itself, the outer list is aligned to it
 (list . (list) @anchor .
 
-  (#not-kind-eq? @first "boolean") (#not-kind-eq? @first "character") (#not-kind-eq? @first "string") (#not-kind-eq? @first "number")) @align
+  (#not-kind-eq? @anchor "boolean") (#not-kind-eq? @anchor "character") (#not-kind-eq? @anchor "string") (#not-kind-eq? @anchor "number")) @align
 (list . (list) @anchor . (_) @second
   (#not-same-line? @anchor @second)
 
-  (#not-kind-eq? @first "boolean") (#not-kind-eq? @first "character") (#not-kind-eq? @first "string") (#not-kind-eq? @first "number")
-  (#not-match? @first "def.*|let.*|set!")) @align
+  (#not-kind-eq? @anchor "boolean") (#not-kind-eq? @anchor "character") (#not-kind-eq? @anchor "string") (#not-kind-eq? @anchor "number")
+  (#not-match? @anchor "def.*|let.*|set!")) @align
 ; If the first element in a list is not a list and on a line by itself, the outer list is aligned to
 ; it plus 1 additional space. This cannot currently be modelled exactly by our indent queries,
 ; but the following is equivalent, assuming that:

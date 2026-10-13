@@ -5,8 +5,7 @@
 ] @rainbow.scope
 
 [
-  "#(" "#vu8("
+  "#(" "#vu8(" "#u8("
   "(" ")"
   "[" "]"
-  "{" "}"
 ] @rainbow.bracket

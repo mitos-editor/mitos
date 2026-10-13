@@ -1381,9 +1381,9 @@
   },
   "scheme": {
     "git": "https://github.com/6cdh/tree-sitter-scheme",
-    "rev": "c6cb7c7d7a04b3f5d999c28e2e9c0c31b2d50ece",
-    "url": "https://github.com/6cdh/tree-sitter-scheme/archive/c6cb7c7d7a04b3f5d999c28e2e9c0c31b2d50ece.tar.gz",
-    "hash": "sha256-i3gt+A/LbZbC9VKUDOVy9+nkZH0voIoiaZuNzobZGoU="
+    "rev": "45c72463ac4260ef6e07d1c0642ed43d4e9957b4",
+    "url": "https://github.com/6cdh/tree-sitter-scheme/archive/45c72463ac4260ef6e07d1c0642ed43d4e9957b4.tar.gz",
+    "hash": "sha256-gy9gFuKYl5mBTVyQC5SenM03og2hNKQONhMn7uTAIQk="
   },
   "scss": {
     "git": "https://github.com/serenadeai/tree-sitter-scss",
