@@ -59,4 +59,6 @@
 (range) @constant
 
 ;; Punctuation
-["(" ")" "[" "]" "," ":" "="] @punctuation.bracket
+["(" ")" "[" "]"] @punctuation.bracket
+["," ":"] @punctuation.delimiter
+"=" @operator

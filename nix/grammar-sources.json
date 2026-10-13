@@ -553,9 +553,9 @@
   },
   "gnuplot": {
     "git": "https://codeberg.org/maribu/tree-sitter-gnuplot",
-    "rev": "21a3a3929facb964b3592daeb69119294ff84cf2",
-    "url": "https://codeberg.org/maribu/tree-sitter-gnuplot/archive/21a3a3929facb964b3592daeb69119294ff84cf2.tar.gz",
-    "hash": "sha256-7xEHry8gP3p0s73hrHCT+UNLuguCQ8zW9YZJh1kUgy4="
+    "rev": "61d6509eeb507a5436f74951254f6c9e4808ce69",
+    "url": "https://codeberg.org/maribu/tree-sitter-gnuplot/archive/61d6509eeb507a5436f74951254f6c9e4808ce69.tar.gz",
+    "hash": "sha256-FlsAf/8DEl44Lse3ytC9GvKsr3DbKvzhpk3VpH2AVgk="
   },
   "go": {
     "git": "https://github.com/tree-sitter/tree-sitter-go",
