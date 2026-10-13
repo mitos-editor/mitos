@@ -1093,9 +1093,9 @@
   },
   "org": {
     "git": "https://github.com/milisims/tree-sitter-org",
-    "rev": "698bb1a34331e68f83fc24bdd1b6f97016bb30de",
-    "url": "https://github.com/milisims/tree-sitter-org/archive/698bb1a34331e68f83fc24bdd1b6f97016bb30de.tar.gz",
-    "hash": "sha256-vMIIjY38vh9JEsKps/rTeF03OAQfGEczHNzRBr/hsec="
+    "rev": "64cfbc213f5a83da17632c95382a5a0a2f3357c1",
+    "url": "https://github.com/milisims/tree-sitter-org/archive/64cfbc213f5a83da17632c95382a5a0a2f3357c1.tar.gz",
+    "hash": "sha256-N/zlpv4oXVfjk+a/7vM0nAPsCCBMVvWN3oavPbPmKwk="
   },
   "p": {
     "git": "https://github.com/battesonb/tree-sitter-p",
