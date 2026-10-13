@@ -22,6 +22,8 @@
 
 (string) @string
 (number) @constant.numeric
+(keyword_number) @constant.numeric
+(version) @keyword.directive
 (boolean) @constant.builtin.boolean
 
 "." @punctuation.delimiter

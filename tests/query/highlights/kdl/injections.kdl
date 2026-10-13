@@ -1,0 +1,16 @@
+window-rule {
+    match app-id="^firefox$"
+//                ^ @constant.character.escape
+}
+other {
+    match app-id="^literal$"
+//                ^ @string
+}
+binds {
+    "Mod+T" { spawn "fish" "-c" "echo $HOME"; }
+//                               ^ @function.builtin
+}
+other-binds {
+    "Mod+T" { spawn "fish" "-c" "echo $HOME"; }
+//                               ^ @string
+}

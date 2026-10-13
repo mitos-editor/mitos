@@ -1,3 +1,3 @@
-(node (identifier) @definition.struct
+(node (identifier) @name
   children: _
-)
+) @definition.struct
