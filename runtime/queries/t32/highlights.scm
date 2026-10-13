@@ -140,19 +140,6 @@
   function: (identifier) @function)
 
 
-; Returns
-(
-  (command_expression
-    command: (identifier) @keyword.control.return)
-  (#match? @keyword.control.return "^[eE][nN][dD]([dD][oO])?$")
-)
-(
-  (command_expression
-    command: (identifier) @keyword.control.return)
-  (#match? @keyword.control.return "^[rR][eE][tT][uU][rR][nN]$")
-)
-
-
 ; Subroutine calls
 (subroutine_call_expression
   command: (identifier) @keyword
@@ -169,6 +156,8 @@
   (block))
 
 
+(macro) @variable.builtin
+
 ; Parameter declarations
 (parameter_declaration
   command: (identifier) @keyword
@@ -177,8 +166,7 @@
 
 
 ; Variables, constants and labels
-(macro) @variable.builtin
-(trace32_hll_variable) @variable.builtin
+(macro_text_expansion) @variable.builtin
 
 (
   (command_expression
@@ -211,8 +199,23 @@
   function: (identifier) @function.builtin)
 
 
+; Returns
+(
+  (command_expression
+    command: (identifier) @keyword.control.return)
+  (#match? @keyword.control.return "^[eE][nN][dD]([dD][oO])?$")
+)
+(
+  (command_expression
+    command: (identifier) @keyword.control.return)
+  (#match? @keyword.control.return "^[rR][eE][tT][uU][rR][nN]$")
+)
+
+
 ; Control flow
 (if_block
+  command: (identifier) @keyword.control.conditional)
+(elif_block
   command: (identifier) @keyword.control.conditional)
 (else_block
   command: (identifier) @keyword.control.conditional)

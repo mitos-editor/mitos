@@ -1531,9 +1531,9 @@
   },
   "t32": {
     "git": "https://gitlab.com/xasc/tree-sitter-t32",
-    "rev": "6da5e3cbabd376b566d04282005e52ffe67ef74a",
-    "url": "https://gitlab.com/api/v4/projects/xasc%2Ftree-sitter-t32/repository/archive.tar.gz?sha=6da5e3cbabd376b566d04282005e52ffe67ef74a",
-    "hash": "sha256-pcyFjsNc+0HUlzkoyCoa2PikaCAKQ/jf1Ho9uicCAqc="
+    "rev": "11947ac01ba681fb6f62667cb1447354833f4a5b",
+    "url": "https://gitlab.com/api/v4/projects/xasc%2Ftree-sitter-t32/repository/archive.tar.gz?sha=11947ac01ba681fb6f62667cb1447354833f4a5b",
+    "hash": "sha256-KQFy57fv/Z3UV9jTPot/19e5uzO+bANodwXmPLh141k="
   },
   "tablegen": {
     "git": "https://github.com/Flakebi/tree-sitter-tablegen",

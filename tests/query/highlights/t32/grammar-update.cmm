@@ -1,0 +1,5 @@
+PRIVATE &input
+ RETURN 1
+;^ @keyword.control.return
+ ENDDO
+;^ @keyword.control.return
