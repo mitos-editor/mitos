@@ -35,3 +35,6 @@
 ; Named argument `f(name: value)`.
 (argument
   name: (identifier) @_)
+
+(extension_declaration) @local.scope
+(receiver_parameter name: (identifier) @local.definition.variable.parameter)

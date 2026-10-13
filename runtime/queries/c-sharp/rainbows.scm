@@ -56,3 +56,5 @@
   "{" "}"
   "[" "]"
 ] @rainbow.bracket
+
+(extension_body) @rainbow.scope

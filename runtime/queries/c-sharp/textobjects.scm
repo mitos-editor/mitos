@@ -18,3 +18,5 @@
 (parameter (_) @parameter.inside) @parameter.around
 
 (comment)+ @comment.around
+
+(extension_declaration (extension_body) @class.inside) @class.around

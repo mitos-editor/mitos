@@ -2,7 +2,7 @@
 
 ;; Methods
 
-(method_declaration name: (identifier) @function)
+(method_declaration name: (identifier) @function.method)
 (local_function_statement name: (identifier) @function)
 
 ;; Types
@@ -252,6 +252,9 @@
 
 ;; Method calls
 
-(invocation_expression (member_access_expression name: (identifier) @function))
+(invocation_expression (member_access_expression name: (identifier) @function.method))
 ; Bare calls (`Method()` without a receiver)
 (invocation_expression function: (identifier) @function)
+
+"extension" @keyword.storage.type
+(receiver_parameter name: (identifier) @variable.parameter)

@@ -13,3 +13,5 @@
   ")"
   "]"
 ] @outdent
+
+(extension_body) @indent
