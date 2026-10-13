@@ -421,9 +421,9 @@
   },
   "fish": {
     "git": "https://github.com/ram02z/tree-sitter-fish",
-    "rev": "f435b0bd772578c70e5d158b85267bb886316f88",
-    "url": "https://github.com/ram02z/tree-sitter-fish/archive/f435b0bd772578c70e5d158b85267bb886316f88.tar.gz",
-    "hash": "sha256-pEx7K2ALFbeZLbNjfte/fpmh5t0iQU5/yXzDLJGMsp4="
+    "rev": "b7f1d682941e0c62dfcd6bf9ef481638351bab16",
+    "url": "https://github.com/ram02z/tree-sitter-fish/archive/b7f1d682941e0c62dfcd6bf9ef481638351bab16.tar.gz",
+    "hash": "sha256-dPeIi3kGmIIGXDxEahhM2EX4BPEi7sTbQ8DXzjaxIFk="
   },
   "flatbuffers": {
     "git": "https://github.com/yuanchenxi95/tree-sitter-flatbuffers",
