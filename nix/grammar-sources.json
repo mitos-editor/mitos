@@ -115,9 +115,9 @@
   },
   "c3": {
     "git": "https://github.com/c3lang/tree-sitter-c3",
-    "rev": "15d3502510af0a6c888c663ec8d6aca8791216ce",
-    "url": "https://github.com/c3lang/tree-sitter-c3/archive/15d3502510af0a6c888c663ec8d6aca8791216ce.tar.gz",
-    "hash": "sha256-WKrgMR0BR+E7uMWFengzO4QV6KwZwfHWEsBwJENNSbo="
+    "rev": "e4d3418873ff9f36c71474b5b08c204289f46fb0",
+    "url": "https://github.com/c3lang/tree-sitter-c3/archive/e4d3418873ff9f36c71474b5b08c204289f46fb0.tar.gz",
+    "hash": "sha256-oqHo6RFamOH883LrrarQdvf4TWFenXx91jfAZUe7bRQ="
   },
   "caddyfile": {
     "git": "https://github.com/caddyserver/tree-sitter-caddyfile",

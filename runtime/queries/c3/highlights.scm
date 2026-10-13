@@ -82,9 +82,12 @@
 ] @keyword
 
 [
-  "$alignof"
   "$assert"
-  "$assignable"
+  "$Typefrom"
+  "$Typeof"
+  "$expand"
+  "$feat"
+  "$reflect"
   "$case"
   "$default"
   "$defined"
@@ -96,38 +99,24 @@
   "$endif"
   "$endswitch"
   "$eval"
-  "$evaltype"
   "$error"
   "$exec"
-  "$extnameof"
   "$feature"
   "$for"
   "$foreach"
   "$if"
   "$include"
-  "$is_const"
-  "$kindof"
-  "$nameof"
-  "$offsetof"
-  "$qnameof"
-  "$sizeof"
   "$stringify"
   "$switch"
-  "$typefrom"
-  "$typeof"
-  "$vacount"
-  "$vatype"
-  "$vaconst"
   "$vaarg"
-  "$vaexpr"
-  "$vasplat"
 ] @keyword.directive
 
-"assert" @keyword.debug
+"assert" @keyword
 
 "fn" @keyword.function
 
 "macro" @keyword.function
+"attrmacro" @keyword.function
 
 "return" @keyword.control.return
 
@@ -138,6 +127,10 @@
 
 [
   "bitstruct"
+  "cenum"
+  "constset"
+  "distinct"
+  "faultset"
   "enum"
   "faultdef"
   "interface"
@@ -167,6 +160,8 @@
 
 [
   "const"
+  "constdef"
+  "faultconst"
   "extern"
   "inline"
   "static"
@@ -237,13 +232,13 @@
     "?"
     "???"
     ":"
-  ] @keyword.control.conditional.ternary)
+  ] @keyword.control.conditional)
 
 (elvis_orelse_expr
   [
     "?:"
     "??"
-  ] @keyword.control.conditional.ternary)
+  ] @keyword.control.conditional)
 
 ; Literal
 (integer_literal) @constant.numeric.integer
@@ -326,7 +321,7 @@
   name: (_) @function.method)
 
 (macro_header
-  name: (_) @function)
+  name: (_) @function.macro)
 
 (macro_header
   method_type: (_)
@@ -355,7 +350,7 @@
       [
         (ident)
         (at_ident)
-      ] @function)))
+      ] @function.method)))
 
 ; Method on type
 (call_expr
@@ -364,7 +359,7 @@
       [
         (ident)
         (at_ident)
-      ] @function)))
+      ] @function.method)))
 
 ; Builtin call
 (call_expr
