@@ -625,9 +625,9 @@
   },
   "haskell": {
     "git": "https://github.com/tree-sitter/tree-sitter-haskell",
-    "rev": "0975ef72fc3c47b530309ca93937d7d143523628",
-    "url": "https://github.com/tree-sitter/tree-sitter-haskell/archive/0975ef72fc3c47b530309ca93937d7d143523628.tar.gz",
-    "hash": "sha256-R9w8P29Heh0JtTT534e++Gpa315XN92hlQw2A8pRTpI="
+    "rev": "97288e585b0bd44199720280d067fa35bacd81ff",
+    "url": "https://github.com/tree-sitter/tree-sitter-haskell/archive/97288e585b0bd44199720280d067fa35bacd81ff.tar.gz",
+    "hash": "sha256-MDSZrZcEJsD3qQZS7HbW/k9D43MYwXdNSppeS7Wa+Wg="
   },
   "haskell-literate": {
     "git": "https://github.com/LaurentRDC/tree-sitter-haskell-literate",

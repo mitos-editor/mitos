@@ -1,4 +1,4 @@
-;----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
 ; Parameters and variables
 ; NOTE: These are at the top, so that they have low priority,
 ; and don't override destructured parameters
@@ -22,7 +22,7 @@
 ; Literals and comments
 (integer) @constant.numeric.integer
 
-(negation) @constant.numeric
+(negation) @constant.numeric.integer
 
 (expression/literal
   (float)) @constant.numeric.float
@@ -67,6 +67,7 @@
   "then"
   "else"
   "case"
+  "cases"
   "of"
 ] @keyword.control.conditional
 
@@ -130,11 +131,12 @@
 
 ; ----------------------------------------------------------------------------
 ; Functions and variables
-(decl
-  [
-   name: (variable) @function
-   names: (binding_list (variable) @function)
-  ])
+[
+  (decl/function name: (variable) @function)
+  (decl/bind name: (variable) @function)
+  (decl/signature name: (variable) @function)
+  (decl/signature names: (binding_list (variable) @function))
+]
 
 (decl/bind
   name: (variable) @variable)
@@ -146,31 +148,35 @@
   type: (type))
 
 ((decl/signature
-  name: (variable) @variable.name
+  name: (variable) @_name
   type: (type))
   .
-  (decl
-    name: (variable) @variable)
+  [
+    (decl/function name: (variable) @variable)
+    (decl/bind name: (variable) @variable)
+  ]
     match: (_)
-  (#eq? @variable.name @variable))
+  (#eq? @_name @variable))
 
 ; but consider a type that involves 'IO' a decl/function
 (decl/signature
   name: (variable) @function
   type: (type/apply
-    constructor: (name) @type)
-  (#eq? @type "IO"))
+    constructor: (name) @_type)
+  (#eq? @_type "IO"))
 
 ((decl/signature
-  name: (variable) @function.name
+  name: (variable) @_name
   type: (type/apply
-    constructor: (name) @type)
-  (#eq? @type "IO"))
+    constructor: (name) @_type)
+  (#eq? @_type "IO"))
   .
-  (decl
-    name: (variable) @function)
+  [
+    (decl/function name: (variable) @function)
+    (decl/bind name: (variable) @function)
+  ]
     match: (_)
-  (#eq? @function.name @function))
+  (#eq? @_name @function))
 
 ((decl/signature) @function
   .
@@ -230,8 +236,8 @@
       (variable) @function)
   ]
   .
-  (operator) @operator
-  (#any-of? @operator "$" "<$>" ">>=" "=<<"))
+  (operator) @_op
+  (#any-of? @_op "$" "<$>" ">>=" "=<<"))
 
 ; right hand side of infix operator
 ((infix
@@ -246,8 +252,8 @@
       (variable) @function)
   ])
   .
-  (operator) @operator
-  (#any-of? @operator "$" "<$>" "=<<"))
+  (operator) @_op
+  (#any-of? @_op "$" "<$>" "=<<"))
 
 ; decl/function composition, arrows, monadic composition (lhs)
 (
@@ -257,8 +263,8 @@
       (variable) @function)
   ]
   .
-  (operator) @operator
-  (#any-of? @operator "." ">>>" "***" ">=>" "<=<"))
+  (operator) @_op
+  (#any-of? @_op "." ">>>" "***" ">=>" "<=<"))
 
 ; right hand side of infix operator
 ((infix
@@ -273,26 +279,26 @@
       (variable) @function)
   ])
   .
-  (operator) @operator
-  (#any-of? @operator "." ">>>" "***" ">=>" "<=<"))
+  (operator) @_op
+  (#any-of? @_op "." ">>>" "***" ">=>" "<=<"))
 
 ; function composition, arrows, monadic composition (rhs)
-((operator) @operator
+((operator) @_op
   .
   [
     (expression/variable) @function
     (expression/qualified
       (variable) @function)
   ]
-  (#any-of? @operator "." ">>>" "***" ">=>" "<=<"))
+  (#any-of? @_op "." ">>>" "***" ">=>" "<=<"))
 
 ; function defined in terms of a function composition
 (decl/function
   name: (variable) @function
   (match
     expression: (infix
-      operator: (operator) @operator
-      (#any-of? @operator "." ">>>" "***" ">=>" "<=<"))))
+      operator: (operator) @_op
+      (#any-of? @_op "." ">>>" "***" ">=>" "<=<"))))
 
 (apply
   [
@@ -356,12 +362,12 @@
   type: (quantified_type))
 
 ((decl/signature
-  name: (variable) @function.name
+  name: (variable) @_name
   type: (quantified_type))
   .
   (decl/bind
     (variable) @function)
-  (#eq? @function @function.name))
+  (#eq? @function @_name))
 
 ; ----------------------------------------------------------------------------
 ; Types
@@ -369,7 +375,6 @@
 
 (type/star) @type
 
-; (variable) @type
 
 (constructor) @constructor
 
@@ -410,8 +415,8 @@
 ; Highlighting of quasiquote_body for other languages is handled by injections.scm
 ; ----------------------------------------------------------------------------
 ; Exceptions/error handling
-((variable) @keyword.exception
-  (#any-of? @keyword.exception
+((variable) @keyword.control.exception
+  (#any-of? @keyword.control.exception
     "error" "undefined" "try" "tryJust" "tryAny" "catch" "catches" "catchJust" "handle" "handleJust"
     "throw" "throwIO" "throwTo" "throwError" "ioError" "mask" "mask_" "uninterruptibleMask"
     "uninterruptibleMask_" "bracket" "bracket_" "bracketOnErrorSource" "finally" "fail"
@@ -419,8 +424,8 @@
 
 ; ----------------------------------------------------------------------------
 ; Debugging
-((variable) @keyword.debug
-  (#any-of? @keyword.debug
+((variable) @function.builtin
+  (#any-of? @function.builtin
     "trace" "traceId" "traceShow" "traceShowId" "traceWith" "traceShowWith" "traceStack" "traceIO"
     "traceM" "traceShowM" "traceEvent" "traceEventWith" "traceEventIO" "flushEventLog" "traceMarker"
     "traceMarkerIO"))
@@ -436,3 +441,7 @@
   .
   (children
     (variable) @variable.other.member))
+
+
+; ----------------------------------------------------------------------------
+; Spell checking
