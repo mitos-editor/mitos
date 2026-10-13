@@ -38,7 +38,7 @@
     (pattern_fun (ident) @variable.parameter)+
   "=>" @operator
 )
-(record_field) @variable.other.member
+(field_path_elem (ident) @variable.other.member)
 ; Field access `o.field`: the id of a record operation chain.
 (record_operation_chain id: (ident) @variable.other.member)
 
@@ -66,7 +66,14 @@
 
 (applicative
   t1: (applicative
-    (record_operand) @function
+    . (record_operand (atom (ident) @function))
   )
 )
 (builtin) @function.builtin
+
+(applicative
+  t1: (applicative
+    . (record_operand
+      (record_operation_chain id: (ident) @function.method))))
+
+["optional" "priority" "force" "not_exported"] @keyword.storage.modifier
