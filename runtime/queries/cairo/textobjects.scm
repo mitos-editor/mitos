@@ -77,3 +77,5 @@
   (_) @entry.inside) @entry.around
 
 (shorthand_field_initializer) @entry.around
+
+(macro_declaration body: (_) @function.inside) @function.around

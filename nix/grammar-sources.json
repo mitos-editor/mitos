@@ -127,9 +127,9 @@
   },
   "cairo": {
     "git": "https://github.com/starkware-libs/tree-sitter-cairo",
-    "rev": "4c6a25680546761b80a710ead1dd34e76c203125",
-    "url": "https://github.com/starkware-libs/tree-sitter-cairo/archive/4c6a25680546761b80a710ead1dd34e76c203125.tar.gz",
-    "hash": "sha256-c7DidrEiglpv5PXOoxSwA/DDW3h1htm6Kf62Ul0bljY="
+    "rev": "638b096f276196e0e201970f39f665c2e4613b0d",
+    "url": "https://github.com/starkware-libs/tree-sitter-cairo/archive/638b096f276196e0e201970f39f665c2e4613b0d.tar.gz",
+    "hash": "sha256-VNWllTrkWH7YdklJzd7zVrxpmzy6sxqtWd/M5NxWqH0="
   },
   "capnp": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-capnp",

@@ -1,13 +1,13 @@
-; -------
-; Tree-Sitter doesn't allow overrides in regards to captures,
-; though it is possible to affect the child node of a captured
-; node. Thus, the approach here is to flip the order so that
-; overrides are unnecessary.
-; -------
-
 (type_identifier) @type
 (identifier) @variable
 (field_identifier) @variable.other.member
+
+(scoped_identifier
+  path: (identifier)? @namespace
+  name: (identifier) @namespace)
+(scoped_type_identifier
+  path: (identifier) @namespace)
+
 
 ; -------
 ; Types
@@ -163,7 +163,6 @@
 
 [
   "const"
-  "ref"
 ] @keyword.storage.modifier
 
 ; TODO: variable.mut to highlight mutable identifiers via locals.scm
@@ -207,14 +206,7 @@
 ; are assumed to be enum constructors.
 ; ---
 
-(call_expression
-  function: [
-    ((identifier) @constructor
-      (#match? @constructor "^[A-Z]"))
-    (scoped_identifier
-      name: ((identifier) @constructor
-        (#match? @constructor "^[A-Z]")))
-  ])
+
 
 ; ---
 ; PascalCase identifiers under a path which is also PascalCase
@@ -249,7 +241,7 @@
     (scoped_identifier
       name: (identifier) @function)
     (field_expression
-      field: (field_identifier) @function)
+      field: (field_identifier) @function.method)
   ])
 (generic_function
   function: [
@@ -359,14 +351,20 @@
 ; Remaining Paths
 ; ---
 
-(scoped_identifier
-  path: (identifier)? @namespace
-  name: (identifier) @namespace)
-(scoped_type_identifier
-  path: (identifier) @namespace)
-
 ; -------
 ; Remaining Identifiers
 ; -------
 
 "?" @special
+
+(macro_declaration name: (identifier) @function.macro)
+"macro" @keyword.function
+
+(call_expression
+  function: [
+    ((identifier) @constructor
+      (#match? @constructor "^[A-Z]"))
+    (scoped_identifier
+      name: ((identifier) @constructor
+        (#match? @constructor "^[A-Z]")))
+  ])

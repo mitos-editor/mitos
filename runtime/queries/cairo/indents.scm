@@ -17,6 +17,7 @@
   (tuple_expression)
   (array_expression)
 
+  (macro_body)
   (token_tree)
 ] @indent
 
