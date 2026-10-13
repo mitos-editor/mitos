@@ -20,10 +20,10 @@
 (directive (directive_name) @variable.other.member)
 
 ; declaration of a named matcher
-(named_matcher (matcher_identifier (matcher_name)) @function.macro)
+(named_matcher (matcher_identifier (matcher_name) @function.macro))
 
 ; reference to a named matcher
-(matcher (matcher_identifier (matcher_name)) @function.macro)
+(matcher (matcher_identifier (matcher_name) @function.macro))
 
 ; directive within a named matcher declaration
 (matcher_directive (matcher_directive_name) @function.method)
@@ -51,7 +51,7 @@
 ] @punctuation.bracket
 
 (global_options
-  (directive) @keyword.directive)
+  (directive (directive_name) @keyword.directive))
 
 (directive
   name: (directive_name)

@@ -121,9 +121,9 @@
   },
   "caddyfile": {
     "git": "https://github.com/caddyserver/tree-sitter-caddyfile",
-    "rev": "15437433b7deec0f0431fb4a5bedb64ecae01513",
-    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/15437433b7deec0f0431fb4a5bedb64ecae01513.tar.gz",
-    "hash": "sha256-NEyzdOsDbuE6hDcDbB9RHbnY1ZYUhguYNgs07/Is9ZA="
+    "rev": "e88e372aeeba3965e4f767a86679198592238b45",
+    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/e88e372aeeba3965e4f767a86679198592238b45.tar.gz",
+    "hash": "sha256-c1iugeHY46zrpALcSolJH8Fd2e/QLpbR4x4+R0NmdLw="
   },
   "cairo": {
     "git": "https://github.com/starkware-libs/tree-sitter-cairo",
