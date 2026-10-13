@@ -1,9 +1,9 @@
 {
   "ada": {
     "git": "https://github.com/briot/tree-sitter-ada",
-    "rev": "ba0894efa03beb70780156b91e28c716b7a4764d",
-    "url": "https://github.com/briot/tree-sitter-ada/archive/ba0894efa03beb70780156b91e28c716b7a4764d.tar.gz",
-    "hash": "sha256-nuKlOvfSpS/FLOc0V9TjLDWzpF4It51U+CoXVLxSOas="
+    "rev": "a45fd9c65a791cbe7d146e85a53fbe43a6d52a61",
+    "url": "https://github.com/briot/tree-sitter-ada/archive/a45fd9c65a791cbe7d146e85a53fbe43a6d52a61.tar.gz",
+    "hash": "sha256-haicOAmA/+O0ulRv1gI29oNvyhPcD0HDdh4EV+SaAGk="
   },
   "adl": {
     "git": "https://github.com/adl-lang/tree-sitter-adl",

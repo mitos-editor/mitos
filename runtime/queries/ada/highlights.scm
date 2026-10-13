@@ -90,6 +90,7 @@
 [
    "exception"
    "raise"
+   "finally"
 ] @keyword.control.exception
 (comment)         @comment
 (string_literal)  @string
@@ -97,12 +98,12 @@
 (numeric_literal) @constant.numeric
 
 ;; Highlight the name of subprograms
-(procedure_specification name: (_) @function.builtin)
-(function_specification name: (_) @function.builtin)
-(package_declaration name: (_) @function.builtin)
-(package_body name: (_) @function.builtin)
-(generic_instantiation name: (_) @function.builtin)
-(entry_declaration . (identifier) @function.builtin)
+(procedure_specification name: (_) @function)
+(function_specification name: (_) @function)
+(package_declaration name: (_) @namespace)
+(package_body name: (_) @namespace)
+(generic_instantiation name: (_) @function)
+(entry_declaration . (identifier) @function)
 
 ;; Some keywords should take different categories depending on the context
 (use_clause "use"  @keyword.control.import "type" @keyword.control.import)
