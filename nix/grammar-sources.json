@@ -1753,9 +1753,9 @@
   },
   "wikitext": {
     "git": "https://github.com/santhoshtr/tree-sitter-wikitext",
-    "rev": "444214b31695e9dd4d32fb06247397fb8778a9d2",
-    "url": "https://github.com/santhoshtr/tree-sitter-wikitext/archive/444214b31695e9dd4d32fb06247397fb8778a9d2.tar.gz",
-    "hash": "sha256-XITwuBMpkr3gYwhbIgqq7wLaNIvpfNiyD4L11RzS9ck="
+    "rev": "ed3827f9bde7ef77ab8ba71554d66ab2ba0b7fe2",
+    "url": "https://github.com/santhoshtr/tree-sitter-wikitext/archive/ed3827f9bde7ef77ab8ba71554d66ab2ba0b7fe2.tar.gz",
+    "hash": "sha256-MZ9/A3pQokOus7qLsNetCXkNi77RBSONnhh63EPtC04="
   },
   "wit": {
     "git": "https://github.com/hh9527/tree-sitter-wit",

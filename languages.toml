@@ -5228,7 +5228,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "wikitext"
-source = { git = "https://github.com/santhoshtr/tree-sitter-wikitext", rev = "444214b31695e9dd4d32fb06247397fb8778a9d2"}
+source = { git = "https://github.com/santhoshtr/tree-sitter-wikitext", rev = "ed3827f9bde7ef77ab8ba71554d66ab2ba0b7fe2"}
 
 [[language]]
 name = "wikitext"
