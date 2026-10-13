@@ -5,16 +5,16 @@
 ; Variables
 
 (positional_parameter (lowercase_identifier) @variable.parameter)
-(labelled_parameter (label (lowercase_identifier)) @variable.parameter)
-(optional_parameter (optional_label (lowercase_identifier)) @variable.parameter)
-(optional_parameter_with_default (label (lowercase_identifier)) @variable.parameter)
+(labelled_parameter (label (lowercase_identifier) @variable.parameter))
+(optional_parameter (optional_label (lowercase_identifier) @variable.parameter))
+(optional_parameter_with_default (label (lowercase_identifier) @variable.parameter))
 ((positional_parameter (lowercase_identifier) @variable.builtin)
  (#any-of? @variable.builtin "self"))
-((labelled_parameter (label (lowercase_identifier)) @variable.builtin)
+((labelled_parameter (label (lowercase_identifier) @variable.builtin))
  (#any-of? @variable.builtin "self"))
-((optional_parameter (optional_label (lowercase_identifier)) @variable.builtin)
+((optional_parameter (optional_label (lowercase_identifier) @variable.builtin))
  (#any-of? @variable.builtin "self"))
-((optional_parameter_with_default (label (lowercase_identifier)) @variable.builtin)
+((optional_parameter_with_default (label (lowercase_identifier) @variable.builtin))
  (#any-of? @variable.builtin "self"))
 
 (tuple_pattern (lowercase_identifier) @variable)

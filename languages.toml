@@ -5556,7 +5556,7 @@ auto-format = true
 
 [[grammar]]
 name = "moonbit"
-source = { git = "https://github.com/moonbitlang/tree-sitter-moonbit", rev = "36191d7fe4ec4298c8c1f251af6a82939f8e9a67" }
+source = { git = "https://github.com/moonbitlang/tree-sitter-moonbit", rev = "5435c307c6cf2ef0d508a99047b06f35a4308444" }
 
 [[language]]
 name = "concerto"

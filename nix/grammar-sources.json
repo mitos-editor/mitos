@@ -1003,9 +1003,9 @@
   },
   "moonbit": {
     "git": "https://github.com/moonbitlang/tree-sitter-moonbit",
-    "rev": "36191d7fe4ec4298c8c1f251af6a82939f8e9a67",
-    "url": "https://github.com/moonbitlang/tree-sitter-moonbit/archive/36191d7fe4ec4298c8c1f251af6a82939f8e9a67.tar.gz",
-    "hash": "sha256-KfIyg0rnezJ9gdco67iovsVKcRoIPHnZh714F+HaTXg="
+    "rev": "5435c307c6cf2ef0d508a99047b06f35a4308444",
+    "url": "https://github.com/moonbitlang/tree-sitter-moonbit/archive/5435c307c6cf2ef0d508a99047b06f35a4308444.tar.gz",
+    "hash": "sha256-KwsYihe8uCsqn+Hn+IsE9sN2P+rSHnPw9DtRi33ZHmQ="
   },
   "move": {
     "git": "https://github.com/tzakian/tree-sitter-move",

@@ -18,19 +18,19 @@
 (let_mut_expression (lowercase_identifier) @local.definition.variable.mutable)
 
 (positional_parameter (lowercase_identifier) @local.definition.variable.parameter)
-(labelled_parameter (label (lowercase_identifier)) @local.definition.variable.parameter)
-(optional_parameter (optional_label (lowercase_identifier)) @local.definition.variable.parameter)
-(optional_parameter_with_default (label (lowercase_identifier)) @local.definition.variable.parameter)
+(labelled_parameter (label (lowercase_identifier) @local.definition.variable.parameter))
+(optional_parameter (optional_label (lowercase_identifier) @local.definition.variable.parameter))
+(optional_parameter_with_default (label (lowercase_identifier) @local.definition.variable.parameter))
 
 ((positional_parameter (lowercase_identifier) @local.definition.variable.builtin)
  (#eq? @local.definition.variable.builtin "self"))
-((labelled_parameter (label (lowercase_identifier)) @local.definition.variable.builtin)
+((labelled_parameter (label (lowercase_identifier) @local.definition.variable.builtin))
  (#eq? @local.definition.variable.builtin "self"))
-((optional_parameter (optional_label (lowercase_identifier)) @local.definition.variable.builtin)
+((optional_parameter (optional_label (lowercase_identifier) @local.definition.variable.builtin))
  (#eq? @local.definition.variable.builtin "self"))
-((optional_parameter_with_default (label (lowercase_identifier)) @local.definition.variable.builtin)
+((optional_parameter_with_default (label (lowercase_identifier) @local.definition.variable.builtin))
  (#eq? @local.definition.variable.builtin "self"))
 
 ; References
 
-(qualified_identifier) @local.reference
+(qualified_identifier (lowercase_identifier) @local.reference)
