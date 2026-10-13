@@ -1,12 +1,20 @@
+[
+  (local_var)
+  (global_var)
+] @variable
+
 (type) @type
 (type_keyword) @type.builtin
+(global_type (local_var) @type)
 
 (type [
     (local_var)
     (global_var)
   ] @type)
 
-(argument) @variable.parameter
+(function_header
+  (argument_list
+    (argument (value (var (local_var) @variable.parameter)))))
 
 (_ inst_name: _ @keyword.operator)
 
@@ -34,7 +42,7 @@
   (fast_math)
 ] @keyword.control
 
-(_ callee: _ @function)
+(_ callee: (value (var [(local_var) (global_var)] @function)))
 (function_header name: _ @function)
 
 [
@@ -108,10 +116,6 @@
 (_ inst_name: "ret" @keyword.control.return)
 (float) @constant.numeric.float
 
-[
-  (local_var)
-  (global_var)
-] @variable
 
 [
   (struct_value)

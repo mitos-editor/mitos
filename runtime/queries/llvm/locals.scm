@@ -1,11 +1,12 @@
 ; Scopes
 
-(function_body) @local.scope
+(fn_define) @local.scope
 
 ; Definitions
 
-(argument
-  (value (var (local_var) @local.definition.variable.parameter)))
+(function_header
+  (argument_list
+    (argument (value (var (local_var) @local.definition.variable.parameter)))))
 
 ; References
 (local_var) @local.reference

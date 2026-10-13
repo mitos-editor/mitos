@@ -895,9 +895,9 @@
   },
   "llvm": {
     "git": "https://github.com/benwilliamgraham/tree-sitter-llvm",
-    "rev": "c14cb839003348692158b845db9edda201374548",
-    "url": "https://github.com/benwilliamgraham/tree-sitter-llvm/archive/c14cb839003348692158b845db9edda201374548.tar.gz",
-    "hash": "sha256-3/WPq64L+L0ewbrbvihkeuLOCoS7XhiKQnFIwS3i4HY="
+    "rev": "2914786ae6774d4c4e25a230f4afe16aa68fe1c1",
+    "url": "https://github.com/benwilliamgraham/tree-sitter-llvm/archive/2914786ae6774d4c4e25a230f4afe16aa68fe1c1.tar.gz",
+    "hash": "sha256-m9MYPK8TL608T6xxRYqSy6PDUp0pik29zkCJmvLp7C4="
   },
   "llvm-mir": {
     "git": "https://github.com/Flakebi/tree-sitter-llvm-mir",

@@ -1,4 +1,4 @@
-(define
+(fn_define
   body: (_) @function.inside) @function.around
 
 (struct_type
