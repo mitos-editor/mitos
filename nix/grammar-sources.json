@@ -1513,9 +1513,9 @@
   },
   "sway": {
     "git": "https://github.com/FuelLabs/tree-sitter-sway",
-    "rev": "e491a005ee1d310f4c138bf215afd44cfebf959c",
-    "url": "https://github.com/FuelLabs/tree-sitter-sway/archive/e491a005ee1d310f4c138bf215afd44cfebf959c.tar.gz",
-    "hash": "sha256-A48Jl5VO7YFYQEt3WePs7kJi+zEvnxqBKj60BO0ZJp4="
+    "rev": "9b7845ce06ecb38b040c3940970b4fd0adc331d1",
+    "url": "https://github.com/FuelLabs/tree-sitter-sway/archive/9b7845ce06ecb38b040c3940970b4fd0adc331d1.tar.gz",
+    "hash": "sha256-ArWgyZ7kDwbEXmd9zYe9kJGuI2pMSvOiLxQzHV3LOIQ="
   },
   "swift": {
     "git": "https://github.com/alex-pinkus/tree-sitter-swift",

@@ -62,7 +62,7 @@
   argument: (identifier) @namespace)
 (use_wildcard
   (identifier) @namespace)
-(dep_item
+(mod_item
   name: (identifier) @namespace)
 (scoped_use_list
   path: (identifier)? @namespace)
@@ -204,10 +204,11 @@
   "contract"
   "script"
   "predicate"
-] @keyword.other
+  "library"
+] @keyword
 
 "use" @keyword.control.import
-(dep_item "dep" @keyword.control.import !body)
+(mod_item "mod" @keyword.control.import)
 (use_as_clause "as" @keyword.control.import)
 
 (type_cast_expression "as" @keyword.operator)
@@ -215,7 +216,6 @@
 [
   "as"
   "pub"
-  "dep"
 
   "abi"
   "impl"
@@ -229,16 +229,17 @@
   "enum"
   "storage"
   "configurable"
+  "type"
 ] @keyword.storage.type
 
 "let" @keyword.storage
 "fn" @keyword.function
 "abi" @keyword.function
 
-(mutable_specifier) @keyword.storage.modifier.mut
+(mutable_specifier) @keyword.storage.modifier
 
-(reference_type "&" @keyword.storage.modifier.ref)
-(self_parameter "&" @keyword.storage.modifier.ref)
+(reference_type "&" @keyword.storage.modifier)
+(self_parameter "&" @keyword.storage.modifier)
 
 [
   "const"
@@ -300,7 +301,7 @@
     (scoped_identifier
       name: (identifier) @function)
     (field_expression
-      field: (field_identifier) @function)
+      field: (field_identifier) @function.method)
   ])
 (generic_function
   function: [

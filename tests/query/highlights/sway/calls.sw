@@ -1,6 +1,6 @@
 fn main() {
     obj.doThing();
-//      ^ @function
+//      ^ @function.method
     let x = obj.field;
 //              ^ @variable.other.member
     helper(1);
