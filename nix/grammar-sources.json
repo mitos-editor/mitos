@@ -1495,9 +1495,9 @@
   },
   "styx": {
     "git": "https://github.com/bearcove/styx",
-    "rev": "51feb2a67f211e806e5e2764bc5c06738a6c40d7",
-    "url": "https://github.com/bearcove/styx/archive/51feb2a67f211e806e5e2764bc5c06738a6c40d7.tar.gz",
-    "hash": "sha256-Htzslx5lAGLcbrrWISLIQ8Am4wwF+6n/kk31mWF16H8="
+    "rev": "5a8e4669562e560937c27308e2ece70de63e0ba8",
+    "url": "https://github.com/bearcove/styx/archive/5a8e4669562e560937c27308e2ece70de63e0ba8.tar.gz",
+    "hash": "sha256-8F5Q6cetWtCLZ59eUOHyTa7KxKMRaQqMxv6zy+FgxEo="
   },
   "supercollider": {
     "git": "https://github.com/madskjeldgaard/tree-sitter-supercollider",

@@ -5442,7 +5442,7 @@ auto-format = true
 
 [[grammar]]
 name = "styx"
-source = { git = "https://github.com/bearcove/styx", subpath = "crates/tree-sitter-styx" , rev = "51feb2a67f211e806e5e2764bc5c06738a6c40d7" }
+source = { git = "https://github.com/bearcove/styx", subpath = "crates/tree-sitter-styx" , rev = "5a8e4669562e560937c27308e2ece70de63e0ba8" }
 
 # https://docs.tilt.dev/editor.html
 [[language]]
