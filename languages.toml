@@ -4859,7 +4859,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "tera"
-source = { git = "https://github.com/uncenter/tree-sitter-tera", rev = "3a38c368e806268daac9923a27e72bcafbbc16bb" }
+source = { git = "https://github.com/uncenter/tree-sitter-tera", rev = "54b3f8b43aecdbcf12a7366920f0bc8274af1dd0" }
 
 [[language]]
 name = "fga"

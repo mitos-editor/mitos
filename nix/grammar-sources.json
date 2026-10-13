@@ -1573,9 +1573,9 @@
   },
   "tera": {
     "git": "https://github.com/uncenter/tree-sitter-tera",
-    "rev": "3a38c368e806268daac9923a27e72bcafbbc16bb",
-    "url": "https://github.com/uncenter/tree-sitter-tera/archive/3a38c368e806268daac9923a27e72bcafbbc16bb.tar.gz",
-    "hash": "sha256-1QfJ8ik+WQifRISc/td/xp0Acktas/Twji7dPZR9PwU="
+    "rev": "54b3f8b43aecdbcf12a7366920f0bc8274af1dd0",
+    "url": "https://github.com/uncenter/tree-sitter-tera/archive/54b3f8b43aecdbcf12a7366920f0bc8274af1dd0.tar.gz",
+    "hash": "sha256-NQpRDzxvVrcNf2S7hSSeM7dUs8AKeCo4TGZsUp70D9g="
   },
   "textproto": {
     "git": "https://github.com/PorterAtGoogle/tree-sitter-textproto",
