@@ -31,26 +31,26 @@
 (wildcard) @operator
 
 ; VALUE
-(raw_blck "```" @operator) @markup.raw.block
-(raw_span "`" @operator) @markup.raw.block
+(raw_blck "```" @punctuation.delimiter) @markup.raw.block
+(raw_span "`" @punctuation.delimiter) @markup.raw.inline
 (raw_blck lang: (ident) @tag)
 (label) @tag
 (ref) @tag
 (number) @constant.numeric
 (string) @string
-(content ["[" "]"] @operator)
+(content ["[" "]"] @punctuation.bracket)
 (bool) @constant.builtin.boolean
 (none) @constant.builtin
 (auto) @constant.builtin
 (ident) @variable
 
 ; FUNCTIONS
+(field field: (ident) @variable.other.member)
 (call
   item: (ident) @function)
 (call
   item: (field field: (ident) @function.method))
 (tagged field: (ident) @tag)
-(field field: (ident) @tag)
 (comment) @comment
 
 ; MARKUP
@@ -62,7 +62,7 @@
 (heading "====" @markup.heading.marker) @markup.heading.4
 (heading "=====" @markup.heading.marker) @markup.heading.5
 (heading "======" @markup.heading.marker) @markup.heading.6
-(url) @tag
+(url) @markup.link.url
 (emph) @markup.italic
 (strong) @markup.bold
 (symbol) @constant.character
@@ -79,5 +79,5 @@
 (escape) @constant.character.escape
 ["(" ")" "{" "}"] @punctuation.bracket
 ["," ";" ".." ":" "sep"] @punctuation.delimiter
-"assign" @punctuation
-(field "." @punctuation)
+"assign" @operator
+(field "." @punctuation.delimiter)

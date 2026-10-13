@@ -1645,9 +1645,9 @@
   },
   "typst": {
     "git": "https://github.com/uben0/tree-sitter-typst",
-    "rev": "13863ddcbaa7b68ee6221cea2e3143415e64aea4",
-    "url": "https://github.com/uben0/tree-sitter-typst/archive/13863ddcbaa7b68ee6221cea2e3143415e64aea4.tar.gz",
-    "hash": "sha256-FCG+iyCuYhCXV66lv3rOHp5OubH5fsEyMF2Rtpk58O0="
+    "rev": "46cf4ded12ee974a70bf8457263b67ad7ee0379d",
+    "url": "https://github.com/uben0/tree-sitter-typst/archive/46cf4ded12ee974a70bf8457263b67ad7ee0379d.tar.gz",
+    "hash": "sha256-BnSyu5q5IPf6g/+2pCoyDfFLeD+8fKvSXXFQOGXnzUs="
   },
   "ungrammar": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-ungrammar",
