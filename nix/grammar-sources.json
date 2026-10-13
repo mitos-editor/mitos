@@ -1183,9 +1183,9 @@
   },
   "powershell": {
     "git": "https://github.com/airbus-cert/tree-sitter-powershell",
-    "rev": "c9316be0faca5d5b9fd3b57350de650755f42dc0",
-    "url": "https://github.com/airbus-cert/tree-sitter-powershell/archive/c9316be0faca5d5b9fd3b57350de650755f42dc0.tar.gz",
-    "hash": "sha256-qoNWu/yhLukPHF/nv5eqyZayzXmOBUwGNq177rPCJvI="
+    "rev": "e7bd348c49fdfd5c853a146a670965ba516a6239",
+    "url": "https://github.com/airbus-cert/tree-sitter-powershell/archive/e7bd348c49fdfd5c853a146a670965ba516a6239.tar.gz",
+    "hash": "sha256-DGYxjK9i94i3F+je50t1VSkX0fIuzKCwG2IfefwNSfE="
   },
   "prisma": {
     "git": "https://github.com/victorhqc/tree-sitter-prisma",

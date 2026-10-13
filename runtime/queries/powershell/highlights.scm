@@ -24,11 +24,6 @@
 "function" @keyword.function
 
 [
-  "class"
-  "enum"
-] @keyword.storage.type
-
-[
   "param"
   "dynamicparam"
   "begin"
@@ -117,6 +112,8 @@
   "\\"
   ".."
   "|"
+  "&&"
+  "||"
 ] @operator
 
 (assignement_operator) @operator
@@ -147,10 +144,10 @@
 (function_name) @function
 
 (invokation_expression
-  (member_name) @function)
+  (member_name (simple_name) @function.method))
 
 (member_access
-  (member_name) @variable.other.member)
+  (member_name (simple_name) @variable.other.member))
 
 (command_invokation_operator) @operator
 
@@ -160,15 +157,11 @@
 
 (comment) @comment
 
-(array_expression) @punctuation.bracket
-
-(assignment_expression
-  value: (pipeline) @variable)
-
 (format_operator) @operator
 
 (command_parameter) @variable.parameter
 
-(command_elements) @variable.builtin
-
 (generic_token) @variable
+
+(class_statement (simple_name) @type)
+(enum_statement (simple_name) @type)
