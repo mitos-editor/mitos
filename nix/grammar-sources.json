@@ -1699,9 +1699,9 @@
   },
   "vhdl": {
     "git": "https://github.com/jpt13653903/tree-sitter-vhdl",
-    "rev": "b8e31d110c6b039899d0f307792bdb0ff50ece2c",
-    "url": "https://github.com/jpt13653903/tree-sitter-vhdl/archive/b8e31d110c6b039899d0f307792bdb0ff50ece2c.tar.gz",
-    "hash": "sha256-5mDMdaYEGZP9nn+IJJ/TbrQDZl9Pp6nKO9ikFj7Qa/o="
+    "rev": "9be8e45c3ae7e7a4373a943a5c81ff92ce3656f8",
+    "url": "https://github.com/jpt13653903/tree-sitter-vhdl/archive/9be8e45c3ae7e7a4373a943a5c81ff92ce3656f8.tar.gz",
+    "hash": "sha256-PDn9ROxj7tnwJwaXJYJ0+3hfjfLigTd5Sr0SAq2Ydp4="
   },
   "vhs": {
     "git": "https://github.com/charmbracelet/tree-sitter-vhs",

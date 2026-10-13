@@ -355,23 +355,23 @@
 
 (_
   view: (name
-    (_)) @type)
+    (_) @type))
 
 (_
   type: (name
-    (_)) @type)
+    (_) @type))
 
 (_
   entity: (name
-    (_)) @namespace)
+    (_) @namespace))
 
 (_
   component: (name
-    (_)) @namespace)
+    (_) @namespace))
 
 (_
   configuration: (name
-    (_)) @namespace)
+    (_) @namespace))
 
 (library_type) @type.builtin
 
