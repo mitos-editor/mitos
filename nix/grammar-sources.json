@@ -961,9 +961,9 @@
   },
   "markdown": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
-    "rev": "f969cd3ae3f9fbd4e43205431d0ae286014c05b5",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-markdown/archive/f969cd3ae3f9fbd4e43205431d0ae286014c05b5.tar.gz",
-    "hash": "sha256-RewoMkt17IB4h3WmrtJoiPVbMGmB/t6cvjXXNIroBGk="
+    "rev": "a0a00f817d02412bd92c54d316f164d827b57b5c",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-markdown/archive/a0a00f817d02412bd92c54d316f164d827b57b5c.tar.gz",
+    "hash": "sha256-pxJWmlnxJ/1EoctZ7s2wXWP6LMtGIrfYIr/xmb9vsTM="
   },
   "markdown_inline": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
