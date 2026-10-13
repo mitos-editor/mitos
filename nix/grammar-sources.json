@@ -415,9 +415,9 @@
   },
   "fidl": {
     "git": "https://github.com/google/tree-sitter-fidl",
-    "rev": "0a8910f293268e27ff554357c229ba172b0eaed2",
-    "url": "https://github.com/google/tree-sitter-fidl/archive/0a8910f293268e27ff554357c229ba172b0eaed2.tar.gz",
-    "hash": "sha256-AfDRR/f+yWkRvj80hjW53WEQVcgJwN7uDZNYfxPLy6s="
+    "rev": "bd81f6429a1539b05f52a4344bc9f6ac11d73d1f",
+    "url": "https://github.com/google/tree-sitter-fidl/archive/bd81f6429a1539b05f52a4344bc9f6ac11d73d1f.tar.gz",
+    "hash": "sha256-yEx5QTGT0UZQLTvWD8wICGWgpjn/Sibqm+IMUPshRIM="
   },
   "fish": {
     "git": "https://github.com/ram02z/tree-sitter-fish",

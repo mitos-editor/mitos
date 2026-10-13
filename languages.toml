@@ -4310,7 +4310,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "fidl"
-source = { git = "https://github.com/google/tree-sitter-fidl", rev = "0a8910f293268e27ff554357c229ba172b0eaed2" }
+source = { git = "https://github.com/google/tree-sitter-fidl", rev = "bd81f6429a1539b05f52a4344bc9f6ac11d73d1f" }
 
 [[language]]
 name = "powershell"
