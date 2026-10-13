@@ -1069,9 +1069,9 @@
   },
   "odin": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-odin",
-    "rev": "6c6b07e354a52f8f2a9bc776cbc262a74e74fd26",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-odin/archive/6c6b07e354a52f8f2a9bc776cbc262a74e74fd26.tar.gz",
-    "hash": "sha256-5qgsb4A3EOKlqHxrgtg0qkXeeHqzVKeQPlvtMf5vaVU="
+    "rev": "d2ca8efb4487e156a60d5bd6db2598b872629403",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-odin/archive/d2ca8efb4487e156a60d5bd6db2598b872629403.tar.gz",
+    "hash": "sha256-0wuAEDLkpeA9Afnyy0CUHMgAlmAT8yTEpKl1xtkL814="
   },
   "ohm": {
     "git": "https://github.com/novusnota/tree-sitter-ohm",

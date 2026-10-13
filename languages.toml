@@ -2791,7 +2791,7 @@ args = { console = "internalConsole", attachCommands = [ "platform select remote
 
 [[grammar]]
 name = "odin"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-odin", rev = "6c6b07e354a52f8f2a9bc776cbc262a74e74fd26" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-odin", rev = "d2ca8efb4487e156a60d5bd6db2598b872629403" }
 
 [[language]]
 name = "meson"
