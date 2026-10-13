@@ -1,4 +1,4 @@
-fn main():
+def main():
     helper(1)
 #   ^ @function
     obj.doThing()

@@ -25,7 +25,11 @@
 
 ; Docstrings
 
-(expression_statement (string) @comment.block.documentation)
+(module . (string) @comment.block.documentation)
+(function_definition body: (block . (string) @comment.block.documentation))
+(class_definition body: (block . (string) @comment.block.documentation))
+(trait_definition body: (block . (string) @comment.block.documentation))
+(extension_definition body: (block . (string) @comment.block.documentation))
 
 ; Imports
 
@@ -33,9 +37,16 @@
   (identifier)* @namespace)
 
 (aliased_import
-  alias: (identifier) @namespace)
+  (identifier) @namespace)
 
 ; Builtin functions
+
+(call
+  function: (attribute attribute: (identifier) @function.method))
+
+(call
+  function: (identifier) @function)
+
 
 ((call
   function: (identifier) @function.builtin)
@@ -48,7 +59,6 @@
 [
   "def"
   "lambda"
-  "fn"
 ] @keyword.function
 
 (call
@@ -59,24 +69,18 @@
   function: (identifier) @constructor
   (#match? @constructor "^[A-Z]"))
 
-(call
-  function: (attribute attribute: (identifier) @function.method))
-
-(call
-  function: (identifier) @function)
-
 ; Function definitions
+
+(function_definition
+  name: (identifier) @function)
+
 
 (function_definition
   name: (identifier) @constructor
   (#match? @constructor "^(__new__|__init__|__moveinit__|__copyinit__)$"))
 
-(function_definition
-  name: (identifier) @function)
-
 ; Decorators
 
-(decorator) @function
 (decorator (identifier) @function)
 (decorator (attribute attribute: (identifier) @function))
 (decorator (call
@@ -100,8 +104,6 @@
   (dictionary_splat_pattern ; **kwargs
     (identifier) @variable.parameter))
 
-(lambda_parameters
-  (identifier) @variable.parameter)
 
 ; Types
 
@@ -154,7 +156,6 @@
   "<<"
   "<<="
   "<="
-  "<>"
   "="
   ":="
   "=="
@@ -181,7 +182,6 @@
   "if"
   "elif"
   "else"
-  "match"
   "case"
 ] @keyword.control.conditional
 
@@ -217,12 +217,12 @@
   "alias"
   "async"
   "class"
-  "exec"
-  "global"
-  "nonlocal"
-  "print"
   "struct"
-  ; "trait"
+  "trait"
+  "comptime"
+  "where"
+  "capturing"
+  "deinit"
 ] @keyword
 
 [
@@ -239,11 +239,24 @@
 "var" @keyword.storage
 
 [
-  "borrowed"
-  "inout"
-  "owned"
+  "read"
+  "mut"
+  "ref"
+  "var"
+  "comptime"
 ] @keyword.storage.modifier
 
 ((identifier) @type.builtin
   (#match? @type.builtin
     "^(BaseException|Exception|ArithmeticError|BufferError|LookupError|AssertionError|AttributeError|EOFError|FloatingPointError|GeneratorExit|ImportError|ModuleNotFoundError|IndexError|KeyError|KeyboardInterrupt|MemoryError|NameError|NotImplementedError|OSError|OverflowError|RecursionError|ReferenceError|RuntimeError|StopIteration|StopAsyncIteration|SyntaxError|IndentationError|TabError|SystemError|SystemExit|TypeError|UnboundLocalError|UnicodeError|UnicodeEncodeError|UnicodeDecodeError|UnicodeTranslateError|ValueError|ZeroDivisionError|EnvironmentError|IOError|WindowsError|BlockingIOError|ChildProcessError|ConnectionError|BrokenPipeError|ConnectionAbortedError|ConnectionRefusedError|ConnectionResetError|FileExistsError|FileNotFoundError|InterruptedError|IsADirectoryError|NotADirectoryError|PermissionError|ProcessLookupError|TimeoutError|Warning|UserWarning|DeprecationWarning|PendingDeprecationWarning|SyntaxWarning|RuntimeWarning|FutureWarning|ImportWarning|UnicodeWarning|BytesWarning|ResourceWarning)$"))
+
+(trait_definition name: (identifier) @type)
+(extension_definition name: (identifier) @type)
+(parameterized_alias_statement name: (identifier) @type)
+(convention_parameter (identifier) @variable.parameter)
+(constrained_parameter name: (identifier) @variable.parameter)
+(variadic_type_parameter name: (identifier) @type.parameter)
+(struct_literal_field name: (identifier) @variable.other.member)
+(inferred_attribute attribute: (identifier) @variable.other.member)
+(self_parameter "self" @variable.builtin)
+(self_type) @type.builtin

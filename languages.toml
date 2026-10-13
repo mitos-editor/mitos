@@ -571,7 +571,7 @@ formatter = { command = "pixi", args = ["run", "mojo" , "format", "-q", "-"]}
 
 [[grammar]]
 name = "mojo"
-source = { git = "https://github.com/lsh/tree-sitter-mojo", rev = "3d7c53b8038f9ebbb57cd2e61296180aa5c1cf64" }
+source = { git = "https://github.com/lsh/tree-sitter-mojo", rev = "c4f24f94a1a3d0e133abfbc4a4ae336b5b61bf8f" }
 
 [[language]]
 name = "janet"

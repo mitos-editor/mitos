@@ -997,9 +997,9 @@
   },
   "mojo": {
     "git": "https://github.com/lsh/tree-sitter-mojo",
-    "rev": "3d7c53b8038f9ebbb57cd2e61296180aa5c1cf64",
-    "url": "https://github.com/lsh/tree-sitter-mojo/archive/3d7c53b8038f9ebbb57cd2e61296180aa5c1cf64.tar.gz",
-    "hash": "sha256-/tVslisSwI3DfEfsFyzJRNTgmt5QXntrY/LaYHOuY8k="
+    "rev": "c4f24f94a1a3d0e133abfbc4a4ae336b5b61bf8f",
+    "url": "https://github.com/lsh/tree-sitter-mojo/archive/c4f24f94a1a3d0e133abfbc4a4ae336b5b61bf8f.tar.gz",
+    "hash": "sha256-+yTvc+zIDJ4s4N1s8mylQZ4K8PHr4KNnaiqnX/X0wdU="
   },
   "moonbit": {
     "git": "https://github.com/moonbitlang/tree-sitter-moonbit",
