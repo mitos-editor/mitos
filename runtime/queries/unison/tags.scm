@@ -4,7 +4,7 @@
 (type_declaration
   (type_kw)
   (type_constructor
-    ((type_name (regular_identifier) @name)) @definition.type))
+    (type_name (regular_identifier) @name))) @definition.type
 
 (ability_declaration
-  (ability_name) @name _) @definition.type
+  (ability_name (regular_identifier) @name)) @definition.interface

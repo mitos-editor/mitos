@@ -14,6 +14,7 @@
   (kw_let)
   (ability)
   (where)
+  (kw_namespace)
 ] @keyword
 
 (kw_let) @keyword.function
@@ -26,6 +27,7 @@
   (operator)
   (pipe)
   (arrow_symbol)
+  (effect_arrow)
   (or)
   (and)
 ] @operator
@@ -72,7 +74,7 @@
   type: (regular_identifier) @type)
 
 (effect
-  (regular_identifier) @special) ; NOTE: an effect is a special type
+  (regular_identifier) @type)
 
 ; Namespaces
 (path) @namespace
