@@ -3,9 +3,10 @@
 (number_literal) @constant.numeric
 (boolean_literal) @constant.builtin.boolean
 (comment) @comment
+(custom_directive) @keyword.directive
+(intrinsic_type) @type.builtin
 
 [
- (intrinsic_type)
  "allocatable"
  "attributes"
  "device"
@@ -121,15 +122,15 @@
  ] @operator
 
 [
- "\\.and\\."
- "\\.or\\."
- "\\.lt\\."
- "\\.gt\\."
- "\\.ge\\."
- "\\.le\\."
- "\\.eq\\."
- "\\.eqv\\."
- "\\.neqv\\."
+ ".and."
+ ".or."
+ ".lt."
+ ".gt."
+ ".ge."
+ ".le."
+ ".eq."
+ ".eqv."
+ ".neqv."
  ] @keyword.operator
 
 ;; Brackets
@@ -205,7 +206,7 @@
   (identifier) @function)
 
 (keyword_argument
-  name: (identifier) @keyword)
+  name: (identifier) @variable.parameter)
 
 (derived_type_member_expression
   (type_member) @variable.other.member)

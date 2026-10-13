@@ -439,9 +439,9 @@
   },
   "fortran": {
     "git": "https://github.com/stadelmanma/tree-sitter-fortran",
-    "rev": "2880b7aab4fb7cc618de1ef3d4c6d93b2396c031",
-    "url": "https://github.com/stadelmanma/tree-sitter-fortran/archive/2880b7aab4fb7cc618de1ef3d4c6d93b2396c031.tar.gz",
-    "hash": "sha256-xHs4iJtxMbOsIrnZxqWDCvnOwm/q6ufhwDPxh204OQI="
+    "rev": "2bc0220f34ca660ec9571c54ea57ed5363338de1",
+    "url": "https://github.com/stadelmanma/tree-sitter-fortran/archive/2bc0220f34ca660ec9571c54ea57ed5363338de1.tar.gz",
+    "hash": "sha256-5A03EVcdy6VLmjSlxf2UxxUpIpFTKguCiph1XAqPDI0="
   },
   "freebasic": {
     "git": "https://github.com/Ra77a3l3-jar/tree-sitter-freebasic",
