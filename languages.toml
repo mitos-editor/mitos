@@ -1978,7 +1978,7 @@ file-types = ["pod"]
 
 [[grammar]]
 name = "pod"
-source = { git = "https://github.com/tree-sitter-perl/tree-sitter-pod", rev = "cd1931314beafeebc957964c65802961e283411e" }
+source = { git = "https://github.com/tree-sitter-perl/tree-sitter-pod", rev = "ffbd7f3b7b68edaaa0532898953c627355cb1a1a" }
 
 [[language]]
 name = "racket"

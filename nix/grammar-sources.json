@@ -1171,9 +1171,9 @@
   },
   "pod": {
     "git": "https://github.com/tree-sitter-perl/tree-sitter-pod",
-    "rev": "cd1931314beafeebc957964c65802961e283411e",
-    "url": "https://github.com/tree-sitter-perl/tree-sitter-pod/archive/cd1931314beafeebc957964c65802961e283411e.tar.gz",
-    "hash": "sha256-q3TQh9bxG2v+xAzVdDGwXmeR3BYH6TMygM/UxFDknTY="
+    "rev": "ffbd7f3b7b68edaaa0532898953c627355cb1a1a",
+    "url": "https://github.com/tree-sitter-perl/tree-sitter-pod/archive/ffbd7f3b7b68edaaa0532898953c627355cb1a1a.tar.gz",
+    "hash": "sha256-wTMqNaTtNAxJduaK2cHDjy/3m2fMTn2WF7vmgckX0WA="
   },
   "ponylang": {
     "git": "https://github.com/mfelsche/tree-sitter-ponylang",

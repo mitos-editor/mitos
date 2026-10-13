@@ -1,5 +1,3 @@
-; A highlight file for nvim-treesitter to use
-
 [(pod_command)
  (command)
  (cut_command)] @keyword
@@ -62,36 +60,36 @@
 )
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "B")
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "B")
   (content) @markup.bold)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "C")
-  (content) @markup.literal)
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "C")
+  (content) @markup.raw.inline)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "F")
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "F")
   (content) @markup.underline @string.special)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "I")
-  (content) @markup.bold)
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "I")
+  (content) @markup.italic)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "L")
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "L")
   (content) @markup.link.url)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "X")
-  (content) @markup.reference)
+  (sequence_letter) @constant.character
+  (#eq? @constant.character "X")
+  (content) @markup.link.label)
 
 (escape_sequence
-  (sequence_letter) @character
+  (sequence_letter) @constant.character
   ["<" ">"] @punctuation.delimiter
-  (content) @string.special.escape)
+  (content) @constant.character.escape)
