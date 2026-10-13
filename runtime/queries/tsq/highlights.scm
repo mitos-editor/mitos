@@ -1,9 +1,11 @@
+(comment) @comment
+
 ((program
   .
   (comment)*
   .
-  (comment) @keyword.import)
-  (#match? @keyword.import "^;+ *inherits *:"))
+  (comment) @keyword.control.import)
+  (#match? @keyword.control.import "^;+ *inherits *:"))
 
 ((parameters
   (identifier) @constant.numeric)
@@ -24,7 +26,6 @@
 
 (quantifier) @operator
 
-(comment) @comment
 
 (negated_field
   "!" @operator

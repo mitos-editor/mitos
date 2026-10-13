@@ -1267,9 +1267,9 @@
   },
   "query": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-query",
-    "rev": "a6674e279b14958625d7a530cabe06119c7a1532",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-query/archive/a6674e279b14958625d7a530cabe06119c7a1532.tar.gz",
-    "hash": "sha256-zBhYS12/tLp8lA8UW6kzDnH2nXeCfGrcW2pYynvj+2Y="
+    "rev": "8e9e223812ff30854fbc912adbec696ba5f0e023",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-query/archive/8e9e223812ff30854fbc912adbec696ba5f0e023.tar.gz",
+    "hash": "sha256-wEgvwgXSqVUEX8J29WVS5A6+5HSa0AxL2gXZXbdwTgo="
   },
   "quint": {
     "git": "https://github.com/gruhn/tree-sitter-quint",

@@ -1875,7 +1875,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "query"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-query", rev = "a6674e279b14958625d7a530cabe06119c7a1532" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-query", rev = "8e9e223812ff30854fbc912adbec696ba5f0e023" }
 
 [[language]]
 name = "cmake"
