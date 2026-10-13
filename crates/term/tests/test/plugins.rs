@@ -120,7 +120,9 @@ async fn plugin_commands_work_in_prompt_keybindings_custom_commands_and_palette(
         json!({"actions": [{"type": "status", "message": "Wasm command ran"}]}),
         None,
     )?;
-    config.keys = toml::from_str("[normal]\nF11 = ':echo builtin'\nF12 = ':fixture.run'\n")?;
+    config.keys = toml::from_str(
+        "[normal]\nF11 = ':echo builtin'\nF12 = { label = 'Run plugin', command = ':fixture.run' }\n",
+    )?;
     let picker_keys = "[keys.picker]\nF10 = 'accept'".to_owned();
     config.component_keys = Config::load(Ok(&picker_keys), Err(Default::default()))
         .unwrap()

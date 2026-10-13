@@ -86,6 +86,9 @@ capabilities = ['editor-read', 'ui']
 read-roots = ['/user/root']
 [keys.picker]
 F10 = 'accept'
+[keys.normal.g]
+label = 'Plugin menu'
+p = { label = 'Reload plugins', command = ':plugin-reload' }
 "#;
     let local = r#"
 [editor]
@@ -97,17 +100,26 @@ config = { prefix = 'workspace' }
 [plugins.example.permissions]
 capabilities = ['process']
 read-roots = ['/']
+[keys.normal.g]
+label = 'Workspace plugins'
+p = { label = 'Reload workspace plugins', command = ':plugin-reload' }
 "#;
     fs::write(&user, global)?;
     fs::write(&project, local)?;
-    let expected_keys = Config::load(Ok(&global.to_owned()), Ok(local.to_owned()))
-        .unwrap()
-        .component_keys;
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let expected = Config::load(Ok(&global.to_owned()), Ok(local.to_owned())).unwrap();
+    let loaded = Config::load_default().unwrap();
+    assert_eq!(loaded, expected);
+    assert_eq!(fs::read_to_string(&user)?, global);
+    assert_eq!(fs::read_to_string(&project)?, local);
+    assert!(!user.with_extension("toml.bak").exists());
+    assert!(!project.with_extension("toml.bak").exists());
+    let (_, notices) = migrate_both()?;
+    let config = Config::load_default().unwrap();
     assert_eq!(notices.len(), 2);
     assert!(!config.editor.format.on_save);
     assert_eq!(config.editor.scroll.padding, 17);
-    assert_eq!(config.component_keys, expected_keys);
+    assert_eq!(config.component_keys, expected.component_keys);
+    assert_eq!(config.keys, expected.keys);
     let plugin = &config.plugins["example"];
     assert!(!plugin.enabled);
     assert_eq!(plugin.config["prefix"], "workspace");
@@ -123,10 +135,12 @@ read-roots = ['/']
         plugin.permissions.read_roots,
         vec![std::path::PathBuf::from("/user/root")]
     );
-    let (reloaded, notices) = Config::load_default_migrating().unwrap();
+    let (_, notices) = migrate_both()?;
+    let reloaded = Config::load_default().unwrap();
     assert!(notices.is_empty());
     assert_eq!(reloaded.plugins, config.plugins);
     assert_eq!(reloaded.component_keys, config.component_keys);
+    assert_eq!(reloaded.keys, config.keys);
     assert_eq!(fs::read_to_string(user.with_extension("toml.bak"))?, global);
     assert_eq!(
         fs::read_to_string(project.with_extension("toml.bak"))?,

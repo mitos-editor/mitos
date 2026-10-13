@@ -32,6 +32,13 @@ default-members = [
 [profile.release]
 lto = "thin"
 
+# Cold plugin compilation must fit the same deadline in debug and release builds.
+[profile.dev.package.cranelift-codegen]
+opt-level = 2
+
+[profile.dev.package.regalloc2]
+opt-level = 2
+
 [profile.opt]
 inherits = "release"
 lto = "fat"
