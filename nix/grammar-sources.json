@@ -433,9 +433,9 @@
   },
   "forth": {
     "git": "https://github.com/alexanderbrevig/tree-sitter-forth",
-    "rev": "360ef13f8c609ec6d2e80782af69958b84e36cd0",
-    "url": "https://github.com/alexanderbrevig/tree-sitter-forth/archive/360ef13f8c609ec6d2e80782af69958b84e36cd0.tar.gz",
-    "hash": "sha256-5ugZdtRlXAaqN4srCVzpawzhqgHqp4w06oF/x4DBvQw="
+    "rev": "7190f2173060d19a2174c96bfb5b7c6f9745512b",
+    "url": "https://github.com/alexanderbrevig/tree-sitter-forth/archive/7190f2173060d19a2174c96bfb5b7c6f9745512b.tar.gz",
+    "hash": "sha256-eg7yRHzwj6P3R7inZtrmeEin0LOMMSLxH2mry8+ohAo="
   },
   "fortran": {
     "git": "https://github.com/stadelmanma/tree-sitter-fortran",
