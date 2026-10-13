@@ -82,7 +82,7 @@
   "|"
 ] @punctuation.bracket
 
-(string (interpolation ["{" "}"] @punctuation.special))
+(interpolation ["{" "}"] @punctuation.special)
 
 [
   ";"
@@ -105,13 +105,13 @@
   start: (identifier) @function)
 
 (chain
-  (lookup (identifier)) @variable.other.member)
+  (lookup (identifier) @variable.other.member))
 
 (call
-  function: (identifier)) @function
+  function: (identifier) @function)
+(call_indented
+  function: (identifier) @function)
 
-(call_arg
-  (identifier) @variable.other.member)
 
 [
   (true)

@@ -4758,7 +4758,7 @@ formatter = {command = "koto", args = ["--format"]}
 
 [[grammar]]
 name = "koto"
-source = { git = "https://github.com/koto-lang/tree-sitter-koto", rev = "633744bca404ae4edb961a3c2d7bc947a987afa4" }
+source = { git = "https://github.com/koto-lang/tree-sitter-koto", rev = "e8d41cbaca867aa1b0213e1fc1caeaf593da7bf7" }
 
 [[language]]
 name = "gpr"

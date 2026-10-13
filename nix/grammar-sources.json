@@ -853,9 +853,9 @@
   },
   "koto": {
     "git": "https://github.com/koto-lang/tree-sitter-koto",
-    "rev": "633744bca404ae4edb961a3c2d7bc947a987afa4",
-    "url": "https://github.com/koto-lang/tree-sitter-koto/archive/633744bca404ae4edb961a3c2d7bc947a987afa4.tar.gz",
-    "hash": "sha256-y5DB38b7ZK992PbsAmcoTUnhI6zFOB7ncfpZJI+BuT4="
+    "rev": "e8d41cbaca867aa1b0213e1fc1caeaf593da7bf7",
+    "url": "https://github.com/koto-lang/tree-sitter-koto/archive/e8d41cbaca867aa1b0213e1fc1caeaf593da7bf7.tar.gz",
+    "hash": "sha256-AyTVVFSWHK9/9ehqaPw5KaGTA0GqbZvVdt4MmB17z4k="
   },
   "latex": {
     "git": "https://github.com/latex-lsp/tree-sitter-latex",

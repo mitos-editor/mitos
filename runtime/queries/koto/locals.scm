@@ -1,24 +1,23 @@
 ; Scopes
-(module (_) @local.scope)
+(module) @local.scope
 
-(function
-  body: (_) @local.scope)
+(function) @local.scope
 
 ; Definitions
 (arg
   (identifier) @local.definition.variable.parameter)
 
 (arg
-  (variable (identifier)) @local.definition.variable.parameter)
+  (variable (identifier) @local.definition.variable.parameter))
 
 (import_item
   (identifier) @local.definition.namespace)
 
 (entry_block
-  (identifier) @local.definition.variable.other.member)
+  key: (identifier) @local.definition.variable.other.member)
 
 (entry_inline
-  (identifier) @local.definition.variable.other.member)
+  key: (identifier) @local.definition.variable.other.member)
 
 ; References
 (identifier) @local.reference
