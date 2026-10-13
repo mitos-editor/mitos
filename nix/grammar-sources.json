@@ -373,9 +373,9 @@
   },
   "elvish": {
     "git": "https://github.com/ckafi/tree-sitter-elvish",
-    "rev": "e50787cadd3bc54f6d9c0704493a79078bb8a4e5",
-    "url": "https://github.com/ckafi/tree-sitter-elvish/archive/e50787cadd3bc54f6d9c0704493a79078bb8a4e5.tar.gz",
-    "hash": "sha256-7vx9NtoAgiX5Rua9cFLKuePpfLiKrmGBLciTVIDp4ek="
+    "rev": "5e7210d945425b77f82cbaebc5af4dd3e1ad40f5",
+    "url": "https://github.com/ckafi/tree-sitter-elvish/archive/5e7210d945425b77f82cbaebc5af4dd3e1ad40f5.tar.gz",
+    "hash": "sha256-bAIS1MGgVfz0vaMW/zlBDNlOyTBQOFxqXsGVJU8X8hs="
   },
   "embedded-perl": {
     "git": "https://github.com/jobindex-open/tree-sitter-embedded-perl",

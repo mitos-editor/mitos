@@ -2977,7 +2977,7 @@ grammar = "elvish"
 
 [[grammar]]
 name = "elvish"
-source = { git = "https://github.com/ckafi/tree-sitter-elvish", rev = "e50787cadd3bc54f6d9c0704493a79078bb8a4e5" }
+source = { git = "https://github.com/ckafi/tree-sitter-elvish", rev = "5e7210d945425b77f82cbaebc5af4dd3e1ad40f5" }
 
 [[language]]
 name = "idris"

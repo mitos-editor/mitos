@@ -27,7 +27,7 @@
 ((command head: (identifier) @keyword.control.return)
  (#eq? @keyword.control.return "return"))
 ((command (identifier) @keyword.operator)
- (#match? @keyword.operator "(and|or|coalesce)"))
+ (#match? @keyword.operator "^(and|or|coalesce)$"))
 ((command head: _ @function)
  (#match? @function "([+]|[-]|[*]|[/]|[%]|[<]|[<][=]|[=][=]|[!][=]|[>]|[>][=]|[<][s]|[<][=][s]|[=][=][s]|[!][=][s]|[>][s]|[>][=][s])"))
 
@@ -40,7 +40,7 @@
   "fn" @keyword.function
   (identifier) @function)
 
-(parameter_list) @variable.parameter
+(parameter_list parameter: (identifier) @variable.parameter)
 (parameter_list "|" @punctuation.bracket)
 
 (variable_declaration
@@ -67,9 +67,9 @@
 ((variable (identifier) @function)
   (#match? @function ".+\\~$"))
 ((variable (identifier) @constant.builtin.boolean)
- (#match? @constant.builtin.boolean "(true|false)"))
+ (#match? @constant.builtin.boolean "^(true|false)$"))
 ((variable (identifier) @constant.builtin)
- (#match? @constant.builtin "(_|after-chdir|args|before-chdir|buildinfo|nil|notify-bg-job-success|num-bg-jobs|ok|paths|pid|pwd|value-out-indicator|version)"))
+ (#match? @constant.builtin "^(_|after-chdir|args|before-chdir|buildinfo|nil|notify-bg-job-success|num-bg-jobs|ok|paths|pid|pwd|value-out-indicator|version)$"))
 
 ["$" "@"] @punctuation.special
 ["(" ")" "[" "]" "{" "}"] @punctuation.bracket
