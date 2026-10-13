@@ -96,7 +96,7 @@
 ] @keyword.storage.type
 
 ; Variables and parameters
-(function_parameter) @variable.parameter
+(function_parameter (identifier) @variable.parameter)
 (trait_usage trait_alias: (identifier) @type.parameter)
 
 (tuple_lit key: (identifier) @variable.other.member)
