@@ -49,7 +49,7 @@
 (user_type_identifier) @type
 
 ; Functions and callbacks
-(argument) @variable.parameter
+
 
 (function_call
   name: (_) @function)
@@ -146,10 +146,10 @@
   "when" @keyword)
 
 (callback
-  name: (simple_identifier) @variable)
+  name: (simple_identifier) @function)
 
 (typed_identifier
-  name: (_) @variable)
+  name: (simple_identifier) @variable.parameter)
 
 (simple_indexed_identifier
   (simple_identifier) @variable)
@@ -222,15 +222,7 @@
 (component_modifier
   "inherits" @keyword.storage.type)
 
-(uses_clause
-  "uses" @keyword.storage.type)
-
-(implements_clause
-  "implements" @keyword.storage.type)
-
-(used_interface
-  "from" @keyword.control.import
-  source: (_) @variable)
+(implement_statement "implement" @keyword.storage.type)
 
 (changed_event
   "changed" @keyword)
@@ -291,3 +283,10 @@
     "in"
     "out"
   ] @keyword)
+
+(closure_expression argument: (simple_identifier) @variable.parameter)
+(slot_declaration name: (simple_identifier) @variable.other.member)
+(slot_declaration "slot" @keyword.storage.type)
+(match_element "match" @keyword.control.conditional)
+(shadowable) @attribute
+(property_deprecation) @attribute

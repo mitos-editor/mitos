@@ -6,6 +6,8 @@
   (global_block)
   (imperative_block)
   (struct_block)
+  (interface_block)
+  (match_element)
 ] @indent
 
 "}" @outdent

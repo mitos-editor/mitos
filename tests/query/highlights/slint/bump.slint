@@ -1,0 +1,10 @@
+export component Example inherits Rectangle {
+    callback activate();
+//           ^ @function
+    function identity(value: int) -> int { return value; }
+//                                                ^ @variable.parameter
+//                                                ^ @variable.parameter
+    slot content;
+//  ^ @keyword.storage.type
+//       ^ @variable.other.member
+}

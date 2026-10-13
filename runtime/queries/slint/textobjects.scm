@@ -19,9 +19,6 @@
 (component_definition
   (block) @class.inside) @class.around
 
-(component_definition
-  (block) @class.inside) @class.around
-
 [(line_comment) (block_comment)] @comment.around
 
 (typed_identifier
@@ -33,3 +30,6 @@
 (string_value
   "\"" . (_) @entry.inside . "\"") @entry.around
 
+
+(closure_expression body: (_) @function.inside) @function.around
+(interface_definition (interface_block) @class.inside) @class.around

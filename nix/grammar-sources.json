@@ -1411,9 +1411,9 @@
   },
   "slint": {
     "git": "https://github.com/slint-ui/tree-sitter-slint",
-    "rev": "f94f96ce093ec153f037228ac2fac5f1a3cd9ac6",
-    "url": "https://github.com/slint-ui/tree-sitter-slint/archive/f94f96ce093ec153f037228ac2fac5f1a3cd9ac6.tar.gz",
-    "hash": "sha256-oBEmyzqmtyCnIMVVfptcdi8+al5S9msuaoA22dFP+RY="
+    "rev": "b494447aeb10e540b9f0fbde08748c052859e42d",
+    "url": "https://github.com/slint-ui/tree-sitter-slint/archive/b494447aeb10e540b9f0fbde08748c052859e42d.tar.gz",
+    "hash": "sha256-pZP2lSp14gaDnib5GPkB7HqJypnXe9lxMRkxgTLfOos="
   },
   "slisp": {
     "git": "https://git.sr.ht/~xguerin/tree-sitter-slisp",
