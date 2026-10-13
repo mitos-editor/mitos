@@ -209,7 +209,6 @@
   function: (identifier) @function)
 
 ; Decorators
-(decorator) @function
 (decorator (identifier) @function)
 (decorator (attribute attribute: (identifier) @function))
 (decorator (call

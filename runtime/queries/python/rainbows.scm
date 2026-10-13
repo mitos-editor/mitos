@@ -11,6 +11,7 @@
   (list)
   (set)
   (tuple)
+  (tuple_expression)
   (dictionary)
   (dictionary_comprehension)
   (set_comprehension)
