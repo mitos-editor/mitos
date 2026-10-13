@@ -3699,7 +3699,7 @@ language-servers = ["asm-lsp"]
 
 [[grammar]]
 name = "nasm"
-source = { git = "https://github.com/naclsn/tree-sitter-nasm", rev = "570f3d7be01fffc751237f4cfcf52d04e20532d1" }
+source = { git = "https://github.com/naclsn/tree-sitter-nasm", rev = "d1b3638d017f2a8585e26dcfc66fe1df94185e30" }
 
 [[language]]
 name = "gas"

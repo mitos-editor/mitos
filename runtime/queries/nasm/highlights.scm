@@ -1,7 +1,5 @@
 (comment) @comment
 
-(label) @label
-
 (preproc_expression) @keyword.directive
 
 (word) @variable
@@ -14,6 +12,8 @@
   (line_here_token)
   (section_here_token)
 ] @variable.builtin
+
+(label (word) @label)
 
 (unary_expression
   operator: _ @operator)

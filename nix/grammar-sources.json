@@ -1015,9 +1015,9 @@
   },
   "nasm": {
     "git": "https://github.com/naclsn/tree-sitter-nasm",
-    "rev": "570f3d7be01fffc751237f4cfcf52d04e20532d1",
-    "url": "https://github.com/naclsn/tree-sitter-nasm/archive/570f3d7be01fffc751237f4cfcf52d04e20532d1.tar.gz",
-    "hash": "sha256-/8MD4RVkAOn+UJGiNHQLZ3YTXanR/iD56DEPJkkSZwo="
+    "rev": "d1b3638d017f2a8585e26dcfc66fe1df94185e30",
+    "url": "https://github.com/naclsn/tree-sitter-nasm/archive/d1b3638d017f2a8585e26dcfc66fe1df94185e30.tar.gz",
+    "hash": "sha256-JsA4QZq/c0XC/OQB5pa4fh1KPo746aF6Y68rE53Mx0U="
   },
   "nearley": {
     "git": "https://github.com/mi2ebi/tree-sitter-nearley",
