@@ -1,3 +1,5 @@
+(comment) @comment
+
 "return" @keyword.control.return
 
 "local" @keyword.storage.modifier
@@ -8,7 +10,7 @@
 
 (break_stmt) @keyword.control
 (continue_stmt) @keyword.control
-(readwrite) @keyword.storage.modifier
+[(read) (write)] @keyword.storage.modifier
 
 [
   "do"
@@ -110,7 +112,6 @@
   (#match? @keyword.directive "^--!(strict|native)[\r]?$")
 )
 
-(comment) @comment
 
 (number) @constant.numeric
 
@@ -137,8 +138,6 @@
  "]"
  "{"
  "}"
- "<"
- ">"
 ] @punctuation.bracket
 
 (_
@@ -790,3 +789,10 @@
   )
 )
 
+
+(type_stmt ["<" ">"] @punctuation.bracket)
+(namedtype ["<" ">"] @punctuation.bracket)
+(fntype ["<" ">"] @punctuation.bracket)
+(fn_stmt ["<" ">"] @punctuation.bracket)
+(local_fn_stmt ["<" ">"] @punctuation.bracket)
+(anon_fn ["<" ">"] @punctuation.bracket)
