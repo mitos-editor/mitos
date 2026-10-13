@@ -516,7 +516,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "fennel"
-source = { git = "https://github.com/alexmozaidze/tree-sitter-fennel", rev = "3f0f6b24d599e92460b969aabc4f4c5a914d15a0" }
+source = { git = "https://github.com/alexmozaidze/tree-sitter-fennel", rev = "8c0d338cdb95285eb5d59a70b513ddaae374786c" }
 
 [[language]]
 name = "fish"

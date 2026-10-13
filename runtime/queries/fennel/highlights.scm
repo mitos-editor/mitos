@@ -8,6 +8,15 @@
 
 (comment) @comment
 
+; Generic calls precede keyword and builtin overrides.
+(list
+  call: (symbol) @function)
+
+(list
+  call: (multi_symbol
+    member: (symbol_fragment) @function .))
+
+
 (fn_form
   name: [
     (symbol) @function
@@ -114,13 +123,6 @@
 (multi_symbol
   "." @punctuation.delimiter
   member: (symbol_fragment) @variable.other.member)
-
-(list
-  call: (symbol) @function)
-
-(list
-  call: (multi_symbol
-    member: (symbol_fragment) @function .))
 
 (multi_symbol_method
   ":" @punctuation.delimiter

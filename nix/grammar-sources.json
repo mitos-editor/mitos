@@ -403,9 +403,9 @@
   },
   "fennel": {
     "git": "https://github.com/alexmozaidze/tree-sitter-fennel",
-    "rev": "3f0f6b24d599e92460b969aabc4f4c5a914d15a0",
-    "url": "https://github.com/alexmozaidze/tree-sitter-fennel/archive/3f0f6b24d599e92460b969aabc4f4c5a914d15a0.tar.gz",
-    "hash": "sha256-6d4IPnWuYVN8CuSlNUDzIwyE6h4xPltlDPSFITBn9mo="
+    "rev": "8c0d338cdb95285eb5d59a70b513ddaae374786c",
+    "url": "https://github.com/alexmozaidze/tree-sitter-fennel/archive/8c0d338cdb95285eb5d59a70b513ddaae374786c.tar.gz",
+    "hash": "sha256-eqA6LRSxceffeOvIOCyTrml2NJ6SKHN8xREtX9Mzd4M="
   },
   "fga": {
     "git": "https://github.com/matoous/tree-sitter-fga",
