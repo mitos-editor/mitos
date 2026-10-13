@@ -979,9 +979,9 @@
   },
   "mermaid": {
     "git": "https://github.com/monaqa/tree-sitter-mermaid",
-    "rev": "d787c66276e7e95899230539f556e8b83ee16f6d",
-    "url": "https://github.com/monaqa/tree-sitter-mermaid/archive/d787c66276e7e95899230539f556e8b83ee16f6d.tar.gz",
-    "hash": "sha256-F8M24OddnGWetctZZTfX3XPVRD8Zq2SNda1MHTDKpaE="
+    "rev": "90ae195b31933ceb9d079abfa8a3ad0a36fee4cc",
+    "url": "https://github.com/monaqa/tree-sitter-mermaid/archive/90ae195b31933ceb9d079abfa8a3ad0a36fee4cc.tar.gz",
+    "hash": "sha256-8R/bw2TkPPrkikHV+cGDDTS06vVqWEs7cRyp2KnLkik="
   },
   "meson": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-meson",

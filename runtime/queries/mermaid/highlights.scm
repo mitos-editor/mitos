@@ -185,3 +185,10 @@
  ] @keyword
 
 (er_attribute_comment) @string
+
+; Mindmap nodes.
+(mmap_node_id) @variable
+(mmap_text) @string
+(md_text) @string
+(mmap_icon) @attribute
+(mmap_class) @type
