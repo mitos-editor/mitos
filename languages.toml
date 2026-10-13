@@ -4266,7 +4266,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "tact"
-source = { git = "https://github.com/tact-lang/tree-sitter-tact", rev = "ec57ab29c86d632639726631fb2bb178d23e1c91" }
+source = { git = "https://github.com/tact-lang/tree-sitter-tact", rev = "1c689f0a8bbe5910db628a62bfc26d37f54bf9be" }
 
 [[language]]
 name = "pkl"

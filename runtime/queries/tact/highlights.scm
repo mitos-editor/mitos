@@ -68,17 +68,16 @@
   name: (identifier) @variable.other.member)
 
 (contract_body
-  (constant
+  (storage_constant
     name: (identifier) @variable.other.member))
 
 (trait_body
-  (constant
+  (storage_constant
     name: (identifier) @variable.other.member))
 
 (field_access_expression
   name: (identifier) @variable.other.member)
 
-(lvalue (_) (_) @variable.other.member)
 
 (instance_argument
   name: (identifier) @variable.other.member)
@@ -102,7 +101,7 @@
 (native_function
   name: (identifier) @function)
 
-(static_function
+(global_function
   name: (identifier) @function)
 
 (static_call_expression
@@ -120,7 +119,7 @@
 (external_function
   "external" @function.method)
 
-(function
+(storage_function
   name: (identifier) @function.method)
 
 ; function.method
@@ -240,7 +239,7 @@
 ; constant
 ; --------
 
-(constant
+(storage_constant
   name: (identifier) @constant)
 
 ; string
@@ -251,8 +250,8 @@
 ; string.special.path
 ; -------------------
 
-(import_statement
-  library: (string) @string.special.path)
+(import
+  name: (string) @string.special.path)
 
 ; type
 ; ----
@@ -296,3 +295,21 @@
 
 (initOf
   name: (identifier) @constructor)
+
+(global_constant name: (identifier) @constant)
+(storage_variable name: (identifier) @variable.other.member)
+(asm_function name: (identifier) @function)
+(escape_sequence) @constant.character.escape
+[(asm_integer)] @constant.numeric.integer
+(asm_string) @string
+[(asm_control_register) (asm_stack_register)] @constant.builtin
+[(asm_hex_bitstring) (asm_bin_bitstring) (asm_boc_hex)] @constant
+(tvm_instruction) @function.builtin
+(asm_cont_name) @variable
+"asm" @keyword.function
+["foreach" "in"] @keyword.control.repeat
+["try" "catch"] @keyword.control.exception
+"codeOf" @keyword.operator
+(codeOf name: (identifier) @constructor)
+(set_type "set" @type.builtin ["<" ">"] @punctuation.bracket)
+(generic_parameter_list ["<" ">"] @punctuation.bracket)

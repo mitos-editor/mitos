@@ -1543,9 +1543,9 @@
   },
   "tact": {
     "git": "https://github.com/tact-lang/tree-sitter-tact",
-    "rev": "ec57ab29c86d632639726631fb2bb178d23e1c91",
-    "url": "https://github.com/tact-lang/tree-sitter-tact/archive/ec57ab29c86d632639726631fb2bb178d23e1c91.tar.gz",
-    "hash": "sha256-U73Riyf4qLNn+AetVA5yHX52w+5iFRFsdGEYtuLRnpA="
+    "rev": "1c689f0a8bbe5910db628a62bfc26d37f54bf9be",
+    "url": "https://github.com/tact-lang/tree-sitter-tact/archive/1c689f0a8bbe5910db628a62bfc26d37f54bf9be.tar.gz",
+    "hash": "sha256-OGRYf5AzR0jxWo9v3yy6TD9X0bml1maeJp0uZcbFJ0U="
   },
   "task": {
     "git": "https://github.com/alexanderbrevig/tree-sitter-task",

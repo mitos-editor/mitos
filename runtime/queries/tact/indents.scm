@@ -28,7 +28,6 @@
 [
   "}"
   ")"
-  ">"
 ] @outdent
 
 ; indent.always
@@ -36,3 +35,7 @@
 ; align
 ; extend
 ; extend.prevent-once
+[(map_type ">" @outdent)
+ (set_type ">" @outdent)
+ (bounced_type ">" @outdent)
+ (generic_parameter_list ">" @outdent)]
