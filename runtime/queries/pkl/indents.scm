@@ -19,7 +19,7 @@
   (objectBody)
   (classBody)
   (ifExpr)
-  (mlStringLiteral) ; This isn't perfect; newlines are too indented but it's better than if omitted.
+  (mlStringLiteralExpr) ; This isn't perfect; newlines are too indented but it's better than if omitted.
 ] @indent
 
 [

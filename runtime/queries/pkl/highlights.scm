@@ -39,13 +39,13 @@
   "~/"
   "%"
   "|>"
-] @keyword.operator
+] @operator
 
 [
   "?"
   "|"
   "->"
-] @operator.type
+] @operator
 
 [
   ","
@@ -98,7 +98,7 @@
 ] @keyword.control.repeat
 
 (importExpr "import" @keyword.control.import)
-(importGlobExpr "import*" @keyword.control.import)
+(importExpr "import*" @keyword.control.import)
 
 "read" @function.builtin
 "read?" @function.builtin
@@ -107,41 +107,41 @@
 "trace" @function.builtin
 
 (moduleExpr "module" @type.builtin)
-"nothing" @type.builtin
-"unknown" @type.builtin
+(nothingType) @type.builtin
+(unknownType) @type.builtin
 
 (outerExpr) @variable.builtin
 "super" @variable.builtin
 (thisExpr) @variable.builtin
 
 [
-  (falseLiteral)
-  (nullLiteral)
-  (trueLiteral)
+  (falseLiteralExpr)
+  (nullLiteralExpr)
+  (trueLiteralExpr)
 ] @constant.builtin
 
 ; Literals
 
 (stringConstant) @string
-(slStringLiteral) @string
-(mlStringLiteral) @string
+(slStringLiteralExpr) @string
+(mlStringLiteralExpr) @string
 
 (escapeSequence) @constant.character.escape
 
-(intLiteral) @constant.numeric.integer
-(floatLiteral) @constant.numeric.float
+(intLiteralExpr) @constant.numeric.integer
+(floatLiteralExpr) @constant.numeric.float
 
-(interpolationExpr
+(stringInterpolation
   "\\(" @punctuation.special
-  ")" @punctuation.special) @embedded
+  ")" @punctuation.special) @none
 
-(interpolationExpr
+(stringInterpolation
  "\\#(" @punctuation.special
- ")" @punctuation.special) @embedded
+ ")" @punctuation.special) @none
 
-(interpolationExpr
+(stringInterpolation
   "\\##(" @punctuation.special
-  ")" @punctuation.special) @embedded
+  ")" @punctuation.special) @none
 
 (lineComment) @comment
 (blockComment) @comment
@@ -150,32 +150,39 @@
 ; Identifiers
 
 (identifier) @variable
+((identifier) @type
+ (#match? @type "^[A-Z]"))
 
 (classProperty (identifier) @variable.other.member)
 (objectProperty (identifier) @variable.other.member)
-; Property access `o.field` (methodCallExpr below handles `o.method()`).
-(propertyCallExpr (identifier) @variable.other.member)
+; Property access `o.field` (unqualifiedAccessExpr below handles `o.method()`).
+(qualifiedAccessExpr (identifier) @variable.other.member)
 
 (parameterList (typedIdentifier (identifier) @variable.parameter))
 (objectBodyParameters (typedIdentifier (identifier) @variable.parameter))
 
 ; Method definitions
 
-(classMethod (methodHeader (identifier)) @function.method)
-(objectMethod (methodHeader (identifier)) @function.method)
+(classMethod (methodHeader (identifier) @function.method))
+(objectMethod (methodHeader (identifier) @function.method))
 
 ; Method calls
 
-(methodCallExpr
-  (identifier) @function.method)
+(unqualifiedAccessExpr
+  (identifier) @function
+  (argumentList))
+(qualifiedAccessExpr
+  (identifier) @function.method
+  (argumentList))
 
 ; Types
 
 (clazz (identifier) @type)
 (typeAlias (identifier) @type)
-((identifier) @type
- (#match? @type "^[A-Z]"))
+
 
 (typeArgumentList
   "<" @punctuation.bracket
   ">" @punctuation.bracket)
+
+(shebangComment) @keyword.directive

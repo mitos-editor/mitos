@@ -1159,9 +1159,9 @@
   },
   "pkl": {
     "git": "https://github.com/apple/tree-sitter-pkl",
-    "rev": "c03f04a313b712f8ab00a2d862c10b37318699ae",
-    "url": "https://github.com/apple/tree-sitter-pkl/archive/c03f04a313b712f8ab00a2d862c10b37318699ae.tar.gz",
-    "hash": "sha256-LF1YMz7I+dI8/KuPUiPPELkmUdGpmyJ46piuxZdlviw="
+    "rev": "c837eff683d62f3cb5e6309b44c257640f202d4b",
+    "url": "https://github.com/apple/tree-sitter-pkl/archive/c837eff683d62f3cb5e6309b44c257640f202d4b.tar.gz",
+    "hash": "sha256-5fECihJZ2oRL5FFGyIqeVBVS/rt/ipa75mOHz1Oq3R4="
   },
   "po": {
     "git": "https://github.com/erasin/tree-sitter-po",

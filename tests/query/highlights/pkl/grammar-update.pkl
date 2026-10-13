@@ -1,0 +1,6 @@
+value = object.field
+//             ^ @variable.other.member
+value = object.run(1)
+//             ^ @function.method
+value = "number: \(1 + 2)"
+//                 ^ @constant.numeric.integer
