@@ -925,9 +925,9 @@
   },
   "lua-format-string": {
     "git": "https://codeberg.org/kpbaks/tree-sitter-lua-format-string",
-    "rev": "b667c8cab109df307e1b4d56b0b43f5c4a353533",
-    "url": "https://codeberg.org/kpbaks/tree-sitter-lua-format-string/archive/b667c8cab109df307e1b4d56b0b43f5c4a353533.tar.gz",
-    "hash": "sha256-EiC3U53Oz1Dr1k1vRcTMfeZqdw1GvcbaQXIPDVcSFiY="
+    "rev": "b275a217e651a71b0b90816ed8eb1e99bf6fdd25",
+    "url": "https://codeberg.org/kpbaks/tree-sitter-lua-format-string/archive/b275a217e651a71b0b90816ed8eb1e99bf6fdd25.tar.gz",
+    "hash": "sha256-kz7p23mDZClMZ9HzYGioyxbBkhrjSd0gL9XG8PoOLAA="
   },
   "luap": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-luap",

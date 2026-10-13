@@ -1647,7 +1647,7 @@ injection-regex = "lua-format-string"
 
 [[grammar]]
 name = "lua-format-string"
-source = { git = "https://codeberg.org/kpbaks/tree-sitter-lua-format-string", rev = "b667c8cab109df307e1b4d56b0b43f5c4a353533" }
+source = { git = "https://codeberg.org/kpbaks/tree-sitter-lua-format-string", rev = "b275a217e651a71b0b90816ed8eb1e99bf6fdd25" }
 
 [[grammar]]
 name = "teal"
