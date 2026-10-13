@@ -1027,9 +1027,9 @@
   },
   "nginx": {
     "git": "https://gitlab.com/joncoole/tree-sitter-nginx",
-    "rev": "f6d13cf6281b25f2ce342a49a41a10a0381e00f0",
-    "url": "https://gitlab.com/api/v4/projects/joncoole%2Ftree-sitter-nginx/repository/archive.tar.gz?sha=f6d13cf6281b25f2ce342a49a41a10a0381e00f0",
-    "hash": "sha256-kHWTONte0w6/I4VteNGmtpqIwTQhem1S4xHjYIywr8Y="
+    "rev": "9413233132d1787aa8d7e8f295ee20b55ba991de",
+    "url": "https://gitlab.com/api/v4/projects/joncoole%2Ftree-sitter-nginx/repository/archive.tar.gz?sha=9413233132d1787aa8d7e8f295ee20b55ba991de",
+    "hash": "sha256-ux/rEQWr4BTOFdLnJkmvBTLokV/+nT1QdpSBiG+gMDQ="
   },
   "nickel": {
     "git": "https://github.com/nickel-lang/tree-sitter-nickel",

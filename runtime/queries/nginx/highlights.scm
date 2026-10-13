@@ -1,7 +1,9 @@
+(generic) @variable
+
 (comment) @comment
 
 (block_directive
-	(directive) @type)
+	(directive (directive_name) @type))
 
 [
 	"{"
@@ -13,7 +15,7 @@
 ] @punctuation.bracket
 
 (simple_directive
-	(directive) @function)
+	(directive (directive_name) @function))
 
 [
 	";"
@@ -28,7 +30,6 @@
 
 (modifier) @operator
 
-(generic) @variable
 
 (string) @string
 
