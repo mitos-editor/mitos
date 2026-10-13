@@ -451,9 +451,9 @@
   },
   "fsharp": {
     "git": "https://github.com/ionide/tree-sitter-fsharp",
-    "rev": "cfc12456941da47b64b7a3994f8dccdc9fe7d2c9",
-    "url": "https://github.com/ionide/tree-sitter-fsharp/archive/cfc12456941da47b64b7a3994f8dccdc9fe7d2c9.tar.gz",
-    "hash": "sha256-FXqN6c2ZUzjfLFqZPSu/rR379j09Mx4begAl5V1XVvs="
+    "rev": "aefd0c8741bdf3aeb827a228aa4a996a6536697e",
+    "url": "https://github.com/ionide/tree-sitter-fsharp/archive/aefd0c8741bdf3aeb827a228aa4a996a6536697e.tar.gz",
+    "hash": "sha256-XECxJunEZBrId10s2dOQUD/T7BMHUxQSFDlp8mOw8K0="
   },
   "gas": {
     "git": "https://github.com/sirius94/tree-sitter-gas",

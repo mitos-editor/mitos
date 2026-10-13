@@ -6,6 +6,7 @@
 (block_comment) @comment.block
 
 (xml_doc) @comment.block.documentation
+(preproc_inactive) @comment.unused
 
 (const
   [
@@ -36,7 +37,8 @@
  (simple_type)
  (atomic_type)
 ] @type
-(generic_type (long_identifier) @type)
+(generic_type (long_identifier (identifier) @type .))
+(simple_type (long_identifier (identifier) @type .))
 
 (member_signature
   .
@@ -167,8 +169,9 @@
   (string)
   (triple_quoted_string)
   (verbatim_string)
-  (char)
 ] @string)
+
+(char) @constant.character
 
 (compiler_directive_decl) @keyword.directive
 
@@ -283,13 +286,6 @@
   "interface"
 ] @keyword.storage.type
 
-(try_expression
-  [
-    "try"
-    "with"
-    "finally"
-  ] @keyword.control.exception)
-
 ((identifier) @keyword.control.exception
  (#any-of? @keyword.control.exception "failwith" "failwithf" "raise" "reraise"))
 
@@ -320,6 +316,13 @@
 [
   "null"
 ] @constant.builtin
+
+(try_expression
+  [
+    "try"
+    "with"
+    "finally"
+  ] @keyword.control.exception)
 
 (match_expression "with" @keyword.control.conditional)
 
