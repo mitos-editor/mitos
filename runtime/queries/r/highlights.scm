@@ -9,8 +9,9 @@
 
 [
   (integer)
-  (complex)
 ] @constant.numeric.integer
+
+(complex) @constant.numeric
 
 [
   (float)
@@ -40,7 +41,7 @@
 ; Operators
 
 [
-  "!" "!=" "$" "&" "&&" "*" "**" "+" "-" "->" "->>" "/" ":" ":::" ":::" ":=" "<"
+  "!" "!=" "$" "&" "&&" "*" "**" "+" "-" "->" "->>" "/" ":" "::" ":::" ":=" "<"
   "<-" "<<-" "<=" "=" "==" ">" ">=" "?" "@" "^" "special" "|" "|>" "||" "~"
 ] @operator
 
@@ -91,7 +92,8 @@
   (break)
 ] @keyword
 
-(return) @keyword.control.return
+(call function: (identifier) @keyword.control.return
+ (#eq? @keyword.control.return "return"))
 
 [
   "if"
@@ -106,3 +108,5 @@
 
 "function" @keyword.function
 
+
+(call function: (extract_operator rhs: (identifier) @function.method))

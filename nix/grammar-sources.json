@@ -1279,9 +1279,9 @@
   },
   "r": {
     "git": "https://github.com/r-lib/tree-sitter-r",
-    "rev": "0e6ef7741712c09dc3ee6e81c42e919820cc65ef",
-    "url": "https://github.com/r-lib/tree-sitter-r/archive/0e6ef7741712c09dc3ee6e81c42e919820cc65ef.tar.gz",
-    "hash": "sha256-V3TNKuN4K60d1h+9PoL0lOAubKxVZIXzb1m/2Z8+JSg="
+    "rev": "58a22794466c0fc15b0d3b40531db751593721e8",
+    "url": "https://github.com/r-lib/tree-sitter-r/archive/58a22794466c0fc15b0d3b40531db751593721e8.tar.gz",
+    "hash": "sha256-ZCsTl49yTHjwZ+axft2P//IjxI6OoJd2Mk4fTo51yhw="
   },
   "regex": {
     "git": "https://github.com/tree-sitter/tree-sitter-regex",
