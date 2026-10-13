@@ -1555,9 +1555,9 @@
   },
   "tcl": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-tcl",
-    "rev": "56ad1fa6a34ba800e5495d1025a9b0fda338d5b8",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-tcl/archive/56ad1fa6a34ba800e5495d1025a9b0fda338d5b8.tar.gz",
-    "hash": "sha256-aZFd2AXCHQg+dHF5AsVq6vQiAXUStFRZ7ce9yW4VydY="
+    "rev": "850a72ab6436e06645b33b11cfa60cbdb04b1f01",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-tcl/archive/850a72ab6436e06645b33b11cfa60cbdb04b1f01.tar.gz",
+    "hash": "sha256-TTu8fbX9M5ivcUr8PdSgtKugs3K/MBkrxM/wDVrPVPo="
   },
   "teal": {
     "git": "https://github.com/euclidianAce/tree-sitter-teal",

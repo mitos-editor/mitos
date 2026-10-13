@@ -2,7 +2,7 @@
  (braced_word_simple)
  (namespace)
  (command)
- (conditional)
+ (if)
  (foreach)
  (while)
  (try)

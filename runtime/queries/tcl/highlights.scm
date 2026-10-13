@@ -6,7 +6,7 @@
 "proc" @keyword.function
 
 (procedure
-  name: (_) @variable
+  name: (simple_word) @function
 )
 
 (set (simple_word) @variable)
@@ -38,7 +38,7 @@
                 "tcl_version"))
 
 
-"expr" @function.builtin
+["expr" "regexp"] @function.builtin
 
 (command
   name: (simple_word) @function.builtin
@@ -127,6 +127,7 @@
  ] @operator
 
 (variable_substitution) @variable
+(variable_substitution (id) @variable)
 (quoted_word) @string
 (escaped_character) @constant.character.escape
 
@@ -151,3 +152,5 @@
 ; tcl_endOfWord tcl_findLibrary tcl_startOfNextWord tcl_startOfPreviousWord
 ; tcl_wordBreakAfter tcl_wordBreakBefore tcltest tell time timerate tm
 ; transchan unknown unload update uplevel upvar vwait yield yieldto zlib
+
+(number) @constant.numeric
