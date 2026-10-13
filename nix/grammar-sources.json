@@ -505,9 +505,9 @@
   },
   "gitcommit": {
     "git": "https://github.com/gbprod/tree-sitter-gitcommit",
-    "rev": "49715a9e6f19ce3d33b875aacdd6ad8ddaee0ffe",
-    "url": "https://github.com/gbprod/tree-sitter-gitcommit/archive/49715a9e6f19ce3d33b875aacdd6ad8ddaee0ffe.tar.gz",
-    "hash": "sha256-Ls9v2OuTXp7Z9OO/XDIdMf8l83RB6qArtNiV96zoByQ="
+    "rev": "55a265cf763ec15d6e2d96bb206e3f5e30d82bae",
+    "url": "https://github.com/gbprod/tree-sitter-gitcommit/archive/55a265cf763ec15d6e2d96bb206e3f5e30d82bae.tar.gz",
+    "hash": "sha256-zPjDqvXW2YhUM+TzvDTIDTnMQIlMJLRLWnEu5Qz5Lgs="
   },
   "gitignore": {
     "git": "https://github.com/shunsambongi/tree-sitter-gitignore",
