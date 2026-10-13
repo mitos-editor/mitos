@@ -1369,9 +1369,9 @@
   },
   "scala": {
     "git": "https://github.com/tree-sitter/tree-sitter-scala",
-    "rev": "4d081d98670ff6e98ca42c085294fc75eec15e1d",
-    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/4d081d98670ff6e98ca42c085294fc75eec15e1d.tar.gz",
-    "hash": "sha256-WYjtJl/DpgYiDZPhzMLakyvbXYukq9Q248i0shptQZE="
+    "rev": "db390f312a54b04b13790e1767bfac32665c17ac",
+    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/db390f312a54b04b13790e1767bfac32665c17ac.tar.gz",
+    "hash": "sha256-CTYtZdzjVg9hRgSJR9VqljZLxli1G4Q2xz2y/K9K+R8="
   },
   "scfg": {
     "git": "https://github.com/rockorager/tree-sitter-scfg",

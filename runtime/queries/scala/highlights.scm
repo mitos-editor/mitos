@@ -169,6 +169,9 @@
   (open_modifier)
   (tracked_modifier)
   (into_modifier)
+  (consume_modifier)
+  (erased_modifier)
+  (update_modifier)
   "abstract"
   "final"
   "implicit"
@@ -195,12 +198,13 @@
 [
   "as"
   "derives"
-  "end"
+  (end_marker)
   "extends"
-;; `forSome` existential types not implemented yet
+  "forSome"
 ;; `macro` not implemented yet
 ;; `throws`
   "using"
+  "uses"
   "with"
 ] @keyword
 
@@ -264,3 +268,14 @@
 
 (case_block
   (case_clause ("case") @keyword.control.conditional))
+
+; XML literals preserve Scala highlighting inside embedded blocks.
+(xml_name) @tag
+(xml_attribute key: (xml_name) @attribute)
+(xml_string) @string
+(xml_comment) @comment
+(xml_cdata) @string
+(xml_processing_instruction) @keyword.directive
+(capture_variable) @operator
+(xml_element ["<" ">" "</" "/>"] @punctuation.bracket)
+(xml_pattern ["<" ">" "</" "/>"] @punctuation.bracket)
