@@ -193,9 +193,9 @@
   },
   "cpon": {
     "git": "https://github.com/fvacek/tree-sitter-cpon",
-    "rev": "0d01fcdae5a53191df5b1349f9bce053833270e7",
-    "url": "https://github.com/fvacek/tree-sitter-cpon/archive/0d01fcdae5a53191df5b1349f9bce053833270e7.tar.gz",
-    "hash": "sha256-K0NPtg26M8M/8WNxoFvfCvc9tK4pTz8NzZ0NL08Wy5g="
+    "rev": "d42786f6295db7046372c042b208b8094940e9cd",
+    "url": "https://github.com/fvacek/tree-sitter-cpon/archive/d42786f6295db7046372c042b208b8094940e9cd.tar.gz",
+    "hash": "sha256-K2JliCSPJRY4+hvjv/m90Ra6N4BIsW6joeh4/EeEcxU="
   },
   "cpp": {
     "git": "https://github.com/tree-sitter/tree-sitter-cpp",

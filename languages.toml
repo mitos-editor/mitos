@@ -2752,7 +2752,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "cpon"
-source = { git = "https://github.com/fvacek/tree-sitter-cpon", rev = "0d01fcdae5a53191df5b1349f9bce053833270e7" }
+source = { git = "https://github.com/fvacek/tree-sitter-cpon", rev = "d42786f6295db7046372c042b208b8094940e9cd" }
 
 [[language]]
 name = "odin"
