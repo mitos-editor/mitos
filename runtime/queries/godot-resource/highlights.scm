@@ -26,3 +26,5 @@
 "=" @operator
 
 (comment) @comment
+
+(string_name) @string.special.symbol

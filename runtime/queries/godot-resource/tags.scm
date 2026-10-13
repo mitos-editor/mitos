@@ -2,10 +2,10 @@
   (identifier) @_type
   (attribute
     (identifier) @_attr_type
-    (string) @definition.struct)
+    (string) @name)
   (#eq? @_type "node")
-  (#eq? @_attr_type "name"))
+  (#eq? @_attr_type "name")) @definition.struct
 
 (section
-  (identifier) @definition.struct
-  (#not-eq? @definition.struct "node"))
+  (identifier) @name
+  (#not-eq? @name "node")) @definition.section
