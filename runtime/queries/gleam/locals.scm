@@ -1,5 +1,5 @@
 ; Scopes
-(function) @local.scope
+[(function) (anonymous_function)] @local.scope
 
 (case_clause) @local.scope
 

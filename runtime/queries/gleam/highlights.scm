@@ -81,14 +81,14 @@
   (type_parameter)
   ; in `pub fn size(dict: Dict(key, value)) -> Int` this is `key` and `value`
   (type_var)
-] @type
+] @type.parameter
 
 ; Data constructors
 (constructor_name) @constructor
 
 ; built-ins
-((constructor_name) @constant.builtin
-  (#any-of? @constant.builtin "False" "True"))
+((constructor_name) @constant.builtin.boolean
+  (#any-of? @constant.builtin.boolean "False" "True"))
 ((constructor_name) @constant.builtin
   (#any-of? @constant.builtin "Nil"))
 ((constructor_name) @type.enum.variant.builtin

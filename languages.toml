@@ -2488,7 +2488,7 @@ auto-format = true
 
 [[grammar]]
 name = "gleam"
-source = { git = "https://github.com/gleam-lang/tree-sitter-gleam", rev = "c610c282ef73f830d80c1f0999dce8e83f024ef5" }
+source = { git = "https://github.com/gleam-lang/tree-sitter-gleam", rev = "fa6d0d94804f1b342e175865a3dbeb316ee5115e" }
 
 [[language]]
 name = "quarto"

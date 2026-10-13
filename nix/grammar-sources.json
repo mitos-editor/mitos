@@ -517,9 +517,9 @@
   },
   "gleam": {
     "git": "https://github.com/gleam-lang/tree-sitter-gleam",
-    "rev": "c610c282ef73f830d80c1f0999dce8e83f024ef5",
-    "url": "https://github.com/gleam-lang/tree-sitter-gleam/archive/c610c282ef73f830d80c1f0999dce8e83f024ef5.tar.gz",
-    "hash": "sha256-xtPuKD+R/qY0idEHnFUqypt4ky+4ghtGAc7Tqs0AuBs="
+    "rev": "fa6d0d94804f1b342e175865a3dbeb316ee5115e",
+    "url": "https://github.com/gleam-lang/tree-sitter-gleam/archive/fa6d0d94804f1b342e175865a3dbeb316ee5115e.tar.gz",
+    "hash": "sha256-IzHNxsB64xt8MGflZDRF86H9cn5/DJh51tF8hQ6xYd0="
   },
   "glimmer": {
     "git": "https://github.com/ember-tooling/tree-sitter-glimmer",
