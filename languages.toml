@@ -3141,7 +3141,7 @@ language-servers = ["millet"]
 
 [[grammar]]
 name = "sml"
-source = { git = "https://github.com/Giorbo/tree-sitter-sml", rev = "bd4055d5554614520d4a0706b34dc0c317c6b608" }
+source = { git = "https://github.com/Giorbo/tree-sitter-sml", rev = "f56de7d96dd3b9bb8e0a529a647313b900817507" }
 
 [[language]]
 name = "jsonnet"

@@ -1435,9 +1435,9 @@
   },
   "sml": {
     "git": "https://github.com/Giorbo/tree-sitter-sml",
-    "rev": "bd4055d5554614520d4a0706b34dc0c317c6b608",
-    "url": "https://github.com/Giorbo/tree-sitter-sml/archive/bd4055d5554614520d4a0706b34dc0c317c6b608.tar.gz",
-    "hash": "sha256-i0C0VF5MyK5bA8kgJ5In70DuqVhgIsB4RuHxZCr0uHA="
+    "rev": "f56de7d96dd3b9bb8e0a529a647313b900817507",
+    "url": "https://github.com/Giorbo/tree-sitter-sml/archive/f56de7d96dd3b9bb8e0a529a647313b900817507.tar.gz",
+    "hash": "sha256-4MQ9oOs2LK+YDmT9RkyqyRHNX5Fc9CprvgeH9EtStyY="
   },
   "snakemake": {
     "git": "https://github.com/osthomas/tree-sitter-snakemake",
