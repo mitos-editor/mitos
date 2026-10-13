@@ -965,7 +965,7 @@ indent = { tab-width = 2, unit = " " }
 
 [[grammar]]
 name = "gotmpl"
-source = { git = "https://github.com/ngalaiko/tree-sitter-go-template", rev = "aa71f63de226c5592dfbfc1f29949522d7c95fac" }
+source = { git = "https://github.com/ngalaiko/tree-sitter-go-template", rev = "06b2fd2ac32a7be71cdcf925eeeb868a68e2acde" }
 
 [[language]]
 name = "gowork"

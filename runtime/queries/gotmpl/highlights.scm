@@ -14,7 +14,7 @@
 
 (method_call
   method: (selector_expression
-    field: (field_identifier) @function))
+    field: (field_identifier) @function.method))
 
 ; Operators
 
@@ -53,7 +53,7 @@
     "range"
     "else"
     "end"
-  ] @keyword.control.conditional)
+  ] @keyword.control.repeat)
 
 (template_action
   "template" @function.builtin)
@@ -82,10 +82,10 @@
 [
   (interpreted_string_literal)
   (raw_string_literal)
-  (rune_literal)
 ] @string
+(rune_literal) @constant.character
 
-(escape_sequence) @string.special
+(escape_sequence) @constant.character.escape
 
 [
   (int_literal)

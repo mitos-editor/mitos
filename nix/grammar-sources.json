@@ -583,9 +583,9 @@
   },
   "gotmpl": {
     "git": "https://github.com/ngalaiko/tree-sitter-go-template",
-    "rev": "aa71f63de226c5592dfbfc1f29949522d7c95fac",
-    "url": "https://github.com/ngalaiko/tree-sitter-go-template/archive/aa71f63de226c5592dfbfc1f29949522d7c95fac.tar.gz",
-    "hash": "sha256-hrzSzUYqL92Upgu0S28V6Zs9Ahd8XWMcv0V2G65IJFg="
+    "rev": "06b2fd2ac32a7be71cdcf925eeeb868a68e2acde",
+    "url": "https://github.com/ngalaiko/tree-sitter-go-template/archive/06b2fd2ac32a7be71cdcf925eeeb868a68e2acde.tar.gz",
+    "hash": "sha256-qlCRUR5/AYUdasC9FSGza7AtMi5P9b8wCZnAy5aoMoA="
   },
   "gowork": {
     "git": "https://github.com/omertuc/tree-sitter-go-work",
