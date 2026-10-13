@@ -1291,9 +1291,9 @@
   },
   "rego": {
     "git": "https://github.com/FallenAngel97/tree-sitter-rego",
-    "rev": "ddd39af81fe8b0288102a7cb97959dfce723e0f3",
-    "url": "https://github.com/FallenAngel97/tree-sitter-rego/archive/ddd39af81fe8b0288102a7cb97959dfce723e0f3.tar.gz",
-    "hash": "sha256-df+IhAsYe3FGB2iY612PLbtArYsDuwZwcAnddmBl4rU="
+    "rev": "da2a1f63cd877efb05d56de61fe516e90012b9a7",
+    "url": "https://github.com/FallenAngel97/tree-sitter-rego/archive/da2a1f63cd877efb05d56de61fe516e90012b9a7.tar.gz",
+    "hash": "sha256-XVs5R4mAXxUNyCIqxbwlIJQTmpnoiH7Rep4f2UuuJJc="
   },
   "requirements": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-requirements",

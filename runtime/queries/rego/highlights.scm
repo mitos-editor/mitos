@@ -4,7 +4,7 @@
 
 [
   (package)
-] @namespace
+] @keyword.control.import
 
 [
   (with)
@@ -13,8 +13,10 @@
   (some)
   (in)
   (default)
-  "null"
 ] @keyword.control
+
+"null" @constant.builtin
+[(and) (or)] @keyword.operator
 
 [
   (not)
@@ -39,7 +41,7 @@
   (raw_string)
 ] @string
 
-(term (ref (var))) @variable
+(term (ref (var) @variable))
 
 (comment) @comment.line
 
