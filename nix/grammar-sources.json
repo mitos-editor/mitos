@@ -67,9 +67,9 @@
   },
   "beancount": {
     "git": "https://github.com/polarmutex/tree-sitter-beancount",
-    "rev": "429cff869513cf9e34a2cf604fbfaaedc467e809",
-    "url": "https://github.com/polarmutex/tree-sitter-beancount/archive/429cff869513cf9e34a2cf604fbfaaedc467e809.tar.gz",
-    "hash": "sha256-s4vJ8tBgo36dnavex7vp2O0PRNVsKzvoVNQTNFmV8gM="
+    "rev": "c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa",
+    "url": "https://github.com/polarmutex/tree-sitter-beancount/archive/c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa.tar.gz",
+    "hash": "sha256-LKb+HIIdELD0prXDmeogXDWWEB2Hcr66yOE579oI71c="
   },
   "bibtex": {
     "git": "https://github.com/latex-lsp/tree-sitter-bibtex",

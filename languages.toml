@@ -1554,7 +1554,7 @@ language-servers = [ "beancount-language-server" ]
 
 [[grammar]]
 name = "beancount"
-source = { git = "https://github.com/polarmutex/tree-sitter-beancount", rev = "429cff869513cf9e34a2cf604fbfaaedc467e809" }
+source = { git = "https://github.com/polarmutex/tree-sitter-beancount", rev = "c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa" }
 
 [[language]]
 name = "ocaml"
