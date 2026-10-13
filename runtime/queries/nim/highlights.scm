@@ -1,3 +1,11 @@
+;; Constants (ALL_CAPS naming convention) - fallback for unmatched identifiers
+((identifier) @constant
+  (#match? @constant "^[A-Z][A-Z0-9_]*$"))
+
+;; Type names (PascalCase - starts with capital, contains lowercase) - fallback
+((identifier) @type
+  (#match? @type "^[A-Z][a-z]"))
+
 ;; Constants, Comments, and Literals
 
 (comment) @comment.line
@@ -332,7 +340,7 @@
   left: (identifier) @variable)
 
 ;; ============================================================================
-;; Fallback identifier patterns (applied last, after all specific contexts)
+;; Built-in identifier overrides
 ;; ============================================================================
 
 ;; Special built-in identifiers
@@ -350,11 +358,3 @@
 ;; Built-in types (primitive and common types)
 ((identifier) @type.builtin
   (#match? @type.builtin "^(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|float32|float64|bool|char|string|cstring|pointer|ptr|ref|void|auto|any|type|typed|untyped|typedesc|range|array|openArray|openarray|varargs|seq|set|tuple|object|enum|concept|distinct|proc|iterator|cstringArray|csize|csize_t|clonglong|culonglong|clong|culong|cint|cuint|cshort|cushort|cchar|cschar|cuchar|cfloat|cdouble|clongdouble|byte|Natural|Positive|sink|lent|owned|iterable|static)$"))
-
-;; Constants (ALL_CAPS naming convention) - fallback for unmatched identifiers
-((identifier) @constant
-  (#match? @constant "^[A-Z][A-Z0-9_]*$"))
-
-;; Type names (PascalCase - starts with capital, contains lowercase) - fallback
-((identifier) @type
-  (#match? @type "^[A-Z][a-z]"))

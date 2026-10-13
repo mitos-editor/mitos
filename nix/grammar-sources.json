@@ -1039,9 +1039,9 @@
   },
   "nim": {
     "git": "https://github.com/alaviss/tree-sitter-nim",
-    "rev": "c5f0ce3b65222f5dbb1a12f9fe894524881ad590",
-    "url": "https://github.com/alaviss/tree-sitter-nim/archive/c5f0ce3b65222f5dbb1a12f9fe894524881ad590.tar.gz",
-    "hash": "sha256-0XVQxyyACkV46IN6MTgncb/7fa/a0bkoQCKBvnn0tww="
+    "rev": "ac72ba30d16edf0be021588a9301ede4accd6cf4",
+    "url": "https://github.com/alaviss/tree-sitter-nim/archive/ac72ba30d16edf0be021588a9301ede4accd6cf4.tar.gz",
+    "hash": "sha256-FlXXbt4EIDc0DOycLTndtsn7DxtSAZ4Ct4WtVBr3KSY="
   },
   "nix": {
     "git": "https://github.com/numtide/tree-sitter-nix",

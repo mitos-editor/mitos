@@ -3809,7 +3809,7 @@ language-servers = [ "nimlangserver" ]
 
 [[grammar]]
 name = "nim"
-source = { git = "https://github.com/alaviss/tree-sitter-nim", rev = "c5f0ce3b65222f5dbb1a12f9fe894524881ad590" }
+source = { git = "https://github.com/alaviss/tree-sitter-nim", rev = "ac72ba30d16edf0be021588a9301ede4accd6cf4" }
 
 [[language]]
 name = "cabal"
