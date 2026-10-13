@@ -36,16 +36,8 @@
 ; @function, while a plain `o.field` stays a member.
 (member_expression member: (identifier) @variable.other.member)
 
-; TODO: Figure out how to determined when "nested member call" is last ident.
-; apparently this is a known issue https://github.com/tree-sitter/tree-sitter/issues/880
-(call_expression object: [
-  (_) @function
-  (_ (identifier) @function .)
-;   (_(_ (identifier) @function .))
-;   (_(_(_ (identifier) @function .)))
-;   (_(_(_(_ (identifier) @function .))))
-;   (_(_(_(_(_ (identifier) @function .)))))
-])
+(call_expression object: (identifier) @function)
+(call_expression object: (member_expression member: (identifier) @function.method))
 
 ; Literals
 ; --------
@@ -53,8 +45,8 @@
 ; (type) @type
 (type_name) @type
 (package_name) @namespace
-(type (identifier) !built_in) @type
-(type built_in: (identifier)) @type.builtin
+(type (identifier) @type !built_in)
+(type built_in: (identifier) @type.builtin)
 (integer) @constant.numeric.integer
 (float) @constant.numeric.float
 (string) @string

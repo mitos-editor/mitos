@@ -643,9 +643,9 @@
   },
   "haxe": {
     "git": "https://github.com/vantreeseba/tree-sitter-haxe",
-    "rev": "f2a2394d9ca7a6099f78d8b0d178530e7c9a8e26",
-    "url": "https://github.com/vantreeseba/tree-sitter-haxe/archive/f2a2394d9ca7a6099f78d8b0d178530e7c9a8e26.tar.gz",
-    "hash": "sha256-hpZbo+AcCkjISbYLrO3vM/psDTMVFuQqIeYavYxa/As="
+    "rev": "a25faf5efa842502a326ec803cfbe5a442a11e7c",
+    "url": "https://github.com/vantreeseba/tree-sitter-haxe/archive/a25faf5efa842502a326ec803cfbe5a442a11e7c.tar.gz",
+    "hash": "sha256-GOaW9RIA1xiBIx4G+F2DzOHZMt9wP2wmPFcfNHNgv3M="
   },
   "hcl": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-hcl",

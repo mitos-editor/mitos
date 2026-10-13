@@ -5311,7 +5311,7 @@ persistent-diagnostic-sources = ["haxe"]
 
 [[grammar]]
 name = "haxe"
-source = { git = "https://github.com/vantreeseba/tree-sitter-haxe", rev = "f2a2394d9ca7a6099f78d8b0d178530e7c9a8e26" }
+source = { git = "https://github.com/vantreeseba/tree-sitter-haxe", rev = "a25faf5efa842502a326ec803cfbe5a442a11e7c" }
 
 [[language]]
 name = "basic"
