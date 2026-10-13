@@ -10,10 +10,6 @@
 
 (identifier) @variable
 
-; these are listed first, because they override keyword queries
-(identity_expression (in) @operator)
-(identity_expression (is) @operator)
-
 (storage_class) @keyword.storage
 
 (function_declaration (identifier) @function)
@@ -166,6 +162,10 @@
     "@"
     "=>"
 ] @operator
+
+; Context-specific operators override the generic keyword captures.
+(identity_expression (in) @operator)
+(identity_expression (is) @operator)
 
 [
     "("

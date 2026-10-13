@@ -241,9 +241,9 @@
   },
   "d": {
     "git": "https://github.com/gdamore/tree-sitter-d",
-    "rev": "8bcb13dbddf16ca44a42f8e98e8cf3d86b2b2e48",
-    "url": "https://github.com/gdamore/tree-sitter-d/archive/8bcb13dbddf16ca44a42f8e98e8cf3d86b2b2e48.tar.gz",
-    "hash": "sha256-mtemB0TYV6kTHV4cbKuAlQJxIHqNo/wgB9GyHpJgGek="
+    "rev": "64f27931b4e6fdd75af1102c79bacbca68a8dacc",
+    "url": "https://github.com/gdamore/tree-sitter-d/archive/64f27931b4e6fdd75af1102c79bacbca68a8dacc.tar.gz",
+    "hash": "sha256-k5rd3o5jqctS0ko4pvYtX+GlpwrPVuu6NKzMjZ+S1sw="
   },
   "dart": {
     "git": "https://github.com/UserNobody14/tree-sitter-dart",
