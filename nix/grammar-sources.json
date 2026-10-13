@@ -721,9 +721,9 @@
   },
   "ink": {
     "git": "https://github.com/wldmr/tree-sitter-ink",
-    "rev": "632072bab485ab4c705c39cb9aae9eaeac6893ba",
-    "url": "https://github.com/wldmr/tree-sitter-ink/archive/632072bab485ab4c705c39cb9aae9eaeac6893ba.tar.gz",
-    "hash": "sha256-Tg+B4fGzv8hYhY0vO087AN1Ew6sPVRerCn9w2HiDlYE="
+    "rev": "a58dd59c5266aa4c834ad0b441ec2b822055da0e",
+    "url": "https://github.com/wldmr/tree-sitter-ink/archive/a58dd59c5266aa4c834ad0b441ec2b822055da0e.tar.gz",
+    "hash": "sha256-LObuLXPAdhc7evPn1XrI/s6BmDBArZPsQsaClMaciIo="
   },
   "inko": {
     "git": "https://github.com/inko-lang/tree-sitter-inko",

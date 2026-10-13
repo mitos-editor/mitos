@@ -3,7 +3,7 @@
 (global ["VAR" "CONST"] @keyword.storage.type
         "=" @operator)
 (temp_def "temp" @keyword
-      name: (identifier) @variable.member) ; not really, but temp vars are the closest thing to members that ink has
+      name: (identifier) @variable.other.member) ; not really, but temp vars are the closest thing to members that ink has
 (include "INCLUDE" @keyword.control.import
          (path) @string.special.path)
 (external "EXTERNAL" @keyword
@@ -40,7 +40,7 @@
 (unary "-" @operator)
 (unary "not" @keyword.operator)
 
-(assignment ["=" "+=" "-="]) @operator
+(assignment ["=" "+=" "-="] @operator)
 
 (choice_only ["[" "]"] @punctuation.bracket)  ; Need to specifiy choice here, because the grammar does always tokenize these brackets (for all text), but we don't want to highlight them outside of choices.
 (label ["(" ")"] @punctuation.bracket name: (_) @label)
@@ -49,6 +49,7 @@
 
 ["," "|" ":"] @punctuation.delimiter
 
+(call (identifier) @function)
 (call (identifier) @function.builtin
       (#any-of? @function.builtin
        ; List Functions
@@ -65,7 +66,6 @@
        "TURNS_SINCE"
        "LIST_FOO"
        "SEED_RANDOM"))
-(call (identifier) @function)
 (call ["(" ")"] @punctuation.bracket)
 
 (knot "==" @markup.heading.1 (identifier) @label)
@@ -123,6 +123,6 @@
 (string) @string
 
 (number) @constant.numeric
-(boolean) @keyword.builtin.boolean
+(boolean) @constant.builtin.boolean
 
 (tag "#" @punctuation.special) @tag
