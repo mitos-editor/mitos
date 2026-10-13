@@ -91,9 +91,9 @@
   },
   "blade": {
     "git": "https://github.com/EmranMR/tree-sitter-blade",
-    "rev": "5dbdcb0ccbe91e64b038b41545d3acc26c74907a",
-    "url": "https://github.com/EmranMR/tree-sitter-blade/archive/5dbdcb0ccbe91e64b038b41545d3acc26c74907a.tar.gz",
-    "hash": "sha256-021/2bBAtw9Xp2Wk/BQP0i+9p4pbO5St4j6KYjAd+yc="
+    "rev": "b5291d1ba207a8ebb8383b2ecb8a8a6535210a50",
+    "url": "https://github.com/EmranMR/tree-sitter-blade/archive/b5291d1ba207a8ebb8383b2ecb8a8a6535210a50.tar.gz",
+    "hash": "sha256-KEp1L32EgFFcGN/xSRLlH1LNXwPweSL9LMg4s9kjMas="
   },
   "blueprint": {
     "git": "https://gitlab.com/gabmus/tree-sitter-blueprint",

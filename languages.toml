@@ -1397,7 +1397,7 @@ roots = ["composer.json", "index.php"]
 
 [[grammar]]
 name = "blade"
-source = { git = "https://github.com/EmranMR/tree-sitter-blade", rev = "5dbdcb0ccbe91e64b038b41545d3acc26c74907a" }
+source = { git = "https://github.com/EmranMR/tree-sitter-blade", rev = "b5291d1ba207a8ebb8383b2ecb8a8a6535210a50" }
 
 [[language]]
 name = "twig"
