@@ -361,9 +361,9 @@
   },
   "elixir": {
     "git": "https://github.com/elixir-lang/tree-sitter-elixir",
-    "rev": "7937d3b4d65fa574163cfa59394515d3c1cf16f4",
-    "url": "https://github.com/elixir-lang/tree-sitter-elixir/archive/7937d3b4d65fa574163cfa59394515d3c1cf16f4.tar.gz",
-    "hash": "sha256-yDAsco7AE0F6NrsQF3EXaQui7/vTtJM8nOVTxzMIYGs="
+    "rev": "4b0c7118760af58a2e7081bbc8396e136f820b37",
+    "url": "https://github.com/elixir-lang/tree-sitter-elixir/archive/4b0c7118760af58a2e7081bbc8396e136f820b37.tar.gz",
+    "hash": "sha256-myXtL4b65B0/Ob3Y/Y+j5dLx9pVtVFE16lbqBL8N1aI="
   },
   "elm": {
     "git": "https://github.com/elm-tooling/tree-sitter-elm",

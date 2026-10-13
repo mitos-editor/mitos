@@ -502,7 +502,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "elixir"
-source = { git = "https://github.com/elixir-lang/tree-sitter-elixir", rev = "7937d3b4d65fa574163cfa59394515d3c1cf16f4" }
+source = { git = "https://github.com/elixir-lang/tree-sitter-elixir", rev = "4b0c7118760af58a2e7081bbc8396e136f820b37" }
 
 [[language]]
 name = "fennel"
