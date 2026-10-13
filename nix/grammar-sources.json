@@ -775,9 +775,9 @@
   },
   "jq": {
     "git": "https://github.com/flurie/tree-sitter-jq",
-    "rev": "13990f530e8e6709b7978503da9bc8701d366791",
-    "url": "https://github.com/flurie/tree-sitter-jq/archive/13990f530e8e6709b7978503da9bc8701d366791.tar.gz",
-    "hash": "sha256-/t+qUYuPWyZEgAXqy5GFX1V+9gXjoOw9RQUEK6lVC0o="
+    "rev": "c204e36d2c3c6fce1f57950b12cabcc24e5cc4d9",
+    "url": "https://github.com/flurie/tree-sitter-jq/archive/c204e36d2c3c6fce1f57950b12cabcc24e5cc4d9.tar.gz",
+    "hash": "sha256-v5JZGUkmSShx1hdMJouPCJl2Pq8m22QscEUhLSDwLHs="
   },
   "jsdoc": {
     "git": "https://github.com/tree-sitter/tree-sitter-jsdoc",

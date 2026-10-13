@@ -30,13 +30,7 @@
   "false"
 ] @constant.builtin.boolean
 
-"null" @type.builtin
-
-; Interpolation
-[
-  "\\("
-  ")"
-] @special
+"null" @constant.builtin
 
 ; Format
 (format) @attribute
@@ -158,3 +152,7 @@
 
 ; Comments
 (comment) @comment.line
+
+; Interpolated queries retain code highlighting within strings.
+(string_interp (query) @none)
+(string_interp ["\\(" ")"] @punctuation.special)

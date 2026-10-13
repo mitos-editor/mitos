@@ -7,6 +7,3 @@
   (identifier) @local.definition.variable.parameter)
 
 (funcname) @local.reference
-
-(index
-  (identifier) @local.reference)
