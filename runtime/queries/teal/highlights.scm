@@ -44,7 +44,7 @@
 ;; Functions
 (function_statement
   "function" @keyword.function
-  . name: (_) @function)
+  . name: (identifier) @function)
 (anon_function
   "function" @keyword.function)
 (function_body "end" @keyword.function)
@@ -168,3 +168,7 @@
 ;    (#eq? @func-name "format"))
 
 
+
+(table_function_name entry: (identifier) @function .)
+(table_function_name method: (identifier) @function.method)
+(typearg name: (identifier) @type.parameter)

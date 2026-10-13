@@ -1561,9 +1561,9 @@
   },
   "teal": {
     "git": "https://github.com/euclidianAce/tree-sitter-teal",
-    "rev": "3db655924b2ff1c54fdf6371b5425ea6b5dccefe",
-    "url": "https://github.com/euclidianAce/tree-sitter-teal/archive/3db655924b2ff1c54fdf6371b5425ea6b5dccefe.tar.gz",
-    "hash": "sha256-jsiXe00TzB6jbVRjhwT/3HOM7fb3FQPuUW2L6sfiWrY="
+    "rev": "ac6b42ffb23d5d52b582c02508dd3524ac0ba3df",
+    "url": "https://github.com/euclidianAce/tree-sitter-teal/archive/ac6b42ffb23d5d52b582c02508dd3524ac0ba3df.tar.gz",
+    "hash": "sha256-x1M/dGdzg8gaXk+PNsyVZpfMr9QQjFz6YHE+lB2044Y="
   },
   "templ": {
     "git": "https://github.com/vrischmann/tree-sitter-templ",

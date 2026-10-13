@@ -1,7 +1,7 @@
 
 (var_declaration
   declarators: (var_declarators
-  (var (identifier)) @local.definition.variable))
+  (var (identifier) @local.definition.variable)))
 
 (var_assignment
   variables: (assignment_variables
@@ -10,8 +10,8 @@
 (arg name: (identifier) @local.definition.variable.parameter)
 
 (anon_function) @local.scope
-((function_statement
-  (function_name) @local.definition.function) @local.scope)
+(function_statement) @local.scope
+(function_statement name: (identifier) @local.definition.function)
 
 (program) @local.scope
 (if_statement) @local.scope
