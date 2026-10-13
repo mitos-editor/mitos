@@ -1,4 +1,5 @@
-(comment) @comment
+(line_comment) @comment.line
+(block_comment) @comment.block
 
 [
   "."
@@ -131,10 +132,8 @@
 ;----------
 
 ; parameter(s) in parens
-[
- (parameter (value_identifier))
- (labeled_parameter (value_identifier))
-] @variable.parameter
+(parameter (value_identifier) @variable.parameter)
+(labeled_parameter (value_identifier) @variable.parameter)
 
 ; single parameter with no parens
 (function parameter: (value_identifier) @variable.parameter)
@@ -227,3 +226,8 @@
 (jsx_self_closing_element ["/" ">" "<"] @punctuation.special)
 (jsx_fragment [">" "<" "/"] @punctuation.special)
 (jsx_attribute (property_identifier) @attribute)
+
+(regex) @string.regexp
+(regex_flags) @keyword.storage.modifier
+(dict_entry . (string) @variable.other.member)
+(tagged_template_expression function: (value_identifier) @function)

@@ -1303,9 +1303,9 @@
   },
   "rescript": {
     "git": "https://github.com/rescript-lang/tree-sitter-rescript",
-    "rev": "5e2a44a9d886b0a509f5bfd0437d33b4871fbac5",
-    "url": "https://github.com/rescript-lang/tree-sitter-rescript/archive/5e2a44a9d886b0a509f5bfd0437d33b4871fbac5.tar.gz",
-    "hash": "sha256-NcGXIFd8hJq+09R2ThcUKNCv2HTFu/BhD3IylHtRHR0="
+    "rev": "90643a6302057b969c51e1bf235b8ecf1da49232",
+    "url": "https://github.com/rescript-lang/tree-sitter-rescript/archive/90643a6302057b969c51e1bf235b8ecf1da49232.tar.gz",
+    "hash": "sha256-rx12rWkqAXPfLGwEP6O4iMpv/6qREQ5a9SPdGqy0+nE="
   },
   "ripple": {
     "git": "https://github.com/Ripple-TS/ripple",

@@ -21,8 +21,8 @@
 ; Comments
 ;---------
 
-(comment) @comment.inside
-(comment)+ @comment.around
+[(line_comment) (block_comment)] @comment.inside
+[(line_comment) (block_comment)]+ @comment.around
 
 ; Parameters
 ;-----------
