@@ -487,7 +487,7 @@ language-servers = ["eiffel-language-server"]
 
 [[grammar]]
 name = "eiffel"
-source = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "d934fb44f1d22bb76be6b56a7b2425ab3b1daf8b" }
+source = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "ec098b67b98b7f5da10f8d66bdb6c52fc91341fc" }
 
 [[language]]
 name = "elixir"

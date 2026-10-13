@@ -37,6 +37,8 @@
  "attached"
  "old"
  "like"
+ "separate"
+ "only"
 ] @keyword.storage.modifier
 
 (conditional ["if" "elseif" "end"] @keyword.control.conditional)
@@ -91,7 +93,9 @@
 (result) @variable.builtin
 (anchored (call (_) @variable))
 [(verbatim_string) (basic_manifest_string)] @string
-[(integer_constant) (real_constant)] @constant.numeric
+(integer_constant (integer) @constant.numeric.integer)
+(real) @constant.numeric.float
+(real (integer) @constant.numeric.float)
 (boolean_constant) @constant.builtin.boolean
 (void) @constant.builtin
 (current) @variable.builtin
@@ -102,7 +106,7 @@
 (entity_declaration_group (identifier) @variable)
 
 (class_name) @type
-(formal_generic) @type.parameter
+(formal_generic (class_name) @type.parameter)
 
 (comment) @comment.line
 (header_comment) @comment.line.documentation

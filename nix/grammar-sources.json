@@ -349,9 +349,9 @@
   },
   "eiffel": {
     "git": "https://github.com/imustafin/tree-sitter-eiffel",
-    "rev": "d934fb44f1d22bb76be6b56a7b2425ab3b1daf8b",
-    "url": "https://github.com/imustafin/tree-sitter-eiffel/archive/d934fb44f1d22bb76be6b56a7b2425ab3b1daf8b.tar.gz",
-    "hash": "sha256-XdCiUwdzQJN2sXs1DBuqsJJSxqgMzUELRfSW9PctffQ="
+    "rev": "ec098b67b98b7f5da10f8d66bdb6c52fc91341fc",
+    "url": "https://github.com/imustafin/tree-sitter-eiffel/archive/ec098b67b98b7f5da10f8d66bdb6c52fc91341fc.tar.gz",
+    "hash": "sha256-jhBej5csysq0WEISkdiHcSq6JWhBkeLe0EwfdTXA7uY="
   },
   "elisp": {
     "git": "https://github.com/Wilfred/tree-sitter-elisp",
