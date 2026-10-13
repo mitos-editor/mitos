@@ -28,12 +28,13 @@
 ; Types
 ;------
 
+[(class_name) (class_type_name) (type_constructor)] @type
+
 (
   (type_constructor) @type.builtin
   (#match? @type.builtin "^(int|char|bytes|string|float|bool|unit|exn|array|list|option|int32|int64|nativeint|format6|lazy_t)$")
 )
 
-[(class_name) (class_type_name) (type_constructor)] @type
 
 [(constructor_name) (tag)] @constructor
 
@@ -64,11 +65,6 @@
 ; Application
 ;------------
 
-(
-  (value_name) @function.builtin
-  (#match? @function.builtin "^(raise(_notrace)?|failwith|invalid_arg)$")
-)
-
 (infix_expression
   left: (value_path (value_name) @function)
   operator: (concat_operator) @operator
@@ -81,6 +77,11 @@
 
 (application_expression
   function: (value_path (value_name) @function))
+
+(
+  (value_name) @function.builtin
+  (#match? @function.builtin "^(raise(_notrace)?|failwith|invalid_arg)$")
+)
 
 ; Properties
 ;-----------
