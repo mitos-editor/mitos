@@ -1087,9 +1087,9 @@
   },
   "openscad": {
     "git": "https://github.com/openscad/tree-sitter-openscad",
-    "rev": "4c36a4fb569688c97cfa28090031e039a6079244",
-    "url": "https://github.com/openscad/tree-sitter-openscad/archive/4c36a4fb569688c97cfa28090031e039a6079244.tar.gz",
-    "hash": "sha256-N5yjCAw6NtEUGVOAkndofnXrpaMn/rglC8eBnbFQuTU="
+    "rev": "27329e1905a346131d6beb6e2a32fed8cd7e2816",
+    "url": "https://github.com/openscad/tree-sitter-openscad/archive/27329e1905a346131d6beb6e2a32fed8cd7e2816.tar.gz",
+    "hash": "sha256-bV4oQt1tSZVk9wih4sxZ6FtdC81w6ndH8xUuaAf/NNQ="
   },
   "org": {
     "git": "https://github.com/milisims/tree-sitter-org",

@@ -2913,7 +2913,7 @@ indent = { tab-width = 2, unit = "\t" }
 
 [[grammar]]
 name = "openscad"
-source = { git = "https://github.com/openscad/tree-sitter-openscad", rev = "4c36a4fb569688c97cfa28090031e039a6079244" }
+source = { git = "https://github.com/openscad/tree-sitter-openscad", rev = "27329e1905a346131d6beb6e2a32fed8cd7e2816" }
 
 [[language]]
 name = "prisma"

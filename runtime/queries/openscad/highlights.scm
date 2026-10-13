@@ -115,10 +115,8 @@
     "echo"
   )
 )
-(
-  (identifier) @identifier
-  (#eq? @identifier "PI")
-) @constant.builtin
+((identifier) @constant.builtin
+ (#eq? @constant.builtin "PI"))
 
 ; Conditionals
 [
