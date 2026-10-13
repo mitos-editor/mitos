@@ -1,7 +1,7 @@
 ; Keywords and delimiters
 [ "$c" "$v" "$d" "$f" "$e" "$a" "$p" "$=" ] @keyword
 [ "${" "$}" ] @punctuation.bracket
-[ "$[" "$]" ] @keyword.import
+[ "$[" "$]" ] @keyword.control.import
 "$." @punctuation.delimiter
 
 ; Markup (update grammar.js to support)

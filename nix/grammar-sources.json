@@ -991,9 +991,9 @@
   },
   "metamath": {
     "git": "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath",
-    "rev": "d6a57b0ddb4feba4a88f8cbb2f497b718e0c5c1d",
-    "url": "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath/archive/d6a57b0ddb4feba4a88f8cbb2f497b718e0c5c1d.tar.gz",
-    "hash": "sha256-wdOIaXqI39qIQoMk5KnlX2HP/YiQmS7cWmxbrIhKBOE="
+    "rev": "f42e2e0242b0a98ffd57acdfa8f96c0fe9a9c03e",
+    "url": "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath/archive/f42e2e0242b0a98ffd57acdfa8f96c0fe9a9c03e.tar.gz",
+    "hash": "sha256-aaPsQmuIfC95Y9j0i3Gj5ritvdlc7cWuRZoX1pmNzJw="
   },
   "mojo": {
     "git": "https://github.com/lsh/tree-sitter-mojo",

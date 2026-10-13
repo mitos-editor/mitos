@@ -8,11 +8,11 @@
 
 ; Floating hypotheses
 (floating_stmt
-  (label) @name) @definition.variable
+  (label) @name) @definition.constant
 
 ; Essential hypotheses
 (essential_stmt
-  (label) @name) @definition.variable
+  (label) @name) @definition.constant
 
 ; References in proofs
 (uncompressed_proof

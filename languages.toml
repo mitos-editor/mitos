@@ -5643,7 +5643,7 @@ language-servers = [ "mm-lsp-server" ]
 
 [[grammar]]
 name = "metamath"
-source = { git = "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath", rev = "d6a57b0ddb4feba4a88f8cbb2f497b718e0c5c1d" }
+source = { git = "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath", rev = "f42e2e0242b0a98ffd57acdfa8f96c0fe9a9c03e" }
 
 [[language]]
 name = "batch"
