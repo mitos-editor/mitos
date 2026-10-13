@@ -4923,7 +4923,7 @@ source = { git = "https://github.com/nilshelmig/tree-sitter-sourcepawn", rev = "
 
 [[grammar]]
 name = "vim"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-vim", rev = "f3cd62d8bd043ef20507e84bb6b4b53731ccf3a7" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-vim", rev = "039c8d0aa1deae00ddeb0374dd70bcc0ec56938d" }
 
 [[language]]
 name = "vim"

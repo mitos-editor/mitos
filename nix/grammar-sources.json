@@ -1711,9 +1711,9 @@
   },
   "vim": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-vim",
-    "rev": "f3cd62d8bd043ef20507e84bb6b4b53731ccf3a7",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-vim/archive/f3cd62d8bd043ef20507e84bb6b4b53731ccf3a7.tar.gz",
-    "hash": "sha256-Ou8AoAG0oer2M+c9u+M6Qo+Vli3dnZqojdXyDeYVpDA="
+    "rev": "039c8d0aa1deae00ddeb0374dd70bcc0ec56938d",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-vim/archive/039c8d0aa1deae00ddeb0374dd70bcc0ec56938d.tar.gz",
+    "hash": "sha256-9pnrCazouszDulA1RYstn4eD6jC19KPioIDSkRUrWOc="
   },
   "vue": {
     "git": "https://github.com/ikatyang/tree-sitter-vue",
