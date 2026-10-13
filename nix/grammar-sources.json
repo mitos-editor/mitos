@@ -1189,9 +1189,9 @@
   },
   "prisma": {
     "git": "https://github.com/victorhqc/tree-sitter-prisma",
-    "rev": "eca2596a355b1a9952b4f80f8f9caed300a272b5",
-    "url": "https://github.com/victorhqc/tree-sitter-prisma/archive/eca2596a355b1a9952b4f80f8f9caed300a272b5.tar.gz",
-    "hash": "sha256-RZfGC791Eub/qrsX/6qSMvOvFZhBovPbpnacA5t5y7c="
+    "rev": "3556b2c1f20ec9ac91e92d32c43d9d2a0ca3cc49",
+    "url": "https://github.com/victorhqc/tree-sitter-prisma/archive/3556b2c1f20ec9ac91e92d32c43d9d2a0ca3cc49.tar.gz",
+    "hash": "sha256-n4mzTf+j/M65gbKYknsGdllleaQqakkZ98PL5M/gdKg="
   },
   "prolog": {
     "git": "https://codeberg.org/foxy/tree-sitter-prolog",

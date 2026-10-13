@@ -6,7 +6,8 @@
 (variable) @variable
 (column_type) @type
 
-(arguments) @variable.other.member
+(arguments (identifier) @variable.other.member)
+(column_declaration . (identifier) @variable.other.member)
 (model_declaration (identifier) @type)
 (view_declaration (identifier) @type)
 
@@ -24,11 +25,12 @@
  (developer_comment)
 ] @comment
 
-[
- (attribute)
- (block_attribute_declaration)
- (call_expression)
-] @function.builtin
+(call_expression . (identifier) @function.builtin)
+(attribute (identifier) @attribute)
+(block_attribute_declaration (identifier) @attribute)
+(attribute (call_expression . (identifier) @attribute))
+(block_attribute_declaration (call_expression . (identifier) @attribute))
+(attribute (member_expression (identifier) @attribute))
 
 [
  (true)
