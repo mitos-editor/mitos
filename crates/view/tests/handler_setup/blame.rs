@@ -38,6 +38,8 @@ fn commit(f: &Fixture, title: &str) {
 }
 
 fn prepare(f: &mut Fixture, title: &str) {
+    // These fixtures use LF even when the runner's Git defaults to autocrlf.
+    std::fs::write(f.dir.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
     git(f.dir.path(), &["init"]);
     commit(f, title);
     current!(f.editor)
@@ -55,6 +57,158 @@ async fn wait_for_blame(f: &mut Fixture) -> anyhow::Result<()> {
     })
     .await
     .context("blame did not reach its editor")??;
+    wait_for_diff(f).await?;
+    Ok(())
+}
+
+async fn wait_for_diff(f: &Fixture) -> anyhow::Result<()> {
+    // Blame and the document diff are computed by independent workers.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while current_ref!(f.editor).1.diff_handle().unwrap().load().doc()
+            != current_ref!(f.editor).1.text()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .context("diff did not reach its document")?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn blame_waits_for_the_diff_after_an_edit() -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
+    wait_for_blame(&mut f).await?;
+    let id = current_ref!(f.editor).1.id();
+
+    // One runtime worker keeps the differ queued until this test yields.
+    f.replace("inserted\ncommitted\n");
+    assert!(matches!(
+        current_ref!(f.editor).1.line_blame(0, "{title}"),
+        Err(LineBlameError::NotReadyYet)
+    ));
+    f.editor.blame_line(id, 0);
+    assert!(f.editor.get_status().unwrap().0.contains("not ready"));
+    wait_for_diff(&f).await?;
+    let doc = current_ref!(f.editor).1;
+    assert!(matches!(
+        doc.line_blame(0, "{title}"),
+        Err(LineBlameError::NotCommittedYet)
+    ));
+    assert_eq!(doc.line_blame(1, "{title}").unwrap(), "initial");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_trust_decisions_refresh_cached_blame_with_unchanged_settings(
+) -> anyhow::Result<()> {
+    use view::handlers::workspace_trust::{apply_decision, TrustDecision};
+
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
+    wait_for_blame(&mut f).await?;
+    let workspace = current_ref!(f.editor).1.workspace_root().to_path_buf();
+    let settings = f.editor.config();
+    for decision in [TrustDecision::Exclude, TrustDecision::Trust] {
+        let original = current_ref!(f.editor)
+            .1
+            .file_blame()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone();
+        apply_decision(&mut f.editor, &workspace, decision)?;
+        // Reproduce the shared part of a frontend configuration reload.
+        f.editor.load_language_config(&settings)?;
+        f.editor.refresh_config(&settings);
+        assert_eq!(&*f.editor.config(), &*settings);
+        assert!(current_ref!(f.editor).1.file_blame().is_none());
+        wait_for_blame(&mut f).await?;
+        let refreshed = current_ref!(f.editor)
+            .1
+            .file_blame()
+            .unwrap()
+            .as_ref()
+            .unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&original, refreshed));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_blame_rechecks_effective_trust_before_publication() -> anyhow::Result<()> {
+    use view::handlers::workspace_trust::{apply_decision, TrustDecision};
+
+    let (sender, mut callbacks) = crate::support::callback_channel();
+    let mut f = Fixture::with_handler_setup(
+        "committed\n",
+        "language = []",
+        loader::syntax::Resources::default(),
+        |_| {},
+        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+    )?;
+    prepare(&mut f, "initial");
+    let id = current_ref!(f.editor).1.id();
+    let workspace = current_ref!(f.editor).1.workspace_root().to_path_buf();
+    for decision in [TrustDecision::Exclude, TrustDecision::Trust] {
+        f.editor.blame_line(id, 0);
+        let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+            .await?
+            .context("blame callback missing")?;
+        // The old result is queued while the decision changes, before config reload.
+        apply_decision(&mut f.editor, &workspace, decision)?;
+        callback(&mut f.editor);
+        assert!(current_ref!(f.editor).1.file_blame().is_none());
+    }
+    f.editor.blame_line(id, 0);
+    let callback = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
+        .await?
+        .context("fresh blame callback missing")?;
+    callback(&mut f.editor);
+    wait_for_diff(&f).await?;
+    assert_eq!(
+        current_ref!(f.editor).1.line_blame(0, "{title}").unwrap(),
+        "initial"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn blame_maps_lf_and_crlf_worktree_lines_to_committed_lines() -> anyhow::Result<()> {
+    for (eol, newline) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let mut f = Fixture::new(&format!("first{newline}second{newline}"))?;
+        std::fs::write(
+            f.dir.path().join(".gitattributes"),
+            format!("* text eol={eol}\n"),
+        )?;
+        git(f.dir.path(), &["init"]);
+        commit(&f, "initial");
+        current!(f.editor)
+            .1
+            .refresh_vcs(&f.editor.diff_providers, true);
+        f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
+        wait_for_blame(&mut f).await?;
+        let doc = current_ref!(f.editor).1;
+        assert_eq!(doc.diff_handle().unwrap().load().diff_base(), doc.text());
+        assert_eq!(doc.line_blame(0, "{title}").unwrap(), "initial");
+        assert_eq!(doc.line_blame(1, "{title}").unwrap(), "initial");
+
+        f.replace(&format!("inserted{newline}first{newline}modified{newline}"));
+        wait_for_diff(&f).await?;
+        let doc = current_ref!(f.editor).1;
+        assert!(matches!(
+            doc.line_blame(0, "{title}"),
+            Err(LineBlameError::NotCommittedYet)
+        ));
+        assert_eq!(doc.line_blame(1, "{title}").unwrap(), "initial");
+        assert!(matches!(
+            doc.line_blame(2, "{title}"),
+            Err(LineBlameError::NotCommittedYet)
+        ));
+    }
     Ok(())
 }
 
@@ -93,16 +247,7 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
     let change = Transaction::change(doc.text(), [(0, 0, Some("inserted\n".into()))].into_iter())
         .with_selection(Selection::point(0));
     assert!(doc.apply(&change, view.id));
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let doc = current_ref!(a.editor).1;
-            if doc.diff_handle().unwrap().load().doc() == doc.text() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await?;
+    wait_for_diff(&a).await?;
     let doc = current_ref!(a.editor).1;
     assert!(matches!(
         doc.line_blame(0, "{title}"),
@@ -255,15 +400,6 @@ async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
     let doc = current_ref!(f.editor).1;
     let refreshed = doc.file_blame().unwrap().as_ref().unwrap();
     assert!(std::sync::Arc::ptr_eq(&original, refreshed));
-    // Wait for the independent diff worker before testing the updated line mapping.
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while current_ref!(f.editor).1.diff_handle().unwrap().load().doc()
-            != current_ref!(f.editor).1.text()
-        {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await?;
     assert_eq!(
         current_ref!(f.editor).1.line_blame(1, "{title}").unwrap(),
         "initial"

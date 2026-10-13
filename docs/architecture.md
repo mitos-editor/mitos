@@ -161,6 +161,13 @@ requests and retries return to the same editor. Snapshot computation, worker
 limits, cancellation, and version/language validation live alongside the document
 in `document/syntax_initialization.rs`. Successful publication refreshes spelling.
 
+`vcs::FileBlame` owns immutable committed-line ranges and commit metadata.
+`view::document::blame` owns caching, cancellation, and request trust decisions;
+`view::handlers::blame` schedules visible documents and publishes results to their
+editor. Cache reuse and queued publication validate effective workspace Git trust.
+Line lookup uses only a diff of the current document snapshot. Commands and inline
+decorations belong to `term`, where diagnostics take precedence over blame text.
+
 `spelling` owns dictionary loading from explicit file paths, compiled token
 filters, text/syntax scanning, suggestions, personal vocabulary snapshots, and
 persistent ignored-word lists. Its API accepts text, syntax, settings,

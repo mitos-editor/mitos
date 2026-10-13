@@ -2110,6 +2110,7 @@ impl Document {
 
     /// Refresh both branch display and the diff base after repository changes.
     pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+        self.update_blame_trust(trust_full);
         self.blame.refresh();
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;

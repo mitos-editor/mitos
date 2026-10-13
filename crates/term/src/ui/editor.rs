@@ -382,16 +382,6 @@ impl EditorView {
         }
 
         Self::render_rulers(editor, doc, view, inner, surface, theme);
-        if config.inline_blame.show != view::config::InlineBlameShow::Never {
-            decorations.add_decoration(text_decorations::blame::InlineBlame::new(
-                doc,
-                view.id,
-                &config.inline_blame,
-                theme
-                    .try_get("ui.virtual.inline-blame")
-                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-            ));
-        }
 
         let primary_cursor = doc
             .selection(view.id)
@@ -425,20 +415,33 @@ impl EditorView {
             );
         }
         let width = view.inner_width(doc);
-        let config = doc.config.load();
+        let document_config = doc.config.load();
         let enable_cursor_line = view
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
-        let inline_diagnostic_config = config.diagnostics.inline.prepare(width, enable_cursor_line);
+        let inline_diagnostic_config = document_config
+            .diagnostics
+            .inline
+            .prepare(width, enable_cursor_line);
         decorations.add_decoration(InlineDiagnostics::new(
             doc,
             theme,
             primary_cursor,
             inline_diagnostic_config,
-            config.diagnostics.end_of_line.severity,
-            config.icons,
+            document_config.diagnostics.end_of_line.severity,
+            document_config.icons,
         ));
-        if config.lsp.enable && config.lsp.code_lenses.enable {
+        if config.inline_blame.show != view::config::InlineBlameShow::Never {
+            decorations.add_decoration(text_decorations::blame::InlineBlame::new(
+                doc,
+                view.id,
+                &config.inline_blame,
+                theme
+                    .try_get_exact("ui.virtual.inline-blame")
+                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
+            ));
+        }
+        if document_config.lsp.enable && document_config.lsp.code_lenses.enable {
             let hidden_line = if is_focused && editor.mode() == Mode::Insert {
                 doc.inline_completion(view.id)
                     .map(|completion| doc.text().char_to_line(completion.cursor))

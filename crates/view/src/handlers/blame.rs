@@ -46,10 +46,17 @@ impl BlameHandler {
             };
             callbacks
                 .send(move |editor| {
-                    let Some(doc) = editor.document_mut(doc_id) else {
+                    let Some(doc) = editor.documents.get_mut(&doc_id) else {
                         return;
                     };
-                    if let Some(line) = request.complete(doc, result) {
+                    let trust_full = editor
+                        .workspace_trust
+                        .query(
+                            doc.workspace_root(),
+                            loader::workspace_trust::TrustQuery::Git,
+                        )
+                        .is_trusted();
+                    if let Some(line) = request.complete(doc, result, trust_full) {
                         editor.show_line_blame(doc_id, line);
                     }
                 })
@@ -69,14 +76,17 @@ impl Editor {
             self.set_error(|| "Git blame requires a text file with a path");
             return;
         }
+        let trust_full = self
+            .workspace_trust
+            .query(
+                doc.workspace_root(),
+                loader::workspace_trust::TrustQuery::Git,
+            )
+            .is_trusted();
+        if doc.update_blame_trust(trust_full) {
+            doc.refresh_vcs(&self.diff_providers, trust_full);
+        }
         if doc.file_blame().is_none() {
-            let trust_full = self
-                .workspace_trust
-                .query(
-                    doc.workspace_root(),
-                    loader::workspace_trust::TrustQuery::Git,
-                )
-                .is_trusted();
             handler.request(doc, trust_full, Some(line));
             self.set_status("Requested blame for this file...");
         } else {
@@ -127,6 +137,9 @@ fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
             loader::workspace_trust::TrustQuery::Git,
         )
         .is_trusted();
+    if doc.update_blame_trust(trust_full) {
+        doc.refresh_vcs(&editor.diff_providers, trust_full);
+    }
     handler.request(doc, trust_full, None);
 }
 
@@ -165,16 +178,22 @@ pub(super) fn register_hooks() {
         Ok(())
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        // Trust changes also invalidate results fetched under the old policy.
-        let trust_changed = event.old.workspace_trust != event.new.workspace_trust;
-        if trust_changed {
-            for doc in event.editor.documents_mut() {
-                doc.invalidate_blame();
+        // Grants, exclusions, and stale workspace configuration can change the
+        // effective decision even when the serialized settings stay the same.
+        for doc in event.editor.documents.values_mut() {
+            let trust_full = event
+                .editor
+                .workspace_trust
+                .query(
+                    doc.workspace_root(),
+                    loader::workspace_trust::TrustQuery::Git,
+                )
+                .is_trusted();
+            if doc.update_blame_trust(trust_full) {
+                doc.refresh_vcs(&event.editor.diff_providers, trust_full);
             }
         }
-        if event.old.inline_blame.show == InlineBlameShow::Never || trust_changed {
-            request_visible_blame(event.editor);
-        }
+        request_visible_blame(event.editor);
         Ok(())
     });
 }

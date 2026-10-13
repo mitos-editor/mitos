@@ -98,6 +98,46 @@ mod tests {
     use super::*;
     use crate::ui::{document::render_document, text_decorations::DecorationManager};
 
+    fn git(dir: &std::path::Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env_remove("GIT_DIR")
+            .env("GIT_AUTHOR_NAME", "Author")
+            .env("GIT_AUTHOR_EMAIL", "author@example.com")
+            .env("GIT_COMMITTER_NAME", "Author")
+            .env("GIT_COMMITTER_EMAIL", "author@example.com")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    async fn prepare_blame(doc: &mut Document, path: &std::path::Path) {
+        doc.refresh_vcs(&vcs::DiffProviderRegistry::default(), false);
+        doc.set_file_blame(vcs::FileBlame::try_new(path.to_path_buf(), false));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !doc
+                .diff_handle()
+                .unwrap()
+                .load()
+                .doc()
+                .is_instance(doc.text())
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     fn render(
         doc: &Document,
         config: &InlineBlameConfig,
@@ -136,31 +176,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("file.txt");
         std::fs::write(&path, "one\n\nthree\n").unwrap();
-        for args in [
-            vec!["init"],
-            vec!["add", "."],
-            vec!["commit", "-m", "COMMIT"],
-        ] {
-            let output = Command::new("git")
-                .arg("-C")
-                .arg(dir.path())
-                .args(args)
-                .env_remove("GIT_DIR")
-                .env("GIT_AUTHOR_NAME", "Author")
-                .env("GIT_AUTHOR_EMAIL", "author@example.com")
-                .env("GIT_COMMITTER_NAME", "Author")
-                .env("GIT_COMMITTER_EMAIL", "author@example.com")
-                .env("GIT_CONFIG_COUNT", "1")
-                .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-                .env("GIT_CONFIG_VALUE_0", "false")
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        std::fs::write(dir.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
+        git(dir.path(), &["init"]);
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "COMMIT"]);
         let config = Arc::new(ArcSwap::from_pointee(Config::default()));
         let mut doc = Document::open(
             &path,
@@ -172,6 +191,11 @@ mod tests {
         .unwrap();
         doc.set_selection(ViewId::default(), Selection::point(0));
         doc.set_file_blame(vcs::FileBlame::try_new(path.clone(), false));
+        assert!(matches!(
+            doc.line_blame(0, "{title}"),
+            Err(view::document::LineBlameError::NotReadyYet)
+        ));
+        prepare_blame(&mut doc, &path).await;
         let mut blame = InlineBlameConfig {
             show: InlineBlameShow::CursorLine,
             format: "{title}".into(),
@@ -196,6 +220,8 @@ mod tests {
 
         // Soft wrapping must draw blame only when the document line ends onscreen.
         std::fs::write(&path, "1234567890".repeat(6)).unwrap();
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "COMMIT"]);
         let mut settings = Config::default();
         settings.soft_wrap.enable = Some(true);
         config.store(Arc::new(settings));
@@ -208,7 +234,7 @@ mod tests {
         )
         .unwrap();
         wrapped.set_selection(ViewId::default(), Selection::point(0));
-        wrapped.set_file_blame(vcs::FileBlame::try_new(path, false));
+        prepare_blame(&mut wrapped, &path).await;
         let rows = render(&wrapped, &blame, ViewPosition::default(), area);
         assert!(!rows[0].contains("COMMIT"));
         assert_eq!(rows.iter().filter(|row| row.contains("COMMIT")).count(), 1);

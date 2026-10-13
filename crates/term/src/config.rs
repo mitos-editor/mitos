@@ -979,6 +979,27 @@ mod tests {
     }
 
     #[test]
+    fn inline_blame_settings_round_trip_with_grouped_editor_settings() {
+        use view::config::InlineBlameShow;
+
+        let config = Config::load_test(
+            "[editor.inline-blame]\nshow = 'all-lines'\nformat = '{title}'\n[editor.scroll]\npadding = 7",
+        );
+        let settings = config.editor_settings();
+        assert_eq!(settings.editor.inline_blame.show, InlineBlameShow::AllLines);
+        assert_eq!(settings.editor.inline_blame.format, "{title}");
+        assert_eq!(settings.editor.scroll.padding, 7);
+        let value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(value["inline-blame"]["show"], "all-lines");
+        assert_eq!(
+            serde_json::from_value::<EditorSettings>(value).unwrap(),
+            settings
+        );
+        assert!(Config::load_test_result("[editor.inline-blame]\nshow = 'sometimes'").is_err());
+        assert!(Config::load_test_result("[editor.inline-blame]\nauto-fetch = true").is_err());
+    }
+
+    #[test]
     fn icons_are_controlled_by_one_editor_option() {
         assert!(!Config::load_test("").editor.icons);
         assert!(Config::load_test("[editor]\nicons = true").editor.icons);

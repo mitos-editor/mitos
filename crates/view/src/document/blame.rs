@@ -16,6 +16,7 @@ static WORKERS: Semaphore = Semaphore::const_new(2);
 pub(crate) struct DocumentBlame {
     cache: Option<anyhow::Result<Arc<FileBlame>>>,
     retained: Option<Arc<FileBlame>>,
+    trust_full: Option<bool>,
     request: TaskController,
     status_line: Option<u32>,
     pub(crate) handler: Option<BlameHandler>,
@@ -27,6 +28,7 @@ impl DocumentBlame {
         self.status_line = None;
         self.cache = None;
         self.retained = None;
+        self.trust_full = None;
     }
 
     /// Hide stale annotations until the worker has checked the current HEAD.
@@ -79,8 +81,13 @@ impl BlameRequest {
         self,
         doc: &mut Document,
         result: anyhow::Result<Arc<FileBlame>>,
+        trust_full: bool,
     ) -> Option<u32> {
         if self.cancel.is_canceled() || doc.path() != Some(&self.path) || doc.is_binary() {
+            return None;
+        }
+        if self.trust_full != trust_full {
+            doc.blame.refresh();
             return None;
         }
         let line = doc.blame.status_line.take();
@@ -105,6 +112,16 @@ impl Document {
         self.blame.clear();
     }
 
+    /// Effective workspace decisions can change without changing configuration fields.
+    pub(crate) fn update_blame_trust(&mut self, trust_full: bool) -> bool {
+        let changed = self.blame.trust_full.is_some_and(|old| old != trust_full);
+        if changed {
+            self.invalidate_blame();
+        }
+        self.blame.trust_full = Some(trust_full);
+        changed
+    }
+
     /// Get the line blame for this view
     pub fn line_blame(&self, cursor_line: u32, format: &str) -> Result<String, LineBlameError<'_>> {
         let file_blame = match &self.blame.cache {
@@ -121,13 +138,17 @@ impl Document {
             },
         };
 
-        let base_line = match self.diff_handle() {
-            Some(handle) => handle
-                .try_load()
-                .and_then(|diff| diff.base_line(cursor_line)),
-            None => Some(cursor_line),
+        let diff = self
+            .diff_handle()
+            .and_then(|handle| handle.try_load())
+            .ok_or(LineBlameError::NotReadyYet)?;
+        // Rope clones share their root until an edit, so this check is constant-time.
+        if !diff.doc().is_instance(self.text()) {
+            return Err(LineBlameError::NotReadyYet);
         }
-        .ok_or(LineBlameError::NotCommittedYet)?;
+        let base_line = diff
+            .base_line(cursor_line)
+            .ok_or(LineBlameError::NotCommittedYet)?;
         let line_blame = file_blame
             .blame_for_line(base_line)
             .ok_or(LineBlameError::NotCommittedYet)?;
@@ -151,6 +172,7 @@ impl Document {
         trust_full: bool,
         line: Option<u32>,
     ) -> Option<BlameRequest> {
+        self.update_blame_trust(trust_full);
         if self.is_binary() || self.blame.cache.is_some() {
             return None;
         }

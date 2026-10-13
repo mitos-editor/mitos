@@ -12,7 +12,6 @@ pub mod file;
 pub mod path;
 pub mod range;
 pub mod rope;
-pub mod time;
 pub mod uri;
 
 pub use range::Range;
