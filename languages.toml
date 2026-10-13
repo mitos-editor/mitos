@@ -4175,7 +4175,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "dbml"
-source = { git = "https://github.com/dynamotn/tree-sitter-dbml", rev = "2e2fa5640268c33c3d3f27f7e676f631a9c68fd9" }
+source = { git = "https://github.com/dynamotn/tree-sitter-dbml", rev = "5066af94a26dabceb2d71fd928ddb7a20f99b8a3" }
 
 [[language]]
 name = "bitbake"

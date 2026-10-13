@@ -1,0 +1,9 @@
+Table app.users {
+//        ^ @type
+  id integer [primary key]
+//^ @variable.other.member
+  active bool [default: true]
+//                      ^ @constant.builtin.boolean
+}
+Ref: app.users.id > profiles.user_id
+//                  ^ @variable

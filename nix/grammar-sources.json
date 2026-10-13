@@ -253,9 +253,9 @@
   },
   "dbml": {
     "git": "https://github.com/dynamotn/tree-sitter-dbml",
-    "rev": "2e2fa5640268c33c3d3f27f7e676f631a9c68fd9",
-    "url": "https://github.com/dynamotn/tree-sitter-dbml/archive/2e2fa5640268c33c3d3f27f7e676f631a9c68fd9.tar.gz",
-    "hash": "sha256-TF8FNqjOL8Dxo35r3wwhf8M6peCid826BcfVzsdouFo="
+    "rev": "5066af94a26dabceb2d71fd928ddb7a20f99b8a3",
+    "url": "https://github.com/dynamotn/tree-sitter-dbml/archive/5066af94a26dabceb2d71fd928ddb7a20f99b8a3.tar.gz",
+    "hash": "sha256-/uUetyurWLxx2+3eaHT9u7YUTM8WeGIyDVZtKdRrDZY="
   },
   "debian": {
     "git": "https://gitlab.com/MggMuggins/tree-sitter-debian",
