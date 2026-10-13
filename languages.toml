@@ -5655,4 +5655,4 @@ comment-tokens = ["REM", "::"]
 
 [[grammar]]
 name = "batch"
-source = { git = "https://github.com/wharflab/tree-sitter-batch", rev = "5fc5f54267ef9a78e7a5319b80e092194252aabf" }
+source = { git = "https://github.com/wharflab/tree-sitter-batch", rev = "2aa22f00d7f5bbe58556b8eef0b1fc1629508603" }

@@ -1,3 +1,5 @@
+(variable_reference) @variable
+
 (echo_off) @keyword
 (comment) @comment
 (label) @label
@@ -27,7 +29,6 @@
 ((variable_reference) @variable.builtin
  (#match? @variable.builtin "(?i)^[%!](CD|ERRORLEVEL|DATE|TIME|RANDOM|CMDCMDLINE|CMDEXTVERSION|HIGHESTNUMANODENUMBER|__APPDIR__|__CD__)[%!]$"))
 
-(variable_reference) @variable
 
 (for_set_literal) @string
 (for_variable) @variable.parameter
