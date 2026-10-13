@@ -223,9 +223,9 @@
   },
   "cue": {
     "git": "https://github.com/eonpatapon/tree-sitter-cue",
-    "rev": "8a5f273bfa281c66354da562f2307c2d394b6c81",
-    "url": "https://github.com/eonpatapon/tree-sitter-cue/archive/8a5f273bfa281c66354da562f2307c2d394b6c81.tar.gz",
-    "hash": "sha256-4uKPk5ZfO3DRGOFj7v+RR32dvmJH6G6utzFGPKdEcrk="
+    "rev": "dd7b90e0770ff18070c515937ba3c3d6d93db00e",
+    "url": "https://github.com/eonpatapon/tree-sitter-cue/archive/dd7b90e0770ff18070c515937ba3c3d6d93db00e.tar.gz",
+    "hash": "sha256-mnh6P17F7PD7BIyTLk/s+81pjAxhvE4aYQyxce43HpI="
   },
   "cylc": {
     "git": "https://github.com/elliotfontaine/tree-sitter-cylc",

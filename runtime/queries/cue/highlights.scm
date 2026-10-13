@@ -24,7 +24,8 @@
 (attribute) @attribute
 
 ; Conditionals
-"if" @keyword.control.conditional
+["if" "else"] @keyword.control.conditional
+"try" @keyword.control.exception
 
 ; Repeats
 "for" @keyword.control.repeat
@@ -108,8 +109,6 @@
   "]"
   "("
   ")"
-  "<"
-  ">"
 ] @punctuation.bracket
 
 [
@@ -154,3 +153,6 @@
 
 ; Comments
 (comment) @comment
+
+(postfix_expression "?" @operator)
+(postfix_alias "~" @operator)
