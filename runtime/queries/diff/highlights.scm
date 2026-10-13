@@ -5,6 +5,10 @@
 (location) @attribute
 (command) @markup.bold
 
-(comment) @comment
+[(comment) (special)] @comment
 ; Rename/copy similarity percentage (`similarity index 95%`).
 (score) @constant.numeric
+
+(change) @diff.delta
+(size) @constant.numeric.integer
+(payload) @markup.raw.block

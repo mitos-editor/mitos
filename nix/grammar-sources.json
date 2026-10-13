@@ -277,9 +277,9 @@
   },
   "diff": {
     "git": "https://github.com/the-mikedavis/tree-sitter-diff",
-    "rev": "2520c3f934b3179bb540d23e0ef45f75304b5fed",
-    "url": "https://github.com/the-mikedavis/tree-sitter-diff/archive/2520c3f934b3179bb540d23e0ef45f75304b5fed.tar.gz",
-    "hash": "sha256-JHvODWQsEU1CWg5dVDV5cvwPnDID3nJJ9xY39/1cbYU="
+    "rev": "ada384ac7bfc1307f32de474620120add29998fb",
+    "url": "https://github.com/the-mikedavis/tree-sitter-diff/archive/ada384ac7bfc1307f32de474620120add29998fb.tar.gz",
+    "hash": "sha256-4RzLL2pb2WYXDMun0WDYMuAC5kAGoQHXM5E3eVFY5zs="
   },
   "djot": {
     "git": "https://github.com/treeman/tree-sitter-djot",
