@@ -487,9 +487,9 @@
   },
   "git-config": {
     "git": "https://github.com/the-mikedavis/tree-sitter-git-config",
-    "rev": "0fbc9f99d5a28865f9de8427fb0672d66f9d83a5",
-    "url": "https://github.com/the-mikedavis/tree-sitter-git-config/archive/0fbc9f99d5a28865f9de8427fb0672d66f9d83a5.tar.gz",
-    "hash": "sha256-SgCKU5LiaWh59gwEkL72xv5/VUrssdYSu27+x5nkVYQ="
+    "rev": "3a61756a81a86291a0f48e3eeeaa0692b9981aa9",
+    "url": "https://github.com/the-mikedavis/tree-sitter-git-config/archive/3a61756a81a86291a0f48e3eeeaa0692b9981aa9.tar.gz",
+    "hash": "sha256-DNXgN5q7gIXnRXNSrg+L4Z40tx2BsgkotjUARWINj7o="
   },
   "git-rebase": {
     "git": "https://github.com/the-mikedavis/tree-sitter-git-rebase",
