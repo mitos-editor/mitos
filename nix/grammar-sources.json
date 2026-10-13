@@ -1333,9 +1333,9 @@
   },
   "rpmspec": {
     "git": "https://gitlab.com/cryptomilk/tree-sitter-rpmspec",
-    "rev": "d0275cd1316d9b7a2e0fae028ce95a5a18741e1d",
-    "url": "https://gitlab.com/api/v4/projects/cryptomilk%2Ftree-sitter-rpmspec/repository/archive.tar.gz?sha=d0275cd1316d9b7a2e0fae028ce95a5a18741e1d",
-    "hash": "sha256-2GYB94KT4iDt7l4mSi9eS4LKWNxTSVOGK+lSaDG/28Q="
+    "rev": "7d1557162655f677729dca90cc180aca657053ec",
+    "url": "https://gitlab.com/cryptomilk/tree-sitter-rpmspec/-/archive/7d1557162655f677729dca90cc180aca657053ec/tree-sitter-rpmspec-7d1557162655f677729dca90cc180aca657053ec.tar.gz",
+    "hash": "sha256-9iQO3V+WtRdNQ25GyEjQDwa0NVsCOYJAYaAnw9ZuGCE="
   },
   "rshtml": {
     "git": "https://github.com/rshtml/tree-sitter-rshtml",

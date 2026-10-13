@@ -1,108 +1,75 @@
-; Specific parametric macro expansion rules (must come first)
-(macro_expansion_call
-  (builtin) @function.macro)
-
-(macro_expansion_call
-  (identifier) @function.macro)
-
-(macro_expansion_call
-  option: (macro_option) @variable.parameter
-  argument: [
-    (word) @variable.parameter
-    (concatenation
-      (word) @variable.parameter)
-    (macro_expansion) @function
-    (macro_simple_expansion) @function
-  ])
-
-; Highlight macro options in parametric expansions
-(macro_option) @variable.parameter
-
-; Macro expansion rules
-(macro_expansion
-  (builtin) @variable.builtin
-  argument: (_) @variable.parameter)
-
-(macro_expansion
-  (identifier) @function
-  argument: [
-    (word) @variable.parameter
-    (concatenation
-      (word) @variable.parameter)
-  ])
-
-; Macro definition and undefinition
-(macro_definition
-  "%" @punctuation.special
-  (builtin) @keyword.directive.define
-  (identifier) @keyword.macro)
-(macro_undefinition
-  (builtin) @keyword.directive.define
-  (identifier) @keyword.macro)
-
-; General punctuation for macros
-(macro_simple_expansion
-  "%" @punctuation.special) @none
-(macro_expansion
-  "%{" @punctuation.special
-  "}" @punctuation.special) @none
-
-; General identifier and builtin rules (must come after specific rules)
-(special_variable_name) @constant
 (builtin) @variable.builtin
-
-(setup_macro
-  argument: [
-    (setup_flag) @variable.parameter
-    (setup_source_option) @variable.parameter
-    ((setup_name_option
-      directory: (_) @string) @variable.parameter)
-  ])
-
-(patch_macro
-  [
-    (patch_flag) @variable.parameter
-    (patch_number_option) @variable.parameter
-    (patch_string_option) @variable.parameter
-    (patch_long_option) @variable.parameter
-  ])
 
 [
   (tag)
   (dependency_tag)
 ] @type.definition
 
-(integer) @constant.numeric.integer
-(float) @constant.numeric.float
-(version) @constant.numeric.float
+(qualifier) @attribute.builtin
 
-(comment) @comment
-;(string) @string
-(quoted_string) @string
+[
+  "if"
+  "else"
+  "unless"
+  "with"
+  "without"
+] @keyword.operator
+
+(boolean_dependency
+  "(" @punctuation.bracket
+  ")" @punctuation.bracket)
+
+(elf_dependency
+  soname: (soname) @namespace
+  symbol_version: (elf_symbol_version) @variable.other.member
+  arch: (elf_arch) @attribute)
+
+(path_dependency) @string.special.path
+
+(qualified_dependency
+  name: (_) @function
+  qualifier: (dependency_qualifier
+    content: (_) @variable.parameter))
+
+((dependency_qualifier
+   content: (word) @attribute)
+ (#match? @attribute "^(x86-64|x86-32|aarch64|arm|ppc-64|ppc-32|s390x)$"))
+
+(dependency
+  (word) @namespace)
+
+(preamble_tag
+  value: (file) @string.special.path)
 
 (description
-  (section_name) @type.definition)
+  "%description" @type.definition)
 (package
-  (section_name) @type.definition)
-(files
-  (section_name) @type.definition)
-(changelog
-  (section_name) @type.definition)
+  "%package" @type.definition)
+
+(sourcelist
+  "%sourcelist" @type.definition)
+(sourcelist
+  (file) @string.special.path)
+
+(patchlist
+  "%patchlist" @type.definition)
+(patchlist
+  (file) @string.special.path)
 
 (prep_scriptlet
-  (section_name) @function.builtin)
+  (section_prep) @function.builtin)
 (generate_buildrequires
-  (section_name) @function.builtin)
+  (section_generate_buildrequires) @function.builtin)
 (conf_scriptlet
-  (section_name) @function.builtin)
+  (section_conf) @function.builtin)
 (build_scriptlet
-  (section_name) @function.builtin)
+  (section_build) @function.builtin)
 (install_scriptlet
-  (section_name) @function.builtin)
+  (section_install) @function.builtin)
 (check_scriptlet
-  (section_name) @function.builtin)
+  (section_check) @function.builtin)
 (clean_scriptlet
-  (section_name) @function.builtin)
+  (section_clean) @function.builtin)
 
 [
   "%pre"
@@ -115,6 +82,12 @@
   "%postuntrans"
   "%verify"
 ] @function.builtin
+
+(script_interpreter
+  "-p" @variable.parameter)
+(interpreter_program) @string.special.path
+
+(scriptlet_augment_option) @variable.parameter
 
 [
   "%triggerprein"
@@ -133,43 +106,105 @@
 ] @function.builtin
 
 [
+  (setup_macro argument: (macro_option) @variable.parameter)
+  (autosetup_macro argument: (macro_option) @variable.parameter)
+  (autopatch_macro argument: (macro_option) @variable.parameter)
+  (patch_macro argument: (macro_option) @variable.parameter)
+]
+
+[
+  (autopatch_macro (macro_argument) @constant.numeric.integer)
+  (patch_macro (macro_argument) @constant.numeric.integer)
+]
+
+(files
+  "%files" @type.definition)
+
+[
   "%artifact"
   "%attr"
+  "%caps"
   "%config"
+  "%defattr"
   "%dir"
   "%doc"
   "%docdir"
+  "%exclude"
   "%ghost"
   "%license"
   "%missingok"
   "%readme"
 ] @keyword.type
 
-[
-  "!="
-  "<"
-  "<="
-  "=="
-  ">"
-  ">="
-  "and"
-  "&&"
-  "or"
-  "||"
-] @operator
+(changelog
+  "%changelog" @type.definition)
 
-[
-  "with"
-  "without"
-  "defined"
-  "undefined"
-] @keyword.operator
+(macro_definition
+  "%" @punctuation.special
+  ["define" "global"] @constant.builtin
+  name: (identifier) @keyword.macro)
+
+(macro_undefinition
+  "%" @punctuation.special
+    (identifier) @keyword.macro)
+
+(macro_simple_expansion
+  "%" @punctuation.special
+  (simple_macro) @function.macro)
+
+(macro_simple_expansion
+  "%" @punctuation.special
+  (negated_macro) @function.macro)
+
+(macro_simple_expansion
+  "%" @punctuation.special
+  (special_macro) @function.macro)
+
+(macro_parametric_expansion
+  name: (identifier) @function.macro)
+
+(macro_parametric_expansion
+  option: (macro_option) @variable.parameter)
+
+(macro_parametric_expansion
+  argument: (word) @variable.parameter)
+
+(macro_parametric_expansion
+  argument: (integer) @constant.numeric.integer)
+
+(macro_parametric_expansion
+  argument: (quoted_string) @string)
+
+(macro_option) @variable.parameter
+
+(macro_expansion
+  "%{" @punctuation.special
+  "}" @punctuation.special) @none
+
+(macro_expansion
+    argument: (_) @variable.parameter)
+
+(macro_expansion
+  (identifier) @function.macro)
+
+(macro_expansion
+  (identifier)
+  argument: [
+    (word) @variable.parameter
+    (concatenation
+      (word) @variable.parameter)
+  ])
+
+(conditional_expansion
+  condition: (identifier) @function.macro)
+
+(special_variable_name) @constant
 
 [
   "%if"
   "%ifarch"
-  "%ifos"
   "%ifnarch"
+  "%ifos"
   "%ifnos"
   "%elif"
   "%elifarch"
@@ -178,5 +213,31 @@
   "%endif"
 ] @keyword.control.conditional
 
-; Fallback rule for identifiers (commented out due to conflicts with parametric macros)
-; (identifier) @variable
+[
+  "defined"
+  "undefined"
+] @keyword.operator
+
+(integer) @constant.numeric.integer
+(float) @constant.numeric.float
+(version) @constant.numeric.float
+
+(quoted_string) @string
+
+(url) @string.special.url
+
+(comment) @comment
+
+[
+  "!="
+  "<"
+  "<="
+  "="
+  "=="
+  ">"
+  ">="
+  "and"
+  "&&"
+  "or"
+  "||"
+] @operator
