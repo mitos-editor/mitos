@@ -28,6 +28,12 @@ below.
 2. If you are testing the grammar locally, you can use the `source.path` key
    with an absolute path to the grammar. However, before submitting a pull
    request, make sure to switch to using `source.git`.
+3. Pin a revision that includes the generated `src/parser.c` and any scanner
+   sources. Some grammars, including Perl, keep generated parsers on a separate
+   `release` branch; development commits may not contain them.
+4. After changing a grammar revision, run `cargo xtask update-nix-grammar-sources`
+   with Nix installed and commit the updated `nix/grammar-sources.json` alongside
+   `languages.toml`. Nix builds use the locked archive revision and hash.
 
 ## Queries
 

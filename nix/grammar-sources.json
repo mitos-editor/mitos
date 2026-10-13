@@ -1129,9 +1129,9 @@
   },
   "perl": {
     "git": "https://github.com/tree-sitter-perl/tree-sitter-perl",
-    "rev": "72a08a496a23212f23802490ef6f4700d68cfd0e",
-    "url": "https://github.com/tree-sitter-perl/tree-sitter-perl/archive/72a08a496a23212f23802490ef6f4700d68cfd0e.tar.gz",
-    "hash": "sha256-waayMq8F7JLBPk3OslF6Zxl7sj7rAR0oKhSmta5gshM="
+    "rev": "04477eeb0f165f29fbc8f398bb1c1689f870f67a",
+    "url": "https://github.com/tree-sitter-perl/tree-sitter-perl/archive/04477eeb0f165f29fbc8f398bb1c1689f870f67a.tar.gz",
+    "hash": "sha256-TkJm2bLorEAo4BONo+94nKkGQy2gP7VL5QAmg3lWWF0="
   },
   "pest": {
     "git": "https://github.com/pest-parser/tree-sitter-pest",
