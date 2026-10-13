@@ -1261,9 +1261,9 @@
   },
   "qmljs": {
     "git": "https://github.com/yuja/tree-sitter-qmljs",
-    "rev": "0b2b25bcaa7d4925d5f0dda16f6a99c588a437f1",
-    "url": "https://github.com/yuja/tree-sitter-qmljs/archive/0b2b25bcaa7d4925d5f0dda16f6a99c588a437f1.tar.gz",
-    "hash": "sha256-QwrtCCyBi33X/uf46HJW5TpPrDhDhm/TX4DGagbxPPM="
+    "rev": "de96ed62abded51fcdfcbeaaa120e0dd0d20c697",
+    "url": "https://github.com/yuja/tree-sitter-qmljs/archive/de96ed62abded51fcdfcbeaaa120e0dd0d20c697.tar.gz",
+    "hash": "sha256-dAvbve9+TwmGCvtDoU1D3jcP8g6+xjJpUHbN4HHzTeA="
   },
   "query": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-query",

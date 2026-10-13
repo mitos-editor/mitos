@@ -1,4 +1,5 @@
 (comment) @comment
+(html_comment) @comment
 
 (ui_import
   source: _ @namespace
@@ -10,7 +11,7 @@
   value: (identifier)? @constant)
 
 (ui_annotation
-  "@" @punctuation
+  "@" @punctuation.special
   type_name: _ @type)
 
 ;;; Declarations
