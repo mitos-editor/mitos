@@ -1225,9 +1225,9 @@
   },
   "ptx": {
     "git": "https://codeberg.org/jer-gremlin/tree-sitter-ptx",
-    "rev": "3dfa6758d4c15832d051f933101992b9e01d6611",
-    "url": "https://codeberg.org/jer-gremlin/tree-sitter-ptx/archive/3dfa6758d4c15832d051f933101992b9e01d6611.tar.gz",
-    "hash": "sha256-GuUlGrEspXgy0KLaYhXKhazx8D4IFhGfbdNlnUDslrs="
+    "rev": "9b6684b808d64d3c96b6b925c9f11dc7fdaaf629",
+    "url": "https://codeberg.org/jer-gremlin/tree-sitter-ptx/archive/9b6684b808d64d3c96b6b925c9f11dc7fdaaf629.tar.gz",
+    "hash": "sha256-ExH48XC3Ij6zADWo+dr24IqFUafCNJrxjmvtVNRqUEk="
   },
   "pug": {
     "git": "https://github.com/zealot128/tree-sitter-pug",
