@@ -499,9 +499,9 @@
   },
   "gitattributes": {
     "git": "https://github.com/mtoohey31/tree-sitter-gitattributes",
-    "rev": "3dd50808e3096f93dccd5e9dc7dc3dba2eb12dc4",
-    "url": "https://github.com/mtoohey31/tree-sitter-gitattributes/archive/3dd50808e3096f93dccd5e9dc7dc3dba2eb12dc4.tar.gz",
-    "hash": "sha256-uSG3NNd5kx/ctXxSAb9e8RMjt9BWwViMBqgTHgW4DYY="
+    "rev": "deb04fdbff485310ee5bac74ddc6ab624a602b7b",
+    "url": "https://github.com/mtoohey31/tree-sitter-gitattributes/archive/deb04fdbff485310ee5bac74ddc6ab624a602b7b.tar.gz",
+    "hash": "sha256-1J7hOZjH12LVbvCUui7dx4bzna0vSiAk2yZncf5POzE="
   },
   "gitcommit": {
     "git": "https://github.com/gbprod/tree-sitter-gitcommit",

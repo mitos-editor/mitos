@@ -2319,7 +2319,7 @@ grammar = "gitattributes"
 
 [[grammar]]
 name = "gitattributes"
-source = { git = "https://github.com/mtoohey31/tree-sitter-gitattributes", rev = "3dd50808e3096f93dccd5e9dc7dc3dba2eb12dc4" }
+source = { git = "https://github.com/mtoohey31/tree-sitter-gitattributes", rev = "deb04fdbff485310ee5bac74ddc6ab624a602b7b" }
 
 [[language]]
 name = "git-ignore"
