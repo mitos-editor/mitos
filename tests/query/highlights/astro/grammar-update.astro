@@ -1,0 +1,10 @@
+---
+const answer = 42
+//    ^ @variable
+---
+<div title={answer}>{answer}</div>
+//   ^ @attribute
+<div title={answer}>{answer}</div>
+//          ^ @variable
+<div>{answer}</div>
+//    ^ @variable

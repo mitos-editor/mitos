@@ -16,6 +16,7 @@
   (#eq? @tag "a"))
 
 (attribute [(attribute_value) (quoted_attribute_value)] @string)
+(attribute_backtick_string) @string
 
 ((element
   (start_tag

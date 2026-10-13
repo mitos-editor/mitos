@@ -3182,7 +3182,7 @@ language-servers = [ "astro-ls" ]
 
 [[grammar]]
 name = "astro"
-source = { git = "https://github.com/virchau13/tree-sitter-astro", rev = "947e93089e60c66e681eba22283f4037841451e7" }
+source = { git = "https://github.com/virchau13/tree-sitter-astro", rev = "213f6e6973d9b456c6e50e86f19f66877e7ef0ee" }
 
 [[language]]
 name = "bass"

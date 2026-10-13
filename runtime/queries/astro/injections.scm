@@ -1,9 +1,13 @@
 ; inherits: html
 
 ((frontmatter
-	(raw_text) @injection.content)
+  (frontmatter_js_block) @injection.content)
  (#set! injection.language "typescript"))
 
-((interpolation
-	(raw_text) @injection.content)
+((attribute_interpolation
+  (attribute_js_expr) @injection.content)
+ (#set! injection.language "typescript"))
+
+((html_interpolation
+  (permissible_text) @injection.content)
  (#set! injection.language "tsx"))

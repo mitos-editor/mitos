@@ -31,9 +31,9 @@
   },
   "astro": {
     "git": "https://github.com/virchau13/tree-sitter-astro",
-    "rev": "947e93089e60c66e681eba22283f4037841451e7",
-    "url": "https://github.com/virchau13/tree-sitter-astro/archive/947e93089e60c66e681eba22283f4037841451e7.tar.gz",
-    "hash": "sha256-PVT1NwmfFcVe1bhn34gIz/SVCiT9vyCM9kS8iIqdMw4="
+    "rev": "213f6e6973d9b456c6e50e86f19f66877e7ef0ee",
+    "url": "https://github.com/virchau13/tree-sitter-astro/archive/213f6e6973d9b456c6e50e86f19f66877e7ef0ee.tar.gz",
+    "hash": "sha256-CHaqtyCWfsBRYiWT9VgDDMxk7MPIYnB6Qficjxl9k1c="
   },
   "awk": {
     "git": "https://github.com/Beaglefoot/tree-sitter-awk",
