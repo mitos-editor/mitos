@@ -1681,9 +1681,9 @@
   },
   "varlink": {
     "git": "https://github.com/bachorp/tree-sitter-varlink",
-    "rev": "a80ecffda60b28612cbda652e38d97c1d8b90568",
-    "url": "https://github.com/bachorp/tree-sitter-varlink/archive/a80ecffda60b28612cbda652e38d97c1d8b90568.tar.gz",
-    "hash": "sha256-g57beCq82tOhgRv6RcfkujIQZxxuWHo3iiPRbGqtyXU="
+    "rev": "95f420e12b703fdc66cd0c2c46c801fe189a178b",
+    "url": "https://github.com/bachorp/tree-sitter-varlink/archive/95f420e12b703fdc66cd0c2c46c801fe189a178b.tar.gz",
+    "hash": "sha256-NcHkVCnIg8OLdRS7x89Tg62Nmm2UzW3S9e1JRi0LZYs="
   },
   "vento": {
     "git": "https://github.com/ventojs/tree-sitter-vento",

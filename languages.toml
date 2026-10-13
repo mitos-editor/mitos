@@ -5619,7 +5619,7 @@ language-servers = ["varlink-language-server"]
 
 [[grammar]]
 name = "varlink"
-source = { git = "https://github.com/bachorp/tree-sitter-varlink", rev = "a80ecffda60b28612cbda652e38d97c1d8b90568" }
+source = { git = "https://github.com/bachorp/tree-sitter-varlink", rev = "95f420e12b703fdc66cd0c2c46c801fe189a178b" }
 
 [[language]]
 name = "metamath"
