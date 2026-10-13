@@ -841,9 +841,9 @@
   },
   "koka": {
     "git": "https://github.com/koka-community/tree-sitter-koka",
-    "rev": "fd3b482274d6988349ba810ea5740e29153b1baf",
-    "url": "https://github.com/koka-community/tree-sitter-koka/archive/fd3b482274d6988349ba810ea5740e29153b1baf.tar.gz",
-    "hash": "sha256-h8yLOZ0QE8PfrDYImEan6rFVHgL/4njz6fiFwveC7G0="
+    "rev": "07b1ce29a06656b552f7f198e572499062ccfffe",
+    "url": "https://github.com/koka-community/tree-sitter-koka/archive/07b1ce29a06656b552f7f198e572499062ccfffe.tar.gz",
+    "hash": "sha256-+r5KgPUATu6CIm4eFTuzQAkwsgGqvJ5+syLFpAPxwMI="
   },
   "kotlin": {
     "git": "https://github.com/fwcd/tree-sitter-kotlin",

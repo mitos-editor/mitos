@@ -4236,7 +4236,7 @@ language-servers = ["koka"]
 
 [[grammar]]
 name = "koka"
-source = { git = "https://github.com/koka-community/tree-sitter-koka", rev = "fd3b482274d6988349ba810ea5740e29153b1baf" }
+source = { git = "https://github.com/koka-community/tree-sitter-koka", rev = "07b1ce29a06656b552f7f198e572499062ccfffe" }
 
 [[language]]
 name = "tolk"
