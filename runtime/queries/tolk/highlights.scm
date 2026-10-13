@@ -49,10 +49,11 @@
   "repeat"
   "mutate"
   "struct"
+  "enum"
+  "contract"
   "type"
   "match"
   "lazy"
-  (null_literal)
   (builtin_specifier)
 ] @keyword
 
@@ -105,6 +106,8 @@
 (boolean_literal) @constant.builtin.boolean
 
 (annotation) @attribute
+(annotation_name) @attribute
+(null_literal) @constant.builtin
 
 (function_declaration
   name: (identifier) @function)
@@ -112,12 +115,12 @@
   name: (identifier) @function)
 (get_method_declaration
   name: (identifier) @function)
+(dot_access field: (identifier) @variable.other.member)
 (function_call
   callee: (identifier) @function)
 (function_call
-  callee: (dot_access (identifier) @type "." (identifier) @function))
-(dot_access
-  field: (identifier) @variable)
+  callee: (dot_access field: (identifier) @function.method))
+
 
 
 (struct_declaration
@@ -127,3 +130,7 @@
   name: (identifier) @variable.other.member)
 (instance_argument
   name: (identifier) @variable.other.member)
+
+(enum_declaration name: (identifier) @type.enum)
+(contract_declaration name: (identifier) @type)
+(enum_member_declaration name: (identifier) @type.enum.variant)

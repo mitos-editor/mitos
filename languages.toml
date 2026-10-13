@@ -4248,7 +4248,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "tolk"
-source = { git = "https://github.com/ton-blockchain/ton-language-server", rev = "e90dbb89f8ec8fbf8a16b61a31d6cc19a840de4f", subpath = "server/src/languages/tolk/tree-sitter-tolk" }
+source = { git = "https://github.com/ton-blockchain/ton-language-server", rev = "342d87c26b5fab1e300015bf2831cafa59fda457", subpath = "server/src/languages/tolk/tree-sitter-tolk" }
 
 [[language]]
 name = "tact"

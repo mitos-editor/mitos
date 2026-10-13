@@ -1603,9 +1603,9 @@
   },
   "tolk": {
     "git": "https://github.com/ton-blockchain/ton-language-server",
-    "rev": "e90dbb89f8ec8fbf8a16b61a31d6cc19a840de4f",
-    "url": "https://github.com/ton-blockchain/ton-language-server/archive/e90dbb89f8ec8fbf8a16b61a31d6cc19a840de4f.tar.gz",
-    "hash": "sha256-tNGytRwYrGLLU8thNuyk42tbUCKa/5t2nl2PoCPJawE="
+    "rev": "342d87c26b5fab1e300015bf2831cafa59fda457",
+    "url": "https://github.com/ton-blockchain/ton-language-server/archive/342d87c26b5fab1e300015bf2831cafa59fda457.tar.gz",
+    "hash": "sha256-6LrUWl8IECvU/q5JxgrKVRrnnuxVT6fv0tr2Tairb+s="
   },
   "toml": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-toml",
