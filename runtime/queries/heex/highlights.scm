@@ -61,3 +61,5 @@
     (function) @function
     "." @punctuation.delimiter
   ])
+
+(entity) @constant.character.escape

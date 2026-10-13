@@ -2618,7 +2618,7 @@ language-servers = [ "elixir-ls", "expert" ]
 
 [[grammar]]
 name = "heex"
-source = { git = "https://github.com/phoenixframework/tree-sitter-heex", rev = "f6b83f305a755cd49cf5f6a66b2b789be93dc7b9" }
+source = { git = "https://github.com/phoenixframework/tree-sitter-heex", rev = "5842537f734d7c12685bf27d6005313e3e5a47a0" }
 
 [[language]]
 name = "sql"
