@@ -1009,9 +1009,9 @@
   },
   "move": {
     "git": "https://github.com/tzakian/tree-sitter-move",
-    "rev": "8bc0d1692caa8763fef54d48068238d9bf3c0264",
-    "url": "https://github.com/tzakian/tree-sitter-move/archive/8bc0d1692caa8763fef54d48068238d9bf3c0264.tar.gz",
-    "hash": "sha256-9vjxV3KqeWl5haXNeF9Ni9rGrre4ENyttfiZ7IfL/Cc="
+    "rev": "640ee15e4a7b0d09a4bc95dcc71336c28d97999b",
+    "url": "https://github.com/tzakian/tree-sitter-move/archive/640ee15e4a7b0d09a4bc95dcc71336c28d97999b.tar.gz",
+    "hash": "sha256-m3+ZpqzBceC/Pt2jWe/dPe/Z6K1nwOKmmURmnH662gY="
   },
   "nasm": {
     "git": "https://github.com/naclsn/tree-sitter-nasm",

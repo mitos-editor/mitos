@@ -20,8 +20,8 @@
 
 (annotation) @function.macro
 
-(borrow_expression "&" @keyword.storage.modifier.ref)
-(borrow_expression "&mut" @keyword.storage.modifier.mut)
+(imm_ref "&" @keyword.storage.modifier.ref)
+(mut_ref "&" @keyword.storage.modifier.ref)
 
 (identifier) @variable
 
@@ -35,8 +35,8 @@
 
 (struct_identifier) @type
 (pack_expression
-  access: (module_access
-    member: (identifier) @type))
+  (name_expression access: (module_access
+    member: (identifier) @type)))
 (apply_type
   (module_access
     member: (identifier) @type))
@@ -51,8 +51,8 @@
 ; -------
 
 (call_expression
-  access: (module_access
-    member: (identifier) @function))
+  (name_expression access: (module_access
+    member: (identifier) @function)))
 
 (macro_call_expression
   access: (macro_module_access
@@ -160,3 +160,5 @@
   "with"
 ] @keyword
 
+
+"mut" @keyword.storage.modifier.mut

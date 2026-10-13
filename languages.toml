@@ -4536,7 +4536,7 @@ language-servers = []
 
 [[grammar]]
 name = "move"
-source = { git = "https://github.com/tzakian/tree-sitter-move", rev = "8bc0d1692caa8763fef54d48068238d9bf3c0264" }
+source = { git = "https://github.com/tzakian/tree-sitter-move", rev = "640ee15e4a7b0d09a4bc95dcc71336c28d97999b" }
 
 [[language]]
 name = "pest"
