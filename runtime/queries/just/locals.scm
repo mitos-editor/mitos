@@ -4,11 +4,12 @@
 ; Scope
 
 (recipe) @local.scope
+(function) @local.scope
 
 ; Definitions
 
 (alias
-  alias_name: (identifier) @local.definition.variable)
+  alias_name: (identifier) @local.definition.function)
 
 (assignment
   name: (identifier) @local.definition.variable)
@@ -24,6 +25,9 @@
 
 (recipe
   name: (identifier) @local.definition.function)
+
+(function_decl_parameters
+  (identifier) @local.definition.variable.parameter)
 
 ; References
 

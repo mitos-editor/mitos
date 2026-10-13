@@ -811,9 +811,9 @@
   },
   "just": {
     "git": "https://codeberg.org/poliorcetics/tree-sitter-just",
-    "rev": "73953d826ba2957c0fe9cb4597fe8d074ee7b6d6",
-    "url": "https://codeberg.org/poliorcetics/tree-sitter-just/archive/73953d826ba2957c0fe9cb4597fe8d074ee7b6d6.tar.gz",
-    "hash": "sha256-KpJV+sifZj4hAilMyDmuWvm1DTlpGEHWWdawXe8a8mU="
+    "rev": "d24f1a93cad7994850e701b6a035124b99db8eec",
+    "url": "https://codeberg.org/poliorcetics/tree-sitter-just/archive/d24f1a93cad7994850e701b6a035124b99db8eec.tar.gz",
+    "hash": "sha256-32NhTyZ4d9J1u/BWl87q4kRpWN55B/zI9XVZpXAUFI8="
   },
   "kcl": {
     "git": "https://github.com/KittyCAD/tree-sitter-kcl",

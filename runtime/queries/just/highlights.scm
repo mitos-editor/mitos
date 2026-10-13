@@ -27,7 +27,7 @@
   (identifier) @variable)
 
 (alias
-  alias_name: (identifier) @variable)
+  alias_name: (identifier) @function)
 
 (assignment
   name: (identifier) @variable)
