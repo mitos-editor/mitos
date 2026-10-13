@@ -4880,7 +4880,7 @@ scope = "source.csv"
 
 [[grammar]]
 name = "csv"
-source = { git = "https://github.com/weartist/rainbow-csv-tree-sitter", rev = "d3dbf916446131417e4c2ea9eb8591b23b466d27" }
+source = { git = "https://github.com/weartist/rainbow-csv-tree-sitter", rev = "fbf125bcedb15080980e8afaf69c4374412e5844" }
 
 [[language]]
 name = "yara"

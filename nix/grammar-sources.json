@@ -217,9 +217,9 @@
   },
   "csv": {
     "git": "https://github.com/weartist/rainbow-csv-tree-sitter",
-    "rev": "d3dbf916446131417e4c2ea9eb8591b23b466d27",
-    "url": "https://github.com/weartist/rainbow-csv-tree-sitter/archive/d3dbf916446131417e4c2ea9eb8591b23b466d27.tar.gz",
-    "hash": "sha256-wfHWMhlnrg23wiCsVJkLxagZ2I9VGRIRP8y1XYt47/k="
+    "rev": "fbf125bcedb15080980e8afaf69c4374412e5844",
+    "url": "https://github.com/weartist/rainbow-csv-tree-sitter/archive/fbf125bcedb15080980e8afaf69c4374412e5844.tar.gz",
+    "hash": "sha256-AtU0GNpkInjoMserjJXwl0y46AUcABj7QxjP4UpR15U="
   },
   "cue": {
     "git": "https://github.com/eonpatapon/tree-sitter-cue",
