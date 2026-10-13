@@ -44,9 +44,10 @@
   "`elsif" "`undef" (resetall_compiler_directive) (undefineall_compiler_directive)
   "`endif" "`else" "`unconnected_drive" (celldefine_compiler_directive)
   (endcelldefine_compiler_directive) (endkeywords_directive) "`line"
-  "`begin_keywords" "`pragma" "`__FILE__" "`__LINE__"]) @string.special
+  "`begin_keywords" "`pragma" "`__FILE__" "`__LINE__"
+  (nounconnected_drive_compiler_directive)]) @keyword.directive
 (text_macro_usage
- (simple_identifier) @string.special)
+ (simple_identifier) @function.macro)
 
 
 ;; Delimiters, operators

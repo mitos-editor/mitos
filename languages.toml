@@ -2877,7 +2877,7 @@ language-servers = ["svlangserver", "verible-verilog-ls"]
 
 [[grammar]]
 name = "systemverilog"
-source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "5f7a4121ef40e8d38317833968fe861fd6913d28" }
+source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "d6be6119fe4d04c65c567e7b79625aa6280fea34" }
 
 [[language]]
 name = "edoc"

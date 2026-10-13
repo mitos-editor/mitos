@@ -1525,9 +1525,9 @@
   },
   "systemverilog": {
     "git": "https://github.com/gmlarumbe/tree-sitter-systemverilog",
-    "rev": "5f7a4121ef40e8d38317833968fe861fd6913d28",
-    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/5f7a4121ef40e8d38317833968fe861fd6913d28.tar.gz",
-    "hash": "sha256-eybqzQgmteTUCiaPGS4AmqVPaAXbiw/Qq0s/Y3NuboY="
+    "rev": "d6be6119fe4d04c65c567e7b79625aa6280fea34",
+    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/d6be6119fe4d04c65c567e7b79625aa6280fea34.tar.gz",
+    "hash": "sha256-LlGXywrc0ykR7q/23usFMG+d5S08vBBm5dWH5xipdY0="
   },
   "t32": {
     "git": "https://gitlab.com/xasc/tree-sitter-t32",
