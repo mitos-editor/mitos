@@ -847,9 +847,9 @@
   },
   "kotlin": {
     "git": "https://github.com/fwcd/tree-sitter-kotlin",
-    "rev": "f66d2908542e93c0204c6c241f794afe4e9cd5d1",
-    "url": "https://github.com/fwcd/tree-sitter-kotlin/archive/f66d2908542e93c0204c6c241f794afe4e9cd5d1.tar.gz",
-    "hash": "sha256-1USdcB1AiD2YlFTDzXcthO+QhlyY6OaZ43z1NfmhuV8="
+    "rev": "1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1",
+    "url": "https://github.com/fwcd/tree-sitter-kotlin/archive/1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1.tar.gz",
+    "hash": "sha256-YSgsjT0jH6t9YIbU0Mn/KEgk941Keo05k9SQI/u3OcU="
   },
   "koto": {
     "git": "https://github.com/koto-lang/tree-sitter-koto",

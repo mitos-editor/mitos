@@ -12,6 +12,8 @@
 ] @local.scope
 
 ; Definitions
+(variable_declaration
+  (simple_identifier) @local.definition.variable)
 (type_parameter
   (type_identifier) @local.definition.type.parameter)
 
@@ -25,8 +27,7 @@
 
 ; Loop and local `val`/`var` bindings; defined so inner references resolve and
 ; shadow correctly.
-(variable_declaration
-  (simple_identifier) @local.definition.variable)
+
 
 ; References
 (simple_identifier) @local.reference

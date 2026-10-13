@@ -1,3 +1,9 @@
+(type_identifier) @type
+
+((type_identifier) @type.builtin
+	(#match? @type.builtin "^(Byte|Short|Int|Long|UByte|UShort|UInt|ULong|Float|Double|Boolean|Char|String|Array|ByteArray|ShortArray|IntArray|LongArray|UByteArray|UShortArray|UIntArray|ULongArray|FloatArray|DoubleArray|BooleanArray|CharArray|Map|Set|List|EmptyMap|EmptySet|EmptyList|MutableMap|MutableSet|MutableList)$"))
+
+
 ;;; Identifiers
 (simple_identifier) @variable
 
@@ -135,26 +141,6 @@
 	"finally"
 ] @keyword.control.exception
 
-(annotation
-	"@" @attribute (use_site_target)? @attribute)
-(annotation
-	(user_type
-		(type_identifier) @attribute))
-(annotation
-	(constructor_invocation
-		(user_type
-			(type_identifier) @attribute)))
-
-(file_annotation
-	"@" @attribute "file" @attribute ":" @attribute)
-(file_annotation
-	(user_type
-		(type_identifier) @attribute))
-(file_annotation
-	(constructor_invocation
-		(user_type
-			(type_identifier) @attribute)))
-
 ;;; Literals
 ; NOTE: Escapes not allowed in multi-line strings
 (character_literal (character_escape_seq) @constant.character.escape)
@@ -205,7 +191,7 @@
 (call_expression
 	(navigation_expression
 		(navigation_suffix
-			(simple_identifier) @function) . ))
+			(simple_identifier) @function.method) . ))
 
 ; infix function call (e.g. 1 to 2)
 (infix_expression
@@ -299,11 +285,6 @@
 (package_header
 	. (identifier)) @namespace
 
-(type_identifier) @type
-
-((type_identifier) @type.builtin
-	(#match? @type.builtin "^(Byte|Short|Int|Long|UByte|UShort|UInt|ULong|Float|Double|Boolean|Char|String|Array|ByteArray|ShortArray|IntArray|LongArray|UByteArray|UShortArray|UIntArray|ULongArray|FloatArray|DoubleArray|BooleanArray|CharArray|Map|Set|List|EmptyMap|EmptySet|EmptyList|MutableMap|MutableSet|MutableList)$"))
-
 (type_parameter
   (type_identifier) @type.parameter)
 
@@ -327,3 +308,23 @@
 
 ; `this` this keyword inside classes
 (this_expression) @variable.builtin
+
+(annotation
+	"@" @attribute (use_site_target)? @attribute)
+(annotation
+	(user_type
+		(type_identifier) @attribute))
+(annotation
+	(constructor_invocation
+		(user_type
+			(type_identifier) @attribute)))
+
+(file_annotation
+	"@" @attribute "file" @attribute ":" @attribute)
+(file_annotation
+	(user_type
+		(type_identifier) @attribute))
+(file_annotation
+	(constructor_invocation
+		(user_type
+			(type_identifier) @attribute)))
