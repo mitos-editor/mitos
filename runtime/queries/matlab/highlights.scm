@@ -1,3 +1,17 @@
+; Keywords
+
+"classdef" @keyword.storage.type
+[
+  "arguments"
+  "end"
+  "enumeration"
+  "events"
+  "global"
+  "methods"
+  "persistent"
+  "properties"
+] @keyword
+
 ; Constants
 
 (events (identifier) @constant)
@@ -13,7 +27,7 @@
 
 ; Types
 
-(class_definition name: (identifier) @keyword.storage.type)
+(class_definition name: (identifier) @type)
 (attributes (identifier) @constant)
 (enum . (identifier) @type.enum.variant)
 
@@ -111,17 +125,3 @@
   "||"
   ":"
 ] @operator
-
-; Keywords
-
-"classdef" @keyword.storage.type
-[
-  "arguments"
-  "end"
-  "enumeration"
-  "events"
-  "global"
-  "methods"
-  "persistent"
-  "properties"
-] @keyword

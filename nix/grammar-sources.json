@@ -973,9 +973,9 @@
   },
   "matlab": {
     "git": "https://github.com/acristoffers/tree-sitter-matlab",
-    "rev": "c2390a59016f74e7d5f75ef09510768b4f30217e",
-    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/c2390a59016f74e7d5f75ef09510768b4f30217e.tar.gz",
-    "hash": "sha256-beuMsJgym7TwySQ0Cr2RBOXIrPSW8PJLdvB3gQzTsYM="
+    "rev": "f03d0347acd8bb05d4edd8c845ac1718729e1fad",
+    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/f03d0347acd8bb05d4edd8c845ac1718729e1fad.tar.gz",
+    "hash": "sha256-y0bp+3R/4nj9xxHEHBKvhX0NQ6NEyr0ou+Mj2TqopEA="
   },
   "mermaid": {
     "git": "https://github.com/monaqa/tree-sitter-mermaid",
