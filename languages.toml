@@ -1409,7 +1409,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "twig"
-source = { git = "https://github.com/gbprod/tree-sitter-twig", rev = "0afd9a6d808944e65a7be393e31868b85345735f" }
+source = { git = "https://github.com/gbprod/tree-sitter-twig", rev = "2208d2a3c3ee7ef378e97df2e51c18feb7ee9dfc" }
 
 [[language]]
 name = "latex"

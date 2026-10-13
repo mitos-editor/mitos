@@ -1627,9 +1627,9 @@
   },
   "twig": {
     "git": "https://github.com/gbprod/tree-sitter-twig",
-    "rev": "0afd9a6d808944e65a7be393e31868b85345735f",
-    "url": "https://github.com/gbprod/tree-sitter-twig/archive/0afd9a6d808944e65a7be393e31868b85345735f.tar.gz",
-    "hash": "sha256-EkyQhikfi7pjoD9M+jM2hSlbU25cUCTawaC6sckVQEg="
+    "rev": "2208d2a3c3ee7ef378e97df2e51c18feb7ee9dfc",
+    "url": "https://github.com/gbprod/tree-sitter-twig/archive/2208d2a3c3ee7ef378e97df2e51c18feb7ee9dfc.tar.gz",
+    "hash": "sha256-YxXPCkfXJG1lsK0GNQ3nQbS8zMfCxMs8r3cF6K1RsNg="
   },
   "typescript": {
     "git": "https://github.com/tree-sitter/tree-sitter-typescript",
