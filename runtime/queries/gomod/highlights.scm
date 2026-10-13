@@ -1,5 +1,6 @@
 [
   "require"
+  "ignore"
   "replace"
   "go"
   "toolchain"
