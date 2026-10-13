@@ -12,6 +12,14 @@
   "Set"
   "Type"
   "Sleep"
+  "Env"
+  "Wait"
+  "Require"
+  "Source"
+  "Copy"
+  "Paste"
+  "PageUp"
+  "PageDown"
   "Hide"
   "Show" ] @keyword
 
@@ -36,11 +44,13 @@
   "CursorBlink" ] @type
 
 [ "@" ] @operator
-(control) @function.macro
+[(control) (alt) (shift)] @function.macro
 (float) @constant.numeric.float
 (integer) @constant.numeric.integer
 (comment) @comment
-[(string) (json)] @string.special.path
+[(string) (json)] @string
+(regex) @string.regexp
 (path) @string.special.path
 (time) @string.special.symbol
 (boolean) @constant.builtin.boolean
+(waitOn) @keyword

@@ -3245,7 +3245,7 @@ grammar = "vhs"
 
 [[grammar]]
 name = "vhs"
-source = { git = "https://github.com/charmbracelet/tree-sitter-vhs", rev = "9534865e614c95eb9418e5e73f061c32fa4d9540" }
+source = { git = "https://github.com/charmbracelet/tree-sitter-vhs", rev = "0c6fae9d2cfc5b217bfd1fe84a7678f5917116db" }
 
 [[language]]
 name = "kdl"

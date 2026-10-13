@@ -1705,9 +1705,9 @@
   },
   "vhs": {
     "git": "https://github.com/charmbracelet/tree-sitter-vhs",
-    "rev": "9534865e614c95eb9418e5e73f061c32fa4d9540",
-    "url": "https://github.com/charmbracelet/tree-sitter-vhs/archive/9534865e614c95eb9418e5e73f061c32fa4d9540.tar.gz",
-    "hash": "sha256-ODu90OXomYc3o0e/A9ozJSURO3gEfzt9uypIvuq+nWA="
+    "rev": "0c6fae9d2cfc5b217bfd1fe84a7678f5917116db",
+    "url": "https://github.com/charmbracelet/tree-sitter-vhs/archive/0c6fae9d2cfc5b217bfd1fe84a7678f5917116db.tar.gz",
+    "hash": "sha256-4Z16tGTCQ7TFAR3MNZ3ffTEPjmZZUeVwIoxqynZQ3Jo="
   },
   "vim": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-vim",
