@@ -59,3 +59,6 @@
 ] @keyword.control.exception
 (try_statement "END" @keyword.control.exception)
 (try_statement (else_statement "ELSE" @keyword.control.exception))
+
+(variable_key) @variable.other.member
+(python_string) @string

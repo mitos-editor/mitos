@@ -1315,9 +1315,9 @@
   },
   "robot": {
     "git": "https://github.com/Hubro/tree-sitter-robot",
-    "rev": "93c48ca74274a60688a3beda7f6c8ae3145efce7",
-    "url": "https://github.com/Hubro/tree-sitter-robot/archive/93c48ca74274a60688a3beda7f6c8ae3145efce7.tar.gz",
-    "hash": "sha256-K2NcJ1sLVB54Q+Cb03yddCSMIoaiJRSezVNW0tcAZmg="
+    "rev": "8f1a8d8c3875db2cd29865b5a1db7716b4eab4c3",
+    "url": "https://github.com/Hubro/tree-sitter-robot/archive/8f1a8d8c3875db2cd29865b5a1db7716b4eab4c3.tar.gz",
+    "hash": "sha256-6VRx3um7L08IGC3Vynz6rxfhQK4vS4oxrmH6A/RfAjg="
   },
   "robots-txt": {
     "git": "https://github.com/opa-oz/tree-sitter-robots-txt",
