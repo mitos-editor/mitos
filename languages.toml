@@ -4919,7 +4919,7 @@ language-servers = ["sourcepawn-studio"]
 
 [[grammar]]
 name = "sourcepawn"
-source = { git = "https://github.com/nilshelmig/tree-sitter-sourcepawn", rev = "5a8fdd446b516c81e218245c12129c6ad4bccfa2" }
+source = { git = "https://github.com/nilshelmig/tree-sitter-sourcepawn", rev = "2ef2d389c29b952f8b23909783f7d3c7972046f5" }
 
 [[grammar]]
 name = "vim"

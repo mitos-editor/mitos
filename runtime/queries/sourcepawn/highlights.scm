@@ -2,7 +2,7 @@
 
 ; Assume all-caps names are constants
 ((identifier) @constant
- (#match? @constant "^[A-Z][A-Z\\d_]+$'"))
+ (#match? @constant "^[A-Z][A-Z\\d_]*$"))
 
 ; Function definitions/declarations
 (function_definition
@@ -21,7 +21,7 @@
   function: (identifier) @function)
 (call_expression
   function: (field_access
-    field: (identifier) @function))
+    field: (identifier) @function.method))
 
 ; Types
 (builtin_type) @type.builtin
@@ -85,13 +85,11 @@
   defaultValue: (identifier) @constant)
 (fixed_dimension) @punctuation.bracket ; the [3] in var[3]
 (dimension) @punctuation.bracket
-(array_indexed_access) @punctuation.bracket
 (escape_sequence) @constant.character.escape
 
 ; Constructors
 (new_expression
-  class: (identifier) @type
-  arguments: (call_arguments) @constructor)
+  class: (identifier) @constructor)
 
 ; Methodmaps
 (methodmap) @type.definition
@@ -201,7 +199,6 @@
 (char_literal) @constant.character
 (float_literal) @constant.numeric.float
 (string_literal) @string
-(array_literal) @punctuation.bracket
 (null) @constant.builtin
 (bool_literal) @constant.builtin.boolean
 ((identifier) @constant
@@ -252,3 +249,8 @@
   "while"
 ] @keyword
 
+
+(packed_string_literal) @string
+["if" "else" "switch" "case" "default"] @keyword.control.conditional
+["for" "while" "do"] @keyword.control.repeat
+["return" "break" "continue"] @keyword.control.return

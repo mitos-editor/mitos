@@ -1453,9 +1453,9 @@
   },
   "sourcepawn": {
     "git": "https://github.com/nilshelmig/tree-sitter-sourcepawn",
-    "rev": "5a8fdd446b516c81e218245c12129c6ad4bccfa2",
-    "url": "https://github.com/nilshelmig/tree-sitter-sourcepawn/archive/5a8fdd446b516c81e218245c12129c6ad4bccfa2.tar.gz",
-    "hash": "sha256-U3iHukaIA49DE7UWGFqOyQo3FnZnZkfaf8y/+r6/Slc="
+    "rev": "2ef2d389c29b952f8b23909783f7d3c7972046f5",
+    "url": "https://github.com/nilshelmig/tree-sitter-sourcepawn/archive/2ef2d389c29b952f8b23909783f7d3c7972046f5.tar.gz",
+    "hash": "sha256-V+l5xN4RT/1aFWeifVj/UQ0ArrW29Q5HuA8FgZfz4Fs="
   },
   "spade": {
     "git": "https://codeberg.org/spade-lang/tree-sitter-spade",
