@@ -119,7 +119,7 @@
 (attribute
   (identifier) @attribute)
 
-(comment) @comment
+[(line_comment) (block_comment)] @comment
 
 ; built-in wgsl functions: https://webgpufundamentals.org/webgpu/lessons/webgpu-wgsl-function-reference.html
 (

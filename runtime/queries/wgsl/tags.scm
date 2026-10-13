@@ -1,10 +1,10 @@
 (struct_declaration
-  name: (identifier) @definition.struct)
+  name: (identifier) @name) @definition.struct
 
 (function_declaration
-  name: (identifier) @definition.function)
+  name: (identifier) @name) @definition.function
 
 (global_variable_declaration
   (variable_declaration
     (variable_identifier_declaration
-      name: (identifier) @definition.constant)))
+      name: (identifier) @name))) @definition.constant

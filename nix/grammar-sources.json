@@ -1747,9 +1747,9 @@
   },
   "wgsl": {
     "git": "https://github.com/szebniok/tree-sitter-wgsl",
-    "rev": "272e89ef2aeac74178edb9db4a83c1ffef80a463",
-    "url": "https://github.com/szebniok/tree-sitter-wgsl/archive/272e89ef2aeac74178edb9db4a83c1ffef80a463.tar.gz",
-    "hash": "sha256-nYIHMbCMjF/06eHYHo948C+Tw0U/gRZR1Kwio9QaAcM="
+    "rev": "40259f3c77ea856841a4e0c4c807705f3e4a2b65",
+    "url": "https://github.com/szebniok/tree-sitter-wgsl/archive/40259f3c77ea856841a4e0c4c807705f3e4a2b65.tar.gz",
+    "hash": "sha256-3dSkHay0XoxYowQxLLaJlKi+ZbZoHFQC70SSoF33xAc="
   },
   "wikitext": {
     "git": "https://github.com/santhoshtr/tree-sitter-wikitext",

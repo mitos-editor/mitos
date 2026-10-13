@@ -11,4 +11,7 @@
   (parenthesized_expression)
 ] @rainbow.scope
 
-["(" ")" "[" "]" "{" "}" "<" ">"] @rainbow.bracket
+["(" ")" "[" "]" "{" "}"] @rainbow.bracket
+
+(type_declaration ["<" ">"] @rainbow.bracket) @rainbow.scope
+(variable_qualifier ["<" ">"] @rainbow.bracket) @rainbow.scope
