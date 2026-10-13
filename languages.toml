@@ -4365,7 +4365,7 @@ language-servers = ["hyprls"]
 
 [[grammar]]
 name = "hyprlang"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-hyprlang", rev = "27af9b74acf89fa6bed4fb8cb8631994fcb2e6f3"}
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-hyprlang", rev = "cecd6b748107d9da1f7b4ca03ef95f1f71d93b8f"}
 
 [[language]]
 name = "tcl"

@@ -24,7 +24,10 @@
 
 (boolean) @constant.builtin.boolean
 
-(string) @string
+[
+  (string)
+  (string_literal)
+] @string
 
 (mod) @constant
 
@@ -42,13 +45,15 @@
 
 "deg" @type
 
-"," @punctuation.delimiter
+["," ";"] @punctuation.delimiter
 
 [
   "("
   ")"
   "{"
   "}"
+  "["
+  "]"
 ] @punctuation.bracket
 
 [
@@ -56,3 +61,5 @@
   "-"
   "+"
 ] @operator
+
+(window_rule (name) @keyword)

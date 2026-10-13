@@ -703,9 +703,9 @@
   },
   "hyprlang": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-hyprlang",
-    "rev": "27af9b74acf89fa6bed4fb8cb8631994fcb2e6f3",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-hyprlang/archive/27af9b74acf89fa6bed4fb8cb8631994fcb2e6f3.tar.gz",
-    "hash": "sha256-wZUjIjvV4ksU+SBPzxjBydan+xpNfl+5zKhel13onpA="
+    "rev": "cecd6b748107d9da1f7b4ca03ef95f1f71d93b8f",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-hyprlang/archive/cecd6b748107d9da1f7b4ca03ef95f1f71d93b8f.tar.gz",
+    "hash": "sha256-IvGJQ5cF0yq4E8lG0yyUPZUlUzGpmwtXeY/fIKv3268="
   },
   "iex": {
     "git": "https://github.com/elixir-lang/tree-sitter-iex",
