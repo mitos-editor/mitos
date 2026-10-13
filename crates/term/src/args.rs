@@ -18,6 +18,8 @@ pub struct Args {
     pub verbosity: u64,
     pub log_file: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
+    pub migrate_config: Option<PathBuf>,
+    pub stdout: bool,
     pub files: IndexMap<PathBuf, Vec<Position>>,
     pub working_directory: Option<PathBuf>,
 }
@@ -62,6 +64,11 @@ impl Args {
                     args.health = true;
                     args.health_arg = argv.next_if(|opt| !opt.starts_with('-'));
                 }
+                "--migrate-config" => match argv.next().filter(|arg| !arg.starts_with("--")) {
+                    Some(path) => args.migrate_config = Some(path.into()),
+                    None => anyhow::bail!("--migrate-config must specify a config file"),
+                },
+                "--stdout" => args.stdout = true,
                 "-g" | "--grammar" => match argv.next().as_deref() {
                     Some("fetch") => args.fetch_grammars = true,
                     Some("build") => args.build_grammars = true,
@@ -130,6 +137,10 @@ impl Args {
             first_position.row = line_number;
         }
 
+        anyhow::ensure!(
+            args.migrate_config.is_some() == args.stdout,
+            "Use --migrate-config <file> --stdout to export configuration without rewriting it"
+        );
         Ok(args)
     }
 }

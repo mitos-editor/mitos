@@ -21,6 +21,8 @@ _ms() {
 		"--config[Specifies a file to use for configuration]" \
 		"-w[Specify initial working directory]" \
 		"--working-dir[Specify initial working directory]" \
+		"--migrate-config[Export migrated configuration (requires --stdout)]:config file:_files" \
+		"--stdout[Print migrated configuration without changing the file]" \
 		"--log[Specifies a file to use for logging]" \
 		"*:file:_files"
 

@@ -1377,6 +1377,28 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "config-migrate",
+        aliases: &[],
+        doc: "Migrate legacy user settings after confirmation, creating a backup.",
+        fun: super::config::migrate_config,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "config-migrate-workspace",
+        aliases: &[],
+        doc: "Migrate legacy trusted workspace settings after confirmation, creating a backup.",
+        fun: super::config::migrate_workspace_config,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
         name: "config-open-workspace",
         aliases: &[],
         doc: "Open the workspace config.toml file.",

@@ -121,11 +121,11 @@ archive or the installer. If your system's glibc is too old, see
 
 ## Configuration after upgrading
 
-On your next normal launch, Mitos automatically migrates known legacy settings in
-your user configuration and the current trusted project's configuration. It
-preserves settings and comments, creates backups, and shows their locations.
-See [automatic configuration migration](./configuration.md#automatic-configuration-migration)
-for details. `languages.toml` is left unchanged.
+Mitos loads known legacy settings without rewriting your configuration. Use
+`:config-migrate` or `:config-migrate-workspace` to update a file after confirmation,
+with a backup. Generated and read-only files can be migrated to stdout instead.
+See [configuration migration](./configuration.md#configuration-migration) for details.
+`languages.toml` is left unchanged.
 
 ## Verify the installation
 

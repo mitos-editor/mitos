@@ -2,8 +2,8 @@
 
 use crate::{
     compositor,
-    config::{ConfigEvent, EditorSettings},
-    ui::PromptEvent,
+    config::{Config, ConfigEvent, ConfigMigration, EditorSettings, MigrationScope},
+    ui::{self, PromptEvent},
 };
 use ::command_line::{self, Args};
 use anyhow::{anyhow, bail, ensure};
@@ -250,5 +250,131 @@ pub(super) fn refresh_config(
     }
 
     cx.config.updates.send(ConfigEvent::Refresh)?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum MigrationChoice {
+    Cancel,
+    Migrate,
+}
+
+impl ui::menu::Item for MigrationChoice {
+    type Data = ();
+
+    fn format(&self, _data: &()) -> ui::menu::Row<'_> {
+        ui::menu::Row::new([match self {
+            Self::Cancel => "Cancel",
+            Self::Migrate => "Migrate",
+        }])
+    }
+}
+
+pub(super) fn migrate_config(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    prompt_migration(cx, event, MigrationScope::User)
+}
+
+pub(super) fn migrate_workspace_config(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    prompt_migration(cx, event, MigrationScope::Workspace)
+}
+
+fn prompt_migration(
+    cx: &mut compositor::Context,
+    event: PromptEvent,
+    scope: MigrationScope,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let path = Config::migration_path(scope)?;
+    let target = std::fs::canonicalize(&path)?;
+    let original = std::fs::read_to_string(&target)?;
+    if loader::config::migration::source(&original)?.is_none() {
+        cx.editor
+            .set_status("Configuration already uses current settings");
+        return Ok(());
+    }
+    let mut message = format!(
+        "Migrate {}?\n\nKnown legacy settings will be rewritten, preserving values and comments. A backup will be created beside the target file.",
+        path.display()
+    );
+    if target != path {
+        message.push_str(&format!("\n\nTarget: {}", target.display()));
+    }
+    if scope == MigrationScope::Workspace {
+        message.push_str("\n\nThis changes the project's working tree.");
+    }
+    // Queue the dialog after the command prompt has closed.
+    cx.jobs.callback(async move {
+        let callback = move |_: &mut view::Editor, compositor: &mut compositor::Compositor| {
+            let dialog = ui::Select::new(
+                message,
+                [MigrationChoice::Cancel, MigrationChoice::Migrate],
+                (),
+                move |editor, choice, event| {
+                    if event == PromptEvent::Validate
+                        && matches!(choice, MigrationChoice::Migrate)
+                        && let Err(err) = apply_migration(editor, scope, &path, &target, &original)
+                    {
+                        editor.set_error(|| err.to_string());
+                    }
+                },
+            );
+            compositor.push(Box::new(dialog));
+        };
+        Ok(crate::job::Callback::EditorCompositor(Box::new(callback)))
+    });
+    Ok(())
+}
+
+fn apply_migration(
+    editor: &mut view::Editor,
+    scope: MigrationScope,
+    path: &std::path::Path,
+    target: &std::path::Path,
+    original: &str,
+) -> anyhow::Result<()> {
+    ensure!(
+        Config::migration_path(scope)? == path
+            && std::fs::canonicalize(path)? == target
+            && std::fs::read_to_string(target)? == original,
+        "Configuration changed while awaiting confirmation; run the migration command again"
+    );
+    ensure!(
+        !editor.documents().any(|doc| {
+            doc.is_modified()
+                && doc.path().is_some_and(|path| {
+                    std::fs::canonicalize(path).is_ok_and(|path| path == target)
+                })
+        }),
+        "Save or discard unsaved configuration changes before migrating"
+    );
+    let notices = Config::migrate(scope)?;
+    let warning = notices
+        .iter()
+        .any(|notice| matches!(notice, ConfigMigration::Warning(_)));
+    let message = notices
+        .into_iter()
+        .map(|notice| match notice {
+            ConfigMigration::Updated { path, backup } => {
+                format!("Updated {}; backup: {}", path.display(), backup.display())
+            }
+            ConfigMigration::Warning(message) => message,
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    if warning {
+        editor.set_warning(|| message);
+    } else {
+        editor.set_status(message);
+    }
     Ok(())
 }

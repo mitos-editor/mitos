@@ -204,6 +204,7 @@ pub fn file(
         .context("migrated configuration is invalid; original file was not changed")?;
     let parent = path.parent().context("config has no parent directory")?;
     let permissions = fs::metadata(&path)?.permissions();
+    ensure!(!permissions.readonly(), "configuration is read-only");
 
     let mut replacement = tempfile::NamedTempFile::new_in(parent)?;
     replacement.as_file().set_permissions(permissions.clone())?;
@@ -371,6 +372,22 @@ display-messages = false # Quiet
         fs::write(&path, original).unwrap();
         assert!(file(&path, |_| anyhow::bail!("bad config")).is_err());
         assert_eq!(fs::read_to_string(path).unwrap(), original);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_file_is_not_replaced_in_a_writable_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let source = "[editor]\nscrolloff = 7\n";
+        fs::write(&path, source).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        let result = file(&path, |_| Ok(()));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(result.unwrap_err().to_string().contains("read-only"));
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 

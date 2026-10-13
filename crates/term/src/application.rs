@@ -20,7 +20,7 @@ mod render;
 use crate::{
     args::Args,
     compositor::{Compositor, Event},
-    config::{Config, ConfigMigration, EditorSettings},
+    config::{Config, EditorSettings},
     handlers,
     job::Jobs,
     keymap::Keymaps,
@@ -451,33 +451,9 @@ impl Application {
         self.config.store(Arc::new(app_config));
     }
 
-    pub fn notify_config_migration(&mut self, migrations: Vec<ConfigMigration>) {
-        if migrations.is_empty() {
-            return;
-        }
-        let warning = migrations
-            .iter()
-            .any(|notice| matches!(notice, ConfigMigration::Warning(_)));
-        let message = migrations
-            .into_iter()
-            .map(|notice| match notice {
-                ConfigMigration::Updated { path, backup } => {
-                    format!("Updated {}; backup: {}", path.display(), backup.display())
-                }
-                ConfigMigration::Warning(message) => message,
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        if warning {
-            self.editor.set_warning(|| message);
-        } else {
-            self.editor.set_status(message);
-        }
-    }
-
     fn refresh_config(&mut self) {
-        let mut refresh_config = || -> Result<Vec<ConfigMigration>, Error> {
-            let (default_config, migrations) = Config::load_default_migrating()
+        let mut refresh_config = || -> Result<(), Error> {
+            let default_config = Config::load_default()
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
             let lang_loader = self.editor.load_language_config(&default_config.editor)?;
@@ -494,14 +470,11 @@ impl Application {
                 .reconfigure(terminal_config(&default_config))?;
             // Store new config
             self.config.store(Arc::new(default_config));
-            Ok(migrations)
+            Ok(())
         };
 
         match refresh_config() {
-            Ok(migrations) => {
-                self.editor.set_status("Config refreshed");
-                self.notify_config_migration(migrations);
-            }
+            Ok(()) => self.editor.set_status("Config refreshed"),
             Err(err) => {
                 self.editor.set_error(|| err.to_string());
             }

@@ -1758,8 +1758,8 @@ mod tests {
         use std::{cell::RefCell, rc::Rc, time::Duration};
 
         let mut config = AppConfig::default();
-        config.editor.file_watcher.enable = false;
-        config.editor.file_watcher.watch_vcs = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.watch.watch_vcs = false;
         let syntax = editor_core::syntax::Loader::new(
             editor_core::syntax::config::Configuration {
                 language: vec![],

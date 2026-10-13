@@ -15,6 +15,8 @@ complete -c ms -s V -l version -d "Prints version information"
 complete -c ms -l vsplit -d "Splits all given files vertically"
 complete -c ms -l hsplit -d "Splits all given files horizontally"
 complete -c ms -s c -l config -r -d "Specifies a file to use for config"
+complete -c ms -l migrate-config -r -d "Export migrated configuration (requires --stdout)"
+complete -c ms -l stdout -d "Print migrated configuration without changing the file"
 complete -c ms -l log -r -d "Specifies a file to use for logging"
 complete -c ms -s w -l working-dir -d "Specify initial working directory" -xa "(__fish_complete_directories)"
 

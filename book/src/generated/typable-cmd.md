@@ -81,6 +81,8 @@
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
+| `:config-migrate` | Migrate legacy user settings after confirmation, creating a backup. |
+| `:config-migrate-workspace` | Migrate legacy trusted workspace settings after confirmation, creating a backup. |
 | `:config-open-workspace` | Open the workspace config.toml file. |
 | `:log-open` | Open the mitos log file. |
 | `:insert-output` | Run shell command, inserting output before each selection. |

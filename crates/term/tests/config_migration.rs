@@ -1,9 +1,24 @@
 use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
 use std::{fs, process::Command};
-use term::config::{Config, ConfigMigration};
+use term::config::{Config, ConfigMigration, MigrationScope};
 
 #[path = "test/helpers/isolation.rs"]
 mod isolation;
+
+// Exercise explicit migration of each scope while retaining the combined-layer assertions.
+fn migrate_both() -> anyhow::Result<(Config, Vec<ConfigMigration>)> {
+    let config = Config::load_default().map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let mut notices = Vec::new();
+    if loader::config_file().exists() {
+        notices.extend(Config::migrate(MigrationScope::User)?);
+    }
+    if Config::migration_path(MigrationScope::Workspace).is_ok()
+        && loader::workspace_config_file().exists()
+    {
+        notices.extend(Config::migrate(MigrationScope::Workspace)?);
+    }
+    Ok((config, notices))
+}
 
 #[test]
 fn migrates_both_layers_with_backups_and_preserves_precedence() -> anyhow::Result<()> {
@@ -22,7 +37,7 @@ fn migrates_both_layers_with_backups_and_preserves_precedence() -> anyhow::Resul
     let languages = project.with_file_name("languages.toml");
     let language_source = "[[language]]\nname = 'rust'\nauto-format = false\n";
     fs::write(&languages, language_source)?;
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(!config.editor.lsp.messages.enable);
     assert!(!config.editor.format.on_save);
@@ -44,7 +59,7 @@ fn migrates_both_layers_with_backups_and_preserves_precedence() -> anyhow::Resul
         WorkspaceTrust::new(TrustConfig::default()).status(&root.join("workspace")),
         TrustStatus::Untrusted
     );
-    assert!(Config::load_default_migrating().unwrap().1.is_empty());
+    assert!(migrate_both().unwrap().1.is_empty());
     assert_eq!(fs::read_dir(user.parent().unwrap())?.count(), 2);
     assert_eq!(fs::read_dir(project.parent().unwrap())?.count(), 3);
     Ok(())
@@ -65,7 +80,7 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
     fs::write(&project, local)?;
     let trust = WorkspaceTrust::new(TrustConfig::default());
     // No grant: the project config is not interpreted or rewritten.
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 7);
     assert!(notices.is_empty());
     trust.trust(&workspace);
@@ -77,9 +92,9 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
         WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
         TrustStatus::Stale
     );
-    assert!(Config::load_default_migrating().unwrap().1.is_empty());
+    assert!(migrate_both().unwrap().1.is_empty());
     trust.exclude(&workspace);
-    assert!(Config::load_default_migrating().unwrap().1.is_empty());
+    assert!(migrate_both().unwrap().1.is_empty());
     assert_eq!(fs::read_to_string(project)?, local);
     assert_eq!(fs::read_dir(workspace.join(".mitos"))?.count(), 2);
     Ok(())
@@ -101,7 +116,7 @@ fn preserves_explicit_trust_across_migration_and_reload() -> anyhow::Result<()> 
         "[editor]\nscrolloff = 17\n",
     )?;
     WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(notices
         .iter()
@@ -110,7 +125,7 @@ fn preserves_explicit_trust_across_migration_and_reload() -> anyhow::Result<()> 
         WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
         TrustStatus::Trusted
     );
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(notices.is_empty());
     Ok(())
@@ -156,7 +171,7 @@ fn validates_all_loaded_layers_before_writing() -> anyhow::Result<()> {
     let original = "[editor]\nscrolloff = 7\n[editor.workspace-trust]\nlevel = 'insecure'\n";
     fs::write(&user, original)?;
     fs::write(&project, "[editor]\nunknown-setting = true\n")?;
-    assert!(Config::load_default_migrating().is_err());
+    assert!(migrate_both().is_err());
     assert_eq!(fs::read_to_string(&user)?, original);
     assert!(!user.with_extension("toml.bak").exists());
     assert!(!project.with_extension("toml.bak").exists());
@@ -165,7 +180,7 @@ fn validates_all_loaded_layers_before_writing() -> anyhow::Result<()> {
         &user,
         "[editor]\nauto-format = true\nformat.on-save = false\n",
     )?;
-    assert!(Config::load_default_migrating().is_err());
+    assert!(migrate_both().is_err());
     assert!(!user.with_extension("toml.bak").exists());
     Ok(())
 }
@@ -202,6 +217,128 @@ fn read_only_commands_leave_both_configs_untouched() -> anyhow::Result<()> {
 }
 
 #[test]
+fn export_migrates_only_the_requested_file_without_writing() -> anyhow::Result<()> {
+    let Some(_) = isolation::workspace("export_migrates_only_the_requested_file_without_writing")?
+    else {
+        return Ok(());
+    };
+    let user = loader::config_file();
+    let project = loader::workspace_config_file();
+    let source = "# Managed settings\n[editor]\nscrolloff = 7\n";
+    fs::write(&user, source)?;
+    // Export must not read or validate the workspace configuration.
+    fs::write(&project, "invalid = [")?;
+    let export = || {
+        Command::new(env!("CARGO_BIN_EXE_ms"))
+            .arg("--migrate-config")
+            .arg(&user)
+            .arg("--stdout")
+            .output()
+    };
+    let output = export()?;
+    assert!(output.status.success(), "{output:?}");
+    let migrated = String::from_utf8(output.stdout)?;
+    assert_eq!(
+        migrated,
+        loader::config::migration::source(source)?.unwrap()
+    );
+    assert_eq!(fs::read_to_string(&user)?, source);
+    assert_eq!(fs::read_dir(user.parent().unwrap())?.count(), 1);
+    assert_eq!(fs::read_to_string(&project)?, "invalid = [");
+    fs::write(&user, &migrated)?;
+    assert_eq!(export()?.stdout, migrated.as_bytes());
+    for args in [
+        vec!["--stdout"],
+        vec!["--migrate-config"],
+        vec!["--migrate-config", "--stdout"],
+    ] {
+        assert!(!Command::new(env!("CARGO_BIN_EXE_ms"))
+            .args(args)
+            .output()?
+            .status
+            .success());
+    }
+    fs::write(&user, "invalid = [")?;
+    assert!(!export()?.status.success());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_configs_load_and_export_without_modifying_the_target() -> anyhow::Result<()> {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let Some(root) =
+        isolation::workspace("linked_configs_load_and_export_without_modifying_the_target")?
+    else {
+        return Ok(());
+    };
+    let user = loader::config_file();
+    let store = root.join("managed");
+    fs::create_dir(&store)?;
+    let target = store.join("config.toml");
+    let source = "# Managed settings\n[editor]\nscrolloff = 9\n";
+    fs::write(&target, source)?;
+    symlink(&target, &user)?;
+    for readonly in [false, true] {
+        if readonly {
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o444))?;
+            fs::set_permissions(&store, fs::Permissions::from_mode(0o555))?;
+        }
+        let loaded = Config::load_default();
+        let output = Command::new(env!("CARGO_BIN_EXE_ms"))
+            .arg("--migrate-config")
+            .arg(&user)
+            .arg("--stdout")
+            .output();
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o755))?;
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o644))?;
+        assert_eq!(loaded.unwrap().editor.scroll.padding, 9);
+        let output = output?;
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout,
+            loader::config::migration::source(source)?
+                .unwrap()
+                .as_bytes()
+        );
+        assert_eq!(fs::read_to_string(&target)?, source);
+        assert!(fs::symlink_metadata(&user)?.is_symlink());
+        assert_eq!(fs::read_dir(&store)?.count(), 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn explicit_migration_is_scoped_and_requires_workspace_trust() -> anyhow::Result<()> {
+    let Some(root) =
+        isolation::workspace("explicit_migration_is_scoped_and_requires_workspace_trust")?
+    else {
+        return Ok(());
+    };
+    let user = loader::config_file();
+    let project = loader::workspace_config_file();
+    let global = "[editor]\nscrolloff = 7\n[editor.workspace-trust]\nlevel = 'none'\n";
+    let local = "[editor]\nscrolloff = 17\n";
+    fs::write(&user, global)?;
+    fs::write(&project, local)?;
+    assert!(Config::migrate(MigrationScope::Workspace).is_err());
+    Config::migrate(MigrationScope::User)?;
+    assert_eq!(fs::read_to_string(&project)?, local);
+    assert!(!project.with_extension("toml.bak").exists());
+    let migrated_user = fs::read_to_string(&user)?;
+    WorkspaceTrust::new(TrustConfig::default()).trust(&root.join("workspace"));
+    Config::migrate(MigrationScope::Workspace)?;
+    assert_eq!(fs::read_to_string(&user)?, migrated_user);
+    assert!(!user.with_extension("toml.bak.1").exists());
+    assert_eq!(
+        fs::read_to_string(project.with_extension("toml.bak"))?,
+        local
+    );
+    Ok(())
+}
+
+#[test]
 fn trusted_project_migrates_without_creating_a_user_config() -> anyhow::Result<()> {
     let Some(root) =
         isolation::workspace("trusted_project_migrates_without_creating_a_user_config")?
@@ -213,7 +350,7 @@ fn trusted_project_migrates_without_creating_a_user_config() -> anyhow::Result<(
         "[editor]\nscrolloff = 17\n",
     )?;
     WorkspaceTrust::new(TrustConfig::default()).trust(&root.join("workspace"));
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert_eq!(notices.len(), 1);
     assert!(!loader::config_file().exists());
@@ -240,7 +377,7 @@ fn project_write_failure_keeps_loaded_settings() -> anyhow::Result<()> {
     let parent = project.parent().unwrap();
     let permissions = fs::metadata(parent)?.permissions();
     fs::set_permissions(parent, fs::Permissions::from_mode(0o555))?;
-    let result = Config::load_default_migrating();
+    let result = migrate_both();
     fs::set_permissions(parent, permissions)?;
     let (config, notices) = result.unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
@@ -266,7 +403,7 @@ fn project_symlink_migration_preserves_the_link_and_trust() -> anyhow::Result<()
     fs::write(&target, original)?;
     symlink(&target, &project)?;
     WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(
         matches!(notices.as_slice(), [ConfigMigration::Updated { .. }]),
@@ -298,7 +435,7 @@ fn project_migration_retains_required_fields_inherited_from_the_user() -> anyhow
     )?;
     let original = "[editor.terminal]\nargs = ['split-window']\n";
     fs::write(&project, original)?;
-    let (config, notices) = Config::load_default_migrating().unwrap();
+    let (config, notices) = migrate_both().unwrap();
     let launcher = config.terminal.launcher.unwrap();
     assert_eq!(launcher.command, "tmux");
     assert_eq!(launcher.args, ["split-window"]);

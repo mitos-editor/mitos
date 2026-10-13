@@ -343,11 +343,11 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn config_reload_migrates_user_and_trusted_project_configs() -> anyhow::Result<()> {
+async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> anyhow::Result<()> {
     use super::helpers::{isolation, test_key_sequences};
     use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
     let Some(root) = isolation::workspace(
-        "test::config_application::config_reload_migrates_user_and_trusted_project_configs",
+        "test::config_application::config_reload_preserves_legacy_user_and_trusted_project_configs",
     )?
     else {
         return Ok(());
@@ -361,49 +361,196 @@ async fn config_reload_migrates_user_and_trusted_project_configs() -> anyhow::Re
     std::fs::write(&project, local)?;
     WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
     let mut app = AppBuilder::new().build()?;
+    let check = |app: &term::application::Application| {
+        assert_eq!(app.editor.config().scroll.padding, 17);
+        assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
+        assert_eq!(
+            WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+            TrustStatus::Trusted
+        );
+        assert_eq!(std::fs::read_to_string(&user).unwrap(), global);
+        assert_eq!(std::fs::read_to_string(&project).unwrap(), local);
+        assert!(!user.with_extension("toml.bak").exists());
+        assert!(!project.with_extension("toml.bak").exists());
+    };
     test_key_sequences(
         &mut app,
         vec![
-            (
-                Some(":config-reload<ret>"),
-                Some(&|app: &term::application::Application| {
-                    assert_eq!(app.editor.config().scroll.padding, 17);
-                    let (message, severity) = app.editor.get_status().unwrap();
-                    assert!(message.contains(&user.display().to_string()), "{message}");
-                    assert!(
-                        message.contains(&project.display().to_string()),
-                        "{message}"
-                    );
-                    assert!(message.contains("backup:"), "{message}");
-                    assert_eq!(*severity, editor_core::diagnostic::Severity::Info);
-                    assert_eq!(
-                        WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
-                        TrustStatus::Trusted
-                    );
-                }),
-            ),
-            (
-                Some(":config-reload<ret>"),
-                Some(&|app: &term::application::Application| {
-                    assert_eq!(app.editor.config().scroll.padding, 17);
-                    assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
-                    for path in [&user, &project] {
-                        assert!(path.with_extension("toml.bak").is_file());
-                        assert!(!path.with_extension("toml.bak.1").exists());
-                    }
-                }),
-            ),
+            (Some(":config-reload<ret>"), Some(&check)),
+            (Some(":config-reload<ret>"), Some(&check)),
         ],
         false,
     )
     .await?;
-    assert_eq!(
-        std::fs::read_to_string(user.with_extension("toml.bak"))?,
-        global
-    );
-    assert_eq!(
-        std::fs::read_to_string(project.with_extension("toml.bak"))?,
-        local
-    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope(
+) -> anyhow::Result<()> {
+    use super::helpers::{isolation, test_key_sequences};
+    use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
+    let Some(root) = isolation::workspace(
+        "test::config_application::migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope",
+    )? else {
+        return Ok(());
+    };
+    let user = loader::config_file();
+    let project = loader::workspace_config_file();
+    let global = "[editor]\nscrolloff = 7\n[editor.workspace-trust]\nlevel = 'none'\n";
+    let local = "[editor]\nscrolloff = 17\n";
+    std::fs::write(&user, global)?;
+    std::fs::write(&project, local)?;
+    let workspace = root.join("workspace");
+    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    let mut app = AppBuilder::new().build()?;
+    let unchanged = |_: &term::application::Application| {
+        assert_eq!(std::fs::read_to_string(&user).unwrap(), global);
+        assert!(!user.with_extension("toml.bak").exists());
+    };
+    let tamper = |app: &term::application::Application| {
+        unchanged(app);
+        std::fs::write(&user, global.replace("7", "9")).unwrap();
+    };
+    let unsaved = |app: &term::application::Application| {
+        assert!(app
+            .editor
+            .get_status()
+            .unwrap()
+            .0
+            .contains("unsaved configuration changes"));
+        unchanged(app);
+    };
+    let rejected = |app: &term::application::Application| {
+        assert!(app
+            .editor
+            .get_status()
+            .unwrap()
+            .0
+            .contains("changed while awaiting confirmation"));
+        assert_eq!(
+            std::fs::read_to_string(&user).unwrap(),
+            global.replace("7", "9")
+        );
+        assert!(!user.with_extension("toml.bak").exists());
+        std::fs::write(&user, global).unwrap();
+    };
+    let user_migrated = |app: &term::application::Application| {
+        assert!(app.editor.get_status().unwrap().0.contains("backup:"));
+        assert_eq!(
+            std::fs::read_to_string(user.with_extension("toml.bak")).unwrap(),
+            global
+        );
+        assert_eq!(std::fs::read_to_string(&project).unwrap(), local);
+        assert!(!project.with_extension("toml.bak").exists());
+    };
+    let workspace_migrated = |_: &term::application::Application| {
+        assert_eq!(
+            std::fs::read_to_string(project.with_extension("toml.bak")).unwrap(),
+            local
+        );
+        assert_eq!(
+            WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+            TrustStatus::Trusted
+        );
+    };
+    let canonical = |app: &term::application::Application| {
+        assert_eq!(
+            app.editor.get_status().unwrap().0,
+            "Configuration already uses current settings"
+        );
+        assert!(!user.with_extension("toml.bak.1").exists());
+    };
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(":config-migrate<ret>"), Some(&unchanged)),
+            (Some("<ret>"), Some(&unchanged)),
+            (Some(":config-migrate<ret>"), None),
+            (Some("<esc>"), Some(&unchanged)),
+            (Some(":config-open<ret>i# unsaved<esc>"), None),
+            (Some(":config-migrate<ret>"), None),
+            (Some("<down><ret>"), Some(&unsaved)),
+            (Some(":reload<ret>"), None),
+            (Some(":config-migrate<ret>"), Some(&tamper)),
+            (Some("<down><ret>"), Some(&rejected)),
+            (Some(":config-migrate<ret>"), None),
+            (Some("<down><ret>"), Some(&user_migrated)),
+            (Some(":config-migrate-workspace<ret>"), None),
+            (Some("<down><ret>"), Some(&workspace_migrated)),
+            (Some(":config-migrate<ret>"), Some(&canonical)),
+        ],
+        false,
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn migration_rejects_unsaved_config_opened_through_symlink() -> anyhow::Result<()> {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::config_application::migration_rejects_unsaved_config_opened_through_symlink",
+    )?
+    else {
+        return Ok(());
+    };
+    let user = loader::config_file();
+    let original = "[editor]\nscrolloff = 7\n";
+    std::fs::write(&user, original)?;
+    let alias = root.join("config-link.toml");
+    std::os::unix::fs::symlink(&user, &alias)?;
+    let mut app = AppBuilder::new().with_file(&alias, None).build()?;
+    super::helpers::test_key_sequence(
+        &mut app,
+        Some("i# unsaved<esc>:config-migrate<ret><down><ret>"),
+        Some(&|app| {
+            assert!(view::current_ref!(app.editor).1.is_modified());
+            assert!(app
+                .editor
+                .get_status()
+                .unwrap()
+                .0
+                .contains("unsaved configuration changes"));
+            assert_eq!(std::fs::read_to_string(&user).unwrap(), original);
+            assert!(!user.with_extension("toml.bak").exists());
+        }),
+        false,
+    )
+    .await
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn config_reload_reads_read_only_symlinks_without_writes() -> anyhow::Result<()> {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::config_application::config_reload_reads_read_only_symlinks_without_writes",
+    )?
+    else {
+        return Ok(());
+    };
+    let store = root.join("managed");
+    std::fs::create_dir(&store)?;
+    let target = store.join("config.toml");
+    let user = loader::config_file();
+    let source = "[editor]\nscrolloff = 9\nfile-watcher.enable = false\n";
+    std::fs::write(&target, source)?;
+    symlink(&target, &user)?;
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444))?;
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o555))?;
+    let loaded = term::config::Config::load_default().unwrap();
+    let mut app = AppBuilder::new().with_config(loaded).build()?;
+    app.handle_config_events(ConfigEvent::Refresh);
+    let (message, severity) = app.editor.get_status().unwrap();
+    assert_eq!(message, "Config refreshed");
+    assert_eq!(*severity, editor_core::diagnostic::Severity::Info);
+    assert_eq!(app.editor.config().scroll.padding, 9);
+    assert_eq!(std::fs::read_to_string(&target)?, source);
+    assert_eq!(std::fs::read_dir(&store)?.count(), 1);
+    assert!(std::fs::symlink_metadata(&user)?.is_symlink());
+    std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644))?;
+    assert!(app.close().await.is_empty());
     Ok(())
 }

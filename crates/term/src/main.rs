@@ -54,6 +54,8 @@ FLAGS:
                                    the default is the same as 'all', but with languages filtering.
     -g, --grammar {{fetch|build}}    Fetch or builds tree-sitter grammars listed in languages.toml.
     -c, --config <file>            Specify a file to use for configuration
+    --migrate-config <file> --stdout
+                                   Export migrated config to stdout without changing the file
     -v                             Increase logging verbosity each use for up to 3 times
     --log <file>                   Specify a file to use for logging
                                    (default file: {})
@@ -76,6 +78,19 @@ FLAGS:
     if args.display_version {
         println!("mitos {}", VERSION_AND_GIT_HASH);
         std::process::exit(0);
+    }
+
+    if let Some(path) = &args.migrate_config {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("could not read config {}", path.display()))?;
+        let output = loader::config::migration::source(&source)?.unwrap_or(source);
+        use std::io::Write;
+        if let Err(err) = std::io::stdout().lock().write_all(output.as_bytes())
+            && err.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            return Err(err.into());
+        }
+        return Ok(0);
     }
 
     if args.health {
@@ -115,10 +130,10 @@ FLAGS:
         return Ok(1);
     }
 
-    let (config, migrations) = match Config::load_default_migrating() {
+    let config = match Config::load_default() {
         Ok(loaded) => loaded,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
-            (Config::default(), Vec::new())
+            Config::default()
         }
         Err(ConfigLoadError::Error(err)) => return Err(Error::new(err)),
         Err(ConfigLoadError::BadConfig(err)) => {
@@ -126,7 +141,7 @@ FLAGS:
             eprintln!("Press <ENTER> to continue with default config");
             use std::io::Read;
             let _ = std::io::stdin().read(&mut []);
-            (Config::default(), Vec::new())
+            Config::default()
         }
     };
 
@@ -147,7 +162,6 @@ FLAGS:
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader, workspace_trust)
         .context("unable to start Mitos")?;
-    app.notify_config_migration(migrations);
     let mut events = app.event_stream();
 
     let exit_code = app.run(&mut events).await?;

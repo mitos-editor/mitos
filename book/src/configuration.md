@@ -53,31 +53,51 @@ Runtime commands use editor-relative paths, for example
 Terminal settings use `terminal.*`, such as `:toggle terminal.true-color`.
 Legacy command paths remain accepted; completions show canonical paths.
 
-## Automatic configuration migration
+## Configuration migration
 
-On normal startup and configuration reload, Mitos rewrites known legacy settings
-in your user `config.toml` and the current trusted project's `.mitos/config.toml`
-into the current feature sections. A file selected with `-c` or `--config` is your
-user configuration for that session. Projects whose local configuration is blocked
-by workspace trust, including stale or excluded projects, are not rewritten.
+Mitos accepts known legacy settings and converts them in memory before merging
+configuration layers. Startup and `:config-reload` leave configuration files
+unchanged, including files managed by Home Manager or other dotfile managers.
+
+To update a file to the current feature sections, run:
+
+- `:config-migrate` for your user `config.toml`, or the file selected with `-c` or
+  `--config` for this session.
+- `:config-migrate-workspace` for the current trusted project's `.mitos/config.toml`.
+
+Each command opens a confirmation dialog naming the file. **Cancel** is selected
+initially; choose **Migrate** to rewrite it. Escape also cancels. User and workspace
+migration are separate actions. Project migration changes the project's working
+tree. Untrusted, stale, or excluded project configuration cannot be migrated.
 
 Migration preserves values, comments, keybindings, and custom commands. All loaded
 configuration layers must validate before any rewrite. Each changed file receives
 an adjacent backup named `config.toml.bak`; existing backups are preserved with
 numbered suffixes such as `config.toml.bak.1`. Replacements are atomic and preserve
 file permissions and symlinks. For symlinks, the target file is updated and the
-backup is placed beside that target. A status message reports the updated files
-and backup paths. Project migration changes the project's working tree.
+backup is placed beside that target. The dialog shows the target, and a status
+message reports the updated file and backup path. Save or discard unsaved edits to
+an open configuration buffer before migrating.
 
-Already migrated files are left unchanged, and missing user files are not created.
-If a backup or rewrite fails, Mitos warns and keeps using the successfully loaded
-settings through compatibility aliases. Reload configuration to retry.
+Already migrated files are left unchanged, and missing files are not created.
+Read-only files are not rewritten. If a backup or rewrite fails, the loaded
+settings remain usable through compatibility aliases.
+
+For generated or read-only configuration, export the migrated TOML:
+
+```sh
+ms --migrate-config ~/.config/mitos/config.toml --stdout > /tmp/mitos-config.toml
+```
+
+This command reads only the specified file, prints its migrated contents (or the
+original contents if no migration is needed), and creates no backups. Inspect the
+output and update the source managed by Home Manager or your dotfile manager.
+Export to a different file; redirecting stdout to the input file would truncate it.
 
 An existing explicit workspace trust grant is updated only when the migration and
 its backup explain every change to the trusted configuration fingerprint. Other
 changes still require review and renewed trust; migration never grants trust to
-an untrusted project. `languages.toml` is unchanged. Health checks, help, and version
-output also leave both configuration files untouched.
+an untrusted project. `languages.toml` is unchanged.
 
 ## `config.toml` reference
 

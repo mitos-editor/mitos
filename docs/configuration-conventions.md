@@ -86,8 +86,10 @@ Runtime `:get`, `:set`, and `:toggle` use canonical paths relative to `editor`,
 for example `lsp.inlay-hints.enable`. Frontend settings use `terminal.*` paths.
 Legacy aliases resolve to the same leaves; completions show canonical paths.
 
-Automatically migrate known renames on normal startup and configuration reload in
-the selected user configuration and the current trusted project's configuration.
+Normalize known renames in memory on startup and configuration reload; loading must
+not rewrite files. Offer separate explicit user and trusted workspace migration
+commands using the existing selection dialog, with Cancel selected initially.
+Provide a CLI export to stdout for generated and read-only configuration.
 Check the user-scope trust policy before reading or rewriting project files. Keep
 compatibility loading and file rewriting on the same normalization rules.
 
@@ -95,8 +97,9 @@ Validate all loaded layers before writing. Preserve user values, comments,
 keybindings, and unrelated sections rather than serializing defaults. Create a
 backup without overwriting existing backups, replace files atomically, and preserve
 symlinks and permissions. Repeated migration must leave canonical files unchanged.
-Report changed files and backup paths. Persistence failures must warn while keeping
-the successfully loaded configuration usable through compatibility aliases.
+Respect read-only file permissions, even when atomic replacement would be possible.
+Report changed files and backup paths. Explicit persistence failures must warn while
+keeping the successfully loaded configuration usable through compatibility aliases.
 
 Preserve existing explicit trust only when reconstructing the approved fingerprint
 from the exact migration bytes and its new backup succeeds. Concurrent or unrelated
