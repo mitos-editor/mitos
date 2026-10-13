@@ -325,9 +325,9 @@
   },
   "earthfile": {
     "git": "https://github.com/glehmann/tree-sitter-earthfile",
-    "rev": "dbfb970a59cd87b628d087eb8e3fbe19c8e20601",
-    "url": "https://github.com/glehmann/tree-sitter-earthfile/archive/dbfb970a59cd87b628d087eb8e3fbe19c8e20601.tar.gz",
-    "hash": "sha256-UryFVW9IU64Dxu/lTU92X7JFWNuaH+AzS/AVYNtdlHo="
+    "rev": "5baef88717ad0156fd29a8b12d0d8245bb1096a8",
+    "url": "https://github.com/glehmann/tree-sitter-earthfile/archive/5baef88717ad0156fd29a8b12d0d8245bb1096a8.tar.gz",
+    "hash": "sha256-iUY56m0G7ZPnrxzH3e8PRJvlHvsDXwF36HT1+qEghdU="
   },
   "ebnf": {
     "git": "https://github.com/RubixDev/ebnf/",

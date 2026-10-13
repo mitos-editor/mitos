@@ -4482,7 +4482,7 @@ language-servers = ["earthlyls"]
 
 [[grammar]]
 name = "earthfile"
-source = { git = "https://github.com/glehmann/tree-sitter-earthfile", rev = "dbfb970a59cd87b628d087eb8e3fbe19c8e20601" }
+source = { git = "https://github.com/glehmann/tree-sitter-earthfile", rev = "5baef88717ad0156fd29a8b12d0d8245bb1096a8" }
 
 [[language]]
 name = "adl"
