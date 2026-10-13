@@ -2814,7 +2814,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "ssh_client_config"
-source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "4abd07dc3884124d60e37e1f2dd98a1676859ae0" }
+source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "e3f6d694a8a80b27d98366d1d778dbb62b61856b" }
 
 [[language]]
 name = "scheme"

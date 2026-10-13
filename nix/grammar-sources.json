@@ -1477,9 +1477,9 @@
   },
   "ssh_client_config": {
     "git": "https://github.com/metio/tree-sitter-ssh-client-config",
-    "rev": "4abd07dc3884124d60e37e1f2dd98a1676859ae0",
-    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/4abd07dc3884124d60e37e1f2dd98a1676859ae0.tar.gz",
-    "hash": "sha256-kTq9fvUemrEiyRfB7pXH21ODbRcmH7y8O1YQAsN9vxA="
+    "rev": "e3f6d694a8a80b27d98366d1d778dbb62b61856b",
+    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/e3f6d694a8a80b27d98366d1d778dbb62b61856b.tar.gz",
+    "hash": "sha256-yPaZDmKHstXsM6cTFRhdmjwuoZerOZH3wZA2I25+W4c="
   },
   "strace": {
     "git": "https://github.com/sigmaSd/tree-sitter-strace",
