@@ -14,9 +14,9 @@
   (width)
 ] @operator
 
-(number) @constant.numeric
+(count) @constant.numeric
 
-(colon) @punctuation
+(colon) @punctuation.delimiter
 
 (identifier) @variable
 

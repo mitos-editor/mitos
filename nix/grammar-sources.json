@@ -1363,9 +1363,9 @@
   },
   "rust-format-args": {
     "git": "https://github.com/nik-rev/tree-sitter-rust-format-args",
-    "rev": "84ffe550e261cf5ea40a0ec31849ba2443bae99f",
-    "url": "https://github.com/nik-rev/tree-sitter-rust-format-args/archive/84ffe550e261cf5ea40a0ec31849ba2443bae99f.tar.gz",
-    "hash": "sha256-J5nv0TH6dCvcxDRLY79MqnE/0h8jsxTlFruIgJXw2K4="
+    "rev": "3cf8431a4951656bcf24ae06689fbd094fce0187",
+    "url": "https://github.com/nik-rev/tree-sitter-rust-format-args/archive/3cf8431a4951656bcf24ae06689fbd094fce0187.tar.gz",
+    "hash": "sha256-BZuf5/Yz7seP+SfsaZtwrH0RRKMZ0yOU6zla0/w7MXY="
   },
   "scala": {
     "git": "https://github.com/tree-sitter/tree-sitter-scala",
