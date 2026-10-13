@@ -169,9 +169,9 @@
   },
   "cmake": {
     "git": "https://github.com/uyha/tree-sitter-cmake",
-    "rev": "c7b2a71e7f8ecb167fad4c97227c838439280175",
-    "url": "https://github.com/uyha/tree-sitter-cmake/archive/c7b2a71e7f8ecb167fad4c97227c838439280175.tar.gz",
-    "hash": "sha256-9o9Mhg0G4S9v0cI6BHP3gTwt4MHoKT2776Jrr9GpyuI="
+    "rev": "58993af75218bc99a1f5a04c832a5937e7c422cb",
+    "url": "https://github.com/uyha/tree-sitter-cmake/archive/58993af75218bc99a1f5a04c832a5937e7c422cb.tar.gz",
+    "hash": "sha256-2PgYeedn4vf96tE2YIVFwlq4Msq06OjVbUYvxKY0uXM="
   },
   "comment": {
     "git": "https://github.com/stsewd/tree-sitter-comment",
