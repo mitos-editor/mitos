@@ -21,8 +21,8 @@
 (namespace_identifier) @namespace
 
 ; Type-introducing declarations
-(concept_definition name: (identifier) @type.definition)
-(alias_declaration name: (type_identifier) @type.definition)
+(concept_definition name: (identifier) @type)
+(alias_declaration name: (type_identifier) @type)
 
 (auto) @type.builtin
 
@@ -58,7 +58,7 @@
   name: (identifier) @function)
 
 (template_method
-  name: (field_identifier) @function)
+  name: (field_identifier) @function.method)
 
 ; Support up to 4 levels of nesting of qualifiers
 ; i.e. a::b::c::d::func();
@@ -82,7 +82,7 @@
           name: (identifier) @function)))))
 
 (function_declarator
-  declarator: (field_identifier) @function)
+  declarator: (field_identifier) @function.method)
 
 ; Constructors
 
@@ -92,7 +92,7 @@
     (function_definition
       (function_declarator
         (identifier) @constructor)))
-        (#eq? @type @constructor)) 
+        (#eq? @type @constructor))
 (destructor_name "~" @constructor
   (identifier) @constructor)
 
@@ -162,7 +162,7 @@
 ] @keyword.operator
 
 [
-  "class"  
+  "class"
   "namespace"
   "typename"
   "template"

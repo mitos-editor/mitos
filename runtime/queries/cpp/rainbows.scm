@@ -45,5 +45,8 @@
   "(" ")"
   "{" "}"
   "[" "]"
-  "<" ">"
 ] @rainbow.bracket
+
+; Angle brackets belong to template lists, not comparison expressions.
+(template_argument_list ["<" ">"] @rainbow.bracket)
+(template_parameter_list ["<" ">"] @rainbow.bracket)

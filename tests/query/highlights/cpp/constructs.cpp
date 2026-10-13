@@ -3,7 +3,7 @@ class Widget {
     int field;
 //      ^ @variable.other.member
     bool method(int count) {
-//       ^ @function
+//       ^ @function.method
 //                  ^ @variable.parameter
         return helper(count);
 //             ^ @function
