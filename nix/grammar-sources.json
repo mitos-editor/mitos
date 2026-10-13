@@ -1549,9 +1549,9 @@
   },
   "task": {
     "git": "https://github.com/alexanderbrevig/tree-sitter-task",
-    "rev": "f2cb435c5dbf3ee19493e224485d977cb2d36d8b",
-    "url": "https://github.com/alexanderbrevig/tree-sitter-task/archive/f2cb435c5dbf3ee19493e224485d977cb2d36d8b.tar.gz",
-    "hash": "sha256-HhgcImlZrdsnE6dLNxvWUgqrVaoL8G45N/pt/HsTIxc="
+    "rev": "ed4fb3674dd2d889c36e121f7173099290452af2",
+    "url": "https://github.com/alexanderbrevig/tree-sitter-task/archive/ed4fb3674dd2d889c36e121f7173099290452af2.tar.gz",
+    "hash": "sha256-Opz8rJVau6dUtR60KJ8klxlE1eV8Nh7uMfqq74NBS8s="
   },
   "tcl": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-tcl",
