@@ -2864,7 +2864,7 @@ injection-regex = "verilog"
 
 [[grammar]]
 name = "verilog"
-source = { git = "https://github.com/tree-sitter/tree-sitter-verilog", rev = "4457145e795b363f072463e697dfe2f6973c9a52" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-verilog", rev = "227d277b6a1a5e2bf818d6206935722a7503de08" }
 
 [[language]]
 name = "systemverilog"

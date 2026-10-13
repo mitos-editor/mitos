@@ -1693,9 +1693,9 @@
   },
   "verilog": {
     "git": "https://github.com/tree-sitter/tree-sitter-verilog",
-    "rev": "4457145e795b363f072463e697dfe2f6973c9a52",
-    "url": "https://github.com/tree-sitter/tree-sitter-verilog/archive/4457145e795b363f072463e697dfe2f6973c9a52.tar.gz",
-    "hash": "sha256-9MJ2Eod0SF7M0H0z4HBwz+3tSgALCEOMtrjPL714UPQ="
+    "rev": "227d277b6a1a5e2bf818d6206935722a7503de08",
+    "url": "https://github.com/tree-sitter/tree-sitter-verilog/archive/227d277b6a1a5e2bf818d6206935722a7503de08.tar.gz",
+    "hash": "sha256-5pe03Gge3QX0o6YGucI796lsJBmcT130KI5K5dGfx/g="
   },
   "vhdl": {
     "git": "https://github.com/jpt13653903/tree-sitter-vhdl",

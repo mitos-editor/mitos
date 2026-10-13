@@ -37,3 +37,7 @@
 
 ; too broad, now includes types etc
 (simple_identifier) @local.reference
+
+; Member and method names are not parameter references.
+(member_identifier (simple_identifier) @_)
+(method_identifier (simple_identifier) @_)

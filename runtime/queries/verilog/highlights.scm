@@ -14,8 +14,6 @@
   "endpackage"
   "checker"
   "endchecker"
-  "config"
-  "endconfig"
 
   "pure"
   "virtual"
@@ -168,7 +166,7 @@
  (simple_identifier) @type)
 
 (method_call_body
-  (method_identifier) @variable.other.member)
+  (method_identifier (simple_identifier) @function.method))
 
 (interface_identifier
  (simple_identifier) @type)
@@ -193,7 +191,7 @@
 
 ; begin/end label
 (seq_block
- (simple_identifier) @comment)
+ (simple_identifier) @label)
 
 [
  ";"
@@ -308,7 +306,7 @@
 (type_declaration
  (simple_identifier) @type)
 
-(generate_block_identifier) @comment
+(generate_block_identifier) @label
 
 [
   "["
