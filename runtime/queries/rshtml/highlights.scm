@@ -7,12 +7,12 @@
 (close_brace) @punctuation.bracket
 
 (semicolon) @punctuation.delimiter
-(equals) @punctuation.delimiter
+(equals) @operator
 
 (string_line) @string
 
-(continue_) @keyword.control.conditional
-(break_) @keyword.control.conditional
+(continue_) @keyword.control.repeat
+(break_) @keyword.control.repeat
 
 
 (child_content_) @keyword
@@ -44,13 +44,13 @@
   name: (rust_identifier) @attribute)
 
 (
-  (start_symbol) @function.method
+  (start_symbol) @punctuation.special
   .
   (rust_expr_simple)
 )
 
 (
-  (start_symbol) @function.method
+  (start_symbol) @punctuation.special
   .
   (rust_expr_paren)
 )
@@ -67,7 +67,7 @@
   (if_stmt)
 )
 (
-  (start_symbol) @keyword
+  (start_symbol) @keyword.control.repeat
   .
   (for_stmt)
 )
