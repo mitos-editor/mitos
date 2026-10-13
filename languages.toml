@@ -1594,7 +1594,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "ocaml-interface"
-source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "59e2b9f63526db8b95cf59dde6b2402ec2e48b52", subpath = "grammars/interface" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "3b2e14e0697d405c9aa0beddfa09b71f45abc504", subpath = "grammars/interface" }
 
 [[language]]
 name = "dune"

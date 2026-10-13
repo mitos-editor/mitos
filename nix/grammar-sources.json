@@ -1063,9 +1063,9 @@
   },
   "ocaml-interface": {
     "git": "https://github.com/tree-sitter/tree-sitter-ocaml",
-    "rev": "59e2b9f63526db8b95cf59dde6b2402ec2e48b52",
-    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/59e2b9f63526db8b95cf59dde6b2402ec2e48b52.tar.gz",
-    "hash": "sha256-wVQXgj+CmWQa5vl8Yd6+NsrJRn14R8hDQM1MCP7r1zc="
+    "rev": "3b2e14e0697d405c9aa0beddfa09b71f45abc504",
+    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/3b2e14e0697d405c9aa0beddfa09b71f45abc504.tar.gz",
+    "hash": "sha256-56JsxMJJXYD4ZCb7evuVc6jMajxb6ibFYhcGgsfDI14="
   },
   "odin": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-odin",
