@@ -523,9 +523,9 @@
   },
   "glimmer": {
     "git": "https://github.com/ember-tooling/tree-sitter-glimmer",
-    "rev": "88af85568bde3b91acb5d4c352ed094d0c1f9d84",
-    "url": "https://github.com/ember-tooling/tree-sitter-glimmer/archive/88af85568bde3b91acb5d4c352ed094d0c1f9d84.tar.gz",
-    "hash": "sha256-ML+6o4f9VxBOwZIqHQtJzmqKB0PZpOc6Qfu+9K41KCs="
+    "rev": "c67a73679db2945a686ca45d3e5318d86138e72a",
+    "url": "https://github.com/ember-tooling/tree-sitter-glimmer/archive/c67a73679db2945a686ca45d3e5318d86138e72a.tar.gz",
+    "hash": "sha256-CDF6s60YGWwCXy1Y4A4OuV1VWR+6bSAfS3Z3MztM6ig="
   },
   "glimmer-javascript": {
     "git": "https://github.com/ember-tooling/tree-sitter-glimmer-javascript",
