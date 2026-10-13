@@ -13,8 +13,8 @@
 ;; Use module
 [ "use" ] @keyword
 
-(use_module_global (quote) . (symbol) @namespace)
-(use_module_select (quote) . (symbol) @namespace)
+(use_module_global (symbol) @namespace)
+(use_module_select . (symbol) @namespace)
 
 ;; Val definition
 [ "val" ] @keyword
@@ -25,7 +25,7 @@
 [ "ext" ] @keyword
 
 (external_definition name: (symbol) @function)
-(external_definition signature: (signature (symbol) @variable.parameter (dot) (external_type) @type.builtin))
+(external_definition signature: (signature (symbol) @variable.parameter (external_type) @type.builtin))
 (external_definition docstring: (string) @string.documentation)
 (external_definition return_type: (external_type) @type.builtin)
 
@@ -83,7 +83,9 @@
 [ "T" ] @constant.builtin.boolean
 
 ;; Highlight variable names used in anamorphic macros.
-[ "it" "self" ] @variable.builtin
+"it" @variable.builtin
+((symbol) @variable.builtin
+ (#eq? @variable.builtin "self"))
 
 ;; Highlight generated symbols (#name) used for macro hygiene.
 (gensym) @variable.special

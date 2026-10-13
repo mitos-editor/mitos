@@ -1417,9 +1417,9 @@
   },
   "slisp": {
     "git": "https://git.sr.ht/~xguerin/tree-sitter-slisp",
-    "rev": "e14f62169145d9661c1ab16790f527770d157bb8",
-    "url": "https://git.sr.ht/~xguerin/tree-sitter-slisp/archive/e14f62169145d9661c1ab16790f527770d157bb8.tar.gz",
-    "hash": "sha256-oYeRUez4sGEv6dKM6Htk9L+OmkWZ0Akb7RXKOsGL0Rc="
+    "rev": "003be20670aa0da820b7d6fc2d2c7050df5b1454",
+    "url": "https://git.sr.ht/~xguerin/tree-sitter-slisp/archive/003be20670aa0da820b7d6fc2d2c7050df5b1454.tar.gz",
+    "hash": "sha256-j+hAwnfYYsTqX92ooZfphLs3DUP7H2iV17KfXRkIOd8="
   },
   "smali": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-smali",
