@@ -1541,7 +1541,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "ledger"
-source = { git = "https://github.com/cbarrete/tree-sitter-ledger", rev = "1f864fb2bf6a87fe1b48545cc6adc6d23090adf7" }
+source = { git = "https://github.com/cbarrete/tree-sitter-ledger", rev = "d5f3973cfe2d42f98819336ce6334ada75b7696f" }
 
 [[language]]
 name = "beancount"

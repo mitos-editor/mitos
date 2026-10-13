@@ -1,5 +1,6 @@
 [
     (comment)
+    (block_comment)
     (note)
 ] @comment
 
@@ -10,7 +11,7 @@
 ] @constant.numeric.integer
 
 ((account) @variable.other.member)
-((commodity) @text.literal)
+((commodity) @string.special.symbol)
 
 "include" @keyword.control.import
 
