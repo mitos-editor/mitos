@@ -114,6 +114,7 @@
 
 [
   "interface"
+  "implements"
   "enum"
   "type"
   "union"

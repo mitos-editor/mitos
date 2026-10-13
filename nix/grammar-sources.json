@@ -1669,9 +1669,9 @@
   },
   "v": {
     "git": "https://github.com/vlang/v-analyzer",
-    "rev": "59a8889d84a293d7c0366d14c8dbb0eec24fe889",
-    "url": "https://github.com/vlang/v-analyzer/archive/59a8889d84a293d7c0366d14c8dbb0eec24fe889.tar.gz",
-    "hash": "sha256-76V9NabUcBofJjjne9XGTyR/udfnhZ8cNwIdzEC8r9c="
+    "rev": "925d4570d1668746762a2cdf0ecb9a25be704a67",
+    "url": "https://github.com/vlang/v-analyzer/archive/925d4570d1668746762a2cdf0ecb9a25be704a67.tar.gz",
+    "hash": "sha256-2K5TJkmBPmZosbvrUQH+Flg81OuLU3usKZQNIQVJN6Y="
   },
   "vala": {
     "git": "https://github.com/vala-lang/tree-sitter-vala",
