@@ -7,13 +7,14 @@
 (environment_var name:(identifier) @variable.builtin)
 (builtin_var) @constant.builtin
 
-(function_definition name: (variable) @function)
+(function_definition name: (variable (_ name: (identifier) @function)))
 
 (named_argument name: (identifier) @variable.other.member)
 
-(method_call name: (method_name) @function.method)
+(function_call name: (identifier) @function)
+(function_call "." name: (identifier) @function.method)
 
-(class) @keyword.storage.type
+(class) @type
 
 (number) @constant.numeric
 (float) @constant.numeric.float
@@ -69,8 +70,12 @@
   ","
 ] @punctuation.delimiter
 
-(control_structure) @keyword.control.conditional
+((function_call name: (identifier) @keyword.control.conditional)
+ (#any-of? @keyword.control.conditional "if" "switch" "case"))
 
-(escape_sequence) @string.special
+((function_call name: (identifier) @keyword.control.repeat)
+ (#any-of? @keyword.control.repeat "while" "for" "forBy" "loop"))
 
-(duplicated_statement) @keyword.control.repeat
+(escape_sequence) @constant.character.escape
+
+(duplicated_statement "!" @operator)

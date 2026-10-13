@@ -1501,9 +1501,9 @@
   },
   "supercollider": {
     "git": "https://github.com/madskjeldgaard/tree-sitter-supercollider",
-    "rev": "3b35bd0fded4423c8fb30e9585c7bacbcd0e8095",
-    "url": "https://github.com/madskjeldgaard/tree-sitter-supercollider/archive/3b35bd0fded4423c8fb30e9585c7bacbcd0e8095.tar.gz",
-    "hash": "sha256-1NG1QscCkd1TMZd+VIHqYltsUjmHsaJ3PaI0gFR+5aQ="
+    "rev": "2b03ff49dd19b046add072d0861c4d1ca8a384c8",
+    "url": "https://github.com/madskjeldgaard/tree-sitter-supercollider/archive/2b03ff49dd19b046add072d0861c4d1ca8a384c8.tar.gz",
+    "hash": "sha256-zl2/qr2oqzyrxJSQu+Cj35lYgK07N0d0k3PRo5R9RfM="
   },
   "svelte": {
     "git": "https://github.com/themixednuts/tree-sitter-htmlx",

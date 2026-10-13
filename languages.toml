@@ -4390,7 +4390,7 @@ indent = { tab-width = 4, unit = "\t" }
 
 [[grammar]]
 name = "supercollider"
-source = { git = "https://github.com/madskjeldgaard/tree-sitter-supercollider", rev = "3b35bd0fded4423c8fb30e9585c7bacbcd0e8095" }
+source = { git = "https://github.com/madskjeldgaard/tree-sitter-supercollider", rev = "2b03ff49dd19b046add072d0861c4d1ca8a384c8" }
 
 [[language]]
 name = "rpmspec"
