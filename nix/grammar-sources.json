@@ -1177,9 +1177,9 @@
   },
   "ponylang": {
     "git": "https://github.com/mfelsche/tree-sitter-ponylang",
-    "rev": "ef66b151bc2604f431b5668fcec4747db4290e11",
-    "url": "https://github.com/mfelsche/tree-sitter-ponylang/archive/ef66b151bc2604f431b5668fcec4747db4290e11.tar.gz",
-    "hash": "sha256-+LuEPtPIUMflUXFJ2Yom0IMmga9Jabnho1EWmg7ER/0="
+    "rev": "cc8a0ff12f4f9e56f8a0d997c55155b702938dfe",
+    "url": "https://github.com/mfelsche/tree-sitter-ponylang/archive/cc8a0ff12f4f9e56f8a0d997c55155b702938dfe.tar.gz",
+    "hash": "sha256-uImtoiK3+mbUuYzJEh5o3thrPIs6aN69rp4XcHWIzBY="
   },
   "powershell": {
     "git": "https://github.com/airbus-cert/tree-sitter-powershell",

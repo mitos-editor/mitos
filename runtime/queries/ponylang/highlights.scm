@@ -155,10 +155,12 @@
 (method name: (identifier) @function.method)
 (behavior name: (identifier) @function.method)
 
+;; this.field is considered a member access
+(field_access base: (this) field: (identifier) @variable.other.member)
+
 ;; method calls
-; TODO: be more specific about what is the actual function reference
 (call callee: (field_access field: (identifier) @function.method))
-(call callee: (_) @function.method)
+(call callee: (identifier) @function)
 (ffi_call name: (_) @function)
 (partial_application function: (identifier) @function.method)
 (chain function: (identifier) @function.method)
@@ -168,8 +170,6 @@
 (param (identifier) @variable.parameter)
 (lambdaparam (identifier) @variable.parameter)
 
-;; this.field is considered a member access
-(field_access base: (this) field: (identifier) @variable.other.member)
 
 ;; annotations
 (annotations (identifier) @attribute)
