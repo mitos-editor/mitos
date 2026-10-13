@@ -5,7 +5,7 @@
   (#match? @variable.other.member "^m_.*$"))
 
 (parameter_declaration
-  declarator: (reference_declarator) @variable.parameter)
+  declarator: (reference_declarator (identifier) @variable.parameter))
 
 ; function(Foo ...foo)
 (variadic_parameter_declaration
@@ -34,7 +34,7 @@
 (namespace_identifier) @namespace
 
 ((namespace_identifier) @type
-  (#match? @type "^[%u]"))
+  (#match? @type "^[A-Z]"))
 
 (case_statement
   value: (qualified_identifier
@@ -132,27 +132,27 @@
 ((function_declarator
   (qualified_identifier
     (identifier) @constructor))
-  (#match? @constructor "^%u"))
+  (#match? @constructor "^[A-Z]"))
 
 ((call_expression
   function: (identifier) @constructor)
-  (#match? @constructor "^%u"))
+  (#match? @constructor "^[A-Z]"))
 
 ((call_expression
   function: (qualified_identifier
     name: (identifier) @constructor))
-  (#match? @constructor "^%u"))
+  (#match? @constructor "^[A-Z]"))
 
 ((call_expression
   function: (field_expression
     field: (field_identifier) @constructor))
-  (#match? @constructor "^%u"))
+  (#match? @constructor "^[A-Z]"))
 
 ; constructing a type in an initializer list: Constructor ():  **SuperType (1)**
 ((field_initializer
   (field_identifier) @constructor
   (argument_list))
-  (#match? @constructor "^%u"))
+  (#match? @constructor "^[A-Z]"))
 
 ; Constants
 (this) @variable.builtin
@@ -300,9 +300,6 @@
   "set"
 ] @function.builtin
 
-(call_expression) @function
-
-(call_expression (identifier)) @function
 
 ((call_expression
   function: (identifier) @function.builtin)
@@ -369,3 +366,5 @@
 
 (property_declaration
   (identifier) @variable.other.member)
+
+(lambda_specifier) @keyword.storage.modifier

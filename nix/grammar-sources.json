@@ -1405,9 +1405,9 @@
   },
   "slang": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-slang",
-    "rev": "327b1b821c255867a4fb724c8eee48887e3d014b",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-slang/archive/327b1b821c255867a4fb724c8eee48887e3d014b.tar.gz",
-    "hash": "sha256-pz57RUY9YhnNPlcGbv9Ugz7gbvvqcXTNHrPyBpsOR0E="
+    "rev": "1dbcc4abc7b3cdd663eb03d93031167d6ed19f56",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-slang/archive/1dbcc4abc7b3cdd663eb03d93031167d6ed19f56.tar.gz",
+    "hash": "sha256-J1BA9n4uc8PykBaMOacKnpETf9/4WyGydF7NDF/ipPI="
   },
   "slint": {
     "git": "https://github.com/slint-ui/tree-sitter-slint",

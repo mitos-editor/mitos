@@ -3058,7 +3058,7 @@ indent = { tab-width = 4, unit = "  " }
 
 [[grammar]]
 name = "slang"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-slang", rev = "327b1b821c255867a4fb724c8eee48887e3d014b" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-slang", rev = "1dbcc4abc7b3cdd663eb03d93031167d6ed19f56" }
 
 [[language]]
 name = "slint"
