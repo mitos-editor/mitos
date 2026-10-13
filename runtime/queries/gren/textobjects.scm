@@ -38,8 +38,10 @@
 (value_declaration
   (function_declaration_left
     (record_pattern
-      (lower_pattern
-        (lower_case_identifier) @parameter.inside
+      (record_pattern_field
+        (lower_pattern
+          (lower_case_identifier) @parameter.inside
+        )
       )
     ) @parameter.around
   )

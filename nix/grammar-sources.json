@@ -607,9 +607,9 @@
   },
   "gren": {
     "git": "https://github.com/MaeBrooks/tree-sitter-gren",
-    "rev": "76554f4f2339f5a24eed19c58f2079b51c694152",
-    "url": "https://github.com/MaeBrooks/tree-sitter-gren/archive/76554f4f2339f5a24eed19c58f2079b51c694152.tar.gz",
-    "hash": "sha256-8GoCPAJCrofMDFQcMJRetsQVHcWxsKnOabCIzJUI/QI="
+    "rev": "cecd8ce9b18f1803d37682f33b6224978fd04d31",
+    "url": "https://github.com/MaeBrooks/tree-sitter-gren/archive/cecd8ce9b18f1803d37682f33b6224978fd04d31.tar.gz",
+    "hash": "sha256-CRAPkwGFHSGil5BGLzH5T0HF6njDp3XZL/D87v3L/w8="
   },
   "groovy": {
     "git": "https://github.com/murtaza64/tree-sitter-groovy",
