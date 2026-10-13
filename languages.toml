@@ -2031,7 +2031,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "wesl"
-source = { git = "https://github.com/wgsl-tooling-wg/tree-sitter-wesl", rev = "94ee6122680ef8ce2173853ca7c99f7aaeeda8ce" }
+source = { git = "https://github.com/wgsl-tooling-wg/tree-sitter-wesl", rev = "b600a65818e4dd7f4d32407d1427643c27f3c389" }
 
 [[language]]
 name = "wgsl"

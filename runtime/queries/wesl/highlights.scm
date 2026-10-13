@@ -47,11 +47,11 @@
 
 ; types
 
-((identifier) @constant
-  (#match? @constant "^[A-Z0-9_]+$"))
-
 ((identifier) @type
   (#match? @type "^[A-Z]"))
+
+((identifier) @constant
+  (#match? @constant "^[A-Z0-9_]+$"))
 
 (type_specifier
     (identifier) @type)
@@ -67,7 +67,8 @@
 
 ; templates
 
-(template_list) @punctuation
+(template_list
+  [(template_args_start) (template_args_end)] @punctuation.bracket)
 
 (variable_decl ; this is var<storage> et.al
   (template_list
@@ -87,10 +88,10 @@
   (identifier) @attribute) @attribute
 
 (attribute
-  (identifier) @attr-name
+  (identifier) @_attr-name
   (argument_list
     (identifier) @variable.builtin)
-  (#eq? @attr-name "builtin"))
+  (#eq? @_attr-name "builtin"))
 
 ; variables, names
 

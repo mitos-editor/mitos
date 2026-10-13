@@ -1741,9 +1741,9 @@
   },
   "wesl": {
     "git": "https://github.com/wgsl-tooling-wg/tree-sitter-wesl",
-    "rev": "94ee6122680ef8ce2173853ca7c99f7aaeeda8ce",
-    "url": "https://github.com/wgsl-tooling-wg/tree-sitter-wesl/archive/94ee6122680ef8ce2173853ca7c99f7aaeeda8ce.tar.gz",
-    "hash": "sha256-zHaBmWpu6jrlAE2ogZmBS0WsBw8zS73oAVE6w2DWkVQ="
+    "rev": "b600a65818e4dd7f4d32407d1427643c27f3c389",
+    "url": "https://github.com/wgsl-tooling-wg/tree-sitter-wesl/archive/b600a65818e4dd7f4d32407d1427643c27f3c389.tar.gz",
+    "hash": "sha256-184h89LqcP9kQbvTo6gAvJV/fbpYfX2FC8s9lAG39SM="
   },
   "wgsl": {
     "git": "https://github.com/szebniok/tree-sitter-wgsl",
