@@ -589,9 +589,9 @@
   },
   "gowork": {
     "git": "https://github.com/omertuc/tree-sitter-go-work",
-    "rev": "6dd9dd79fb51e9f2abc829d5e97b15015b6a8ae2",
-    "url": "https://github.com/omertuc/tree-sitter-go-work/archive/6dd9dd79fb51e9f2abc829d5e97b15015b6a8ae2.tar.gz",
-    "hash": "sha256-NBYn+CBEAtOkU4JwCrLXIDloF/KbeZ4KPKzz28eTNgY="
+    "rev": "949a8a470559543857a62102c84700d291fc984c",
+    "url": "https://github.com/omertuc/tree-sitter-go-work/archive/949a8a470559543857a62102c84700d291fc984c.tar.gz",
+    "hash": "sha256-5ymBRo+dF6+R1aDy1UsIK4aoY9XLumzOeS4NT1S7Tjg="
   },
   "gpr": {
     "git": "https://github.com/brownts/tree-sitter-gpr",
