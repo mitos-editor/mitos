@@ -25,3 +25,6 @@ mod diagnostic_refresh;
 #[cfg(feature = "git")]
 #[path = "handler_setup/blame.rs"]
 mod blame;
+
+#[path = "handler_setup/document_lifecycle.rs"]
+mod document_lifecycle;

@@ -58,3 +58,18 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
     assert!(current_ref!(first.editor).1.active_snippet.is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_switch_invalidates_the_previous_documents_snippet() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("\n")?;
+    insert_snippet(&mut fixture.editor)?;
+    let previous = current_ref!(fixture.editor).1.id();
+    fixture.editor.new_file(Action::Replace);
+    assert!(fixture
+        .editor
+        .document(previous)
+        .unwrap()
+        .active_snippet
+        .is_none());
+    Ok(())
+}

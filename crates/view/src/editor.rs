@@ -788,7 +788,7 @@ impl Editor {
             self.enter_normal_mode();
         }
 
-        let focust_lost = match action {
+        let focus_lost = match action {
             Action::Replace => {
                 let (view, doc) = current_ref!(self);
                 // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
@@ -807,20 +807,23 @@ impl Editor {
 
                 let (view, doc) = current!(self);
                 let view_id = view.id;
+                let old_doc_id = doc.id();
 
                 // Append any outstanding changes to history in the old document.
                 doc.append_changes_to_history(view);
 
-                if remove_empty_scratch {
+                let closed = if remove_empty_scratch {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable
                     // borrow, invalidating direct access to `doc.id`.
                     let id = doc.id;
-                    self.documents.remove(&id);
+                    let closed = self.documents.remove(&id).unwrap();
+                    self.saves.remove(&id);
 
                     // Remove the scratch buffer from any jumplists
                     for (view, _) in self.tree.views_mut() {
                         view.remove_document(&id);
                     }
+                    Some(closed)
                 } else {
                     let jump = (view.doc, doc.selection(view.id).clone());
                     view.push_jump(doc, jump);
@@ -834,14 +837,20 @@ impl Editor {
                             view.last_modified_docs = [Some(view.doc), view.last_modified_docs[0]];
                         }
                     }
-                }
+                    None
+                };
 
                 self.replace_document_in_view(view_id, id);
 
-                dispatch(DocumentFocusLost {
-                    editor: self,
-                    doc: id,
-                });
+                if let Some(doc) = closed {
+                    dispatch(DocumentDidClose { editor: self, doc });
+                } else {
+                    dispatch(DocumentFocusLost {
+                        editor: self,
+                        doc: old_doc_id,
+                        view: view_id,
+                    });
+                }
                 return;
             }
             Action::Load => {
@@ -852,7 +861,10 @@ impl Editor {
                 return;
             }
             Action::HorizontalSplit | Action::VerticalSplit => {
-                let focus_lost = self.tree.try_get(self.tree.focus).map(|view| view.doc);
+                let focus_lost = self
+                    .tree
+                    .try_get(self.tree.focus)
+                    .map(|view| (view.doc, view.id));
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
@@ -877,10 +889,11 @@ impl Editor {
         };
 
         self._refresh();
-        if let Some(focus_lost) = focust_lost {
+        if let Some((focus_lost, view)) = focus_lost {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: focus_lost,
+                view,
             });
         }
     }
@@ -1170,6 +1183,7 @@ impl Editor {
         dispatch(DocumentFocusLost {
             editor: self,
             doc: focus_lost,
+            view: prev_id,
         });
     }
 
@@ -1563,6 +1577,7 @@ impl Editor {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: old_doc_id,
+                view: view_id,
             });
         }
         let (view, doc) = current!(self);
