@@ -1,0 +1,18 @@
+model
+  schema 1.2
+
+type document
+  relations
+    define viewer: [user with $expression]
+#                   ^ @type
+#                             ^ @constant.builtin
+
+condition check(value: string, labels: map<string>) {
+  // A CEL comment containing }
+# ^ @comment
+  labels.value == value && labels.contains(r"value")
+#        ^ @variable.other.member
+#                 ^ @variable.parameter
+#                                 ^ @function.method
+#                                          ^ @string
+}
