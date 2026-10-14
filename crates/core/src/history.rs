@@ -97,6 +97,21 @@ impl History {
             // Store the current cursor position
             .with_selection(original.selection.clone());
 
+        self.commit_with_inversion(transaction, inversion, timestamp);
+    }
+
+    /// Commit a text-only change without associating undo with a particular view's cursor.
+    pub fn commit_document_revision(&mut self, transaction: &Transaction, original: &Rope) {
+        debug_assert!(transaction.selection().is_none());
+        self.commit_with_inversion(transaction, transaction.invert(original), Instant::now());
+    }
+
+    fn commit_with_inversion(
+        &mut self,
+        transaction: &Transaction,
+        inversion: Transaction,
+        timestamp: Instant,
+    ) {
         let new_current = self.revisions.len();
         self.revisions[self.current].last_child = NonZeroUsize::new(new_current);
         self.revisions.push(Revision {
@@ -160,24 +175,19 @@ impl History {
             return None;
         }
         let current_revision = &self.revisions[self.current];
-        let primary_selection = current_revision
+        let transaction = &current_revision.transaction;
+        let change_at_cursor = current_revision
             .inversion
             .selection()
-            .expect("inversion always contains a selection")
-            .primary();
-        let (_from, to, _fragment) = current_revision
-            .transaction
-            .changes_iter()
-            // find a change that matches the primary selection
-            .find(|(from, to, _fragment)| Range::new(*from, *to).overlaps(&primary_selection))
-            // or use the first change
-            .or_else(|| current_revision.transaction.changes_iter().next())
-            .unwrap();
-        let pos = current_revision
-            .transaction
-            .changes()
-            .map_pos(to, Assoc::After);
-        Some(pos)
+            .and_then(|selection| {
+                let primary = selection.primary();
+                transaction
+                    .changes_iter()
+                    .find(|(from, to, _)| Range::new(*from, *to).overlaps(&primary))
+            });
+        // Document-only revisions have no cursor; fall back to their first change.
+        let (_, to, _) = change_at_cursor.or_else(|| transaction.changes_iter().next())?;
+        Some(transaction.changes().map_pos(to, Assoc::After))
     }
 
     fn lowest_common_ancestor(&self, mut a: usize, mut b: usize) -> usize {
@@ -389,6 +399,35 @@ impl std::str::FromStr for UndoKind {
 mod test {
     use super::*;
     use crate::Selection;
+
+    #[test]
+    fn document_revision_last_edit_uses_the_first_change() {
+        let mut history = History::default();
+        let doc = Rope::from("abc def\n");
+        let transaction = Transaction::change(
+            &doc,
+            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
+        );
+        history.commit_document_revision(&transaction, &doc);
+
+        assert_eq!(history.last_edit_pos(), Some(2));
+    }
+
+    #[test]
+    fn last_edit_prefers_the_change_at_the_original_selection() {
+        let mut history = History::default();
+        let original = State {
+            doc: Rope::from("abc def\n"),
+            selection: Selection::single(4, 5),
+        };
+        let transaction = Transaction::change(
+            &original.doc,
+            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
+        );
+        history.commit_revision(&transaction, &original);
+
+        assert_eq!(history.last_edit_pos(), Some(7));
+    }
 
     #[test]
     fn test_undo_redo() {

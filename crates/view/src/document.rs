@@ -236,8 +236,8 @@ pub struct Document {
 
     /// Pending changes since last history commit.
     changes: ChangeSet,
-    /// State at last commit. Used for calculating reverts.
-    old_state: Option<State>,
+    /// State before the pending changes and the view that started them.
+    old_state: Option<(State, ViewId)>,
     /// Undo tree.
     // It can be used as a cell where we will take it out to get some parts of the history and put
     // it back as it separated from the edits. We could split out the parts manually but that will
@@ -1184,7 +1184,7 @@ impl Document {
     fn apply_impl(
         &mut self,
         transaction: &Transaction,
-        view_id: ViewId,
+        view_id: Option<ViewId>,
         emit_lsp_notification: bool,
     ) -> bool {
         use editor_core::Assoc;
@@ -1199,7 +1199,7 @@ impl Document {
         }
 
         if changes.is_empty() {
-            if let Some(selection) = transaction.selection() {
+            if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
                 self.update_selection(view_id, selection.clone());
                 let errors = event::dispatch(SelectionDidChange {
                     doc: self,
@@ -1279,7 +1279,7 @@ impl Document {
             .apply_changes(changes, self.text.len_chars());
 
         // Install an explicit transaction selection before observers inspect the new state.
-        if let Some(selection) = transaction.selection() {
+        if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
             self.update_selection(view_id, selection.clone());
         }
 
@@ -1297,7 +1297,7 @@ impl Document {
             ghost_transaction: !emit_lsp_notification,
         });
         self.report_hook_errors(errors);
-        if transaction.selection().is_some() {
+        if let (Some(_), Some(view_id)) = (transaction.selection(), view_id) {
             let errors = event::dispatch(SelectionDidChange {
                 doc: self,
                 view: view_id,
@@ -1320,13 +1320,16 @@ impl Document {
         // store the state just before any changes are made. This allows us to undo to the
         // state just before a transaction was applied.
         if self.changes.is_empty() && !transaction.changes().is_empty() {
-            self.old_state = Some(State {
-                doc: self.text.clone(),
-                selection: self.selection(view_id).clone(),
-            });
+            self.old_state = Some((
+                State {
+                    doc: self.text.clone(),
+                    selection: self.selection(view_id).clone(),
+                },
+                view_id,
+            ));
         }
 
-        let success = self.apply_impl(transaction, view_id, emit_lsp_notification);
+        let success = self.apply_impl(transaction, Some(view_id), emit_lsp_notification);
 
         if !transaction.changes().is_empty() {
             // Compose this transaction with the previous one
@@ -1357,7 +1360,7 @@ impl Document {
         let mut history = self.history.take();
         let txn = if undo { history.undo() } else { history.redo() };
         let success = if let Some(txn) = txn {
-            self.apply_impl(txn, view.id, true)
+            self.apply_impl(txn, Some(view.id), true)
         } else {
             false
         };
@@ -1446,7 +1449,7 @@ impl Document {
         };
         let mut success = false;
         for txn in txns {
-            if self.apply_impl(&txn, view.id, true) {
+            if self.apply_impl(&txn, Some(view.id), true) {
                 success = true;
             }
         }
@@ -1483,7 +1486,7 @@ impl Document {
             Transaction::from(changes).with_selection(self.selection(view.id).clone());
 
         // HAXX: we need to reconstruct the state as it was before the changes..
-        let old_state = self.old_state.take().expect("no old_state available");
+        let (old_state, _) = self.old_state.take().expect("no old_state available");
 
         let mut history = self.history.take();
         history.commit_revision(&transaction, &old_state);
@@ -1491,6 +1494,41 @@ impl Document {
 
         // Update jumplist entries in the view.
         view.apply(&transaction, self);
+    }
+
+    /// Commit pending native edits without stamping any split's lazy history cache.
+    /// The originating selection is retained even when its document is hidden.
+    pub(crate) fn commit_pending_changes(&mut self) {
+        if self.changes.is_empty() {
+            return;
+        }
+        let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
+        let (original, view) = self.old_state.take().expect("no old_state available");
+        let mut transaction = Transaction::from(changes);
+        if let Some(selection) = self.selections.get(&view) {
+            transaction = transaction.with_selection(selection.clone());
+        }
+        // Native undo retains its original cursor even if its view has closed.
+        let mut history = self.history.take();
+        history.commit_revision(&transaction, &original);
+        self.history.set(history);
+    }
+
+    /// Apply one text-only transaction as its own undo revision without a view.
+    pub(crate) fn apply_document_transaction(&mut self, transaction: &Transaction) -> bool {
+        debug_assert!(self.changes.is_empty());
+        debug_assert!(transaction.selection().is_none());
+        let original = self.text.clone();
+        if !self.apply_impl(transaction, None, true) {
+            return false;
+        }
+        if !transaction.changes().is_empty() {
+            let mut history = self.history.take();
+            history.commit_document_revision(transaction, &original);
+            self.history.set(history);
+        }
+        self.changes = ChangeSet::new(self.text.slice(..));
+        true
     }
 
     pub fn id(&self) -> DocumentId {

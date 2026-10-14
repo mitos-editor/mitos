@@ -24,7 +24,7 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
     let observed = calls.clone();
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if observe.load(Ordering::Relaxed) {
-            let view = event.view;
+            let view = event.view.expect("native edit has an originating view");
             assert_eq!(event.doc.text().to_string(), "xxone two\n\n");
             assert_eq!(event.doc.selection(view), &Selection::single(4, 5));
             assert_eq!(

@@ -53,7 +53,7 @@ use editor_core::{
     diagnostic::DiagnosticProvider,
     movement::Direction,
     syntax::{self, config::LanguageServerFeature},
-    Change, Position, Range, Selection, SpellingLanguage, Uri,
+    Change, Position, Range, Selection, SpellingLanguage, Transaction, Uri,
 };
 use lsp_client::{lsp, util::lsp_range_to_range};
 use stdx::path::canonicalize;
@@ -1011,6 +1011,48 @@ impl Editor {
         self.switch(id, action);
 
         Ok(id)
+    }
+
+    /// Apply a text-only transaction to an open document, including hidden buffers.
+    /// Pending native edits retain their own undo group, and every displaying view
+    /// synchronizes its lazy history state before and after this independent edit.
+    /// Transactions with a selection are rejected because they require a target view.
+    /// Rejected and empty transactions leave pending native edits untouched.
+    /// The caller must build the transaction against the document's current text:
+    /// the length check cannot detect intervening edits that preserve its length.
+    pub fn apply_document_transaction(
+        &mut self,
+        id: DocumentId,
+        transaction: &Transaction,
+    ) -> bool {
+        if transaction.selection().is_some() {
+            return false;
+        }
+        let Some(doc) = self.documents.get_mut(&id) else {
+            return false;
+        };
+        let changes = transaction.changes();
+        if changes.len_before() != doc.text().len_chars()
+            || (doc.is_binary() && !changes.is_empty())
+        {
+            return false;
+        }
+        if changes.is_empty() {
+            return true;
+        }
+        doc.commit_pending_changes();
+        for (view, _) in self.tree.views_mut() {
+            if view.doc == id {
+                view.sync_changes(doc);
+            }
+        }
+        let applied = doc.apply_document_transaction(transaction);
+        for (view, _) in self.tree.views_mut() {
+            if view.doc == id {
+                view.sync_changes(doc);
+            }
+        }
+        applied
     }
 
     pub fn close(&mut self, id: ViewId) {

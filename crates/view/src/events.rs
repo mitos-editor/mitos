@@ -13,7 +13,8 @@ events! {
     // synchronization is queued before observers can request derived feature results.
     DocumentDidChange<'a> {
         doc: &'a mut Document,
-        view: ViewId,
+        // Document-only edits have no originating view, even when the document is visible.
+        view: Option<ViewId>,
         old_text: &'a Rope,
         changes: &'a ChangeSet,
         ghost_transaction: bool

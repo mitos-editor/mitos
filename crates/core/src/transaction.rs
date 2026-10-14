@@ -96,6 +96,11 @@ impl ChangeSet {
         }
     }
 
+    /// Number of Unicode scalar values required in the document before applying changes.
+    pub fn len_before(&self) -> usize {
+        self.len
+    }
+
     // TODO: from iter
 
     #[doc(hidden)] // used by lsp to convert to LSP changes
