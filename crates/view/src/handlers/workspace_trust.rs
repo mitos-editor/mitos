@@ -67,6 +67,9 @@ pub(super) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let editor = &mut event.editor;
         let doc = doc!(editor, &event.doc);
+        if doc.is_restricted_adoption() {
+            return Ok(());
+        }
         let workspace = doc.workspace_root().to_path_buf();
         let servers_to_load = doc.servers_to_load();
 

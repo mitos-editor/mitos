@@ -68,15 +68,30 @@ pub fn command_palette(cx: &mut Context) {
                 binding_style: cx.editor.theme.get("markup.raw.inline"),
             };
 
-            let commands = MappableCommand::STATIC_COMMAND_LIST.iter().cloned().chain(
-                catalog::TYPABLE_COMMAND_LIST
+            // Helix PR #8675 includes plugin commands alongside the built-in catalog.
+            let commands =
+                MappableCommand::STATIC_COMMAND_LIST
                     .iter()
-                    .map(|cmd| MappableCommand::Typable {
-                        name: cmd.name.to_owned(),
-                        args: String::new(),
-                        doc: cmd.doc.to_owned(),
-                    }),
-            );
+                    .cloned()
+                    .chain(catalog::TYPABLE_COMMAND_LIST.iter().map(|cmd| {
+                        MappableCommand::Typable {
+                            name: cmd.name.to_owned(),
+                            args: String::new(),
+                            doc: cmd.doc.to_owned(),
+                        }
+                    }))
+                    .chain(cx.editor.plugin_commands().into_iter().map(|command| {
+                        let doc = super::command_line::format_plugin_doc(
+                            &command.name,
+                            &command.doc,
+                            &command.arguments,
+                        );
+                        MappableCommand::Typable {
+                            name: command.name,
+                            args: String::new(),
+                            doc,
+                        }
+                    }));
 
             let columns = [
                 ui::PickerColumn::new("name", command_palette_name),
@@ -84,33 +99,57 @@ pub fn command_palette(cx: &mut Context) {
                 ui::PickerColumn::new("doc", |item: &MappableCommand, _| item.doc().into()),
             ];
 
-            let picker = Picker::new(columns, 0, commands, data, move |cx, command, _action| {
-                let mut ctx = Context {
-                    config: cx.config,
-                    register,
-                    count,
-                    editor: cx.editor,
-                    callback: Vec::new(),
-                    on_next_key_callback: None,
-                    jobs: cx.jobs,
-                };
-                let focus = view!(ctx.editor).id;
+            let picker = Picker::new_with_callback_result(
+                columns,
+                0,
+                commands,
+                data,
+                move |cx, command, _action| {
+                    let mut ctx = Context {
+                        config: cx.config,
+                        register,
+                        count,
+                        editor: cx.editor,
+                        callback: Vec::new(),
+                        on_next_key_callback: None,
+                        jobs: cx.jobs,
+                    };
+                    let focus = view!(ctx.editor).id;
 
-                command.execute(&mut ctx);
+                    command.execute_with_origin(&mut ctx, crate::events::CommandOrigin::Palette);
 
-                if ctx.editor.tree.contains(focus) {
-                    let config = ctx.editor.config();
-                    let mode = ctx.editor.mode();
-                    let view = view_mut!(ctx.editor, focus);
-                    let doc = doc_mut!(ctx.editor, &view.doc);
+                    if ctx.editor.tree.contains(focus) {
+                        let config = ctx.editor.config();
+                        let mode = ctx.editor.mode();
+                        let view = view_mut!(ctx.editor, focus);
+                        let doc = doc_mut!(ctx.editor, &view.doc);
 
-                    view.ensure_cursor_in_view(doc, config.scroll.padding);
+                        view.ensure_cursor_in_view(doc, config.scroll.padding);
 
-                    if mode != Mode::Insert {
-                        doc.append_changes_to_history(view);
+                        if mode != Mode::Insert {
+                            doc.append_changes_to_history(view);
+                        }
                     }
-                }
-            });
+                    let next_key = ctx.on_next_key_callback.take();
+                    let callbacks = ctx.callback;
+                    if callbacks.is_empty() && next_key.is_none() {
+                        ui::picker::PickerCallbackResult::Close
+                    } else {
+                        ui::picker::PickerCallbackResult::CloseWithCallback(Box::new(
+                            move |compositor, cx| {
+                                for callback in callbacks {
+                                    callback(compositor, cx);
+                                }
+                                if let Some(callback) = next_key
+                                    && let Some(editor) = compositor.find::<ui::EditorView>()
+                                {
+                                    editor.set_next_key_callback(callback);
+                                }
+                            },
+                        ))
+                    }
+                },
+            );
             compositor.push(Box::new(overlaid(picker)));
         },
     ));

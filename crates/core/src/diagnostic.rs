@@ -66,6 +66,8 @@ pub enum DiagnosticProvider {
     },
     /// Diagnostics from the built-in spellchecker.
     Spelling,
+    /// Host-assigned ownership for versioned plugin annotations.
+    Plugin { plugin: Arc<str>, generation: u64 },
 }
 
 impl DiagnosticProvider {

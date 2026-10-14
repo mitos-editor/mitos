@@ -132,6 +132,7 @@ impl Serialize for Mode {
 #[derive(Debug, Clone)]
 pub struct DocumentSavedEvent {
     pub revision: usize,
+    pub version: i32,
     pub save_time: SystemTime,
     pub doc_id: DocumentId,
     pub path: PathBuf,
@@ -156,8 +157,8 @@ pub enum DocumentOpenError {
     IoError(#[from] io::Error),
 }
 
-fn read_file(
-    file: &mut std::fs::File,
+fn read_file<R: io::Read + ?Sized>(
+    file: &mut R,
     encoding: Option<&'static Encoding>,
 ) -> io::Result<(Rope, &'static Encoding, bool, bool)> {
     use std::io::BufRead;
@@ -174,11 +175,36 @@ fn read_file(
     Ok((text, encoding, has_bom, false))
 }
 
+/// Thread-safe result of a scoped read/decoding job. It owns no editor services.
+pub(crate) struct PreparedPluginDocument {
+    path: PathBuf,
+    text: Rope,
+    encoding: &'static Encoding,
+    has_bom: bool,
+    pub(crate) binary: bool,
+    editor_config: EditorConfig,
+    indent: Option<IndentStyle>,
+    line_ending: Option<LineEnding>,
+}
+
+impl PreparedPluginDocument {
+    pub(crate) fn byte_count(&self) -> usize {
+        self.text.len_bytes()
+    }
+}
+
 pub struct Document {
+    plugin_scratch_name: Option<String>,
+    pub(crate) plugin_settings:
+        Option<std::sync::Weak<parking_lot::Mutex<crate::plugins::settings::Settings>>>,
+    pub(crate) plugin_events: Option<crate::plugins::PluginEventSender>,
     pub(crate) id: DocumentId,
     text: Rope,
     binary: bool,
+    /// Scoped plugin reads do not authorize later ambient path reads or tools.
+    restricted_adoption: bool,
     selections: HashMap<ViewId, Selection>,
+    selection_states: HashMap<ViewId, ViewSelectionState>,
     view_data: HashMap<ViewId, ViewData>,
     pub active_snippet: Option<ActiveSnippet>,
 
@@ -250,6 +276,7 @@ pub struct Document {
     changes: ChangeSet,
     /// State at last commit. Used for calculating reverts.
     old_state: Option<State>,
+    old_state_view: Option<ViewId>,
     /// Undo tree.
     // It can be used as a cell where we will take it out to get some parts of the history and put
     // it back as it separated from the edits. We could split out the parts manually but that will
@@ -292,6 +319,13 @@ pub struct Document {
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.
     syn_loader: Arc<ArcSwap<syntax::Loader>>,
+}
+
+#[derive(Default)]
+struct ViewSelectionState {
+    binding_revision: u64,
+    selection_revision: u64,
+    active: bool,
 }
 
 /// Inlay hints for a single `(Document, View)` combo.
@@ -771,6 +805,9 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
+            plugin_events: None,
+            plugin_settings: None,
+            plugin_scratch_name: None,
             active_snippet: None,
             path: None,
             relative_path: OnceLock::new(),
@@ -780,7 +817,9 @@ impl Document {
             has_bom,
             text,
             binary: false,
+            restricted_adoption: false,
             selections: HashMap::default(),
+            selection_states: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
             inline_completions: Default::default(),
@@ -801,6 +840,7 @@ impl Document {
             language: None,
             changes,
             old_state,
+            old_state_view: None,
             diagnostics: Vec::new(),
             version: 0,
             history: Cell::new(History::default()),
@@ -895,17 +935,105 @@ impl Document {
         Ok(doc)
     }
 
+    /// Decode bytes already read through a granted directory handle. `path` is
+    /// bookkeeping only: no canonicalization, stat, `.editorconfig` lookup or
+    /// file reopen is performed. Runtime grammars/dictionaries remain configured
+    /// native editor resources; a guest cannot supply their paths here.
+    pub(crate) fn prepare_plugin_bytes(
+        path: PathBuf,
+        bytes: Vec<u8>,
+        editor_config: EditorConfig,
+    ) -> Result<PreparedPluginDocument, DocumentOpenError> {
+        let (text, encoding, has_bom, binary) =
+            read_file(&mut bytes.as_slice(), editor_config.encoding)?;
+        let indent = auto_detect_indent_style(&text);
+        let line_ending = auto_detect_line_ending(&text);
+        Ok(PreparedPluginDocument {
+            path,
+            text,
+            encoding,
+            has_bom,
+            binary,
+            editor_config,
+            indent,
+            line_ending,
+        })
+    }
+
+    pub(crate) fn from_prepared_plugin(
+        prepared: PreparedPluginDocument,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Self {
+        let mut doc = Self::from(
+            prepared.text,
+            Some((prepared.encoding, prepared.has_bom)),
+            config,
+            syn_loader.clone(),
+        );
+        doc.binary = prepared.binary;
+        doc.restricted_adoption = true;
+        doc.path = Some(prepared.path);
+        doc.language = doc.detect_language_config(&syn_loader.load());
+        doc.editor_config = prepared.editor_config;
+        doc.indent_style = doc
+            .editor_config
+            .indent_style
+            .or(prepared.indent)
+            .unwrap_or_else(|| {
+                doc.language_config()
+                    .and_then(|config| config.indent.as_ref())
+                    .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
+            });
+        if let Some(ending) = doc.editor_config.line_ending.or(prepared.line_ending) {
+            doc.line_ending = ending;
+        }
+        doc.detect_spelling_languages();
+        doc
+    }
+
+    pub(crate) fn plugin_scratch(
+        name: String,
+        text: String,
+        language: Option<Arc<LanguageConfiguration>>,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Self {
+        let mut doc = Self::from(Rope::from(text.as_str()), None, config, syn_loader);
+        doc.restricted_adoption = true;
+        doc.plugin_scratch_name = Some(name);
+        doc.language = language;
+        doc
+    }
+
+    /// This document's path was supplied by a scoped plugin read. Automatic
+    /// reload/configuration/provider discovery stays disabled until native use.
+    pub fn is_restricted_adoption(&self) -> bool {
+        self.restricted_adoption
+    }
+
+    /// Called only by explicit native editor operations, never plugin effects.
+    pub(crate) fn adopt_native_authority(&mut self) {
+        if !std::mem::take(&mut self.restricted_adoption) {
+            return;
+        }
+        let path = self.path.clone();
+        self.set_path(path.as_deref());
+        self.detect_editor_config();
+        self.detect_indent_and_line_ending();
+    }
+
     /// The same as [`format`], but only returns formatting changes if auto-formatting
     /// is configured.
     pub fn auto_format(
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
-        if self
-            .language_config()?
-            .auto_format
-            .unwrap_or(editor.config().format.on_save)
-        {
+        if self.plugin_auto_format().unwrap_or_else(|| {
+            self.language_config()
+                .and_then(|lang| lang.auto_format)
+                .unwrap_or(editor.config().format.on_save)
+        }) {
             self.format(editor)
         } else {
             None
@@ -1089,6 +1217,7 @@ impl Document {
 
         // mark changes up to now as saved
         let current_rev = self.get_current_revision();
+        let text_version = self.version();
         let doc_id = self.id();
         let atomic_save = self.config.load().files.save.atomic;
 
@@ -1242,6 +1371,7 @@ impl Document {
 
             let event = DocumentSavedEvent {
                 revision: current_rev,
+                version: text_version,
                 save_time,
                 doc_id,
                 path,
@@ -1341,7 +1471,8 @@ impl Document {
     }
 
     pub fn detect_editor_config(&mut self) {
-        if self.config.load().files.editor_config
+        if !self.restricted_adoption
+            && self.config.load().files.editor_config
             && let Some(path) = self.path.as_ref()
         {
             self.editor_config = EditorConfig::find(path);
@@ -1391,6 +1522,9 @@ impl Document {
         provider_registry: &DiffProviderRegistry,
         trust_full: bool,
     ) -> Result<(), Error> {
+        // Automatic callers reject restricted documents before reaching here.
+        // An explicit native :reload intentionally adopts ambient path authority.
+        self.adopt_native_authority();
         let encoding = self.encoding;
         let path = match self.path() {
             None => return Ok(()),
@@ -1511,10 +1645,46 @@ impl Document {
         // TODO: use a transaction?
         self.selections
             .insert(view_id, selection.ensure_invariants(self.text().slice(..)));
+        self.advance_selection_revision(view_id);
         event::dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
         })
+    }
+
+    fn advance_selection_revision(&mut self, view: ViewId) {
+        let state = self.selection_states.entry(view).or_default();
+        state.selection_revision = state
+            .selection_revision
+            .checked_add(1)
+            .expect("selection revision exhausted");
+    }
+
+    /// Revision of this document's selection in a split, independent of the text version.
+    pub fn selection_revision(&self, view: ViewId) -> Option<u64> {
+        self.selection_states
+            .get(&view)
+            .map(|state| state.selection_revision)
+    }
+
+    pub(crate) fn view_binding_revision(&self, view: ViewId) -> Option<u64> {
+        self.selection_states
+            .get(&view)
+            .filter(|state| state.active)
+            .map(|state| state.binding_revision)
+    }
+
+    pub(crate) fn bind_view(&mut self, view: ViewId, binding_revision: u64) {
+        let state = self.selection_states.entry(view).or_default();
+        state.binding_revision = binding_revision;
+        state.active = true;
+        self.ensure_view_init(view);
+    }
+
+    pub(crate) fn unbind_view(&mut self, view: ViewId) {
+        if let Some(state) = self.selection_states.get_mut(&view) {
+            state.active = false;
+        }
     }
 
     /// Find the origin selection of the text in a document, i.e. where
@@ -1557,6 +1727,7 @@ impl Document {
     /// Remove any views' data and state that is stored in the `Document`.
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.selections.remove(&view_id);
+        self.selection_states.remove(&view_id);
         self.view_data.remove(&view_id);
         self.inlay_hints.remove(&view_id);
         self.jump_labels.remove(&view_id);
@@ -1570,7 +1741,7 @@ impl Document {
     fn apply_impl(
         &mut self,
         transaction: &Transaction,
-        view_id: ViewId,
+        view_id: Option<ViewId>,
         emit_lsp_notification: bool,
     ) -> bool {
         use editor_core::Assoc;
@@ -1585,15 +1756,8 @@ impl Document {
         }
 
         if changes.is_empty() {
-            if let Some(selection) = transaction.selection() {
-                self.selections.insert(
-                    view_id,
-                    selection.clone().ensure_invariants(self.text.slice(..)),
-                );
-                event::dispatch(SelectionDidChange {
-                    doc: self,
-                    view: view_id,
-                });
+            if let (Some(selection), Some(view)) = (transaction.selection(), view_id) {
+                self.set_selection(view, selection.clone());
             }
             return true;
         }
@@ -1608,6 +1772,12 @@ impl Document {
                 .map(transaction.changes())
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.text.slice(..));
+        }
+        for state in self.selection_states.values_mut() {
+            state.selection_revision = state
+                .selection_revision
+                .checked_add(1)
+                .expect("selection revision exhausted");
         }
 
         for view_data in self.view_data.values_mut() {
@@ -1650,6 +1820,11 @@ impl Document {
         if let Some(diff_handle) = &self.diff_handle {
             diff_handle.update_document(self.text.clone(), false);
         }
+
+        // Plugin annotations describe the exact tested/analyzed text version.
+        // An edit invalidates them even if their old positions could be mapped.
+        self.diagnostics
+            .retain(|diagnostic| !matches!(diagnostic.provider, DiagnosticProvider::Plugin { .. }));
 
         // map diagnostics over changes too
         changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
@@ -1721,6 +1896,15 @@ impl Document {
         self.document_highlights
             .apply_changes(changes, self.text.len_chars());
 
+        // Capture the final transaction selection in document change snapshots,
+        // while keeping document-change notification before selection notification.
+        if let (Some(selection), Some(view)) = (transaction.selection(), view_id) {
+            self.selections.insert(
+                view,
+                selection.clone().ensure_invariants(self.text.slice(..)),
+            );
+            self.advance_selection_revision(view);
+        }
         event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
@@ -1730,15 +1914,8 @@ impl Document {
         });
 
         // if specified, the current selection should instead be replaced by transaction.selection
-        if let Some(selection) = transaction.selection() {
-            self.selections.insert(
-                view_id,
-                selection.clone().ensure_invariants(self.text.slice(..)),
-            );
-            event::dispatch(SelectionDidChange {
-                doc: self,
-                view: view_id,
-            });
+        if let (Some(_), Some(view)) = (transaction.selection(), view_id) {
+            event::dispatch(SelectionDidChange { doc: self, view });
         }
 
         true
@@ -1760,9 +1937,10 @@ impl Document {
                 doc: self.text.clone(),
                 selection: self.selection(view_id).clone(),
             });
+            self.old_state_view = Some(view_id);
         }
 
-        let success = self.apply_impl(transaction, view_id, emit_lsp_notification);
+        let success = self.apply_impl(transaction, Some(view_id), emit_lsp_notification);
 
         if !transaction.changes().is_empty() {
             // Compose this transaction with the previous one
@@ -1793,7 +1971,7 @@ impl Document {
         let mut history = self.history.take();
         let txn = if undo { history.undo() } else { history.redo() };
         let success = if let Some(txn) = txn {
-            self.apply_impl(txn, view.id, true)
+            self.apply_impl(txn, Some(view.id), true)
         } else {
             false
         };
@@ -1882,7 +2060,7 @@ impl Document {
         };
         let mut success = false;
         for txn in txns {
-            if self.apply_impl(&txn, view.id, true) {
+            if self.apply_impl(&txn, Some(view.id), true) {
                 success = true;
             }
         }
@@ -1920,6 +2098,7 @@ impl Document {
 
         // HAXX: we need to reconstruct the state as it was before the changes..
         let old_state = self.old_state.take().expect("no old_state available");
+        self.old_state_view = None;
 
         let mut history = self.history.take();
         history.commit_revision(&transaction, &old_state);
@@ -1927,6 +2106,59 @@ impl Document {
 
         // Update jumplist entries in the view.
         view.apply(&transaction, self);
+    }
+
+    /// Commit pending native edits without stamping any split's lazy history cache.
+    /// The originating selection is retained even when its document is hidden.
+    pub(crate) fn commit_pending_changes(&mut self) {
+        if self.changes.is_empty() {
+            return;
+        }
+        let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
+        let original = self.old_state.take().expect("no old_state available");
+        let view = self.old_state_view.take();
+        let mut transaction = Transaction::from(changes);
+        let selection = view.and_then(|view| self.selections.get(&view)).cloned();
+        let mut history = self.history.take();
+        if let Some(selection) = selection {
+            transaction = transaction.with_selection(selection);
+            history.commit_revision(&transaction, &original);
+        } else {
+            history.commit_document_revision(&transaction, &original.doc);
+        }
+        self.history.set(history);
+    }
+
+    /// Apply one validated plugin transaction as one undo revision. Text-only
+    /// operations need no visible split and never invent a cursor for undo.
+    pub(crate) fn apply_plugin_transaction(
+        &mut self,
+        transaction: &Transaction,
+        view: Option<ViewId>,
+    ) -> bool {
+        debug_assert!(self.changes.is_empty());
+        let original = self.text.clone();
+        let selection = view.and_then(|view| self.selections.get(&view)).cloned();
+        if !self.apply_impl(transaction, view, true) {
+            return false;
+        }
+        if !transaction.changes().is_empty() {
+            let mut history = self.history.take();
+            if let Some(selection) = selection {
+                history.commit_revision(
+                    transaction,
+                    &State {
+                        doc: original,
+                        selection,
+                    },
+                );
+            } else {
+                history.commit_document_revision(transaction, &original);
+            }
+            self.history.set(history);
+        }
+        self.changes = ChangeSet::new(self.text.slice(..));
+        true
     }
 
     pub fn id(&self) -> DocumentId {
@@ -2086,9 +2318,11 @@ impl Document {
     }
 
     pub fn servers_to_load(&self) -> bool {
-        self.language_config()
-            .map(|lang| !lang.language_servers.is_empty() || lang.debugger.is_some())
-            .unwrap_or(false)
+        !self.restricted_adoption
+            && self
+                .language_config()
+                .map(|lang| !lang.language_servers.is_empty() || lang.debugger.is_some())
+                .unwrap_or(false)
     }
 
     pub fn diff_handle(&self) -> Option<&DiffHandle> {
@@ -2097,6 +2331,9 @@ impl Document {
 
     /// Refresh both branch display and the diff base after repository changes.
     pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+        if self.restricted_adoption {
+            return;
+        }
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
@@ -2277,8 +2514,15 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
-        self.display_path()
-            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
+        self.display_path().map_or_else(
+            || {
+                self.plugin_scratch_name
+                    .as_deref()
+                    .unwrap_or(SCRATCH_BUFFER_NAME)
+                    .into()
+            },
+            |path| path.to_string_lossy(),
+        )
     }
 
     // transact(Fn) ?
@@ -2421,6 +2665,21 @@ impl Document {
                     .is_some_and(|source| unchanged_sources.iter().any(|s| **s == **source))
             });
         }
+        self.extend_diagnostics(diagnostics);
+    }
+
+    /// Refresh cached language-server diagnostics without discarding diagnostics
+    /// owned by spelling or plugins.
+    pub fn replace_language_server_diagnostics(
+        &mut self,
+        diagnostics: impl IntoIterator<Item = Diagnostic>,
+    ) {
+        self.diagnostics
+            .retain(|diagnostic| !matches!(diagnostic.provider, DiagnosticProvider::Lsp { .. }));
+        self.extend_diagnostics(diagnostics);
+    }
+
+    fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
         self.diagnostics.extend(diagnostics);
         self.diagnostics.sort_by_key(|diagnostic| {
             (
@@ -2454,14 +2713,7 @@ impl Document {
                     .iter()
                     .any(|region| d.range.start < region.end && region.start < d.range.end)
         });
-        self.diagnostics.extend(diagnostics);
-        self.diagnostics.sort_by_key(|diagnostic| {
-            (
-                diagnostic.range,
-                diagnostic.severity,
-                diagnostic.provider.clone(),
-            )
-        });
+        self.extend_diagnostics(diagnostics);
     }
 
     /// clears diagnostics for a given language server id if set, otherwise all diagnostics are cleared
@@ -2550,9 +2802,13 @@ impl Document {
             .language
             .as_ref()
             .and_then(|config| config.soft_wrap.as_ref());
-        let enable_soft_wrap = language_soft_wrap
-            .and_then(|soft_wrap| soft_wrap.enable)
-            .or(editor_soft_wrap.enable)
+        let enable_soft_wrap = self
+            .plugin_soft_wrap()
+            .or_else(|| {
+                language_soft_wrap
+                    .and_then(|soft_wrap| soft_wrap.enable)
+                    .or(editor_soft_wrap.enable)
+            })
             .unwrap_or(false);
         let max_wrap = language_soft_wrap
             .and_then(|soft_wrap| soft_wrap.max_wrap)

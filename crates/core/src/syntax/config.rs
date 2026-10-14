@@ -121,7 +121,7 @@ impl LanguageConfiguration {
 pub type RootMarkers = GlobSet;
 
 /// A wrapper around `globset::GlobSet` which implements `Serialize` and `Deserialize`.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct GlobSet {
     inner: globset::GlobSet,
     /// Glob patterns as-is before building. This is only used for `Serialize`.
@@ -440,7 +440,7 @@ where
     serializer.end()
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct LanguageServerConfiguration {
     pub command: String,

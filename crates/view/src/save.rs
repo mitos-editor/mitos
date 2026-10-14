@@ -66,6 +66,7 @@ fn prepare_with_config(
 ) -> PreparedSave {
     let doc = doc_mut!(editor, &doc_id);
     let view = view_mut!(editor, view_id);
+    doc.adopt_native_authority();
 
     if doc.trim_trailing_whitespace() {
         trim_trailing_whitespace(doc, view_id);
@@ -103,6 +104,15 @@ fn prepare_with_config(
 pub fn save_all(
     editor: &mut Editor,
     options: WriteAllOptions,
+    submit: impl FnMut(&mut Editor, PreparedSave) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    save_all_inner(editor, options, true, submit)
+}
+
+fn save_all_inner(
+    editor: &mut Editor,
+    options: WriteAllOptions,
+    include_restricted: bool,
     mut submit: impl FnMut(&mut Editor, PreparedSave) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let mut errors: Vec<&'static str> = Vec::new();
@@ -115,6 +125,9 @@ pub fn save_all(
         .into_iter()
         .filter_map(|id| {
             let doc = doc!(editor, &id);
+            if !include_restricted && doc.is_restricted_adoption() {
+                return None;
+            }
             if !doc.is_modified() {
                 return None;
             }
@@ -154,7 +167,7 @@ pub fn save_all(
 /// Save modified files without running formatters or code actions, ignoring scratch buffers.
 /// Debouncing, focus, and mode restrictions belong to `handlers::auto_save`.
 pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
-    save_all(
+    save_all_inner(
         editor,
         WriteAllOptions {
             force: false,
@@ -162,6 +175,7 @@ pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
             auto_format: false,
             code_actions: false,
         },
+        false,
         |editor, request| editor.save(request.doc_id, request.path, request.force),
     )
 }

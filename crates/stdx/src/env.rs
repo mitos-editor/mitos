@@ -181,14 +181,31 @@ mod tests {
 
     #[test]
     fn current_dir_is_set() {
-        let new_path = dunce::canonicalize(std::env::temp_dir()).unwrap();
+        // Changing the process directory and its cache must not race with path tests.
+        const CHILD: &str = "MITOS_STDX_TEST_CURRENT_DIR";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "env::tests::current_dir_is_set", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated current-directory test failed:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let new_path = dunce::canonicalize(dir.path()).unwrap();
         let cwd = current_working_dir();
         assert_ne!(cwd, new_path);
 
         set_current_working_dir(&new_path).expect("Couldn't set new path");
 
-        let cwd = current_working_dir();
-        assert_eq!(cwd, new_path);
+        assert_eq!(current_working_dir(), new_path);
+        set_current_working_dir(&cwd).expect("Couldn't restore original path");
     }
 
     macro_rules! assert_env_expand {

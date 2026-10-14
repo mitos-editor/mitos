@@ -22,6 +22,7 @@ mod movement;
 mod navigation;
 mod palette;
 mod picker;
+mod plugins;
 mod quicklist;
 mod registers;
 mod search;
@@ -42,6 +43,7 @@ pub use catalog::{
 };
 pub use command_line::complete_command_args;
 pub use completion::completion;
+pub(crate) use context::{CommandCompletion, CommandToken};
 pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub use dap::{
     dap_continue, dap_disable_exceptions, dap_edit_condition, dap_edit_log, dap_enable_exceptions,

@@ -18,8 +18,12 @@ members = [
   "crates/snippets",
   "crates/spelling",
   "crates/stdx",
+  "crates/plugin-sdk",
+  "crates/plugin-api",
+  "crates/plugins",
   "xtask",
 ]
+exclude = ["examples/plugins/uppercase", "plugins"]
 
 default-members = [
   "crates/term"
@@ -27,6 +31,13 @@ default-members = [
 
 [profile.release]
 lto = "thin"
+
+# Cold plugin compilation must fit the same deadline in debug and release builds.
+[profile.dev.package.cranelift-codegen]
+opt-level = 2
+
+[profile.dev.package.regalloc2]
+opt-level = 2
 
 [profile.opt]
 inherits = "release"
@@ -52,6 +63,9 @@ loader = { path = "crates/loader" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
+plugin-sdk = { path = "crates/plugin-sdk" }
+plugin-api = { path = "crates/plugin-api" }
+plugins = { path = "crates/plugins" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }
 stdx = { path = "crates/stdx" }
@@ -66,6 +80,11 @@ anyhow = "1"
 jiff = { version = "0.2.27", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2.0"
+wasmtime = { version = "=48.0.5", default-features = false, features = ["anyhow", "std", "runtime", "component-model", "cranelift", "async"] }
+wasmparser = { version = "=0.254.2", default-features = false, features = ["std", "component-model"] }
+wit-component = "=0.261.0"
+wit-bindgen = { version = "=0.62.0", default-features = false, features = ["macros", "realloc", "std"] }
+cap-std = "4.0.3"
 
 # Async and concurrency
 arc-swap = "1.9"
@@ -74,6 +93,7 @@ futures-executor = "0.3.32"
 futures-util = { version = "0.3", features = ["std", "async-await"], default-features = false }
 parking_lot = "0.12"
 tokio = "1.50"
+tokio-util = { version = "=0.7.18", features = ["rt"] }
 tokio-stream = "0.1.18"
 
 # Collections and compact storage

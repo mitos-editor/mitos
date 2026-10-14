@@ -101,7 +101,7 @@ an untrusted project. `languages.toml` is unchanged.
 
 ## `config.toml` reference
 
-`config.toml` accepts five top-level entries:
+`config.toml` accepts six top-level entries:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -110,6 +110,7 @@ an untrusted project. `languages.toml` is unchanged.
 | `terminal` | table | See below | Terminal capabilities, keyboard protocol, and external launcher. |
 | `keys` | table | Built-in keymap | Per-mode key bindings under `[keys.normal]`, `[keys.insert]`, and `[keys.select]`. Entries are merged with the built-in keymap. See [Key remapping](./remapping.md). |
 | `commands` | table | `{}` | User-defined command-mode commands. See [Custom commands](./custom-commands.md). |
+| `plugins` | table | `{}` | Named WASM plugins, their manifest paths and configuration. See [Plugins](./plugins.md). |
 
 Example:
 

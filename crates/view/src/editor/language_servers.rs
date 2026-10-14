@@ -34,6 +34,7 @@ impl Editor {
             valid
         };
 
+        let mut detached = false;
         for name in language_servers {
             let server_ids: Vec<_> = self
                 .language_servers
@@ -42,6 +43,7 @@ impl Editor {
                 .map(|client| client.id())
                 .collect();
             for server_id in server_ids {
+                detached = true;
                 self.cleanup_language_server(server_id);
             }
             self.language_servers.stop(&name);
@@ -53,6 +55,9 @@ impl Editor {
                 }
             }
         }
+        if detached && let Some(tasks) = self.invocation_tasks() {
+            tasks.detached();
+        }
         Ok(())
     }
 
@@ -63,6 +68,12 @@ impl Editor {
         document: DocumentId,
         servers: &[&str],
     ) -> anyhow::Result<()> {
+        // This is an explicit native command; automatic refresh uses the
+        // guarded launch_language_servers path instead.
+        self.documents
+            .get_mut(&document)
+            .context("Document no longer exists")?
+            .adopt_native_authority();
         let editor_config = self.config.load();
         let doc = self
             .documents
@@ -102,6 +113,7 @@ impl Editor {
             .map(|client| client.id())
             .collect();
 
+        let mut detached = !old_server_ids.is_empty();
         for server_id in old_server_ids {
             self.cleanup_language_server(server_id);
         }
@@ -123,7 +135,8 @@ impl Editor {
                 // in the arguments.
                 Err(lsp_client::Error::ExecutableNotFound(_)) if !servers.contains(server) => {}
                 Err(err) => errors.push(err.to_string()),
-                _ => (),
+                Ok(Some(_)) => detached = true,
+                Ok(None) => (),
             }
         }
 
@@ -146,6 +159,10 @@ impl Editor {
 
         for document_id in document_ids_to_refresh {
             self.refresh_language_servers(document_id);
+        }
+
+        if detached && let Some(tasks) = self.invocation_tasks() {
+            tasks.detached();
         }
 
         if errors.is_empty() {

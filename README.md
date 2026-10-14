@@ -18,6 +18,10 @@ Mitos is a modern, batteries-included, modal text editor written in Rust. It is 
 - Built-in language server and debug adapter support
 - Incremental syntax highlighting and code editing via tree-sitter
 - A terminal UI built with Ratatui
+- [WebAssembly plugins](./book/src/plugins.md) with commands, editor hooks, and a Rust SDK
+
+[Reference plugins](./plugins/README.md) provide text tools, project bookmarks,
+TODO navigation, Markdown editing, writing mode, and a declarative Cyberdream theme.
 
 ## Installation
 

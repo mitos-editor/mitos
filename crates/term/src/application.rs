@@ -27,7 +27,7 @@ use crate::{
     ui::{self, overlay::overlaid},
 };
 
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use std::{
     io::{stdin, IsTerminal},
     path::Path,
@@ -88,6 +88,7 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
+    plugin_frontend: handlers::plugins::Frontend,
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
@@ -103,6 +104,11 @@ fn setup_integration_logging() {
 }
 
 impl Application {
+    #[cfg(feature = "integration")]
+    pub fn has_plugin_ui(&self) -> bool {
+        crate::handlers::plugins::has_active_ui(&self.compositor)
+    }
+
     pub fn new(
         args: Args,
         config: Config,
@@ -164,6 +170,7 @@ impl Application {
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
         let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
         let _ = editor.set_theme(theme);
+        editor.reload_plugins(&config.load().plugins, &loader::config_dir());
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
@@ -284,6 +291,7 @@ impl Application {
             config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
+            plugin_frontend: handlers::plugins::Frontend::default(),
             lsp_progress: LspProgressMap::new(),
             theme_mode,
         };
@@ -315,6 +323,9 @@ impl Application {
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         loop {
+            self.jobs.poll_commands(&self.editor);
+            self.editor.poll_plugin_events();
+            self.synchronize_plugin_frontend();
             if self.editor.should_close() {
                 return false;
             }
@@ -395,7 +406,11 @@ impl Application {
                             && self.editor.write_count == 0
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                         {
-                            return true;
+                            self.jobs.poll_commands(&self.editor);
+                            self.editor.poll_plugin_events();
+                            if !self.editor.has_pending_plugin_work() {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -452,7 +467,7 @@ impl Application {
     }
 
     fn refresh_config(&mut self) {
-        let mut refresh_config = || -> Result<(), Error> {
+        let mut refresh_config = || -> Result<bool, Error> {
             let default_config = Config::load_default()
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
@@ -469,12 +484,19 @@ impl Application {
                 .backend_mut()
                 .reconfigure(terminal_config(&default_config))?;
             // Store new config
+            let plugins_loaded = self
+                .editor
+                .reload_plugins(&default_config.plugins, &loader::config_dir());
             self.config.store(Arc::new(default_config));
-            Ok(())
+            Ok(plugins_loaded)
         };
 
         match refresh_config() {
-            Ok(()) => self.editor.set_status("Config refreshed"),
+            Ok(plugins_loaded) => {
+                if plugins_loaded {
+                    self.editor.set_status("Config refreshed");
+                }
+            }
             Err(err) => {
                 self.editor.set_error(|| err.to_string());
             }
@@ -614,25 +636,7 @@ impl Application {
             }
         };
 
-        let doc = match self.editor.document_mut(doc_save_event.doc_id) {
-            None => {
-                warn!(
-                    "received document saved event for non-existent doc id: {}",
-                    doc_save_event.doc_id
-                );
-
-                return;
-            }
-            Some(doc) => doc,
-        };
-
-        debug!(
-            "document {:?} saved with revision {}",
-            doc.path(),
-            doc_save_event.revision
-        );
-
-        doc.set_last_saved_revision(doc_save_event.revision, doc_save_event.save_time);
+        self.editor.complete_document_write(&doc_save_event);
 
         let lines = doc_save_event.text.len_lines();
         let size = doc_save_event.text.len_bytes();
@@ -664,8 +668,6 @@ impl Application {
             Size::HumanReadable(size, SUFFIX[i])
         };
 
-        self.editor
-            .set_doc_path(doc_save_event.doc_id, &doc_save_event.path);
         // TODO: fix being overwritten by lsp
         self.editor.set_status(format!(
             "'{}' written, {lines}L {size}",
@@ -1298,6 +1300,12 @@ impl Application {
         //        errors along the way
         let mut errs = Vec::new();
 
+        // Stop new background publications, then consume the finite callbacks
+        // already accepted by this bounded queue. They can enqueue required
+        // formatting jobs or writes, which must finish before plugin shutdown.
+        self.jobs.callbacks.close();
+        while self.drain_ready_callbacks() {}
+
         if let Err(err) = self
             .jobs
             .finish(&mut self.editor, Some(&mut self.compositor))
@@ -1312,9 +1320,34 @@ impl Application {
             errs.push(err);
         }
 
+        self.plugin_frontend
+            .shutdown(&mut self.compositor, &mut self.editor);
+        self.jobs.cancel_commands(&self.editor);
+        // Enter quiescence before polling accepted save/command hooks. Their
+        // bounded document reads can finish without admitting new native work.
+        self.editor.shutdown_plugins();
+        self.editor.finish_plugin_shutdown().await;
+        self.jobs.poll_commands(&self.editor);
         self.editor.close_language_servers(None).await;
 
         errs
+    }
+
+    pub(super) fn synchronize_plugin_frontend(&mut self) {
+        let config = self.config.load();
+        let mut cx = crate::compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
+            editor: &mut self.editor,
+            jobs: &mut self.jobs,
+            scroll: None,
+            image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
+        };
+        self.plugin_frontend
+            .synchronize(&mut self.compositor, &mut cx);
     }
 }
 

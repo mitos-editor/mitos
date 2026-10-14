@@ -237,6 +237,9 @@ fn open_url_in_callback(
     rel_path: &Path,
 ) {
     if should_open_url_externally(&url) {
+        if let Some(observer) = editor.invocation_tasks() {
+            observer.detached();
+        }
         tokio::spawn(async move {
             match crate::open_external_url_callback(url).await {
                 Ok(callback) => job::dispatch_callback(callback).await,
@@ -484,6 +487,10 @@ pub(super) mod typed {
             auto_format,
             code_actions: run_code_actions,
         } = request;
+        let binding_revision = editor
+            .tree
+            .try_get(view_id)
+            .map_or(0, |view| view.binding_revision());
 
         // The tail of the on-save chain: re-build the auto-format job against the
         // latest document (so it formats after any code-action edits), or save
@@ -495,6 +502,7 @@ pub(super) mod typed {
             let callback = Callback::Followup(Box::new(move |editor| {
                 // The document could have been closed mid-chain
                 if !editor.documents.contains_key(&doc_id) {
+                    crate::job::cancel_invocation(editor, "save document was closed");
                     return None;
                 }
                 let doc = doc!(editor, &doc_id);
@@ -506,6 +514,7 @@ pub(super) mod typed {
                             doc_id,
                             doc.version(),
                             view_id,
+                            binding_revision,
                             fmt,
                             Some((path.clone(), force)),
                         );

@@ -99,7 +99,9 @@ pub(super) fn register_hooks() {
             if let Some(handler) = &event.doc.document_symbols.handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_symbols(editor, doc_id);
-                    if let Some(doc) = editor.document_mut(doc_id) {
+                    if let Some(view_id) = view_id
+                        && let Some(doc) = editor.document_mut(doc_id)
+                    {
                         doc.update_breadcrumbs_for_view(view_id);
                     }
                 });

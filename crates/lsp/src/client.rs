@@ -18,7 +18,7 @@ use editor_core::{
 };
 use loader::VERSION_AND_GIT_HASH;
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf};
 use std::{
@@ -36,7 +36,7 @@ use tokio::{
     process::{Child, Command},
     sync::{
         mpsc::{channel, UnboundedReceiver, UnboundedSender},
-        Notify, OnceCell,
+        Notify, OnceCell, OwnedSemaphorePermit, Semaphore,
     },
 };
 
@@ -75,6 +75,131 @@ pub struct Client {
     shutdown_flushed: Arc<Notify>,
     /// workspace folders added while the server is still initializing
     req_timeout: u64,
+    cancellable_requests: Arc<Semaphore>,
+}
+
+/// The permit lives in the transport, including while an outgoing write stalls.
+/// Dropping a caller sends exactly one cancellation without a detached task.
+struct RequestCancellation {
+    sender: UnboundedSender<Payload>,
+    id: Option<jsonrpc::Id>,
+}
+
+/// The general LSP OneOf decoder accepts annotation-bearing edits as plain
+/// TextEdit. Plugin queries must classify them before that metadata is lost.
+struct PluginCodeActionRequest<R>(std::marker::PhantomData<R>);
+impl<R: lsp::request::Request> lsp::request::Request for PluginCodeActionRequest<R> {
+    type Params = R::Params;
+    type Result = PluginCodeActionResponse<R::Result>;
+    const METHOD: &'static str = R::METHOD;
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct PluginCodeActionResponse<T>(T);
+impl<'de, T: serde::de::DeserializeOwned> Deserialize<'de> for PluginCodeActionResponse<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        fn classify(action: &mut Value) {
+            let Some(workspace) = action.get("edit") else {
+                return;
+            };
+            let annotated = workspace
+                .get("documentChanges")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|document| document.get("edits").and_then(Value::as_array))
+                .flatten()
+                .any(|edit| edit.get("annotationId").is_some())
+                || workspace
+                    .get("changes")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|changes| changes.values())
+                    .filter_map(Value::as_array)
+                    .flatten()
+                    .any(|edit| edit.get("annotationId").is_some());
+            if annotated && let Some(object) = action.as_object_mut() {
+                object.remove("edit");
+                object.insert(
+                    "disabled".into(),
+                    serde_json::json!({
+                        "reason": "plugin code actions do not support annotated edits"
+                    }),
+                );
+            }
+        }
+        let mut value = Value::deserialize(deserializer)?;
+        if let Some(actions) = value.as_array_mut() {
+            actions.iter_mut().for_each(classify);
+        } else {
+            classify(&mut value);
+        }
+        serde_json::from_value(value)
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+impl Drop for RequestCancellation {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            let _ = self.sender.send(Payload::Cancel(id));
+        }
+    }
+}
+
+fn request_with_options<R: lsp::request::Request>(
+    server_tx: UnboundedSender<Payload>,
+    id: jsonrpc::Id,
+    params: &R::Params,
+    timeout_secs: u64,
+    permit: Option<OwnedSemaphorePermit>,
+) -> impl Future<Output = Result<R::Result>> + use<R>
+where
+    R::Params: serde::Serialize,
+{
+    let mut cancellation = permit.as_ref().map(|_| RequestCancellation {
+        sender: server_tx.clone(),
+        id: Some(id.clone()),
+    });
+
+    // It's important that this is not part of the future so that it gets executed right away
+    // and the request order stays consistent.
+    let rx = serde_json::to_value(params)
+        .map_err(Error::from)
+        .and_then(|params| {
+            let request = jsonrpc::MethodCall {
+                jsonrpc: Some(jsonrpc::Version::V2),
+                id: id.clone(),
+                method: R::METHOD.to_string(),
+                params: Client::value_into_params(params),
+            };
+            let (tx, rx) = channel::<Result<Value>>(1);
+            server_tx
+                .send(Payload::Request {
+                    chan: tx,
+                    value: request,
+                    permit,
+                })
+                .map_err(|e| Error::Other(e.into()))?;
+            Ok(rx)
+        });
+
+    async move {
+        use std::time::Duration;
+        use tokio::time::timeout;
+        // TODO: delay other calls until initialize success
+        let response = timeout(Duration::from_secs(timeout_secs), rx?.recv())
+            .await
+            .map_err(|_| Error::Timeout(id))? // return Timeout
+            .ok_or(Error::StreamClosed)?;
+        if let Some(cancellation) = &mut cancellation {
+            cancellation.id = None;
+        }
+        response.and_then(|value| serde_json::from_value(value).map_err(Into::into))
+    }
 }
 
 impl Client {
@@ -280,6 +405,7 @@ impl Client {
             file_operation_interest: OnceLock::new(),
             config,
             req_timeout,
+            cancellable_requests: Arc::new(Semaphore::new(64)),
             root_path,
             root_uri,
             workspace_folders: Mutex::new(workspace_folders),
@@ -510,40 +636,40 @@ impl Client {
     where
         R::Params: serde::Serialize,
     {
-        let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
+        self.call_with_options::<R>(params, timeout_secs, None)
+    }
 
-        // It's important that this is not part of the future so that it gets executed right away
-        // and the request order stays consistent.
-        let rx = serde_json::to_value(params)
-            .map_err(Error::from)
-            .and_then(|params| {
-                let request = jsonrpc::MethodCall {
-                    jsonrpc: Some(jsonrpc::Version::V2),
-                    id: id.clone(),
-                    method: R::METHOD.to_string(),
-                    params: Self::value_into_params(params),
-                };
-                let (tx, rx) = channel::<Result<Value>>(1);
-                server_tx
-                    .send(Payload::Request {
-                        chan: tx,
-                        value: request,
-                    })
-                    .map_err(|e| Error::Other(e.into()))?;
-                Ok(rx)
-            });
+    fn call_cancellable<R: lsp::request::Request>(
+        &self,
+        params: &R::Params,
+    ) -> Result<impl Future<Output = Result<R::Result>> + use<R>>
+    where
+        R::Params: serde::Serialize,
+    {
+        let permit = self
+            .cancellable_requests
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::RequestLimit)?;
+        Ok(self.call_with_options::<R>(params, 2, Some(permit)))
+    }
 
-        async move {
-            use std::time::Duration;
-            use tokio::time::timeout;
-            // TODO: delay other calls until initialize success
-            timeout(Duration::from_secs(timeout_secs), rx?.recv())
-                .await
-                .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)?
-                .and_then(|value| serde_json::from_value(value).map_err(Into::into))
-        }
+    fn call_with_options<R: lsp::request::Request>(
+        &self,
+        params: &R::Params,
+        timeout_secs: u64,
+        permit: Option<OwnedSemaphorePermit>,
+    ) -> impl Future<Output = Result<R::Result>> + use<R>
+    where
+        R::Params: serde::Serialize,
+    {
+        request_with_options::<R>(
+            self.server_tx.clone(),
+            self.next_request_id(),
+            params,
+            timeout_secs,
+            permit,
+        )
     }
 
     /// Send a RPC notification to the language server.
@@ -871,6 +997,7 @@ impl Client {
         let _ = self.server_tx.send(Payload::Request {
             chan,
             value: request,
+            permit: None,
         });
         self.exit();
     }
@@ -1271,6 +1398,30 @@ impl Client {
         Some(self.call_with_ref::<lsp::request::CodeActionResolveRequest>(code_action))
     }
 
+    /// Read-only plugin resolution of an action returned by this attached
+    /// server. Uses bounded transport admission and cancellation on Drop.
+    pub fn resolve_code_action_cancellable(
+        &self,
+        code_action: &lsp::CodeAction,
+    ) -> Result<Option<impl Future<Output = Result<lsp::CodeAction>> + use<>>> {
+        if !matches!(
+            self.capabilities().code_action_provider,
+            Some(lsp::CodeActionProviderCapability::Options(
+                lsp::CodeActionOptions {
+                    resolve_provider: Some(true),
+                    ..
+                }
+            ))
+        ) {
+            return Ok(None);
+        }
+        let future = self
+            .call_cancellable::<PluginCodeActionRequest<lsp::request::CodeActionResolveRequest>>(
+                code_action,
+            )?;
+        Ok(Some(async move { future.await.map(|response| response.0) }))
+    }
+
     pub fn text_document_signature_help(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -1398,6 +1549,30 @@ impl Client {
         position: lsp::Position,
         work_done_token: Option<lsp::ProgressToken>,
     ) -> Option<impl Future<Output = Result<Option<lsp::Hover>>> + use<>> {
+        let params = self.hover_params(text_document, position, work_done_token)?;
+        Some(self.call::<lsp::request::HoverRequest>(params))
+    }
+
+    /// Attached plugin hover with a two-second timeout, Drop cancellation and
+    /// bounded outgoing/pending transport admission. This never launches a server.
+    pub fn text_document_hover_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> Result<Option<impl Future<Output = Result<Option<lsp::Hover>>> + use<>>> {
+        let Some(params) = self.hover_params(text_document, position, None) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::HoverRequest>(&params)
+            .map(Some)
+    }
+
+    fn hover_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<lsp::HoverParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support hover.
@@ -1409,16 +1584,14 @@ impl Client {
             _ => return None,
         }
 
-        let params = lsp::HoverParams {
+        Some(lsp::HoverParams {
             text_document_position_params: lsp::TextDocumentPositionParams {
                 text_document,
                 position,
             },
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
             // lsp::SignatureHelpContext
-        };
-
-        Some(self.call::<lsp::request::HoverRequest>(params))
+        })
     }
 
     // formatting
@@ -1429,6 +1602,29 @@ impl Client {
         options: lsp::FormattingOptions,
         work_done_token: Option<lsp::ProgressToken>,
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        let params = self.formatting_params(text_document, options, work_done_token)?;
+        Some(self.call::<lsp::request::Formatting>(params))
+    }
+
+    /// Bounded request admission and cancellation on timeout or caller drop.
+    pub fn text_document_formatting_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        options: lsp::FormattingOptions,
+    ) -> Result<Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>>> {
+        let Some(params) = self.formatting_params(text_document, options, None) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::Formatting>(&params)
+            .map(Some)
+    }
+
+    fn formatting_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        options: lsp::FormattingOptions,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<lsp::DocumentFormattingParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support formatting.
@@ -1439,13 +1635,11 @@ impl Client {
 
         let options = self.get_merged_formatting_options(options);
 
-        let params = lsp::DocumentFormattingParams {
+        Some(lsp::DocumentFormattingParams {
             text_document,
             options,
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
-        };
-
-        Some(self.call::<lsp::request::Formatting>(params))
+        })
     }
 
     pub fn text_document_range_formatting(
@@ -1684,6 +1878,27 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
     ) -> Option<impl Future<Output = Result<Option<lsp::DocumentSymbolResponse>>> + use<>> {
+        let params = self.symbol_params(text_document)?;
+        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+    }
+
+    /// Attached plugin symbols use the same cancellation/admission contract as hover.
+    pub fn document_symbols_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Result<Option<impl Future<Output = Result<Option<lsp::DocumentSymbolResponse>>> + use<>>>
+    {
+        let Some(params) = self.symbol_params(text_document) else {
+            return Ok(None);
+        };
+        self.call_cancellable::<lsp::request::DocumentSymbolRequest>(&params)
+            .map(Some)
+    }
+
+    fn symbol_params(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Option<lsp::DocumentSymbolParams> {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support document symbols.
@@ -1692,13 +1907,11 @@ impl Client {
             _ => return None,
         }
 
-        let params = lsp::DocumentSymbolParams {
+        Some(lsp::DocumentSymbolParams {
             text_document,
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
             partial_result_params: lsp::PartialResultParams::default(),
-        };
-
-        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+        })
     }
 
     pub fn prepare_call_hierarchy(
@@ -1848,6 +2061,33 @@ impl Client {
         Some(self.call::<lsp::request::CodeActionRequest>(params))
     }
 
+    /// Attached plugin code actions with a two-second timeout, Drop
+    /// cancellation and the same bounded admission as other plugin LSP calls.
+    /// This returns observations and never executes their commands or edits.
+    pub fn code_actions_cancellable(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        range: lsp::Range,
+        context: lsp::CodeActionContext,
+    ) -> Result<Option<impl Future<Output = Result<Option<Vec<lsp::CodeActionOrCommand>>>> + use<>>>
+    {
+        if !self.supports_feature(LanguageServerFeature::CodeAction) {
+            return Ok(None);
+        }
+        let params = lsp::CodeActionParams {
+            text_document,
+            range,
+            context,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let future = self
+            .call_cancellable::<PluginCodeActionRequest<lsp::request::CodeActionRequest>>(
+                &params,
+            )?;
+        Ok(Some(async move { future.await.map(|response| response.0) }))
+    }
+
     pub fn rename_symbol(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -1928,5 +2168,203 @@ impl Client {
         self.notify::<lsp::notification::DidChangeWatchedFiles>(lsp::DidChangeWatchedFilesParams {
             changes,
         })
+    }
+}
+
+#[cfg(test)]
+mod cancellable_tests {
+    use super::*;
+
+    fn params() -> lsp::HoverParams {
+        lsp::HoverParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier::new(
+                    lsp::Url::parse("file:///test.rs").unwrap(),
+                ),
+                position: lsp::Position::new(0, 0),
+            },
+            work_done_progress_params: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn unpolled_and_timed_out_requests_send_one_owned_cancel() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(64));
+        for (number, poll) in [(1, false), (2, true)] {
+            let id = jsonrpc::Id::Num(number);
+            let future = request_with_options::<lsp::request::HoverRequest>(
+                sender.clone(),
+                id.clone(),
+                &params(),
+                0,
+                Some(permits.clone().try_acquire_owned().unwrap()),
+            );
+            let outgoing = receive.try_recv().unwrap();
+            assert_eq!(permits.available_permits(), 63);
+            if poll {
+                assert!(matches!(future.await, Err(Error::Timeout(_))));
+            } else {
+                drop(future);
+            }
+            assert!(
+                matches!(receive.try_recv().unwrap(), Payload::Cancel(cancelled) if cancelled == id)
+            );
+            assert!(receive.try_recv().is_err());
+            // Dropping the caller does not release queued transport admission.
+            assert_eq!(permits.available_permits(), 63);
+            drop(outgoing);
+            assert_eq!(permits.available_permits(), 64);
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_and_ordinary_requests_do_not_emit_cancellation() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(1));
+        let future = request_with_options::<lsp::request::HoverRequest>(
+            sender.clone(),
+            jsonrpc::Id::Num(1),
+            &params(),
+            1,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let Payload::Request { chan, permit, .. } = receive.try_recv().unwrap() else {
+            panic!("not request")
+        };
+        chan.send(Ok(Value::Null)).await.unwrap();
+        drop(permit);
+        assert!(future.await.unwrap().is_none());
+        assert!(receive.try_recv().is_err());
+        let future = request_with_options::<lsp::request::HoverRequest>(
+            sender,
+            jsonrpc::Id::Num(2),
+            &params(),
+            1,
+            None,
+        );
+        drop(future);
+        assert!(matches!(
+            receive.try_recv().unwrap(),
+            Payload::Request { permit: None, .. }
+        ));
+        assert!(receive.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn code_action_query_and_lazy_resolution_keep_owned_transport_admission() {
+        let (sender, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let permits = Arc::new(Semaphore::new(1));
+        let params = lsp::CodeActionParams {
+            text_document: lsp::TextDocumentIdentifier::new(
+                lsp::Url::parse("file:///test.go").unwrap(),
+            ),
+            range: lsp::Range::new(lsp::Position::new(0, 0), lsp::Position::new(0, 1)),
+            context: lsp::CodeActionContext {
+                diagnostics: vec![],
+                only: Some(vec![lsp::CodeActionKind::SOURCE_ORGANIZE_IMPORTS]),
+                trigger_kind: Some(lsp::CodeActionTriggerKind::INVOKED),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let future = request_with_options::<PluginCodeActionRequest<lsp::request::CodeActionRequest>>(
+            sender.clone(),
+            jsonrpc::Id::Num(1),
+            &params,
+            2,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let Payload::Request {
+            chan,
+            value,
+            permit,
+        } = receive.try_recv().unwrap()
+        else {
+            panic!("not request")
+        };
+        let encoded = serde_json::to_value(value).unwrap();
+        assert_eq!(encoded["method"], "textDocument/codeAction");
+        assert_eq!(
+            encoded["params"]["context"],
+            serde_json::json!({
+                "diagnostics":[], "only":["source.organizeImports"], "triggerKind":1
+            })
+        );
+        let action = lsp::CodeAction {
+            title: "Organize imports".into(),
+            kind: Some(lsp::CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
+            data: Some(serde_json::json!({"server-owned": 1})),
+            ..Default::default()
+        };
+        chan.send(Ok(serde_json::to_value(vec![action.clone()]).unwrap()))
+            .await
+            .unwrap();
+        drop(permit);
+        assert_eq!(
+            future.await.unwrap().0,
+            Some(vec![lsp::CodeActionOrCommand::CodeAction(action.clone())])
+        );
+        assert!(receive.try_recv().is_err());
+
+        let future = request_with_options::<
+            PluginCodeActionRequest<lsp::request::CodeActionResolveRequest>,
+        >(
+            sender,
+            jsonrpc::Id::Num(2),
+            &action,
+            2,
+            Some(permits.clone().try_acquire_owned().unwrap()),
+        );
+        let outgoing = receive.try_recv().unwrap();
+        let Payload::Request { value, .. } = &outgoing else {
+            panic!("not resolution")
+        };
+        let encoded = serde_json::to_value(value).unwrap();
+        assert_eq!(encoded["method"], "codeAction/resolve");
+        assert_eq!(
+            encoded["params"]["data"],
+            serde_json::json!({"server-owned": 1})
+        );
+        drop(future);
+        assert!(matches!(
+            receive.try_recv().unwrap(),
+            Payload::Cancel(jsonrpc::Id::Num(2))
+        ));
+        assert!(receive.try_recv().is_err());
+        assert_eq!(permits.available_permits(), 0);
+        drop(outgoing);
+        assert_eq!(permits.available_permits(), 1);
+    }
+
+    #[test]
+    fn plugin_code_actions_classify_annotations_before_general_oneof_decoding() {
+        let action = serde_json::json!({
+            "title":"Confirm edit", "edit":{"documentChanges":[{
+                "textDocument":{"uri":"file:///test.go","version":7},
+                "edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                    "newText":"changed","annotationId":"confirmation"}]
+            }]}
+        });
+        let ordinary: lsp::CodeAction = serde_json::from_value(action.clone()).unwrap();
+        let Some(lsp::DocumentChanges::Edits(edits)) = ordinary.edit.unwrap().document_changes
+        else {
+            panic!("not edits")
+        };
+        assert!(
+            matches!(edits[0].edits[0], lsp::OneOf::Left(_)),
+            "general LSP decoder drops annotation metadata"
+        );
+        let resolved: PluginCodeActionResponse<lsp::CodeAction> =
+            serde_json::from_value(action.clone()).unwrap();
+        assert!(resolved.0.disabled.is_some());
+        assert!(resolved.0.edit.is_none());
+        let queried: PluginCodeActionResponse<Option<Vec<lsp::CodeActionOrCommand>>> =
+            serde_json::from_value(serde_json::json!([action])).unwrap();
+        let lsp::CodeActionOrCommand::CodeAction(action) = queried.0.unwrap().pop().unwrap() else {
+            panic!("not action")
+        };
+        assert!(action.disabled.is_some());
+        assert!(action.edit.is_none());
     }
 }

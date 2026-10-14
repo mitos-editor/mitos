@@ -82,6 +82,8 @@ use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
+    pub(crate) plugins: crate::plugins::PluginHost,
+    invocation_tasks: Option<Arc<dyn crate::callbacks::InvocationTasks>>,
     /// Current editing mode.
     pub mode: Mode,
     pub tree: Tree,
@@ -122,6 +124,7 @@ pub struct Editor {
     pub quicklist: Quicklist,
 
     pub status_msg: Option<(Cow<'static, str>, Severity)>,
+    error_revision: u64,
     pub autoinfo: Option<Info>,
 
     pub config: Arc<dyn DynAccess<Config>>,
@@ -251,6 +254,8 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
+            plugins: Default::default(),
+            invocation_tasks: None,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -278,6 +283,7 @@ impl Editor {
                 }),
             ))),
             status_msg: None,
+            error_revision: 0,
             autoinfo: None,
             idle_timer: Box::pin(sleep(conf.idle_timeout)),
             redraw_timer: Box::pin(sleep(Duration::MAX)),
@@ -339,6 +345,22 @@ impl Editor {
         self.status_msg = None;
     }
 
+    /// Distinguishes a new command error from an earlier status message.
+    pub fn error_revision(&self) -> u64 {
+        self.error_revision
+    }
+
+    pub fn invocation_tasks(&self) -> Option<Arc<dyn crate::callbacks::InvocationTasks>> {
+        self.invocation_tasks.clone()
+    }
+
+    pub fn replace_invocation_tasks(
+        &mut self,
+        tasks: Option<Arc<dyn crate::callbacks::InvocationTasks>>,
+    ) -> Option<Arc<dyn crate::callbacks::InvocationTasks>> {
+        std::mem::replace(&mut self.invocation_tasks, tasks)
+    }
+
     #[inline]
     pub fn set_status<T: Into<Cow<'static, str>>>(&mut self, status: T) {
         let status = status.into();
@@ -354,6 +376,7 @@ impl Editor {
         M: FnOnce() -> C,
     {
         let error = message().into();
+        self.error_revision = self.error_revision.wrapping_add(1);
         log::debug!("editor error: {}", error);
         self.status_msg = Some((error, Severity::Error));
     }
@@ -397,7 +420,9 @@ impl Editor {
     }
 
     pub fn set_theme(&mut self, theme: Theme) -> anyhow::Result<()> {
-        self.set_theme_impl(theme, ThemeAction::Set)
+        self.set_theme_impl(theme, ThemeAction::Set)?;
+        self.plugin_native_theme_changed();
+        Ok(())
     }
 
     fn set_theme_impl(&mut self, theme: Theme, preview: ThemeAction) -> anyhow::Result<()> {
@@ -640,7 +665,7 @@ impl Editor {
         self.refresh_language_servers(doc_id);
         let doc = doc_mut!(self, &doc_id);
         let diagnostics = Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, doc);
-        doc.replace_diagnostics(diagnostics, &[], None);
+        doc.replace_language_server_diagnostics(diagnostics);
         doc.reset_all_inlay_hints();
         doc.clear_document_symbols();
         self.refresh_spelling(doc_id);
@@ -655,6 +680,9 @@ impl Editor {
         let Some(doc) = self.documents.get_mut(&doc_id) else {
             return;
         };
+        if doc.is_restricted_adoption() {
+            return;
+        }
         let Some(doc_url) = doc.url() else {
             return;
         };
@@ -755,13 +783,21 @@ impl Editor {
     }
 
     fn replace_document_in_view(&mut self, current_view: ViewId, doc_id: DocumentId) {
+        if self.tree.get(current_view).doc != doc_id {
+            self.cancel_plugin_target(None, Some(current_view.as_u64()));
+        }
         let scrolloff = self.config().scroll.padding;
         let view = self.tree.get_mut(current_view);
 
-        view.doc = doc_id;
+        if view.doc != doc_id
+            && let Some(previous) = self.documents.get_mut(&view.doc)
+        {
+            previous.unbind_view(view.id);
+        }
+        view.bind_document(doc_id);
         let doc = doc_mut!(self, &doc_id);
 
-        doc.ensure_view_init(view.id);
+        doc.bind_view(view.id, view.binding_revision());
         view.sync_changes(doc);
         doc.mark_as_focused();
 
@@ -799,6 +835,7 @@ impl Editor {
 
                 let (view, doc) = current!(self);
                 let view_id = view.id;
+                let old_doc_id = doc.id();
 
                 // Append any outstanding changes to history in the old document.
                 doc.append_changes_to_history(view);
@@ -807,7 +844,11 @@ impl Editor {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable
                     // borrow, invalidating direct access to `doc.id`.
                     let id = doc.id;
-                    self.documents.remove(&id);
+                    let closed = self.documents.remove(&id).unwrap();
+                    dispatch(DocumentDidClose {
+                        editor: self,
+                        doc: closed,
+                    });
 
                     // Remove the scratch buffer from any jumplists
                     for (view, _) in self.tree.views_mut() {
@@ -832,7 +873,8 @@ impl Editor {
 
                 dispatch(DocumentFocusLost {
                     editor: self,
-                    doc: id,
+                    doc: old_doc_id,
+                    view: view_id,
                 });
                 return;
             }
@@ -844,7 +886,10 @@ impl Editor {
                 return;
             }
             Action::HorizontalSplit | Action::VerticalSplit => {
-                let focus_lost = self.tree.try_get(self.tree.focus).map(|view| view.doc);
+                let focus_lost = self
+                    .tree
+                    .try_get(self.tree.focus)
+                    .map(|view| (view.doc, view.id));
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
@@ -861,18 +906,20 @@ impl Editor {
                     },
                 );
                 // initialize selection for view
+                let binding_revision = self.tree.get(view_id).binding_revision();
                 let doc = doc_mut!(self, &id);
-                doc.ensure_view_init(view_id);
+                doc.bind_view(view_id, binding_revision);
                 doc.mark_as_focused();
                 focus_lost
             }
         };
 
         self._refresh();
-        if let Some(focus_lost) = focust_lost {
+        if let Some((focus_lost, view)) = focust_lost {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: focus_lost,
+                view,
             });
         }
     }
@@ -884,11 +931,15 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
+        doc.plugin_events = self.plugins.sender(&self.handlers.callbacks);
+        doc.plugin_settings = Some(self.plugin_settings_handle());
         self.handlers.attach_document(&mut doc);
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.documents.insert(id, doc);
-        self.refresh_vcs_watches();
+        if !self.documents[&id].is_restricted_adoption() {
+            self.refresh_vcs_watches();
+        }
 
         let (save_sender, save_receiver) = tokio::sync::mpsc::unbounded_channel();
         self.saves.insert(id, save_sender);
@@ -903,7 +954,12 @@ impl Editor {
         let id = self.new_document(doc);
         self.switch(id, action);
         self.refresh_spelling(id);
+        self.queue_plugin_document_event(plugin_api::Event::DocumentOpened, id);
         id
+    }
+
+    pub(crate) fn adopt_plugin_scratch(&mut self, doc: Document, action: Action) -> DocumentId {
+        self.new_file_from_document(action, doc)
     }
 
     pub fn new_file(&mut self, action: Action) -> DocumentId {
@@ -948,9 +1004,30 @@ impl Editor {
     // ??? possible use for integration tests
     pub fn open(&mut self, path: &Path, action: Action) -> Result<DocumentId, DocumentOpenError> {
         let path = stdx::path::canonicalize(path);
-        let id = self.document_id_by_path(&path);
+        let id = self.document_id_by_path(&path).or_else(|| {
+            // Scoped reads retain the granted directory's canonical identity;
+            // explicit native open may use a configured alias such as /tmp.
+            // This lookup is native authority and never runs for plugin effects.
+            let canonical = path.canonicalize().ok()?;
+            self.documents
+                .values()
+                .find(|doc| doc.is_restricted_adoption() && doc.path() == Some(canonical.as_path()))
+                .map(Document::id)
+        });
 
         let id = if let Some(id) = id {
+            if self.documents[&id].is_restricted_adoption() {
+                let doc = self.documents.get_mut(&id).unwrap();
+                doc.adopt_native_authority();
+                doc.set_path(Some(&path));
+                let trust_full = self
+                    .workspace_trust
+                    .query(doc.workspace_root(), TrustQuery::Git)
+                    .is_trusted();
+                doc.refresh_vcs(&self.diff_providers, trust_full);
+                self.launch_language_servers(id);
+                self.refresh_vcs_watches();
+            }
             id
         } else {
             let mut doc = Document::open(
@@ -963,7 +1040,7 @@ impl Editor {
 
             let diagnostics =
                 Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, &doc);
-            doc.replace_diagnostics(diagnostics, &[], None);
+            doc.replace_language_server_diagnostics(diagnostics);
 
             let trust_full = self
                 .workspace_trust
@@ -994,7 +1071,28 @@ impl Editor {
         Ok(id)
     }
 
+    /// Adopt a fully prepared scoped-read document without reopening its path,
+    /// discovering repositories or starting configured providers. Native `open`
+    /// may later promote it through the normal explicit user operation.
+    pub(crate) fn adopt_plugin_document(&mut self, doc: Document, action: Action) -> DocumentId {
+        debug_assert!(doc.is_restricted_adoption());
+        let path = doc.path().expect("scoped document has a path");
+        let id = if let Some(id) = self.document_id_by_path(path) {
+            id
+        } else {
+            let id = self.new_document(doc);
+            event::dispatch(DocumentDidOpen {
+                editor: self,
+                doc: id,
+            });
+            id
+        };
+        self.switch(id, action);
+        id
+    }
+
     pub fn close(&mut self, id: ViewId) {
+        self.cancel_plugin_target(None, Some(id.as_u64()));
         // Remove selections for the closed view on all documents.
         for doc in self.documents_mut() {
             doc.remove_view(id);
@@ -1051,6 +1149,8 @@ impl Editor {
             }
         }
 
+        self.cancel_plugin_target(Some(doc_id.as_u64()), None);
+        self.clear_plugin_document_settings(doc_id.as_u64());
         let doc = self.documents.remove(&doc_id).unwrap();
         self.refresh_vcs_watches();
 
@@ -1071,8 +1171,9 @@ impl Editor {
                 });
             let view = View::new(doc_id, self.config().gutters.clone());
             let view_id = self.tree.insert(view);
+            let binding_revision = self.tree.get(view_id).binding_revision();
             let doc = doc_mut!(self, &doc_id);
-            doc.ensure_view_init(view_id);
+            doc.bind_view(view_id, binding_revision);
             doc.mark_as_focused();
         }
 
@@ -1094,6 +1195,7 @@ impl Editor {
 
         let path = path.map(|path| path.into());
         let doc = doc_mut!(self, &doc_id);
+        doc.adopt_native_authority();
         // the path that will be written: the override, else the document's own path
         let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
         let created = save_path.as_ref().is_some_and(|path| !path.exists());
@@ -1105,6 +1207,14 @@ impl Editor {
         let watched = save_path
             .as_deref()
             .is_some_and(|path| self.file_watcher.is_watching(path));
+        let sender = self
+            .saves
+            .get(&doc_id)
+            .ok_or_else(|| anyhow!("saves are closed for this document!"))?;
+        let task = crate::callbacks::InvocationTask::new(self.invocation_tasks());
+        let failed_enqueue = task
+            .as_ref()
+            .map(crate::callbacks::InvocationTask::completion);
         let future = async move {
             let res = doc_save_future.await;
             if !watched && let Ok(event) = &res {
@@ -1117,16 +1227,24 @@ impl Editor {
                     },
                 );
             }
+            if let Some(task) = task {
+                task.finish(match &res {
+                    Ok(_) => crate::callbacks::TaskOutcome::Success,
+                    Err(error) => crate::callbacks::TaskOutcome::Error(error.to_string()),
+                });
+            }
             res
         };
 
         use futures_util::stream;
 
-        self.saves
-            .get(&doc_id)
-            .ok_or_else(|| anyhow::format_err!("saves are closed for this document!"))?
-            .send(stream::once(Box::pin(future)))
-            .map_err(|err| anyhow!("failed to send save event: {}", err))?;
+        sender.send(stream::once(Box::pin(future))).map_err(|err| {
+            let error = anyhow!("failed to send save event: {}", err);
+            if let Some(completion) = failed_enqueue {
+                completion.finish(crate::callbacks::TaskOutcome::Error(error.to_string()));
+            }
+            error
+        })?;
 
         self.write_count += 1;
 
@@ -1162,6 +1280,7 @@ impl Editor {
         dispatch(DocumentFocusLost {
             editor: self,
             doc: focus_lost,
+            view: prev_id,
         });
     }
 
@@ -1398,24 +1517,34 @@ impl Editor {
     }
 
     pub async fn flush_writes(&mut self) -> anyhow::Result<()> {
+        let mut first_error = None;
         while self.write_count > 0 {
-            if let Some(save_event) = self.save_queue.next().await {
-                self.write_count -= 1;
-
-                let save_event = match save_event {
-                    Ok(event) => event,
-                    Err(err) => {
-                        self.set_error(|| err.to_string());
-                        bail!(err);
-                    }
-                };
-
-                let doc = doc_mut!(self, &save_event.doc_id);
-                doc.set_last_saved_revision(save_event.revision, save_event.save_time);
+            let Some(result) = self.save_queue.next().await else {
+                bail!("save queue closed with unfinished writes");
+            };
+            self.write_count -= 1;
+            match result {
+                Ok(event) => self.complete_document_write(&event),
+                Err(error) => {
+                    self.set_error(|| error.to_string());
+                    first_error.get_or_insert(error);
+                }
             }
         }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
 
-        Ok(())
+    /// The shared successful-write completion path, including write-and-quit.
+    /// The event describes the written text, not edits made after submission.
+    pub fn complete_document_write(&mut self, event: &crate::document::DocumentSavedEvent) {
+        if let Some(doc) = self.document_mut(event.doc_id) {
+            doc.set_last_saved_revision(event.revision, event.save_time);
+            self.set_doc_path(event.doc_id, &event.path);
+        }
+        self.queue_plugin_write_completed(event);
     }
 
     /// Switches the editor into normal mode.
@@ -1483,6 +1612,9 @@ impl Editor {
         let mut paths = Vec::new();
         if self.config().files.watch.watch_vcs {
             for doc in self.documents.values() {
+                if doc.is_restricted_adoption() {
+                    continue;
+                }
                 let Some(path) = doc.path().and_then(|path| path.parent()) else {
                     continue;
                 };
@@ -1555,6 +1687,7 @@ impl Editor {
             dispatch(DocumentFocusLost {
                 editor: self,
                 doc: old_doc_id,
+                view: view_id,
             });
         }
         let (view, doc) = current!(self);

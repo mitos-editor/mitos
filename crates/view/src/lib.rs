@@ -30,6 +30,7 @@ pub mod gutter;
 pub mod handlers;
 pub mod icons;
 pub mod info;
+pub mod plugins;
 pub mod quicklist;
 pub mod register;
 pub mod save;
@@ -53,6 +54,13 @@ impl Default for DocumentId {
     }
 }
 
+impl DocumentId {
+    /// The stable numeric identifier exposed to external editor integrations.
+    pub fn as_u64(self) -> u64 {
+        self.0.get() as u64
+    }
+}
+
 #[cfg(test)]
 impl DocumentId {
     /// Constructs a `DocumentId` with the given non-zero id, for use in tests
@@ -71,6 +79,18 @@ impl std::fmt::Display for DocumentId {
 slotmap::new_key_type! {
     /// Generational identifier for a view in the editor's split tree.
     pub struct ViewId;
+}
+
+impl ViewId {
+    /// Includes the slot generation, so a closed split's handle cannot alias a new split.
+    pub fn as_u64(self) -> u64 {
+        use slotmap::Key;
+        self.data().as_ffi()
+    }
+
+    pub(crate) fn from_u64(value: u64) -> Self {
+        slotmap::KeyData::from_ffi(value).into()
+    }
 }
 
 /// Vertical placement used when scrolling a cursor into a view.

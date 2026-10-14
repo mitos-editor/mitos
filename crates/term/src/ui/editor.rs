@@ -1,7 +1,7 @@
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Cursor, Event, EventResult},
-    events::{OnModeSwitch, PostCommand},
+    events::{CommandOrigin, OnModeSwitch, TerminalFocusGained, TerminalFocusLost},
     key,
     keymap::{KeymapResult, Keymaps},
     ui::{
@@ -95,6 +95,44 @@ impl EditorView {
 
     pub fn spinners_mut(&mut self) -> &mut ProgressSpinners {
         &mut self.spinners
+    }
+
+    pub(crate) fn set_next_key_callback(
+        &mut self,
+        callback: (commands::OnKeyCallback, OnKeyCallbackKind),
+    ) {
+        self.on_next_key = Some(callback);
+    }
+
+    fn finish_command_event(
+        &mut self,
+        result: EventResult,
+        cx: &mut commands::Context,
+    ) -> EventResult {
+        if let Some(callback) = cx.on_next_key_callback.take() {
+            self.on_next_key = Some(callback);
+        }
+        let callbacks = take(&mut cx.callback);
+        if callbacks.is_empty() {
+            return result;
+        }
+        let (consumed, callback) = match result {
+            EventResult::Consumed(callback) => (true, callback),
+            EventResult::Ignored(callback) => (false, callback),
+        };
+        let callback: crate::compositor::Callback = Box::new(move |compositor, cx| {
+            for callback in callbacks {
+                callback(compositor, cx);
+            }
+            if let Some(callback) = callback {
+                callback(compositor, cx);
+            }
+        });
+        if consumed {
+            EventResult::Consumed(Some(callback))
+        } else {
+            EventResult::Ignored(Some(callback))
+        }
     }
 
     pub(crate) fn record_insert_event(&mut self, event: InsertEvent) {
@@ -289,7 +327,7 @@ impl EditorView {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
         }
 
-        if is_focused && config.cursor.highlight_line {
+        if is_focused && doc.plugin_cursorline(config.cursor.highlight_line) {
             decorations.add_decoration(Self::cursorline(doc, view, theme));
         }
 
@@ -1312,8 +1350,7 @@ impl EditorView {
         cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
 
         let mut execute_command = |command: &commands::MappableCommand| {
-            command.execute(cxt);
-            event::dispatch(PostCommand { command, cx: cxt });
+            command.execute_with_origin(cxt, CommandOrigin::Keymap);
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
@@ -1368,7 +1405,7 @@ impl EditorView {
                                 if let KeymapResult::Matched(command) =
                                     self.keymaps.get(Mode::Insert, ev)
                                 {
-                                    command.execute(cx);
+                                    command.execute_with_origin(cx, CommandOrigin::Keymap);
                                 }
                             }
                         }
@@ -1406,7 +1443,7 @@ impl EditorView {
                         LastEdit::Insert(command, events) => (command, events),
                     };
                     // first execute whatever put us into insert mode
-                    command.execute(cxt);
+                    command.execute_with_origin(cxt, CommandOrigin::Repeat);
                     let mut last_savepoint = None;
                     let mut last_request_savepoint = None;
                     // then replay the inputs
@@ -1768,10 +1805,10 @@ impl EditorView {
                         if let Some(pos) = view.pos_at_visual_coords(doc, pos.row as u16, 0, true) {
                             doc.set_selection(view_id, Selection::point(pos));
                             match modifiers {
-                                KeyModifiers::ALT => {
-                                    commands::MappableCommand::dap_edit_log.execute(cxt)
-                                }
-                                _ => commands::MappableCommand::dap_edit_condition.execute(cxt),
+                                KeyModifiers::ALT => commands::MappableCommand::dap_edit_log
+                                    .execute_with_origin(cxt, CommandOrigin::Mouse),
+                                _ => commands::MappableCommand::dap_edit_condition
+                                    .execute_with_origin(cxt, CommandOrigin::Mouse),
                             };
                         }
                     }
@@ -1880,7 +1917,7 @@ impl Component for EditorView {
                     doc.append_changes_to_history(view);
                 }
 
-                EventResult::Consumed(None)
+                self.finish_command_event(EventResult::Consumed(None), &mut cx)
             }
             Event::Resize(_width, _height) => {
                 // Ignore this event, we handle resizing just before rendering to screen.
@@ -1992,16 +2029,27 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
+            Event::Mouse(event) => {
+                let result = self.handle_mouse_event(event, &mut cx);
+                self.finish_command_event(result, &mut cx)
+            }
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
+                let changed = !self.terminal_focused;
                 self.terminal_focused = true;
-                view::handlers::auto_reload::check_unwatched(context.editor);
+                view::handlers::auto_reload::check_unwatched(cx.editor);
+                if changed {
+                    event::dispatch(TerminalFocusGained { cx: &mut cx });
+                }
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {
-                view::handlers::auto_save::focus_lost(context.editor);
+                let changed = self.terminal_focused;
+                view::handlers::auto_save::focus_lost(cx.editor);
                 self.terminal_focused = false;
+                if changed {
+                    event::dispatch(TerminalFocusLost { cx: &mut cx });
+                }
                 EventResult::Consumed(None)
             }
         }

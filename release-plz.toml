@@ -16,7 +16,7 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
   "command-line", "core", "dap", "dap-types", "event", "loader", "lsp",
-  "lsp-types", "parsec", "snippets", "stdx", "tui", "ui-core", "vcs", "view", "xtask",
+  "lsp-types", "parsec", "plugin-sdk", "plugins", "snippets", "stdx", "tui", "ui-core", "vcs", "view", "xtask",
 ]
 git_release_name = "Mitos {{ version }}"
 git_release_enable = true
