@@ -19,3 +19,6 @@ mod workspace_trust;
 
 #[path = "handler_setup/auto_save.rs"]
 mod auto_save;
+
+#[path = "handler_setup/diagnostic_refresh.rs"]
+mod diagnostic_refresh;
