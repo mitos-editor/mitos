@@ -755,7 +755,7 @@ impl Editor {
         let scrolloff = self.config().scroll.padding;
         let view = self.tree.get_mut(current_view);
 
-        view.doc = doc_id;
+        view.bind_document(doc_id);
         let doc = doc_mut!(self, &doc_id);
 
         doc.ensure_view_init(view.id);
