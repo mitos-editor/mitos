@@ -1,7 +1,7 @@
 use crate::{
     file_operations::FileOperationsInterest,
     find_lsp_workspace, jsonrpc,
-    transport::{Payload, Transport},
+    transport::{Payload, PendingRequests, Transport},
     Call, Error, LanguageServerId, OffsetEncoding, Result,
 };
 use log::info;
@@ -35,7 +35,7 @@ use tokio::{
     io::{BufReader, BufWriter},
     process::{Child, Command},
     sync::{
-        mpsc::{channel, UnboundedReceiver, UnboundedSender},
+        mpsc::{UnboundedReceiver, UnboundedSender},
         Notify, OnceCell,
     },
 };
@@ -58,11 +58,16 @@ fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
 /// Construction returns a receiver for server-originated calls. The client
 /// handles responses to its own requests internally, but the editor event loop
 /// must keep polling server requests and notifications.
+///
+/// Requests are queued when their futures are created. Dropping a request future
+/// or reaching its configured deadline cancels local tracking and asks the server
+/// to stop any work already sent. Cancellation is best effort on the server.
 pub struct Client {
     id: LanguageServerId,
     name: String,
     _process: Child,
     server_tx: UnboundedSender<Payload>,
+    pending_requests: Arc<PendingRequests>,
     request_counter: AtomicU64,
     pub(crate) capabilities: OnceCell<lsp::ServerCapabilities>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
@@ -73,7 +78,7 @@ pub struct Client {
     initialize_notify: Arc<Notify>,
     /// Notified by the transport once `exit` has been flushed to the server's stdin.
     shutdown_flushed: Arc<Notify>,
-    /// workspace folders added while the server is still initializing
+    /// Maximum request duration in seconds, including time queued for writing.
     req_timeout: u64,
 }
 
@@ -262,8 +267,7 @@ impl Client {
         let reader = BufReader::new(process.stdout.take().expect("Failed to open stdout"));
         let stderr = BufReader::new(process.stderr.take().expect("Failed to open stderr"));
 
-        let (server_rx, server_tx, initialize_notify, shutdown_flushed) =
-            Transport::start(reader, writer, stderr, id, name.clone());
+        let connection = Transport::start(reader, writer, stderr, id, name.clone());
 
         let workspace_folders = root_uri
             .clone()
@@ -274,7 +278,8 @@ impl Client {
             id,
             name,
             _process: process,
-            server_tx,
+            server_tx: connection.sender,
+            pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),
             capabilities: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
@@ -283,11 +288,11 @@ impl Client {
             root_path,
             root_uri,
             workspace_folders: Mutex::new(workspace_folders),
-            initialize_notify: initialize_notify.clone(),
-            shutdown_flushed,
+            initialize_notify: connection.initialized.clone(),
+            shutdown_flushed: connection.shutdown_flushed,
         };
 
-        Ok((client, server_rx, initialize_notify))
+        Ok((client, connection.receiver, connection.initialized))
     }
 
     pub fn name(&self) -> &str {
@@ -301,17 +306,6 @@ impl Client {
     fn next_request_id(&self) -> jsonrpc::Id {
         let id = self.request_counter.fetch_add(1, Ordering::Relaxed);
         jsonrpc::Id::Num(id)
-    }
-
-    fn value_into_params(value: Value) -> jsonrpc::Params {
-        use jsonrpc::Params;
-
-        match value {
-            Value::Null => Params::None,
-            Value::Bool(_) | Value::Number(_) | Value::String(_) => Params::Array(vec![value]),
-            Value::Array(vec) => Params::Array(vec),
-            Value::Object(map) => Params::Map(map),
-        }
     }
 
     pub fn is_initialized(&self) -> bool {
@@ -481,7 +475,7 @@ impl Client {
         self.workspace_folders.lock()
     }
 
-    /// Execute a RPC request on the language server.
+    /// Queue a request with the server's configured timeout and cancellation on drop.
     fn call<R: lsp::request::Request>(
         &self,
         params: R::Params,
@@ -510,40 +504,12 @@ impl Client {
     where
         R::Params: serde::Serialize,
     {
-        let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
-
-        // It's important that this is not part of the future so that it gets executed right away
-        // and the request order stays consistent.
-        let rx = serde_json::to_value(params)
-            .map_err(Error::from)
-            .and_then(|params| {
-                let request = jsonrpc::MethodCall {
-                    jsonrpc: Some(jsonrpc::Version::V2),
-                    id: id.clone(),
-                    method: R::METHOD.to_string(),
-                    params: Self::value_into_params(params),
-                };
-                let (tx, rx) = channel::<Result<Value>>(1);
-                server_tx
-                    .send(Payload::Request {
-                        chan: tx,
-                        value: request,
-                    })
-                    .map_err(|e| Error::Other(e.into()))?;
-                Ok(rx)
-            });
-
-        async move {
-            use std::time::Duration;
-            use tokio::time::timeout;
-            // TODO: delay other calls until initialize success
-            timeout(Duration::from_secs(timeout_secs), rx?.recv())
-                .await
-                .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)?
-                .and_then(|value| serde_json::from_value(value).map_err(Into::into))
-        }
+        self.pending_requests.request::<R>(
+            &self.server_tx,
+            self.next_request_id(),
+            params,
+            timeout_secs,
+        )
     }
 
     /// Send a RPC notification to the language server.
@@ -568,7 +534,7 @@ impl Client {
         let notification = jsonrpc::Notification {
             jsonrpc: Some(jsonrpc::Version::V2),
             method: R::METHOD.to_string(),
-            params: Self::value_into_params(params),
+            params: params.into(),
         };
 
         if let Err(err) = server_tx.send(Payload::Notification(notification)) {
@@ -866,12 +832,9 @@ impl Client {
             method: <lsp::request::Shutdown as lsp::request::Request>::METHOD.to_string(),
             params: jsonrpc::Params::None,
         };
-        // The response receiver is dropped immediately; we do not wait for a reply.
-        let (chan, _) = tokio::sync::mpsc::channel(1);
-        let _ = self.server_tx.send(Payload::Request {
-            chan,
-            value: request,
-        });
+        let _ = self
+            .pending_requests
+            .send_fire_and_forget(&self.server_tx, request);
         self.exit();
     }
 

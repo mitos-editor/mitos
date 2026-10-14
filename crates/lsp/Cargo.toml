@@ -36,3 +36,6 @@ arc-swap.workspace = true
 slotmap.workspace = true
 thiserror.workspace = true
 sonic-rs.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

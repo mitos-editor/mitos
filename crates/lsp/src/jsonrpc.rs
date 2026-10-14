@@ -212,6 +212,17 @@ impl Params {
     }
 }
 
+impl From<Value> for Params {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => Params::None,
+            Value::Bool(_) | Value::Number(_) | Value::String(_) => Params::Array(vec![value]),
+            Value::Array(vec) => Params::Array(vec),
+            Value::Object(map) => Params::Map(map),
+        }
+    }
+}
+
 impl From<Params> for Value {
     fn from(params: Params) -> Value {
         match params {
