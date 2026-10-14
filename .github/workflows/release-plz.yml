@@ -31,7 +31,7 @@ jobs:
           cache-key: release-plz
 
       - name: Prepare release PR
-        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
+        uses: release-plz/action@f393a7b38aca9d9b4c58447b291dbac963901df6 # v0.5.141
         with:
           command: release-pr
           version: '0.3.169'
@@ -39,7 +39,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
 
       - name: Publish merged release
-        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
+        uses: release-plz/action@f393a7b38aca9d9b4c58447b291dbac963901df6 # v0.5.141
         with:
           command: release
           version: '0.3.169'
