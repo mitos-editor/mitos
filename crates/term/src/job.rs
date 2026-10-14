@@ -181,12 +181,11 @@ impl Jobs {
     ) -> anyhow::Result<()> {
         log::debug!("waiting on jobs...");
         let mut wait_futures = std::mem::take(&mut self.wait_futures);
+        let mut first_error = None;
 
-        while let (Some(job), tail) = StreamExt::into_future(wait_futures).await {
+        while let Some(job) = wait_futures.next().await {
             match job {
                 Ok(callback) => {
-                    wait_futures = tail;
-
                     if let Some(callback) = callback {
                         // clippy doesn't realize this is an error without the derefs
                         #[allow(clippy::needless_option_as_deref)]
@@ -210,13 +209,15 @@ impl Jobs {
                     }
                 }
                 Err(e) => {
-                    self.wait_futures = tail;
-                    return Err(e);
+                    first_error.get_or_insert(e);
                 }
             }
         }
 
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
@@ -285,5 +286,48 @@ mod tests {
         drop(first);
         sender.send(|_, _| {}).await;
         sender.send_blocking(|_, _| {});
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod completion_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{application::Application, args::Args, config::Config};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn failed_required_jobs_do_not_skip_callbacks_or_their_followups() -> anyhow::Result<()> {
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.poll.enable = false;
+        let mut app = Application::new(
+            Args::default(),
+            config,
+            editor_core::syntax::Loader::new(
+                toml::from_str("language = []")?,
+                loader::syntax::Resources::default(),
+            )?,
+            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        )?;
+        let mut jobs = Jobs::new();
+        let applied = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let captured = applied.clone();
+        jobs.add(Job::new(async { anyhow::bail!("first failure") }).wait_before_exiting());
+        let continuation = Job::with_callback(async move {
+            Ok(Callback::Editor(Box::new(move |_| {
+                captured.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            })))
+        })
+        .wait_before_exiting();
+        let followup = Callback::Followup(Box::new(move |_| Some(continuation)));
+        jobs.add(Job::with_callback(async { Ok(followup) }).wait_before_exiting());
+        let error = jobs.finish(&mut app.editor, None).await.unwrap_err();
+        assert_eq!(error.to_string(), "first failure");
+        assert_eq!(applied.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(jobs.wait_futures.is_empty());
+        assert!(app.close().await.is_empty());
+        Ok(())
     }
 }

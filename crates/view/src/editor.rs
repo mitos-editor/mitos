@@ -1504,24 +1504,38 @@ impl Editor {
     }
 
     pub async fn flush_writes(&mut self) -> anyhow::Result<()> {
+        let mut first_error = None;
         while self.write_count > 0 {
-            if let Some(save_event) = self.save_queue.next().await {
-                self.write_count -= 1;
-
-                let save_event = match save_event {
-                    Ok(event) => event,
-                    Err(err) => {
-                        self.set_error(|| err.to_string());
-                        bail!(err);
-                    }
-                };
-
-                let doc = doc_mut!(self, &save_event.doc_id);
-                doc.set_last_saved_revision(save_event.revision, save_event.save_time);
+            let Some(result) = self.save_queue.next().await else {
+                bail!("save queue closed with unfinished writes");
+            };
+            self.write_count -= 1;
+            match result {
+                Ok(event) => self.complete_document_write(&event),
+                Err(error) => {
+                    self.set_error(|| error.to_string());
+                    first_error.get_or_insert(error);
+                }
             }
         }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
 
-        Ok(())
+    /// The shared successful-write completion path, including write-and-quit.
+    /// The event describes the written text, not edits made after submission.
+    pub fn complete_document_write(&mut self, event: &crate::document::DocumentSavedEvent) {
+        if let Some(doc) = self.document_mut(event.doc_id) {
+            log::debug!(
+                "document {:?} saved with revision {}",
+                doc.path(),
+                event.revision
+            );
+            doc.set_last_saved_revision(event.revision, event.save_time);
+            self.set_doc_path(event.doc_id, &event.path);
+        }
     }
 
     /// Switches the editor into normal mode.

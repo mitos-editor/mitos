@@ -27,7 +27,7 @@ use crate::{
     ui::{self, overlay::overlaid},
 };
 
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use std::{
     io::{stdin, IsTerminal},
     path::Path,
@@ -610,25 +610,14 @@ impl Application {
             }
         };
 
-        let doc = match self.editor.document_mut(doc_save_event.doc_id) {
-            None => {
-                warn!(
-                    "received document saved event for non-existent doc id: {}",
-                    doc_save_event.doc_id
-                );
-
-                return;
-            }
-            Some(doc) => doc,
-        };
-
-        debug!(
-            "document {:?} saved with revision {}",
-            doc.path(),
-            doc_save_event.revision
-        );
-
-        doc.set_last_saved_revision(doc_save_event.revision, doc_save_event.save_time);
+        if self.editor.document(doc_save_event.doc_id).is_none() {
+            warn!(
+                "received document saved event for non-existent doc id: {}",
+                doc_save_event.doc_id
+            );
+            return;
+        }
+        self.editor.complete_document_write(&doc_save_event);
 
         let lines = doc_save_event.text.len_lines();
         let size = doc_save_event.text.len_bytes();
@@ -660,8 +649,6 @@ impl Application {
             Size::HumanReadable(size, SUFFIX[i])
         };
 
-        self.editor
-            .set_doc_path(doc_save_event.doc_id, &doc_save_event.path);
         // TODO: fix being overwritten by lsp
         self.editor.set_status(format!(
             "'{}' written, {lines}L {size}",
