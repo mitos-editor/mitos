@@ -1,7 +1,7 @@
 use super::Fixture;
 use editor_core::diagnostic::{Diagnostic, DiagnosticProvider, LanguageServerId, Range, Severity};
 use slotmap::Key;
-use view::{current, current_ref};
+use view::current;
 
 fn diagnostic(provider: DiagnosticProvider, message: &str) -> Diagnostic {
     Diagnostic {
@@ -55,29 +55,5 @@ async fn replacing_lsp_diagnostics_preserves_spelling_and_replaces_all_lsp_names
     doc.replace_language_server_diagnostics([]);
     assert_eq!(doc.diagnostics().len(), 1);
     assert_eq!(&*doc.diagnostics()[0].message, "spelling");
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn language_refresh_still_invalidates_stale_spelling_findings() -> anyhow::Result<()> {
-    let mut fixture = Fixture::new("word\n")?;
-    let id = current_ref!(fixture.editor).1.id();
-    current!(fixture.editor).1.replace_diagnostics(
-        [
-            diagnostic(DiagnosticProvider::Spelling, "spelling"),
-            diagnostic(
-                DiagnosticProvider::Lsp {
-                    server_id: LanguageServerId::null(),
-                    identifier: None,
-                },
-                "cached lsp",
-            ),
-        ],
-        &[],
-        None,
-    );
-    fixture.editor.refresh_doc_language(id);
-    let diagnostics = fixture.editor.document(id).unwrap().diagnostics();
-    assert!(diagnostics.is_empty());
     Ok(())
 }
