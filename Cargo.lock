@@ -824,7 +824,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3160,7 +3160,7 @@ checksum = "c0bf912d9e66f057a759d92e386a280ea886b352ab757d6ac4d653c7ed2c43c2"
 dependencies = [
  "instability",
  "ratatui-core",
- "termina",
+ "termina 0.3.3",
 ]
 
 [[package]]
@@ -3348,7 +3348,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3361,7 +3361,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3407,7 +3407,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3842,7 +3842,7 @@ dependencies = [
  "getrandom 0.4.1",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3882,7 +3882,7 @@ dependencies = [
  "spelling",
  "stdx",
  "tempfile",
- "termina",
+ "termina 0.4.0",
  "termini",
  "thiserror 2.0.21",
  "tokio",
@@ -3899,6 +3899,19 @@ name = "termina"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9048a889effe34a5cddee0af7f53285198b16dca3be510858d38dfdb3e62a04e"
+dependencies = [
+ "bitflags 2.13.2",
+ "parking_lot",
+ "rustix 1.1.5",
+ "signal-hook 0.3.18",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "termina"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "881a7f20ade48167027822c52a0aeca879afa3174b15c71997827826bce669f9"
 dependencies = [
  "bitflags 2.13.2",
  "futures-core",
@@ -4214,7 +4227,7 @@ dependencies = [
  "crossterm",
  "log",
  "ratatui",
- "termina",
+ "termina 0.4.0",
  "termini",
  "ui-core",
  "unicode-segmentation",
@@ -4242,7 +4255,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde",
- "termina",
+ "termina 0.4.0",
  "unicode-segmentation",
  "unicode-width",
 ]
@@ -4676,7 +4689,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
