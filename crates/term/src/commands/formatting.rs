@@ -11,6 +11,7 @@ pub(super) fn format_selections(cx: &mut Context) {
 
     let (view, doc) = current!(cx.editor);
     let view_id = view.id;
+    let binding_revision = view.binding_revision();
 
     // via lsp if available
     // TODO: else via tree-sitter indentation calculations
@@ -66,28 +67,27 @@ pub(super) fn format_selections(cx: &mut Context) {
     let doc_id = doc.id();
     let doc_version = doc.version();
 
-    let callbacks = cx.editor.callback_sender().clone();
-    tokio::spawn(async move {
-        match future.await {
-            Ok(Some(res)) => {
-                let transaction =
-                    lsp_client::util::generate_transaction_from_edits(&text, res, offset_encoding);
-                callbacks
-                    .send(move |editor| {
-                        let Some(doc) = editor.document_mut(doc_id) else {
-                            return;
-                        };
-                        // Updating a desynced document causes problems with applying the transaction
-                        if doc.version() != doc_version {
-                            return;
-                        }
-                        doc.apply(&transaction, view_id);
-                    })
-                    .await
+    cx.jobs.callback(async move {
+        let response = future.await?;
+        Ok(Callback::Editor(Box::new(move |editor| {
+            let Some(edits) = response else {
+                return;
+            };
+            if editor.tree.try_get(view_id).is_none_or(|view| {
+                view.doc != doc_id || view.binding_revision() != binding_revision
+            }) {
+                return;
             }
-            Err(err) => log::error!("format sections failed: {err}"),
-            Ok(None) => (),
-        }
+            let Some(doc) = editor.document_mut(doc_id) else {
+                return;
+            };
+            if doc.version() != doc_version {
+                return;
+            }
+            let transaction =
+                lsp_client::util::generate_transaction_from_edits(&text, edits, offset_encoding);
+            doc.apply(&transaction, view_id);
+        })))
     });
 }
 
@@ -100,32 +100,37 @@ pub(super) async fn make_format_callback(
     doc_id: DocumentId,
     doc_version: i32,
     view_id: ViewId,
+    binding_revision: u64,
     format: impl Future<Output = Result<Transaction, FormatterError>> + Send + 'static,
 ) -> anyhow::Result<job::Callback> {
     let format = format.await;
 
     let call: job::Callback = Callback::Editor(Box::new(move |editor| {
-        if !editor.documents.contains_key(&doc_id) || !editor.tree.contains(view_id) {
+        if !editor.documents.contains_key(&doc_id) {
             return;
         }
+        let current_binding = editor
+            .tree
+            .try_get(view_id)
+            .is_some_and(|view| view.doc == doc_id && view.binding_revision() == binding_revision);
+        if current_binding {
+            let scrolloff = editor.config().scroll.padding;
+            let doc = doc_mut!(editor, &doc_id);
+            let view = view_mut!(editor, view_id);
 
-        let scrolloff = editor.config().scroll.padding;
-        let doc = doc_mut!(editor, &doc_id);
-        let view = view_mut!(editor, view_id);
-
-        match format {
-            Ok(format) => {
-                if doc.version() == doc_version {
+            match format {
+                Ok(format) if doc.version() == doc_version => {
                     doc.apply(&format, view.id);
                     doc.append_changes_to_history(view);
                     doc.detect_indent_and_line_ending();
                     view.ensure_cursor_in_view(doc, scrolloff);
-                } else {
+                }
+                Ok(_) => {
                     log::info!("discarded formatting changes because the document changed");
                 }
-            }
-            Err(err) => {
-                editor.set_error(|| err.to_string());
+                Err(err) => {
+                    editor.set_error(|| err.to_string());
+                }
             }
         }
     }));
@@ -154,9 +159,183 @@ pub(super) mod typed {
         let format = doc.format(cx.editor).context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;
-        let callback = make_format_callback(doc.id(), doc.version(), view.id, format);
+        let callback = make_format_callback(
+            doc.id(),
+            doc.version(),
+            view.id,
+            view.binding_revision(),
+            format,
+        );
         cx.jobs.callback(callback);
 
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use super::*;
+    use crate::{application::Application, args::Args, config::Config};
+    use view::editor::Action;
+
+    fn application() -> anyhow::Result<Application> {
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.enable = false;
+        config.editor.files.reload.poll.enable = false;
+        let mut app = Application::new(
+            Args::default(),
+            config,
+            editor_core::syntax::Loader::new(
+                toml::from_str("language = []")?,
+                loader::syntax::Resources::default(),
+            )?,
+            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        )?;
+        let (view, doc) = current!(app.editor);
+        let transaction = Transaction::change(
+            doc.text(),
+            [(0, doc.text().len_chars(), Some("original\n".into()))].into_iter(),
+        );
+        assert!(doc.apply(&transaction, view.id));
+        doc.append_changes_to_history(view);
+        Ok(app)
+    }
+
+    async fn formatting_callback(
+        app: &Application,
+    ) -> anyhow::Result<(DocumentId, ViewId, Callback)> {
+        let (view, doc) = current_ref!(app.editor);
+        let transaction = Transaction::change(
+            doc.text(),
+            [(0, doc.text().len_chars(), Some("formatted\n".into()))].into_iter(),
+        );
+        let callback = make_format_callback(
+            doc.id(),
+            doc.version(),
+            view.id,
+            view.binding_revision(),
+            async { Ok(transaction) },
+        )
+        .await?;
+        Ok((doc.id(), view.id, callback))
+    }
+
+    fn apply(app: &mut Application, callback: Callback) {
+        let Callback::Editor(callback) = callback else {
+            panic!("expected editor callback")
+        };
+        callback(&mut app.editor);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn formatting_applies_when_the_original_view_binding_is_current() -> anyhow::Result<()> {
+        let mut app = application()?;
+        let (doc, _, callback) = formatting_callback(&app).await?;
+        apply(&mut app, callback);
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "formatted\n"
+        );
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn formatting_is_discarded_after_switching_documents() -> anyhow::Result<()> {
+        let mut app = application()?;
+        let (doc, _, callback) = formatting_callback(&app).await?;
+        let other = app.editor.new_file(Action::Replace);
+        let other_text = app.editor.document(other).unwrap().text().clone();
+        apply(&mut app, callback);
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "original\n"
+        );
+        assert_eq!(app.editor.document(other).unwrap().text(), &other_text);
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn switching_away_and_back_does_not_revive_a_formatting_callback() -> anyhow::Result<()> {
+        let mut app = application()?;
+        let (doc, _, callback) = formatting_callback(&app).await?;
+        app.editor.new_file(Action::Replace);
+        app.editor.switch(doc, Action::Replace);
+        apply(&mut app, callback);
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "original\n"
+        );
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn closing_the_origin_view_does_not_apply_formatting_to_another_split(
+    ) -> anyhow::Result<()> {
+        let mut app = application()?;
+        let (doc, view, callback) = formatting_callback(&app).await?;
+        app.editor.switch(doc, Action::VerticalSplit);
+        app.editor.close(view);
+        apply(&mut app, callback);
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "original\n"
+        );
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn save_writes_current_text_after_the_origin_view_is_rebound() -> anyhow::Result<()> {
+        let mut app = application()?;
+        let dir = tempfile::tempdir()?;
+        let target = dir.path().join("saved.txt");
+        let (view, document) = current_ref!(app.editor);
+        let (doc, view) = (document.id(), view.id);
+        let request = view::save::PreparedSave {
+            doc_id: doc,
+            view_id: view,
+            path: Some(target.clone()),
+            force: false,
+            auto_format: true,
+            code_actions: false,
+        };
+        let view::save::SaveProgress::Pending(task) = view::save::submit(&mut app.editor, request)?
+        else {
+            anyhow::bail!("expected deferred save stage")
+        };
+        let update = task.run().await?;
+        app.editor.new_file(Action::Replace);
+        assert!(matches!(
+            update.apply(&mut app.editor)?,
+            view::save::SaveProgress::Queued
+        ));
+        app.editor.flush_writes().await?;
+        assert_eq!(std::fs::read_to_string(target)?, "original\n");
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "original\n"
+        );
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn formatting_is_discarded_after_the_document_changes() -> anyhow::Result<()> {
+        let mut app = application()?;
+        let (doc, _, callback) = formatting_callback(&app).await?;
+        let (view, document) = current!(app.editor);
+        let edit = Transaction::change(document.text(), [(0, 0, Some("new ".into()))].into_iter());
+        assert!(document.apply(&edit, view.id));
+        apply(&mut app, callback);
+        assert_eq!(
+            app.editor.document(doc).unwrap().text().to_string(),
+            "new original\n"
+        );
+        assert!(app.close().await.is_empty());
         Ok(())
     }
 }
