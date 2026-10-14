@@ -3,7 +3,7 @@
 use crate::merge_toml_values;
 use anyhow::{anyhow, Result};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     str,
     sync::{Arc, LazyLock},
@@ -27,12 +27,14 @@ pub static BASE16_DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
 #[derive(Clone, Debug)]
 pub struct Resources {
     theme_dirs: Arc<[PathBuf]>,
+    owned: Arc<BTreeMap<String, Value>>,
 }
 
 impl Resources {
     pub fn new(dirs: Vec<PathBuf>) -> Self {
         Self {
             theme_dirs: dirs.into_iter().map(|dir| dir.join("themes")).collect(),
+            owned: Default::default(),
         }
     }
 
@@ -40,22 +42,105 @@ impl Resources {
     /// Built-in names always refer to the embedded defaults.
     pub fn load(&self, name: &str) -> Result<Value> {
         match name {
-            "default" => Ok(DEFAULT_THEME_DATA.clone()),
-            "base16_default" => Ok(BASE16_DEFAULT_THEME_DATA.clone()),
-            _ => self.load_theme(name, &mut HashSet::new()),
+            "default" => return Ok(DEFAULT_THEME_DATA.clone()),
+            "base16_default" => return Ok(BASE16_DEFAULT_THEME_DATA.clone()),
+            _ => (),
         }
+        if let Some(theme) = self.owned.get(name) {
+            let filename = format!("{name}.toml");
+            if !self
+                .theme_dirs
+                .iter()
+                .any(|dir| dir.join(&filename).exists())
+            {
+                return Ok(theme.clone());
+            }
+        }
+        self.load_theme(name, &mut HashSet::new())
     }
 
     /// Discover names from these same roots, plus built-ins, sorted and deduplicated.
     /// Unreadable/missing directories are ignored, as in theme completion.
     pub fn names(&self) -> Vec<String> {
         let mut names = vec!["default".into(), "base16_default".into()];
+        names.extend(self.owned.keys().cloned());
         for dir in self.theme_dirs.iter() {
             names.extend(Self::read_names(dir));
         }
         names.sort();
         names.dedup();
         names
+    }
+
+    /// Prepare owned theme sources without extending the filesystem search path.
+    /// Inheritance can use the same package or a discovered native theme name.
+    /// The result is immutable and can be prepared off the editor thread.
+    pub fn with_owned_themes(&self, sources: BTreeMap<String, String>) -> Result<Self> {
+        let native = self.without_owned();
+        let allowed: HashSet<_> = native.names().into_iter().collect();
+        let parsed: BTreeMap<String, Value> = sources
+            .into_iter()
+            .map(|(name, source)| {
+                if name.split_once('.').is_none() {
+                    return Err(anyhow!("owned theme must be package-qualified"));
+                }
+                Ok((name, toml::from_str(&source)?))
+            })
+            .collect::<Result<_>>()?;
+        let mut owned = BTreeMap::new();
+        for name in parsed.keys() {
+            let value = native.resolve_owned_theme(name, &parsed, &allowed, &mut HashSet::new())?;
+            owned.insert(name.clone(), value);
+        }
+        Ok(Self {
+            theme_dirs: self.theme_dirs.clone(),
+            owned: Arc::new(owned),
+        })
+    }
+
+    pub fn without_owned(&self) -> Self {
+        Self {
+            theme_dirs: self.theme_dirs.clone(),
+            owned: Default::default(),
+        }
+    }
+
+    fn resolve_owned_theme(
+        &self,
+        name: &str,
+        sources: &BTreeMap<String, Value>,
+        native: &HashSet<String>,
+        visited: &mut HashSet<String>,
+    ) -> Result<Value> {
+        if visited.len() >= 8 || !visited.insert(name.to_owned()) {
+            return Err(anyhow!(
+                "owned theme inheritance cycle or excessive depth: {name}"
+            ));
+        }
+        let value = sources
+            .get(name)
+            .ok_or_else(|| anyhow!("missing owned theme: {name}"))?
+            .clone();
+        let Some(parent) = value.get("inherits") else {
+            return Ok(value);
+        };
+        let parent = parent
+            .as_str()
+            .ok_or_else(|| anyhow!("theme inherits must be a string"))?;
+        let owner = name.split_once('.').unwrap().0;
+        let local = format!("{owner}.{parent}");
+        let resolved = if sources.contains_key(&local) {
+            self.resolve_owned_theme(&local, sources, native, visited)?
+        } else if parent.starts_with(&format!("{owner}.")) && sources.contains_key(parent) {
+            self.resolve_owned_theme(parent, sources, native, visited)?
+        } else if native.contains(parent) {
+            self.load(parent)?
+        } else {
+            return Err(anyhow!(
+                "owned theme cannot inherit unknown or external name: {parent}"
+            ));
+        };
+        Ok(self.merge_themes(resolved, value))
     }
 
     /// Recursively load a theme, merging with any inherited parent themes.
@@ -178,6 +263,69 @@ impl Resources {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_sources_are_scoped_and_restore_without_mutating_native_roots() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "native", "\"ui.text\" = \"red\"");
+        let native = Resources::new(vec![root.path().into()]);
+        let contributed = native
+            .with_owned_themes(
+                [
+                    (
+                        "fixture.base".into(),
+                        "inherits = 'native'\n\"ui.background\" = 'blue'".into(),
+                    ),
+                    (
+                        "fixture.child".into(),
+                        "inherits = 'base'\n\"ui.cursor\" = 'yellow'".into(),
+                    ),
+                ]
+                .into(),
+            )
+            .unwrap();
+        let theme = contributed.load("fixture.child").unwrap();
+        assert_eq!(theme["ui.text"].as_str(), Some("red"));
+        assert_eq!(theme["ui.background"].as_str(), Some("blue"));
+        assert!(!native.names().contains(&"fixture.child".into()));
+        assert!(contributed.without_owned().load("fixture.child").is_err());
+    }
+
+    #[test]
+    fn owned_theme_inheritance_rejects_external_names() {
+        let resources = Resources::new(vec![]);
+        assert!(resources
+            .with_owned_themes([("fixture.bad".into(), "inherits = '../outside'".into())].into())
+            .is_err());
+    }
+
+    #[test]
+    fn owned_theme_inheritance_rejects_cycles() {
+        let resources = Resources::new(vec![]);
+        assert!(resources
+            .with_owned_themes(
+                [
+                    ("fixture.a".into(), "inherits = 'b'".into()),
+                    ("fixture.b".into(), "inherits = 'a'".into()),
+                ]
+                .into()
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn native_theme_names_take_precedence_over_owned_sources() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "fixture.theme", "\"ui.text\" = 'red'");
+        let resources = Resources::new(vec![root.path().into()]);
+        let owned = resources
+            .with_owned_themes([("fixture.theme".into(), "\"ui.text\" = 'blue'".into())].into())
+            .unwrap();
+        assert_eq!(
+            owned.load("fixture.theme").unwrap()["ui.text"].as_str(),
+            Some("red")
+        );
+    }
 
     fn write(root: &Path, name: &str, source: &str) {
         std::fs::create_dir_all(root.join("themes")).unwrap();
