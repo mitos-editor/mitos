@@ -97,6 +97,13 @@ impl EditorView {
         &mut self.spinners
     }
 
+    pub(crate) fn set_next_key_callback(
+        &mut self,
+        callback: (commands::OnKeyCallback, OnKeyCallbackKind),
+    ) {
+        self.on_next_key = Some(callback);
+    }
+
     pub(crate) fn record_insert_event(&mut self, event: InsertEvent) {
         if let LastEdit::Insert(_, events) = &mut self.last_edit {
             events.push(event);
