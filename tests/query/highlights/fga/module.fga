@@ -1,0 +1,11 @@
+module folder-access
+#^^^^^ @keyword
+#      ^^^^^^^^^^^^^ @namespace
+extend type shared/folder
+#^^^^^ @keyword
+#      ^^^^ @keyword
+#           ^^^^^^^^^^^^^ @type
+  relations
+    define viewer: [shared/user with $expression]
+#                   ^^^^^^^^^^^ @type
+#                                    ^^^^^^^^^^^ @constant.builtin

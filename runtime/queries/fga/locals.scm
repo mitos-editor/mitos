@@ -14,3 +14,7 @@
 
 (braced_condition
   (identifier) @local.reference)
+
+; Member names and function calls do not refer to condition parameters.
+(_ "." . (identifier) @_)
+(_ (identifier) @_ . (parenthesized_condition))

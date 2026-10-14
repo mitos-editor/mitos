@@ -1,0 +1,37 @@
+model
+  schema 1.2
+
+type user
+
+type document
+  relations
+    define owner: [user]
+    define viewer: [
+      user with check,
+      user:* with $expression
+    ] or owner
+    define editor: (
+      viewer and owner
+    )
+
+condition check(
+  value: int,
+  other: int,
+  labels: map<string>
+) {
+  // A closing brace } in a CEL comment is opaque.
+  (value-other > 0) &&
+  value in [
+    1,
+    2
+  ] &&
+  {
+    "enabled": true
+  }["enabled"]
+}
+
+condition literal(value: string) {
+  value == """multiple
+literal lines
+"""
+}

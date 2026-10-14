@@ -1,14 +1,19 @@
+(type_declaration) @class.around
+
 (type_declaration
-  (relations) @class.inside) @class.around
+  (relations) @class.inside)
 
 (condition_declaration
   body: (_) @function.inside) @function.around
 
-(relations
-  (definition) @entry.inside) @entry.around
+(definition
+  value: (_) @entry.inside) @entry.around
 
-(param 
-  ((_) @parameter.inside . ","? @parameter.around) @parameter.around)
+(condition_declaration
+  ((param) @parameter.inside . ","? @parameter.around) @parameter.around)
+
+(direct_relationship
+  ((direct_relationship_item) @parameter.inside . ","? @parameter.around) @parameter.around)
 
 (comment) @comment.inside
 

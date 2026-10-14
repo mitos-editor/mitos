@@ -77,7 +77,7 @@
 | erlang | ✓ | ✓ | ✓ | ✓ | ✓ | `erlang_ls`, `elp` |
 | esdl | ✓ |  |  |  |  |  |
 | fennel | ✓ |  |  |  | ✓ | `fennel-ls` |
-| fga | ✓ | ✓ | ✓ |  |  |  |
+| fga | ✓ | ✓ | ✓ | ✓ | ✓ |  |
 | fidl | ✓ |  |  |  |  |  |
 | fish | ✓ | ✓ | ✓ |  |  | `fish-lsp` |
 | flatbuffers | ✓ |  |  |  |  |  |

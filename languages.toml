@@ -4871,7 +4871,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "fga"
-source = { git = "https://github.com/matoous/tree-sitter-fga", rev = "ce72d1c484ba133a18e966d67be66bce85695451" }
+source = { git = "https://github.com/matoous/tree-sitter-fga", rev = "bee0622060672faaed34133d0848fc1b3962da8b" }
 
 [[language]]
 name = "csv"
