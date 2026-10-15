@@ -228,12 +228,19 @@ configured.
 
 ### `[editor.inline-blame]` Section
 
-Inline blame is virtual text that appears at the end of a line, displaying information about the most recent commit that affected this line.
+Inline Git blame shows who last changed a line and the associated commit information at the end of the line. It is available for files tracked by Git and is hidden by default.
+
+To show blame for the current line, add this to your `config.toml`:
+
+```toml
+[editor.inline-blame]
+show = "cursor-line"
+```
 
 | Key     | Description                                | Default |
 | ------- | ------------------------------------------ | ------- |
-| `show` | When to show inline blame | `"never"` |
-| `format` | Inline blame message format | `"{author}, {time-ago} • {title} • {commit}"` |
+| `show` | Which lines display inline blame | `"never"` |
+| `format` | Text shown in the blame message | `"{author}, {time-ago} • {title} • {commit}"` |
 
 `show` can be one of the following:
 
@@ -241,24 +248,31 @@ Inline blame is virtual text that appears at the end of a line, displaying infor
 - `"cursor-line"`: Display blame on the primary cursor's line.
 - `"never"`: Hide inline blame.
 
-`Space + B` toggles inline blame off and on, restoring the last visible mode (`"all-lines"` or `"cursor-line"`). If blame has not been enabled in this session, toggling it on uses `"cursor-line"`. Turning it on requests blame for files displayed in the editor. The first request may take a moment; later toggles reuse the cached result. Uncommitted and empty lines do not display inline blame.
+Press `Space + B` to toggle inline blame off and on. The toggle preserves your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`.
 
-When inline blame is visible, it is fetched in the background for displayed files and refreshed after reloads or repository changes. Hidden buffers are fetched when displayed. Snapshots are reused when HEAD is unchanged. When inline blame is hidden, automatic requests stop.
+Blank lines and lines with uncommitted changes do not show inline blame.
 
-The `blame_line` command remains available to display the current line's blame in the status area.
+To show the current line's blame in the status area, run `blame_line` from the command palette (`Space + ?`).
 
 #### `format`
 
-Change the `format` string to customize the blame message displayed. Variables are text placeholders wrapped in curly braces: `{variable}`. The following variables are available:
+Use `format` to choose which commit details appear in the blame message. For example:
 
-- `author`: Commit author name.
-- `date`: Commit author date.
-- `time-ago`: Relative time since the commit.
-- `title`: Commit title.
-- `body`: Commit body.
-- `commit`: Abbreviated commit hash.
-- `email`: Commit author email.
+```toml
+[editor.inline-blame]
+show = "cursor-line"
+format = "{author}: {title}"
+```
 
+The following placeholders are available:
+
+- `{author}`: Commit author name.
+- `{date}`: Commit author date.
+- `{time-ago}`: Relative time since the commit.
+- `{title}`: Commit title.
+- `{body}`: Commit body.
+- `{commit}`: Abbreviated commit hash.
+- `{email}`: Commit author email.
 
 ### `[editor.cursor.shape]` Section
 

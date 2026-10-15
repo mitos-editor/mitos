@@ -29,8 +29,8 @@ Expansions are patterns that Mitos recognizes and replaces within the command li
 
 ```toml
 [keys.normal]
-# Print the current line's git blame information to the statusline.
-space.B = ":echo %sh{git blame -L %{cursor_line},+1 %{buffer_name}}"
+# Show the current Git branch in the status area.
+F12 = ":echo %sh{git branch --show-current}"
 ```
 
 Expansions take the form `%[<kind>]<open><contents><close>`. In `%sh{echo hi!}`, for example, the kind is `sh` - the shell expansion - and the contents are "echo hi!", with `{` and `}` acting as opening and closing delimiters. The following open/close characters are recognized as expansion delimiter pairs: `(`/`)`, `[`/`]`, `{`/`}` and `<`/`>`. Plus the single characters `'`, `"` or `|` may be used instead: `%{cursor_line}` is equivalent to `%<cursor_line>`, `%[cursor_line]` or `%|cursor_line|`.
