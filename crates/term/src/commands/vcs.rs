@@ -23,8 +23,14 @@ pub(super) fn toggle_inline_blame(cx: &mut Context) {
 
     let mut settings = cx.config.current.editor_settings();
     settings.editor.inline_blame.show = match settings.editor.inline_blame.show {
-        InlineBlameShow::Never => InlineBlameShow::CursorLine,
-        InlineBlameShow::CursorLine | InlineBlameShow::AllLines => InlineBlameShow::Never,
+        InlineBlameShow::Never => cx
+            .editor
+            .last_inline_blame_show
+            .unwrap_or(InlineBlameShow::CursorLine),
+        show @ (InlineBlameShow::CursorLine | InlineBlameShow::AllLines) => {
+            cx.editor.last_inline_blame_show = Some(show);
+            InlineBlameShow::Never
+        }
     };
     if let Err(err) = cx
         .config

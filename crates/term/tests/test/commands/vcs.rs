@@ -108,6 +108,43 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<()> {
+    for show in [InlineBlameShow::CursorLine, InlineBlameShow::AllLines] {
+        let mut config = test_config();
+        config.editor.inline_blame.show = show;
+        let mut app = AppBuilder::new().with_config(config).build()?;
+
+        for _ in 0..2 {
+            press_space_b(&mut app).await?;
+            assert_eq!(
+                app.editor.config().inline_blame.show,
+                InlineBlameShow::Never
+            );
+            press_space_b(&mut app).await?;
+            assert_eq!(app.editor.config().inline_blame.show, show);
+        }
+
+        // A runtime configuration change replaces the mode restored by the toggle.
+        let mut config = (*app.editor.config()).clone();
+        config.inline_blame.show = match show {
+            InlineBlameShow::CursorLine => InlineBlameShow::AllLines,
+            _ => InlineBlameShow::CursorLine,
+        };
+        let updated_show = config.inline_blame.show;
+        app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        press_space_b(&mut app).await?;
+        assert_eq!(
+            app.editor.config().inline_blame.show,
+            InlineBlameShow::Never
+        );
+        press_space_b(&mut app).await?;
+        assert_eq!(app.editor.config().inline_blame.show, updated_show);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::Result<()> {
     use editor_core::diagnostic::{Diagnostic, DiagnosticProvider, Severity};
     use view::{annotations::diagnostics::DiagnosticFilter, editor::Action};

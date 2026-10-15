@@ -578,7 +578,7 @@ component-specific settings.
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./editor.md#format). |
 
-`Space + B` toggles inline blame on the cursor line. Visible files fetch and refresh blame automatically, reusing cached results when HEAD is unchanged. Inline blame skips uncommitted and empty lines.
+`Space + B` toggles inline blame off and on, restoring the last visible mode (`"all-lines"` or `"cursor-line"`), with `"cursor-line"` as the fallback. Visible files fetch and refresh blame automatically, reusing cached results when HEAD is unchanged. Inline blame skips uncommitted and empty lines.
 
 ### `[editor.diagnostics.inline]`
 

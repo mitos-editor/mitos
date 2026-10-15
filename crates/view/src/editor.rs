@@ -131,6 +131,8 @@ pub struct Editor {
     redraw_timer: Pin<Box<Sleep>>,
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
+    /// Most recent visible inline blame mode, restored when toggling it back on.
+    pub last_inline_blame_show: Option<crate::config::InlineBlameShow>,
     pub last_cwd: Option<PathBuf>,
     pub dir_stack: VecDeque<PathBuf>,
 
@@ -283,6 +285,7 @@ impl Editor {
             redraw_timer: Box::pin(sleep(Duration::MAX)),
             last_motion: None,
             last_completion: None,
+            last_inline_blame_show: None,
             last_cwd: None,
             config,
             auto_pairs,
