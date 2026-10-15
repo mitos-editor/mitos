@@ -6,7 +6,7 @@ use ui_core::input::KeyEvent;
 use view::Editor;
 
 use crate::{
-    compositor::{self, Component, Compositor},
+    compositor::{Component, Compositor},
     job::{self, Callback, Jobs},
 };
 
@@ -81,20 +81,6 @@ impl Context<'_> {
     #[inline]
     pub fn count(&self) -> usize {
         self.count.map_or(1, |v| v.get())
-    }
-
-    /// Waits on all pending jobs, and then tries to flush all pending write
-    /// operations for all documents.
-    pub fn block_try_flush_writes(&mut self) -> anyhow::Result<()> {
-        compositor::Context {
-            config: self.config,
-            editor: self.editor,
-            jobs: self.jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: false,
-        }
-        .block_try_flush_writes()
     }
 }
 
