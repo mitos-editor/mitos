@@ -494,6 +494,14 @@ pub struct TerminalConfig {
 pub fn get_terminal_provider() -> Option<TerminalConfig> {
     use stdx::env::binary_exists;
 
+    // zellij has added support for Windows in v0.44.0
+    // https://github.com/zellij-org/zellij/releases/tag/v0.44.0
+    if env_var_is_set("ZELLIJ") && binary_exists("zellij") {
+        return Some(TerminalConfig {
+            command: "zellij".to_string(),
+            args: vec!["run".to_string(), "--".to_string()],
+        });
+    }
     if binary_exists("wt") {
         return Some(TerminalConfig {
             command: "wt".to_string(),
@@ -521,6 +529,13 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
         return Some(TerminalConfig {
             command: "tmux".to_string(),
             args: vec!["split-window".to_string()],
+        });
+    }
+
+    if env_var_is_set("ZELLIJ") && binary_exists("zellij") {
+        return Some(TerminalConfig {
+            command: "zellij".to_string(),
+            args: vec!["run".to_string(), "--".to_string()],
         });
     }
 
