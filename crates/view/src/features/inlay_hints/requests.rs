@@ -1,45 +1,16 @@
-//! Viewport-aware inlay hints, independent of frontend scheduling and rendering.
+//! Request selection, stale-response checks, and LSP annotation conversion.
 
 use std::sync::{Arc, Weak};
 
-use editor_core::{syntax::config::LanguageServerFeature, text_annotations::InlineAnnotation, Uri};
-use event::{cancelable_future, register_hook, TaskController};
-use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
+use editor_core::{syntax::config::LanguageServerFeature, text_annotations::InlineAnnotation};
+use event::cancelable_future;
+use lsp_client::{lsp, OffsetEncoding};
 
-use super::lsp::DocumentRequest;
+use super::state::{CacheKey, DocumentInlayHints, DocumentInlayHintsId};
 use crate::{
-    callbacks::EditorCallbackSender,
-    document::{DocumentInlayHints, DocumentInlayHintsId},
-    events::{ConfigDidChange, LanguageServerExited},
-    Document, DocumentId, Editor, View, ViewId,
+    callbacks::EditorCallbackSender, features::request::DocumentRequest, Document, DocumentId,
+    Editor, View, ViewId,
 };
-
-pub struct InlayHintsHandler {
-    callbacks: Arc<EditorCallbackSender>,
-}
-
-impl InlayHintsHandler {
-    pub fn new(callbacks: EditorCallbackSender) -> Self {
-        Self {
-            callbacks: Arc::new(callbacks),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Clone)]
-struct CacheKey {
-    version: i32,
-    uri: Option<Uri>,
-    server: LanguageServerId,
-    viewport: DocumentInlayHintsId,
-}
-
-#[derive(Default)]
-pub(crate) struct RequestState {
-    controller: TaskController,
-    key: Option<CacheKey>,
-    completed: bool,
-}
 
 struct Request {
     owner: Weak<EditorCallbackSender>,
@@ -101,8 +72,7 @@ pub fn refresh(editor: &mut Editor) {
             .next()
         else {
             let doc = editor.documents.get_mut(&doc_id).unwrap();
-            doc.inlay_hint_requests.remove(&view_id);
-            doc.inlay_hints.remove(&view_id);
+            doc.inlay_hints.remove_view(view_id);
             continue;
         };
         let key = CacheKey {
@@ -111,9 +81,7 @@ pub fn refresh(editor: &mut Editor) {
             server: server.id(),
             viewport: viewport(view, doc),
         };
-        if doc.inlay_hint_requests.get(&view_id).is_some_and(|state| {
-            state.key.as_ref() == Some(&key) && (state.completed || state.controller.is_running())
-        }) {
+        if doc.inlay_hints.is_current(view_id, &key) {
             continue;
         }
         let text = doc.text();
@@ -131,10 +99,7 @@ pub fn refresh(editor: &mut Editor) {
             continue;
         };
         let doc = editor.documents.get_mut(&doc_id).unwrap();
-        let state = doc.inlay_hint_requests.entry(view_id).or_default();
-        let cancel = state.controller.restart();
-        state.key = Some(key.clone());
-        state.completed = false;
+        let cancel = doc.inlay_hints.start(view_id, key.clone());
         let request = Request {
             owner: Arc::downgrade(&callbacks),
             document: DocumentRequest::new(doc, cancel, vec![key.server]),
@@ -162,13 +127,12 @@ pub fn refresh(editor: &mut Editor) {
                                 doc.config.load().lsp.inlay_hints.length_limit,
                                 hints.unwrap_or_default(),
                             );
-                            doc.set_inlay_hints(view_id, hints);
-                            doc.inlay_hint_requests.get_mut(&view_id).unwrap().completed = true;
+                            doc.inlay_hints.complete(view_id, hints);
                             event::request_redraw();
                         }
                         Err(error) => {
                             log::error!("inlay hints request failed: {error}");
-                            doc.inlay_hint_requests.remove(&view_id);
+                            doc.inlay_hints.retry(view_id);
                         }
                     }
                 })
@@ -256,25 +220,4 @@ fn annotations(
         padding_before_inlay_hints,
         padding_after_inlay_hints,
     }
-}
-
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.reset_all_inlay_hints();
-            }
-        }
-        Ok(())
-    });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        if event.old.lsp.inlay_hints != event.new.lsp.inlay_hints
-            || event.old.lsp.enable != event.new.lsp.enable
-        {
-            for doc in event.editor.documents_mut() {
-                doc.reset_all_inlay_hints();
-            }
-        }
-        Ok(())
-    });
 }

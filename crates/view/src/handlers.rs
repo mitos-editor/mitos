@@ -19,8 +19,8 @@ mod document_debounce;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
-pub mod hover;
-pub mod inlay_hints;
+// Compatibility paths; feature state and coordination now live together.
+pub use crate::features::{hover, inlay_hints};
 pub mod inline_completion;
 pub mod lsp;
 pub mod signature_help;

@@ -160,7 +160,7 @@ pub enum EditorEvent {
     ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
     WorkspaceTrust(crate::handlers::workspace_trust::TrustRequest),
     SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
-    Hover(crate::handlers::hover::HoverUpdate),
+    Hover(crate::features::hover::HoverUpdate),
     Completion(crate::handlers::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
@@ -1357,7 +1357,7 @@ impl Editor {
         if let Some(update) = crate::handlers::completion::next_update(self) {
             return EditorEvent::Completion(update);
         }
-        if let Some(update) = crate::handlers::hover::next_update(self) {
+        if let Some(update) = crate::features::hover::next_update(self) {
             return EditorEvent::Hover(update);
         }
         if let Some(update) = crate::handlers::signature_help::next_update(self) {

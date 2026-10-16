@@ -8,50 +8,15 @@ use crate::events::{
     DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, LanguageServerExited,
     LanguageServerInitialized,
 };
-use crate::{DocumentId, Editor};
+use crate::Editor;
 use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::Uri;
 use event::register_hook;
 use lsp_client::util::generate_transaction_from_edits;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 
-/// Snapshot identity retained until a queued document-feature response is applied.
-/// Cancellation while waiting on the server alone does not protect queued callbacks.
-pub(super) struct DocumentRequest {
-    pub(super) cancel: event::TaskHandle,
-    doc: DocumentId,
-    version: i32,
-    uri: Option<Uri>,
-    servers: Vec<LanguageServerId>,
-}
-
-impl DocumentRequest {
-    pub(super) fn new(
-        doc: &crate::Document,
-        cancel: event::TaskHandle,
-        servers: Vec<LanguageServerId>,
-    ) -> Self {
-        Self {
-            cancel,
-            doc: doc.id(),
-            version: doc.version(),
-            uri: doc.uri(),
-            servers,
-        }
-    }
-
-    pub(super) fn is_current(&self, editor: &Editor) -> bool {
-        !self.cancel.is_canceled()
-            && editor.document(self.doc).is_some_and(|doc| {
-                doc.version() == self.version
-                    && doc.uri() == self.uri
-                    && self.servers.iter().all(|&id| {
-                        editor.language_server_by_id(id).is_some()
-                            && doc.supports_language_server(id)
-                    })
-            })
-    }
-}
+// Preserve the internal path used by the remaining handler-owned features.
+pub(super) use crate::features::request::DocumentRequest;
 
 #[derive(Debug)]
 pub struct ApplyEditError {

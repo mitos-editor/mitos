@@ -1144,7 +1144,7 @@ pub fn signature_help(cx: &mut Context) {
 }
 
 pub fn hover(cx: &mut Context) {
-    view::handlers::hover::request(cx.editor);
+    view::features::hover::request(cx.editor);
 }
 
 pub fn rename_symbol(cx: &mut Context) {

@@ -11,12 +11,32 @@ use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::lsp;
 use parking_lot::Mutex;
 
-use super::lsp::DocumentRequest;
+use super::request::DocumentRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
     DocumentId, Editor, ViewId,
 };
+
+/// Cancellation follows the owning document and its attached views.
+#[derive(Default)]
+pub(crate) struct HoverState {
+    requests: std::collections::HashMap<ViewId, event::TaskController>,
+}
+
+impl HoverState {
+    pub(crate) fn restart(&mut self, view: ViewId) -> event::TaskHandle {
+        self.requests.entry(view).or_default().restart()
+    }
+
+    pub(crate) fn remove_view(&mut self, view: ViewId) {
+        self.requests.remove(&view);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.requests.clear();
+    }
+}
 
 struct Shared {
     callbacks: EditorCallbackSender,
@@ -81,14 +101,14 @@ pub fn request(editor: &mut Editor) {
     if let Some((doc, view)) = previous
         && let Some(doc) = editor.document_mut(doc)
     {
-        doc.hover_requests.remove(&view);
+        doc.hover.remove_view(view);
     }
     if !editor.config().lsp.enable {
         editor.set_error(|| "No configured language server supports hover");
         return;
     }
     let (view, doc) = crate::current!(editor);
-    let cancel = doc.hover_requests.entry(view.id).or_default().restart();
+    let cancel = doc.hover.restart(view.id);
     let mut servers = HashSet::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Hover)
@@ -163,29 +183,29 @@ pub fn next_update(editor: &Editor) -> Option<HoverUpdate> {
     editor.handlers.hover.shared.session.lock().pending.take()
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
-                doc.hover_requests.clear();
+                doc.hover.clear();
             }
         }
         Ok(())
     });
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        event.doc.hover_requests.remove(&event.view);
+        event.doc.hover.remove_view(event.view);
         Ok(())
     });
     register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            doc.hover_requests.clear();
+            doc.hover.clear();
         }
         Ok(())
     });
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.hover_requests.clear();
+                doc.hover.clear();
             }
         }
         Ok(())

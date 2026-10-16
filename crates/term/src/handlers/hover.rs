@@ -9,7 +9,7 @@ use crate::{
 pub fn show(
     editor: &mut Editor,
     compositor: &mut Compositor,
-    update: view::handlers::hover::HoverUpdate,
+    update: view::features::hover::HoverUpdate,
 ) {
     let Some(hovers) = update.resolve(editor) else {
         return;

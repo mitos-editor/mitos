@@ -39,8 +39,8 @@ this guide explains how those owners cooperate.
 | --- | --- |
 | Text transformation independent of open buffers | `core` |
 | Operation on documents, selections, history, or editor services | `view` |
-| Document feature cache and request lifetime | `view/src/document/<feature>.rs` |
-| Feature scheduling, event hooks, and result publication | `view/src/handlers/<feature>.rs` |
+| Document feature cache and request lifetime | With its coordinator in `view/src/features/<feature>/`; existing features also use `document/<feature>.rs` |
+| Feature scheduling, event hooks, and result publication | `view/src/features/<feature>/`; existing services also use `handlers/<feature>.rs` |
 | Resource discovery or source inheritance | `loader` |
 | Protocol request/response transport | Its protocol crate; editor effects belong in `view` |
 | Keybinding, prompt, picker, popup, or terminal rendering | `term` |
@@ -311,13 +311,20 @@ or workspace-edit failure is reported and prevents the follow-up command. Existi
 workspace-edit application can partially succeed before an error; it does not
 roll back already-applied changes.
 
-`view::handlers::hover` owns multi-server requests and publishes typed
+Feature modules group a feature's state, request policy, and lifecycle wiring.
+Hover keeps those together in `features/hover.rs`; inlay hints splits cache/edit
+mapping into `state.rs` and request/annotation conversion into `requests.rs`.
+`Document` owns typed feature state and delegates cleanup and edit mapping to it.
+The existing `handlers::{hover,inlay_hints}` and document annotation type paths
+remain reexports. Other services can adopt this layout when their code changes.
+
+`view::features::hover` owns multi-server requests and publishes typed
 `EditorEvent::Hover` updates. The originating document owns cancellation by view;
 edits, selection changes, focus loss, language/path changes, and view removal invalidate
 pending work. Publication and frontend delivery both validate the snapshot.
 `term` triggers hover and builds its popup from a resolved update.
 
-`view::handlers::inlay_hints` owns viewport selection, request deduplication,
+`view::features::inlay_hints` owns viewport selection, request deduplication,
 position conversion, and annotation publication. Per-view cache keys include the
 document version, URI, server instance, and buffered viewport. Pending requests
 are reused until their inputs change; one split's response cannot mark another

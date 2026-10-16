@@ -11,6 +11,8 @@ use blame::DocumentBlame;
 pub use blame::LineBlameError;
 pub use code_lenses::CodeLens;
 pub use colors::DocumentColorSwatches;
+// Retain document-facing annotation types at their established public paths.
+pub use crate::features::inlay_hints::{DocumentInlayHints, DocumentInlayHintsId};
 pub use highlights::DocumentHighlights;
 pub use inline_completion::{InlineCompletion, InlineCompletionRow};
 pub use links::DocumentLink;
@@ -31,7 +33,7 @@ use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::doc_formatter::TextFormat;
 use editor_core::encoding::Encoding;
 use editor_core::syntax::config::LanguageServerFeature;
-use editor_core::text_annotations::{InlineAnnotation, Overlay};
+use editor_core::text_annotations::Overlay;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use lsp_client::util::lsp_pos_to_pos;
@@ -68,6 +70,7 @@ use crate::{
     config::Config,
     events::{DocumentDidChange, SelectionDidChange},
     expansion,
+    features::{hover::HoverState, inlay_hints::InlayHintsState},
     view::ViewPosition,
     DocumentId, Editor, Theme, View, ViewId,
 };
@@ -185,17 +188,13 @@ pub struct Document {
     view_data: HashMap<ViewId, ViewData>,
     pub active_snippet: Option<ActiveSnippet>,
 
-    /// Inlay hint annotations by view, retained and mapped while refreshing.
-    /// Request state tracks freshness separately for each view.
-    pub(crate) inlay_hints: HashMap<ViewId, DocumentInlayHints>,
-    pub(crate) inlay_hint_requests: HashMap<ViewId, crate::handlers::inlay_hints::RequestState>,
-    pub(crate) hover_requests: HashMap<ViewId, event::TaskController>,
-
     /// Jump label overlays for each view.
     pub(crate) jump_labels: HashMap<ViewId, Vec<Overlay>>,
 
     // Each feature owns its cache, scheduling handle, and request controllers.
     // Dropping the document drops those controllers and cancels in-flight work.
+    pub(crate) hover: HoverState,
+    pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: inline_completion::InlineCompletions,
     pub(crate) document_colors: colors::DocumentColors,
     pub(crate) code_lenses: code_lenses::DocumentCodeLenses,
@@ -296,71 +295,6 @@ pub struct Document {
     syn_loader: Arc<ArcSwap<syntax::Loader>>,
 }
 
-/// Inlay hints for a single `(Document, View)` combo.
-///
-/// There are `*_inlay_hints` field for each kind of hints an LSP can send since we offer the
-/// option to style theme differently in the theme according to the (currently supported) kinds
-/// (`type`, `parameter` and the rest).
-///
-/// Inlay hints are always `InlineAnnotation`s, not overlays or line-ones: LSP may choose to place
-/// them anywhere in the text and will sometime offer config options to move them where the user
-/// wants them but it shouldn't be Mitos who decides that so we use the most precise positioning.
-///
-/// The padding for inlay hints needs to be stored separately for before and after (the LSP spec
-/// uses 'left' and 'right' but not all text is left to right so let's be correct) padding because
-/// the 'before' padding must be added to a layer *before* the regular inlay hints and the 'after'
-/// padding comes ... after.
-#[derive(Debug, Clone)]
-pub struct DocumentInlayHints {
-    /// Buffered viewport covered by these annotations.
-    pub id: DocumentInlayHintsId,
-
-    /// Inlay hints of `TYPE` kind, if any.
-    pub type_inlay_hints: Vec<InlineAnnotation>,
-
-    /// Inlay hints of `PARAMETER` kind, if any.
-    pub parameter_inlay_hints: Vec<InlineAnnotation>,
-
-    /// Inlay hints that are neither `TYPE` nor `PARAMETER`.
-    ///
-    /// LSPs are not required to associate a kind to their inlay hints, for example Rust-Analyzer
-    /// currently never does (February 2023) and the LSP spec may add new kinds in the future that
-    /// we want to display even if we don't have some special highlighting for them.
-    pub other_inlay_hints: Vec<InlineAnnotation>,
-
-    /// Inlay hint padding. When creating the final `TextAnnotations`, the `before` padding must be
-    /// added first, then the regular inlay hints, then the `after` padding.
-    pub padding_before_inlay_hints: Vec<InlineAnnotation>,
-    pub padding_after_inlay_hints: Vec<InlineAnnotation>,
-}
-
-impl DocumentInlayHints {
-    /// Generate an empty list of inlay hints with the given ID.
-    pub fn empty_with_id(id: DocumentInlayHintsId) -> Self {
-        Self {
-            id,
-            type_inlay_hints: Vec::new(),
-            parameter_inlay_hints: Vec::new(),
-            other_inlay_hints: Vec::new(),
-            padding_before_inlay_hints: Vec::new(),
-            padding_after_inlay_hints: Vec::new(),
-        }
-    }
-}
-
-/// The line range covered by a view's inlay hints. Full cache freshness also depends
-/// on the document snapshot and language-server instance retained by the coordinator.
-///
-/// We can't store the `ViewOffset` instead of the first and last asked-for lines because if
-/// softwrapping changes, the `ViewOffset` may not change while the displayed lines will.
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub struct DocumentInlayHintsId {
-    /// First line for which the inlay hints were requested.
-    pub first_line: usize,
-    /// Last line for which the inlay hints were requested.
-    pub last_line: usize,
-}
-
 use std::{fmt, mem};
 impl fmt::Debug for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -384,15 +318,6 @@ impl fmt::Debug for Document {
             .field("modified_since_accessed", &self.modified_since_accessed)
             .field("diagnostics", &self.diagnostics)
             // .field("language_server", &self.language_server)
-            .finish()
-    }
-}
-
-impl fmt::Debug for DocumentInlayHintsId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Much more agreable to read when debugging
-        f.debug_struct("DocumentInlayHintsId")
-            .field("lines", &(self.first_line..self.last_line))
             .finish()
     }
 }
@@ -780,9 +705,8 @@ impl Document {
             text,
             binary: false,
             selections: HashMap::default(),
-            inlay_hints: HashMap::default(),
-            inlay_hint_requests: HashMap::default(),
-            hover_requests: HashMap::default(),
+            inlay_hints: Default::default(),
+            hover: Default::default(),
             inline_completions: Default::default(),
             view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
@@ -1266,7 +1190,7 @@ impl Document {
 
     /// Detect the language and initialize syntax without delaying file loading.
     pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
-        self.hover_requests.clear();
+        self.hover.clear();
         self.reset_all_inlay_hints();
         self.language = self.detect_language_config(loader);
         self.initialize_syntax(loader.clone());
@@ -1421,7 +1345,7 @@ impl Document {
         self.binary = binary;
         self.detect_readonly();
         if binary {
-            self.hover_requests.clear();
+            self.hover.clear();
             self.reset_all_inlay_hints();
             self.language = None;
             self.syntax = None;
@@ -1460,7 +1384,7 @@ impl Document {
     /// should be used instead
     pub fn set_path(&mut self, path: Option<&Path>) {
         self.invalidate_blame();
-        self.hover_requests.clear();
+        self.hover.clear();
         self.reset_all_inlay_hints();
         let path = path.map(stdx::path::canonicalize);
 
@@ -1487,7 +1411,7 @@ impl Document {
         loader: &syntax::Loader,
     ) {
         self.pending_syntax = None;
-        self.hover_requests.clear();
+        self.hover.clear();
         self.reset_all_inlay_hints();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
@@ -1575,9 +1499,8 @@ impl Document {
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.selections.remove(&view_id);
         self.view_data.remove(&view_id);
-        self.inlay_hints.remove(&view_id);
-        self.inlay_hint_requests.remove(&view_id);
-        self.hover_requests.remove(&view_id);
+        self.inlay_hints.remove_view(view_id);
+        self.hover.remove_view(view_id);
         self.jump_labels.remove(&view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
@@ -1710,33 +1633,8 @@ impl Document {
             )
         });
 
-        // Update the inlay hint annotations' positions, helping ensure they are displayed in the proper place
-        let apply_inlay_hint_changes = |annotations: &mut Vec<InlineAnnotation>| {
-            changes.update_positions(
-                annotations
-                    .iter_mut()
-                    .map(|annotation| (&mut annotation.char_idx, Assoc::After)),
-            );
-        };
-
-        self.inlay_hint_requests.clear();
-        self.hover_requests.clear();
-        for text_annotation in self.inlay_hints.values_mut() {
-            let DocumentInlayHints {
-                id: _,
-                type_inlay_hints,
-                parameter_inlay_hints,
-                other_inlay_hints,
-                padding_before_inlay_hints,
-                padding_after_inlay_hints,
-            } = text_annotation;
-
-            apply_inlay_hint_changes(padding_before_inlay_hints);
-            apply_inlay_hint_changes(type_inlay_hints);
-            apply_inlay_hint_changes(parameter_inlay_hints);
-            apply_inlay_hint_changes(other_inlay_hints);
-            apply_inlay_hint_changes(padding_after_inlay_hints);
-        }
+        self.inlay_hints.apply_changes(changes);
+        self.hover.clear();
 
         self.document_highlights
             .apply_changes(changes, self.text.len_chars());
@@ -2081,7 +1979,7 @@ impl Document {
     pub fn remove_language_server_by_name(&mut self, name: &str) -> Option<Arc<Client>> {
         let server = self.language_servers.remove(name);
         if server.is_some() {
-            self.hover_requests.clear();
+            self.hover.clear();
             self.reset_all_inlay_hints();
         }
         server
@@ -2620,7 +2518,7 @@ impl Document {
 
     /// Set the inlay hints for this document and `view_id`.
     pub fn set_inlay_hints(&mut self, view_id: ViewId, inlay_hints: DocumentInlayHints) {
-        self.inlay_hints.insert(view_id, inlay_hints);
+        self.inlay_hints.set(view_id, inlay_hints);
     }
 
     pub fn set_jump_labels(&mut self, view_id: ViewId, labels: Vec<Overlay>) {
@@ -2633,14 +2531,13 @@ impl Document {
 
     /// Get the inlay hints for this document and `view_id`.
     pub fn inlay_hints(&self, view_id: ViewId) -> Option<&DocumentInlayHints> {
-        self.inlay_hints.get(&view_id)
+        self.inlay_hints.get(view_id)
     }
 
     /// Completely removes all the inlay hints saved for the document, dropping them to free memory
     /// (since it often means inlay hints have been fully deactivated).
     pub fn reset_all_inlay_hints(&mut self) {
         self.inlay_hints.clear();
-        self.inlay_hint_requests.clear();
     }
 
     pub fn has_language_server_with_feature(&self, feature: LanguageServerFeature) -> bool {

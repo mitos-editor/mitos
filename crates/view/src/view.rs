@@ -498,7 +498,7 @@ impl View {
             other_inlay_hints,
             padding_before_inlay_hints,
             padding_after_inlay_hints,
-        }) = doc.inlay_hints.get(&self.id)
+        }) = doc.inlay_hints(self.id)
         {
             let type_style = theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint.type"));
             let parameter_style =
