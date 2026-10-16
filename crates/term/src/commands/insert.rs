@@ -63,7 +63,7 @@ pub fn insert_char(cx: &mut Context, c: char) {
     let doc = doc_mut!(cx.editor, &doc.id());
     doc.apply(&transaction, view.id);
 
-    event::dispatch(PostInsertChar { c, cx });
+    event::dispatch(PostInsertChar { c, cx }).report_to(cx.editor.status_sender());
 }
 
 pub fn smart_tab(cx: &mut Context) {

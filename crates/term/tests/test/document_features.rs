@@ -317,7 +317,8 @@ async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::
     event::dispatch(view::events::LanguageServerExited {
         editor: &mut fixture.app.editor,
         server_id,
-    });
+    })
+    .report_to(fixture.app.editor.status_sender());
     fixture.app.editor.language_servers.remove_by_id(server_id);
     fixture.apply(old);
     let responses = fixture

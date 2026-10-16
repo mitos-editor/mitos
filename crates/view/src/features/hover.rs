@@ -143,7 +143,7 @@ pub fn request(editor: &mut Editor) {
                 if request.is_current(editor) {
                     editor.handlers.hover.shared.session.lock().pending =
                         Some(HoverUpdate { request, hovers });
-                    event::request_redraw();
+                    editor.redraw().request();
                 }
             })
             .await;

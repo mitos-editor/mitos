@@ -142,7 +142,8 @@ impl Fixture {
         event::dispatch(view::events::DiagnosticsDidChange {
             editor: &mut self.app.editor,
             doc: doc_id,
-        });
+        })
+        .report_to(self.app.editor.status_sender());
     }
 
     fn enabled(&mut self, enabled: bool) {
@@ -368,7 +369,8 @@ async fn detached_and_exited_servers_cannot_publish_queued_results() -> anyhow::
     event::dispatch(view::events::LanguageServerExited {
         editor: &mut f.app.editor,
         server_id: beta,
-    });
+    })
+    .report_to(f.app.editor.status_sender());
     f.app.editor.language_servers.remove_by_id(beta);
     old(&mut f.app.editor);
     assert!(!f.hint());
@@ -421,7 +423,8 @@ async fn server_exit_refreshes_hints_from_remaining_providers() -> anyhow::Resul
     event::dispatch(view::events::LanguageServerExited {
         editor: &mut f.app.editor,
         server_id: alpha,
-    });
+    })
+    .report_to(f.app.editor.status_sender());
     f.app.editor.language_servers.remove_by_id(alpha);
     old(&mut f.app.editor);
     assert!(!f.hint());

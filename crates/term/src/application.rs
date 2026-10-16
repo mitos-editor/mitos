@@ -1,5 +1,5 @@
 use arc_swap::{access::Map, ArcSwap};
-use editor_core::{diagnostic::Severity, pos_at_coords, syntax, Range, Selection};
+use editor_core::{pos_at_coords, syntax, Range, Selection};
 use futures_util::Stream;
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
 use serde_json::json;
@@ -371,17 +371,6 @@ impl Application {
                     }
                     self.render().await;
                 }
-                Some(msg) = self.jobs.status_messages.recv() => {
-                    let severity = match msg.severity{
-                        event::status::Severity::Hint => Severity::Hint,
-                        event::status::Severity::Info => Severity::Info,
-                        event::status::Severity::Warning => Severity::Warning,
-                        event::status::Severity::Error => Severity::Error,
-                    };
-                    // TODO: show multiple status messages at once to avoid clobbering
-                    self.editor.status_msg = Some((msg.message, severity));
-                    event::request_redraw();
-                }
                 Some(callback) = self.jobs.wait_futures.next() => {
                     if let Some(job) = self.jobs.handle_callback(&mut self.editor, &mut self.compositor, callback) {
                         self.jobs.add(job);
@@ -732,7 +721,7 @@ impl Application {
             EditorEvent::LanguageServerMessage((id, call)) => {
                 self.handle_language_server_message(call, id).await;
                 // limit render calls for fast language server messages
-                event::request_redraw();
+                self.editor.redraw().request();
             }
             EditorEvent::DebuggerEvent((id, payload)) => {
                 let needs_render = self.editor.handle_debugger_message(id, payload).await;

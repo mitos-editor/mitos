@@ -1,10 +1,8 @@
 //! A queue of async messages/errors that will be shown in the editor
 
 use std::borrow::Cow;
-use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::{runtime_local, send_blocking};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 /// Describes the severity level of a [`StatusMessage`].
@@ -39,30 +37,77 @@ impl From<&'static str> for StatusMessage {
     }
 }
 
-runtime_local! {
-    static MESSAGES: OnceLock<Sender<StatusMessage>> = OnceLock::new();
+/// A bounded status destination belonging to one editor.
+#[derive(Clone, Debug)]
+pub struct StatusSender(Sender<StatusMessage>);
+
+impl StatusSender {
+    pub fn channel() -> (Self, Receiver<StatusMessage>) {
+        let (sender, receiver) = tokio::sync::mpsc::channel(128);
+        (Self(sender), receiver)
+    }
+
+    /// Discard messages if the owner closed or remains overloaded for 10 ms.
+    pub async fn report(&self, message: impl Into<StatusMessage>) {
+        let _ = self
+            .0
+            .send_timeout(message.into(), Duration::from_millis(10))
+            .await;
+    }
+
+    /// Best-effort delivery from any thread, without needing a Tokio runtime.
+    /// Synchronous callers must not wait for the editor to consume a full queue.
+    pub fn report_blocking(&self, message: impl Into<StatusMessage>) {
+        let _ = self.0.try_send(message.into());
+    }
 }
 
-pub async fn report(msg: impl Into<StatusMessage>) {
-    // if the error channel overflows just ignore it
-    let _ = MESSAGES
-        .wait()
-        .send_timeout(msg.into(), Duration::from_millis(10))
-        .await;
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub fn report_blocking(msg: impl Into<StatusMessage>) {
-    let messages = MESSAGES.wait();
-    send_blocking(messages, msg.into())
-}
+    #[tokio::test]
+    async fn senders_keep_their_owner_and_closed_receivers_do_not_block() {
+        let (first, mut first_messages) = StatusSender::channel();
+        let (second, mut second_messages) = StatusSender::channel();
+        first.report("first").await;
+        second.report_blocking("second");
+        assert_eq!(first_messages.recv().await.unwrap().message, "first");
+        assert_eq!(second_messages.recv().await.unwrap().message, "second");
+        drop(first_messages);
+        first.report("closed").await;
+        first.report_blocking("closed");
+        second.report("alive").await;
+        assert_eq!(second_messages.recv().await.unwrap().message, "alive");
+    }
 
-/// Must be called once during editor startup exactly once
-/// before any of the messages in this module can be used
-///
-/// # Panics
-/// If called multiple times
-pub fn setup() -> Receiver<StatusMessage> {
-    let (tx, rx) = tokio::sync::mpsc::channel(128);
-    let _ = MESSAGES.set(tx);
-    rx
+    #[tokio::test]
+    async fn an_overloaded_status_queue_does_not_block_another_owner() {
+        let (first, _first_messages) = StatusSender::channel();
+        let (second, mut second_messages) = StatusSender::channel();
+        for _ in 0..128 {
+            first.report("queued").await;
+        }
+        first.report("overloaded").await;
+        second.report("alive").await;
+        assert_eq!(second_messages.recv().await.unwrap().message, "alive");
+    }
+
+    #[test]
+    fn synchronous_overload_is_nonblocking_on_background_threads() {
+        let (first, mut first_messages) = StatusSender::channel();
+        let (second, mut second_messages) = StatusSender::channel();
+        for _ in 0..128 {
+            first.report_blocking("queued");
+        }
+        std::thread::spawn(move || {
+            first.report_blocking("overloaded");
+            second.report_blocking("other owner");
+        })
+        .join()
+        .unwrap();
+        assert_eq!(first_messages.len(), 128);
+        assert_eq!(first_messages.try_recv().unwrap().message, "queued");
+        assert_eq!(second_messages.try_recv().unwrap().message, "other owner");
+    }
 }

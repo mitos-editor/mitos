@@ -114,7 +114,7 @@ fn close(shared: &Arc<Shared>, events: &Sender<Option<Request>>, force: bool) {
     });
     drop(session);
     send_blocking(events, None);
-    event::request_redraw();
+    shared.callbacks.redraw().request();
 }
 
 fn schedule(
@@ -261,7 +261,7 @@ impl Request {
             session.target = None;
         }
         session.pending = Some(update);
-        event::request_redraw();
+        editor.redraw().request();
     }
 }
 

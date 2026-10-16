@@ -85,6 +85,7 @@ pub fn command_palette(cx: &mut Context) {
             ];
 
             let picker = Picker::new_with_callback_result(
+                cx.editor.redraw().clone(),
                 columns,
                 0,
                 commands,

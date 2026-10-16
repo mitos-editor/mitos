@@ -211,7 +211,7 @@ impl ImageDocumentView {
             None
         } else {
             let worker_path = Arc::from(path.as_path());
-            let redraw = event::redraw_callback();
+            let redraw = doc.redraw().callback();
             Some(tokio::spawn(async move {
                 let result = load_image(worker_path, picker, size).await;
                 if sender.send(result).is_ok() {
@@ -458,7 +458,7 @@ mod tests {
         let path = dir.path().join("image.png");
         image::DynamicImage::new_rgb8(20, 20).save(&path).unwrap();
         let mut doc = open(&path);
-        let mut view = View::new(doc.id(), Default::default());
+        let mut view = View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.set_selection(view.id, Selection::point(0));
         let providers = vcs::DiffProviderRegistry::default();
         doc.reload(&mut view, &providers, false).unwrap();

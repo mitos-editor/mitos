@@ -8,7 +8,7 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use event::{request_redraw, send_blocking, AsyncHook};
+use event::{send_blocking, AsyncHook};
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 
@@ -21,6 +21,7 @@ pub enum DiagnosticEvent {
 }
 
 struct DiagnosticTimeout {
+    redraw: event::Redraw,
     active_generation: Arc<AtomicUsize>,
     generation: usize,
 }
@@ -53,12 +54,13 @@ impl AsyncHook for DiagnosticTimeout {
         if self.active_generation.load(atomic::Ordering::Relaxed) < self.generation {
             self.active_generation
                 .store(self.generation, atomic::Ordering::Relaxed);
-            request_redraw();
+            self.redraw.request();
         }
     }
 }
 
 pub struct DiagnosticsHandler {
+    redraw: event::Redraw,
     active_generation: Arc<AtomicUsize>,
     generation: Cell<usize>,
     last_doc: Cell<DocumentId>,
@@ -73,20 +75,22 @@ pub struct DiagnosticsHandler {
 // but to fix that larger architecutre changes are needed
 impl Clone for DiagnosticsHandler {
     fn clone(&self) -> Self {
-        Self::new()
+        Self::new(self.redraw.clone())
     }
 }
 
 impl DiagnosticsHandler {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(redraw: event::Redraw) -> Self {
         let active_generation = Arc::new(AtomicUsize::new(0));
         let events = DiagnosticTimeout {
+            redraw: redraw.clone(),
             active_generation: active_generation.clone(),
             generation: 0,
         }
         .spawn();
         Self {
+            redraw,
             active_generation,
             generation: Cell::new(0),
             events,

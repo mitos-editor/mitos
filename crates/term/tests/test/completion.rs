@@ -68,12 +68,13 @@ impl Fixture {
         config.editor.completion.auto_trigger = false;
         config.editor.completion.path.enable = false;
         let (sender, callbacks) =
-            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+            super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, config| {
-                handlers.completions = CompletionHandler::new(sender, config);
+                handlers.completions =
+                    CompletionHandler::new(sender(handlers.redraw().clone()), config);
             })
             .build()?;
         let path = dir.join("document.completion-test");
@@ -279,7 +280,7 @@ async fn editor_ownership_and_handler_replacement_reject_queued_work() -> anyhow
         .app
         .editor
         .replace_completion_handler(CompletionHandler::new(
-            EditorCallbackSender::new(|_| async {}, |_| {}),
+            EditorCallbackSender::new(first.app.editor.redraw().clone(), |_| async {}, |_| {}),
             &first.app.editor.config(),
         ));
     old(&mut first.app.editor);
@@ -557,7 +558,7 @@ async fn replacing_completion_dismisses_presented_menu_and_restores_preview() ->
     f.app
         .editor
         .replace_completion_handler(CompletionHandler::new(
-            EditorCallbackSender::new(|_| async {}, |_| {}),
+            EditorCallbackSender::new(f.app.editor.redraw().clone(), |_| async {}, |_| {}),
             &f.app.editor.config(),
         ));
     let update = completion::next_update(&mut f.app.editor).unwrap();
@@ -585,7 +586,7 @@ async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyho
         f.app
             .editor
             .replace_completion_handler(CompletionHandler::new(
-                EditorCallbackSender::new(|_| async {}, |_| {}),
+                EditorCallbackSender::new(f.app.editor.redraw().clone(), |_| async {}, |_| {}),
                 &f.app.editor.config(),
             ));
         let hide = completion::next_update(&mut f.app.editor).unwrap();

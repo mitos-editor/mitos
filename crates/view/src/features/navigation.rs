@@ -311,7 +311,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
                     editor.handlers.navigation.shared.session.lock().pending =
                         Some(NavigationUpdate { request, locations });
                 }
-                event::request_redraw();
+                editor.redraw().request();
             })
             .await;
     });

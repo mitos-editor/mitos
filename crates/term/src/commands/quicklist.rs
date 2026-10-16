@@ -100,6 +100,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
     let initial_cursor = cx.editor.quicklist.current().unwrap_or(0) as u32;
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         0,
         items,

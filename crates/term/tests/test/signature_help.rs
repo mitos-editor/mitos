@@ -56,12 +56,13 @@ impl Fixture {
         config.editor.lsp.enable = true;
         config.editor.lsp.signature_help.auto_trigger = true;
         let (sender, callbacks) =
-            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+            super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
-                handlers.signature_hints = SignatureHelpHandler::new(sender);
+                handlers.signature_hints =
+                    SignatureHelpHandler::new(sender(handlers.redraw().clone()));
             })
             .build()?;
         let path = dir.join("document.signature-test");
@@ -349,10 +350,12 @@ async fn server_exit_replacement_and_drop_invalidate_work() -> anyhow::Result<()
     f.trigger(SignatureHelpInvoked::Manual);
     let old = f.response().await?;
     let (sender, callbacks) =
-        super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
+        super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
     f.app
         .editor
-        .replace_signature_help_handler(SignatureHelpHandler::new(sender));
+        .replace_signature_help_handler(SignatureHelpHandler::new(sender(
+            f.app.editor.redraw().clone(),
+        )));
     old(&mut f.app.editor);
     assert!(matches!(f.take_change(), Some(SignatureHelpChange::Hide)));
     assert!(
@@ -465,6 +468,7 @@ async fn replacing_signature_help_dismisses_presented_popup() -> anyhow::Result<
     f.app
         .editor
         .replace_signature_help_handler(SignatureHelpHandler::new(EditorCallbackSender::new(
+            f.app.editor.redraw().clone(),
             |_| async {},
             |_| {},
         )));

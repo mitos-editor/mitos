@@ -215,6 +215,7 @@ pub fn syntax_symbol_picker(cx: &mut Context) {
     ];
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         1, // name
         tags,
@@ -450,7 +451,7 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
         }
         .boxed()
     };
-    let picker = Picker::new(
+    let picker = Picker::new(cx.editor.redraw().clone(),
         columns,
         1, // name
         [],

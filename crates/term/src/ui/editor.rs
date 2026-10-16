@@ -1333,7 +1333,7 @@ impl EditorView {
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
-            event::dispatch(PostCommand { command, cx: cxt });
+            event::dispatch(PostCommand { command, cx: cxt }).report_to(cxt.editor.status_sender());
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
@@ -1341,7 +1341,8 @@ impl EditorView {
                     old_mode: last_mode,
                     new_mode: current_mode,
                     cx: cxt,
-                });
+                })
+                .report_to(cxt.editor.status_sender());
 
                 // HAXX: if we just entered insert mode from normal, clear key buf
                 // and record the command that got us into this mode.

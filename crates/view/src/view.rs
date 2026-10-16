@@ -185,7 +185,7 @@ impl fmt::Debug for View {
 }
 
 impl View {
-    pub fn new(doc: DocumentId, gutters: GutterConfig) -> Self {
+    pub fn new(doc: DocumentId, gutters: GutterConfig, redraw: event::Redraw) -> Self {
         Self {
             id: ViewId::default(),
             doc,
@@ -196,7 +196,7 @@ impl View {
             object_selections: Vec::new(),
             gutters,
             doc_revisions: HashMap::new(),
-            diagnostics_handler: DiagnosticsHandler::new(),
+            diagnostics_handler: DiagnosticsHandler::new(redraw),
         }
     }
 
@@ -771,7 +771,11 @@ mod tests {
     fn breadcrumbs_reduce_only_the_top_of_file_backed_view_content() {
         let mut config = Config::default();
         config.breadcrumb.enable = true;
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(40, 40, 40, 40);
         let mut doc = Document::from(
             Rope::from_str("first\nsecond\n"),
@@ -802,7 +806,11 @@ mod tests {
     fn breadcrumbs_do_not_reduce_scratch_buffer_content() {
         let mut config = Config::default();
         config.breadcrumb.enable = true;
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(40, 40, 40, 40);
         let doc = Document::from(
             Rope::from_str("first\nsecond\n"),
@@ -826,7 +834,11 @@ mod tests {
     #[tokio::test]
     async fn statusline_reserves_content_and_rejects_mouse_input_until_made_global() {
         let config = Arc::new(ArcSwap::from_pointee(Config::default()));
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(3, 5, 40, 3);
         let mut doc = Document::from(
             Rope::from_str("first\nsecond\nthird\n"),
@@ -883,7 +895,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_pos_at_screen_coords() {
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("abc\n\tdef");
         let mut doc = Document::from(
@@ -1059,6 +1075,7 @@ mod tests {
                 layout: vec![GutterType::Diagnostics],
                 line_numbers: GutterLineNumbersConfig::default(),
             },
+            event::Redraw::default(),
         );
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("abc\n\tdef");
@@ -1090,6 +1107,7 @@ mod tests {
                 layout: vec![],
                 line_numbers: GutterLineNumbersConfig::default(),
             },
+            event::Redraw::default(),
         );
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("abc\n\tdef");
@@ -1115,7 +1133,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_pos_at_screen_coords_cjk() {
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("Hi! こんにちは皆さん");
         let mut doc = Document::from(
@@ -1200,7 +1222,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_pos_at_screen_coords_graphemes() {
-        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig::default(),
+            event::Redraw::default(),
+        );
         view.area = Rect::new(40, 40, 40, 40);
         let rope = Rope::from_str("Hèl̀l̀ò world!");
         let mut doc = Document::from(
@@ -1362,8 +1388,8 @@ mod tests {
         // Revision 0: a short document.
         let mut doc = Document::from(Rope::from_str("ab"), None, config, loader);
 
-        let mut view1 = View::new(doc.id(), GutterConfig::default());
-        let mut view2 = View::new(doc.id(), GutterConfig::default());
+        let mut view1 = View::new(doc.id(), GutterConfig::default(), event::Redraw::default());
+        let mut view2 = View::new(doc.id(), GutterConfig::default(), event::Redraw::default());
         doc.ensure_view_init(view1.id);
         doc.ensure_view_init(view2.id);
 

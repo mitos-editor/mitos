@@ -24,7 +24,8 @@ fn opened(f: &mut Fixture) {
     event::dispatch(DocumentDidOpen {
         editor: &mut f.editor,
         doc,
-    });
+    })
+    .report_to(f.editor.status_sender());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -1,72 +1,55 @@
-//! Signals that control when/if the editor redraws
+//! Owned signals and synchronization for drawing one editor.
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::{ArcRwLockReadGuard, RawRwLock, RwLock};
 use tokio::sync::Notify;
 
-use crate::runtime_local;
-
-runtime_local! {
-    /// A `Notify` instance that can be used to (asynchronously) request
-    /// the editor to render a new frame.
-    static REDRAW_NOTIFY: Notify = Notify::const_new();
-
-    /// A `RwLock` that prevents the next frame from being
-    /// drawn until an exclusive (write) lock can be acquired.
-    /// This allows asynchronous tasks to acquire `non-exclusive`
-    /// locks (read) to prevent the next frame from being drawn
-    /// until a certain computation has finished.
-    static RENDER_LOCK: RwLock<()> = RwLock::new(());
+/// Redraw requests and frame synchronization belonging to one frontend.
+/// Clones retain that destination across tasks, threads, and runtime boundaries.
+#[derive(Clone, Debug, Default)]
+pub struct Redraw {
+    notify: Arc<Notify>,
+    render_lock: Arc<RwLock<()>>,
 }
 
-pub type RenderLockGuard = RwLockReadGuard<'static, ()>;
+pub type RenderLockGuard = ArcRwLockReadGuard<RawRwLock, ()>;
 
-/// Requests that the editor is redrawn. The redraws are debounced (currently to
-/// 30FPS) so this can be called many times without causing a ton of frames to
-/// be rendered.
-pub fn request_redraw() {
-    REDRAW_NOTIFY.notify_one();
-}
+impl Redraw {
+    /// Requests coalesce until consumed. The editor applies its frame-rate limit.
+    pub fn request(&self) {
+        self.notify.notify_one();
+    }
 
-/// Capture the current editor's redraw signal for use on background threads.
-pub fn redraw_callback() -> impl Fn() + Send + Sync + 'static {
-    let notify: &'static Notify = &REDRAW_NOTIFY;
-    move || notify.notify_one()
-}
+    pub fn callback(&self) -> impl Fn() + Send + Sync + 'static + use<> {
+        let notify = self.notify.clone();
+        move || notify.notify_one()
+    }
 
-/// Returns a future that will yield once a redraw has been asynchronously
-/// requested using [`request_redraw`].
-pub fn redraw_requested() -> impl Future<Output = ()> {
-    REDRAW_NOTIFY.notified()
-}
+    pub fn requested(&self) -> impl Future<Output = ()> + '_ {
+        self.notify.notified()
+    }
 
-/// Wait until all locks acquired with [`lock_frame`] have been released.
-/// This function is called before rendering and is intended to allow the frame
-/// to wait for async computations that should be included in the current frame.
-pub fn start_frame() {
-    drop(RENDER_LOCK.write());
-    // exhaust any leftover redraw notifications
-    let notify = REDRAW_NOTIFY.notified();
-    tokio::pin!(notify);
-    notify.enable();
-}
+    /// Wait for outstanding computations and consume the pending redraw permit.
+    pub fn start_frame(&self) {
+        drop(self.render_lock.write());
+        let notify = self.notify.notified();
+        tokio::pin!(notify);
+        notify.enable();
+    }
 
-/// Acquires the render lock which will prevent the next frame from being drawn
-/// until the returned guard is dropped.
-pub fn lock_frame() -> RenderLockGuard {
-    RENDER_LOCK.read()
-}
+    pub fn lock_frame(&self) -> RenderLockGuard {
+        self.render_lock.read_arc()
+    }
 
-/// Requests a redraw of the originating editor when dropped, even on another thread.
-#[derive(Clone)]
-pub struct RequestRedrawOnDrop(&'static Notify);
-
-impl Default for RequestRedrawOnDrop {
-    fn default() -> Self {
-        Self(&REDRAW_NOTIFY)
+    pub fn on_drop(&self) -> RequestRedrawOnDrop {
+        RequestRedrawOnDrop(self.notify.clone())
     }
 }
+
+/// Requests a redraw of its originating frontend when dropped.
+#[derive(Clone)]
+pub struct RequestRedrawOnDrop(Arc<Notify>);
 
 impl Drop for RequestRedrawOnDrop {
     fn drop(&mut self) {
@@ -74,22 +57,81 @@ impl Drop for RequestRedrawOnDrop {
     }
 }
 
-#[cfg(all(test, feature = "integration_test"))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
-    async fn background_redraws_notify_the_originating_runtime() {
-        let callback = redraw_callback();
-        std::thread::spawn(callback).join().unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), redraw_requested())
+    async fn background_requests_and_drop_guards_keep_their_owner() {
+        let first = Redraw::default();
+        let second = Redraw::default();
+        std::thread::spawn(first.callback()).join().unwrap();
+        tokio::time::timeout(Duration::from_secs(1), first.requested())
             .await
             .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), second.requested())
+                .await
+                .is_err()
+        );
+        let guard = first.on_drop();
+        std::thread::spawn(move || drop(guard)).join().unwrap();
+        tokio::time::timeout(Duration::from_secs(1), first.requested())
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), second.requested())
+                .await
+                .is_err()
+        );
+    }
 
-        let redraw = RequestRedrawOnDrop::default();
-        std::thread::spawn(move || drop(redraw)).join().unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), redraw_requested())
+    #[tokio::test]
+    async fn requests_coalesce_and_frames_drain_only_their_own_signal() {
+        let first = Redraw::default();
+        let second = Redraw::default();
+        for _ in 0..10 {
+            first.request();
+        }
+        tokio::time::timeout(Duration::from_secs(1), first.requested())
             .await
             .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), first.requested())
+                .await
+                .is_err()
+        );
+        first.request();
+        second.request();
+        first.start_frame();
+        tokio::time::timeout(Duration::from_secs(1), second.requested())
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), first.requested())
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn frame_guards_block_only_their_owner_and_outlive_its_handle() {
+        let first = Redraw::default();
+        let second = Redraw::default();
+        let guard = first.lock_frame();
+        assert!(first.render_lock.try_write().is_none());
+        assert!(second.render_lock.try_write().is_some());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            first.start_frame();
+            tx.send(()).unwrap();
+        });
+        assert!(rx.recv_timeout(Duration::from_millis(10)).is_err());
+        drop(guard);
+        rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let guard = second.lock_frame();
+        drop(second);
+        drop(guard);
     }
 }

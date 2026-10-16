@@ -236,7 +236,7 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
                     .collect();
                 doc.inline_completions.items = items;
                 doc.inline_completions.view = Some(view_id);
-                event::request_redraw();
+                editor.redraw().request();
             })
             .await;
     });

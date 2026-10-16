@@ -125,6 +125,7 @@ pub fn callback_channel() -> (
     let (tx, rx) = mpsc::unbounded_channel();
     let blocking = tx.clone();
     let sender = EditorCallbackSender::new(
+        event::Redraw::default(),
         move |callback| {
             let tx = tx.clone();
             async move {

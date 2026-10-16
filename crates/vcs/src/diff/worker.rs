@@ -21,6 +21,7 @@ pub(super) struct DiffWorker {
     pub diff: Arc<RwLock<DiffInner>>,
     pub diff_finished_notify: Arc<Notify>,
     pub diff_alloc: imara_diff::Diff,
+    pub redraw: event::Redraw,
 }
 
 impl DiffWorker {
@@ -28,7 +29,11 @@ impl DiffWorker {
         let mut accumulator = EventAccumulator::new();
         accumulator.handle_event(event).await;
         accumulator
-            .accumulate_debounced_events(&mut self.channel, self.diff_finished_notify.clone())
+            .accumulate_debounced_events(
+                &mut self.channel,
+                self.diff_finished_notify.clone(),
+                self.redraw.clone(),
+            )
             .await;
         (accumulator.doc, accumulator.diff_base)
     }
@@ -141,6 +146,7 @@ impl EventAccumulator {
         &mut self,
         channel: &mut UnboundedReceiver<Event>,
         diff_finished_notify: Arc<Notify>,
+        redraw: event::Redraw,
     ) {
         let async_debounce = Duration::from_millis(DIFF_DEBOUNCE_TIME_ASYNC);
         let sync_debounce = Duration::from_millis(DIFF_DEBOUNCE_TIME_SYNC);
@@ -162,14 +168,19 @@ impl EventAccumulator {
             }
         }
 
+        // Register before spawning: the worker may finish before the spawned task
+        // is first polled, and notify_waiters does not retain a permit for it.
+        let mut finished = Box::pin(diff_finished_notify.notified_owned());
+        finished.as_mut().enable();
+
         // setup task to trigger the rendering
         match self.render_lock.take() {
             // diff is performed outside of the rendering loop
             // request a redraw after the diff is done
             None => {
                 tokio::spawn(async move {
-                    diff_finished_notify.notified().await;
-                    event::request_redraw();
+                    finished.await;
+                    redraw.request();
                 });
             }
             // diff is performed inside the rendering loop
@@ -183,7 +194,7 @@ impl EventAccumulator {
                         // Acquire a lock on the redraw handle.
                         // The lock will block the rendering from occurring while held.
                         // The rendering waits for the diff if it doesn't time out
-                        timeout_at(timeout, diff_finished_notify.notified()).await
+                        timeout_at(timeout, finished.as_mut()).await
                     };
                     // we either reached the timeout or the diff is finished, release the render lock
                     drop(lock);
@@ -194,8 +205,8 @@ impl EventAccumulator {
                     // Diff failed to complete in time log the event
                     // and wait until the diff occurs to trigger an async redraw
                     log::info!("Diff computation timed out, update of diffs might appear delayed");
-                    diff_finished_notify.notified().await;
-                    event::request_redraw()
+                    finished.await;
+                    redraw.request()
                 });
             }
             // a blocking diff is performed inside the rendering loop
@@ -205,7 +216,7 @@ impl EventAccumulator {
                 timeout: None,
             }) => {
                 tokio::spawn(async move {
-                    diff_finished_notify.notified().await;
+                    finished.await;
                     // diff is done release the lock
                     drop(lock)
                 });

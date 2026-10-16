@@ -55,6 +55,7 @@ fn application(
     let (tx, rx) = tokio::sync::mpsc::channel(1);
     let blocking_tx = tx.clone();
     let sender = view::callbacks::EditorCallbackSender::new(
+        event::Redraw::default(),
         move |callback| {
             let tx = tx.clone();
             async move {
@@ -233,7 +234,8 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
         editor: &mut first.editor,
         doc,
         view,
-    });
+    })
+    .report_to(first.editor.status_sender());
     let callback = first.jobs.callbacks.try_recv()?;
     first
         .jobs
@@ -252,7 +254,8 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
         editor: &mut second.editor,
         doc,
         view,
-    });
+    })
+    .report_to(second.editor.status_sender());
     let callback = second.jobs.callbacks.try_recv()?;
     second.jobs.handle_callback(
         &mut second.editor,

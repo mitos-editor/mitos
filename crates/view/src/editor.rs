@@ -832,13 +832,15 @@ impl Editor {
                 self.replace_document_in_view(view_id, id);
 
                 if let Some(doc) = closed {
-                    dispatch(DocumentDidClose { editor: self, doc });
+                    dispatch(DocumentDidClose { editor: self, doc })
+                        .report_to(self.status_sender());
                 } else {
                     dispatch(DocumentFocusLost {
                         editor: self,
                         doc: old_doc_id,
                         view: view_id,
-                    });
+                    })
+                    .report_to(self.status_sender());
                 }
                 return;
             }
@@ -860,7 +862,9 @@ impl Editor {
                     .try_get(self.tree.focus)
                     .filter(|v| id == v.doc) // Different Document
                     .cloned()
-                    .unwrap_or_else(|| View::new(id, self.config().gutters.clone()));
+                    .unwrap_or_else(|| {
+                        View::new(id, self.config().gutters.clone(), self.redraw().clone())
+                    });
                 let view_id = self.tree.split(
                     view,
                     match action {
@@ -883,7 +887,8 @@ impl Editor {
                 editor: self,
                 doc: focus_lost,
                 view,
-            });
+            })
+            .report_to(self.status_sender());
         }
     }
 
@@ -979,22 +984,26 @@ impl Editor {
                 .workspace_trust
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
-            if !doc.is_binary()
-                && let Some(diff_base) = self.diff_providers.get_diff_base(&path, trust_full)
-            {
-                doc.set_diff_base(diff_base);
-            }
+            let diff_base = if doc.is_binary() {
+                None
+            } else {
+                self.diff_providers.get_diff_base(&path, trust_full)
+            };
             doc.set_version_control_head(
                 self.diff_providers.get_current_head_name(&path, trust_full),
             );
 
             let id = self.new_document(doc);
+            if let Some(diff_base) = diff_base {
+                self.document_mut(id).unwrap().set_diff_base(diff_base);
+            }
             self.launch_language_servers(id);
 
             event::dispatch(DocumentDidOpen {
                 editor: self,
                 doc: id,
-            });
+            })
+            .report_to(self.status_sender());
 
             id
         };
@@ -1079,7 +1088,7 @@ impl Editor {
                         self.syn_loader.clone(),
                     ))
                 });
-            let view = View::new(doc_id, self.config().gutters.clone());
+            let view = View::new(doc_id, self.config().gutters.clone(), self.redraw().clone());
             let view_id = self.tree.insert(view);
             let doc = doc_mut!(self, &doc_id);
             doc.ensure_view_init(view_id);
@@ -1089,7 +1098,7 @@ impl Editor {
         self._refresh();
 
         crate::handlers::lsp::close_document(&doc);
-        event::dispatch(DocumentDidClose { editor: self, doc });
+        event::dispatch(DocumentDidClose { editor: self, doc }).report_to(self.status_sender());
 
         Ok(())
     }
@@ -1174,7 +1183,8 @@ impl Editor {
             editor: self,
             doc: focus_lost,
             view: prev_id,
-        });
+        })
+        .report_to(self.status_sender());
     }
 
     pub fn focus_next(&mut self) {
@@ -1374,6 +1384,7 @@ impl Editor {
         if let Some(request) = crate::handlers::workspace_trust::next_request(self) {
             return EditorEvent::WorkspaceTrust(request);
         }
+        let redraw = self.redraw().clone();
         // the loop only runs once or twice and would be better implemented with a recursion + const generic
         // however due to limitations with async functions that can not be implemented right now
         loop {
@@ -1387,6 +1398,16 @@ impl Editor {
                 Some(config_event) = self.config_events.1.recv() => {
                     return EditorEvent::ConfigEvent(config_event)
                 }
+                Some(message) = self.handlers.status_messages.recv() => {
+                    let severity = match message.severity {
+                        event::status::Severity::Hint => Severity::Hint,
+                        event::status::Severity::Info => Severity::Info,
+                        event::status::Severity::Warning => Severity::Warning,
+                        event::status::Severity::Error => Severity::Error,
+                    };
+                    self.status_msg = Some((message.message, severity));
+                    redraw.request();
+                }
                 Some(message) = self.language_servers.incoming.next() => {
                     return EditorEvent::LanguageServerMessage(message)
                 }
@@ -1394,7 +1415,7 @@ impl Editor {
                     return EditorEvent::DebuggerEvent(event)
                 }
 
-                _ = event::redraw_requested() => {
+                _ = redraw.requested() => {
                     if  !self.needs_redraw{
                         self.needs_redraw = true;
                         let timeout = Instant::now() + Duration::from_millis(33);
@@ -1529,6 +1550,15 @@ impl Editor {
     }
 
     /// The frontend destination bound to this editor during construction.
+    /// Redraw destination shared by this editor's frontend and background services.
+    pub fn redraw(&self) -> &event::Redraw {
+        self.handlers.callbacks.redraw()
+    }
+
+    pub fn status_sender(&self) -> &event::status::StatusSender {
+        &self.handlers.status
+    }
+
     pub fn callback_sender(&self) -> &crate::callbacks::EditorCallbackSender {
         &self.handlers.callbacks
     }
@@ -1590,7 +1620,8 @@ impl Editor {
                 editor: self,
                 doc: old_doc_id,
                 view: view_id,
-            });
+            })
+            .report_to(self.status_sender());
         }
         let (view, doc) = current!(self);
         doc.set_selection(view_id, selection);

@@ -299,17 +299,24 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
             Line::from(spans).into()
         },
     )];
-    let picker = Picker::new(columns, 0, [], data, move |cx, path: &PathBuf, action| {
-        if let Err(err) = cx.editor.open(path, action) {
-            cx.editor.set_error(|| {
-                if let Some(err) = err.source() {
-                    format!("{}", err)
-                } else {
-                    format!("unable to open \"{}\"", path.display())
-                }
-            });
-        }
-    })
+    let picker = Picker::new(
+        editor.redraw().clone(),
+        columns,
+        0,
+        [],
+        data,
+        move |cx, path: &PathBuf, action| {
+            if let Err(err) = cx.editor.open(path, action) {
+                cx.editor.set_error(|| {
+                    if let Some(err) = err.source() {
+                        format!("{}", err)
+                    } else {
+                        format!("unable to open \"{}\"", path.display())
+                    }
+                });
+            }
+        },
+    )
     .with_preview(|_editor, path| Some((path.as_path().into(), None)));
     let injector = picker.injector();
     tokio::task::spawn_blocking(move || {
@@ -365,6 +372,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
         },
     )];
     let picker = Picker::new_with_callback_result(
+        editor.redraw().clone(),
         columns,
         0,
         options,

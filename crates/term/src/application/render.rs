@@ -57,7 +57,7 @@ impl Application {
             is_cursor_owner: false,
         };
 
-        event::start_frame();
+        cx.editor.redraw().start_frame();
         cx.editor.needs_redraw = false;
 
         tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {

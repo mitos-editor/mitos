@@ -101,7 +101,7 @@ pub(super) fn register_hooks() {
         let handler = &mut editor.handlers.workspace_trust;
         handler.pending.insert(workspace, owner);
         handler.requests.push_back(request);
-        event::request_redraw();
+        editor.redraw().request();
         Ok(())
     });
 }

@@ -14,6 +14,7 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let blocking_tx = tx.clone();
     let sender = view::callbacks::EditorCallbackSender::new(
+        event::Redraw::default(),
         move |callback| {
             let tx = tx.clone();
             async move {

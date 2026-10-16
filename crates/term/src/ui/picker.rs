@@ -620,6 +620,7 @@ pub struct Injector<T, D> {
     /// providing items is finished and drops. This could be wrapped in an [Arc] to ensure
     /// that the redraw is only requested when all Injectors drop for a Picker (which removes
     /// the "running" indicator) but the redraw handle is debounced so this is unnecessary.
+    redraw: event::Redraw,
     _redraw: event::RequestRedrawOnDrop,
 }
 
@@ -631,6 +632,7 @@ impl<I, D> Clone for Injector<I, D> {
             editor_data: self.editor_data.clone(),
             version: self.version,
             picker_version: self.picker_version.clone(),
+            redraw: self.redraw.clone(),
             _redraw: self._redraw.clone(),
         }
     }
@@ -722,6 +724,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     editor_data: Arc<D>,
     version: Arc<AtomicUsize>,
     matcher: Nucleo<T>,
+    redraw: event::Redraw,
 
     /// Current height of the completions box
     completion_height: u16,
@@ -750,6 +753,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn stream(
+        redraw: event::Redraw,
         columns: impl IntoIterator<Item = Column<T, D>>,
         editor_data: D,
     ) -> (Nucleo<T>, Injector<T, D>) {
@@ -758,7 +762,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         assert!(matcher_columns > 0);
         let matcher = Nucleo::new(
             Config::DEFAULT,
-            Arc::new(event::redraw_callback()),
+            Arc::new(redraw.callback()),
             None,
             matcher_columns,
         );
@@ -768,12 +772,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data: Arc::new(editor_data),
             version: 0,
             picker_version: Arc::new(AtomicUsize::new(0)),
-            _redraw: event::RequestRedrawOnDrop::default(),
+            redraw: redraw.clone(),
+            _redraw: redraw.on_drop(),
         };
         (matcher, streamer)
     }
 
     pub fn new<C, O, F>(
+        redraw: event::Redraw,
         columns: C,
         primary_column: usize,
         options: O,
@@ -786,6 +792,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         F: Fn(&mut Context, &T, Action) + 'static,
     {
         Self::new_with_callback_result(
+            redraw,
             columns,
             primary_column,
             options,
@@ -798,6 +805,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     pub(crate) fn new_with_callback_result<C, O, F>(
+        redraw: event::Redraw,
         columns: C,
         primary_column: usize,
         options: O,
@@ -817,7 +825,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         assert!(matcher_columns > 0);
         let matcher = Nucleo::new(
             Config::DEFAULT,
-            Arc::new(event::redraw_callback()),
+            Arc::new(redraw.callback()),
             None,
             matcher_columns,
         );
@@ -826,6 +834,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             inject_nucleo_item(&injector, &columns, item, &editor_data);
         }
         Self::with(
+            redraw,
             matcher,
             columns,
             primary_column,
@@ -842,6 +851,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         callback_fn: impl Fn(&mut Context, &T, Action) + 'static,
     ) -> Self {
         Self::with(
+            injector.redraw.clone(),
             matcher,
             injector.columns,
             primary_column,
@@ -855,6 +865,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn with(
+        redraw: event::Redraw,
         matcher: Nucleo<T>,
         columns: Arc<[Column<T, D>]>,
         default_column: usize,
@@ -879,6 +890,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             columns,
             primary_column: default_column,
             matcher,
+            redraw,
             editor_data,
             version,
             cursor: 0,
@@ -908,7 +920,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data: self.editor_data.clone(),
             version: self.version.load(atomic::Ordering::Relaxed),
             picker_version: self.version.clone(),
-            _redraw: event::RequestRedrawOnDrop::default(),
+            redraw: self.redraw.clone(),
+            _redraw: self.redraw.on_drop(),
         }
     }
 
@@ -1813,6 +1826,7 @@ mod tests {
         let accepted = Rc::new(RefCell::new(Vec::new()));
         let recorded = accepted.clone();
         let mut picker = Picker::new_with_callback_result(
+            cx.editor.redraw().clone(),
             [Column::new("name", |item: &u8, _: &()| {
                 item.to_string().into()
             })],

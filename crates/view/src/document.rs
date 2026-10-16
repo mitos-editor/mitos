@@ -167,6 +167,8 @@ pub enum DocumentOpenError {
 }
 
 pub struct Document {
+    redraw: event::Redraw,
+    status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     text: Rope,
     binary: bool,
@@ -383,6 +385,8 @@ impl Document {
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             diff_handle: None,
+            redraw: event::Redraw::default(),
+            status: None,
             blame: Default::default(),
             config,
             version_control_head: None,
@@ -1112,10 +1116,11 @@ impl Document {
     pub fn set_selection(&mut self, view_id: ViewId, selection: Selection) {
         // TODO: use a transaction?
         self.update_selection(view_id, selection);
-        event::dispatch(SelectionDidChange {
+        let errors = event::dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
-        })
+        });
+        self.report_hook_errors(errors)
     }
 
     /// Find the origin selection of the text in a document, i.e. where
@@ -1197,10 +1202,11 @@ impl Document {
         if changes.is_empty() {
             if let Some(selection) = transaction.selection() {
                 self.update_selection(view_id, selection.clone());
-                event::dispatch(SelectionDidChange {
+                let errors = event::dispatch(SelectionDidChange {
                     doc: self,
                     view: view_id,
                 });
+                self.report_hook_errors(errors);
             }
             return true;
         }
@@ -1284,18 +1290,20 @@ impl Document {
         }
 
         // Observers see mapped caches and the final selection, and may now schedule work.
-        event::dispatch(DocumentDidChange {
+        let errors = event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
             old_text: &old_doc,
             changes,
             ghost_transaction: !emit_lsp_notification,
         });
+        self.report_hook_errors(errors);
         if transaction.selection().is_some() {
-            event::dispatch(SelectionDidChange {
+            let errors = event::dispatch(SelectionDidChange {
                 doc: self,
                 view: view_id,
             });
+            self.report_hook_errors(errors);
         }
 
         true
@@ -1654,6 +1662,28 @@ impl Document {
             .unwrap_or(false)
     }
 
+    /// Signal destination for standalone documents; attached documents use their editor's.
+    pub fn redraw(&self) -> &event::Redraw {
+        &self.redraw
+    }
+
+    pub(crate) fn bind_signals(
+        &mut self,
+        redraw: event::Redraw,
+        status: event::status::StatusSender,
+    ) {
+        self.redraw = redraw;
+        self.status = Some(status);
+    }
+
+    fn report_hook_errors(&self, errors: event::HookErrors) {
+        if let Some(status) = &self.status {
+            errors.report_to(status);
+        } else {
+            errors.log();
+        }
+    }
+
     pub fn diff_handle(&self) -> Option<&DiffHandle> {
         self.diff_handle.as_ref()
     }
@@ -1693,7 +1723,11 @@ impl Document {
                     differ.update_diff_base(diff_base);
                     return;
                 }
-                self.diff_handle = Some(DiffHandle::new(diff_base, self.text.clone()))
+                self.diff_handle = Some(DiffHandle::new(
+                    diff_base,
+                    self.text.clone(),
+                    self.redraw.clone(),
+                ))
             }
             _ => {
                 self.diff_handle = None;

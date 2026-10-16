@@ -125,7 +125,7 @@ fn request_document_code_lenses(
                     doc.code_lenses.version = Some(doc.version());
                     doc.code_lenses.uri = doc.uri();
                     doc.code_lenses.cache = lenses;
-                    event::request_redraw();
+                    editor.redraw().request();
                 }
             })
             .await;
@@ -270,7 +270,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
                         && editor.config().lsp.code_lenses.enable
                     {
                         editor.document_mut(doc_id).unwrap().code_lenses.cache[index].lens = lens;
-                        event::request_redraw();
+                        editor.redraw().request();
                     }
                 })
                 .await;

@@ -5,7 +5,11 @@ use crate::diff::{DiffHandle, Hunk};
 
 impl DiffHandle {
     fn new_test(diff_base: &str, doc: &str) -> (DiffHandle, JoinHandle<()>) {
-        DiffHandle::new_with_handle(Rope::from_str(diff_base), Rope::from_str(doc))
+        DiffHandle::new_with_handle(
+            Rope::from_str(diff_base),
+            Rope::from_str(doc),
+            event::Redraw::default(),
+        )
     }
     async fn into_diff(self, handle: JoinHandle<()>) -> Vec<Hunk> {
         let diff = self.diff;
@@ -142,4 +146,30 @@ async fn update_base() {
             },
         ]
     )
+}
+
+#[tokio::test]
+async fn background_diff_completion_notifies_only_its_owner() {
+    let first = event::Redraw::default();
+    let second = event::Redraw::default();
+    let (diff, worker) = DiffHandle::new_with_handle(
+        Rope::from_str("base\n"),
+        Rope::from_str("base\n"),
+        first.clone(),
+    );
+    diff.update_diff_base(Rope::from_str("changed\n"));
+    tokio::time::timeout(std::time::Duration::from_secs(1), first.requested())
+        .await
+        .unwrap();
+    assert!(!diff.load().is_empty());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(5), second.requested())
+            .await
+            .is_err()
+    );
+    drop(diff);
+    tokio::time::timeout(std::time::Duration::from_secs(1), worker)
+        .await
+        .unwrap()
+        .unwrap();
 }

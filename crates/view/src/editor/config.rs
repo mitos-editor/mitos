@@ -56,7 +56,8 @@ impl Editor {
             editor: self,
             old: old_config,
             new: &config,
-        });
+        })
+        .report_to(self.status_sender());
 
         // Hooks may change document layout; keep every view's cursor visible after
         // they have observed the newly installed settings (including soft wrapping).

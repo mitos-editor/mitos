@@ -170,7 +170,8 @@ pub(crate) fn register_dynamic(
     })
 }
 
-pub(crate) fn dispatch<E: Event>(mut event: E) {
+pub(crate) fn dispatch<E: Event>(mut event: E) -> crate::HookErrors {
+    let mut errors = Vec::new();
     // Never hold the registry lock while calling user code. Hooks may dispatch
     // recursively, subscribe, or remove their own registration.
     let hooks = REGISTRY.read().snapshot::<E>();
@@ -178,10 +179,13 @@ pub(crate) fn dispatch<E: Event>(mut event: E) {
         if hook.active.load(Ordering::Acquire) {
             // Safety: snapshot validates the event's static type before erasure.
             if let Err(err) = unsafe { hook.callback.call(&mut event) } {
-                log::error!("{} hook failed: {err:#?}", E::ID);
-                crate::status::report_blocking(err);
+                errors.push(err);
             }
         }
+    }
+    crate::HookErrors {
+        event: E::ID,
+        errors,
     }
 }
 

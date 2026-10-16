@@ -121,7 +121,7 @@ pub fn refresh(editor: &mut Editor) {
                                 hints.unwrap_or_default(),
                             );
                             doc.inlay_hints.complete(view_id, hints);
-                            event::request_redraw();
+                            editor.redraw().request();
                         }
                         Err(error) => {
                             log::error!("inlay hints request failed: {error}");

@@ -17,7 +17,7 @@ foldhash.workspace = true
 hashbrown.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros"] }
 # Dispatch snapshots the hook list under a short read lock; callbacks run unlocked.
-parking_lot = { workspace = true, features = ["hardware-lock-elision", "send_guard"] }
+parking_lot = { workspace = true, features = ["hardware-lock-elision", "send_guard", "arc_lock"] }
 anyhow.workspace = true
 log.workspace = true
 futures-executor.workspace = true

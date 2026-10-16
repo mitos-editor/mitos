@@ -369,7 +369,11 @@ async fn replacing_inline_completion_rejects_a_queued_response() -> anyhow::Resu
     f.app
         .editor
         .replace_inline_completion_handler(InlineCompletionHandler::new(
-            view::callbacks::EditorCallbackSender::new(|_| async {}, |_| {}),
+            view::callbacks::EditorCallbackSender::new(
+                f.app.editor.redraw().clone(),
+                |_| async {},
+                |_| {},
+            ),
         ));
     response(&mut f.app.editor);
     assert!(f.preview().is_none());

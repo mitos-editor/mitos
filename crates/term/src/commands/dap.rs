@@ -50,6 +50,7 @@ fn thread_picker(
                 }),
             ];
             let picker = Picker::new(
+                editor.redraw().clone(),
                 columns,
                 0,
                 threads,
@@ -271,6 +272,7 @@ pub fn dap_launch(cx: &mut Context) {
     )];
 
     cx.push_layer(Box::new(overlaid(Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         0,
         templates,
@@ -756,6 +758,7 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
         },
     )];
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         0,
         frames,

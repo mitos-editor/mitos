@@ -379,6 +379,7 @@ fn diag_picker(
     }
 
     Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         primary_column,
         diagnostics,

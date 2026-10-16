@@ -240,6 +240,7 @@ async fn picker_routes_prompt_prefixes_before_navigation_and_split_acceptance() 
     let picked = Rc::new(RefCell::new(Vec::new()));
     let recorded = picked.clone();
     let mut picker = Picker::new(
+        fixture.app.editor.redraw().clone(),
         [PickerColumn::new("name", |item: &OptionItem, _| {
             item.0.into()
         })],

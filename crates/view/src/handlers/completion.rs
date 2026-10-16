@@ -143,7 +143,7 @@ impl CompletionHandler {
                 epoch: self.shared.epoch.load(Ordering::Relaxed),
             },
         });
-        event::request_redraw();
+        self.shared.callbacks.redraw().request();
     }
 }
 
@@ -431,7 +431,7 @@ async fn deliver(session: Session, request: Option<TaskHandle>, payload: Payload
                             payload,
                         },
                     });
-                event::request_redraw();
+                editor.redraw().request();
             }
         })
         .await;

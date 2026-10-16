@@ -163,7 +163,7 @@ impl event::AsyncHook for Debounce {
                         trigger,
                         handle,
                     ));
-                event::request_redraw();
+                editor.redraw().request();
             }
         });
     }

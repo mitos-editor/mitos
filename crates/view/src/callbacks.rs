@@ -15,6 +15,7 @@ pub type EditorCallback = Box<dyn FnOnce(&mut Editor) + Send>;
 /// bounded-wait policy; full or closed destinations may discard those callbacks.
 #[derive(Clone)]
 pub struct EditorCallbackSender {
+    redraw: event::Redraw,
     send: Arc<dyn Fn(EditorCallback) -> BoxFuture<'static, ()> + Send + Sync>,
     send_blocking: Arc<dyn Fn(EditorCallback) + Send + Sync>,
 }
@@ -28,6 +29,7 @@ impl fmt::Debug for EditorCallbackSender {
 
 impl EditorCallbackSender {
     pub fn new<F, Fut>(
+        redraw: event::Redraw,
         send: F,
         send_blocking: impl Fn(EditorCallback) + Send + Sync + 'static,
     ) -> Self
@@ -36,9 +38,14 @@ impl EditorCallbackSender {
         Fut: Future<Output = ()> + Send + 'static,
     {
         Self {
+            redraw,
             send: Arc::new(move |callback| Box::pin(send(callback))),
             send_blocking: Arc::new(send_blocking),
         }
+    }
+
+    pub fn redraw(&self) -> &event::Redraw {
+        &self.redraw
     }
 
     /// Whether these handles were cloned from the same frontend destination.

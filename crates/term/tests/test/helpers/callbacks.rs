@@ -13,18 +13,33 @@ pub fn channel() -> (
 pub fn unbounded<T: Send + 'static>(
     wrap: impl Fn(bool, EditorCallback) -> T + Clone + Send + Sync + 'static,
 ) -> (EditorCallbackSender, mpsc::UnboundedReceiver<T>) {
+    let (sender, callbacks) = deferred(wrap);
+    (sender(event::Redraw::default()), callbacks)
+}
+
+/// Create the queue before application startup, then bind its sender once the
+/// frontend's redraw destination is available in handler setup.
+pub fn deferred<T: Send + 'static>(
+    wrap: impl Fn(bool, EditorCallback) -> T + Clone + Send + Sync + 'static,
+) -> (
+    impl FnOnce(event::Redraw) -> EditorCallbackSender,
+    mpsc::UnboundedReceiver<T>,
+) {
     let (tx, rx) = mpsc::unbounded_channel();
     let blocking = tx.clone();
     let wrap_blocking = wrap.clone();
-    let sender = EditorCallbackSender::new(
-        move |callback| {
-            let _ = tx.send(wrap(false, callback));
-            async {}
-        },
-        move |callback| {
-            let _ = blocking.send(wrap_blocking(true, callback));
-        },
-    );
+    let sender = move |redraw| {
+        EditorCallbackSender::new(
+            redraw,
+            move |callback| {
+                let _ = tx.send(wrap(false, callback));
+                async {}
+            },
+            move |callback| {
+                let _ = blocking.send(wrap_blocking(true, callback));
+            },
+        )
+    };
     (sender, rx)
 }
 
@@ -37,6 +52,7 @@ pub fn bounded_sender<T: Send + 'static>(
     let blocking = tx.clone();
     let wrap_blocking = wrap.clone();
     EditorCallbackSender::new(
+        event::Redraw::default(),
         move |callback| {
             let tx = tx.clone();
             let callback = wrap(false, callback);

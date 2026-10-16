@@ -41,14 +41,19 @@ pub struct DiffHandle {
     channel: UnboundedSender<Event>,
     diff: Arc<RwLock<DiffInner>>,
     inverted: bool,
+    redraw: event::Redraw,
 }
 
 impl DiffHandle {
-    pub fn new(diff_base: Rope, doc: Rope) -> DiffHandle {
-        DiffHandle::new_with_handle(diff_base, doc).0
+    pub fn new(diff_base: Rope, doc: Rope, redraw: event::Redraw) -> DiffHandle {
+        DiffHandle::new_with_handle(diff_base, doc, redraw).0
     }
 
-    fn new_with_handle(diff_base: Rope, doc: Rope) -> (DiffHandle, JoinHandle<()>) {
+    fn new_with_handle(
+        diff_base: Rope,
+        doc: Rope,
+        redraw: event::Redraw,
+    ) -> (DiffHandle, JoinHandle<()>) {
         let (sender, receiver) = unbounded_channel();
         let diff: Arc<RwLock<DiffInner>> = Arc::default();
         let worker = DiffWorker {
@@ -56,12 +61,14 @@ impl DiffHandle {
             diff: diff.clone(),
             diff_finished_notify: Arc::default(),
             diff_alloc: imara_diff::Diff::default(),
+            redraw: redraw.clone(),
         };
         let handle = tokio::spawn(worker.run(diff_base, doc));
         let differ = DiffHandle {
             channel: sender,
             diff,
             inverted: false,
+            redraw,
         };
         (differ, handle)
     }
@@ -90,7 +97,7 @@ impl DiffHandle {
     /// This function is only intended to be called from within the rendering loop
     /// if called from elsewhere it may fail to acquire the render lock and panic
     pub fn update_document(&self, doc: Rope, block: bool) -> bool {
-        let lock = event::lock_frame();
+        let lock = self.redraw.lock_frame();
         let timeout = if block {
             None
         } else {

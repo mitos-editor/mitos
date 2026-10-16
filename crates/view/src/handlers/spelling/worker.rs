@@ -189,7 +189,8 @@ fn recheck_document(editor: &mut Editor, doc_id: DocumentId, changes: ChangeSet,
     event::dispatch(crate::events::DiagnosticsDidChange {
         editor,
         doc: doc_id,
-    });
+    })
+    .report_to(editor.status_sender());
 }
 
 /// Checks an entire document off the main loop and replaces its spelling diagnostics wholesale.
@@ -248,7 +249,8 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
             event::dispatch(crate::events::DiagnosticsDidChange {
                 editor,
                 doc: doc_id,
-            });
+            })
+            .report_to(editor.status_sender());
         });
     });
 }

@@ -24,7 +24,7 @@
 //! In addition to the core event system, this crate contains some message queues
 //! that allow transfer of data back to the main event loop from async hooks and
 //! hooks that may not have access to all application data (for example in view).
-//! This includes the ability to control rendering ([`lock_frame`], [`request_redraw`]) and
+//! This includes the ability to control rendering ([`Redraw::lock_frame`], [`Redraw::request`]) and
 //! display status messages ([`status`]).
 //!
 //! Hooks that need to update a frontend capture its explicit callback destination.
@@ -34,10 +34,7 @@
 use anyhow::Result;
 pub use cancel::{cancelable_future, TaskController, TaskHandle};
 pub use debounce::{send_blocking, AsyncHook};
-pub use redraw::{
-    lock_frame, redraw_callback, redraw_requested, request_redraw, start_frame, RenderLockGuard,
-    RequestRedrawOnDrop,
-};
+pub use redraw::{Redraw, RenderLockGuard, RequestRedrawOnDrop};
 pub use registry::{Event, HookRegistration};
 
 mod cancel;
@@ -99,10 +96,33 @@ pub fn register_dynamic_hook(
 
 /// Dispatches an event synchronously to every registered hook of its type.
 ///
-/// Hook failures are handled by the registry and do not change the return type
-/// of the operation that emitted the event.
-pub fn dispatch(e: impl Event) {
-    registry::dispatch(e);
+/// The caller reports failures to its owning editor after the event's mutable
+/// borrows end. Call [`HookErrors::log`] when no status UI exists.
+pub fn dispatch(e: impl Event) -> HookErrors {
+    registry::dispatch(e)
+}
+
+/// Failures from synchronous observers, delivered after every hook has run.
+#[must_use = "report hook errors to the owning editor, or explicitly log them"]
+pub struct HookErrors {
+    event: &'static str,
+    errors: Vec<anyhow::Error>,
+}
+
+impl HookErrors {
+    pub fn report_to(self, status: &status::StatusSender) {
+        for error in self.errors {
+            log::error!("{} hook failed: {error:#?}", self.event);
+            status.report_blocking(error);
+        }
+    }
+
+    /// Log failures for standalone operations with no status destination.
+    pub fn log(self) {
+        for error in self.errors {
+            log::error!("{} hook failed: {error:#?}", self.event);
+        }
+    }
 }
 
 /// Macro to declare events
@@ -124,7 +144,7 @@ pub fn dispatch(e: impl Event) {
 ///
 /// fn save(path: &Path, content: &str){
 ///     std::fs::write(path, content);
-///     dispatch(FileWrite(path));
+///     dispatch(FileWrite(path)).log();
 /// }
 /// ```
 #[macro_export]

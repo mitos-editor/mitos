@@ -306,6 +306,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
     ];
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         1, // path
         cx.editor.tree.views().flat_map(|(view, _)| {

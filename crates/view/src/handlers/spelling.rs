@@ -177,7 +177,8 @@ impl Editor {
         event::dispatch(crate::events::DiagnosticsDidChange {
             editor: self,
             doc: doc_id,
-        });
+        })
+        .report_to(self.status_sender());
     }
 
     /// Capture the spelling findings overlapping the primary selection, then generate corrections,

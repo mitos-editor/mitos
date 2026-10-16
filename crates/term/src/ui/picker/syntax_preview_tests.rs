@@ -43,6 +43,7 @@ impl Fixture {
             loader::workspace_trust::WorkspaceTrust::fully_trusted(),
         )?;
         let picker = Picker::new(
+            app.editor.redraw().clone(),
             [Column::new("name", |_: &(), _| "".into())],
             0,
             [()],

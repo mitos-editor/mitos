@@ -280,7 +280,8 @@ impl Editor {
         event::dispatch(LanguageServerInitialized {
             editor: self,
             server_id,
-        });
+        })
+        .report_to(self.status_sender());
     }
 
     /// Validate a push notification before applying the shared diagnostic update policy.
@@ -338,7 +339,8 @@ impl Editor {
         event::dispatch(LanguageServerExited {
             editor: self,
             server_id,
-        });
+        })
+        .report_to(self.status_sender());
     }
 
     pub fn handle_lsp_diagnostics(
@@ -425,7 +427,8 @@ impl Editor {
             doc.replace_diagnostics(diagnostics, &unchanged_diag_sources, Some(provider));
 
             let doc = doc.id();
-            event::dispatch(DiagnosticsDidChange { editor: self, doc });
+            event::dispatch(DiagnosticsDidChange { editor: self, doc })
+                .report_to(self.status_sender());
         }
     }
 

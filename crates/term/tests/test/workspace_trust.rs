@@ -12,7 +12,7 @@ use super::helpers::{lsp::Fixture, test_key_sequence, test_key_sequences, AppBui
 
 fn opened(editor: &mut view::Editor) {
     let doc = current_ref!(editor).1.id();
-    event::dispatch(DocumentDidOpen { editor, doc });
+    event::dispatch(DocumentDidOpen { editor, doc }).report_to(editor.status_sender());
 }
 
 fn drain_theme_events(editor: &mut view::Editor) {

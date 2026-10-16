@@ -1,5 +1,4 @@
 use event::send_blocking;
-use event::status::StatusMessage;
 use view::callbacks::{EditorCallback, EditorCallbackSender};
 use view::Editor;
 
@@ -50,10 +49,10 @@ pub struct Job {
 
 pub struct Jobs {
     sender: JobSender,
+    redraw: event::Redraw,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
-    pub status_messages: Receiver<StatusMessage>,
 }
 
 impl Job {
@@ -84,12 +83,12 @@ impl Jobs {
     pub fn new() -> Self {
         let (tx, rx) = channel(1024);
         let sender = JobSender(tx);
-        let status_messages = event::status::setup();
+        let redraw = event::Redraw::default();
         Self {
             sender,
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
-            status_messages,
+            redraw,
         }
     }
 
@@ -102,6 +101,7 @@ impl Jobs {
         let sender = self.sender.0.clone();
         let blocking_sender = sender.clone();
         EditorCallbackSender::new(
+            self.redraw.clone(),
             move |callback| {
                 let sender = sender.clone();
                 async move {

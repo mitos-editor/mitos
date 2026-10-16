@@ -6,7 +6,6 @@ use crate::{
 };
 use ::vcs::{FileChange, Hunk};
 use editor_core::{movement::Direction, Range, RopeSlice, Selection};
-use event::status;
 use std::{error::Error, path::Path};
 use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, icons::ICONS, theme::Style, Editor};
@@ -158,6 +157,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
     ];
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         1, // path
         [],
@@ -190,6 +190,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         .workspace_trust
         .query(&workspace_root, loader::workspace_trust::TrustQuery::Git)
         .is_trusted();
+    let status = cx.editor.status_sender().clone();
     cx.editor.diff_providers.clone().for_each_changed_file(
         scope,
         trust_full,
@@ -204,7 +205,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 })
                 .is_ok(),
             Err(err) => {
-                status::report_blocking(err);
+                status.report_blocking(err);
                 true
             }
         },

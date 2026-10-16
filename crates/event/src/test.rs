@@ -34,20 +34,23 @@ async fn smoke_test() {
         // Use the same event registry when integration tests isolate it by runtime.
         let _guard = runtime.enter();
         for i in 0..1000 {
-            dispatch(Event2 { content: i });
+            dispatch(Event2 { content: i }).log();
         }
     });
     std::thread::sleep(Duration::from_millis(1));
     dispatch(Event1 {
         content: "foo".to_owned(),
-    });
-    dispatch(Event2 { content: 42 });
+    })
+    .log();
+    dispatch(Event2 { content: 42 }).log();
     dispatch(Event1 {
         content: "bar".to_owned(),
-    });
+    })
+    .log();
     dispatch(Event1 {
         content: "hello world".to_owned(),
-    });
+    })
+    .log();
     thread.join().unwrap();
 
     // check output
@@ -87,9 +90,9 @@ async fn dynamic() {
         "Event4",
     )
     .unwrap();
-    dispatch(Event3 {});
-    dispatch(Event4 { count: 0 });
-    dispatch(Event3 {});
+    dispatch(Event3 {}).log();
+    dispatch(Event4 { count: 0 }).log();
+    dispatch(Event3 {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 7)
 }
 
@@ -108,13 +111,13 @@ async fn dropped_registration_stops_delivery_and_releases_captures() {
         "OwnedEvent",
     )
     .unwrap();
-    dispatch(OwnedEvent {});
+    dispatch(OwnedEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
     // A registration keeps its originating registry even without a Tokio runtime.
     std::thread::spawn(move || drop(registration))
         .join()
         .unwrap();
-    dispatch(OwnedEvent {});
+    dispatch(OwnedEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
     drop(count);
     assert!(weak.upgrade().is_none());
@@ -157,9 +160,9 @@ async fn hooks_can_remove_other_hooks_and_subscribe_during_dispatch() {
         )
         .unwrap(),
     );
-    dispatch(ReentrantEvent {});
+    dispatch(ReentrantEvent {}).log();
     assert_eq!(*order.lock(), [1]);
-    dispatch(ReentrantEvent {});
+    dispatch(ReentrantEvent {}).log();
     assert_eq!(*order.lock(), [1, 1, 3]);
     // Break the test's ownership cycle while exercising removal outside dispatch.
     added.lock().take();
@@ -178,13 +181,13 @@ async fn hooks_can_unsubscribe_themselves_and_dispatch_recursively() {
             observed.fetch_add(1, Ordering::Relaxed);
             registration.lock().take();
             if event.depth == 0 {
-                dispatch(RecursiveEvent { depth: 1 });
+                dispatch(RecursiveEvent { depth: 1 }).log();
             }
             Ok(())
         }
     ));
-    dispatch(RecursiveEvent { depth: 0 });
-    dispatch(RecursiveEvent { depth: 0 });
+    dispatch(RecursiveEvent { depth: 0 }).log();
+    dispatch(RecursiveEvent { depth: 0 }).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
@@ -210,10 +213,10 @@ async fn unsubscribing_releases_nested_registrations_outside_the_registry_lock()
         "NestedLifetimeEvent",
     )
     .unwrap();
-    dispatch(NestedLifetimeEvent {});
+    dispatch(NestedLifetimeEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
     drop(outer);
-    dispatch(NestedLifetimeEvent {});
+    dispatch(NestedLifetimeEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
@@ -238,13 +241,13 @@ async fn dropping_a_registration_allows_an_active_callback_to_finish() {
     let runtime = tokio::runtime::Handle::current();
     let thread = std::thread::spawn(move || {
         let _runtime = runtime.enter();
-        dispatch(ConcurrentLifetimeEvent {});
+        dispatch(ConcurrentLifetimeEvent {}).log();
     });
     barrier.wait();
     drop(registration);
     barrier.wait();
     thread.join().unwrap();
-    dispatch(ConcurrentLifetimeEvent {});
+    dispatch(ConcurrentLifetimeEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
     assert_eq!(Arc::strong_count(&count), 1);
 }
@@ -271,7 +274,7 @@ async fn failed_registration_releases_captures_without_locking_out_unsubscriptio
         "MissingLifetimeEvent",
     );
     assert!(result.is_err());
-    dispatch(FailedLifetimeEvent {});
+    dispatch(FailedLifetimeEvent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 0);
     assert_eq!(Arc::strong_count(&count), 1);
 }
@@ -339,8 +342,35 @@ async fn failed_typed_registration_releases_captures_without_deadlocking() {
             }
         }));
         assert!(result.is_err());
-        dispatch(TypedFailureLifetimeEvent {});
+        dispatch(TypedFailureLifetimeEvent {}).log();
         assert_eq!(count.load(Ordering::Relaxed), 0);
         assert_eq!(Arc::strong_count(&count), 1);
     }
+}
+
+#[tokio::test]
+async fn hook_failures_report_to_the_selected_owner_after_all_observers_run() {
+    events! { ReportedFailureEvent {} }
+    register_event::<ReportedFailureEvent>();
+    let _failing =
+        register_dynamic_hook(|| anyhow::bail!("observer failed"), "ReportedFailureEvent").unwrap();
+    let called = Arc::new(AtomicUsize::new(0));
+    let observed = called.clone();
+    let _following = register_dynamic_hook(
+        move || {
+            observed.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        },
+        "ReportedFailureEvent",
+    )
+    .unwrap();
+    let (_first, mut first_messages) = crate::status::StatusSender::channel();
+    let (second, mut second_messages) = crate::status::StatusSender::channel();
+    dispatch(ReportedFailureEvent {}).report_to(&second);
+    assert_eq!(called.load(Ordering::Relaxed), 1);
+    assert_eq!(
+        second_messages.try_recv().unwrap().message,
+        "observer failed"
+    );
+    assert!(first_messages.try_recv().is_err());
 }

@@ -619,6 +619,29 @@ process; formatters similarly use the document directory or a captured fallback.
 This avoids delayed work inheriting a later `:cd`; it does not provide independent
 working directories for multiple editors in one process.
 
+## Editor-owned signals
+
+`event::Redraw` owns one frontend's coalescing notification and frame barrier. The
+frontend creates it with `Jobs`; its `EditorCallbackSender` carries the same handle
+to shared services. Custom callback queues pass that handle explicitly when
+constructing their sender. Views, pickers, image decoders, and differ workers
+retain their owner's handle. A frame waits only for that owner's computation guards;
+those guards own their locks and can safely outlive the frontend.
+
+`Handlers` owns a bounded status channel. `Editor::wait_event` receives its messages,
+preserves severity, and schedules a redraw using the editor's existing frame-rate
+limit. `StatusSender` clones keep their destination even on another thread; closed
+destinations discard messages immediately. Asynchronous reports wait at most 10 ms
+for an overloaded queue; synchronous reports use best-effort delivery and never wait
+for queue capacity or require a Tokio runtime.
+
+Synchronous event dispatch returns `HookErrors` after all observers run. Callers must
+report them to the owner with `report_to`; standalone callers without a status UI
+explicitly call `log`. Documents bind status delivery when attached to an editor;
+standalone documents log observer failures. Initial VCS diff setup follows attachment
+so workers never start with a different editor's redraw signal. No status or redraw
+routing depends on the current process or Tokio runtime.
+
 ## Testing the boundaries
 
 Headless tests in `crates/view/tests` exercise shared editor coordination with an

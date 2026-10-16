@@ -526,7 +526,7 @@ pub fn symbol_picker(cx: &mut Context) {
                 Err(err) => log::error!("Error requesting document symbols: {err}"),
             }
         }
-        let call = move |_editor: &mut Editor, compositor: &mut Compositor| {
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
             let columns = [
                 ui::PickerColumn::new("kind", symbol_kind_cell),
                 // Nested document symbols include their fully expanded tree guide in
@@ -536,6 +536,7 @@ pub fn symbol_picker(cx: &mut Context) {
             ];
 
             let picker = Picker::new(
+                editor.redraw().clone(),
                 columns,
                 1, // name column
                 symbols,
@@ -649,6 +650,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     };
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         1, // name column
         [],
@@ -963,9 +965,14 @@ pub(crate) fn goto_impl(
                 },
             )];
 
-            let picker = Picker::new(columns, 0, locations, cwdir, |cx, location, action| {
-                jump_to_location(cx.editor, location, action)
-            })
+            let picker = Picker::new(
+                editor.redraw().clone(),
+                columns,
+                0,
+                locations,
+                cwdir,
+                |cx, location, action| jump_to_location(cx.editor, location, action),
+            )
             .with_preview(|_editor, location| location_to_file_location(location));
             compositor.push(Box::new(overlaid(picker)));
         }
@@ -1197,7 +1204,7 @@ pub(super) mod typed {
                 .collect::<Vec<_>>();
             let callback = async move {
                 let call: job::Callback = Callback::EditorCompositor(Box::new(
-                    move |_editor: &mut Editor, compositor: &mut Compositor| {
+                    move |editor: &mut Editor, compositor: &mut Compositor| {
                         let columns = [ui::PickerColumn::new(
                             "title",
                             |(_ls_id, command): &(_, lsp_client::lsp::Command), _| {
@@ -1205,6 +1212,7 @@ pub(super) mod typed {
                             },
                         )];
                         let picker = ui::Picker::new(
+                            editor.redraw().clone(),
                             columns,
                             0,
                             commands,

@@ -31,3 +31,6 @@ mod document_lifecycle;
 
 #[path = "handler_setup/document_mutation.rs"]
 mod document_mutation;
+
+#[path = "handler_setup/editor_signals.rs"]
+mod editor_signals;

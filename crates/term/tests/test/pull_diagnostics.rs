@@ -317,7 +317,8 @@ async fn exited_servers_cannot_publish_queued_reports() -> anyhow::Result<()> {
     event::dispatch(view::events::LanguageServerExited {
         editor: &mut f.app.editor,
         server_id,
-    });
+    })
+    .report_to(f.app.editor.status_sender());
     f.app.editor.language_servers.remove_by_id(server_id);
     response(&mut f.app.editor);
     assert!(f.messages().is_empty());

@@ -567,6 +567,7 @@ pub(super) fn global_search(cx: &mut Context) {
     cx.editor.registers.last_search_register = reg;
 
     let picker = Picker::new(
+        cx.editor.redraw().clone(),
         columns,
         1, // contents
         [],

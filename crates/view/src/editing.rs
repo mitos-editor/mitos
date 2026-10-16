@@ -45,7 +45,7 @@ mod tests {
             Arc::new(ArcSwap::from_pointee(Config::default())),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         );
-        let view = View::new(doc.id(), Default::default());
+        let view = View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.ensure_view_init(view.id);
         doc.set_selection(view.id, selection);
         (doc, view)

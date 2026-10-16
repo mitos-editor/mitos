@@ -270,6 +270,7 @@ mod tests {
         use super::*;
         let (tx, mut callbacks) = mpsc::channel(1);
         let sender = EditorCallbackSender::new(
+            event::Redraw::default(),
             move |callback| {
                 let tx = tx.clone();
                 async move {
@@ -322,7 +323,11 @@ mod tests {
                 enable: false,
                 ..Config::default()
             },
-            crate::callbacks::EditorCallbackSender::new(|_| async {}, |_| {}),
+            crate::callbacks::EditorCallbackSender::new(
+                event::Redraw::default(),
+                |_| async {},
+                |_| {},
+            ),
         );
         watcher.set_extra_watched_paths(vec![path.clone()]);
         assert!(!watcher.poll_extra_paths());
