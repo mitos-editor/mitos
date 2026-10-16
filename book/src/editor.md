@@ -221,10 +221,11 @@ Configures the external terminal command used by features such as DAP
 | `command` | External terminal or multiplexer executable | Environment-dependent |
 | `args` | Arguments placed before the command Mitos asks the terminal to run | `[]` |
 
-Mitos automatically uses a tmux split inside tmux, a zellij pane inside zellij, a WezTerm split when its
-Unix socket is available, Windows Terminal when found on Windows, or Conhost as
-the Windows fallback. On other terminals this setting is unset unless
-configured.
+Mitos automatically uses a tmux split inside tmux, a zellij pane inside zellij,
+a WezTerm split when its Unix socket is available, a Kitty pane when its remote
+control socket is configured, or an Alacritty window when its IPC socket is available.
+On Windows, it uses Windows Terminal when found, or Conhost as the fallback.
+On other terminals this setting is unset unless configured.
 
 ### `[editor.inline-blame]` Section
 

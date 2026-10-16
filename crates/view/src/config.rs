@@ -546,6 +546,41 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
         });
     }
 
+    // Require a socket so remote control does not read responses from the
+    // controlling terminal while the editor is using it.
+    if let Ok(socket) = std::env::var("KITTY_LISTEN_ON")
+        && !socket.is_empty()
+        && binary_exists("kitten")
+    {
+        return Some(TerminalConfig {
+            command: "kitten".to_string(),
+            args: vec![
+                "@".to_string(),
+                "--to".to_string(),
+                socket,
+                "launch".to_string(),
+                "--type=window".to_string(),
+                "--".to_string(),
+            ],
+        });
+    }
+
+    if let Ok(socket) = std::env::var("ALACRITTY_SOCKET")
+        && !socket.is_empty()
+        && binary_exists("alacritty")
+    {
+        return Some(TerminalConfig {
+            command: "alacritty".to_string(),
+            args: vec![
+                "msg".to_string(),
+                "--socket".to_string(),
+                socket,
+                "create-window".to_string(),
+                "-e".to_string(),
+            ],
+        });
+    }
+
     None
 }
 
