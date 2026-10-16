@@ -9,13 +9,13 @@ use nucleo::{
 use snippets::{ActiveSnippet, RenderedSnippet, Snippet};
 use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
-use view::handlers::completion::LspCompletionItem;
-use view::handlers::completion::{
+use view::features::completion::LspCompletionItem;
+use view::features::completion::{
     trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler,
 };
 use view::{
     editor::CompleteAction,
-    handlers::signature_help::SignatureHelpInvoked,
+    features::signature_help::SignatureHelpInvoked,
     icons::ICONS,
     theme::{Color, Modifier, Style},
     ViewId,
@@ -259,7 +259,7 @@ impl Completion {
                             // resolve item if not yet resolved
                             if !item.resolved
                                 && let Some(resolved_item) =
-                                    view::handlers::completion::resolve_item(
+                                    view::features::completion::resolve_item(
                                         language_server,
                                         item.item.clone(),
                                     )

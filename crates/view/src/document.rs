@@ -1,11 +1,11 @@
-mod blame;
-mod code_action_hints;
-mod inline_completion;
 mod lifecycle;
 
-use blame::DocumentBlame;
-pub use blame::LineBlameError;
+pub use crate::features::blame::LineBlameError;
+use crate::features::{
+    blame::DocumentBlame, code_action_hint::CodeActionHints, inline_completion::InlineCompletions,
+};
 // Retain document-facing annotation types at their established public paths.
+pub use crate::features::inline_completion::{InlineCompletion, InlineCompletionRow};
 pub use crate::features::{
     code_lenses::CodeLens,
     document_colors::DocumentColorSwatches,
@@ -14,7 +14,6 @@ pub use crate::features::{
     document_symbols::{Breadcrumbs, Crumb},
     inlay_hints::{DocumentInlayHints, DocumentInlayHintsId},
 };
-pub use inline_completion::{InlineCompletion, InlineCompletionRow};
 
 mod text_io;
 pub use text_io::{from_reader, read_to_string, to_writer};
@@ -184,12 +183,12 @@ pub struct Document {
     pub(crate) hover: HoverState,
     pub(crate) navigation: NavigationState,
     pub(crate) inlay_hints: InlayHintsState,
-    pub(crate) inline_completions: inline_completion::InlineCompletions,
+    pub(crate) inline_completions: InlineCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
     pub(crate) document_links: DocumentLinks,
     pub(crate) document_highlights: DocumentHighlightsState,
-    pub(crate) code_action_hints: code_action_hints::CodeActionHints,
+    pub(crate) code_action_hints: CodeActionHints,
     pub(crate) document_symbols: DocumentSymbols,
 
     path: Option<PathBuf>,
@@ -226,12 +225,12 @@ pub struct Document {
     pending_syntax: Option<PendingSyntax>,
     // Assigned when the document joins an editor so its events return to that editor.
     pub(crate) signature_help_trigger:
-        Option<crate::handlers::signature_help::SignatureHelpTrigger>,
-    pub(crate) word_index_trigger: Option<crate::handlers::word_index::WordIndexTrigger>,
-    pub(crate) auto_save_trigger: Option<crate::handlers::auto_save::AutoSaveTrigger>,
-    pub(crate) syntax_handler: Option<crate::handlers::syntax::SyntaxHandler>,
+        Option<crate::features::signature_help::SignatureHelpTrigger>,
+    pub(crate) word_index_trigger: Option<crate::features::word_index::WordIndexTrigger>,
+    pub(crate) auto_save_trigger: Option<crate::features::auto_save::AutoSaveTrigger>,
+    pub(crate) syntax_handler: Option<crate::features::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
-        Option<tokio::sync::mpsc::Sender<crate::handlers::spelling::SpellingEvent>>,
+        Option<tokio::sync::mpsc::Sender<crate::features::spelling::SpellingEvent>>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub language: Option<Arc<LanguageConfiguration>>,
 
@@ -273,7 +272,7 @@ pub struct Document {
 
     pub readonly: bool,
 
-    pub(crate) pull_diagnostics: crate::handlers::diagnostics::pull::DocumentDiagnostics,
+    pub(crate) pull_diagnostics: crate::features::diagnostics::pull::DocumentDiagnostics,
 
     /// Whether this document owns the startup welcome screen.
     pub is_welcome: bool,
@@ -1705,7 +1704,7 @@ impl Document {
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
         if self.config.load().inline_blame.show != crate::config::InlineBlameShow::Never
-            && let Some(handler) = self.blame.handler.clone()
+            && let Some(handler) = self.blame.handler().cloned()
         {
             handler.schedule_refresh(self.id());
         }

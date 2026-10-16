@@ -26,7 +26,7 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
     let mut app = AppBuilder::new()
         .with_file(&path, None)
         .with_handler_setup(move |handlers, _| {
-            handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
+            handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
         })
         .build()?;
     let id = doc!(app.editor).id();
@@ -211,7 +211,7 @@ async fn symbol_picker_can_open_before_background_syntax_is_published() -> anyho
 
 #[tokio::test]
 async fn diagnostic_refresh_is_delivered_once_to_the_owning_application() -> anyhow::Result<()> {
-    use view::{events::DiagnosticsDidChange, handlers::diagnostics::DiagnosticEvent};
+    use view::{events::DiagnosticsDidChange, features::diagnostics::DiagnosticEvent};
 
     let mut first = AppBuilder::new().build()?;
     let mut second = AppBuilder::new().build()?;

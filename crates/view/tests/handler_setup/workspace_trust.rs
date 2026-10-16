@@ -5,7 +5,7 @@ use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
     events::DocumentDidOpen,
-    handlers::workspace_trust::{dismiss_request, next_request, resolve_request, TrustDecision},
+    features::workspace_trust::{dismiss_request, next_request, resolve_request, TrustDecision},
 };
 
 use super::Fixture;

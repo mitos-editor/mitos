@@ -52,7 +52,7 @@ fn send(coordinator: &mpsc::UnboundedSender<Event>, event: Event) {
 
 #[derive(Debug)]
 pub struct Handler {
-    pub(super) index: WordIndex,
+    index: WordIndex,
     /// A sender into an async hook which debounces updates to the index.
     hook: mpsc::UnboundedSender<Event>,
     /// Cancels in-flight indexing when the handler is dropped.
@@ -65,6 +65,10 @@ pub struct Handler {
 }
 
 impl Handler {
+    pub(crate) fn index(&self) -> &WordIndex {
+        &self.index
+    }
+
     pub fn spawn() -> Self {
         let index = WordIndex::default();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -437,7 +441,7 @@ fn is_changeset_significant(changes: &ChangeSet) -> bool {
     diff > 1_000
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if doc.word_completion_enabled() {

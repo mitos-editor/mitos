@@ -10,7 +10,7 @@ use view::{
     current, current_ref,
     document::Mode,
     editor::Action,
-    handlers::inline_completion::{self, InlineCompletionHandler},
+    features::inline_completion::{self, InlineCompletionHandler},
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};

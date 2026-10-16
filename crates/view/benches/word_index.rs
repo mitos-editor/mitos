@@ -4,7 +4,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use editor_core::Rope;
-use view::handlers::word_index::bench;
+use view::features::word_index::bench;
 
 /// See `texts/README`. These texts are used in unicode-segmentation's benchmarks.
 const CORPORA: &[(&str, &str)] = &[

@@ -10,7 +10,7 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
-    handlers::code_lenses::{self, DocumentCodeLensesHandler, ResolvedCodeLenses},
+    features::code_lenses::{self, DocumentCodeLensesHandler, ResolvedCodeLenses},
     DocumentId,
 };
 

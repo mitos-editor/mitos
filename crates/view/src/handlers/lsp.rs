@@ -11,9 +11,6 @@ use editor_core::Uri;
 use lsp_client::util::generate_transaction_from_edits;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 
-// Preserve the internal path used by the remaining handler-owned features.
-pub(super) use crate::features::request::DocumentRequest;
-
 #[derive(Debug)]
 pub struct ApplyEditError {
     pub kind: ApplyEditErrorKind,

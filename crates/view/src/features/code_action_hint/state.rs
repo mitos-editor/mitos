@@ -3,18 +3,22 @@
 use event::TaskController;
 use std::collections::{HashMap, HashSet};
 
-use super::Document;
-use crate::{handlers::code_action_hint::CodeActionHintHandler, ViewId};
+use crate::Document;
+use crate::{features::code_action_hint::CodeActionHintHandler, ViewId};
 
 #[derive(Default)]
 pub(crate) struct CodeActionHints {
     cache: HashSet<ViewId>,
     requests: HashMap<ViewId, TaskController>,
-    pub(crate) handler: Option<CodeActionHintHandler>,
+    pub(super) handler: Option<CodeActionHintHandler>,
 }
 
 impl CodeActionHints {
-    pub(super) fn remove_view(&mut self, view: ViewId) {
+    pub(crate) fn bind_handler(&mut self, handler: CodeActionHintHandler) {
+        self.handler = Some(handler);
+    }
+
+    pub(crate) fn remove_view(&mut self, view: ViewId) {
         self.cache.remove(&view);
         self.requests.remove(&view);
     }

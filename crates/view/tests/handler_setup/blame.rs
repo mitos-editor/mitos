@@ -104,7 +104,7 @@ async fn blame_waits_for_the_diff_after_an_edit() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn explicit_trust_decisions_refresh_cached_blame_with_unchanged_settings(
 ) -> anyhow::Result<()> {
-    use view::handlers::workspace_trust::{apply_decision, TrustDecision};
+    use view::features::workspace_trust::{apply_decision, TrustDecision};
 
     let mut f = Fixture::new("committed\n")?;
     prepare(&mut f, "initial");
@@ -140,7 +140,7 @@ async fn explicit_trust_decisions_refresh_cached_blame_with_unchanged_settings(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn queued_blame_rechecks_effective_trust_before_publication() -> anyhow::Result<()> {
-    use view::handlers::workspace_trust::{apply_decision, TrustDecision};
+    use view::features::workspace_trust::{apply_decision, TrustDecision};
 
     let (sender, mut callbacks) = crate::support::callback_channel();
     let mut f = Fixture::with_handler_setup(
@@ -148,7 +148,7 @@ async fn queued_blame_rechecks_effective_trust_before_publication() -> anyhow::R
         "language = []",
         loader::syntax::Resources::default(),
         |_| {},
-        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+        move |handlers, _| handlers.blame = view::features::blame::BlameHandler::new(sender),
     )?;
     prepare(&mut f, "initial");
     let id = current_ref!(f.editor).1.id();
@@ -319,7 +319,7 @@ async fn queued_blame_is_discarded_after_a_path_change() -> anyhow::Result<()> {
         "language = []",
         loader::syntax::Resources::default(),
         |_| {},
-        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+        move |handlers, _| handlers.blame = view::features::blame::BlameHandler::new(sender),
     )?;
     prepare(&mut f, "before commit");
     let doc_id = current_ref!(f.editor).1.id();
@@ -343,7 +343,7 @@ async fn repeated_requests_share_pending_work_and_display_the_latest_line() -> a
         "language = []",
         loader::syntax::Resources::default(),
         |config| config.inline_blame.format = "{title}".into(),
-        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+        move |handlers, _| handlers.blame = view::features::blame::BlameHandler::new(sender),
     )?;
     prepare(&mut f, "initial");
     let doc_id = current_ref!(f.editor).1.id();
@@ -415,7 +415,7 @@ async fn hiding_blame_discards_debounced_repository_refreshes() -> anyhow::Resul
         "language = []",
         loader::syntax::Resources::default(),
         |_| {},
-        move |handlers, _| handlers.blame = view::handlers::blame::BlameHandler::new(sender),
+        move |handlers, _| handlers.blame = view::features::blame::BlameHandler::new(sender),
     )?;
     prepare(&mut f, "initial");
     let id = current_ref!(f.editor).1.id();

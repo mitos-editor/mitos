@@ -1,5 +1,6 @@
 //! Inline completion cache and document/view lifetime.
-use crate::{handlers::inline_completion::InlineCompletionTrigger, ViewId};
+use super::requests::InlineCompletionTrigger;
+use crate::ViewId;
 use editor_core::{movement::Direction, Range};
 use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
@@ -16,14 +17,18 @@ pub struct InlineCompletion {
 
 #[derive(Default)]
 pub(crate) struct InlineCompletions {
-    pub(crate) items: Vec<InlineCompletion>,
-    pub(crate) index: usize,
-    pub(crate) view: Option<ViewId>,
-    pub(crate) controller: TaskController,
-    pub(crate) trigger: Option<InlineCompletionTrigger>,
+    pub(super) items: Vec<InlineCompletion>,
+    pub(super) index: usize,
+    pub(super) view: Option<ViewId>,
+    pub(super) controller: TaskController,
+    pub(super) trigger: Option<InlineCompletionTrigger>,
 }
 
 impl InlineCompletions {
+    pub(crate) fn bind_handler(&mut self, handler: &super::InlineCompletionHandler) {
+        self.trigger = Some(handler.trigger.clone());
+    }
+
     pub fn current(&self, view: ViewId) -> Option<&InlineCompletion> {
         (self.view == Some(view))
             .then(|| self.items.get(self.index))
@@ -61,7 +66,7 @@ impl InlineCompletions {
     }
 }
 
-impl super::Document {
+impl crate::Document {
     pub fn inline_completion(&self, view: ViewId) -> Option<&InlineCompletion> {
         self.inline_completions.current(view)
     }

@@ -70,7 +70,7 @@ fn application(
         lang_loader,
         loader::workspace_trust::WorkspaceTrust::fully_trusted(),
         move |handlers, _| {
-            handlers.syntax = view::handlers::syntax::SyntaxHandler::new(sender);
+            handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
         },
     )?;
 

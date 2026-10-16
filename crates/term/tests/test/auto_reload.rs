@@ -209,7 +209,7 @@ impl SharedReload {
     }
 
     fn replace_handler(&mut self) {
-        use view::handlers::auto_reload::AutoReloadHandler;
+        use view::features::auto_reload::AutoReloadHandler;
         let (callbacks, rx) = super::helpers::callbacks::channel();
         self.app
             .editor
@@ -374,7 +374,7 @@ async fn polling_uses_its_owner_and_queued_polls_respect_disabled_settings() -> 
 #[tokio::test(flavor = "multi_thread")]
 async fn stale_confirmations_cannot_overwrite_edited_renamed_closed_saved_or_changed_files(
 ) -> anyhow::Result<()> {
-    use view::handlers::auto_reload::{
+    use view::features::auto_reload::{
         check_unwatched, next_reload_request, resolve_reload, ReloadDecision,
     };
     for mutation in ["edit", "rename", "close", "save", "disk", "disable"] {
@@ -430,7 +430,7 @@ async fn stale_confirmations_cannot_overwrite_edited_renamed_closed_saved_or_cha
 #[tokio::test(flavor = "multi_thread")]
 async fn confirmations_belong_to_their_editor_and_newer_requests_survive_old_answers(
 ) -> anyhow::Result<()> {
-    use view::handlers::auto_reload::{
+    use view::features::auto_reload::{
         check_unwatched, next_reload_request, resolve_reload, ReloadDecision,
     };
     let dir = TempDir::new()?;
@@ -476,7 +476,7 @@ async fn confirmations_belong_to_their_editor_and_newer_requests_survive_old_ans
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::Result<()> {
-    use view::handlers::auto_reload::{
+    use view::features::auto_reload::{
         check_unwatched, next_reload_request, resolve_reload, ReloadDecision,
     };
     let dir = TempDir::new()?;
@@ -515,7 +515,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabled(
 ) -> anyhow::Result<()> {
-    use view::handlers::auto_reload::check_unwatched;
+    use view::features::auto_reload::check_unwatched;
     let dir = TempDir::new()?;
     let path = dir.path().join("file.txt");
     changed(&path, "original\n", 1)?;

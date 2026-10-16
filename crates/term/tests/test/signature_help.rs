@@ -12,7 +12,7 @@ use view::{
     current, current_ref,
     document::Mode,
     editor::{Action, ConfigEvent, EditorEvent},
-    handlers::signature_help::{
+    features::signature_help::{
         self, SignatureHelpChange, SignatureHelpHandler, SignatureHelpInvoked, SignatureHelpUpdate,
     },
 };

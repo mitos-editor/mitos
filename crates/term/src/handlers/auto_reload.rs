@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use view::handlers::auto_reload::{resolve_reload, ReloadDecision, ReloadRequest};
+use view::features::auto_reload::{resolve_reload, ReloadDecision, ReloadRequest};
 
 use crate::{
     compositor::Compositor,

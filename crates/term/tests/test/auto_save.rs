@@ -9,7 +9,7 @@ use term::application::Application;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback, current, current_ref, document::Mode, editor::Action,
-    handlers::auto_save::AutoSaveHandler,
+    features::auto_save::AutoSaveHandler,
 };
 
 use super::helpers::{test_config, AppBuilder};

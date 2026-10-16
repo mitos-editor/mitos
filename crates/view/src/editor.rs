@@ -157,12 +157,12 @@ pub type Motion = Box<dyn Fn(&mut Editor)>;
 pub enum EditorEvent {
     DocumentSaved(DocumentSavedEventResult),
     ConfigEvent(ConfigEvent),
-    ReloadConfirmation(crate::handlers::auto_reload::ReloadRequest),
-    WorkspaceTrust(crate::handlers::workspace_trust::TrustRequest),
-    SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
+    ReloadConfirmation(crate::features::auto_reload::ReloadRequest),
+    WorkspaceTrust(crate::features::workspace_trust::TrustRequest),
+    SignatureHelp(crate::features::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
     Navigation(crate::features::navigation::NavigationUpdate),
-    Completion(crate::handlers::completion::CompletionUpdate),
+    Completion(crate::features::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
     IdleTimer,
@@ -432,7 +432,7 @@ impl Editor {
     /// Refreshes the language server for a given document
     pub fn refresh_language_servers(&mut self, doc_id: DocumentId) {
         self.launch_language_servers(doc_id);
-        crate::handlers::code_lenses::refresh_document(self, doc_id);
+        crate::features::code_lenses::refresh_document(self, doc_id);
     }
 
     /// moves/renames a path, invoking any event handlers (currently only lsp)
@@ -1366,7 +1366,7 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
-        if let Some(update) = crate::handlers::completion::next_update(self) {
+        if let Some(update) = crate::features::completion::next_update(self) {
             return EditorEvent::Completion(update);
         }
         if let Some(update) = crate::features::navigation::next_update(self) {
@@ -1375,13 +1375,13 @@ impl Editor {
         if let Some(update) = crate::features::hover::next_update(self) {
             return EditorEvent::Hover(update);
         }
-        if let Some(update) = crate::handlers::signature_help::next_update(self) {
+        if let Some(update) = crate::features::signature_help::next_update(self) {
             return EditorEvent::SignatureHelp(update);
         }
-        if let Some(request) = crate::handlers::auto_reload::next_reload_request(self) {
+        if let Some(request) = crate::features::auto_reload::next_reload_request(self) {
             return EditorEvent::ReloadConfirmation(request);
         }
-        if let Some(request) = crate::handlers::workspace_trust::next_request(self) {
+        if let Some(request) = crate::features::workspace_trust::next_request(self) {
             return EditorEvent::WorkspaceTrust(request);
         }
         let redraw = self.redraw().clone();
@@ -1467,7 +1467,7 @@ impl Editor {
 
         let old_mode = self.mode;
         self.mode = Mode::Normal;
-        crate::handlers::inline_completion::mode_changed(self, old_mode);
+        crate::features::inline_completion::mode_changed(self, old_mode);
         crate::features::navigation::mode_changed(self, old_mode);
         let (view, doc) = current!(self);
 

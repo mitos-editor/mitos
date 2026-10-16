@@ -14,8 +14,9 @@ use view::{
     config::Config,
     current, current_ref,
     editor::Action as OpenAction,
+    features::{document_links::DocumentLinksHandler, syntax::SyntaxHandler},
     graphics::Rect,
-    handlers::{document_links::DocumentLinksHandler, syntax::SyntaxHandler, Handlers},
+    handlers::Handlers,
     theme, DocumentId, Editor,
 };
 

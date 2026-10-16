@@ -63,7 +63,7 @@ pub enum TrustDecision {
     Exclude,
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let editor = &mut event.editor;
         let doc = doc!(editor, &event.doc);

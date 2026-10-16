@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context as _;
-use view::{callbacks::EditorCallback, current_ref, document::Mode, handlers::auto_save};
+use view::{callbacks::EditorCallback, current_ref, document::Mode, features::auto_save};
 
 use super::{support::callback_channel, Fixture};
 

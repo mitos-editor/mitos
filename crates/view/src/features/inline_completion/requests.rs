@@ -370,7 +370,7 @@ pub fn mode_changed(editor: &mut Editor, old: Mode) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event.ghost_transaction
             && let Some(trigger) = &event.doc.inline_completions.trigger

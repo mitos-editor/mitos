@@ -4,7 +4,7 @@ use event::register_hook;
 use lsp_client::lsp::{self, SignatureInformation};
 use view::{
     document::Mode,
-    handlers::signature_help::{self, SignatureHelpChange, SignatureHelpUpdate},
+    features::signature_help::{self, SignatureHelpChange, SignatureHelpUpdate},
     Editor,
 };
 

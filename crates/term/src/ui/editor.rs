@@ -36,8 +36,8 @@ use view::{
     config::{BufferLine, CursorShapeConfig},
     document::{Mode, SCRATCH_BUFFER_NAME},
     editor::CompleteAction,
+    features::completion::CompletionItem,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
-    handlers::completion::CompletionItem,
     icons::ICONS,
     Document, Editor, Theme, View, ViewId,
 };
@@ -74,7 +74,7 @@ pub enum InsertEvent {
         trigger_offset: usize,
         changes: Vec<Change>,
     },
-    InlineCompletionApply(view::handlers::inline_completion::AppliedInlineCompletion),
+    InlineCompletionApply(view::features::inline_completion::AppliedInlineCompletion),
     TriggerCompletion,
     RequestCompletion,
 }
@@ -1879,7 +1879,7 @@ impl Component for EditorView {
 
         // Lifecycle updates may be queued while input is already ready. Never let
         // a stale menu consume input after its shared session was invalidated.
-        if self.completion.is_some() && !view::handlers::completion::is_active(cx.editor) {
+        if self.completion.is_some() && !view::features::completion::is_active(cx.editor) {
             self.clear_completion(cx.editor);
         }
 
@@ -2017,11 +2017,11 @@ impl Component for EditorView {
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;
-                view::handlers::auto_reload::check_unwatched(context.editor);
+                view::features::auto_reload::check_unwatched(context.editor);
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {
-                view::handlers::auto_save::focus_lost(context.editor);
+                view::features::auto_save::focus_lost(context.editor);
                 self.terminal_focused = false;
                 EventResult::Consumed(None)
             }

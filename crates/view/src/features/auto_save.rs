@@ -163,7 +163,7 @@ pub fn focus_lost(editor: &mut Editor) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
         if config.files.auto_save.after_delay.enable

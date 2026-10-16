@@ -14,16 +14,22 @@ use tokio::{sync::mpsc::Sender, time::Instant};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
-    handlers::{document_debounce::debounce_documents, lsp::DocumentRequest},
+    features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
 
 /// Cancellation and result IDs follow the document and are independent per server.
 #[derive(Default)]
 pub(crate) struct DocumentDiagnostics {
-    pub(crate) handler: Option<PullDiagnosticsHandler>,
+    handler: Option<PullDiagnosticsHandler>,
     result_ids: HashMap<LanguageServerId, String>,
     requests: HashMap<LanguageServerId, TaskController>,
+}
+
+impl DocumentDiagnostics {
+    pub(crate) fn bind_handler(&mut self, handler: PullDiagnosticsHandler) {
+        self.handler = Some(handler);
+    }
 }
 
 /// Scheduling destinations shared by documents owned by this editor.
@@ -223,7 +229,7 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
 }
 
 /// Each event routes work through its owning editor or document.
-pub(in crate::handlers) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event.ghost_transaction {
             return Ok(());

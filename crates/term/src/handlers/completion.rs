@@ -9,7 +9,7 @@ use editor_core::chars::char_is_word;
 use event::register_hook;
 use view::{
     document::Mode,
-    handlers::completion::{
+    features::completion::{
         request_incomplete_completion_list, trigger_auto_completion, CompletionChange,
         CompletionEvent, CompletionUpdate,
     },

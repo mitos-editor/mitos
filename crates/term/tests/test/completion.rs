@@ -12,7 +12,7 @@ use view::{
     current, current_ref,
     document::Mode,
     editor::{Action, EditorEvent},
-    handlers::completion::{
+    features::completion::{
         self, CompletionChange, CompletionEvent, CompletionHandler, CompletionItem,
         CompletionUpdate,
     },

@@ -5,7 +5,7 @@ use ::command_line::Args;
 use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use stdx::path::home_dir;
-use view::handlers::workspace_trust::{apply_decision, trust_and_restart, TrustDecision};
+use view::features::workspace_trust::{apply_decision, trust_and_restart, TrustDecision};
 
 /// Helper function to parse the first argument as a directory
 #[inline]

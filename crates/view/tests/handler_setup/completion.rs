@@ -1,6 +1,6 @@
 use editor_core::Selection;
 use std::time::Duration;
-use view::{current, current_ref, document::Mode, handlers::completion};
+use view::{current, current_ref, document::Mode, features::completion};
 
 use super::Fixture;
 

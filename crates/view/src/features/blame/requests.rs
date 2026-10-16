@@ -3,7 +3,7 @@
 use event::{register_hook, send_blocking};
 use tokio::sync::mpsc::Sender;
 
-use super::document_debounce::debounce_documents;
+use crate::features::debounce::debounce_documents;
 
 use crate::{
     callbacks::EditorCallbackSender,
@@ -155,7 +155,7 @@ fn request_visible_blame(editor: &mut Editor) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         if event.editor.config().inline_blame.show != InlineBlameShow::Never {
             // Open hooks run before the caller installs the document in a view.

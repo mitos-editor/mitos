@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{document::SavePoint, handlers::completion::ResponseContext, Document};
+use crate::{document::SavePoint, features::completion::ResponseContext, Document};
 use editor_core::{self as core, completion::CompletionProvider, Selection, Transaction};
 use event::TaskHandle;
 use stdx::path::{self, canonicalize, fold_home_dir, get_path_suffix};

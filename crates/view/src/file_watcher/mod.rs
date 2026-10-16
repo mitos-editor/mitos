@@ -35,7 +35,7 @@ impl Editor {
                 };
                 Some((event.path.as_std_path().to_owned(), ty))
             }));
-        crate::handlers::auto_reload::handle_file_events(self, events);
+        crate::features::auto_reload::handle_file_events(self, events);
     }
 }
 

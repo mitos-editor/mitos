@@ -10,7 +10,7 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
-    handlers::diagnostics::pull::{self, PullDiagnosticsHandler},
+    features::diagnostics::pull::{self, PullDiagnosticsHandler},
     DocumentId,
 };
 

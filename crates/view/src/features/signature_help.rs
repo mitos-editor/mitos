@@ -90,7 +90,7 @@ impl SignatureHelpHandler {
     }
 
     /// Dismiss UI belonging to a retired handler using this handler's owner identity.
-    pub(super) fn dismiss_replaced(&self) {
+    pub(crate) fn dismiss_replaced(&self) {
         close(&self.shared, &self.events, true);
     }
 
@@ -396,7 +396,7 @@ pub fn post_insert_char(editor: &Editor) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if !event.ghost_transaction
             && let Some(trigger) = &event.doc.signature_help_trigger

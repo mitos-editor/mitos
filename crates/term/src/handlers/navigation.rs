@@ -14,13 +14,10 @@ pub fn show(editor: &mut Editor, compositor: &mut Compositor, update: Navigation
 }
 
 pub(super) fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
-            if event.new_mode != view::document::Mode::Normal {
-                navigation::mode_changed(event.cx.editor, event.old_mode);
-            }
-            Ok(())
-        });
+    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+        if event.new_mode != view::document::Mode::Normal {
+            navigation::mode_changed(event.cx.editor, event.old_mode);
+        }
+        Ok(())
     });
 }

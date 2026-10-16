@@ -9,7 +9,7 @@ use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
     editor::Action,
-    handlers::{
+    features::{
         code_lenses::DocumentCodeLensesHandler, document_colors::DocumentColorsHandler,
         document_highlight::DocumentHighlightHandler, document_links::DocumentLinksHandler,
         document_symbols::DocumentSymbolsHandler,

@@ -39,8 +39,8 @@ this guide explains how those owners cooperate.
 | --- | --- |
 | Text transformation independent of open buffers | `core` |
 | Operation on documents, selections, history, or editor services | `view` |
-| Document feature cache and request lifetime | With its coordinator in `view/src/features/<feature>/`; existing features also use `document/<feature>.rs` |
-| Feature scheduling, event hooks, and result publication | `view/src/features/<feature>/`; existing services also use `handlers/<feature>.rs` |
+| Document feature cache and request lifetime | With its coordinator in `view/src/features/<feature>.rs` or its feature directory |
+| Feature scheduling, event hooks, and result publication | The same `view/src/features` module as its state |
 | Resource discovery or source inheritance | `loader` |
 | Protocol request/response transport | Its protocol crate; editor effects belong in `view` |
 | Keybinding, prompt, picker, popup, or terminal rendering | `term` |
@@ -169,7 +169,7 @@ loader's resource paths; `apply_language_config` installs the replacement before
 refreshing documents. `xtask query-check` uses `Loader::validate_queries`, sharing
 the editor's loading and compilation paths while returning errors to the caller.
 
-`view::handlers::syntax` schedules background syntax initialization and publishes
+`view::features::syntax` schedules background syntax initialization and publishes
 results through an explicit `view::callbacks::EditorCallbackSender`. The editor
 attaches its syntax handler to each document before initialization, so initial
 requests and retries return to the same editor. Snapshot computation, worker
@@ -177,9 +177,8 @@ limits, cancellation, and version/language validation live alongside the documen
 in `document/syntax_initialization.rs`. Successful publication refreshes spelling.
 
 `vcs::FileBlame` owns immutable committed-line ranges and commit metadata.
-`view::document::blame` owns caching, cancellation, and request trust decisions;
-`view::handlers::blame` schedules visible documents and publishes results to their
-editor. Cache reuse and queued publication validate effective workspace Git trust.
+`view::features::blame` owns caching, cancellation, request trust decisions,
+scheduling for visible documents, and publication to their owning editor. Cache reuse and queued publication validate effective workspace Git trust.
 Line lookup uses only a diff of the current document snapshot. Commands and inline
 decorations belong to `term`, where diagnostics take precedence over blame text.
 
@@ -191,7 +190,7 @@ diagnostics without an editor or async runtime. `core` retains the serialized
 spelling configuration and language identifiers used by language configuration.
 The dependency direction is `view` → `spelling` → `core`.
 
-`view::handlers::spelling` selects dictionary resources, combines effective
+`view::features::spelling` selects dictionary resources, combines effective
 settings, owns per-editor dictionary/ignore state, and coordinates incremental
 and background checks. Document events and callbacks stay with the owning editor;
 cancellation, version/language validation, diagnostic publication, and applying
@@ -222,7 +221,7 @@ document drops its request controllers. Cache-only clearing preserves replacemen
 requests for colors, links, highlights, and symbols. Clearing code-action hints
 also invalidates their requests. Each feature makes that distinction explicit.
 
-Colors, links, and pull diagnostics share the internal `document_debounce` helper.
+Colors, links, and pull diagnostics share the internal `features::debounce` helper.
 Each keeps its own queue and request policy; inter-file diagnostic refresh retains
 its separate timing. `DocumentRequest` validates cancellation, document version,
 URI, and server attachment before queued results mutate editor state.
@@ -251,7 +250,7 @@ entry point. Unsupported capability registrations retain their compatibility
 acknowledgement; progress and interactive requests stay with the frontend.
 
 `loader::workspace_trust` owns trust policy, persisted grants/exclusions, and
-workspace configuration hashing. `view::handlers::workspace_trust` owns each
+workspace configuration hashing. `view::features::workspace_trust` owns each
 editor's prompt history, pending requests, decisions, and service effects.
 Requests arrive through `EditorEvent::WorkspaceTrust`; delivery and resolution
 validate the owning editor, live workspace, current policy, and configuration
@@ -261,7 +260,7 @@ restart the current document's selected servers through
 `Editor::restart_language_servers`, also used by `:lsp-restart`. Revoking or excluding
 trust leaves running servers alone. `term` owns modal text, labels, and command adapters.
 
-`view::handlers::auto_reload` owns external-change detection, polling, reload
+`view::features::auto_reload` owns external-change detection, polling, reload
 decisions, split synchronization, VCS refresh, and ignore-filter refresh. Polls
 use an editor-owned callback destination; weak ownership prevents closed or
 replaced handlers from retaining or mutating an editor. Focus events call the
@@ -291,7 +290,7 @@ it. Stale requests cannot overwrite newer state or suppress a newer confirmation
 a later check can request a fresh decision. Reload uses existing transactions,
 undo history, selection mapping, and per-document Git trust checks.
 
-`view::handlers::diagnostics::pull` owns pull-diagnostic requests, document and
+`view::features::diagnostics::pull` owns pull-diagnostic requests, document and
 inter-file debounce queues, server-requested retries, and report publication.
 Result IDs and cancellation controllers live in feature state attached to each
 document and are scoped per server. A provider refresh affects only that provider;
@@ -300,7 +299,7 @@ The terminal application calls shared refresh entry points for server progress a
 diagnostic refresh requests. Diagnostic visibility during mode changes, panels,
 and pickers stay in `term`.
 
-`view::handlers::code_action_hint` owns debounced code-action availability checks
+`view::features::code_action_hint` owns debounced code-action availability checks
 for each document/view. `view::action::code_actions_for_range` builds LSP requests
 for hints, interactive actions, and actions on save. Documents retain hint state,
 cancellation controllers, and their editor's scheduling handle. Selection,
@@ -326,8 +325,11 @@ links, highlights, symbols, and code lenses each group cache/edit mapping in
 it; `Handlers` binds each state to its editor's coordinator. Cache and scheduling
 internals stay within the feature. Cache-only clears preserve replacement requests;
 invalidation methods explicitly own request cancellation.
-The existing `handlers::<feature>` and document annotation type paths remain
-reexports. Other services can adopt this layout when their code changes.
+Document annotation types retain their intentional public facade in `document`.
+All feature callers use `features` directly; there are no legacy handler aliases.
+`handlers` composes the services and retains the LSP/DAP protocol bridges and
+registry setup. Mandatory document mutation, syntax initialization, and text I/O
+remain private document implementation modules.
 
 `view::features::hover` owns multi-server requests and publishes typed
 `EditorEvent::Hover` updates. The originating document owns cancellation by view;
@@ -349,7 +351,7 @@ document version, URI, server instance, and buffered viewport. Pending requests
 are reused until their inputs change; one split's response cannot mark another
 split current. The frontend calls `refresh` on idle and renders cached annotations.
 
-`view::handlers::signature_help` owns manual and automatic triggers, debounce
+`view::features::signature_help` owns manual and automatic triggers, debounce
 timing, server selection, cancellation, and response validation. Documents hold
 weak scheduling handles to their editor's coordinator. Requests retain document,
 view, selection, and server snapshots; newer requests and lifecycle changes
@@ -358,7 +360,7 @@ arrive through `EditorEvent::SignatureHelp` and are resolved against the receivi
 editor before display. `term` forwards mode and insertion events and owns popup
 formatting, placement, signature navigation, and completion-menu overlap.
 
-`view::handlers::completion` owns completion items, LSP/path/word providers,
+`view::features::completion` owns completion items, LSP/path/word providers,
 request debouncing, batching, incomplete-list refreshes, resolution, and
 cancellation. Editor-owned callbacks publish typed `EditorEvent::Completion`
 updates that validate their session again before presentation. Sessions retain
@@ -423,7 +425,8 @@ before close observers run. These guarantees do not depend on hook registration 
 `view::handlers::Handlers::new` constructs shared editor services from editor
 configuration and an explicit callback destination. It registers editor events
 and feature hooks through one central registration path, once per event registry.
-Feature registrars are private to the handler modules. Mandatory document synchronization and snippet range tracking happen on the
+Feature registrars are crate-private and called only from that composition path.
+Mandatory document synchronization and snippet range tracking happen on the
 mutation path before observer hooks. Registration includes filesystem configuration
 updates. A frontend can initialize
 these services without terminal setup. `term::handlers::register_hooks` installs
@@ -537,7 +540,7 @@ in `view`; text algorithms remain in `core`; protocol and repository operations
 remain in their integration crates. File commands use `view::save` for shared
 preparation and batch policy. Their terminal adapter schedules code actions,
 formatting, and the final write in order, retaining document/version checks and
-exit waiting. `view::handlers::auto_save` owns debouncing, insert-mode deferral,
+exit waiting. `view::features::auto_save` owns debouncing, insert-mode deferral,
 focus-loss policy, and save submission through `view::save::auto_save`. Documents
 schedule changes through weak handles to their editor's coordinator; callbacks
 return through its explicit sender and reject replaced handlers, newer edits, and

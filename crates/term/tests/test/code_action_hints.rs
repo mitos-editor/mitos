@@ -18,7 +18,7 @@ use view::{
     config::StatusLineElement,
     current, current_ref,
     editor::{Action, ConfigEvent},
-    handlers::code_action_hint::CodeActionHintHandler,
+    features::code_action_hint::CodeActionHintHandler,
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};

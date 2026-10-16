@@ -1,6 +1,6 @@
 //! Terminal presentation of editor-owned workspace trust requests.
 
-use view::handlers::workspace_trust::{
+use view::features::workspace_trust::{
     dismiss_request, resolve_request, TrustDecision, TrustRequest,
 };
 

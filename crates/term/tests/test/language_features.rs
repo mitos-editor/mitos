@@ -12,7 +12,7 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
-    handlers::{
+    features::{
         hover::{self, HoverHandler, HoverUpdate},
         inlay_hints::{self, InlayHintsHandler},
     },

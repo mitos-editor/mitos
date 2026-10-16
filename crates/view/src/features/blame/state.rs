@@ -6,8 +6,8 @@ use event::{cancelable_future, TaskController, TaskHandle};
 use tokio::sync::Semaphore;
 use vcs::FileBlame;
 
-use super::Document;
-use crate::handlers::blame::BlameHandler;
+use crate::features::blame::BlameHandler;
+use crate::Document;
 
 // Running blocking work retains its permit even when its request is canceled.
 static WORKERS: Semaphore = Semaphore::const_new(2);
@@ -19,11 +19,18 @@ pub(crate) struct DocumentBlame {
     trust_full: Option<bool>,
     request: TaskController,
     status_line: Option<u32>,
-    pub(crate) handler: Option<BlameHandler>,
+    pub(super) handler: Option<BlameHandler>,
 }
 
 impl DocumentBlame {
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn bind_handler(&mut self, handler: BlameHandler) {
+        self.handler = Some(handler);
+    }
+    pub(crate) fn handler(&self) -> Option<&BlameHandler> {
+        self.handler.as_ref()
+    }
+
+    pub(crate) fn clear(&mut self) {
         self.request.cancel();
         self.status_line = None;
         self.cache = None;
@@ -32,7 +39,7 @@ impl DocumentBlame {
     }
 
     /// Hide stale annotations until the worker has checked the current HEAD.
-    pub(super) fn refresh(&mut self) {
+    pub(crate) fn refresh(&mut self) {
         self.request.cancel();
         self.status_line = None;
         if let Some(Ok(cache)) = self.cache.take() {

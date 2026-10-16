@@ -27,7 +27,7 @@ impl Application {
         if self.editor.should_close() {
             return;
         }
-        view::handlers::code_lenses::prepare_visible_code_lenses(&mut self.editor);
+        view::features::code_lenses::prepare_visible_code_lenses(&mut self.editor);
 
         self.terminal
             .backend_mut()

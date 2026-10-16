@@ -350,7 +350,7 @@ pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         event.editor.handlers.auto_reload.configure(event.new);
         Ok(())

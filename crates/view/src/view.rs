@@ -3,8 +3,8 @@ use crate::{
     annotations::diagnostics::InlineDiagnostics,
     config::{GutterConfig, GutterType},
     document::{DocumentColorSwatches, DocumentInlayHints},
+    features::diagnostics::DiagnosticsHandler,
     graphics::{Rect, RectExt as _},
-    handlers::diagnostics::DiagnosticsHandler,
     Align, Document, DocumentId, Theme, ViewId,
 };
 

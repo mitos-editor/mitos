@@ -14,7 +14,7 @@ pub fn completion(cx: &mut Context) {
 }
 
 pub fn inline_completion_accept(cx: &mut Context) {
-    if let Some(applied) = view::handlers::inline_completion::accept(cx.editor) {
+    if let Some(applied) = view::features::inline_completion::accept(cx.editor) {
         cx.callback.push(Box::new(move |compositor, _| {
             compositor
                 .find::<crate::ui::EditorView>()
@@ -27,20 +27,20 @@ pub fn inline_completion_accept(cx: &mut Context) {
 }
 
 pub fn inline_completion_dismiss(cx: &mut Context) {
-    view::handlers::inline_completion::dismiss(cx.editor);
+    view::features::inline_completion::dismiss(cx.editor);
 }
 
 pub fn inline_completion_trigger(cx: &mut Context) {
-    view::handlers::inline_completion::trigger(
+    view::features::inline_completion::trigger(
         cx.editor,
         lsp_client::lsp::InlineCompletionTriggerKind::Invoked,
     );
 }
 
 pub fn inline_completion_next(cx: &mut Context) {
-    view::handlers::inline_completion::cycle(cx.editor, editor_core::movement::Direction::Forward);
+    view::features::inline_completion::cycle(cx.editor, editor_core::movement::Direction::Forward);
 }
 
 pub fn inline_completion_prev(cx: &mut Context) {
-    view::handlers::inline_completion::cycle(cx.editor, editor_core::movement::Direction::Backward);
+    view::features::inline_completion::cycle(cx.editor, editor_core::movement::Direction::Backward);
 }

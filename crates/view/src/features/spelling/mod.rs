@@ -323,7 +323,7 @@ impl Editor {
 }
 
 /// Each event supplies its owning editor or document queue.
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if !doc.spelling_languages.is_empty() {

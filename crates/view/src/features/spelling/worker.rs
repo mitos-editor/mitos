@@ -12,7 +12,7 @@
 
 use std::{collections::HashMap, future::Future, ops::Range, sync::Arc, time::Duration};
 
-use crate::{handlers::spelling::SpellingEvent, DocumentId, Editor};
+use crate::{features::spelling::SpellingEvent, DocumentId, Editor};
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},

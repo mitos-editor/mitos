@@ -133,7 +133,7 @@ impl CompletionHandler {
     }
 
     /// Cancel pending and displayed work and notify the frontend to dismiss its menu.
-    pub(super) fn invalidate(&mut self) {
+    pub(crate) fn invalidate(&mut self) {
         self.event(CompletionEvent::Cancel);
         self.dismiss();
         self.updates.clear();
@@ -496,7 +496,7 @@ fn invalidate(editor: &mut Editor) {
     editor.handlers.completions.invalidate();
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         invalidate(event.editor);
         Ok(())

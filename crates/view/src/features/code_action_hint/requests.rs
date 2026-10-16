@@ -9,7 +9,7 @@ use lsp_client::lsp::{CodeAction, CodeActionOrCommand, CodeActionTriggerKind};
 use tokio::{sync::mpsc::Sender, time::Instant};
 use tokio_stream::StreamExt;
 
-use super::lsp::DocumentRequest;
+use crate::features::request::DocumentRequest;
 use crate::{
     action::code_actions_for_range_filtered,
     callbacks::EditorCallbackSender,
@@ -172,7 +172,7 @@ fn apply_code_action_hint(doc: &mut Document, view: ViewId, available: bool) {
     }
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         schedule(event.doc, event.view);
         Ok(())

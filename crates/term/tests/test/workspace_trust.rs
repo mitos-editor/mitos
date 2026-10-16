@@ -3,7 +3,7 @@ use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
     events::DocumentDidOpen,
-    handlers::workspace_trust::{
+    features::workspace_trust::{
         apply_decision, next_request, resolve_request, trust_and_restart, TrustDecision,
     },
 };

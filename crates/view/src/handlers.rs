@@ -1,34 +1,26 @@
-use completion::{CompletionEvent, CompletionHandler};
 use event::register_hook;
-use spelling::SpellingHandler;
 
-use crate::features::navigation;
-use crate::handlers::signature_help::SignatureHelpInvoked;
-use crate::{callbacks::EditorCallbackSender, config::Config, events::ConfigDidChange};
-use crate::{DocumentId, Editor, ViewId};
-
-pub mod auto_reload;
-pub mod auto_save;
-pub mod blame;
-pub mod code_action_hint;
-pub mod completion;
-pub mod dap;
-pub mod diagnostics;
-// Internal compatibility path for handler-owned services.
-use crate::features::debounce as document_debounce;
-// Compatibility paths; feature state and coordination now live together.
-pub use crate::features::{
-    code_lenses, document_colors, document_highlight, document_links, document_symbols, hover,
-    inlay_hints,
+use crate::{
+    callbacks::EditorCallbackSender,
+    config::Config,
+    events::ConfigDidChange,
+    features::{
+        auto_reload, auto_save, blame, code_action_hint, code_lenses,
+        completion::{self, CompletionEvent, CompletionHandler},
+        diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
+        inlay_hints, inline_completion, navigation,
+        signature_help::{self, SignatureHelpInvoked},
+        spelling::{self, SpellingHandler},
+        syntax, word_index, workspace_trust,
+    },
+    DocumentId, Editor, ViewId,
 };
-pub mod inline_completion;
+
+// Feature implementations live in `features`; this module composes their services
+// and retains protocol bridges and registry setup.
+pub mod dap;
 pub mod lsp;
-pub mod signature_help;
 mod snippet;
-pub mod spelling;
-pub mod syntax;
-pub mod word_index;
-pub mod workspace_trust;
 
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
@@ -111,14 +103,17 @@ impl Handlers {
             .bind_handler(self.document_highlight.clone());
         doc.document_symbols
             .bind_handler(self.document_symbols.clone());
-        doc.pull_diagnostics.handler = Some(self.pull_diagnostics.clone());
-        doc.code_action_hints.handler = Some(self.code_action_hint.clone());
-        doc.inline_completions.trigger = Some(self.inline_completions.trigger.clone());
+        doc.pull_diagnostics
+            .bind_handler(self.pull_diagnostics.clone());
+        doc.code_action_hints
+            .bind_handler(self.code_action_hint.clone());
+        doc.inline_completions
+            .bind_handler(&self.inline_completions);
         doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
         doc.auto_save_trigger = Some(self.auto_save.trigger());
         doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
-        doc.blame.handler = Some(self.blame.clone());
+        doc.blame.bind_handler(self.blame.clone());
         doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 
@@ -136,7 +131,7 @@ impl Handlers {
     }
 
     pub fn word_index(&self) -> &word_index::WordIndex {
-        &self.word_index.index
+        self.word_index.index()
     }
 }
 
@@ -191,7 +186,8 @@ impl Editor {
         self.handlers.inline_completions = handler;
         for doc in self.documents.values_mut() {
             doc.inline_completions.clear();
-            doc.inline_completions.trigger = Some(self.handlers.inline_completions.trigger.clone());
+            doc.inline_completions
+                .bind_handler(&self.handlers.inline_completions);
         }
     }
 
