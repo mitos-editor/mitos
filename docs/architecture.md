@@ -311,6 +311,18 @@ or workspace-edit failure is reported and prevents the follow-up command. Existi
 workspace-edit application can partially succeed before an error; it does not
 roll back already-applied changes.
 
+`view::handlers::hover` owns multi-server requests and publishes typed
+`EditorEvent::Hover` updates. The originating document owns cancellation by view;
+edits, selection changes, focus loss, language/path changes, and view removal invalidate
+pending work. Publication and frontend delivery both validate the snapshot.
+`term` triggers hover and builds its popup from a resolved update.
+
+`view::handlers::inlay_hints` owns viewport selection, request deduplication,
+position conversion, and annotation publication. Per-view cache keys include the
+document version, URI, server instance, and buffered viewport. Pending requests
+are reused until their inputs change; one split's response cannot mark another
+split current. The frontend calls `refresh` on idle and renders cached annotations.
+
 `view::handlers::signature_help` owns manual and automatic triggers, debounce
 timing, server selection, cancellation, and response validation. Documents hold
 weak scheduling handles to their editor's coordinator. Requests retain document,

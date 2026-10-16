@@ -702,6 +702,10 @@ impl Application {
                 );
                 self.render().await;
             }
+            EditorEvent::Hover(update) => {
+                crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
+                self.render().await;
+            }
             EditorEvent::SignatureHelp(update) => {
                 crate::handlers::signature_help::show_signature_help(
                     &mut self.editor,

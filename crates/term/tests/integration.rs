@@ -31,6 +31,7 @@ mod test {
     mod cursor;
     mod document_features;
     mod inline_completion;
+    mod language_features;
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;

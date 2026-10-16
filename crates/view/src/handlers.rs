@@ -19,6 +19,8 @@ mod document_debounce;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
+pub mod hover;
+pub mod inlay_hints;
 pub mod inline_completion;
 pub mod lsp;
 pub mod signature_help;
@@ -40,6 +42,8 @@ pub struct Handlers {
     pub syntax: syntax::SyntaxHandler,
     pub completions: CompletionHandler,
     pub inline_completions: inline_completion::InlineCompletionHandler,
+    pub hover: hover::HoverHandler,
+    pub inlay_hints: inlay_hints::InlayHintsHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
     pub blame: blame::BlameHandler,
@@ -70,6 +74,8 @@ impl Handlers {
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
+            hover: hover::HoverHandler::new(callbacks.clone()),
+            inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
             blame: blame::BlameHandler::new(callbacks.clone()),
@@ -195,6 +201,8 @@ fn register_hooks() {
         auto_save::register_hooks();
         blame::register_hooks();
         signature_help::register_hooks();
+        hover::register_hooks();
+        inlay_hints::register_hooks();
         completion::register_hooks();
         // Register didOpen/didChange before features can request results from the server.
         lsp::register_hooks();

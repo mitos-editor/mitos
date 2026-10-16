@@ -4,6 +4,7 @@ pub(crate) mod auto_reload;
 mod auto_save;
 pub mod completion;
 mod diagnostics;
+pub(crate) mod hover;
 mod inline_completion;
 mod prompt;
 pub(crate) mod signature_help;

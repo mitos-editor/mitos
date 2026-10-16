@@ -33,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
     let mut held_lenses = Vec::<Value>::new();
+    let language_features = args.first().is_some_and(|arg| arg == "--language-features");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
@@ -41,6 +42,7 @@ fn main() -> anyhow::Result<()> {
         || code_actions
         || lifecycle
         || signature_help
+        || language_features
         || completion
         || inline_completion
         || action_execution
@@ -79,7 +81,7 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if action_execution || code_lenses {
+        if action_execution || code_lenses || language_features {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
             request_log.as_mut().unwrap().flush()?;
         }
@@ -214,6 +216,23 @@ fn main() -> anyhow::Result<()> {
                 items
             } else {
                 json!({"items": items})
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if language_features && matches!(method, "textDocument/hover" | "textDocument/inlayHint") {
+            if method == "textDocument/hover" && args.iter().any(|arg| arg == "--hold-hover") {
+                continue;
+            }
+            let result = if text.contains("empty") {
+                Value::Null
+            } else if method == "textDocument/hover" {
+                json!({"contents": {"kind": "plaintext", "value": format!("{}: {text}", args[1])}})
+            } else {
+                json!([{"position": {"line": 0, "character": 3}, "label": format!("界é {text}"), "kind": 1, "paddingLeft": true, "paddingRight": true}])
             };
             respond(
                 &mut output,
@@ -383,6 +402,9 @@ fn main() -> anyhow::Result<()> {
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}
+            }}),
+            "initialize" if language_features => json!({"capabilities": {
+                "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true, "inlayHintProvider": true
             }}),
             "initialize" if signature_help => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,

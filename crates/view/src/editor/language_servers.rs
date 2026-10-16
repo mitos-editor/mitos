@@ -48,7 +48,6 @@ impl Editor {
             for doc in self.documents_mut() {
                 if doc.remove_language_server_by_name(&name).is_some() {
                     doc.reset_all_inlay_hints();
-                    doc.inlay_hints_oudated = true;
                     doc.clear_document_symbols();
                 }
             }
