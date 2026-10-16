@@ -49,7 +49,7 @@ pub struct Job {
 
 pub struct Jobs {
     sender: JobSender,
-    redraw: event::Redraw,
+    editor_callbacks: EditorCallbackSender,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -83,12 +83,23 @@ impl Jobs {
     pub fn new() -> Self {
         let (tx, rx) = channel(1024);
         let sender = JobSender(tx);
-        let redraw = event::Redraw::default();
+        let editor_sender = sender.0.clone();
+        let blocking_sender = editor_sender.clone();
+        let editor_callbacks = EditorCallbackSender::new(
+            event::Redraw::default(),
+            move |callback| {
+                let sender = editor_sender.clone();
+                async move {
+                    let _ = sender.send(Callback::Editor(callback)).await;
+                }
+            },
+            move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
+        );
         Self {
             sender,
+            editor_callbacks,
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
-            redraw,
         }
     }
 
@@ -96,20 +107,9 @@ impl Jobs {
         self.sender.clone()
     }
 
-    /// Bind editor-only completions to this application's queue.
+    /// Clone the editor destination bound to this application's queue at construction.
     pub fn editor_callback_sender(&self) -> EditorCallbackSender {
-        let sender = self.sender.0.clone();
-        let blocking_sender = sender.clone();
-        EditorCallbackSender::new(
-            self.redraw.clone(),
-            move |callback| {
-                let sender = sender.clone();
-                async move {
-                    let _ = sender.send(Callback::Editor(callback)).await;
-                }
-            },
-            move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
-        )
+        self.editor_callbacks.clone()
     }
 
     pub fn spawn<F: Future<Output = anyhow::Result<()>> + Send + 'static>(&mut self, f: F) {
@@ -229,6 +229,9 @@ mod tests {
         let mut first = Jobs::new();
         let sender = first.editor_callback_sender();
         let mut second = Jobs::new();
+
+        assert!(sender.same_destination(&first.editor_callback_sender()));
+        assert!(!sender.same_destination(&second.editor_callback_sender()));
 
         sender.send_blocking(|_| {});
         assert!(matches!(

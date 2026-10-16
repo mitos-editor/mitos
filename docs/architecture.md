@@ -427,7 +427,9 @@ Feature registrars are private to the handler modules. Mandatory document synchr
 mutation path before observer hooks. Registration includes filesystem configuration
 updates. A frontend can initialize
 these services without terminal setup. `term::handlers::register_hooks` installs
-terminal input and presentation hooks separately.
+terminal input and presentation hooks through a separate central registration path,
+once per event registry. Application-owned presentation subscriptions remain
+separate and unregister when their application is dropped.
 
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
 it and exposes `Editor::handlers()` for reading and scheduling work. All new
@@ -610,7 +612,9 @@ Frontend work uses an explicit `term::job::JobSender` from its owning `Jobs` or
 `Application`, and shared editor work uses `view::callbacks::EditorCallbackSender`.
 Capture that destination when starting background work; creating another application
 never redirects an existing callback. Presentation hooks are owned by the
-application and filter events by their editor's callback destination.
+application and filter events by their editor's callback destination. `Jobs` constructs
+one editor callback adapter and returns clones of it, so handles obtained through
+separate accessor calls retain the same destination identity.
 
 Working-directory state remains process-wide: `:cd` intentionally changes it,
 and relative-path helpers and file watching continue to use that context. Shell

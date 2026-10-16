@@ -138,20 +138,17 @@ pub fn show_signature_help(
 }
 
 pub(super) fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
-            signature_help::mode_changed(event.cx.editor, event.old_mode);
-            if event.old_mode == Mode::Insert {
-                event.cx.callback.push(Box::new(|compositor, _| {
-                    compositor.remove(SignatureHelp::ID);
-                }));
-            }
-            Ok(())
-        });
-        register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
-            signature_help::post_insert_char(event.cx.editor);
-            Ok(())
-        });
+    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+        signature_help::mode_changed(event.cx.editor, event.old_mode);
+        if event.old_mode == Mode::Insert {
+            event.cx.callback.push(Box::new(|compositor, _| {
+                compositor.remove(SignatureHelp::ID);
+            }));
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
+        signature_help::post_insert_char(event.cx.editor);
+        Ok(())
     });
 }

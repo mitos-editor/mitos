@@ -139,32 +139,29 @@ fn completion_post_command_hook(
 }
 
 pub(super) fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        register_hook!(move |event: &mut PostCommand<'_, '_>| completion_post_command_hook(event));
+    register_hook!(move |event: &mut PostCommand<'_, '_>| completion_post_command_hook(event));
 
-        register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
-            if event.old_mode == Mode::Insert {
-                event
-                    .cx
-                    .editor
-                    .handlers()
-                    .completions
-                    .event(CompletionEvent::Cancel);
-                clear_completions(event.cx);
-            } else if event.new_mode == Mode::Insert {
-                trigger_auto_completion(event.cx.editor, false)
-            }
-            Ok(())
-        });
+    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+        if event.old_mode == Mode::Insert {
+            event
+                .cx
+                .editor
+                .handlers()
+                .completions
+                .event(CompletionEvent::Cancel);
+            clear_completions(event.cx);
+        } else if event.new_mode == Mode::Insert {
+            trigger_auto_completion(event.cx.editor, false)
+        }
+        Ok(())
+    });
 
-        register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
-            if event.cx.editor.last_completion.is_some() {
-                update_completion_filter(event.cx, Some(event.c))
-            } else {
-                trigger_auto_completion(event.cx.editor, false);
-            }
-            Ok(())
-        });
+    register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
+        if event.cx.editor.last_completion.is_some() {
+            update_completion_filter(event.cx, Some(event.c))
+        } else {
+            trigger_auto_completion(event.cx.editor, false);
+        }
+        Ok(())
     });
 }
