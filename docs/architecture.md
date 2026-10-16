@@ -306,7 +306,7 @@ cancellation controllers, and their editor's scheduling handle. Selection,
 document, diagnostic, and configuration changes invalidate pending results;
 publication also checks the view, document snapshot, and server attachment.
 Spelling findings provide hints even without an LSP server. Statusline and gutter
-indicators, the picker, and save-job sequencing remain in `term`.
+indicators and the picker remain in `term`; `view::save` owns save sequencing.
 
 `view::action::Action` executes local actions synchronously. LSP actions retain
 an `LspActionContext` from the document snapshot used to request them, including
@@ -474,12 +474,29 @@ mode transitions, and scrolling; prompted replacement and repeat use the same
 editor operation.
 
 `view::save` owns save options, whitespace/newline normalization, history
-checkpoints, modified-document selection, and save-all error policy. `prepare`
-returns a request for one document; `save_all` prepares and submits each eligible
-document through a caller-supplied callback. Preparation happens immediately
-before submission, so an immediate error leaves later documents unprepared.
-`auto_save` uses this policy to enqueue writes without formatting or code actions,
-skipping scratch buffers. `Editor::save` owns the underlying write queue.
+checkpoints, modified-document selection, save-all error policy, and the complete
+pre-save sequence. `prepare` returns a request for one document; `submit` advances
+its fixed pipeline: configured code-action kinds in order, resolution and edits,
+formatting against the resulting document, then write submission. Code-action
+snapshots validate document version/path and the attached server instance before
+resolution and application. Resolve/edit failures retain the existing partial
+success policy; request failures stop that save, and formatter failures still write.
+
+`SaveProgress` distinguishes a queued write, a closed document, and a pending
+`SaveTask`. Frontends poll tasks and apply `SaveUpdate`s on the owning editor's
+mutation path, retaining every stage until completion during shutdown. The terminal
+adapter translates those stages into exit-waiting jobs without interpreting save
+policy. Switching or closing a view cannot redirect formatting or discard the
+write: visible origin views retain native history/cursor updates, and background
+formatting uses document-only transactions without synthesizing split selections.
+Formatting validates the text version, URI, language, and language-loader instance;
+stale results are discarded while the current document text is written.
+
+`save_all` prepares and submits each eligible document through a caller-supplied
+callback. Preparation happens immediately before submission, so an immediate error
+leaves later documents unprepared. `auto_save` uses this policy to enqueue writes
+without formatting or code actions, skipping scratch buffers. `Editor::save` owns
+the underlying write queue and document-saved events report write completion.
 
 ## Protocol and repository integrations
 
@@ -538,9 +555,8 @@ These modules adapt counts, registers, prompt phases, selections, and terminal
 jobs. Document state, diagnostic storage, quicklists, and editor operations remain
 in `view`; text algorithms remain in `core`; protocol and repository operations
 remain in their integration crates. File commands use `view::save` for shared
-preparation and batch policy. Their terminal adapter schedules code actions,
-formatting, and the final write in order, retaining document/version checks and
-exit waiting. `view::features::auto_save` owns debouncing, insert-mode deferral,
+preparation, batch policy, and save execution. Their terminal adapter drives typed
+save stages as exit-waiting jobs. `view::features::auto_save` owns debouncing, insert-mode deferral,
 focus-loss policy, and save submission through `view::save::auto_save`. Documents
 schedule changes through weak handles to their editor's coordinator; callbacks
 return through its explicit sender and reject replaced handlers, newer edits, and

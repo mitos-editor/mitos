@@ -398,8 +398,6 @@ pub(super) mod typed {
         commands::{
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
-            formatting::make_format_callback,
-            lsp::code_actions_on_save,
             workspace::doc_trust_full,
         },
         compositor::{self, Compositor},
@@ -490,64 +488,27 @@ pub(super) mod typed {
         jobs: &mut Jobs,
         request: PreparedSave,
     ) -> anyhow::Result<()> {
-        let PreparedSave {
-            doc_id,
-            view_id,
-            path,
-            force,
-            auto_format,
-            code_actions: run_code_actions,
-        } = request;
-
-        // The tail of the on-save chain: re-build the auto-format job against the
-        // latest document (so it formats after any code-action edits), or save
-        // directly when there's no formatter. Deferred via `Followup`, and always
-        // saves, so code-actions-on-save works even with auto-format off. Only
-        // built when there is pre-save work. A plain `:w` saves synchronously below.
-        let tail = (auto_format || run_code_actions).then(|| {
-            let path = path.clone();
-            let callback = Callback::Followup(Box::new(move |editor| {
-                // The document could have been closed mid-chain
-                if !editor.documents.contains_key(&doc_id) {
-                    return None;
-                }
-                let doc = doc!(editor, &doc_id);
-                let fmt_job = auto_format
-                    .then(|| doc.auto_format(editor))
-                    .flatten()
-                    .map(|fmt| {
-                        let call = make_format_callback(
-                            doc_id,
-                            doc.version(),
-                            view_id,
-                            fmt,
-                            Some((path.clone(), force)),
-                        );
-                        Job::with_callback(call).wait_before_exiting()
-                    });
-                if fmt_job.is_none()
-                    && let Err(err) = editor.save(doc_id, path, force)
-                {
-                    editor.set_error(|| format!("Error saving: {}", err));
-                }
-                fmt_job
-            }));
-            Job::with_callback(async { Ok(callback) }).wait_before_exiting()
-        });
-
-        let job = if run_code_actions {
-            code_actions_on_save(editor, doc_id, tail)
-        } else {
-            tail
-        };
-
-        if let Some(job) = job {
-            jobs.add(job);
-        } else {
-            editor.save(doc_id, path, force)?;
+        if let save::SaveProgress::Pending(task) = save::submit(editor, request)? {
+            jobs.add(save_job(task));
         }
-
         Ok(())
+    }
+
+    fn save_job(task: save::SaveTask) -> Job {
+        Job::with_callback(async move {
+            let update = task.run().await?;
+            Ok(Callback::Followup(Box::new(move |editor| {
+                match update.apply(editor) {
+                    Ok(save::SaveProgress::Pending(task)) => Some(save_job(task)),
+                    Ok(_) => None,
+                    Err(error) => {
+                        editor.set_error(|| format!("Error saving: {error}"));
+                        None
+                    }
+                }
+            })))
+        })
+        .wait_before_exiting()
     }
 
     #[cold]

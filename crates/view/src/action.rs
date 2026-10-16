@@ -118,10 +118,10 @@ impl Action {
     }
 }
 
-/// The originating document snapshot, captured before requesting menu actions.
+/// The originating document snapshot, captured before requesting LSP code actions.
 ///
 /// Focus may move while an action resolves; document identity and version must not.
-/// Clones share the immutable snapshot across menu items and queued callbacks.
+/// Clones share the immutable snapshot across menu items, save stages, and queued callbacks.
 #[derive(Clone, Debug)]
 pub struct LspActionContext(Arc<LspActionSnapshot>);
 
@@ -143,7 +143,7 @@ impl LspActionContext {
         }))
     }
 
-    fn is_current(&self, editor: &Editor, server_id: LanguageServerId) -> bool {
+    pub(crate) fn is_current(&self, editor: &Editor, server_id: LanguageServerId) -> bool {
         // IDs are editor-local. Retain instance identity without keeping a
         // disconnected server alive merely because its action menu is open.
         let snapshot = &self.0;
