@@ -121,7 +121,7 @@ async fn a_closed_document_stops_its_pending_save() -> anyhow::Result<()> {
         update.apply(&mut fixture.editor)?,
         SaveProgress::DocumentClosed
     ));
-    assert_eq!(fixture.editor.write_count, 0);
+    assert!(!fixture.editor.has_pending_writes());
     assert_eq!(std::fs::read_to_string(path)?, "original\n");
     Ok(())
 }

@@ -5,8 +5,10 @@
 //! retaining every stage until completion before exiting.
 
 mod operation;
+mod queue;
 
 pub use operation::{submit, SaveError, SaveProgress, SaveTask, SaveUpdate};
+pub(crate) use queue::WriteQueue;
 
 use std::path::PathBuf;
 

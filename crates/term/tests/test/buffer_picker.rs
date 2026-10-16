@@ -168,9 +168,9 @@ async fn close_selected_buffer_waits_for_pending_save() -> anyhow::Result<()> {
     f.app
         .editor
         .save(f.ids[0], None::<std::path::PathBuf>, false)?;
-    assert_eq!(f.app.editor.write_count, 1);
+    assert!(f.app.editor.has_pending_writes());
     f.keys("<C-x>").await?;
-    assert_eq!(f.app.editor.write_count, 0);
+    assert!(!f.app.editor.has_pending_writes());
     assert!(f.app.editor.document(f.ids[0]).is_none());
     assert_eq!(std::fs::read_to_string(path)?, "saved content\n");
     f.finish().await;

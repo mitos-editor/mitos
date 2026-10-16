@@ -531,6 +531,17 @@ leaves later documents unprepared. `auto_save` uses this policy to enqueue write
 without formatting or code actions, skipping scratch buffers. `Editor::save` owns
 the underlying write queue and document-saved events report write completion.
 
+`view::save::WriteQueue` privately owns per-document admission channels, ordered
+write futures, concurrent completion polling across documents, and pending-write
+accounting. Closing a document rejects further writes but retains accepted work.
+Both the event loop and `Editor::flush_writes` consume completions through the
+same queue operation, including failed writes. Frontends can query
+`Editor::has_pending_writes` without inspecting queue internals. Successful
+completion applies the written revision and path through
+`Editor::complete_document_write`; flushing drains all accepted writes before
+returning the first failure. Required frontend jobs likewise finish their callbacks
+and followups before reporting an error.
+
 ## Protocol and repository integrations
 
 `lsp`, `dap`, and `vcs` own their transport or repository operations. They accept

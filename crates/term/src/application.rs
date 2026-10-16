@@ -388,7 +388,7 @@ impl Application {
                         // Initial syntax must also settle before assertions; its completion can
                         // schedule spelling checks. Both success and failure complete via jobs.
                         if _idle_handled
-                            && self.editor.write_count == 0
+                            && !self.editor.has_pending_writes()
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                         {
                             return true;

@@ -128,6 +128,13 @@ impl Fixture {
         assert!(view::editing::apply(doc, &transaction, view.id));
     }
 
+    /// Replace the current buffer as one completed undo group.
+    pub fn replace_and_commit(&mut self, text: &str) {
+        let (view, doc) = current!(self.editor);
+        doc.set_selection(view.id, Selection::single(0, doc.text().len_chars()));
+        view::editing::replace_selections(doc, view, text);
+    }
+
     pub fn close_current(&mut self) -> anyhow::Result<()> {
         let doc = current_ref!(self.editor).1.id();
         self.editor.new_file(Action::Replace);

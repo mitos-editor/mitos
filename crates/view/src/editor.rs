@@ -3,9 +3,7 @@ mod language_servers;
 
 use crate::{
     config::Config,
-    document::{
-        DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
-    },
+    document::{DocumentOpenError, DocumentSavedEventResult, Mode, SavePoint},
     events::{DocumentDidClose, DocumentDidOpen, DocumentFocusLost},
     graphics::{CursorKind, Rect},
     handlers::Handlers,
@@ -13,6 +11,7 @@ use crate::{
     input::KeyEvent,
     quicklist::{Quicklist, QuicklistEntry, QuicklistMatch, QuicklistPosition, QuicklistTarget},
     register::Registers,
+    save::WriteQueue,
     theme::{self, Theme},
     tree::{self, Tree},
     Document, DocumentId, View, ViewId,
@@ -21,10 +20,8 @@ use event::dispatch;
 use loader::workspace_trust::{TrustQuery, WorkspaceTrust};
 use vcs::DiffProviderRegistry;
 
-use futures_util::stream::select_all::SelectAll;
 use futures_util::StreamExt;
 use lsp_client::{Call, LanguageServerId};
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use std::{
     borrow::Cow,
@@ -43,7 +40,7 @@ use tokio::{
     time::{sleep, Duration, Instant, Sleep},
 };
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 
 use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
@@ -67,7 +64,6 @@ pub const DIR_STACK_CAP: usize = 10;
 
 pub use crate::debugger::Breakpoint;
 
-use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
@@ -77,11 +73,7 @@ pub struct Editor {
     pub next_document_id: DocumentId,
     pub documents: BTreeMap<DocumentId, Document>,
 
-    // We Flatten<> to resolve the inner DocumentSavedEventFuture. For that we need a stream of streams, hence the Once<>.
-    // https://stackoverflow.com/a/66875668
-    pub saves: HashMap<DocumentId, UnboundedSender<Once<DocumentSavedEventFuture>>>,
-    pub save_queue: SelectAll<Flatten<UnboundedReceiverStream<Once<DocumentSavedEventFuture>>>>,
-    pub write_count: usize,
+    writes: WriteQueue,
 
     pub count: Option<std::num::NonZeroUsize>,
     pub selected_register: Option<char>,
@@ -240,9 +232,7 @@ impl Editor {
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
-            saves: HashMap::new(),
-            save_queue: SelectAll::new(),
-            write_count: 0,
+            writes: WriteQueue::default(),
             count: None,
             selected_register: None,
             macro_recording: None,
@@ -798,7 +788,7 @@ impl Editor {
                     // borrow, invalidating direct access to `doc.id`.
                     let id = doc.id;
                     let closed = self.documents.remove(&id).unwrap();
-                    self.saves.remove(&id);
+                    self.writes.close_document(id);
 
                     // Remove the scratch buffer from any jumplists
                     for (view, _) in self.tree.views_mut() {
@@ -895,11 +885,7 @@ impl Editor {
         self.documents.insert(id, doc);
         self.refresh_vcs_watches();
 
-        let (save_sender, save_receiver) = tokio::sync::mpsc::unbounded_channel();
-        self.saves.insert(id, save_sender);
-
-        let stream = UnboundedReceiverStream::new(save_receiver).flatten();
-        self.save_queue.push(stream);
+        self.writes.open_document(id);
 
         id
     }
@@ -1091,7 +1077,7 @@ impl Editor {
         }
 
         // This will also disallow any follow-up writes
-        self.saves.remove(&doc_id);
+        self.writes.close_document(doc_id);
 
         enum Action {
             Close(ViewId),
@@ -1168,9 +1154,6 @@ impl Editor {
         path: Option<P>,
         force: bool,
     ) -> anyhow::Result<()> {
-        // convert a channel of futures to pipe into main queue one by one
-        // via stream.then() ? then push into main future
-
         let path = path.map(|path| path.into());
         let doc = doc_mut!(self, &doc_id);
         // the path that will be written: the override, else the document's own path
@@ -1199,17 +1182,12 @@ impl Editor {
             res
         };
 
-        use futures_util::stream;
+        self.writes.enqueue(doc_id, future)
+    }
 
-        self.saves
-            .get(&doc_id)
-            .ok_or_else(|| anyhow::format_err!("saves are closed for this document!"))?
-            .send(stream::once(Box::pin(future)))
-            .map_err(|err| anyhow!("failed to send save event: {}", err))?;
-
-        self.write_count += 1;
-
-        Ok(())
+    /// Whether accepted writes still await completion in the event loop or a flush.
+    pub fn has_pending_writes(&self) -> bool {
+        self.writes.has_pending()
     }
 
     pub fn resize(&mut self, area: Rect) {
@@ -1450,8 +1428,7 @@ impl Editor {
             tokio::select! {
                 biased;
 
-                Some(event) = self.save_queue.next() => {
-                    self.write_count -= 1;
+                Some(event) = self.writes.next() => {
                     return EditorEvent::DocumentSaved(event)
                 }
                 Some(config_event) = self.config_events.1.recv() => {
@@ -1497,11 +1474,10 @@ impl Editor {
 
     pub async fn flush_writes(&mut self) -> anyhow::Result<()> {
         let mut first_error = None;
-        while self.write_count > 0 {
-            let Some(result) = self.save_queue.next().await else {
+        while self.writes.has_pending() {
+            let Some(result) = self.writes.next().await else {
                 bail!("save queue closed with unfinished writes");
             };
-            self.write_count -= 1;
             match result {
                 Ok(event) => self.complete_document_write(&event),
                 Err(error) => {
