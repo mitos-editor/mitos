@@ -42,6 +42,15 @@ impl Fixture {
     }
 
     async fn with_resolve(resolve: bool) -> anyhow::Result<Self> {
+        Self::with_save_actions(resolve, &[], false).await
+    }
+
+    async fn with_save_actions(
+        resolve: bool,
+        kinds: &[&str],
+        format: bool,
+    ) -> anyhow::Result<Self> {
+        let save = !kinds.is_empty();
         let dir = tempfile::tempdir()?;
         let log = fixture_lsp::log_path(dir.path(), "alpha");
         let gate = Gate::new(dir.path().join("resolve-ready"));
@@ -51,14 +60,40 @@ impl Fixture {
             .arg("--response-gate")
             .arg(gate.path())
             .arg(if resolve { "--resolve" } else { "--no-resolve" })
+            .arg(if save {
+                "--save-actions"
+            } else {
+                "--interactive-actions"
+            })
             .toml();
-        let languages =
-            fixture_lsp::syntax_loader("action-test", "action-test", &["alpha"], &server);
+        let kinds = serde_json::to_string(kinds)?;
+        let formatter = if format {
+            r#"formatter = { command = "bash", args = ["-c", "tr '[:lower:]' '[:upper:]'"] }"#
+        } else {
+            ""
+        };
+        let languages = super::helpers::test_syntax_loader(Some(format!(
+            r#"
+            {server}
+            [[language]]
+            name = "action-test"
+            scope = "source.action-test"
+            file-types = ["action-test"]
+            language-servers = ["alpha"]
+            roots = []
+            code-actions-on-save = {kinds}
+            auto-format = {format}
+            {formatter}
+        "#
+        )));
         let mut config = Config::default();
         config.files.watch.enable = false;
         config.files.reload.enable = false;
         config.completion.auto_trigger = false;
         config.lsp.color_swatches.enable = false;
+        if save {
+            config.format.on_save = true;
+        }
         let (sender, callbacks) = callbacks::unbounded(|blocking, callback| (blocking, callback));
         let mut handlers = Handlers::new(&config, sender);
         // Links and syntax publish empty async results even without a provider.
@@ -407,5 +442,92 @@ async fn actions_without_resolve_support_and_local_actions_stay_synchronous() ->
         f.editor.get_status().unwrap().0.as_ref(),
         "local action ran"
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn save_actions_run_in_order_before_formatting_the_latest_text() -> anyhow::Result<()> {
+    use view::save::{self, SaveProgress, WriteOptions};
+
+    let mut f = Fixture::with_save_actions(true, &["source.first", "source.second"], true).await?;
+    let view = current_ref!(f.editor).0.id;
+    let request = save::prepare(
+        &mut f.editor,
+        f.doc,
+        view,
+        None,
+        WriteOptions {
+            force: false,
+            auto_format: true,
+            code_actions: true,
+        },
+    );
+    f.gate.release()?;
+    let mut progress = save::submit(&mut f.editor, request)?;
+    while let SaveProgress::Pending(task) = progress {
+        let update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;
+        progress = update.apply(&mut f.editor)?;
+    }
+    assert!(matches!(progress, SaveProgress::Queued));
+    f.editor.flush_writes().await?;
+    let doc = f.editor.document(f.doc).unwrap();
+    assert_eq!(doc.text().to_string(), "SECOND\n");
+    assert_eq!(std::fs::read_to_string(doc.path().unwrap())?, "SECOND\n");
+    let resolutions: Vec<_> = f
+        .messages()
+        .into_iter()
+        .filter(|message| message["method"] == "codeAction/resolve")
+        .collect();
+    assert_eq!(resolutions.len(), 2);
+    assert_eq!(resolutions[0]["params"]["data"]["end"], 3);
+    assert_eq!(resolutions[1]["params"]["data"]["end"], 5);
+    f.assert_no_command().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn save_actions_discard_stale_requests_and_resolutions_before_writing_current_text(
+) -> anyhow::Result<()> {
+    use view::save::{self, SaveProgress, WriteOptions};
+
+    for during_resolve in [false, true] {
+        let mut f = Fixture::with_save_actions(true, &["source.first"], false).await?;
+        let view = current_ref!(f.editor).0.id;
+        let request = save::prepare(
+            &mut f.editor,
+            f.doc,
+            view,
+            None,
+            WriteOptions {
+                force: false,
+                auto_format: false,
+                code_actions: true,
+            },
+        );
+        let SaveProgress::Pending(task) = save::submit(&mut f.editor, request)? else {
+            anyhow::bail!("expected action request")
+        };
+        let mut update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;
+        if during_resolve {
+            let SaveProgress::Pending(task) = update.apply(&mut f.editor)? else {
+                anyhow::bail!("expected action resolution")
+            };
+            f.gate.release()?;
+            update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;
+        }
+        let (view, doc) = current!(f.editor);
+        let edit = Transaction::change(doc.text(), [(0, 3, Some("newer".into()))].into_iter());
+        doc.apply(&edit, view.id);
+        let mut progress = update.apply(&mut f.editor)?;
+        while let SaveProgress::Pending(task) = progress {
+            let update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;
+            progress = update.apply(&mut f.editor)?;
+        }
+        assert!(matches!(progress, SaveProgress::Queued));
+        f.editor.flush_writes().await?;
+        let doc = f.editor.document(f.doc).unwrap();
+        assert_eq!(doc.text().to_string(), "newer\n");
+        assert_eq!(std::fs::read_to_string(doc.path().unwrap())?, "newer\n");
+    }
     Ok(())
 }

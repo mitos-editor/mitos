@@ -37,3 +37,6 @@ mod editor_signals;
 
 #[path = "handler_setup/document_transactions.rs"]
 mod document_transactions;
+
+#[path = "handler_setup/save.rs"]
+mod save;

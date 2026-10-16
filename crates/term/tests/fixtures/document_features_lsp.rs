@@ -187,6 +187,31 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/codeAction"
+            && action_execution
+            && args.iter().any(|arg| arg == "--save-actions")
+        {
+            let kind = params["context"]["only"][0].as_str().unwrap_or("quickfix");
+            let replacement = if kind == "source.first" {
+                "first"
+            } else {
+                "second"
+            };
+            let result = json!([
+                {"title": "disabled", "kind": kind, "disabled": {"reason": "unavailable"}},
+                {"title": "unclassified"},
+                {"title": "unrelated", "kind": format!("{kind}Other")},
+                {"title": "command", "command": "fixture.command"},
+                {"title": "save action", "kind": format!("{kind}.fixture"),
+                    "data": {"uri": uri, "version": versions[uri],
+                        "replacement": replacement, "end": end}}
+            ]);
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
         if method == "textDocument/codeAction" && code_actions {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
@@ -388,7 +413,8 @@ fn main() -> anyhow::Result<()> {
                 };
                 action["edit"] = json!({"documentChanges": [{
                     "textDocument": {"uri": params["data"]["uri"], "version": version},
-                    "edits": [{"range": range(0, 3), "newText": "fixed"}]
+                    "edits": [{"range": range(0, params["data"]["end"].as_u64().unwrap_or(3) as usize),
+                        "newText": params["data"]["replacement"].as_str().unwrap_or("fixed")}]
                 }]});
                 action["command"] = json!({"title": "after edit", "command": "fixture.command"});
                 respond(

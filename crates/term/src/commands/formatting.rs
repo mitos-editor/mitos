@@ -3,7 +3,7 @@
 use super::context::Context;
 use crate::job::{self, Callback};
 use editor_core::{indent::IndentStyle, syntax::config::LanguageServerFeature, Transaction};
-use std::{future::Future, path::PathBuf};
+use std::future::Future;
 use view::{document::FormatterError, DocumentId, ViewId};
 
 pub(super) fn format_selections(cx: &mut Context) {
@@ -101,7 +101,6 @@ pub(super) async fn make_format_callback(
     doc_version: i32,
     view_id: ViewId,
     format: impl Future<Output = Result<Transaction, FormatterError>> + Send + 'static,
-    write: Option<(Option<PathBuf>, bool)>,
 ) -> anyhow::Result<job::Callback> {
     let format = format.await;
 
@@ -126,18 +125,7 @@ pub(super) async fn make_format_callback(
                 }
             }
             Err(err) => {
-                if write.is_none() {
-                    editor.set_error(|| err.to_string());
-                    return;
-                }
-                log::info!("failed to format '{}': {err}", doc.display_name());
-            }
-        }
-
-        if let Some((path, force)) = write {
-            let id = doc.id();
-            if let Err(err) = editor.save(id, path, force) {
-                editor.set_error(|| format!("Error saving: {}", err));
+                editor.set_error(|| err.to_string());
             }
         }
     }));
@@ -166,7 +154,7 @@ pub(super) mod typed {
         let format = doc.format(cx.editor).context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;
-        let callback = make_format_callback(doc.id(), doc.version(), view.id, format, None);
+        let callback = make_format_callback(doc.id(), doc.version(), view.id, format);
         cx.jobs.callback(callback);
 
         Ok(())

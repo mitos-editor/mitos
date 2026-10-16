@@ -54,10 +54,9 @@ pub(crate) use editing::replace_selections;
 pub use files::typed::{write_all_impl, MoveBufferOptions};
 pub use insert::{CommentContinuation, Open};
 pub use lsp::{
-    code_action, code_actions_on_save, goto_declaration, goto_definition, goto_implementation,
-    goto_reference, goto_type_definition, hover, rename_symbol,
-    select_references_to_symbol_under_cursor, show_code_lenses_under_cursor, signature_help,
-    symbol_picker, workspace_symbol_picker,
+    code_action, goto_declaration, goto_definition, goto_implementation, goto_reference,
+    goto_type_definition, hover, rename_symbol, select_references_to_symbol_under_cursor,
+    show_code_lenses_under_cursor, signature_help, symbol_picker, workspace_symbol_picker,
 };
 pub use mappable::MappableCommand;
 pub use movement::scroll;

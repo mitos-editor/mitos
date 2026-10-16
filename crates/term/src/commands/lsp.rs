@@ -1,22 +1,18 @@
 use super::{navigation::push_jump, Context};
 use crate::{
     compositor::{self, Compositor},
-    job::{Callback, Job},
+    job::Callback,
     ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
 use editor_core::{syntax::config::LanguageServerFeature, Selection, Uri};
 use futures_util::{stream::FuturesUnordered, FutureExt};
 use lsp_client::{
     block_on,
-    lsp::{self, CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
+    lsp::{self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind},
     util::lsp_range_to_range,
     LanguageServerId, OffsetEncoding,
 };
-use std::{
-    collections::{HashSet, VecDeque},
-    future::Future,
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 use stdx::path;
 use tokio_stream::StreamExt;
 use tui::{
@@ -33,7 +29,7 @@ use view::{
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     theme::{symbol_kind_scope, Theme},
-    Align, DocumentId, Editor,
+    Align, Editor,
 };
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
@@ -765,177 +761,6 @@ pub fn code_action(cx: &mut Context) {
 
         Ok(Callback::EditorCompositor(Box::new(call)))
     });
-}
-
-/// Build the job chain that runs a document's configured `code-actions-on-save`
-/// kinds, in order, each against the latest document state, before running
-/// `tail` (the auto-format / save job). Returns `tail` unchanged when nothing is
-/// configured.
-pub fn code_actions_on_save(editor: &Editor, doc_id: DocumentId, tail: Option<Job>) -> Option<Job> {
-    let kinds = doc!(editor, &doc_id)
-        .language_config()
-        .and_then(|config| config.code_actions_on_save.clone());
-    let Some(kinds) = kinds else {
-        return tail;
-    };
-    let kinds: VecDeque<CodeActionKind> = kinds.into_iter().map(CodeActionKind::from).collect();
-    code_action_on_save_step(doc_id, kinds, tail)
-}
-
-/// One link of the on-save chain: request the next kind's actions on the current
-/// document, apply them, then recurse for the rest. Each link is built lazily (as
-/// a `Followup`) so it reads the document after the previous link's edits, and
-/// runs the configured kinds strictly in order.
-fn code_action_on_save_step(
-    doc_id: DocumentId,
-    mut kinds: VecDeque<CodeActionKind>,
-    tail: Option<Job>,
-) -> Option<Job> {
-    let Some(kind) = kinds.pop_front() else {
-        // All kinds applied. Fall through to auto-format / save.
-        return tail;
-    };
-
-    let build_request = move |editor: &mut Editor| -> Option<Job> {
-        // The document could have been closed mid-chain
-        if !editor.documents.contains_key(&doc_id) {
-            return None;
-        }
-        let doc = doc!(editor, &doc_id);
-        let version = doc.version();
-        let full_range = editor_core::Range::new(0, doc.text().len_chars());
-        let Some((request, ls_id)) = code_actions_for_range(
-            doc,
-            full_range,
-            Some(vec![kind.clone()]),
-            CodeActionTriggerKind::INVOKED,
-        )
-        .into_iter()
-        .next() else {
-            // No server offers this kind for the document: skip to the next.
-            return code_action_on_save_step(doc_id, kinds, tail);
-        };
-
-        let future = async move {
-            let actions = request.await?;
-            let resolve = move |editor: &mut Editor| -> Option<Job> {
-                resolve_and_apply_code_actions_of_kind(
-                    editor, doc_id, version, ls_id, kind, kinds, tail, actions,
-                )
-            };
-            Ok(Callback::Followup(Box::new(resolve)))
-        };
-        Some(Job::with_callback(future).wait_before_exiting())
-    };
-
-    Some(
-        Job::with_callback(async move { Ok(Callback::Followup(Box::new(build_request))) })
-            .wait_before_exiting(),
-    )
-}
-
-/// An action matches a requested kind when its kind equals the request or is a
-/// sub-kind (`source.fixAll.eslint` matches `source.fixAll`, per the LSP kind
-/// hierarchy). Actions without a kind are skipped, so a server that ignores the
-/// `only` filter can't slip an unrelated action into a save.
-fn code_action_kind_matches(action: &CodeAction, requested: &CodeActionKind) -> bool {
-    action.kind.as_ref().is_some_and(|kind| {
-        let (kind, requested) = (kind.as_str(), requested.as_str());
-        kind == requested
-            || (kind.starts_with(requested) && kind[requested.len()..].starts_with('.'))
-    })
-}
-
-/// One matching action, in server order: an edit ready to apply, or a  future
-/// resolving the action's edit off the event loop.
-///
-/// Keeping one ordered list preserves apply order, which matters when a kind yields
-/// several edits.
-type ResolveFuture =
-    std::pin::Pin<Box<dyn Future<Output = Result<lsp::CodeAction, lsp_client::Error>> + Send>>;
-enum ResolveStep {
-    Ready(lsp::WorkspaceEdit),
-    Resolve(ResolveFuture),
-}
-
-/// Resolve (off the event loop) and apply the actions matching `kind`, then
-/// continue the on-save chain. The resolve is awaited in the returned job.
-#[allow(clippy::too_many_arguments)]
-fn resolve_and_apply_code_actions_of_kind(
-    editor: &mut Editor,
-    doc_id: DocumentId,
-    version: i32,
-    ls_id: LanguageServerId,
-    kind: CodeActionKind,
-    kinds: VecDeque<CodeActionKind>,
-    tail: Option<Job>,
-    actions: Option<Vec<CodeActionOrCommand>>,
-) -> Option<Job> {
-    // Build the matching actions, in order, while holding the language-server
-    // borrow, resolving only those the server left incomplete.
-    let prepared = (|| -> Option<(OffsetEncoding, Vec<ResolveStep>)> {
-        let actions = actions?;
-        if editor.documents.get(&doc_id)?.version() != version {
-            log::debug!("code-actions-on-save: document changed, skipping {kind:?}");
-            return None;
-        }
-        let ls = editor.language_server_by_id(ls_id)?;
-        let steps = actions
-            .iter()
-            .filter_map(|action| match action {
-                CodeActionOrCommand::CodeAction(ca) if ca.disabled.is_none() => Some(ca),
-                _ => None,
-            })
-            .filter(|ca| code_action_kind_matches(ca, &kind))
-            .filter_map(|ca| {
-                // Resolve only when the server left out the edit or command.
-                if (ca.edit.is_none() || ca.command.is_none())
-                    && let Some(future) = ls.resolve_code_action(ca)
-                {
-                    return Some(ResolveStep::Resolve(Box::pin(future)));
-                }
-                ca.edit.clone().map(ResolveStep::Ready)
-            })
-            .collect();
-        Some((ls.offset_encoding(), steps))
-    })();
-    let Some((offset_encoding, steps)) = prepared else {
-        return code_action_on_save_step(doc_id, kinds, tail);
-    };
-
-    let future = async move {
-        let mut edits = Vec::new();
-        for step in steps {
-            match step {
-                ResolveStep::Ready(edit) => edits.push(edit),
-                ResolveStep::Resolve(future) => match future.await {
-                    Ok(resolved) => edits.extend(resolved.edit),
-                    Err(err) => log::error!("code-actions-on-save: resolve failed: {err:?}"),
-                },
-            }
-        }
-        let apply = move |editor: &mut Editor| -> Option<Job> {
-            // A plain :w runs this in the live event loop so the document can
-            // change while resolving: re-check the version and skip rather than
-            // applying a stale edit.
-            if editor
-                .documents
-                .get(&doc_id)
-                .is_some_and(|doc| doc.version() == version)
-            {
-                for edit in &edits {
-                    if let Err(err) = editor.apply_workspace_edit(offset_encoding, edit) {
-                        log::error!("code-actions-on-save: failed to apply edit: {err:?}");
-                    }
-                }
-            } else {
-                log::debug!("code-actions-on-save: document changed, skipping {kind:?}");
-            }
-            code_action_on_save_step(doc_id, kinds, tail)
-        };
-        Ok(Callback::Followup(Box::new(apply)))
-    };
-    Some(Job::with_callback(future).wait_before_exiting())
 }
 
 /// Precondition: `locations` should be non-empty.

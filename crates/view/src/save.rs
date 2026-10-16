@@ -1,8 +1,12 @@
-//! Shared save preparation and policy for commands and automatic saves.
+//! Shared save preparation, execution, and policy for commands and automatic saves.
 //!
-//! Frontends submit prepared requests, scheduling code actions and formatting when
-//! requested, then call [`Editor::save`] to enqueue the write. This module owns
-//! document normalization, history checkpoints, target selection, and batch policy.
+//! Owns normalization, code actions, formatting, and write submission. Frontends
+//! drive [`SaveTask`]s and apply their typed updates on the editor mutation path,
+//! retaining every stage until completion before exiting.
+
+mod operation;
+
+pub use operation::{submit, SaveError, SaveProgress, SaveTask, SaveUpdate};
 
 use std::path::PathBuf;
 
