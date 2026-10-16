@@ -492,7 +492,7 @@ pub struct TerminalConfig {
 
 #[cfg(windows)]
 pub fn get_terminal_provider() -> Option<TerminalConfig> {
-    use stdx::env::binary_exists;
+    use stdx::env::{binary_exists, env_var_is_set};
 
     // zellij has added support for Windows in v0.44.0
     // https://github.com/zellij-org/zellij/releases/tag/v0.44.0
