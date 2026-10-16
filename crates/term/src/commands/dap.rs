@@ -15,8 +15,8 @@ use serde_json::{to_value, Value};
 use std::{collections::HashMap, future::Future, path::PathBuf};
 use tui::text::Line;
 use view::{
-    editor::Breakpoint,
-    handlers::dap::{breakpoints_changed, jump_to_stack_frame, select_thread_id},
+    debugger::{Breakpoint, BreakpointProperty},
+    handlers::dap::{jump_to_stack_frame, select_thread_id},
     Editor,
 };
 
@@ -58,7 +58,7 @@ fn thread_picker(
             )
             .with_preview(move |editor, thread| {
                 let frames = editor
-                    .debug_adapters
+                    .debugger()
                     .get_active_client()
                     .as_ref()?
                     .stack_frames
@@ -76,16 +76,16 @@ fn thread_picker(
     );
 }
 
-fn get_breakpoint_at_current_line(editor: &mut Editor) -> Option<(usize, Breakpoint)> {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-
-    let line = doc.selection(view.id).primary().cursor_line(text);
-    let path = doc.path()?;
-    editor.breakpoints.get(path).and_then(|breakpoints| {
-        let i = breakpoints.iter().position(|b| b.line == line);
-        i.map(|i| (i, breakpoints[i].clone()))
-    })
+fn get_breakpoint_at_current_line(editor: &Editor) -> Option<Breakpoint> {
+    let (view, doc) = current_ref!(editor);
+    let line = doc
+        .selection(view.id)
+        .primary()
+        .cursor_line(doc.text().slice(..));
+    editor
+        .debugger()
+        .breakpoint_at_line(doc.path()?, line)
+        .cloned()
 }
 
 // -- DAP
@@ -133,12 +133,13 @@ pub fn dap_start_impl(
     let config = doc
         .language_config()
         .and_then(|config| config.debugger.as_ref())
-        .ok_or_else(|| anyhow!("No debug adapter available for language"))?;
+        .ok_or_else(|| anyhow!("No debug adapter available for language"))?
+        .clone();
 
     let id = cx
         .editor
-        .debug_adapters
-        .start_client(socket, config)
+        .debugger_mut()
+        .start_client(socket, &config)
         .map_err(|e| anyhow!("Failed to start debug client: {}", e))?;
 
     // TODO: avoid refetching all of this... pass a config in
@@ -173,7 +174,7 @@ pub fn dap_start_impl(
         // }
     };
 
-    let debugger = match cx.editor.debug_adapters.get_client_mut(id) {
+    let debugger = match cx.editor.debugger_mut().get_client_mut(id) {
         Some(child) => child,
         None => {
             bail!("Failed to get child debugger.");
@@ -243,7 +244,7 @@ fn map_value(value: &Value, params: &[String]) -> Value {
 
 pub fn dap_launch(cx: &mut Context) {
     // TODO: Now that we support multiple Clients, we could run multiple debuggers at once but for now keep this as is
-    if cx.editor.debug_adapters.get_active_client().is_some() {
+    if cx.editor.debugger().get_active_client().is_some() {
         cx.editor.set_error(|| "Debugger is already running");
         return;
     }
@@ -297,7 +298,7 @@ pub fn dap_launch(cx: &mut Context) {
 }
 
 pub fn dap_restart(cx: &mut Context) {
-    let debugger = match cx.editor.debug_adapters.get_active_client() {
+    let debugger = match cx.editor.debugger().get_active_client() {
         Some(debugger) => debugger,
         None => {
             cx.editor.set_error(|| "Debugger is not running");
@@ -409,47 +410,19 @@ pub fn dap_toggle_breakpoints(cx: &mut Context) {
     };
 
     let text = doc.text().slice(..);
-    let mut lines: SmallVec<[usize; 1]> = doc
+    let lines: SmallVec<[usize; 1]> = doc
         .selection(view.id)
         .ranges()
         .iter()
         .map(|range| range.cursor_line(text))
         .collect();
-    lines.sort_unstable();
-    lines.dedup();
-
     dap_toggle_breakpoints_impl(cx, path, &lines);
 }
 
 pub fn dap_toggle_breakpoints_impl(cx: &mut Context, path: PathBuf, lines: &[usize]) {
-    // TODO: need to map breakpoints over edits and update them?
-    // we shouldn't really allow editing while debug is running though
-
-    let breakpoints = cx.editor.breakpoints.entry(path.clone()).or_default();
-    // TODO: always keep breakpoints sorted and use binary search to determine insertion point
-    toggle_breakpoint_lines(breakpoints, lines);
-
-    let debugger = debugger!(cx.editor);
-
-    if let Err(e) = breakpoints_changed(debugger, path, breakpoints) {
+    if let Err(error) = cx.editor.debugger_mut().toggle_breakpoints(path, lines) {
         cx.editor
-            .set_error(|| format!("Failed to set breakpoints: {}", e));
-    }
-}
-
-fn toggle_breakpoint_lines(breakpoints: &mut Vec<Breakpoint>, lines: &[usize]) {
-    for &line in lines {
-        if let Some(pos) = breakpoints
-            .iter()
-            .position(|breakpoint| breakpoint.line == line)
-        {
-            breakpoints.remove(pos);
-        } else {
-            breakpoints.push(Breakpoint {
-                line,
-                ..Default::default()
-            });
-        }
+            .set_error(|| format!("Failed to set breakpoints: {error}"));
     }
 }
 
@@ -527,7 +500,9 @@ pub fn dap_next(cx: &mut Context) {
 }
 
 pub fn dap_variables(cx: &mut Context) {
-    let debugger = debugger!(cx.editor);
+    let Some(debugger) = cx.editor.debugger().get_active_client() else {
+        return;
+    };
 
     if debugger.thread_id.is_none() {
         cx.editor
@@ -627,10 +602,10 @@ pub fn dap_terminate(cx: &mut Context) {
         let request = debugger.terminate(terminate_arguments);
         dap_callback(cx.jobs, request, |editor, _compositor, _response: ()| {
             // editor.set_error(|| format!("Failed to disconnect: {}", e));
-            editor.debug_adapters.unset_active_client();
+            editor.debugger_mut().unset_active_client();
         });
     } else {
-        cx.editor.debug_adapters.unset_active_client();
+        cx.editor.debugger_mut().unset_active_client();
     }
 }
 
@@ -667,9 +642,9 @@ pub fn dap_disable_exceptions(cx: &mut Context) {
     )
 }
 
-// TODO: both edit condition and edit log need to be stable: we might get new breakpoints from the debugger which can change offsets
 pub fn dap_edit_condition(cx: &mut Context) {
-    if let Some((pos, breakpoint)) = get_breakpoint_at_current_line(cx.editor) {
+    if let Some(breakpoint) = get_breakpoint_at_current_line(cx.editor) {
+        let identity = breakpoint.identity();
         let Some(path) = doc!(cx.editor).path().map(ToOwned::to_owned) else {
             return;
         };
@@ -684,17 +659,15 @@ pub fn dap_edit_condition(cx: &mut Context) {
                             return;
                         }
 
-                        let breakpoints = &mut cx.editor.breakpoints.get_mut(&path).unwrap();
-                        breakpoints[pos].condition = match input {
-                            "" => None,
-                            input => Some(input.to_owned()),
-                        };
-
-                        let debugger = debugger!(cx.editor);
-
-                        if let Err(e) = breakpoints_changed(debugger, path.clone(), breakpoints) {
+                        let value = (!input.is_empty()).then(|| input.to_owned());
+                        if let Err(error) = cx.editor.debugger_mut().set_breakpoint_property(
+                            &path,
+                            identity,
+                            BreakpointProperty::Condition,
+                            value,
+                        ) {
                             cx.editor
-                                .set_error(|| format!("Failed to set breakpoints: {}", e));
+                                .set_error(|| format!("Failed to set breakpoints: {error}"));
                         }
                     },
                 );
@@ -710,7 +683,8 @@ pub fn dap_edit_condition(cx: &mut Context) {
 }
 
 pub fn dap_edit_log(cx: &mut Context) {
-    if let Some((pos, breakpoint)) = get_breakpoint_at_current_line(cx.editor) {
+    if let Some(breakpoint) = get_breakpoint_at_current_line(cx.editor) {
+        let identity = breakpoint.identity();
         let Some(path) = doc!(cx.editor).path().map(ToOwned::to_owned) else {
             return;
         };
@@ -725,16 +699,15 @@ pub fn dap_edit_log(cx: &mut Context) {
                             return;
                         }
 
-                        let breakpoints = &mut cx.editor.breakpoints.get_mut(&path).unwrap();
-                        breakpoints[pos].log_message = match input {
-                            "" => None,
-                            input => Some(input.to_owned()),
-                        };
-
-                        let debugger = debugger!(cx.editor);
-                        if let Err(e) = breakpoints_changed(debugger, path.clone(), breakpoints) {
+                        let value = (!input.is_empty()).then(|| input.to_owned());
+                        if let Err(error) = cx.editor.debugger_mut().set_breakpoint_property(
+                            &path,
+                            identity,
+                            BreakpointProperty::LogMessage,
+                            value,
+                        ) {
                             cx.editor
-                                .set_error(|| format!("Failed to set breakpoints: {}", e));
+                                .set_error(|| format!("Failed to set breakpoints: {error}"));
                         }
                     },
                 );
@@ -809,29 +782,6 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
     cx.push_layer(Box::new(picker))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn toggles_breakpoints_for_every_line() {
-        let mut breakpoints = vec![Breakpoint {
-            line: 2,
-            ..Default::default()
-        }];
-
-        toggle_breakpoint_lines(&mut breakpoints, &[2, 4]);
-
-        assert_eq!(
-            breakpoints
-                .iter()
-                .map(|breakpoint| breakpoint.line)
-                .collect::<Vec<_>>(),
-            vec![4]
-        );
-    }
-}
-
 pub(super) mod typed {
     //! Typable dap commands.
 
@@ -849,7 +799,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        if let Some(debugger) = cx.editor.debug_adapters.get_active_client() {
+        if let Some(debugger) = cx.editor.debugger().get_active_client() {
             let (frame, thread_id) = match (debugger.active_frame, debugger.thread_id) {
                 (Some(frame), Some(thread_id)) => (frame, thread_id),
                 _ => {

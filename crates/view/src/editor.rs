@@ -65,18 +65,7 @@ use arc_swap::{
 
 pub const DIR_STACK_CAP: usize = 10;
 
-#[derive(Debug, Clone, Default)]
-pub struct Breakpoint {
-    pub id: Option<usize>,
-    pub verified: bool,
-    pub message: Option<String>,
-
-    pub line: usize,
-    pub column: Option<usize>,
-    pub condition: Option<String>,
-    pub hit_condition: Option<String>,
-    pub log_message: Option<String>,
-}
+pub use crate::debugger::Breakpoint;
 
 use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
@@ -103,8 +92,7 @@ pub struct Editor {
     pub diagnostics: Diagnostics,
     pub diff_providers: DiffProviderRegistry,
 
-    pub debug_adapters: dap::registry::Registry,
-    pub breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
+    pub(crate) debugger: crate::debugger::DebuggerState,
 
     pub syn_loader: Arc<ArcSwap<syntax::Loader>>,
     pub theme_loader: Arc<theme::Loader>,
@@ -267,8 +255,7 @@ impl Editor {
             language_servers,
             diagnostics: Diagnostics::new(),
             diff_providers,
-            debug_adapters: dap::registry::Registry::new(),
-            breakpoints: HashMap::new(),
+            debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
             theme_loader,
             last_theme: None,
@@ -1380,7 +1367,7 @@ impl Editor {
                 Some(message) = self.language_servers.incoming.next() => {
                     return EditorEvent::LanguageServerMessage(message)
                 }
-                Some(event) = self.debug_adapters.incoming.next() => {
+                Some(event) = self.debugger.adapters.incoming.next() => {
                     return EditorEvent::DebuggerEvent(event)
                 }
 
@@ -1458,8 +1445,18 @@ impl Editor {
         }
     }
 
+    /// Debugger sessions and breakpoints owned by this editor.
+    pub fn debugger(&self) -> &crate::debugger::DebuggerState {
+        &self.debugger
+    }
+
+    /// Change debugger state through its session and breakpoint operations.
+    pub fn debugger_mut(&mut self) -> &mut crate::debugger::DebuggerState {
+        &mut self.debugger
+    }
+
     pub fn current_stack_frame(&self) -> Option<&dap::StackFrame> {
-        self.debug_adapters.current_stack_frame()
+        self.debugger.current_stack_frame()
     }
 
     /// Returns the id of a view that this doc contains a selection for,

@@ -1,6 +1,6 @@
-use crate::editor::{Action, Breakpoint};
+use crate::debugger::{sync_source_breakpoints, Breakpoint};
+use crate::editor::Action;
 use crate::{align_view, Align, Editor};
-use anyhow::bail;
 use dap::requests::DisconnectArguments;
 use dap::requests::ThreadsArguments;
 use dap::{
@@ -8,15 +8,13 @@ use dap::{
 };
 use editor_core::Selection;
 use log::{error, warn};
-use lsp_client::block_on;
 use serde_json::{json, Value};
 use std::fmt::Write;
-use std::path::PathBuf;
 
 #[macro_export]
 macro_rules! debugger {
     ($editor:expr) => {{
-        let Some(debugger) = $editor.debug_adapters.get_active_client_mut() else {
+        let Some(debugger) = $editor.debugger_mut().get_active_client_mut() else {
             return;
         };
         debugger
@@ -87,62 +85,6 @@ pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
     align_view(doc, view, Align::Center);
 }
 
-pub fn breakpoints_changed(
-    debugger: &mut dap::Client,
-    path: PathBuf,
-    breakpoints: &mut [Breakpoint],
-) -> Result<(), anyhow::Error> {
-    if let Some(caps) = debugger.caps.as_ref() {
-        if breakpoints.iter().any(|b| b.condition.is_some())
-            && !caps.supports_conditional_breakpoints.unwrap_or_default()
-        {
-            bail!("Can't edit breakpoint: debugger does not support conditional breakpoints")
-        }
-        if breakpoints.iter().any(|b| b.hit_condition.is_some())
-            && !caps
-                .supports_hit_conditional_breakpoints
-                .unwrap_or_default()
-        {
-            bail!("Can't edit breakpoint: debugger does not support hit conditional breakpoints")
-        }
-        if breakpoints.iter().any(|b| b.log_message.is_some())
-            && !caps.supports_log_points.unwrap_or_default()
-        {
-            bail!("Can't edit breakpoint: debugger does not support logpoints")
-        }
-    }
-    let source_breakpoints = breakpoints
-        .iter()
-        .map(|breakpoint| dap::SourceBreakpoint {
-            line: breakpoint.line + 1, // convert from 0-indexing to 1-indexing (TODO: could set debugger to 0-indexing on init)
-            column: breakpoint.column,
-            condition: breakpoint.condition.clone(),
-            hit_condition: breakpoint.hit_condition.clone(),
-            log_message: breakpoint.log_message.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    let request = debugger.set_breakpoints(path, source_breakpoints);
-    match block_on(request) {
-        Ok(Some(dap_breakpoints)) => {
-            for (breakpoint, dap_breakpoint) in breakpoints.iter_mut().zip(dap_breakpoints) {
-                breakpoint.id = dap_breakpoint.id;
-                breakpoint.verified = dap_breakpoint.verified;
-                breakpoint.message = dap_breakpoint.message;
-                // TODO: handle breakpoint.message
-                // TODO: verify source matches
-                breakpoint.line = dap_breakpoint.line.unwrap_or(0).saturating_sub(1); // convert to 0-indexing
-                                                                                      // TODO: no unwrap
-                breakpoint.column = dap_breakpoint.column;
-                // TODO: verify end_linef/col instruction reference, offset
-            }
-        }
-        Err(e) => anyhow::bail!("Failed to set breakpoints: {}", e),
-        _ => {}
-    };
-    Ok(())
-}
-
 impl Editor {
     pub async fn handle_debugger_message(
         &mut self,
@@ -173,7 +115,7 @@ impl Editor {
                         all_threads_stopped,
                         ..
                     }) => {
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => return false,
                         };
@@ -217,7 +159,7 @@ impl Editor {
                         self.set_status(status);
                     }
                     Event::Continued(events::ContinuedBody { thread_id, .. }) => {
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => return false,
                         };
@@ -231,7 +173,7 @@ impl Editor {
                     }
                     Event::Thread(thread) => {
                         self.set_status(format!("Thread {}: {}", thread.thread_id, thread.reason));
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => return false,
                         };
@@ -251,14 +193,17 @@ impl Editor {
                                         warn!("DAP breakpoint event missing line");
                                         return false;
                                     };
-                                    self.breakpoints.entry(path).or_default().push(Breakpoint {
-                                        id: breakpoint.id,
-                                        verified: breakpoint.verified,
-                                        message: breakpoint.message.clone(),
-                                        line: line.saturating_sub(1),
-                                        column: breakpoint.column,
-                                        ..Default::default()
-                                    });
+                                    self.debugger.insert_breakpoint(
+                                        path,
+                                        Breakpoint {
+                                            id: breakpoint.id,
+                                            verified: breakpoint.verified,
+                                            message: breakpoint.message.clone(),
+                                            line: line.saturating_sub(1),
+                                            column: breakpoint.column,
+                                            ..Default::default()
+                                        },
+                                    );
                                     if let Some(message) = &breakpoint.message {
                                         self.set_status(format!("Breakpoint: {}", message));
                                     }
@@ -277,7 +222,7 @@ impl Editor {
                                 if breakpoint.line.is_none() {
                                     warn!("DAP breakpoint event missing line");
                                 }
-                                for breakpoints in self.breakpoints.values_mut() {
+                                for breakpoints in self.debugger.breakpoints.values_mut() {
                                     if let Some(i) =
                                         breakpoints.iter().position(|b| b.id == Some(id))
                                     {
@@ -303,7 +248,7 @@ impl Editor {
                                     warn!("DAP breakpoint event missing id");
                                     return false;
                                 };
-                                for breakpoints in self.breakpoints.values_mut() {
+                                for breakpoints in self.debugger.breakpoints.values_mut() {
                                     if let Some(i) =
                                         breakpoints.iter().position(|b| b.id == Some(id))
                                     {
@@ -334,7 +279,7 @@ impl Editor {
                     }
                     Event::ProgressStart(body) => {
                         let status = {
-                            let debugger = match self.debug_adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.adapters.get_client_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };
@@ -346,7 +291,7 @@ impl Editor {
                     }
                     Event::ProgressUpdate(body) => {
                         let status = {
-                            let debugger = match self.debug_adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.adapters.get_client_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };
@@ -360,7 +305,7 @@ impl Editor {
                     }
                     Event::ProgressEnd(body) => {
                         let status = {
-                            let debugger = match self.debug_adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.adapters.get_client_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };
@@ -374,15 +319,15 @@ impl Editor {
                     }
                     Event::Initialized(_) => {
                         self.set_status("Debugger initialized...");
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => return false,
                         };
 
                         // send existing breakpoints
-                        for (path, breakpoints) in &mut self.breakpoints {
+                        for (path, breakpoints) in &mut self.debugger.breakpoints {
                             // TODO: call futures in parallel, await all
-                            let _ = breakpoints_changed(debugger, path.clone(), breakpoints);
+                            let _ = sync_source_breakpoints(debugger, path.clone(), breakpoints);
                         }
                         // TODO: fetch breakpoints (in case we're attaching)
 
@@ -397,10 +342,10 @@ impl Editor {
                             }
                         }
 
-                        self.debug_adapters.set_active_client(id);
+                        self.debugger.adapters.set_active_client(id);
                     }
                     Event::Terminated(terminated) => {
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => return false,
                         };
@@ -433,15 +378,15 @@ impl Editor {
 
                         match restart_arg {
                             Some(Value::Bool(false)) | None => {
-                                self.debug_adapters.remove_client(id);
-                                self.debug_adapters.unset_active_client();
+                                self.debugger.adapters.remove_client(id);
+                                self.debugger.adapters.unset_active_client();
                                 self.set_status(
                                     "Terminated debugging session and disconnected debugger.",
                                 );
 
                                 // Go through all breakpoints and set verfified to false
                                 // this should update the UI to show the breakpoints are no longer connected
-                                for breakpoints in self.breakpoints.values_mut() {
+                                for breakpoints in self.debugger.breakpoints.values_mut() {
                                     for breakpoint in breakpoints.iter_mut() {
                                         breakpoint.verified = false;
                                     }
@@ -518,7 +463,7 @@ impl Editor {
                         }))
                     }
                     Ok(Request::StartDebugging(arguments)) => {
-                        let debugger = match self.debug_adapters.get_client_mut(id) {
+                        let debugger = match self.debugger.adapters.get_client_mut(id) {
                             Some(debugger) => debugger,
                             None => {
                                 self.set_error(|| "No active debugger found.");
@@ -542,7 +487,7 @@ impl Editor {
                             }
                         };
 
-                        let result = self.debug_adapters.start_client(Some(socket), &config);
+                        let result = self.debugger.adapters.start_client(Some(socket), &config);
 
                         let client_id = match result {
                             Ok(child) => child,
@@ -554,7 +499,7 @@ impl Editor {
                             }
                         };
 
-                        let client = match self.debug_adapters.get_client_mut(client_id) {
+                        let client = match self.debugger.adapters.get_client_mut(client_id) {
                             Some(child) => child,
                             None => {
                                 self.set_error(|| "Failed to get child debugger.");
@@ -581,7 +526,7 @@ impl Editor {
                     Err(err) => Err(err),
                 };
 
-                if let Some(debugger) = self.debug_adapters.get_client_mut(id) {
+                if let Some(debugger) = self.debugger.adapters.get_client_mut(id) {
                     debugger
                         .reply(request.seq, &request.command, reply)
                         .await

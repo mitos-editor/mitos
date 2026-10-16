@@ -138,6 +138,21 @@ The `Editor` holds the global state: all the open documents, a tree
 representation of all the view splits, the configuration, and a registry of 
 language servers. To open or close files, interact with the editor.
 
+### Debugger state
+
+`view::debugger::DebuggerState` owns debug-adapter sessions and source breakpoints.
+`Editor::debugger` exposes read access; mutations use session and breakpoint
+operations through `Editor::debugger_mut`. Terminal commands collect input and
+present debugger output. Breakpoint toggles, property changes, and adapter
+synchronization belong to the shared owner, including before a session starts.
+
+Breakpoint prompts retain an editor-owned `BreakpointId`, independent of the adapter's
+optional session ID and reported line. Removing a breakpoint invalidates that target;
+verification and relocation preserve it. New property values are checked against adapter
+capabilities before storage. Rejected properties leave the previous value intact;
+clearing an unsupported property is always
+permitted, even when other settings still prevent adapter synchronization.
+
 ### Resources and feature coordination
 
 `loader::syntax::Resources` owns the ordered runtime paths used to load native
