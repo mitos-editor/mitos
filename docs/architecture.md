@@ -222,8 +222,8 @@ URI, and server attachment before queued results mutate editor state.
 
 `Editor::handle_language_server_initialized`, `handle_publish_diagnostics`, and
 `handle_language_server_exit` in `view::handlers::lsp` own editor-side lifecycle
-and push-diagnostic handling. Initialization queues configuration before hooks
-open documents and start feature requests. Push diagnostics validate the URI and
+and push-diagnostic handling. Initialization queues configuration and opens protocol documents before
+notifying feature observers. Push diagnostics validate the URI and
 server readiness, then use the shared version, provider, and persistence rules.
 Exit clears the server's diagnostics from open documents and the workspace cache,
 runs feature cleanup while the server is still registered, then removes it.
@@ -385,14 +385,28 @@ preserves the existing detection order and fallback. The `[editor.clipboard-prov
 schema, provider names, and command behavior remain unchanged. `view` has no direct
 terminal-output dependency or terminal feature flag for clipboard access.
 
+### Document mutation phases
+
+Document mutations establish text, mapped selections, syntax, diagnostics, cached
+annotation anchors, and snippet ranges before publishing a change. An explicit
+transaction selection is installed before observers inspect the new state.
+`SelectionDidChange` is delivered after `DocumentDidChange` for a text transaction
+with an explicit selection; selection-only transactions publish only selection changes.
+
+LSP synchronization is a required step on the mutation path. Normal edits queue
+`didChange` before observers may request results; temporary completion previews
+skip protocol synchronization. Server initialization queues configuration and
+`didOpen` before feature observers run. Closing a document queues `didClose`
+before close observers run. These guarantees do not depend on hook registration order.
+
 ### Service initialization and callbacks
 
 `view::handlers::Handlers::new` constructs shared editor services from editor
 configuration and an explicit callback destination. It registers editor events
 and feature hooks through one central registration path, once per event registry.
-Feature registrars are private to the handler modules. Registration puts LSP document
-synchronization before feature requests and includes snippet range tracking and
-filesystem configuration updates. A frontend can initialize
+Feature registrars are private to the handler modules. Mandatory document synchronization and snippet range tracking happen on the
+mutation path before observer hooks. Registration includes filesystem configuration
+updates. A frontend can initialize
 these services without terminal setup. `term::handlers::register_hooks` installs
 terminal input and presentation hooks separately.
 

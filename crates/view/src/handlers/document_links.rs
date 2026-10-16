@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use editor_core::{syntax::config::LanguageServerFeature, Assoc};
+use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 
@@ -134,13 +134,6 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event
-            .changes
-            .update_positions(event.doc.document_links.cache.iter_mut().flat_map(|link| {
-                std::iter::once((&mut link.start, Assoc::After))
-                    .chain(std::iter::once((&mut link.end, Assoc::After)))
-            }));
-
         if !event.ghost_transaction {
             event.doc.document_links.request.cancel();
             if let Some(handler) = &event.doc.document_links.handler {

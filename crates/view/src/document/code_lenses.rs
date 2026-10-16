@@ -1,5 +1,6 @@
 //! Document-owned code lens cache and request lifetimes.
 
+use editor_core::{Assoc, ChangeSet, Rope};
 use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 use std::collections::HashMap;
@@ -23,6 +24,30 @@ pub(crate) struct DocumentCodeLenses {
 }
 
 impl DocumentCodeLenses {
+    /// Keep cached anchors and preview ownership consistent before observers run.
+    pub(super) fn apply_changes(
+        &mut self,
+        changes: &ChangeSet,
+        old_text: &Rope,
+        text: &Rope,
+        temporary: bool,
+    ) {
+        changes.update_positions(
+            self.cache
+                .iter_mut()
+                .map(|lens| (&mut lens.char_idx, Assoc::After)),
+        );
+        self.cancel_requests();
+        if temporary {
+            self.preview_base.get_or_insert_with(|| old_text.clone());
+            if self.preview_base.as_ref().is_some_and(|base| base == text) {
+                self.preview_base = None;
+            }
+        } else {
+            self.preview_base = None;
+        }
+    }
+
     /// Cancel both requests and queued publications, retaining mapped positions.
     pub(crate) fn cancel_requests(&mut self) {
         self.request.cancel();

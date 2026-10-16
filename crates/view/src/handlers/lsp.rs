@@ -4,14 +4,10 @@ use std::collections::btree_map::Entry;
 use std::fmt::Display;
 
 use crate::editor::Action;
-use crate::events::{
-    DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, LanguageServerExited,
-    LanguageServerInitialized,
-};
+use crate::events::{DiagnosticsDidChange, LanguageServerExited, LanguageServerInitialized};
 use crate::Editor;
 use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::Uri;
-use event::register_hook;
 use lsp_client::util::generate_transaction_from_edits;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 
@@ -259,7 +255,7 @@ impl Editor {
         Ok(())
     }
 
-    /// Queue configuration before the initialization hooks open documents and request features.
+    /// Synchronize configuration and open documents before feature observers run.
     pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
         let Some(language_server) = self.language_server_by_id(server_id) else {
             log::warn!("can't find language server with id `{server_id}`");
@@ -270,6 +266,16 @@ impl Editor {
         // protocol does not require it. Keep this ahead of the document hooks.
         if let Some(config) = language_server.config() {
             language_server.did_change_configuration(config.clone());
+        }
+        for doc in self
+            .documents()
+            .filter(|doc| doc.supports_language_server(server_id))
+        {
+            let Some(url) = doc.url() else {
+                continue;
+            };
+            let language_id = doc.language_id().map(ToOwned::to_owned).unwrap_or_default();
+            language_server.text_document_did_open(url, doc.version(), doc.text(), language_id);
         }
         event::dispatch(LanguageServerInitialized {
             editor: self,
@@ -442,49 +448,20 @@ impl Editor {
     }
 }
 
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        let language_server = event.editor.language_server_by_id(event.server_id).unwrap();
+/// Synchronize text before document observers may schedule requests against the new version.
+pub(crate) fn synchronize_document(
+    doc: &crate::Document,
+    old_text: &editor_core::Rope,
+    changes: &editor_core::ChangeSet,
+) {
+    for server in doc.language_servers() {
+        server.text_document_did_change(doc.versioned_identifier(), old_text, doc.text(), changes);
+    }
+}
 
-        for doc in event
-            .editor
-            .documents()
-            .filter(|doc| doc.supports_language_server(event.server_id))
-        {
-            let Some(url) = doc.url() else {
-                continue;
-            };
-
-            let language_id = doc.language_id().map(ToOwned::to_owned).unwrap_or_default();
-
-            language_server.text_document_did_open(url, doc.version(), doc.text(), language_id);
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Send textDocument/didChange notifications.
-        if !event.ghost_transaction {
-            for language_server in event.doc.language_servers() {
-                language_server.text_document_did_change(
-                    event.doc.versioned_identifier(),
-                    event.old_text,
-                    event.doc.text(),
-                    event.changes,
-                );
-            }
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        // Send textDocument/didClose notifications.
-        for language_server in event.doc.language_servers() {
-            language_server.text_document_did_close(event.doc.identifier());
-        }
-
-        Ok(())
-    });
+/// Close protocol documents before notifying observers about their removal.
+pub(crate) fn close_document(doc: &crate::Document) {
+    for server in doc.language_servers() {
+        server.text_document_did_close(doc.identifier());
+    }
 }

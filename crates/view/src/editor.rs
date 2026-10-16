@@ -1087,6 +1087,7 @@ impl Editor {
 
         self._refresh();
 
+        crate::handlers::lsp::close_document(&doc);
         event::dispatch(DocumentDidClose { editor: self, doc });
 
         Ok(())

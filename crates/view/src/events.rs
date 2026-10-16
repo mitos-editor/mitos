@@ -9,6 +9,8 @@ events! {
         editor: &'a mut Editor,
         doc: DocumentId
     }
+    // Text, mapped anchors, and the transaction's selection are consistent. Protocol
+    // synchronization is queued before observers can request derived feature results.
     DocumentDidChange<'a> {
         doc: &'a mut Document,
         view: ViewId,
@@ -20,12 +22,13 @@ events! {
         editor: &'a mut Editor,
         doc: Document
     }
+    // Selection invariants and snippet validity have already been checked.
     SelectionDidChange<'a> { doc: &'a mut Document, view: ViewId }
     DiagnosticsDidChange<'a> { editor: &'a mut Editor, doc: DocumentId }
     // called **after** a document loses focus (but not when its closed)
     DocumentFocusLost<'a> { editor: &'a mut Editor, doc: DocumentId, view: ViewId }
 
-    // Configuration is queued before dispatch; document-open hooks precede feature requests.
+    // Configuration and document-open synchronization are queued before dispatch.
     LanguageServerInitialized<'a> {
         editor: &'a mut Editor,
         server_id: LanguageServerId

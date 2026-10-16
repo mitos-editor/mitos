@@ -1,5 +1,6 @@
 //! Document links and their request lifetime.
 
+use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 
@@ -14,6 +15,13 @@ pub(crate) struct DocumentLinks {
 }
 
 impl DocumentLinks {
+    pub(super) fn apply_changes(&mut self, changes: &ChangeSet) {
+        changes.update_positions(self.cache.iter_mut().flat_map(|link| {
+            std::iter::once((&mut link.start, Assoc::After))
+                .chain(std::iter::once((&mut link.end, Assoc::After)))
+        }));
+    }
+
     /// Clear cached navigation targets without interrupting a replacement request.
     pub(crate) fn clear_cache(&mut self) {
         self.cache.clear();

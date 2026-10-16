@@ -7,11 +7,23 @@ use std::{
 };
 
 use editor_core::{diagnostic::DiagnosticProvider, Transaction, Uri};
+use event::register_hook;
 use lsp_client::{lsp, Call, Notification};
 use serde_json::{json, Value};
-use view::{current, current_ref, events::LanguageServerExited};
+use view::{
+    current, current_ref,
+    events::{
+        DocumentDidChange, DocumentDidClose, LanguageServerExited, LanguageServerInitialized,
+    },
+};
 
 use super::helpers::lsp::Fixture;
+
+enum ObserverMarker {}
+impl lsp::notification::Notification for ObserverMarker {
+    type Params = Value;
+    const METHOD: &'static str = "test/observer";
+}
 
 fn params(uri: &Uri, version: Option<i32>, message: &str) -> lsp::PublishDiagnosticsParams {
     serde_json::from_value(json!({
@@ -27,6 +39,15 @@ fn notification(method: &str, params: Value) -> Call {
 #[tokio::test(flavor = "multi_thread")]
 async fn initialization_sends_configuration_before_open_and_feature_requests() -> anyhow::Result<()>
 {
+    event::register_event::<LanguageServerInitialized>();
+    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+        event
+            .editor
+            .language_server_by_id(event.server_id)
+            .unwrap()
+            .notify::<ObserverMarker>(json!({"phase": "initialized"}));
+        Ok(())
+    });
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), &["alpha"])?;
     f.initialize().await?;
@@ -70,6 +91,7 @@ async fn initialization_sends_configuration_before_open_and_feature_requests() -
     assert!(index("initialized") < config);
     assert!(config < index("textDocument/didOpen"));
     assert!(index("textDocument/didOpen") < index("textDocument/documentSymbol"));
+    assert!(index("textDocument/didOpen") < index("test/observer"));
     assert_eq!(
         messages[config]["params"]["settings"],
         json!({"lifecycle": "alpha"})
@@ -439,5 +461,65 @@ async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Resul
             );
         }
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_synchronization_precedes_early_change_and_close_observers() -> anyhow::Result<()>
+{
+    event::register_event::<DocumentDidChange>();
+    event::register_event::<DocumentDidClose>();
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        for server in event.doc.language_servers() {
+            server.notify::<ObserverMarker>(json!({"phase": "changed"}));
+        }
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+        for server in event.doc.language_servers() {
+            server.notify::<ObserverMarker>(json!({"phase": "closed"}));
+        }
+        Ok(())
+    });
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(dir.path(), &["alpha"])?;
+    fixture.initialize().await?;
+    let (view, doc) = current!(fixture.app.editor);
+    let id = doc.id();
+    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "x".into());
+    assert!(doc.apply(&transaction, view.id));
+    assert!(fixture.app.editor.close_document(id, true).is_ok());
+    // A response is a transport barrier for all earlier notifications.
+    fixture
+        .app
+        .editor
+        .language_server_by_id(fixture.server("alpha"))
+        .unwrap()
+        .shutdown()
+        .await?;
+    let messages: Vec<Value> = std::fs::read_to_string(&fixture.logs[0])?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    for (synchronization, phase) in [
+        ("textDocument/didChange", "changed"),
+        ("textDocument/didClose", "closed"),
+    ] {
+        let sync = messages
+            .iter()
+            .position(|message| message["method"] == synchronization)
+            .unwrap();
+        let observer = messages
+            .iter()
+            .position(|message| {
+                message["method"] == "test/observer" && message["params"]["phase"] == phase
+            })
+            .unwrap();
+        assert!(
+            sync < observer,
+            "{synchronization} must precede {phase} observers"
+        );
+    }
+    assert!(fixture.app.close().await.is_empty());
     Ok(())
 }

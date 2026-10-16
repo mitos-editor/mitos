@@ -3,7 +3,7 @@ use view::{current, current_ref, editor::Action, Editor};
 
 use super::Fixture;
 
-fn insert_snippet(editor: &mut Editor) -> anyhow::Result<()> {
+pub(super) fn insert_snippet(editor: &mut Editor) -> anyhow::Result<()> {
     let snippet = snippets::Snippet::parse("${1:one} ${2:two}$0")?;
     let mut ctx = snippets::SnippetRenderCtx {
         resolve_var: Box::new(|_| None),

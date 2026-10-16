@@ -412,34 +412,6 @@ pub(super) fn register_hooks() {
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event.changes.update_positions(
-            event
-                .doc
-                .code_lenses
-                .cache
-                .iter_mut()
-                .map(|lens| (&mut lens.char_idx, editor_core::Assoc::After)),
-        );
-        // A preview changes the local snapshot too, even though didChange is suppressed.
-        event.doc.code_lenses.cancel_requests();
-        if event.ghost_transaction {
-            event
-                .doc
-                .code_lenses
-                .preview_base
-                .get_or_insert_with(|| event.old_text.clone());
-            if event
-                .doc
-                .code_lenses
-                .preview_base
-                .as_ref()
-                .is_some_and(|base| base == event.doc.text())
-            {
-                event.doc.code_lenses.preview_base = None;
-            }
-        } else {
-            event.doc.code_lenses.preview_base = None;
-        }
         if event.doc.code_lenses.preview_base.is_none()
             && let Some(handler) = &event.doc.code_lenses.handler
         {

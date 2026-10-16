@@ -204,8 +204,6 @@ fn register_hooks() {
         hover::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
-        // Register didOpen/didChange before features can request results from the server.
-        lsp::register_hooks();
         word_index::register_hooks();
         register_hook!(move |event: &mut ConfigDidChange<'_>| {
             event.editor.file_watcher.reload(&event.new.files.watch);

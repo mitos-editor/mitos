@@ -1,6 +1,6 @@
 //! Document color annotations and their request lifetime.
 
-use editor_core::{syntax, text_annotations::InlineAnnotation};
+use editor_core::{syntax, text_annotations::InlineAnnotation, Assoc, ChangeSet};
 use event::TaskController;
 
 use super::Document;
@@ -14,6 +14,19 @@ pub(crate) struct DocumentColors {
 }
 
 impl DocumentColors {
+    /// Keep cached anchors consistent before document-change observers run.
+    pub(super) fn apply_changes(&mut self, changes: &ChangeSet) {
+        if let Some(cache) = &mut self.cache {
+            for annotations in [&mut cache.color_swatches, &mut cache.color_swatches_padding] {
+                changes.update_positions(
+                    annotations
+                        .iter_mut()
+                        .map(|annotation| (&mut annotation.char_idx, Assoc::After)),
+                );
+            }
+        }
+    }
+
     /// Clear rendered annotations without interrupting a replacement request.
     pub(crate) fn clear_cache(&mut self) {
         self.cache = None;

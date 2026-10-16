@@ -4,6 +4,7 @@ mod code_lenses;
 mod colors;
 mod highlights;
 mod inline_completion;
+mod lifecycle;
 mod links;
 mod symbols;
 
@@ -1443,8 +1444,7 @@ impl Document {
     /// Select text within the [`Document`].
     pub fn set_selection(&mut self, view_id: ViewId, selection: Selection) {
         // TODO: use a transaction?
-        self.selections
-            .insert(view_id, selection.ensure_invariants(self.text().slice(..)));
+        self.update_selection(view_id, selection);
         event::dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
@@ -1528,10 +1528,7 @@ impl Document {
 
         if changes.is_empty() {
             if let Some(selection) = transaction.selection() {
-                self.selections.insert(
-                    view_id,
-                    selection.clone().ensure_invariants(self.text.slice(..)),
-                );
+                self.update_selection(view_id, selection.clone());
                 event::dispatch(SelectionDidChange {
                     doc: self,
                     view: view_id,
@@ -1587,51 +1584,19 @@ impl Document {
             }
         }
 
-        // TODO: all of that should likely just be hooks
         // start computing the diff in parallel
         if let Some(diff_handle) = &self.diff_handle {
             diff_handle.update_document(self.text.clone(), false);
         }
 
-        // map diagnostics over changes too
-        changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
-            let assoc = if diagnostic.starts_at_word {
-                Assoc::BeforeWord
-            } else {
-                Assoc::After
-            };
-            (&mut diagnostic.range.start, assoc)
-        }));
-        changes.update_positions(self.diagnostics.iter_mut().filter_map(|diagnostic| {
-            if diagnostic.zero_width {
-                // for zero width diagnostics treat the diagnostic as a point
-                // rather than a range
-                return None;
-            }
-            let assoc = if diagnostic.ends_at_word {
-                Assoc::AfterWord
-            } else {
-                Assoc::Before
-            };
-            Some((&mut diagnostic.range.end, assoc))
-        }));
-        self.diagnostics.retain_mut(|diagnostic| {
-            if diagnostic.zero_width {
-                diagnostic.range.end = diagnostic.range.start
-            } else if diagnostic.range.start >= diagnostic.range.end {
-                return false;
-            }
-            diagnostic.line = self.text.char_to_line(diagnostic.range.start);
-            true
-        });
-
-        self.diagnostics.sort_by_key(|diagnostic| {
-            (
-                diagnostic.range,
-                diagnostic.severity,
-                diagnostic.provider.clone(),
-            )
-        });
+        // Map cached anchors as part of the mutation, before protocol synchronization or observers.
+        self.map_diagnostics(changes);
+        self.document_colors.apply_changes(changes);
+        self.document_links.apply_changes(changes);
+        self.code_lenses
+            .apply_changes(changes, &old_doc, &self.text, !emit_lsp_notification);
+        self.inline_completions.clear();
+        self.map_snippet(changes);
 
         self.inlay_hints.apply_changes(changes);
         self.hover.clear();
@@ -1639,6 +1604,17 @@ impl Document {
         self.document_highlights
             .apply_changes(changes, self.text.len_chars());
 
+        // Install an explicit transaction selection before observers inspect the new state.
+        if let Some(selection) = transaction.selection() {
+            self.update_selection(view_id, selection.clone());
+        }
+
+        // Temporary completion previews deliberately remain local to the editor.
+        if emit_lsp_notification {
+            crate::handlers::lsp::synchronize_document(self, &old_doc, changes);
+        }
+
+        // Observers see mapped caches and the final selection, and may now schedule work.
         event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
@@ -1646,13 +1622,7 @@ impl Document {
             changes,
             ghost_transaction: !emit_lsp_notification,
         });
-
-        // if specified, the current selection should instead be replaced by transaction.selection
-        if let Some(selection) = transaction.selection() {
-            self.selections.insert(
-                view_id,
-                selection.clone().ensure_invariants(self.text.slice(..)),
-            );
+        if transaction.selection().is_some() {
             event::dispatch(SelectionDidChange {
                 doc: self,
                 view: view_id,

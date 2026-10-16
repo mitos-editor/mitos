@@ -28,3 +28,6 @@ mod blame;
 
 #[path = "handler_setup/document_lifecycle.rs"]
 mod document_lifecycle;
+
+#[path = "handler_setup/document_mutation.rs"]
+mod document_mutation;

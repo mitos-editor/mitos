@@ -155,26 +155,6 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Update the color swatch' positions, helping ensure they are displayed in the
-        // proper place.
-        let apply_color_swatch_changes = |annotations: &mut Vec<InlineAnnotation>| {
-            event.changes.update_positions(
-                annotations
-                    .iter_mut()
-                    .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
-            );
-        };
-
-        if let Some(DocumentColorSwatches {
-            color_swatches,
-            colors: _colors,
-            color_swatches_padding,
-        }) = &mut event.doc.document_colors.cache
-        {
-            apply_color_swatch_changes(color_swatches);
-            apply_color_swatch_changes(color_swatches_padding);
-        }
-
         // Avoid re-requesting document colors if the change is a ghost transaction (completion)
         // because the language server will not know about the updates to the document and will
         // give out-of-date locations.
