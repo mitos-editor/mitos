@@ -312,11 +312,15 @@ workspace-edit application can partially succeed before an error; it does not
 roll back already-applied changes.
 
 Feature modules group a feature's state, request policy, and lifecycle wiring.
-Hover keeps those together in `features/hover.rs`; inlay hints splits cache/edit
-mapping into `state.rs` and request/annotation conversion into `requests.rs`.
-`Document` owns typed feature state and delegates cleanup and edit mapping to it.
-The existing `handlers::{hover,inlay_hints}` and document annotation type paths
-remain reexports. Other services can adopt this layout when their code changes.
+Hover keeps those together in `features/hover.rs`. Inlay hints, document colors,
+links, highlights, symbols, and code lenses each group cache/edit mapping in
+`features/<feature>/state.rs` with request coordination in `requests.rs`.
+`Document` owns typed feature state and delegates view cleanup and edit mapping to
+it; `Handlers` binds each state to its editor's coordinator. Cache and scheduling
+internals stay within the feature. Cache-only clears preserve replacement requests;
+invalidation methods explicitly own request cancellation.
+The existing `handlers::<feature>` and document annotation type paths remain
+reexports. Other services can adopt this layout when their code changes.
 
 `view::features::hover` owns multi-server requests and publishes typed
 `EditorEvent::Hover` updates. The originating document owns cancellation by view;

@@ -4,13 +4,13 @@ use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 
-use super::lsp::DocumentRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     events::{
         ConfigDidChange, DocumentDidChange, DocumentDidOpen, LanguageServerExited,
         LanguageServerInitialized, SelectionDidChange,
     },
+    features::request::DocumentRequest,
     DocumentId, Editor, ViewId,
 };
 
@@ -178,7 +178,7 @@ fn apply_document_highlights(
     doc.set_document_highlights(view_id, ranges);
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         if event.doc.config.load().lsp.document_highlight.auto_trigger
             && event

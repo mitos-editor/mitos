@@ -11,7 +11,7 @@ const DOCUMENT_CHANGE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Coalesce edited documents until edits have been quiet for 250ms. Each feature
 /// owns a separate queue and validates its requests when the editor runs them.
-pub(super) fn debounce_documents(
+pub(crate) fn debounce_documents(
     callbacks: EditorCallbackSender,
     request: fn(&mut Editor, DocumentId),
 ) -> Sender<DocumentId> {

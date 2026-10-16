@@ -6,13 +6,14 @@ use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 
-use super::{document_debounce::debounce_documents, lsp::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
-    document::DocumentLink,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
+    features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
+
+use super::DocumentLink;
 
 /// Scheduling handle attached to documents owned by this editor.
 #[derive(Clone)]
@@ -127,7 +128,7 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     doc.document_links.cache = links;
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         request_document_links(event.editor, event.doc, None);
         Ok(())

@@ -1,23 +1,20 @@
 mod blame;
 mod code_action_hints;
-mod code_lenses;
-mod colors;
-mod highlights;
 mod inline_completion;
 mod lifecycle;
-mod links;
-mod symbols;
 
 use blame::DocumentBlame;
 pub use blame::LineBlameError;
-pub use code_lenses::CodeLens;
-pub use colors::DocumentColorSwatches;
 // Retain document-facing annotation types at their established public paths.
-pub use crate::features::inlay_hints::{DocumentInlayHints, DocumentInlayHintsId};
-pub use highlights::DocumentHighlights;
+pub use crate::features::{
+    code_lenses::CodeLens,
+    document_colors::DocumentColorSwatches,
+    document_highlight::DocumentHighlights,
+    document_links::DocumentLink,
+    document_symbols::{Breadcrumbs, Crumb},
+    inlay_hints::{DocumentInlayHints, DocumentInlayHintsId},
+};
 pub use inline_completion::{InlineCompletion, InlineCompletionRow};
-pub use links::DocumentLink;
-pub use symbols::{Breadcrumbs, Crumb};
 
 mod text_io;
 pub use text_io::{from_reader, read_to_string, to_writer};
@@ -75,7 +72,12 @@ use crate::{
     config::Config,
     events::{DocumentDidChange, SelectionDidChange},
     expansion,
-    features::{hover::HoverState, inlay_hints::InlayHintsState, navigation::NavigationState},
+    features::{
+        code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
+        document_highlight::DocumentHighlightsState, document_links::DocumentLinks,
+        document_symbols::DocumentSymbols, hover::HoverState, inlay_hints::InlayHintsState,
+        navigation::NavigationState,
+    },
     view::ViewPosition,
     DocumentId, Editor, Theme, View, ViewId,
 };
@@ -181,12 +183,12 @@ pub struct Document {
     pub(crate) navigation: NavigationState,
     pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: inline_completion::InlineCompletions,
-    pub(crate) document_colors: colors::DocumentColors,
-    pub(crate) code_lenses: code_lenses::DocumentCodeLenses,
-    pub(crate) document_links: links::DocumentLinks,
-    pub(crate) document_highlights: highlights::DocumentHighlightsState,
+    pub(crate) document_colors: DocumentColors,
+    pub(crate) code_lenses: DocumentCodeLenses,
+    pub(crate) document_links: DocumentLinks,
+    pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: code_action_hints::CodeActionHints,
-    pub(crate) document_symbols: symbols::DocumentSymbols,
+    pub(crate) document_symbols: DocumentSymbols,
 
     path: Option<PathBuf>,
     relative_path: OnceLock<Option<PathBuf>>,
@@ -2248,9 +2250,6 @@ mod test {
         let second_highlight = doc.document_highlight_controller(second).restart();
         let first_hint = doc.code_action_controller(first).restart();
         let second_hint = doc.code_action_controller(second).restart();
-        let symbols = doc.document_symbols.request.restart();
-        let colors = doc.document_colors.request.restart();
-        let links = doc.document_links.request.restart();
 
         doc.remove_view(first);
 
@@ -2264,9 +2263,6 @@ mod test {
         assert!(doc.code_action_hints(second));
         assert!(!second_highlight.is_canceled());
         assert!(!second_hint.is_canceled());
-        assert!(!symbols.is_canceled());
-        assert!(!colors.is_canceled());
-        assert!(!links.is_canceled());
 
         doc.clear_all_document_highlights();
         doc.clear_all_code_action_hints();
@@ -2282,20 +2278,11 @@ mod test {
         let view = ViewId::default();
         doc.set_document_highlights(view, std::iter::once(0..2).collect());
         let highlight = doc.document_highlight_controller(view).restart();
-        let symbols = doc.document_symbols.request.restart();
-        let colors = doc.document_colors.request.restart();
-        let links = doc.document_links.request.restart();
 
         doc.clear_document_highlights(view);
-        doc.clear_document_symbols();
-        doc.document_colors.clear_cache();
-        doc.document_links.clear_cache();
 
         assert!(doc.document_highlights(view).is_none());
         assert!(!highlight.is_canceled());
-        assert!(!symbols.is_canceled());
-        assert!(!colors.is_canceled());
-        assert!(!links.is_canceled());
 
         // Code-action invalidation intentionally cancels the current request.
         let hint = doc.code_action_controller(view).restart();
@@ -2304,21 +2291,12 @@ mod test {
     }
 
     #[tokio::test]
-    async fn dropping_a_document_cancels_all_feature_requests() {
+    async fn dropping_a_document_cancels_view_feature_requests() {
         let mut doc = feature_document();
         let view = ViewId::default();
-        let mut title_controller = event::TaskController::new();
-        let title = title_controller.restart();
-        doc.code_lenses.titles.insert(0, title_controller);
         let requests = [
             doc.document_highlight_controller(view).restart(),
             doc.code_action_controller(view).restart(),
-            doc.document_symbols.request.restart(),
-            doc.document_colors.request.restart(),
-            doc.document_links.request.restart(),
-            doc.code_lenses.request.restart(),
-            doc.code_lenses.resolve.restart(),
-            title,
         ];
         drop(doc);
         assert!(requests.iter().all(event::TaskHandle::is_canceled));

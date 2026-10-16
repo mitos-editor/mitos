@@ -9,16 +9,17 @@ use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::{lsp, Client, LanguageServerId};
 use tokio::sync::Semaphore;
 
-use super::{document_debounce::debounce_documents, lsp::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
-    document::CodeLens,
     events::{
         ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
         LanguageServerExited, LanguageServerInitialized,
     },
+    features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
+
+use super::CodeLens;
 
 const MAX_CONCURRENT_RESOLUTIONS: usize = 4;
 
@@ -406,7 +407,7 @@ pub fn resolve_code_lenses(
     })
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         request_document_code_lenses(event.editor, event.doc, None);
         Ok(())

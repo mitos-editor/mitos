@@ -7,20 +7,24 @@ use lsp_client::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use super::Document;
-use crate::{handlers::document_symbols::DocumentSymbolsHandler, ViewId};
+use super::DocumentSymbolsHandler;
+use crate::{Document, ViewId};
 
 #[derive(Default)]
 pub(crate) struct DocumentSymbols {
     cache: Option<DocumentSymbolCache>,
     breadcrumbs: HashMap<ViewId, Breadcrumbs>,
-    pub(crate) request: TaskController,
-    pub(crate) handler: Option<DocumentSymbolsHandler>,
+    pub(super) request: TaskController,
+    pub(super) handler: Option<DocumentSymbolsHandler>,
 }
 
 impl DocumentSymbols {
+    pub(crate) fn bind_handler(&mut self, handler: DocumentSymbolsHandler) {
+        self.handler = Some(handler);
+    }
+
     /// Invalidate both the request and every derived breadcrumb.
-    pub(crate) fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.request.cancel();
         self.clear_cache();
     }
@@ -30,7 +34,7 @@ impl DocumentSymbols {
         self.breadcrumbs.clear();
     }
 
-    pub(super) fn remove_view(&mut self, view: ViewId) {
+    pub(crate) fn remove_view(&mut self, view: ViewId) {
         self.breadcrumbs.remove(&view);
     }
 }
@@ -124,7 +128,7 @@ impl Document {
 
         // PERF: Symbol responses are cold. Collecting the usually tiny view-id set here avoids
         // allocations on cursor movement while ensuring every split is refreshed immediately.
-        let view_ids: Vec<_> = self.selections.keys().copied().collect();
+        let view_ids: Vec<_> = self.selections().keys().copied().collect();
         for view_id in view_ids {
             self.update_breadcrumbs_for_view(view_id);
         }
@@ -318,6 +322,29 @@ mod tests {
 
         doc.document_symbols.clear();
         assert!(doc.document_symbols.cache.is_none());
+        assert!(request.is_canceled());
+    }
+
+    #[tokio::test]
+    async fn requests_outlive_views_and_cache_clears_but_not_the_document() {
+        let mut doc = Document::from(
+            editor_core::Rope::from("sample text"),
+            None,
+            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                crate::config::Config::default(),
+            )),
+            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                editor_core::syntax::Loader::default(),
+            )),
+        );
+        let view = crate::ViewId::default();
+        doc.ensure_view_init(view);
+        let request = doc.document_symbols.request.restart();
+        doc.remove_view(view);
+        assert!(!request.is_canceled());
+        doc.clear_document_symbols();
+        assert!(!request.is_canceled());
+        drop(doc);
         assert!(request.is_canceled());
     }
 }

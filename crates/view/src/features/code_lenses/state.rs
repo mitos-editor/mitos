@@ -5,27 +5,31 @@ use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 use std::collections::HashMap;
 
-use super::Document;
-use crate::handlers::code_lenses::DocumentCodeLensesHandler;
+use super::DocumentCodeLensesHandler;
+use crate::Document;
 
 #[derive(Default)]
 pub(crate) struct DocumentCodeLenses {
-    pub(crate) cache: Vec<CodeLens>,
-    pub(crate) version: Option<i32>,
-    pub(crate) uri: Option<editor_core::Uri>,
+    pub(super) cache: Vec<CodeLens>,
+    pub(super) version: Option<i32>,
+    pub(super) uri: Option<editor_core::Uri>,
     /// Server-visible text while temporary transactions preview a different buffer.
-    pub(crate) preview_base: Option<editor_core::Rope>,
-    pub(crate) request: TaskController,
-    pub(crate) resolve: TaskController,
+    pub(super) preview_base: Option<editor_core::Rope>,
+    pub(super) request: TaskController,
+    pub(super) resolve: TaskController,
     /// One automatic attempt per lens and cache generation, including failures.
     /// Dropping these controllers cancels queued requests and publications.
-    pub(crate) titles: HashMap<usize, TaskController>,
-    pub(crate) handler: Option<DocumentCodeLensesHandler>,
+    pub(super) titles: HashMap<usize, TaskController>,
+    pub(super) handler: Option<DocumentCodeLensesHandler>,
 }
 
 impl DocumentCodeLenses {
+    pub(crate) fn bind_handler(&mut self, handler: DocumentCodeLensesHandler) {
+        self.handler = Some(handler);
+    }
+
     /// Keep cached anchors and preview ownership consistent before observers run.
-    pub(super) fn apply_changes(
+    pub(crate) fn apply_changes(
         &mut self,
         changes: &ChangeSet,
         old_text: &Rope,
@@ -49,13 +53,13 @@ impl DocumentCodeLenses {
     }
 
     /// Cancel both requests and queued publications, retaining mapped positions.
-    pub(crate) fn cancel_requests(&mut self) {
+    pub(super) fn cancel_requests(&mut self) {
         self.request.cancel();
         self.resolve.cancel();
         self.titles.clear();
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.cancel_requests();
         self.cache.clear();
         self.version = None;
@@ -76,5 +80,34 @@ impl Document {
     /// Cached code lenses ordered by document position and originating server.
     pub fn code_lenses(&self) -> &[CodeLens] {
         &self.code_lenses.cache
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn dropping_a_document_cancels_fetch_resolution_and_title_requests() {
+        let mut doc = Document::from(
+            Rope::from("sample text"),
+            None,
+            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                crate::config::Config::default(),
+            )),
+            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                editor_core::syntax::Loader::default(),
+            )),
+        );
+        let mut title_controller = TaskController::new();
+        let title = title_controller.restart();
+        doc.code_lenses.titles.insert(0, title_controller);
+        let requests = [
+            doc.code_lenses.request.restart(),
+            doc.code_lenses.resolve.restart(),
+            title,
+        ];
+        drop(doc);
+        assert!(requests.iter().all(event::TaskHandle::is_canceled));
     }
 }

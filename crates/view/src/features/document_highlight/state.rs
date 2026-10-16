@@ -4,18 +4,22 @@ use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use std::collections::HashMap;
 
-use super::Document;
-use crate::{handlers::document_highlight::DocumentHighlightHandler, ViewId};
+use super::DocumentHighlightHandler;
+use crate::{Document, ViewId};
 
 #[derive(Default)]
 pub(crate) struct DocumentHighlightsState {
     cache: HashMap<ViewId, DocumentHighlights>,
     requests: HashMap<ViewId, TaskController>,
-    pub(crate) handler: Option<DocumentHighlightHandler>,
+    pub(super) handler: Option<DocumentHighlightHandler>,
 }
 
 impl DocumentHighlightsState {
-    pub(super) fn remove_view(&mut self, view: ViewId) {
+    pub(crate) fn bind_handler(&mut self, handler: DocumentHighlightHandler) {
+        self.handler = Some(handler);
+    }
+
+    pub(crate) fn remove_view(&mut self, view: ViewId) {
         self.cache.remove(&view);
         self.requests.remove(&view);
     }
@@ -25,7 +29,7 @@ impl DocumentHighlightsState {
         self.requests.clear();
     }
 
-    pub(super) fn apply_changes(&mut self, changes: &ChangeSet, text_len: usize) {
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet, text_len: usize) {
         for highlights in self.cache.values_mut() {
             let mut updated = Vec::with_capacity(highlights.ranges.len());
             for mut range in highlights.ranges.drain(..) {

@@ -4,13 +4,13 @@ use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
 use lsp_client::lsp::DocumentSymbolResponse;
 
-use super::lsp::DocumentRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     events::{
         ConfigDidChange, DocumentDidChange, DocumentDidOpen, LanguageServerExited,
         LanguageServerInitialized, SelectionDidChange,
     },
+    features::request::DocumentRequest,
     DocumentId, Editor,
 };
 
@@ -77,7 +77,7 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
     });
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let doc_id = event.doc;
         let view_id = event.editor.tree.focus;

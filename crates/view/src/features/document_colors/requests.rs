@@ -7,13 +7,14 @@ use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::lsp;
 
-use super::{document_debounce::debounce_documents, lsp::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
-    document::DocumentColorSwatches,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
+    features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor, Theme,
 };
+
+use super::DocumentColorSwatches;
 
 /// Scheduling handle attached to documents owned by this editor.
 #[derive(Clone)]
@@ -146,7 +147,7 @@ fn attach_document_colors(
     });
 }
 
-pub(super) fn register_hooks() {
+pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         // when a document is initially opened, request colors for it
         request_document_colors(event.editor, event.doc, None);
