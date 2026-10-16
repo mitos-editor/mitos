@@ -1521,6 +1521,11 @@ impl Editor {
         self.file_watcher.set_extra_watched_paths(paths);
     }
 
+    /// The frontend destination bound to this editor during construction.
+    pub fn callback_sender(&self) -> &crate::callbacks::EditorCallbackSender {
+        &self.handlers.callbacks
+    }
+
     pub fn set_cwd(&mut self, path: &Path) -> std::io::Result<()> {
         self.last_cwd = stdx::env::set_current_working_dir(path)?;
         self.clear_doc_relative_paths();

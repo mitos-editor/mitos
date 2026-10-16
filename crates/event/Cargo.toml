@@ -16,9 +16,7 @@ homepage.workspace = true
 foldhash.workspace = true
 hashbrown.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros"] }
-# the event registry is essentially read only but must be an rwlock so we can
-# setup new events on initialization, hardware-lock-elision hugely benefits this case
-# as it essentially makes the lock entirely free as long as there is no writes 
+# Dispatch snapshots the hook list under a short read lock; callbacks run unlocked.
 parking_lot = { workspace = true, features = ["hardware-lock-elision", "send_guard"] }
 anyhow.workspace = true
 log.workspace = true

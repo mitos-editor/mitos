@@ -688,7 +688,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     )
     .with_preview(|_editor, item| location_to_file_location(&item.location))
     .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.location))
-    .with_dynamic_query(get_symbols, None)
+    .with_dynamic_query(get_symbols, None, cx.jobs)
     .truncate_start(false);
 
     cx.push_layer(Box::new(overlaid(picker)));

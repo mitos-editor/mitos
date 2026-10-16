@@ -942,9 +942,13 @@ impl Document {
 
             let mut process = tokio::process::Command::new(&fmt_cmd);
 
-            if let Some(doc_dir) = self.path.as_ref().and_then(|path| path.parent()) {
-                process.current_dir(doc_dir);
-            }
+            let directory = self
+                .path
+                .as_ref()
+                .and_then(|path| path.parent())
+                .map(Path::to_path_buf)
+                .unwrap_or_else(stdx::env::current_working_dir);
+            process.current_dir(directory);
 
             let args = match fmt_args
                 .iter()

@@ -41,6 +41,11 @@ impl EditorCallbackSender {
         }
     }
 
+    /// Whether these handles were cloned from the same frontend destination.
+    pub fn same_destination(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.send, &other.send)
+    }
+
     pub async fn send(&self, callback: impl FnOnce(&mut Editor) + Send + 'static) {
         (self.send)(Box::new(callback)).await;
     }

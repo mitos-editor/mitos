@@ -214,3 +214,80 @@ async fn background_syntax_does_not_delay_a_plain_text_frame() -> anyhow::Result
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> anyhow::Result<()> {
+    let (mut first, _) = application(Args::default())?;
+    let (mut second, _) = application(Args::default())?;
+    for app in [&mut first, &mut second] {
+        app.compositor.push(Box::new(crate::ui::Prompt::new(
+            ":".into(),
+            None,
+            |_, _| Vec::new(),
+            |_, _, _| {},
+        )));
+    }
+    let doc = doc!(first.editor).id();
+    let view = first.editor.tree.focus;
+    event::dispatch(view::events::DocumentFocusLost {
+        editor: &mut first.editor,
+        doc,
+        view,
+    });
+    let callback = first.jobs.callbacks.try_recv()?;
+    first
+        .jobs
+        .handle_callback(&mut first.editor, &mut first.compositor, Ok(Some(callback)));
+    assert!(first.compositor.find::<crate::ui::Prompt>().is_none());
+    assert!(second.compositor.find::<crate::ui::Prompt>().is_some());
+    assert!(second.jobs.callbacks.try_recv().is_err());
+
+    // Dropping the application removes its hook and the strong queue handle it owns.
+    let sender = first.job_sender();
+    drop(first);
+    sender.send(|_, _| {}).await;
+    let doc = doc!(second.editor).id();
+    let view = second.editor.tree.focus;
+    event::dispatch(view::events::DocumentFocusLost {
+        editor: &mut second.editor,
+        doc,
+        view,
+    });
+    let callback = second.jobs.callbacks.try_recv()?;
+    second.jobs.handle_callback(
+        &mut second.editor,
+        &mut second.compositor,
+        Ok(Some(callback)),
+    );
+    assert!(second.compositor.find::<crate::ui::Prompt>().is_none());
+    assert!(second.jobs.callbacks.try_recv().is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn background_job_failures_are_reported_to_the_application_that_started_them(
+) -> anyhow::Result<()> {
+    let (mut first, _) = application(Args::default())?;
+    let (mut second, _) = application(Args::default())?;
+    second
+        .jobs
+        .spawn(async { anyhow::bail!("second application's failure") });
+    let callback = tokio::time::timeout(Duration::from_secs(1), second.jobs.callbacks.recv())
+        .await?
+        .expect("job failure was not delivered");
+    second.jobs.handle_callback(
+        &mut second.editor,
+        &mut second.compositor,
+        Ok(Some(callback)),
+    );
+    assert_eq!(
+        second
+            .editor
+            .get_status()
+            .map(|(message, _)| message.as_ref()),
+        Some("second application's failure")
+    );
+    assert!(first.jobs.callbacks.try_recv().is_err());
+    assert!(first.editor.get_status().is_none());
+    Ok(())
+}

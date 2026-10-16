@@ -66,22 +66,24 @@ pub(super) fn format_selections(cx: &mut Context) {
     let doc_id = doc.id();
     let doc_version = doc.version();
 
+    let callbacks = cx.editor.callback_sender().clone();
     tokio::spawn(async move {
         match future.await {
             Ok(Some(res)) => {
                 let transaction =
                     lsp_client::util::generate_transaction_from_edits(&text, res, offset_encoding);
-                job::dispatch(move |editor, _compositor| {
-                    let Some(doc) = editor.document_mut(doc_id) else {
-                        return;
-                    };
-                    // Updating a desynced document causes problems with applying the transaction
-                    if doc.version() != doc_version {
-                        return;
-                    }
-                    doc.apply(&transaction, view_id);
-                })
-                .await
+                callbacks
+                    .send(move |editor| {
+                        let Some(doc) = editor.document_mut(doc_id) else {
+                            return;
+                        };
+                        // Updating a desynced document causes problems with applying the transaction
+                        if doc.version() != doc_version {
+                            return;
+                        }
+                        doc.apply(&transaction, view_id);
+                    })
+                    .await
             }
             Err(err) => log::error!("format sections failed: {err}"),
             Ok(None) => (),

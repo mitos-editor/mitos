@@ -1,16 +1,16 @@
-use event::register_hook;
 use view::events::DocumentFocusLost;
 
-use crate::job::{self};
-use crate::ui;
+use crate::{job::JobSender, ui};
 
-pub(super) fn register_hooks() {
-    register_hook!(move |_event: &mut DocumentFocusLost<'_>| {
-        job::dispatch_blocking(move |_, compositor| {
-            if compositor.find::<ui::Prompt>().is_some() {
+/// Bind presentation cleanup to this application's editor and callback queue.
+pub(super) fn register_hook(editor: &view::Editor, jobs: JobSender) -> event::HookRegistration {
+    let callbacks = editor.callback_sender().clone();
+    event::register_owned_hook!(move |event: &mut DocumentFocusLost<'_>| {
+        if callbacks.same_destination(event.editor.callback_sender()) {
+            jobs.send_blocking(move |_, compositor| {
                 compositor.remove_type::<ui::Prompt>();
-            }
-        });
+            });
+        }
         Ok(())
-    });
+    })
 }

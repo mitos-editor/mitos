@@ -149,12 +149,14 @@ impl Fixture {
 
     async fn popup_selection(&mut self) -> anyhow::Result<Option<usize>> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        term::job::dispatch(move |_, compositor| {
-            let selection = SignatureHelp::visible_popup(compositor)
-                .map(|popup| popup.contents().active_signature());
-            let _ = tx.send(selection);
-        })
-        .await;
+        self.app
+            .job_sender()
+            .send(move |_, compositor| {
+                let selection = SignatureHelp::visible_popup(compositor)
+                    .map(|popup| popup.contents().active_signature());
+                let _ = tx.send(selection);
+            })
+            .await;
         self.app.editor.reset_idle_timer();
         tokio::time::timeout(
             Duration::from_secs(5),

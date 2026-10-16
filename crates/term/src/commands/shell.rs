@@ -9,7 +9,7 @@ use crate::{
 };
 use ::command_line::Args;
 use editor_core::{encoding, Range, Rope, Selection, SmallVec, Tendril, Transaction};
-use std::{borrow::Cow, process::Stdio};
+use std::{borrow::Cow, path::Path, process::Stdio};
 use stdx::rope::RopeSliceExt;
 use tokio::process::Command;
 
@@ -40,6 +40,7 @@ pub(super) fn shell_append_output(cx: &mut Context) {
 pub(super) fn shell_keep_pipe(cx: &mut Context) {
     shell_prompt(cx, "keep-pipe:".into(), |cx, args| {
         let shell = &cx.editor.config().shell;
+        let directory = stdx::env::current_working_dir();
         let (view, doc) = current!(cx.editor);
         let selection = doc.selection(view.id);
 
@@ -50,7 +51,12 @@ pub(super) fn shell_keep_pipe(cx: &mut Context) {
 
         for (i, range) in selection.ranges().iter().enumerate() {
             let fragment = range.slice(text);
-            match shell_impl(shell, args.join(" ").as_str(), Some(fragment.into())) {
+            match shell_impl(
+                shell,
+                args.join(" ").as_str(),
+                Some(fragment.into()),
+                &directory,
+            ) {
                 Err(err) => {
                     log::debug!("Shell command failed: {}", err);
                 }
@@ -73,19 +79,28 @@ pub(super) fn shell_keep_pipe(cx: &mut Context) {
     });
 }
 
-fn shell_impl(shell: &[String], cmd: &str, input: Option<Rope>) -> anyhow::Result<Tendril> {
-    tokio::task::block_in_place(|| lsp_client::block_on(shell_impl_async(shell, cmd, input)))
+fn shell_impl(
+    shell: &[String],
+    cmd: &str,
+    input: Option<Rope>,
+    directory: &Path,
+) -> anyhow::Result<Tendril> {
+    tokio::task::block_in_place(|| {
+        lsp_client::block_on(shell_impl_async(shell, cmd, input, directory))
+    })
 }
 
 pub(super) async fn shell_impl_async(
     shell: &[String],
     cmd: &str,
     input: Option<Rope>,
+    directory: &Path,
 ) -> anyhow::Result<Tendril> {
     anyhow::ensure!(!shell.is_empty(), "No shell set");
 
     let mut process = Command::new(&shell[0]);
     process
+        .current_dir(directory)
         .args(&shell[1..])
         .arg(cmd)
         .stdout(Stdio::piped())
@@ -150,6 +165,7 @@ pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: &ShellBeh
         ShellBehavior::Insert | ShellBehavior::Append => false,
     };
 
+    let directory = stdx::env::current_working_dir();
     let config = cx.editor.config();
     let shell = &config.shell;
     let (view, doc) = current!(cx.editor);
@@ -166,7 +182,7 @@ pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: &ShellBeh
             output.clone()
         } else {
             let input = range.slice(text);
-            match shell_impl(shell, cmd, pipe.then(|| input.into())) {
+            match shell_impl(shell, cmd, pipe.then(|| input.into()), &directory) {
                 Ok(mut output) => {
                     if !input.ends_with("\n") && output.ends_with('\n') {
                         output.pop();
@@ -337,9 +353,10 @@ pub(super) mod typed {
 
         let shell = cx.editor.config().shell.clone();
         let args = args.join(" ");
+        let directory = stdx::env::current_working_dir();
 
         let callback = async move {
-            let output = shell_impl_async(&shell, &args, None).await?;
+            let output = shell_impl_async(&shell, &args, None, &directory).await?;
             let call: job::Callback = Callback::EditorCompositor(Box::new(
                 move |editor: &mut Editor, compositor: &mut Compositor| {
                     if !output.trim().is_empty() {
@@ -362,6 +379,19 @@ pub(super) mod typed {
         };
         cx.jobs.callback(callback);
 
+        Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[tokio::test]
+    async fn shell_runs_in_the_directory_captured_by_its_caller() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        std::fs::write(directory.path().join("marker"), "requested directory")?;
+        let shell = vec!["sh".to_string(), "-c".to_string()];
+        let output = super::shell_impl_async(&shell, "cat marker", None, directory.path()).await?;
+        assert_eq!(output.as_str(), "requested directory");
         Ok(())
     }
 }

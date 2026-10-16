@@ -7,7 +7,6 @@ use crate::{
     ui::{self, overlay::overlaid},
 };
 use editor_core::{find_workspace, Range};
-use event::status;
 use std::{borrow::Cow, collections::HashSet, future::Future, io::Read, path::Path};
 use stdx::{
     path::{self, find_paths},
@@ -120,6 +119,7 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
 
     if !resolve_requests.is_empty() {
         let document_dir = document_dir.clone();
+        let jobs = cx.jobs.sender();
         cx.jobs.callback(async move {
             let mut targets = Vec::new();
             let mut seen = HashSet::new();
@@ -142,7 +142,14 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
             Ok(Callback::EditorCompositor(Box::new(
                 move |editor, compositor| {
                     for target in targets {
-                        open_url_in_callback(editor, compositor, target, action, &document_dir);
+                        open_url_in_callback(
+                            editor,
+                            compositor,
+                            target,
+                            action,
+                            &document_dir,
+                            &jobs,
+                        );
                     }
                 },
             )))
@@ -235,12 +242,19 @@ fn open_url_in_callback(
     url: Url,
     action: Action,
     rel_path: &Path,
+    jobs: &job::JobSender,
 ) {
     if should_open_url_externally(&url) {
+        let jobs = jobs.clone();
         tokio::spawn(async move {
             match crate::open_external_url_callback(url).await {
-                Ok(callback) => job::dispatch_callback(callback).await,
-                Err(err) => status::report(err).await,
+                Ok(callback) => jobs.send_callback(callback).await,
+                Err(err) => {
+                    jobs.send(move |editor, _| {
+                        editor.set_error(|| err.to_string());
+                    })
+                    .await
+                }
             }
         });
         return;

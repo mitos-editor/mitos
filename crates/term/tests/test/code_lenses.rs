@@ -464,7 +464,11 @@ async fn visible_titles_resolve_automatically_and_repeated_frames_reuse_attempts
     // A normal input frame schedules resolution through the application prelude.
     fixture.keys("l").await?;
     let title = fixture.response().await?;
-    term::job::dispatch_callback(term::job::Callback::Editor(title)).await;
+    fixture
+        .app
+        .job_sender()
+        .send_callback(term::job::Callback::Editor(title))
+        .await;
     fixture.keys("").await?;
     let doc = fixture.app.editor.document(fixture.doc).unwrap();
     assert_eq!(

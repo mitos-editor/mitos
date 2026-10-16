@@ -531,6 +531,27 @@ See the `AsyncHook` type for more information. Events can be created within the
 `events!` macro. Synchronous hooks can be created with `register_hook!`. And
 editor-wide events can be sent to hooks with `event::dispatch`.
 
+Built-in hooks live for the registry's lifetime. Use `register_owned_hook!` or
+`register_dynamic_hook` for subscriptions whose lifetime belongs to a component,
+application, or extension, and retain their `HookRegistration`. Dropping it
+unsubscribes the callback and releases its captures once any active dispatch
+finishes. Dispatch preserves registration order and runs callbacks without holding
+the registry lock. Hooks added during dispatch participate in subsequent dispatches;
+hooks removed before their turn are skipped. A callback already running may finish.
+
+Frontend work uses an explicit `term::job::JobSender` from its owning `Jobs` or
+`Application`, and shared editor work uses `view::callbacks::EditorCallbackSender`.
+Capture that destination when starting background work; creating another application
+never redirects an existing callback. Presentation hooks are owned by the
+application and filter events by their editor's callback destination.
+
+Working-directory state remains process-wide: `:cd` intentionally changes it,
+and relative-path helpers and file watching continue to use that context. Shell
+jobs capture their directory when submitted and pass it explicitly to the child
+process; formatters similarly use the document directory or a captured fallback.
+This avoids delayed work inheriting a later `:cd`; it does not provide independent
+working directories for multiple editors in one process.
+
 ## Testing the boundaries
 
 Headless tests in `crates/view/tests` exercise shared editor coordination with an

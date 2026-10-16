@@ -58,14 +58,15 @@ async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
 
 async fn selected_code_action(app: &mut Application) -> anyhow::Result<Option<String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    term::job::dispatch(move |_, compositor| {
-        let title = compositor
-            .find_id::<Popup<Menu<Action>>>("code-action")
-            .and_then(|popup| popup.contents().selection())
-            .map(|action| action.title().to_owned());
-        let _ = tx.send(title);
-    })
-    .await;
+    app.job_sender()
+        .send(move |_, compositor| {
+            let title = compositor
+                .find_id::<Popup<Menu<Action>>>("code-action")
+                .and_then(|popup| popup.contents().selection())
+                .map(|action| action.title().to_owned());
+            let _ = tx.send(title);
+        })
+        .await;
     app.editor.reset_idle_timer();
     run_event_loop_until_idle(app).await;
     Ok(rx.await?)

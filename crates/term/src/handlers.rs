@@ -16,5 +16,12 @@ pub fn register_hooks() {
     inline_completion::register_hooks();
     auto_save::register_hooks();
     diagnostics::register_hooks();
-    prompt::register_hooks();
+}
+
+/// Registrations whose callbacks belong to this application's frontend.
+pub(crate) fn bind_editor(
+    editor: &view::Editor,
+    jobs: crate::job::JobSender,
+) -> event::HookRegistration {
+    prompt::register_hook(editor, jobs)
 }

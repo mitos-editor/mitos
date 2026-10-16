@@ -632,7 +632,7 @@ pub(super) fn global_search(cx: &mut Context) {
         })
     })
     .with_history_register(Some(reg))
-    .with_dynamic_query(get_files, Some(275));
+    .with_dynamic_query(get_files, Some(275), cx.jobs);
 
     cx.push_layer(Box::new(overlaid(picker)));
 }

@@ -30,6 +30,7 @@ impl Drop for ImagePreviewTask {
 }
 
 pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+    jobs: job::JobSender,
     path: Arc<Path>,
     image_picker: ImagePicker,
     size: Size,
@@ -42,7 +43,7 @@ pub(super) fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + 
         tokio::time::sleep(IMAGE_PREVIEW_DELAY).await;
         let result = load_image(task_path, image_picker, size).await;
 
-        job::dispatch(move |_editor, compositor| {
+        jobs.send(move |_editor, compositor| {
             let Some(Overlay {
                 content: picker, ..
             }) = compositor.find::<Overlay<Picker<T, D>>>()
@@ -131,6 +132,7 @@ pub(super) struct DynamicQueryChange {
 
 pub(super) struct DynamicQueryHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
     callback: Arc<DynQueryCallback<T, D>>,
+    jobs: job::JobSender,
     // Duration used as a debounce.
     // Defaults to 100ms if not provided via `Picker::with_dynamic_query`. Callers may want to set
     // this higher if the dynamic query is expensive - for example global search.
@@ -140,9 +142,14 @@ pub(super) struct DynamicQueryHandler<T: 'static + Send + Sync, D: 'static + Sen
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> DynamicQueryHandler<T, D> {
-    pub(super) fn new(callback: DynQueryCallback<T, D>, duration_ms: Option<u64>) -> Self {
+    pub(super) fn new(
+        callback: DynQueryCallback<T, D>,
+        duration_ms: Option<u64>,
+        jobs: job::JobSender,
+    ) -> Self {
         Self {
             callback: Arc::new(callback),
+            jobs,
             debounce: Duration::from_millis(duration_ms.unwrap_or(100)),
             last_query: "".into(),
             query: None,
@@ -178,7 +185,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
         self.last_query = query.clone();
         let callback = self.callback.clone();
 
-        job::dispatch_blocking(move |editor, compositor| {
+        self.jobs.send_blocking(move |editor, compositor| {
             let Some(Overlay {
                 content: picker, ..
             }) = compositor.find::<Overlay<Picker<T, D>>>()
@@ -266,8 +273,8 @@ mod image_preview_tests {
         let path = dir.path().join("preview.png");
         image::DynamicImage::new_rgb8(2, 2).save(&path).unwrap();
         let mut jobs = job::Jobs::new();
-        jobs.set_current();
         let task = spawn_image_preview::<(), ()>(
+            jobs.sender(),
             path.into(),
             ImagePicker::halfblocks(),
             Size::new(20, 10),

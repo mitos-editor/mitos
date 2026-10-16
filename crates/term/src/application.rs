@@ -88,6 +88,7 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
+    _presentation_hooks: event::HookRegistration,
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
@@ -144,7 +145,6 @@ impl Application {
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
-        jobs.set_current();
         let mut handlers =
             view::handlers::Handlers::new(&config.load().editor, jobs.editor_callback_sender());
         setup(&mut handlers, &config.load().editor);
@@ -159,6 +159,7 @@ impl Application {
             handlers,
             workspace_trust,
         );
+        let presentation_hooks = handlers::bind_editor(&editor, jobs.sender());
         editor
             .registers
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
@@ -284,6 +285,7 @@ impl Application {
             config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
+            _presentation_hooks: presentation_hooks,
             lsp_progress: LspProgressMap::new(),
             theme_mode,
         };
@@ -295,6 +297,11 @@ impl Application {
     #[cfg(feature = "integration")]
     pub fn terminal_backend(&self) -> &TestBackend {
         self.terminal.backend()
+    }
+
+    /// Queue a completion for this application's editor and compositor.
+    pub fn job_sender(&self) -> crate::job::JobSender {
+        self.jobs.sender()
     }
 
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)

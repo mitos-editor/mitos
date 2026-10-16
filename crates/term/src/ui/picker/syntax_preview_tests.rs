@@ -116,7 +116,6 @@ async fn preview_highlights_after_50_ms_without_restarting_or_switching_queues(
     let path = fixture.preview("preview.json");
     tokio::task::yield_now().await;
     let mut other_jobs = Jobs::new();
-    other_jobs.set_current();
 
     tokio::time::advance(Duration::from_millis(49)).await;
     assert!(fixture.jobs.callbacks.try_recv().is_err());

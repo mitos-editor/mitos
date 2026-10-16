@@ -27,9 +27,9 @@
 //! This includes the ability to control rendering ([`lock_frame`], [`request_redraw`]) and
 //! display status messages ([`status`]).
 //!
-//! Hooks declared in term can furthermore dispatch synchronous jobs to be run on the
-//! main loop (including access to the compositor). Ideally that queue will be moved
-//! to view in the future if we manage to detach the compositor from its rendering backend.
+//! Hooks that need to update a frontend capture its explicit callback destination.
+//! Shared editor services use `view::callbacks::EditorCallbackSender`; terminal
+//! presentation uses `term::job::JobSender`, bound to the owning application.
 
 use anyhow::Result;
 pub use cancel::{cancelable_future, TaskController, TaskHandle};
@@ -38,7 +38,7 @@ pub use redraw::{
     lock_frame, redraw_callback, redraw_requested, request_redraw, start_frame, RenderLockGuard,
     RequestRedrawOnDrop,
 };
-pub use registry::Event;
+pub use registry::{Event, HookRegistration};
 
 mod cancel;
 mod debounce;
@@ -54,8 +54,8 @@ mod test;
 
 /// Registers an event type before hooks for that type are installed.
 ///
-/// Event and hook registration happens during application startup; dispatch is
-/// read-only and can then occur from editor operations.
+/// Built-in hooks are installed during startup. Owned subscriptions may also be
+/// registered and removed during event dispatch.
 pub fn register_event<E: Event + 'static>() {
     registry::with_mut(|registry| registry.register_event::<E>())
 }
@@ -75,15 +75,26 @@ pub fn register_event<E: Event + 'static>() {
 pub unsafe fn register_hook_raw<E: Event>(
     hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
 ) {
-    unsafe { registry::with_mut(|registry| registry.register_hook(hook)) }
+    unsafe { registry::register(hook) };
+}
+
+/// Registers an owned, statically typed hook. Prefer [`register_owned_hook!`].
+///
+/// # Safety
+/// The callback must obey the same lifetime requirements as [`register_hook_raw`].
+pub unsafe fn register_owned_hook_raw<E: Event>(
+    hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
+) -> HookRegistration {
+    unsafe { registry::register_owned(hook) }
 }
 
 /// Registers a callback for an event identified only by its dynamic name.
+/// Retain the returned registration for as long as the callback should run.
 pub fn register_dynamic_hook(
     hook: impl Fn() -> Result<()> + 'static + Send + Sync,
     id: &str,
-) -> Result<()> {
-    registry::with_mut(|reg| reg.register_dynamic_hook(hook, id))
+) -> Result<HookRegistration> {
+    registry::register_dynamic(hook, id)
 }
 
 /// Dispatches an event synchronously to every registered hook of its type.
@@ -91,7 +102,7 @@ pub fn register_dynamic_hook(
 /// Hook failures are handled by the registry and do not change the return type
 /// of the operation that emitted the event.
 pub fn dispatch(e: impl Event) {
-    registry::with(|registry| registry.dispatch(e));
+    registry::dispatch(e);
 }
 
 /// Macro to declare events
@@ -144,10 +155,13 @@ macro_rules! events {
 /// Safely register statically typed event hooks
 #[macro_export]
 macro_rules! register_hook {
+    (move |$($args:tt)*) => {
+        $crate::register_hook!(@register register_hook_raw move |$($args)*)
+    };
     // Safety: this is safe because we fully control the type of the event here and
     // ensure all lifetime arguments are fully generic and the correct number of lifetime arguments
     // is present
-    (move |$event:ident: &mut $event_ty: ident<$($lt: lifetime),*>| $body: expr) => {
+    (@register $register:ident move |$event:ident: &mut $event_ty: ident<$($lt: lifetime),*>| $body: expr) => {{
         let val = move |$event: &mut $event_ty<$($lt),*>| $body;
         unsafe {
             // Lifetimes are a bit of a pain. We want to allow events being
@@ -196,10 +210,10 @@ macro_rules! register_hook {
                     panic!("invalid type alias");
                 }
             };
-            $crate::register_hook_raw::<$crate::events!(@replace_lt $event_ty, $('static, $lt),*)>(val);
+            $crate::$register::<$crate::events!(@replace_lt $event_ty, $('static, $lt),*)>(val)
         }
-    };
-    (move |$event:ident: &mut $event_ty: ident| $body: expr) => {
+    }};
+    (@register $register:ident move |$event:ident: &mut $event_ty: ident| $body: expr) => {{
         let val = move |$event: &mut $event_ty| $body;
         unsafe {
             #[allow(unused)]
@@ -208,7 +222,15 @@ macro_rules! register_hook {
                     panic!("invalid type alias");
                 }
             };
-            $crate::register_hook_raw::<$event_ty>(val);
+            $crate::$register::<$event_ty>(val)
         }
+    }};
+}
+
+/// Register a typed hook owned by the returned [`HookRegistration`].
+#[macro_export]
+macro_rules! register_owned_hook {
+    (move |$($args:tt)*) => {
+        $crate::register_hook!(@register register_owned_hook_raw move |$($args)*)
     };
 }

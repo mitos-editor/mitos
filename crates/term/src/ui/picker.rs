@@ -390,6 +390,7 @@ impl FilePreview {
                 self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
+                        jobs.sender(),
                         path.clone(),
                         image_picker.unwrap().clone(),
                         image_size,
@@ -950,8 +951,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         mut self,
         callback: DynQueryCallback<T, D>,
         debounce_ms: Option<u64>,
+        jobs: &crate::job::Jobs,
     ) -> Self {
-        let handler = DynamicQueryHandler::new(callback, debounce_ms).spawn();
+        let handler = DynamicQueryHandler::new(callback, debounce_ms, jobs.sender()).spawn();
         let event = DynamicQueryChange {
             query: self.primary_query(),
             // Treat the initial query as a paste.
