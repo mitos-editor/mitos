@@ -8,15 +8,12 @@ use lsp_client::{lsp, OffsetEncoding};
 
 use super::state::{CacheKey, DocumentInlayHints, DocumentInlayHintsId};
 use crate::{
-    callbacks::EditorCallbackSender, features::request::DocumentRequest, Document, DocumentId,
-    Editor, View, ViewId,
+    callbacks::EditorCallbackSender, features::request::ViewRequest, Document, Editor, View,
 };
 
 struct Request {
     owner: Weak<EditorCallbackSender>,
-    document: DocumentRequest,
-    doc: DocumentId,
-    view: ViewId,
+    target: ViewRequest,
     key: CacheKey,
 }
 
@@ -38,16 +35,12 @@ impl Request {
             .ptr_eq(&Arc::downgrade(&editor.handlers.inlay_hints.callbacks))
             && editor.config().lsp.enable
             && editor.config().lsp.inlay_hints.enable
-            && self.document.is_current(editor)
-            && editor.tree.try_get(self.view).is_some_and(|view| {
-                view.doc == self.doc
-                    && editor.document(self.doc).is_some_and(|doc| {
-                        viewport(view, doc) == self.key.viewport
-                            && doc
-                                .language_servers_with_feature(LanguageServerFeature::InlayHints)
-                                .next()
-                                .is_some_and(|server| server.id() == self.key.server)
-                    })
+            && self.target.get(editor).is_some_and(|(view, doc)| {
+                viewport(view, doc) == self.key.viewport
+                    && doc
+                        .language_servers_with_feature(LanguageServerFeature::InlayHints)
+                        .next()
+                        .is_some_and(|server| server.id() == self.key.server)
             })
     }
 }
@@ -102,14 +95,13 @@ pub fn refresh(editor: &mut Editor) {
         let cancel = doc.inlay_hints.start(view_id, key.clone());
         let request = Request {
             owner: Arc::downgrade(&callbacks),
-            document: DocumentRequest::new(doc, cancel, vec![key.server]),
-            doc: doc_id,
-            view: view_id,
+            target: ViewRequest::new(doc, view_id, cancel, vec![key.server]),
             key,
         };
         let callbacks = callbacks.clone();
         tokio::spawn(async move {
-            let Some(result) = cancelable_future(future, &request.document.cancel).await else {
+            let Some(result) = cancelable_future(future, request.target.cancel_handle()).await
+            else {
                 return;
             };
             callbacks
@@ -117,7 +109,8 @@ pub fn refresh(editor: &mut Editor) {
                     if !request.is_current(editor) {
                         return;
                     }
-                    let doc = editor.documents.get_mut(&doc_id).unwrap();
+                    let view_id = request.target.view_id();
+                    let doc = editor.document_mut(request.target.document_id()).unwrap();
                     match result {
                         Ok(hints) => {
                             let hints = annotations(

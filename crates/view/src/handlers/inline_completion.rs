@@ -9,7 +9,7 @@ use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskCont
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, OffsetEncoding};
 use tokio::{sync::mpsc::Sender, time::Instant};
 
-use super::lsp::DocumentRequest;
+use crate::features::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     document::{InlineCompletion, Mode},
@@ -186,8 +186,10 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
     };
     let doc_id = doc.id();
     let view_id = view.id;
-    let selection = doc.selection(view_id).clone();
-    let cursor = selection.primary().cursor(doc.text().slice(..));
+    let cursor = doc
+        .selection(view_id)
+        .primary()
+        .cursor(doc.text().slice(..));
     let encoding = server.offset_encoding();
     let server_id = server.id();
     let Some(future) =
@@ -197,27 +199,23 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
     };
     doc.inline_completions.view = Some(view_id);
     let cancel = doc.inline_completions.controller.restart();
-    let request = DocumentRequest::new(doc, cancel.clone(), vec![server_id]);
+    let request = SelectionRequest::new(doc, view_id, cancel, vec![server_id]);
     let session_cancel = trigger.start(doc_id, view_id, cursor);
     tokio::spawn(async move {
-        let Some(Some(result)) =
-            cancelable_future(cancelable_future(future, &cancel), &session_cancel).await
+        let Some(Some(result)) = cancelable_future(
+            cancelable_future(future, request.cancel_handle()),
+            &session_cancel,
+        )
+        .await
         else {
             return;
         };
         callbacks
             .send(move |editor| {
                 if session_cancel.is_canceled()
-                    || !request.is_current(editor)
                     || editor.mode() != Mode::Insert
-                    || editor.tree.focus != view_id
-                    || !editor
-                        .tree
-                        .try_get(view_id)
-                        .is_some_and(|view| view.doc == doc_id)
-                    || !editor
-                        .document(doc_id)
-                        .is_some_and(|doc| doc.selection(view_id) == &selection)
+                    || editor.tree.focus != request.view_id()
+                    || request.get(editor).is_none()
                 {
                     return;
                 }
@@ -230,7 +228,8 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
                         return;
                     }
                 };
-                let doc = editor.document_mut(doc_id).unwrap();
+                let view_id = request.view_id();
+                let doc = editor.document_mut(request.document_id()).unwrap();
                 let items = items
                     .into_iter()
                     .filter_map(|item| prepare(doc.text(), cursor, encoding, server_id, item))

@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use editor_core::{syntax::config::LanguageServerFeature, Selection};
+use editor_core::syntax::config::LanguageServerFeature;
 use event::{
     cancelable_future, register_hook, send_blocking, AsyncHook, TaskController, TaskHandle,
 };
@@ -13,7 +13,7 @@ use lsp_client::{lsp, LanguageServerId};
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, time::Instant};
 
-use super::lsp::DocumentRequest;
+use crate::features::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     document::Mode,
@@ -124,9 +124,9 @@ fn schedule(
     view: ViewId,
     invoked: SignatureHelpInvoked,
 ) {
-    let Some(selection) = doc.selections().get(&view) else {
+    if !doc.selections().contains_key(&view) {
         return;
-    };
+    }
     let server = doc
         .language_servers_with_feature(LanguageServerFeature::SignatureHelp)
         .next()
@@ -138,10 +138,7 @@ fn schedule(
     session.pending = None;
     let request = Request {
         owner: Arc::downgrade(shared),
-        document: DocumentRequest::new(doc, cancel, server.into_iter().collect()),
-        doc: doc.id(),
-        view,
-        selection: selection.clone(),
+        target: SelectionRequest::new(doc, view, cancel, server.into_iter().collect()),
         invoked,
         server,
     };
@@ -177,10 +174,7 @@ impl SignatureHelpTrigger {
 
 struct Request {
     owner: Weak<Shared>,
-    document: DocumentRequest,
-    doc: DocumentId,
-    view: ViewId,
-    selection: Selection,
+    target: SelectionRequest,
     invoked: SignatureHelpInvoked,
     server: Option<LanguageServerId>,
 }
@@ -189,17 +183,11 @@ impl Request {
     fn is_current(&self, editor: &Editor) -> bool {
         self.owner
             .ptr_eq(&Arc::downgrade(&editor.handlers.signature_hints.shared))
-            && self.document.is_current(editor)
             && (self.invoked == SignatureHelpInvoked::Manual
                 || (editor.config().lsp.signature_help.auto_trigger
                     && editor.mode() == Mode::Insert))
-            && editor.tree.focus == self.view
-            && editor
-                .tree
-                .try_get(self.view)
-                .is_some_and(|view| view.doc == self.doc)
-            && editor.document(self.doc).is_some_and(|doc| {
-                doc.selections().get(&self.view) == Some(&self.selection)
+            && self.target.get(editor).is_some_and(|(view, doc)| {
+                editor.tree.focus == view.id
                     && doc
                         .language_servers_with_feature(LanguageServerFeature::SignatureHelp)
                         .next()
@@ -212,14 +200,14 @@ impl Request {
         if !self.is_current(editor) {
             return;
         }
-        let doc = editor.document(self.doc).unwrap();
+        let (view, doc) = self.target.get(editor).unwrap();
         let future = self
             .server
             .and_then(|id| editor.language_server_by_id(id))
             .and_then(|server| {
                 server.text_document_signature_help(
                     doc.identifier(),
-                    doc.position(self.view, server.offset_encoding()),
+                    doc.position(view.id, server.offset_encoding()),
                     None,
                 )
             });
@@ -231,7 +219,7 @@ impl Request {
             return;
         };
         tokio::spawn(async move {
-            let Some(result) = cancelable_future(future, &self.document.cancel).await else {
+            let Some(result) = cancelable_future(future, self.target.cancel_handle()).await else {
                 return;
             };
             let Some(shared) = self.owner.upgrade() else {
@@ -259,7 +247,7 @@ impl Request {
         let response = response.filter(|response| !response.signatures.is_empty());
         let update = SignatureHelpUpdate {
             owner: self.owner.clone(),
-            cancel: self.document.cancel.clone(),
+            cancel: self.target.cancel_handle().clone(),
             result: response.map(|response| (self, response)),
         };
         let mut session = editor
@@ -299,7 +287,7 @@ impl AsyncHook for Debounce {
         let Some(request) = self.request.take() else {
             return;
         };
-        if request.document.cancel.is_canceled() {
+        if request.target.cancel_handle().is_canceled() {
             return;
         }
         if let Some(shared) = request.owner.upgrade() {

@@ -5,13 +5,13 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use editor_core::{syntax::config::LanguageServerFeature, Selection};
+use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::lsp;
 use parking_lot::Mutex;
 
-use super::request::DocumentRequest;
+use super::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
@@ -67,10 +67,7 @@ impl HoverHandler {
 
 struct Request {
     owner: Weak<Shared>,
-    document: DocumentRequest,
-    doc: DocumentId,
-    view: ViewId,
-    selection: Selection,
+    target: SelectionRequest,
 }
 
 impl Request {
@@ -78,15 +75,10 @@ impl Request {
         self.owner
             .ptr_eq(&Arc::downgrade(&editor.handlers.hover.shared))
             && editor.config().lsp.enable
-            && self.document.is_current(editor)
-            && editor.tree.focus == self.view
-            && editor
-                .tree
-                .try_get(self.view)
-                .is_some_and(|view| view.doc == self.doc)
-            && editor
-                .document(self.doc)
-                .is_some_and(|doc| doc.selections().get(&self.view) == Some(&self.selection))
+            && self
+                .target
+                .get(editor)
+                .is_some_and(|(view, _)| editor.tree.focus == view.id)
     }
 }
 
@@ -132,16 +124,13 @@ pub fn request(editor: &mut Editor) {
     shared.session.lock().target = Some((doc.id(), view.id));
     let request = Request {
         owner: Arc::downgrade(&shared),
-        document: DocumentRequest::new(doc, cancel, servers.into_iter().collect()),
-        doc: doc.id(),
-        view: view.id,
-        selection: doc.selection(view.id).clone(),
+        target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
     };
     let callbacks = shared.callbacks.clone();
     tokio::spawn(async move {
         let mut hovers = Vec::new();
         loop {
-            match cancelable_future(futures.next(), &request.document.cancel).await {
+            match cancelable_future(futures.next(), request.target.cancel_handle()).await {
                 Some(Some((name, Ok(Some(hover))))) => hovers.push((name, hover)),
                 Some(Some((_, Err(err)))) => log::error!("hover request failed: {err}"),
                 Some(Some((_, Ok(None)))) => (),

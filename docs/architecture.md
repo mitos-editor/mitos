@@ -207,6 +207,13 @@ Highlights also validate the view's document and selection. Cached data and
 request controllers follow the document lifetime; rendering and interactive
 commands remain in the frontend.
 
+`features::request` defines document, view-bound, and selection-bound snapshots.
+View and selection snapshots return validated references for feature policy checks;
+they also provide the target IDs and cancellation handle used by publication.
+Focus, mode, provider choice, handler ownership, and viewport coverage stay in the
+feature. Ordinary completion retains its savepoint-based session, which remains
+valid across typing and temporary previews.
+
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
 have state modules under `view/src/document/`. Each groups its cache, request
 controllers, and attached scheduling handle. Pull diagnostics keeps its handle

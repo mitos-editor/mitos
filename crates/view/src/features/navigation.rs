@@ -13,7 +13,7 @@ use futures_util::{
 use lsp_client::{lsp, Client, OffsetEncoding};
 use parking_lot::Mutex;
 
-use super::request::DocumentRequest;
+use super::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
     document::Mode,
@@ -194,10 +194,7 @@ impl NavigationHandler {
 
 struct Request {
     owner: Weak<Shared>,
-    document: DocumentRequest,
-    doc: DocumentId,
-    view: ViewId,
-    selection: Selection,
+    target: SelectionRequest,
     kind: NavigationKind,
     mode: Mode,
 }
@@ -208,15 +205,10 @@ impl Request {
             .ptr_eq(&Arc::downgrade(&editor.handlers.navigation.shared))
             && editor.mode() == self.mode
             && editor.config().lsp.enable
-            && self.document.is_current(editor)
-            && editor.tree.focus == self.view
-            && editor
-                .tree
-                .try_get(self.view)
-                .is_some_and(|view| view.doc == self.doc)
-            && editor
-                .document(self.doc)
-                .is_some_and(|doc| doc.selections().get(&self.view) == Some(&self.selection))
+            && self
+                .target
+                .get(editor)
+                .is_some_and(|(view, _)| editor.tree.focus == view.id)
     }
 }
 
@@ -283,10 +275,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
     shared.session.lock().target = Some((doc.id(), view.id));
     let request = Request {
         owner: Arc::downgrade(&shared),
-        document: DocumentRequest::new(doc, cancel, servers.into_iter().collect()),
-        doc: doc.id(),
-        view: view.id,
-        selection: doc.selection(view.id).clone(),
+        target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
         kind,
         mode,
     };
@@ -295,7 +284,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         let mut locations = Vec::new();
         let mut highlights = None;
         loop {
-            match cancelable_future(futures.next(), &request.document.cancel).await {
+            match cancelable_future(futures.next(), request.target.cancel_handle()).await {
                 Some(Some((encoding, Ok(Response::Locations(response))))) => locations.extend(
                     response
                         .into_iter()
@@ -334,8 +323,11 @@ fn select_highlights(
     encoding: OffsetEncoding,
     highlights: Vec<lsp::DocumentHighlight>,
 ) {
-    let doc = editor.document_mut(request.doc).unwrap();
-    let cursor = request.selection.primary().cursor(doc.text().slice(..));
+    let doc = editor.document_mut(request.target.document_id()).unwrap();
+    let cursor = doc
+        .selection(request.target.view_id())
+        .primary()
+        .cursor(doc.text().slice(..));
     let ranges: Vec<_> = highlights
         .into_iter()
         .filter_map(|highlight| {
@@ -349,7 +341,10 @@ fn select_highlights(
         .iter()
         .rposition(|range| range.contains(cursor))
         .unwrap_or(0);
-    doc.set_selection(request.view, Selection::new(ranges.into(), primary));
+    doc.set_selection(
+        request.target.view_id(),
+        Selection::new(ranges.into(), primary),
+    );
 }
 
 /// Resolve at presentation time so queued results cannot navigate a newer editor state.

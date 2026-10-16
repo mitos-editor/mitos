@@ -359,3 +359,30 @@ async fn language_reload_rejects_hover_awaiting_presentation() -> anyhow::Result
     assert!(update.resolve(&f.app.editor).is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_hints_publish_for_unfocused_views_after_selection_changes() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path()).await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    let background = view.id;
+    let document = doc.id();
+    f.app.editor.switch(document, Action::HorizontalSplit);
+    let focused = f.app.editor.tree.focus;
+    assert_ne!(focused, background);
+    inlay_hints::refresh(&mut f.app.editor);
+    let first = f.response().await?;
+    let second = f.response().await?;
+    f.app
+        .editor
+        .document_mut(document)
+        .unwrap()
+        .set_selection(background, Selection::point(4));
+    first(&mut f.app.editor);
+    second(&mut f.app.editor);
+    assert_eq!(f.app.editor.tree.focus, focused);
+    let doc = f.app.editor.document(document).unwrap();
+    assert!(doc.inlay_hints(background).is_some());
+    assert!(doc.inlay_hints(focused).is_some());
+    Ok(())
+}
