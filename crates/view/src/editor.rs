@@ -161,6 +161,7 @@ pub enum EditorEvent {
     WorkspaceTrust(crate::handlers::workspace_trust::TrustRequest),
     SignatureHelp(crate::handlers::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
+    Navigation(crate::features::navigation::NavigationUpdate),
     Completion(crate::handlers::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
     DebuggerEvent((DebugAdapterId, dap::Payload)),
@@ -1358,6 +1359,9 @@ impl Editor {
         if let Some(update) = crate::handlers::completion::next_update(self) {
             return EditorEvent::Completion(update);
         }
+        if let Some(update) = crate::features::navigation::next_update(self) {
+            return EditorEvent::Navigation(update);
+        }
         if let Some(update) = crate::features::hover::next_update(self) {
             return EditorEvent::Hover(update);
         }
@@ -1443,6 +1447,7 @@ impl Editor {
         let old_mode = self.mode;
         self.mode = Mode::Normal;
         crate::handlers::inline_completion::mode_changed(self, old_mode);
+        crate::features::navigation::mode_changed(self, old_mode);
         let (view, doc) = current!(self);
 
         try_restore_indent(doc, view);

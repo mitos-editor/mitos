@@ -702,6 +702,10 @@ impl Application {
                 );
                 self.render().await;
             }
+            EditorEvent::Navigation(update) => {
+                crate::handlers::navigation::show(&mut self.editor, &mut self.compositor, update);
+                self.render().await;
+            }
             EditorEvent::Hover(update) => {
                 crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
                 self.render().await;

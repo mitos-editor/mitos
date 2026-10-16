@@ -2,6 +2,7 @@ use completion::{CompletionEvent, CompletionHandler};
 use event::register_hook;
 use spelling::SpellingHandler;
 
+use crate::features::navigation;
 use crate::handlers::signature_help::SignatureHelpInvoked;
 use crate::{callbacks::EditorCallbackSender, config::Config, events::ConfigDidChange};
 use crate::{DocumentId, Editor, ViewId};
@@ -43,6 +44,7 @@ pub struct Handlers {
     pub completions: CompletionHandler,
     pub inline_completions: inline_completion::InlineCompletionHandler,
     pub hover: hover::HoverHandler,
+    pub navigation: navigation::NavigationHandler,
     pub inlay_hints: inlay_hints::InlayHintsHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
@@ -75,6 +77,7 @@ impl Handlers {
             completions: CompletionHandler::new(callbacks.clone(), config),
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             hover: hover::HoverHandler::new(callbacks.clone()),
+            navigation: navigation::NavigationHandler::new(callbacks.clone()),
             inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
@@ -202,6 +205,7 @@ fn register_hooks() {
         blame::register_hooks();
         signature_help::register_hooks();
         hover::register_hooks();
+        navigation::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
         word_index::register_hooks();

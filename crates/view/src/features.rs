@@ -5,4 +5,5 @@
 
 pub mod hover;
 pub mod inlay_hints;
+pub mod navigation;
 pub(crate) mod request;

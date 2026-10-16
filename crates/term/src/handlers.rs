@@ -6,6 +6,7 @@ pub mod completion;
 mod diagnostics;
 pub(crate) mod hover;
 mod inline_completion;
+pub(crate) mod navigation;
 mod prompt;
 pub(crate) mod signature_help;
 pub(crate) mod workspace_trust;
@@ -15,6 +16,7 @@ pub fn register_hooks() {
     completion::register_hooks();
     signature_help::register_hooks();
     inline_completion::register_hooks();
+    navigation::register_hooks();
     auto_save::register_hooks();
     diagnostics::register_hooks();
     prompt::register_hooks();

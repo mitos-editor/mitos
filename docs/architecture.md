@@ -324,6 +324,14 @@ edits, selection changes, focus loss, language/path changes, and view removal in
 pending work. Publication and frontend delivery both validate the snapshot.
 `term` triggers hover and builds its popup from a resolved update.
 
+`view::features::navigation` owns manual declaration, definition, type,
+implementation, and reference requests. It aggregates supported servers and
+retains each location's offset encoding. Document-owned cancellation and snapshot
+checks cover edits, selection, focus, mode, language, URI, and server attachment.
+Typed `EditorEvent::Navigation` updates validate again before the frontend opens
+a picker or jumps. Selecting references applies first-server document highlights
+in the shared editor, preserving the primary reference and shared LSP position conversion.
+
 `view::features::inlay_hints` owns viewport selection, request deduplication,
 position conversion, and annotation publication. Per-view cache keys include the
 document version, URI, server instance, and buffered viewport. Pending requests

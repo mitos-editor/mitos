@@ -33,6 +33,7 @@ fn main() -> anyhow::Result<()> {
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
     let mut held_lenses = Vec::<Value>::new();
+    let navigation = args.first().is_some_and(|arg| arg == "--navigation");
     let language_features = args.first().is_some_and(|arg| arg == "--language-features");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
@@ -43,6 +44,7 @@ fn main() -> anyhow::Result<()> {
         || lifecycle
         || signature_help
         || language_features
+        || navigation
         || completion
         || inline_completion
         || action_execution
@@ -81,7 +83,7 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if action_execution || code_lenses || language_features {
+        if action_execution || code_lenses || language_features || navigation {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
             request_log.as_mut().unwrap().flush()?;
         }
@@ -216,6 +218,60 @@ fn main() -> anyhow::Result<()> {
                 items
             } else {
                 json!({"items": items})
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if navigation
+            && matches!(
+                method,
+                "textDocument/definition"
+                    | "textDocument/declaration"
+                    | "textDocument/typeDefinition"
+                    | "textDocument/implementation"
+                    | "textDocument/references"
+                    | "textDocument/documentHighlight"
+            )
+        {
+            if args.iter().any(|arg| arg == "--hold-navigation") {
+                continue;
+            }
+            if args.iter().any(|arg| arg == "--navigation-error") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "navigation fixture error"}}),
+                )?;
+                continue;
+            }
+            let start = if args.iter().any(|arg| arg == "--utf-8") {
+                5
+            } else {
+                3
+            };
+            let location = json!({"uri": uri, "range": range(start, start + 3)});
+            let result = if text.contains("empty") {
+                Value::Null
+            } else {
+                match method {
+                    "textDocument/definition" => location,
+                    "textDocument/declaration" | "textDocument/references" => json!([location]),
+                    "textDocument/implementation" => {
+                        json!([{"uri": "https://example.com/unsupported", "range": range(0, 1)}, location])
+                    }
+                    "textDocument/typeDefinition" => {
+                        json!([{"targetUri": uri, "targetRange": range(start, start + 3), "targetSelectionRange": range(start + 1, start + 2)}])
+                    }
+                    "textDocument/documentHighlight" if text.contains("invalid") => {
+                        json!([{"range": {"start": {"line": 999, "character": 0}, "end": {"line": 999, "character": 1}}}])
+                    }
+                    "textDocument/documentHighlight" => {
+                        json!([{"range": range(start, start + 3)}, {"range": range(start + 4, start + 7)}])
+                    }
+                    _ => unreachable!(),
+                }
             };
             respond(
                 &mut output,
@@ -402,6 +458,12 @@ fn main() -> anyhow::Result<()> {
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}
+            }}),
+            "initialize" if navigation => json!({"capabilities": {
+                "textDocumentSync": 1,
+                "positionEncoding": if args.iter().any(|arg| arg == "--utf-8") { "utf-8" } else { "utf-16" },
+                "definitionProvider": true, "declarationProvider": true, "typeDefinitionProvider": true,
+                "implementationProvider": true, "referencesProvider": true, "documentHighlightProvider": true
             }}),
             "initialize" if language_features => json!({"capabilities": {
                 "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true, "inlayHintProvider": true

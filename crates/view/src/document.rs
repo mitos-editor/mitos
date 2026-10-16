@@ -71,7 +71,7 @@ use crate::{
     config::Config,
     events::{DocumentDidChange, SelectionDidChange},
     expansion,
-    features::{hover::HoverState, inlay_hints::InlayHintsState},
+    features::{hover::HoverState, inlay_hints::InlayHintsState, navigation::NavigationState},
     view::ViewPosition,
     DocumentId, Editor, Theme, View, ViewId,
 };
@@ -195,6 +195,7 @@ pub struct Document {
     // Each feature owns its cache, scheduling handle, and request controllers.
     // Dropping the document drops those controllers and cancels in-flight work.
     pub(crate) hover: HoverState,
+    pub(crate) navigation: NavigationState,
     pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: inline_completion::InlineCompletions,
     pub(crate) document_colors: colors::DocumentColors,
@@ -708,6 +709,7 @@ impl Document {
             selections: HashMap::default(),
             inlay_hints: Default::default(),
             hover: Default::default(),
+            navigation: Default::default(),
             inline_completions: Default::default(),
             view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
@@ -1192,6 +1194,7 @@ impl Document {
     /// Detect the language and initialize syntax without delaying file loading.
     pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
         self.hover.clear();
+        self.navigation.clear();
         self.reset_all_inlay_hints();
         self.language = self.detect_language_config(loader);
         self.initialize_syntax(loader.clone());
@@ -1347,6 +1350,7 @@ impl Document {
         self.detect_readonly();
         if binary {
             self.hover.clear();
+            self.navigation.clear();
             self.reset_all_inlay_hints();
             self.language = None;
             self.syntax = None;
@@ -1386,6 +1390,7 @@ impl Document {
     pub fn set_path(&mut self, path: Option<&Path>) {
         self.invalidate_blame();
         self.hover.clear();
+        self.navigation.clear();
         self.reset_all_inlay_hints();
         let path = path.map(stdx::path::canonicalize);
 
@@ -1413,6 +1418,7 @@ impl Document {
     ) {
         self.pending_syntax = None;
         self.hover.clear();
+        self.navigation.clear();
         self.reset_all_inlay_hints();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
@@ -1501,6 +1507,7 @@ impl Document {
         self.view_data.remove(&view_id);
         self.inlay_hints.remove_view(view_id);
         self.hover.remove_view(view_id);
+        self.navigation.remove_view(view_id);
         self.jump_labels.remove(&view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
@@ -1600,6 +1607,7 @@ impl Document {
 
         self.inlay_hints.apply_changes(changes);
         self.hover.clear();
+        self.navigation.clear();
 
         self.document_highlights
             .apply_changes(changes, self.text.len_chars());
@@ -1950,6 +1958,7 @@ impl Document {
         let server = self.language_servers.remove(name);
         if server.is_some() {
             self.hover.clear();
+            self.navigation.clear();
             self.reset_all_inlay_hints();
         }
         server

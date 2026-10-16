@@ -10,7 +10,7 @@ use lsp_client::{
     block_on,
     lsp::{self, CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
     util::lsp_range_to_range,
-    Client, LanguageServerId, OffsetEncoding,
+    LanguageServerId, OffsetEncoding,
 };
 use std::{
     collections::{HashSet, VecDeque},
@@ -27,6 +27,7 @@ use view::{
     action::{code_actions_for_range, Action as CodeActionItem, LspActionContext},
     align_view,
     editor::Action,
+    features::navigation::{self, Location, NavigationKind},
     handlers::code_lenses::{self, CodeLensCommand},
     handlers::signature_help::SignatureHelpInvoked,
     icons::ICONS,
@@ -117,33 +118,6 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
             },
         )))
     });
-}
-
-/// A wrapper around `lsp::Location` that swaps out the LSP URI for `editor_core::Uri` and adds
-/// the server's  offset encoding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Location {
-    uri: Uri,
-    range: lsp::Range,
-    offset_encoding: OffsetEncoding,
-}
-
-fn lsp_location_to_location(
-    location: lsp::Location,
-    offset_encoding: OffsetEncoding,
-) -> Option<Location> {
-    let uri = match location.uri.try_into() {
-        Ok(uri) => uri,
-        Err(err) => {
-            log::warn!("discarding invalid or unsupported URI: {err}");
-            return None;
-        }
-    };
-    Some(Location {
-        uri,
-        range: location.range,
-        offset_encoding,
-    })
 }
 
 struct SymbolInformationItem {
@@ -963,7 +937,11 @@ fn resolve_and_apply_code_actions_of_kind(
 }
 
 /// Precondition: `locations` should be non-empty.
-fn goto_impl(editor: &mut Editor, compositor: &mut Compositor, locations: Vec<Location>) {
+pub(crate) fn goto_impl(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    locations: Vec<Location>,
+) {
     let cwdir = stdx::env::current_working_dir();
 
     match locations.as_slice() {
@@ -994,147 +972,24 @@ fn goto_impl(editor: &mut Editor, compositor: &mut Compositor, locations: Vec<Lo
     }
 }
 
-fn goto_single_impl<P, F>(cx: &mut Context, feature: LanguageServerFeature, request_provider: P)
-where
-    P: Fn(&Client, lsp::Position, lsp::TextDocumentIdentifier) -> Option<F>,
-    F: Future<Output = lsp_client::Result<Option<lsp::GotoDefinitionResponse>>> + 'static + Send,
-{
-    let (view, doc) = current_ref!(cx.editor);
-    let mut futures: FuturesUnordered<_> = doc
-        .language_servers_with_feature(feature)
-        .map(|language_server| {
-            let offset_encoding = language_server.offset_encoding();
-            let pos = doc.position(view.id, offset_encoding);
-            let future = request_provider(language_server, pos, doc.identifier()).unwrap();
-            async move { anyhow::Ok((future.await?, offset_encoding)) }
-        })
-        .collect();
-
-    cx.jobs.callback(async move {
-        let mut locations = Vec::new();
-        while let Some(response) = futures.next().await {
-            match response {
-                Ok((response, offset_encoding)) => match response {
-                    Some(lsp::GotoDefinitionResponse::Scalar(lsp_location)) => {
-                        locations.extend(lsp_location_to_location(lsp_location, offset_encoding));
-                    }
-                    Some(lsp::GotoDefinitionResponse::Array(lsp_locations)) => {
-                        locations.extend(lsp_locations.into_iter().flat_map(|location| {
-                            lsp_location_to_location(location, offset_encoding)
-                        }));
-                    }
-                    Some(lsp::GotoDefinitionResponse::Link(lsp_locations)) => {
-                        locations.extend(
-                            lsp_locations
-                                .into_iter()
-                                .map(|location_link| {
-                                    lsp::Location::new(
-                                        location_link.target_uri,
-                                        location_link.target_range,
-                                    )
-                                })
-                                .flat_map(|location| {
-                                    lsp_location_to_location(location, offset_encoding)
-                                }),
-                        );
-                    }
-                    None => (),
-                },
-                Err(err) => log::error!("Error requesting locations: {err}"),
-            }
-        }
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            if locations.is_empty() {
-                editor.set_error(|| match feature {
-                    LanguageServerFeature::GotoDeclaration => "No declaration found.",
-                    LanguageServerFeature::GotoDefinition => "No definition found.",
-                    LanguageServerFeature::GotoTypeDefinition => "No type definition found.",
-                    LanguageServerFeature::GotoImplementation => "No implementation found.",
-                    _ => "No location found.",
-                });
-            } else {
-                goto_impl(editor, compositor, locations);
-            }
-        };
-        Ok(Callback::EditorCompositor(Box::new(call)))
-    });
-}
-
 pub fn goto_declaration(cx: &mut Context) {
-    goto_single_impl(
-        cx,
-        LanguageServerFeature::GotoDeclaration,
-        |ls, pos, doc_id| ls.goto_declaration(doc_id, pos, None),
-    );
+    navigation::request(cx.editor, NavigationKind::Declaration);
 }
 
 pub fn goto_definition(cx: &mut Context) {
-    goto_single_impl(
-        cx,
-        LanguageServerFeature::GotoDefinition,
-        |ls, pos, doc_id| ls.goto_definition(doc_id, pos, None),
-    );
+    navigation::request(cx.editor, NavigationKind::Definition);
 }
 
 pub fn goto_type_definition(cx: &mut Context) {
-    goto_single_impl(
-        cx,
-        LanguageServerFeature::GotoTypeDefinition,
-        |ls, pos, doc_id| ls.goto_type_definition(doc_id, pos, None),
-    );
+    navigation::request(cx.editor, NavigationKind::TypeDefinition);
 }
 
 pub fn goto_implementation(cx: &mut Context) {
-    goto_single_impl(
-        cx,
-        LanguageServerFeature::GotoImplementation,
-        |ls, pos, doc_id| ls.goto_implementation(doc_id, pos, None),
-    );
+    navigation::request(cx.editor, NavigationKind::Implementation);
 }
 
 pub fn goto_reference(cx: &mut Context) {
-    let config = cx.editor.config();
-    let (view, doc) = current_ref!(cx.editor);
-
-    let mut futures: FuturesUnordered<_> = doc
-        .language_servers_with_feature(LanguageServerFeature::GotoReference)
-        .map(|language_server| {
-            let offset_encoding = language_server.offset_encoding();
-            let pos = doc.position(view.id, offset_encoding);
-            let future = language_server
-                .goto_reference(
-                    doc.identifier(),
-                    pos,
-                    config.lsp.references.include_declaration,
-                    None,
-                )
-                .unwrap();
-            async move { anyhow::Ok((future.await?, offset_encoding)) }
-        })
-        .collect();
-
-    cx.jobs.callback(async move {
-        let mut locations = Vec::new();
-        while let Some(response) = futures.next().await {
-            match response {
-                Ok((lsp_locations, offset_encoding)) => locations.extend(
-                    lsp_locations
-                        .into_iter()
-                        .flatten()
-                        .flat_map(|location| lsp_location_to_location(location, offset_encoding)),
-                ),
-                Err(err) => log::error!("Error requesting references: {err}"),
-            }
-        }
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            if locations.is_empty() {
-                editor.set_error(|| "No references found.");
-            } else {
-                goto_impl(editor, compositor, locations);
-            }
-        };
-        Ok(Callback::EditorCompositor(Box::new(call)))
-    });
+    navigation::request(cx.editor, NavigationKind::References);
 }
 
 pub fn signature_help(cx: &mut Context) {
@@ -1289,43 +1144,7 @@ pub fn rename_symbol(cx: &mut Context) {
 }
 
 pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let language_server =
-        language_server_with_feature!(cx.editor, doc, LanguageServerFeature::DocumentHighlight);
-    let offset_encoding = language_server.offset_encoding();
-    let pos = doc.position(view.id, offset_encoding);
-    let future = language_server
-        .text_document_document_highlight(doc.identifier(), pos, None)
-        .unwrap();
-
-    cx.callback(
-        future,
-        move |editor, _compositor, response: Option<Vec<lsp::DocumentHighlight>>| {
-            let document_highlights = match response {
-                Some(highlights) if !highlights.is_empty() => highlights,
-                _ => return,
-            };
-            let (view, doc) = current!(editor);
-            let text = doc.text();
-            let pos = doc.selection(view.id).primary().cursor(text.slice(..));
-
-            // We must find the range that contains our primary cursor to prevent our primary cursor to move
-            let mut primary_index = 0;
-            let ranges = document_highlights
-                .iter()
-                .filter_map(|highlight| lsp_range_to_range(text, highlight.range, offset_encoding))
-                .enumerate()
-                .map(|(i, range)| {
-                    if range.contains(pos) {
-                        primary_index = i;
-                    }
-                    range
-                })
-                .collect();
-            let selection = Selection::new(ranges, primary_index);
-            doc.set_selection(view.id, selection);
-        },
-    );
+    navigation::request(cx.editor, NavigationKind::SelectReferences);
 }
 
 pub(super) mod typed {
