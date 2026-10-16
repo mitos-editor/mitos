@@ -6,21 +6,7 @@ use view::{
 };
 
 fn fixture(command: &str) -> anyhow::Result<Fixture> {
-    Fixture::with_config(
-        "original\n",
-        &format!(
-            r#"
-                [[language]]
-                name = "words"
-                scope = "text.words"
-                roots = []
-                file-types = ["words"]
-                formatter = {{ command = "bash", args = ["-c", {command:?}] }}
-            "#
-        ),
-        loader::syntax::Resources::default(),
-        |config| config.format.on_save = true,
-    )
+    Fixture::with_formatter("original\n", command)
 }
 
 fn formatting_save(fixture: &mut Fixture) -> anyhow::Result<SaveTask> {

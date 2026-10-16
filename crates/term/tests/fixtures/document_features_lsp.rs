@@ -27,6 +27,7 @@ fn main() -> anyhow::Result<()> {
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
+    let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
@@ -39,7 +40,8 @@ fn main() -> anyhow::Result<()> {
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
-    let mut request_log = if diagnostics
+    let mut request_log = if formatting
+        || diagnostics
         || code_actions
         || lifecycle
         || signature_help
@@ -83,7 +85,7 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if action_execution || code_lenses || language_features || navigation {
+        if formatting || action_execution || code_lenses || language_features || navigation {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
             request_log.as_mut().unwrap().flush()?;
         }
@@ -466,6 +468,12 @@ fn main() -> anyhow::Result<()> {
         }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
+            "initialize" if formatting => json!({"capabilities": {
+                "textDocumentSync": 1, "documentRangeFormattingProvider": true
+            }}),
+            "textDocument/rangeFormatting" if formatting => json!([{
+                "range": params["range"], "newText": "formatted"
+            }]),
             "initialize" if code_lenses => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "codeLensProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},

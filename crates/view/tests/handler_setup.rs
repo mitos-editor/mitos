@@ -40,3 +40,6 @@ mod document_transactions;
 
 #[path = "handler_setup/save.rs"]
 mod save;
+
+#[path = "handler_setup/formatting.rs"]
+mod formatting;

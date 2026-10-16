@@ -91,6 +91,25 @@ impl Fixture {
         })
     }
 
+    /// A real formatter for headless editing and save scenarios.
+    pub fn with_formatter(text: &str, command: &str) -> anyhow::Result<Self> {
+        Self::with_config(
+            text,
+            &format!(
+                r#"
+                [[language]]
+                name = "words"
+                scope = "text.words"
+                roots = []
+                file-types = ["words"]
+                formatter = {{ command = "bash", args = ["-c", {command:?}] }}
+            "#
+            ),
+            loader::syntax::Resources::default(),
+            |config| config.format.on_save = true,
+        )
+    }
+
     pub fn configure(&mut self, configure: impl FnOnce(&mut Config)) {
         let old = self.config.load_full();
         let mut new = (*old).clone();
