@@ -347,9 +347,7 @@ async fn queued_resolution_rejects_closed_or_detached_origins() -> anyhow::Resul
             "close" => assert!(f.editor.close_document(f.doc, true).is_ok()),
             "rename" => {
                 f.editor
-                    .document_mut(f.doc)
-                    .unwrap()
-                    .set_path(Some(&f._dir.path().join("renamed.action-test")));
+                    .set_doc_path(f.doc, &f._dir.path().join("renamed.action-test"));
             }
             "detach" => {
                 f.editor
@@ -383,11 +381,7 @@ async fn action_and_queued_reply_stay_bound_to_their_editor() -> anyhow::Result<
         .path()
         .unwrap()
         .to_owned();
-    other
-        .editor
-        .document_mut(other.doc)
-        .unwrap()
-        .set_path(Some(&path));
+    other.editor.set_doc_path(other.doc, &path);
     assert_eq!(origin.doc, other.doc);
     assert_eq!(origin.server, other.server);
     let action = origin.action("");

@@ -862,9 +862,7 @@ pub(super) mod typed {
         }
 
         let path = loader::runtime_file(Path::new("tutor"));
-        cx.editor.open(&path, Action::Replace)?;
-        // Unset path to prevent accidentally saving to the original tutor file.
-        doc_mut!(cx.editor).set_path(None);
+        cx.editor.open_scratch(&path, Action::Replace)?;
         Ok(())
     }
 

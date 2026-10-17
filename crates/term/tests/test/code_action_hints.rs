@@ -269,9 +269,10 @@ async fn queued_results_reject_selection_edits_renames_and_document_closure() ->
     old(&mut f.app.editor);
     assert!(!f.hint());
     let old = f.response().await?;
-    current!(f.app.editor)
-        .1
-        .set_path(Some(&dir.path().join("renamed.action-test")));
+    f.app.editor.set_doc_path(
+        current_ref!(f.app.editor).1.id(),
+        &dir.path().join("renamed.action-test"),
+    );
     old(&mut f.app.editor);
     assert!(!f.hint());
     f.selection(2, 3);

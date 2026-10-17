@@ -94,10 +94,7 @@ async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -
                     std::fs::create_dir_all(&other)?;
                     let doc = current_ref!(f.editor).1.id();
                     f.editor
-                        .documents
-                        .get_mut(&doc)
-                        .unwrap()
-                        .set_path(Some(&other.parent().unwrap().join("renamed.words")));
+                        .set_doc_path(doc, &other.parent().unwrap().join("renamed.words"));
                 }
                 "policy" => f.editor.workspace_trust.set_config(Config {
                     prompt: false,

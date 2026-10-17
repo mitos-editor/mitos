@@ -95,7 +95,9 @@ async fn formatting_rejects_renamed_documents_and_replaced_language_configuratio
         let update = update(&fixture).await?;
         if rename {
             let path = fixture.dir.path().join("renamed.words");
-            current!(fixture.editor).1.set_path(Some(&path));
+            fixture
+                .editor
+                .set_doc_path(current_ref!(fixture.editor).1.id(), &path);
         } else {
             fixture.editor.apply_language_config(
                 editor_core::syntax::Loader::new(
@@ -126,11 +128,7 @@ async fn formatting_results_cannot_be_applied_to_another_editor() -> anyhow::Res
     );
     let path = first_doc.path().unwrap().to_path_buf();
     let id = second_doc.id();
-    second
-        .editor
-        .document_mut(id)
-        .unwrap()
-        .set_path(Some(&path));
+    second.editor.set_doc_path(id, &path);
     second
         .editor
         .syn_loader

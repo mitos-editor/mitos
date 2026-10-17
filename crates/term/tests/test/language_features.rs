@@ -258,9 +258,10 @@ async fn hover_rejects_renamed_and_closed_documents() -> anyhow::Result<()> {
     let mut f = Fixture::new(dir.path()).await?;
     let update = f.hover().await?;
     let document = current_ref!(f.app.editor).1.id();
-    current!(f.app.editor)
-        .1
-        .set_path(Some(&dir.path().join("renamed.hover-test")));
+    f.app.editor.set_doc_path(
+        current_ref!(f.app.editor).1.id(),
+        &dir.path().join("renamed.hover-test"),
+    );
     assert!(update.resolve(&f.app.editor).is_none());
     let update = f.hover().await?;
     f.app.editor.new_file(Action::Replace);

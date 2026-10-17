@@ -238,13 +238,15 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     f.edit("renamed");
     let old = f.response().await?;
     let old_uri = current_ref!(f.app.editor).1.uri().unwrap();
-    current!(f.app.editor)
-        .1
-        .set_path(Some(&dir.path().join("renamed.pull-test")));
+    f.app.editor.set_doc_path(
+        current_ref!(f.app.editor).1.id(),
+        &dir.path().join("renamed.pull-test"),
+    );
+    let after_rename = f.messages();
     old(&mut f.app.editor);
-    // Existing diagnostics may remain mapped through the edit, but the queued
-    // report must change neither the renamed buffer nor the old URI's cache.
-    assert_eq!(f.messages(), ["alpha: 😀 updated"]);
+    // The queued report must change neither the coordinated rename's diagnostic
+    // state nor the old URI's cache.
+    assert_eq!(f.messages(), after_rename);
     assert_eq!(
         f.app.editor.diagnostics[&old_uri][0].0.message,
         "alpha: 😀 updated"

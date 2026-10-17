@@ -214,6 +214,19 @@ impl Editor {
         Ok(doc_id)
     }
 
+    /// Open a fresh scratch copy of a text file, retaining its language and encoding.
+    /// The source is never registered with language servers or filesystem watchers.
+    pub fn open_scratch(&mut self, path: &Path, action: Action) -> anyhow::Result<DocumentId> {
+        let doc = Document::open_scratch(path, self.config.clone(), self.syn_loader.clone())?;
+        let id = self.new_file_from_document(action, doc);
+        dispatch(DocumentDidOpen {
+            editor: self,
+            doc: id,
+        })
+        .report_to(self.status_sender());
+        Ok(id)
+    }
+
     pub fn document_id_by_path(&self, path: &Path) -> Option<DocumentId> {
         self.document_by_path(path).map(|doc| doc.id)
     }

@@ -475,6 +475,26 @@ impl Document {
         Ok(doc)
     }
 
+    /// Load a text file as an unregistered document without a filesystem identity.
+    pub(crate) fn open_scratch(
+        path: &Path,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Result<Self, Error> {
+        if !path.metadata()?.is_file() {
+            return Err(DocumentOpenError::IrregularFile.into());
+        }
+        let mut doc = Self::open(path, None, true, config, syn_loader)?;
+        anyhow::ensure!(
+            !doc.is_binary(),
+            "Cannot open a binary file as scratch text"
+        );
+        doc.set_path(None);
+        doc.editor_config = EditorConfig::default();
+        doc.detect_indent_and_line_ending();
+        Ok(doc)
+    }
+
     pub fn save<P: Into<PathBuf>>(
         &mut self,
         path: Option<P>,
@@ -899,7 +919,7 @@ impl Document {
     /// sets the document path without sending events to various
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead
-    pub fn set_path(&mut self, path: Option<&Path>) {
+    pub(crate) fn set_path(&mut self, path: Option<&Path>) {
         self.invalidate_blame();
         self.hover.clear();
         self.navigation.clear();

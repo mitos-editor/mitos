@@ -174,9 +174,7 @@ impl Application {
 
         if args.load_tutor {
             let path = loader::runtime_file(Path::new("tutor"));
-            editor.open(&path, Action::VerticalSplit)?;
-            // Unset path to prevent accidentally saving to the original tutor file.
-            doc_mut!(editor).set_path(None);
+            editor.open_scratch(&path, Action::VerticalSplit)?;
         } else if !args.files.is_empty() {
             let mut files_it = args.files.into_iter().peekable();
 

@@ -228,9 +228,10 @@ async fn queued_responses_reject_edits_selection_renames_and_closed_documents() 
     old(&mut f.app.editor);
     assert!(f.take_change().is_none());
     let old = f.response().await?;
-    current!(f.app.editor)
-        .1
-        .set_path(Some(&dir.path().join("renamed.signature-test")));
+    f.app.editor.set_doc_path(
+        current_ref!(f.app.editor).1.id(),
+        &dir.path().join("renamed.signature-test"),
+    );
     old(&mut f.app.editor);
     assert!(f.take_change().is_none());
     f.trigger(SignatureHelpInvoked::Manual);

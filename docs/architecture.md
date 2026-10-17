@@ -146,6 +146,12 @@ view binding, and closure. `editor/filesystem.rs` owns path operations and their
 watcher and language-server effects. Both implement the existing `Editor` API;
 callers do not coordinate these steps themselves.
 
+`Editor::open_scratch` loads a fresh text copy before attaching it to editor
+services. The copy retains its source language and encoding without acquiring
+a file identity. It cannot overwrite its source through an unnamed save.
+Low-level document path mutation is private to `view`; registered documents
+change paths through `Editor::set_doc_path`.
+
 ### Debugger state
 
 `view::debugger::DebuggerState` owns debug-adapter sessions and source breakpoints.

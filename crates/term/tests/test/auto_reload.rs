@@ -391,9 +391,10 @@ async fn stale_confirmations_cannot_overwrite_edited_renamed_closed_saved_or_cha
         match mutation {
             "edit" => edit_buffer(&mut app, "newer "),
             "rename" => {
-                current!(app.editor)
-                    .1
-                    .set_path(Some(&dir.path().join("renamed.txt")));
+                app.editor.set_doc_path(
+                    current_ref!(app.editor).1.id(),
+                    &dir.path().join("renamed.txt"),
+                );
             }
             "close" => assert!(app.editor.close_document(id, true).is_ok()),
             "save" => {

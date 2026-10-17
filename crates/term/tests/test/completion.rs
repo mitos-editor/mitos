@@ -246,9 +246,10 @@ async fn typing_survives_but_cancel_mode_rename_and_focus_reject_old_results() -
     f.app.editor.mode = Mode::Insert;
     f.trigger();
     let old = f.update().await?;
-    current!(f.app.editor)
-        .1
-        .set_path(Some(&dir.path().join("renamed.completion-test")));
+    f.app.editor.set_doc_path(
+        current_ref!(f.app.editor).1.id(),
+        &dir.path().join("renamed.completion-test"),
+    );
     assert!(old.apply(&mut f.app.editor).is_none());
     f.trigger();
     let old = f.update().await?;
