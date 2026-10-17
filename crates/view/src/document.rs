@@ -1632,25 +1632,16 @@ impl Document {
     /// config is false, then ignore language settings.
     pub fn auto_pairs<'a>(
         &'a self,
-        editor: &'a Editor,
+        global_config: Option<&'a AutoPairs>,
         loader: &'a syntax::Loader,
-        view: &View,
+        selection: &Selection,
     ) -> Option<&'a AutoPairs> {
-        let global_config = (editor.auto_pairs).as_ref();
-
-        // NOTE: If the user specifies the global auto pairs config as false, then
-        //       we want to disable it globally regardless of language settings
-        #[allow(clippy::question_mark)]
-        {
-            if global_config.is_none() {
-                return None;
-            }
-        }
+        global_config?;
 
         self.syntax
             .as_ref()
             .and_then(|syntax| {
-                let selection = self.selection(view.id).primary();
+                let selection = selection.primary();
                 let (start, end) = selection.into_byte_range(self.text().slice(..));
                 let layer = syntax.layer_for_byte_range(start as u32, end as u32);
 

@@ -296,7 +296,79 @@ mod tests {
             );
         }
     }
+    #[tokio::test]
+    async fn paired_typing_and_indented_newlines_share_an_undo_group() {
+        use editor_core::{auto_pairs::AutoPairs, indent::IndentStyle};
+        for (line_ending, cursor) in [(LineEnding::LF, 5), (LineEnding::Crlf, 6)] {
+            let newline = line_ending.as_str();
+            let (mut doc, mut view) = document_and_view(&format!("#[|]#{newline}"));
+            doc.line_ending = line_ending;
+            doc.indent_style = IndentStyle::Spaces(2);
+            let original_selection = doc.selection(view.id).clone();
+            let loader = syntax::Loader::default();
+            let pairs = AutoPairs::default();
+            insert::insert_char(&mut doc, view.id, '(', &loader, Some(&pairs));
+            insert::insert_newline(&mut doc, view.id, &loader, Some(&pairs));
+            insert::insert_char(&mut doc, view.id, '界', &loader, Some(&pairs));
+            let expected = format!("({newline}  界{newline}){newline}");
+            assert_eq!(doc.text(), expected.as_str());
+            assert_eq!(
+                doc.selection(view.id)
+                    .primary()
+                    .cursor(doc.text().slice(..)),
+                cursor
+            );
+            commit(&mut doc, &mut view);
+            assert!(undo(&mut doc, &mut view));
+            assert_eq!(doc.text(), newline);
+            assert_eq!(doc.selection(view.id), &original_selection);
+            assert!(redo(&mut doc, &mut view));
+            assert_eq!(doc.text(), expected.as_str());
+        }
+    }
+
+    #[tokio::test]
+    async fn opening_comment_lines_counts_unicode_tokens_as_characters() {
+        for (line_ending, cursors) in [
+            (LineEnding::LF, vec![6, 9]),
+            (LineEnding::Crlf, vec![7, 11]),
+        ] {
+            let newline = line_ending.as_str();
+            let (mut doc, view) = document_and_view(&format!("※ #[x|]#{newline}"));
+            doc.line_ending = line_ending;
+            let loader = syntax::Loader::new(
+                toml::from_str("[[language]]\nname = 'comment-test'\nscope = 'source.comment-test'\nfile-types = []\ncomment-tokens = ['※']").unwrap(),
+                loader::syntax::Resources::default(),
+            ).unwrap();
+            let language = loader.language_for_name("comment-test").unwrap();
+            doc.set_language(Some(loader.language(language).config().clone()), &loader);
+            insert::open_lines(
+                &mut doc,
+                view.id,
+                &loader,
+                insert::Open::Below,
+                insert::CommentContinuation::Enabled,
+                2,
+            );
+            assert_eq!(
+                doc.text(),
+                format!("※ x{newline}※ {newline}※ {newline}").as_str()
+            );
+            let selection = doc.selection(view.id);
+            assert_eq!(selection.len(), 2);
+            assert_eq!(
+                selection
+                    .ranges()
+                    .iter()
+                    .map(|range| range.cursor(doc.text().slice(..)))
+                    .collect::<Vec<_>>(),
+                cursors
+            );
+        }
+    }
 }
+
+pub mod insert;
 
 mod transform;
 pub use transform::{
