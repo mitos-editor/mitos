@@ -19,7 +19,7 @@ use crate::{
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
-    ChangeSet, Operation, Rope, SpellingLanguage,
+    ChangeSet, Operation, SpellingLanguage,
 };
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
 use language::{config::SpellingConfig, syntax::Loader, Syntax};
@@ -205,8 +205,7 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
         return;
     }
     let languages = doc.spelling_languages.clone();
-    let version = doc.version();
-    let text = doc.text().clone();
+    let snapshot = doc.snapshot();
     // Cloning the syntax bumps a few refcounts on its (persistent) trees; cheap enough to snapshot
     // for the off-thread check.
     let syntax = doc.syntax().cloned();
@@ -218,7 +217,14 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
 
     let cancel = editor.handlers.spelling.open_request(doc_id);
     let callbacks = editor.handlers.spelling.callbacks.clone();
-    let future = check_text(dictionaries, text, syntax, loader, config, cancel.clone());
+    let future = check_text(
+        dictionaries,
+        snapshot.clone(),
+        syntax,
+        loader,
+        config,
+        cancel.clone(),
+    );
 
     tokio::spawn(async move {
         let Some(result) = cancelable_future(future, &cancel).await else {
@@ -240,7 +246,7 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
             let Some(doc) = editor.documents.get_mut(&doc_id) else {
                 return;
             };
-            if doc.version() != version {
+            if !snapshot.is_current(&doc.buffer) {
                 // Incremental checks require complete coverage, so finish the full check first.
                 check_document(editor, doc_id);
                 return;
@@ -338,7 +344,7 @@ fn load_dictionary(language: SpellingLanguage, callbacks: EditorCallbackSender) 
 
 fn check_text(
     dictionaries: Vec<Arc<Dictionary>>,
-    text: Rope,
+    snapshot: buffer::Snapshot,
     syntax: Option<Syntax>,
     loader: Arc<Loader>,
     config: SpellingConfig,
@@ -350,7 +356,7 @@ fn check_text(
         let dictionaries: Vec<&Dictionary> = dictionaries.iter().map(AsRef::as_ref).collect();
         ::spelling::check_text(
             &dictionaries,
-            text.slice(..),
+            snapshot.text().slice(..),
             syntax.as_ref(),
             &loader,
             &config,

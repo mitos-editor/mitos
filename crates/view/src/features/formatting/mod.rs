@@ -16,7 +16,7 @@ use crate::{callbacks::EditorCallbackSender, Document, DocumentId, Editor, ViewI
 /// The document and formatter configuration used to compute a formatting result.
 pub(crate) struct FormatSnapshot {
     document: DocumentId,
-    version: i32,
+    buffer: buffer::Snapshot,
     uri: Option<Uri>,
     language: Option<String>,
     loader: Arc<syntax::Loader>,
@@ -27,7 +27,7 @@ impl FormatSnapshot {
     pub(crate) fn new(editor: &Editor, doc: &Document) -> Self {
         Self {
             document: doc.id(),
-            version: doc.version(),
+            buffer: doc.snapshot(),
             uri: doc.uri(),
             language: doc
                 .language_config()
@@ -40,7 +40,7 @@ impl FormatSnapshot {
     pub(crate) fn is_current(&self, editor: &Editor, doc: &Document) -> bool {
         self.document == doc.id()
             && self.owner.same_destination(editor.callback_sender())
-            && doc.version() == self.version
+            && self.buffer.is_current(&doc.buffer)
             && doc.uri() == self.uri
             && doc
                 .language_config()
@@ -155,9 +155,11 @@ fn prepare_target(
 /// Prepare whole-document formatting using the document's configured formatter.
 pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
     let (target, doc) = prepare_target(editor, view, FormatKind::Document)?;
-    let format = doc.format(editor).context(
-        "A formatter isn't available, and no language server provides formatting capabilities",
-    )?;
+    let format = doc
+        .format_snapshot(editor, target.snapshot.buffer.clone())
+        .context(
+            "A formatter isn't available, and no language server provides formatting capabilities",
+        )?;
     Ok(FormattingTask {
         target,
         future: async move { Ok(Some(format.await?)) }.boxed(),
@@ -189,7 +191,11 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
         .context("No configured language server supports range formatting")?;
     target.server = Some(server.id());
     let encoding = server.offset_encoding();
-    let range = lsp_client::util::range_to_lsp_range(doc.text(), selection.primary(), encoding);
+    let range = lsp_client::util::range_to_lsp_range(
+        target.snapshot.buffer.text(),
+        selection.primary(),
+        encoding,
+    );
     let request = server
         .text_document_range_formatting(
             doc.identifier(),
@@ -202,7 +208,7 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
             None,
         )
         .context("Language server rejected range formatting")?;
-    let text = doc.text().clone();
+    let text = target.snapshot.buffer.text().clone();
     Ok(FormattingTask {
         target,
         future: async move {

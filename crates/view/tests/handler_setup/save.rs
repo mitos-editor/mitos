@@ -149,3 +149,25 @@ async fn changing_a_documents_path_discards_queued_formatting_but_preserves_the_
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accepted_writes_keep_their_text_and_revision_when_editing_continues() -> anyhow::Result<()>
+{
+    use editor_core::Transaction;
+    let mut fixture = Fixture::new("original\n")?;
+    let path = fixture.dir.path().join("snapshot.words");
+    let (_, doc) = current!(fixture.editor);
+    let snapshot = doc.snapshot();
+    let write = doc.save(Some(path.clone()), true)?;
+    let edit = Transaction::change(doc.text(), [(0, 8, Some("newer".into()))].into_iter());
+    doc.apply(edit.changes())?;
+    doc.commit_changes();
+    let completed = write.await?;
+    assert_eq!(std::fs::read_to_string(path)?, "original\n");
+    assert_eq!(&completed.text, snapshot.text());
+    assert_eq!(completed.revision, snapshot.revision());
+    doc.set_last_saved_revision(completed.revision, completed.save_time);
+    assert_eq!(doc.text(), "newer\n");
+    assert!(doc.is_modified());
+    Ok(())
+}

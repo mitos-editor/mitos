@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use editor_core::Rope;
 use event::{cancelable_future, TaskController, TaskHandle};
 use language::{syntax, Language, Syntax};
 use tokio::sync::Semaphore;
@@ -19,8 +18,7 @@ pub(super) struct PendingSyntax {
 
 /// A cancelable snapshot for background syntax initialization.
 pub struct SyntaxRequest {
-    text: Rope,
-    version: i32,
+    snapshot: buffer::Snapshot,
     language: Language,
     loader: Arc<syntax::Loader>,
     cancel: TaskHandle,
@@ -38,7 +36,7 @@ impl SyntaxRequest {
         cancelable_future(
             async {
                 let permit = WORKERS.acquire().await?;
-                let text = self.text.clone();
+                let text = self.snapshot.text().clone();
                 let language = self.language;
                 let loader = self.loader.clone();
                 let cancel = self.cancel.clone();
@@ -74,7 +72,7 @@ impl SyntaxRequest {
             doc.detect_language(&loader);
             return false;
         }
-        if self.version != doc.version() {
+        if !self.snapshot.is_current(&doc.buffer) {
             doc.initialize_syntax(self.loader);
             return false;
         }
@@ -108,8 +106,7 @@ impl Document {
             return None;
         }
         Some(SyntaxRequest {
-            text: self.buffer.text().clone(),
-            version: self.buffer.version(),
+            snapshot: self.buffer.snapshot(),
             language: self.language.as_ref()?.language(),
             loader: pending.loader.clone(),
             cancel: pending.controller.restart(),
@@ -149,6 +146,7 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use arc_swap::ArcSwap;
+    use editor_core::Rope;
     use editor_core::{Selection, Transaction};
 
     use super::*;

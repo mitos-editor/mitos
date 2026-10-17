@@ -511,7 +511,7 @@ impl Document {
 
         // we clone and move text + path into the future so that we asynchronously save the current
         // state without blocking any further edits.
-        let text = self.text().clone();
+        let snapshot = self.snapshot();
 
         let path = match path {
             Some(path) => stdx::path::canonicalize(path),
@@ -532,7 +532,6 @@ impl Document {
             .collect();
 
         // mark changes up to now as saved
-        let current_rev = self.get_current_revision();
         let doc_id = self.id();
         let atomic_save = self.config.load().files.save.atomic;
 
@@ -542,6 +541,7 @@ impl Document {
         // We encode the file according to the `Document`'s encoding.
         let future = async move {
             use tokio::fs;
+            let text = snapshot.text();
             if let Some(parent) = path.parent() {
                 // TODO: display a prompt asking the user if the directories should be created
                 if !parent.exists() {
@@ -622,7 +622,7 @@ impl Document {
 
             let write_result: anyhow::Result<_> = async {
                 let mut dst = tokio::fs::File::create(&write_path).await?;
-                to_writer(&mut dst, encoding_with_bom_info, &text).await?;
+                to_writer(&mut dst, encoding_with_bom_info, text).await?;
                 // Ignore ENOTSUP/EOPNOTSUPP (Operation not supported) errors from sync_all()
                 // This is known to occur on SMB filesystems on macOS where fsync is not supported
                 match dst.sync_all().await {
@@ -685,7 +685,7 @@ impl Document {
             write_result?;
 
             let event = DocumentSavedEvent {
-                revision: current_rev,
+                revision: snapshot.revision(),
                 save_time,
                 doc_id,
                 path,
@@ -697,7 +697,7 @@ impl Document {
                     continue;
                 }
                 if let Some(id) = identifier.clone() {
-                    language_server.text_document_did_save(id, &text);
+                    language_server.text_document_did_save(id, text);
                 }
             }
 
@@ -1348,6 +1348,11 @@ impl Document {
 
     pub fn uri(&self) -> Option<editor_core::Uri> {
         Some(self.path()?.into())
+    }
+
+    /// Capture immutable text and its identity for saving or background work.
+    pub fn snapshot(&self) -> buffer::Snapshot {
+        self.buffer.snapshot()
     }
 
     #[inline]

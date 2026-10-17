@@ -33,6 +33,15 @@ impl Document {
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+        self.format_snapshot(editor, self.snapshot())
+    }
+
+    pub(crate) fn format_snapshot(
+        &self,
+        editor: &Editor,
+        snapshot: buffer::Snapshot,
+    ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+        let text = snapshot.text().clone();
         if let Some((fmt_cmd, fmt_args)) = self
             .language_config()
             .and_then(|c| c.formatter.as_ref())
@@ -46,7 +55,6 @@ impl Document {
                 fmt_cmd.display(),
             );
             use std::process::Stdio;
-            let text = self.text().clone();
 
             let mut process = tokio::process::Command::new(&fmt_cmd);
 
@@ -121,7 +129,6 @@ impl Document {
             return Some(formatting_future.boxed());
         };
 
-        let text = self.text().clone();
         // finds first language server that supports formatting and then formats
         let language_server = self
             .language_servers_with_feature(LanguageServerFeature::Format)

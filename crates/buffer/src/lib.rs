@@ -1,5 +1,7 @@
 //! Text state and undo groups, independent of document services and views.
 
+use std::sync::Arc;
+
 use editor_core::{
     history::{History, HistoryStep, UndoKind},
     ChangeSet, Rope, Transaction,
@@ -36,7 +38,37 @@ impl AppliedChange {
     }
 }
 
+/// Immutable text, version, and committed revision captured from one buffer.
+/// Clones share rope storage. Committing an undo group does not invalidate its text;
+/// any non-empty edit or history replay does, even when it restores identical text.
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    text: Rope,
+    version: i32,
+    revision: usize,
+    identity: Arc<()>,
+}
+
+impl Snapshot {
+    pub fn text(&self) -> &Rope {
+        &self.text
+    }
+    pub fn version(&self) -> i32 {
+        self.version
+    }
+    /// Committed revision at capture; the snapshot may also contain pending edits.
+    pub fn revision(&self) -> usize {
+        self.revision
+    }
+    /// Text identity only. Applications separately validate paths, configuration,
+    /// protocol sessions, cancellation, and view bindings when publishing results.
+    pub fn is_current(&self, buffer: &Buffer) -> bool {
+        Arc::ptr_eq(&self.identity, &buffer.identity) && self.version == buffer.version
+    }
+}
+
 pub struct Buffer {
+    identity: Arc<()>,
     text: Rope,
     version: i32,
     changes: ChangeSet,
@@ -58,11 +90,21 @@ impl std::fmt::Debug for Buffer {
 impl Buffer {
     pub fn new(text: Rope) -> Self {
         Self {
+            identity: Arc::new(()),
             changes: ChangeSet::new(text.slice(..)),
             text,
             version: 0,
             pending_original_text: None,
             history: History::default(),
+        }
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            text: self.text.clone(),
+            version: self.version,
+            revision: self.current_revision(),
+            identity: self.identity.clone(),
         }
     }
 
@@ -243,5 +285,35 @@ mod tests {
         navigate(&mut buffer, HistoryAction::Later(UndoKind::Steps(1)));
         assert_eq!(buffer.text(), "AZc");
         assert!(buffer.changes().is_empty());
+    }
+    #[test]
+    fn snapshots_keep_captured_text_and_survive_history_commits() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        let snapshot = buffer.snapshot();
+        assert_eq!(snapshot.text(), "Abc");
+        assert_eq!(snapshot.version(), 1);
+        assert_eq!(snapshot.revision(), 0);
+        buffer.commit_changes();
+        assert!(snapshot.is_current(&buffer));
+        replace(&mut buffer, 1, 2, "B");
+        assert_eq!(snapshot.text(), "Abc");
+        assert!(!snapshot.is_current(&buffer));
+    }
+
+    #[test]
+    fn equal_text_and_versions_cannot_revive_or_cross_buffer_snapshots() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        let snapshot = buffer.snapshot();
+        let mut other = Buffer::new(Rope::from("abc"));
+        replace(&mut other, 0, 1, "A");
+        assert_eq!(snapshot.version(), other.version());
+        assert_eq!(snapshot.text(), other.text());
+        assert!(!snapshot.is_current(&other));
+        navigate(&mut buffer, HistoryAction::Undo);
+        navigate(&mut buffer, HistoryAction::Redo);
+        assert_eq!(snapshot.text(), buffer.text());
+        assert!(!snapshot.is_current(&buffer));
     }
 }

@@ -10,7 +10,7 @@ use crate::{Document, DocumentId, Editor, View, ViewId};
 pub(crate) struct DocumentRequest {
     pub(crate) cancel: event::TaskHandle,
     doc: DocumentId,
-    version: i32,
+    buffer: buffer::Snapshot,
     uri: Option<Uri>,
     servers: Vec<LanguageServerId>,
 }
@@ -24,7 +24,7 @@ impl DocumentRequest {
         Self {
             cancel,
             doc: doc.id(),
-            version: doc.version(),
+            buffer: doc.snapshot(),
             uri: doc.uri(),
             servers,
         }
@@ -39,7 +39,7 @@ impl DocumentRequest {
             return None;
         }
         let doc = editor.document(self.doc)?;
-        (doc.version() == self.version
+        (self.buffer.is_current(&doc.buffer)
             && doc.uri() == self.uri
             && self.servers.iter().all(|&id| {
                 editor.language_server_by_id(id).is_some() && doc.supports_language_server(id)

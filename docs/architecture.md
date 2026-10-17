@@ -845,3 +845,13 @@ no editor or protocol dependency. `view::document::file_io` retains file sniffin
 and binary detection; documents retain file metadata, conflict handling, history,
 and save coordination. Formatters, stdin loading, shell commands, and runtime
 query inspection call the text conversion crate directly.
+
+## Buffer snapshots
+
+`buffer::Snapshot` captures shared rope text, its buffer identity and text version,
+and the committed undo revision. Committing an undo group does not change the text
+identity; edits and history replay invalidate it even when text becomes equal again.
+Saving uses one snapshot for both bytes and revision accounting. Formatting, syntax,
+and full spelling workers consume the captured text; their existing request wrappers
+validate the same snapshot before publishing. Document IDs, paths, language/loaders,
+protocol sessions, cancellation, and view bindings remain editor-level checks.

@@ -129,7 +129,7 @@ pub struct LspActionContext(Arc<LspActionSnapshot>);
 #[derive(Debug)]
 struct LspActionSnapshot {
     doc: DocumentId,
-    version: i32,
+    buffer: buffer::Snapshot,
     uri: Option<Uri>,
     servers: Vec<Weak<lsp_client::Client>>,
 }
@@ -138,7 +138,7 @@ impl LspActionContext {
     pub fn new(doc: &Document) -> Self {
         Self(Arc::new(LspActionSnapshot {
             doc: doc.id(),
-            version: doc.version(),
+            buffer: doc.snapshot(),
             uri: doc.uri(),
             servers: doc.language_servers.values().map(Arc::downgrade).collect(),
         }))
@@ -159,7 +159,7 @@ impl LspActionContext {
                         .is_some_and(|current| std::ptr::eq(current, server.as_ref()))
             })
             && editor.document(snapshot.doc).is_some_and(|doc| {
-                doc.version() == snapshot.version
+                snapshot.buffer.is_current(&doc.buffer)
                     && doc.path() == snapshot.uri.as_ref().and_then(Uri::as_path)
                     && doc.supports_language_server(server_id)
             })
