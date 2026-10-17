@@ -2,7 +2,6 @@
 
 use crate::{
     commands::{context::Context, picker::PathStyleConfig},
-    filter_picker_entry,
     ui::{self, overlay::overlaid, Picker, PickerColumn, PromptEvent},
 };
 use editor_core::{
@@ -10,14 +9,10 @@ use editor_core::{
     graphemes,
     line_ending::line_end_char_index,
     movement::{Direction, Movement},
-    regex, LineEnding, Range, RopeReader, RopeSlice, Selection,
+    regex, LineEnding, Range, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use grep_matcher::Matcher;
-use grep_regex::RegexMatcherBuilder;
-use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
-use ignore::{DirEntry, WalkBuilder, WalkState};
-use std::{borrow::Cow, collections::HashSet, path::Path};
+use std::collections::HashSet;
 use stdx::rope::{self, RopeSliceExt};
 use view::{
     align_view,
@@ -344,72 +339,29 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
 }
 
 pub(super) fn global_search(cx: &mut Context) {
-    #[derive(Debug)]
-    struct FileResult<'a> {
-        path: Cow<'a, Path>,
-        /// 0 indexed line start
-        line_start: usize,
-        /// 0 indexed line end
-        line_end: usize,
-        /// Zero-based character column where the match starts.
-        match_start_col: usize,
-        /// Zero-based character column where the match ends.
-        match_end_col: usize,
-    }
-
-    impl FileResult<'_> {
-        fn new(
-            path: &Path,
-            line_start: usize,
-            line_end: usize,
-            match_start_col: usize,
-            match_end_col: usize,
-        ) -> Self {
-            Self {
-                path: stdx::path::get_relative_path(path.to_path_buf()),
-                line_start,
-                line_end,
-                match_start_col,
-                match_end_col,
-            }
-        }
-    }
-
-    /// Converts the regex engine's byte match within `line_content` into
-    /// zero-based line and character-column bounds relative to `line_start`.
-    fn match_line_cols(
-        line_start: usize,
-        line_content: &str,
-        matcher: &grep_regex::RegexMatcher,
-    ) -> Option<(usize, usize, usize, usize)> {
-        let matched = matcher.find(line_content.as_bytes()).ok().flatten()?;
-        let prefix = &line_content[..matched.start()];
-        let matched_text = &line_content[..matched.end()];
-
-        let start_line = line_start + prefix.matches('\n').count();
-        let start_col = prefix.rsplit('\n').next().unwrap_or(prefix).chars().count();
-
-        let end_line = line_start + matched_text.matches('\n').count();
-        let end_col = matched_text
-            .rsplit('\n')
-            .next()
-            .unwrap_or(matched_text)
-            .chars()
-            .count();
-
-        Some((start_line, start_col, end_line, end_col))
-    }
+    use ::search::Match as FileResult;
 
     struct GlobalSearchConfig {
         smart_case: bool,
-        file_picker_config: view::config::FilePickerConfig,
+        options: ::search::Options,
         style: PathStyleConfig,
     }
 
     let config = cx.editor.config();
     let config = GlobalSearchConfig {
         smart_case: config.search.smart_case,
-        file_picker_config: config.file_picker.clone(),
+        options: ::search::Options {
+            hidden: config.file_picker.hidden,
+            parents: config.file_picker.parents,
+            ignore: config.file_picker.ignore,
+            follow_symlinks: config.file_picker.follow_symlinks,
+            deduplicate_links: config.file_picker.deduplicate_links,
+            git_ignore: config.file_picker.git_ignore,
+            git_global: config.file_picker.git_global,
+            git_exclude: config.file_picker.git_exclude,
+            max_depth: config.file_picker.max_depth,
+            custom_ignore_files: vec![loader::config_dir().join("ignore"), ".mitos/ignore".into()],
+        },
         style: PathStyleConfig::new(cx.editor),
     };
 
@@ -436,20 +388,16 @@ pub(super) fn global_search(cx: &mut Context) {
                 .boxed();
         }
 
-        let documents: Vec<_> = editor
+        let documents = editor
             .documents()
-            .map(|doc| (doc.path().map(ToOwned::to_owned), doc.text().to_owned()))
+            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
             .collect();
 
-        let matcher = match RegexMatcherBuilder::new()
-            .case_smart(config.smart_case)
-            .multi_line(true)
-            .build(query)
-        {
-            Ok(matcher) => {
+        let search = match ::search::Search::new(query, config.smart_case) {
+            Ok(search) => {
                 // Clear any "Failed to compile regex" errors out of the statusline.
                 editor.clear_status();
-                matcher
+                search
             }
             Err(err) => {
                 log::info!("Failed to compile search pattern in global search: {}", err);
@@ -457,107 +405,21 @@ pub(super) fn global_search(cx: &mut Context) {
             }
         };
 
-        let dedup_symlinks = config.file_picker_config.deduplicate_links;
-        let absolute_root = search_root
-            .canonicalize()
-            .unwrap_or_else(|_| search_root.clone());
-
         let injector = injector.clone();
         async move {
-            let searcher = SearcherBuilder::new()
-                .binary_detection(BinaryDetection::quit(b'\x00'))
-                .multi_line(true)
-                .build();
-            WalkBuilder::new(search_root)
-                .hidden(config.file_picker_config.hidden)
-                .parents(config.file_picker_config.parents)
-                .ignore(config.file_picker_config.ignore)
-                .follow_links(config.file_picker_config.follow_symlinks)
-                .git_ignore(config.file_picker_config.git_ignore)
-                .git_global(config.file_picker_config.git_global)
-                .git_exclude(config.file_picker_config.git_exclude)
-                .max_depth(config.file_picker_config.max_depth)
-                .filter_entry(move |entry| {
-                    filter_picker_entry(entry, &absolute_root, dedup_symlinks)
-                })
-                .add_custom_ignore_filename(loader::config_dir().join("ignore"))
-                .add_custom_ignore_filename(".mitos/ignore")
-                .build_parallel()
-                .run(|| {
-                    let mut searcher = searcher.clone();
-                    let matcher = matcher.clone();
-                    let injector = injector.clone();
-                    let documents = &documents;
-                    Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
-                        let entry = match entry {
-                            Ok(entry) => entry,
-                            Err(_) => return WalkState::Continue,
-                        };
-
-                        if !entry.path().is_file() {
-                            return WalkState::Continue;
-                        }
-
-                        let mut stop = false;
-                        let sink = sinks::UTF8(|line_start, line_content| {
-                            let line_start = line_start as usize - 1;
-                            let Some((
-                                match_start_line,
-                                match_start_col,
-                                match_end_line,
-                                match_end_col,
-                            )) = match_line_cols(line_start, line_content, &matcher)
-                            else {
-                                return Ok(true);
-                            };
-                            stop = injector
-                                .push(FileResult::new(
-                                    entry.path(),
-                                    match_start_line,
-                                    match_end_line,
-                                    match_start_col,
-                                    match_end_col,
-                                ))
-                                .is_err();
-
-                            Ok(!stop)
-                        });
-                        let doc = documents.iter().find(|&(doc_path, _)| {
-                            doc_path
-                                .as_ref()
-                                .is_some_and(|doc_path| doc_path == entry.path())
-                        });
-
-                        let result = if let Some((_, doc)) = doc {
-                            // there is already a buffer for this file
-                            // search the buffer instead of the file because it's faster
-                            // and captures new edits without requiring a save
-                            if searcher.multi_line_with_matcher(&matcher) {
-                                // in this case a continuous buffer is required
-                                // convert the rope to a string
-                                let text = doc.to_string();
-                                searcher.search_slice(&matcher, text.as_bytes(), sink)
-                            } else {
-                                searcher.search_reader(
-                                    &matcher,
-                                    RopeReader::new(doc.slice(..)),
-                                    sink,
-                                )
-                            }
-                        } else {
-                            searcher.search_path(&matcher, entry.path(), sink)
-                        };
-
-                        if let Err(err) = result {
-                            log::error!("Global search error: {}, {}", entry.path().display(), err);
-                        }
-                        if stop {
-                            WalkState::Quit
-                        } else {
-                            WalkState::Continue
-                        }
-                    })
-                });
+            search.run(
+                &search_root,
+                &config.options,
+                &documents,
+                || injector.is_shutdown(),
+                |mut matched| {
+                    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
+                    match injector.push(matched) {
+                        Ok(()) => std::ops::ControlFlow::Continue(()),
+                        Err(_) => std::ops::ControlFlow::Break(()),
+                    }
+                },
+            );
             Ok(())
         }
         .boxed()
@@ -619,11 +481,11 @@ pub(super) fn global_search(cx: &mut Context) {
              line_start,
              line_end,
              ..
-         }| { Some((path.as_ref().into(), Some((*line_start, *line_end)))) },
+         }| { Some((path.as_path().into(), Some((*line_start, *line_end)))) },
     )
     .with_quicklist(|_editor, item| {
         Some(QuicklistEntry {
-            target: QuicklistTarget::Path(item.path.clone().into_owned()),
+            target: QuicklistTarget::Path(item.path.clone()),
             position: QuicklistPosition::LineColRange {
                 start_line: item.line_start,
                 start_col: item.match_start_col,

@@ -31,13 +31,11 @@ pub mod ui;
 #[cfg(not(windows))]
 use std::env::var_os;
 
-use std::path::Path;
 use std::process::Stdio;
 
 use futures_util::Future;
 mod handlers;
 
-use ignore::DirEntry;
 use stdx::Url;
 
 #[cfg(windows)]
@@ -64,31 +62,6 @@ fn true_color() -> bool {
 }
 
 pub(crate) use stdx::file::is_binary;
-
-/// Function used for filtering dir entries in the various file pickers.
-fn filter_picker_entry(entry: &DirEntry, root: &Path, dedup_symlinks: bool) -> bool {
-    // We always want to ignore popular VCS directories, otherwise if
-    // `ignore` is turned off, we end up with a lot of noise
-    // in our picker.
-    if matches!(
-        entry.file_name().to_str(),
-        Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
-    ) {
-        return false;
-    }
-
-    // We also ignore symlinks that point inside the current directory
-    // if `dedup_links` is enabled.
-    if dedup_symlinks && entry.path_is_symlink() {
-        return entry
-            .path()
-            .canonicalize()
-            .ok()
-            .is_some_and(|path| !path.starts_with(root));
-    }
-
-    true
-}
 
 /// Opens URL in external program.
 fn open_external_url_callback(

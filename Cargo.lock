@@ -3577,6 +3577,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "search"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "grep-matcher",
+ "grep-regex",
+ "grep-searcher",
+ "ignore",
+ "log",
+ "tempfile",
+]
+
+[[package]]
 name = "seize"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4047,7 +4060,6 @@ dependencies = [
  "event",
  "futures-util",
  "grammar-build",
- "grep-matcher",
  "grep-regex",
  "grep-searcher",
  "ignore",
@@ -4064,6 +4076,7 @@ dependencies = [
  "pulldown-cmark",
  "ratatui-image",
  "same-file",
+ "search",
  "serde",
  "serde_json",
  "signal-hook 0.4.5",

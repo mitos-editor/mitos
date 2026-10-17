@@ -15,6 +15,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `loader` | Resource paths and grammar/query/theme sources |
 | `grammar-build` | Grammar source fetching and native compilation |
 | `clipboard` | Clipboard provider settings and native backends |
+| `search` | Workspace traversal and text matches over files or unsaved snapshots |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
@@ -816,3 +817,12 @@ Place algorithm tests in the owning feature crate. Reuse existing fixtures and
 keep assertions about observable behavior; moving code alone does not require a
 new test. Changes to async ownership need coverage for queued callbacks as well
 as in-flight requests.
+
+## Workspace search
+
+`search` owns directory traversal, regex matching, unsaved snapshot precedence,
+and zero-based line and character-column match records. Callers supply roots,
+ignore paths, traversal settings, cancellation, and a result sink. The terminal
+owns the search prompt, picker, quicklist conversion, and navigation. Picker
+invalidation stops traversal even when a query produces no matches. Buffer text
+search and selection transformations remain in `core` and editor commands.

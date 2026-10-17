@@ -3,7 +3,6 @@
 use super::Context;
 use crate::{
     commands::navigation::push_jump,
-    filter_picker_entry,
     ui::{
         overlay::overlaid,
         picker::{Injector, PathOrId},
@@ -282,7 +281,7 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
         .git_global(config.file_picker.git_global)
         .git_exclude(config.file_picker.git_exclude)
         .max_depth(config.file_picker.max_depth)
-        .filter_entry(move |entry| filter_picker_entry(entry, &absolute_root, dedup_symlinks))
+        .filter_entry(move |entry| ::search::include_entry(entry, &absolute_root, dedup_symlinks))
         .add_custom_ignore_filename(loader::config_dir().join("ignore"))
         .add_custom_ignore_filename(".mitos/ignore");
 

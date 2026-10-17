@@ -20,7 +20,6 @@ mod text;
 mod text_decorations;
 
 use crate::compositor::Compositor;
-use crate::filter_picker_entry;
 use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
@@ -257,7 +256,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
         .git_exclude(config.file_picker.git_exclude)
         .sort_by_file_name(|name1, name2| name1.cmp(name2))
         .max_depth(config.file_picker.max_depth)
-        .filter_entry(move |entry| filter_picker_entry(entry, &absolute_root, dedup_symlinks))
+        .filter_entry(move |entry| ::search::include_entry(entry, &absolute_root, dedup_symlinks))
         .add_custom_ignore_filename(loader::config_dir().join("ignore"))
         .add_custom_ignore_filename(".mitos/ignore")
         .types(get_excluded_types())
