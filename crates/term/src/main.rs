@@ -109,12 +109,21 @@ FLAGS:
     }
 
     if args.fetch_grammars {
-        loader::grammar::fetch_grammars(args.strict)?;
+        grammar_build::fetch_grammars(
+            loader::grammar::get_grammar_configs()?,
+            &loader::runtime_dirs()[0],
+            args.strict,
+        )?;
         return Ok(0);
     }
 
     if args.build_grammars {
-        loader::grammar::build_grammars(None, args.strict)?;
+        grammar_build::build_grammars(
+            loader::grammar::get_grammar_configs()?,
+            &loader::runtime_dirs()[0],
+            None,
+            args.strict,
+        )?;
         return Ok(0);
     }
 

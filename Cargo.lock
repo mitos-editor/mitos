@@ -1982,6 +1982,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "grammar-build"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "loader",
+ "stdx",
+ "tempfile",
+ "threadpool",
+]
+
+[[package]]
 name = "grep-matcher"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2467,13 +2479,11 @@ name = "loader"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cc",
  "etcetera",
  "log",
  "serde",
  "stdx",
  "tempfile",
- "threadpool",
  "toml",
  "toml_edit",
  "tree-house",
@@ -4021,6 +4031,7 @@ dependencies = [
  "dashmap",
  "event",
  "futures-util",
+ "grammar-build",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
