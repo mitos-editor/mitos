@@ -1061,6 +1061,21 @@ Private modules own process initialization and shutdown, workspace configuration
 file operations, document synchronization, and typed feature requests. All requests
 use the same transport timeout and cancellation machinery.
 
+### Interactive LSP commands
+
+`lsp-types::interactive` defines experimental forms; `lsp::Client` negotiates
+support and sends command resolution and enum-search requests. Shared command
+execution in `view::features::interactive` owns the session, validates the source
+document and server, and delivers forms through `EditorEvent::Interactive`.
+Queued replies revalidate that session before publishing questions or executing
+the resolved command. Document edits, closure, server exit, disabled LSP, and
+replacement commands invalidate pending work.
+
+`term::handlers::interactive` presents prompts, pickers, file input, and recursive
+lists. It submits typed answers to the shared session and removes stale UI before
+drawing. Resolution requests finish before a form is shown; enum searches run
+independently as the user types.
+
 ## Term
 
 Command expansion captures referenced editor values before asynchronous evaluation.

@@ -33,6 +33,29 @@ Available features depend on the server.
 | File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
 
+## Interactive refactoring (experimental)
+
+Mitos supports the [experimental interactive refactoring protocol][interactive].
+When a language server offers an interactive code action, select it with
+`Space-a` and answer the questions that appear. Commands invoked through code
+lenses or `:lsp-workspace-command` can ask questions too. Support is negotiated
+automatically with the server; gopls v0.23.0 and later provide interactive struct
+tag editing and interface implementation.
+
+Questions can ask for text, numbers, yes/no answers, a choice, a searchable choice,
+a file or directory, or a list. Defaults are prefilled. File paths are relative to
+the source document's directory and must meet the server's existence, type, and
+extension constraints. Lists offer Add, Edit, Remove, and Done, including for
+nested lists. Leave an optional text field empty or choose Skip to leave it
+unanswered. Press `Esc` to cancel the operation.
+
+The server validates answers before executing the command and may ask additional
+questions or ask you to correct an answer. Editing or closing the source document,
+stopping its server, or starting another interactive command cancels the pending
+operation. This protocol is experimental and may change with future server releases.
+
+[interactive]: https://go.googlesource.com/proposal/+/refs/heads/master/design/76331-lsp-interactive-refactoring.md
+
 ## Diagnostics and code actions
 
 Use `]d` and `[d` to move between diagnostics, then `Space a` to see fixes

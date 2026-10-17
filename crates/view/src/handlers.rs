@@ -25,6 +25,7 @@ mod snippet;
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
+    pub(crate) interactive: crate::features::interactive::InteractiveHandler,
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
     pub(crate) status_messages: tokio::sync::mpsc::Receiver<event::status::StatusMessage>,
@@ -65,6 +66,7 @@ impl Handlers {
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
             lsp_progress: Default::default(),
+            interactive: Default::default(),
             status,
             status_messages,
             document_symbols: document_symbols::DocumentSymbolsHandler::new(callbacks.clone()),
@@ -242,6 +244,7 @@ fn register_hooks() {
         code_lenses::register_hooks();
         document_links::register_hooks();
         inline_completion::register_hooks();
+        crate::features::interactive::register_hooks();
         spelling::register_hooks();
         workspace_trust::register_hooks();
     });
