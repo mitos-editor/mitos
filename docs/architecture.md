@@ -137,6 +137,10 @@ like `g` and `m`. It is attached to the viewport as a whole.
 The `Editor` holds the global state: all the open documents, a tree
 representation of all the view splits, the configuration, and a registry of 
 language servers. To open or close files, interact with the editor.
+Its private `editor/documents.rs` module owns document registration, loading,
+view binding, and closure. `editor/filesystem.rs` owns path operations and their
+watcher and language-server effects. Both implement the existing `Editor` API;
+callers do not coordinate these steps themselves.
 
 ### Debugger state
 
