@@ -69,7 +69,7 @@ impl Editor {
             .iter()
             .filter_map(|(_, config, path)| {
                 Some(
-                    lsp_client::language_server_root(
+                    crate::language_servers::language_server_root(
                         config.as_ref()?,
                         path.as_deref(),
                         &self.config().lsp.workspace_roots,

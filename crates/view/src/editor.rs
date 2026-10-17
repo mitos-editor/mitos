@@ -81,7 +81,7 @@ pub struct Editor {
     pub registers: Registers,
     pub macro_recording: Option<(char, Vec<KeyEvent>)>,
     pub macro_replaying: Vec<char>,
-    pub language_servers: lsp_client::Registry,
+    pub language_servers: crate::language_servers::Registry,
     initialized_language_servers: HashSet<LanguageServerId>,
     pub diagnostics: Diagnostics,
     pub diff_providers: DiffProviderRegistry,
@@ -218,7 +218,7 @@ impl Editor {
         handlers: Handlers,
         workspace_trust: WorkspaceTrust,
     ) -> Self {
-        let language_servers = lsp_client::Registry::new(syn_loader.clone());
+        let language_servers = crate::language_servers::Registry::new(syn_loader.clone());
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();
 
@@ -586,7 +586,7 @@ impl Editor {
 
     /// Returns all supported diagnostics for the document
     pub fn doc_diagnostics<'a>(
-        language_servers: &'a lsp_client::Registry,
+        language_servers: &'a crate::language_servers::Registry,
         diagnostics: &'a Diagnostics,
         document: &Document,
     ) -> impl Iterator<Item = editor_core::Diagnostic> + 'a + use<'a> {
@@ -596,7 +596,7 @@ impl Editor {
     /// Returns all supported diagnostics for the document
     /// filtered by `filter` which is invocated with the raw `lsp::Diagnostic` and the language server id it came from
     pub fn doc_diagnostics_with_filter<'a, F>(
-        language_servers: &'a lsp_client::Registry,
+        language_servers: &'a crate::language_servers::Registry,
         diagnostics: &'a Diagnostics,
         document: &Document,
         filter: F,

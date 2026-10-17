@@ -1,9 +1,9 @@
-//! Language Server Protocol process, transport, and editor conversions.
+//! Language Server Protocol processes, transport, and text position encoding.
 //!
 //! [`Client`] owns one language-server child process. Requests are paired with
 //! responses inside the transport, while server-originated requests and
 //! notifications are exposed as [`Call`] values for the editor event loop.
-//! The registry in this crate chooses and reuses clients by language-server
+//! The editor integration layer chooses and reuses clients by language-server
 //! configuration and workspace root.
 //!
 //! LSP positions are not editor positions. Mitos stores rope positions as Rust
@@ -19,9 +19,7 @@ mod client;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;
-mod registry;
 mod transport;
-pub use registry::{find_lsp_workspace, has_required_root, language_server_root, Registry};
 
 pub use client::Client;
 pub use futures_executor::block_on;

@@ -1,6 +1,6 @@
 use crate::{
     file_operations::FileOperationsInterest,
-    find_lsp_workspace, jsonrpc,
+    jsonrpc,
     transport::{Payload, PendingRequests, Transport},
     Call, Error, LanguageServerId, OffsetEncoding, Result,
 };
@@ -12,8 +12,7 @@ use crate::lsp::{
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
 use editor_core::{ChangeSet, Rope};
-use language_config::{LanguageServerFeature, RootMarkers};
-use loader::VERSION_AND_GIT_HASH;
+use language_config::LanguageServerFeature;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -27,7 +26,6 @@ use std::{
 };
 use std::{future::Future, sync::OnceLock};
 use std::{path::Path, process::Stdio};
-use stdx::path;
 use tokio::{
     io::{BufReader, BufWriter},
     process::{Child, Command},
@@ -36,7 +34,6 @@ use tokio::{
         Notify, OnceCell,
     },
 };
-use workspace::find_workspace;
 
 fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     lsp::WorkspaceFolder {
@@ -67,7 +64,8 @@ pub struct Client {
     server_tx: UnboundedSender<Payload>,
     pending_requests: Arc<PendingRequests>,
     request_counter: AtomicU64,
-    pub(crate) capabilities: OnceCell<lsp::ServerCapabilities>,
+    capabilities: OnceLock<lsp::ServerCapabilities>,
+    initialization: OnceCell<()>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
     config: Option<Value>,
     root_path: std::path::PathBuf,
@@ -81,35 +79,19 @@ pub struct Client {
 }
 
 impl Client {
-    /// Determines whether this client can serve a document and, when supported,
-    /// adds a newly discovered workspace folder.
+    /// Determines whether this client can serve a resolved workspace and, when
+    /// supported, adds its URI to the server's workspace folders.
     ///
     /// Before initialization completes, the capability decision is deferred to
     /// a background task. A `true` return means the caller may associate the
     /// document with this client immediately.
-    pub fn try_add_doc(
+    pub fn try_add_workspace(
         self: &Arc<Self>,
-        root_markers: &RootMarkers,
-        manual_roots: &[PathBuf],
-        doc_path: Option<&std::path::Path>,
+        root_path: &Path,
+        root_uri: Option<lsp::Url>,
         may_support_workspace: bool,
     ) -> bool {
-        let (workspace, workspace_is_cwd) = find_workspace();
-        let workspace = path::normalize(workspace);
-        let root = find_lsp_workspace(
-            doc_path
-                .and_then(|x| x.parent().and_then(|x| x.to_str()))
-                .unwrap_or("."),
-            root_markers,
-            manual_roots,
-            &workspace,
-            workspace_is_cwd,
-        );
-        let root_uri = root
-            .as_ref()
-            .and_then(|root| lsp::Url::from_file_path(root).ok());
-
-        if self.root_path == root.unwrap_or(workspace)
+        if self.root_path == root_path
             || root_uri.as_ref().is_some_and(|root_uri| {
                 self.workspace_folders
                     .lock()
@@ -224,10 +206,9 @@ impl Client {
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     /// Spawns a language server and starts its JSON-RPC transport.
     ///
-    /// The caller must subsequently send the LSP initialize request. The
-    /// returned receiver carries server-originated calls. The returned notifier
-    /// must be signaled after initialization succeeds; until then the transport
-    /// queues requests and discards ordinary notifications.
+    /// The caller must subsequently call [`Self::initialize`]. The returned
+    /// receiver carries server-originated calls. Until initialization succeeds,
+    /// the transport queues requests and discards ordinary notifications.
     pub fn start(
         cmd: &str,
         args: &[String],
@@ -238,11 +219,7 @@ impl Client {
         id: LanguageServerId,
         name: String,
         req_timeout: u64,
-    ) -> Result<(
-        Self,
-        UnboundedReceiver<(LanguageServerId, Call)>,
-        Arc<Notify>,
-    )> {
+    ) -> Result<(Self, UnboundedReceiver<(LanguageServerId, Call)>)> {
         info!("Starting lsp {name:?} in root {root_path:?}");
         // Resolve path to the binary
         let cmd = stdx::env::which(cmd)?;
@@ -279,7 +256,8 @@ impl Client {
             server_tx: connection.sender,
             pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),
-            capabilities: OnceCell::new(),
+            capabilities: OnceLock::new(),
+            initialization: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
             config,
             req_timeout,
@@ -290,7 +268,7 @@ impl Client {
             shutdown_flushed: connection.shutdown_flushed,
         };
 
-        Ok((client, connection.receiver, connection.initialized))
+        Ok((client, connection.receiver))
     }
 
     pub fn name(&self) -> &str {
@@ -582,7 +560,33 @@ impl Client {
     // General messages
     // -------------------------------------------------------------------------------------------
 
-    pub(crate) async fn initialize(&self, enable_snippets: bool) -> Result<lsp::InitializeResult> {
+    /// Negotiate capabilities once and release requests queued during startup.
+    pub async fn initialize(
+        &self,
+        enable_snippets: bool,
+        client_info: lsp::ClientInfo,
+    ) -> Result<()> {
+        self.initialization
+            .get_or_try_init(|| async {
+                let response = self
+                    .initialize_request(enable_snippets, client_info)
+                    .await?;
+                self.capabilities
+                    .set(response.capabilities)
+                    .expect("capabilities are installed by one initialization");
+                self.notify::<lsp::notification::Initialized>(lsp::InitializedParams {});
+                self.initialize_notify.notify_one();
+                Ok::<_, Error>(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn initialize_request(
+        &self,
+        enable_snippets: bool,
+        client_info: lsp::ClientInfo,
+    ) -> Result<lsp::InitializeResult> {
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
         }
@@ -786,10 +790,7 @@ impl Client {
                 ..Default::default()
             },
             trace: None,
-            client_info: Some(lsp::ClientInfo {
-                name: String::from("mitos"),
-                version: Some(String::from(VERSION_AND_GIT_HASH)),
-            }),
+            client_info: Some(client_info),
             locale: None, // TODO
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
         };

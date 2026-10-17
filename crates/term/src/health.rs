@@ -386,7 +386,7 @@ fn probe_language_servers(
         writeln!(stdout, "  None")?;
         return Ok(());
     }
-    let (root, _) = lsp_client::language_server_root(language, None, root_dirs);
+    let (root, _) = view::language_servers::language_server_root(language, None, root_dirs);
     writeln!(stdout, "  Project root: {}", root.display())?;
     for group in language.language_server_groups() {
         let alternatives = group[0].alternative_group.is_some();
@@ -413,7 +413,7 @@ fn probe_language_servers(
                     continue;
                 }
             };
-            match lsp_client::has_required_root(definition, &root) {
+            match view::language_servers::has_required_root(definition, &root) {
                 Ok(true) => {}
                 Ok(false) => {
                     writeln!(

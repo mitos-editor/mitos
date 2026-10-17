@@ -2552,14 +2552,11 @@ name = "lsp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "core",
  "futures-executor",
  "futures-util",
  "globset",
- "language",
  "language-config",
- "loader",
  "log",
  "lsp-types",
  "parking_lot",
@@ -2570,8 +2567,6 @@ dependencies = [
  "stdx",
  "thiserror 2.0.21",
  "tokio",
- "tokio-stream",
- "workspace",
 ]
 
 [[package]]

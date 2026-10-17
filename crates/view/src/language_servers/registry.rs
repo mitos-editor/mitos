@@ -1,11 +1,11 @@
 //! Server selection, process registration, and explicit lifecycle transitions.
 
-use crate::{
-    file_event, lsp, Call, Client, Error, LanguageServerId, LanguageServerName, Result, Url,
-};
 use arc_swap::ArcSwap;
 use futures_util::stream::select_all::SelectAll;
 use language_config::{LanguageConfiguration, LanguageServerConfiguration, RootMarkers};
+use lsp_client::{
+    file_event, lsp, Call, Client, Error, LanguageServerId, LanguageServerName, Result, Url,
+};
 use slotmap::SlotMap;
 use std::{
     collections::HashMap,
@@ -249,7 +249,7 @@ impl Registry {
         doc_path: Option<&Path>,
         root_dirs: &[PathBuf],
     ) -> Option<Arc<Client>> {
-        let (root, _) = language_server_root(language, doc_path, root_dirs);
+        let (root, root_uri) = language_server_root(language, doc_path, root_dirs);
         self.instances
             .get(name)?
             .clients()
@@ -262,12 +262,7 @@ impl Registry {
                     return None;
                 }
                 client
-                    .try_add_doc(
-                        &language.roots,
-                        language.workspace_lsp_roots.as_deref().unwrap_or(root_dirs),
-                        doc_path,
-                        index == 0,
-                    )
+                    .try_add_workspace(&root, root_uri.clone(), index == 0)
                     .then(|| client.clone())
             })
     }
@@ -411,7 +406,7 @@ fn start_client(
         return Err(StartupError::NoRequiredRootFound);
     }
 
-    let (client, incoming, initialize_notify) = Client::start(
+    let (client, incoming) = Client::start(
         &ls_config.command,
         &ls_config.args,
         ls_config.config.clone(),
@@ -425,35 +420,20 @@ fn start_client(
 
     let client = Arc::new(client);
 
-    // Initialize the client asynchronously
-    let _client = client.clone();
+    // Startup and fallback policy belong to this editor-owned registry.
+    let initializing = client.clone();
     tokio::spawn(async move {
-        use futures_util::TryFutureExt;
-        let value = _client
-            .capabilities
-            .get_or_try_init(|| {
-                _client
-                    .initialize(enable_snippets)
-                    .map_ok(|response| response.capabilities)
-            })
-            .await;
-
-        if let Err(e) = value {
+        let client_info = lsp::ClientInfo {
+            name: "mitos".into(),
+            version: Some(loader::VERSION_AND_GIT_HASH.into()),
+        };
+        if let Err(error) = initializing.initialize(enable_snippets, client_info).await {
             log::error!(
-                "failed to initialize language server {}: {}",
-                _client.name(),
-                e
+                "failed to initialize language server {}: {error}",
+                initializing.name()
             );
-            // Close the transport even when a server rejects initialize but stays
-            // alive. Its exit drives startup fallback through the editor handler.
-            _client.force_shutdown();
-            return;
+            initializing.force_shutdown();
         }
-
-        // next up, notify<initialized>
-        _client.notify::<lsp::notification::Initialized>(lsp::InitializedParams {});
-
-        initialize_notify.notify_one();
     });
 
     Ok(NewClient(client, incoming))
@@ -503,7 +483,7 @@ pub fn has_required_root(
 /// * If no root marker and we stopped at a `root_dirs` entry, return the directory we stopped at
 /// * If we stopped at `workspace` instead and `workspace_is_cwd == false` return `None`
 /// * If we stopped at `workspace` instead and `workspace_is_cwd == true` return `workspace`
-pub fn find_lsp_workspace(
+fn find_lsp_workspace(
     file: &str,
     root_markers: &RootMarkers,
     root_dirs: &[PathBuf],
