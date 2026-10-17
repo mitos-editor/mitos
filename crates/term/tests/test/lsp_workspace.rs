@@ -106,10 +106,11 @@ async fn workspace_edits_validate_server_use_utf16_and_report_partial_failure() 
         .handle_workspace_edit(id, serde_json::from_value(params)?)?;
     assert!(!response.applied);
     assert_eq!(response.failed_change, Some(1));
-    assert_eq!(
-        response.failure_reason.as_deref(),
-        Some("document has changed")
-    );
+    let rejection = view::editing::EditError::DocumentChanged {
+        expected: version,
+        actual: current!(f.app.editor).1.version(),
+    };
+    assert_eq!(response.failure_reason, Some(rejection.to_string()));
     assert_eq!(current!(f.app.editor).1.text().to_string(), "😀 retained\n");
     f.app.editor.handle_language_server_exit(id);
     assert_eq!(
@@ -231,6 +232,10 @@ async fn terminal_adapter_preserves_typed_results_errors_and_null_acknowledgemen
             .await
     );
     let invalid_edit = json!({"edit": {"documentChanges": [edit(&f, 100, "stale!!!")]}});
+    let rejection = view::editing::EditError::DocumentChanged {
+        expected: 100,
+        actual: current!(f.app.editor).1.version(),
+    };
     let cases = [
         (
             "workspace/configuration",
@@ -241,7 +246,7 @@ async fn terminal_adapter_preserves_typed_results_errors_and_null_acknowledgemen
         (
             "workspace/applyEdit",
             invalid_edit,
-            json!({"applied": false, "failureReason": "document has changed", "failedChange": 0}),
+            json!({"applied": false, "failureReason": rejection.to_string(), "failedChange": 0}),
         ),
         (
             "client/registerCapability",

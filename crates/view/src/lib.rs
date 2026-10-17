@@ -38,6 +38,7 @@ pub mod save;
 pub mod theme;
 pub mod tree;
 pub mod view;
+pub mod workspace_edit;
 pub use ui_core::{input, keyboard};
 
 use std::num::NonZeroUsize;

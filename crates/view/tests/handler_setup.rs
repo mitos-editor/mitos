@@ -14,6 +14,8 @@ mod file_watching;
 mod snippets;
 #[path = "handler_setup/word_completion.rs"]
 mod word_completion;
+#[path = "handler_setup/workspace_edits.rs"]
+mod workspace_edits;
 #[path = "handler_setup/workspace_trust.rs"]
 mod workspace_trust;
 
