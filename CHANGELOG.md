@@ -2,6 +2,66 @@
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/mitos-editor/mitos/compare/v0.1.0...v0.1.1) - 2026-10-17
+
+### Added
+
+- *(lsp)* add ordered server alternatives and expand language coverage ([#342](https://github.com/mitos-editor/mitos/pull/342))
+- inline git blame ([#107](https://github.com/mitos-editor/mitos/pull/107))
+- *(keymap)* add configurable menu and command labels ([#134](https://github.com/mitos-editor/mitos/pull/134))
+- *(all)* restructure configuration ([#122](https://github.com/mitos-editor/mitos/pull/122))
+- *(ui)* make statusline layout configurable ([#127](https://github.com/mitos-editor/mitos/pull/127))
+- add component keymaps and buffer picker close action ([#126](https://github.com/mitos-editor/mitos/pull/126))
+- *(lsp)* code lenses ([#121](https://github.com/mitos-editor/mitos/pull/121))
+- *(lsp)* support inline completion ghost text ([#117](https://github.com/mitos-editor/mitos/pull/117))
+- *(view)* support undoable document-only transactions ([#303](https://github.com/mitos-editor/mitos/pull/303))
+- *(lsp)* cancel abandoned and timed-out requests ([#298](https://github.com/mitos-editor/mitos/pull/298))
+- *(terminal)* detect Kitty and Alacritty launchers ([#315](https://github.com/mitos-editor/mitos/pull/315))
+- *(config)* configure zellij as terminal.launcher if running inside it ([#314](https://github.com/mitos-editor/mitos/pull/314))
+- *(xtask)* automate weekly grammar updates ([#294](https://github.com/mitos-editor/mitos/pull/294))
+
+### Fixed
+
+- *(save)* drain accepted jobs and writes after failures ([#305](https://github.com/mitos-editor/mitos/pull/305))
+- *(format)* reject callbacks after view rebinding ([#301](https://github.com/mitos-editor/mitos/pull/301))
+- *(term)* initialize frontend destinations and hooks once ([#331](https://github.com/mitos-editor/mitos/pull/331))
+- *(term)* race condition on config tests
+- *(palette)* deliver command continuations after closing ([#304](https://github.com/mitos-editor/mitos/pull/304))
+- *(config)* make configuration migration explicit ([#135](https://github.com/mitos-editor/mitos/pull/135))
+- *(lsp)* clear diagnostics when restarting or stopping servers ([#118](https://github.com/mitos-editor/mitos/pull/118))
+- *(view)* preserve document lifecycle event identities ([#300](https://github.com/mitos-editor/mitos/pull/300))
+- detect file encoding using only bytes actually read ([#114](https://github.com/mitos-editor/mitos/pull/114))
+
+### Other
+
+- *(view)* coordinate scratch-file loading through the editor ([#349](https://github.com/mitos-editor/mitos/pull/349))
+- *(picker)* own preview loading and rendering in one module ([#346](https://github.com/mitos-editor/mitos/pull/346))
+- *(navigation)* share file-link resolution and validate its origin ([#350](https://github.com/mitos-editor/mitos/pull/350))
+- *(save)* own ordered write queues and completion accounting ([#324](https://github.com/mitos-editor/mitos/pull/324))
+- *(view)* own workspace edits and preserve rejection causes ([#337](https://github.com/mitos-editor/mitos/pull/337))
+- *(term)* own goto previews in command prompt sessions ([#339](https://github.com/mitos-editor/mitos/pull/339))
+- *(spelling)* own dictionary resources in feature handler ([#338](https://github.com/mitos-editor/mitos/pull/338))
+- *(editing)* separate document history from view selections ([#336](https://github.com/mitos-editor/mitos/pull/336))
+- *(save)* own the complete save pipeline in view ([#319](https://github.com/mitos-editor/mitos/pull/319))
+- *(view)* finish feature ownership and remove handler aliases ([#333](https://github.com/mitos-editor/mitos/pull/333))
+- own editor status and redraw signals ([#326](https://github.com/mitos-editor/mitos/pull/326))
+- *(view)* share view-bound request snapshots ([#330](https://github.com/mitos-editor/mitos/pull/330))
+- *(view)* coordinate language navigation requests ([#325](https://github.com/mitos-editor/mitos/pull/325))
+- *(view)* establish document invariants before observers ([#321](https://github.com/mitos-editor/mitos/pull/321))
+- own frontend callbacks and event subscriptions ([#318](https://github.com/mitos-editor/mitos/pull/318))
+- *(view)* group feature state and coordination ([#320](https://github.com/mitos-editor/mitos/pull/320))
+- *(view)* own hover and inlay hint requests ([#317](https://github.com/mitos-editor/mitos/pull/317))
+- *(view)* own debugger state and breakpoint mutations ([#316](https://github.com/mitos-editor/mitos/pull/316))
+- startup optimization ([#119](https://github.com/mitos-editor/mitos/pull/119))
+- *(deps)* bump the rust-dependencies group across 1 directory with 31 updates ([#129](https://github.com/mitos-editor/mitos/pull/129))
+- *(lsp)* make registry lifecycle state explicit ([#345](https://github.com/mitos-editor/mitos/pull/345))
+- *(stdx)* isolate current-directory mutations ([#296](https://github.com/mitos-editor/mitos/pull/296))
+- update Cargo.toml dependencies
+- *(editor)* group document lifecycle and filesystem operations ([#340](https://github.com/mitos-editor/mitos/pull/340))
+- *(view)* co-locate cached document features ([#329](https://github.com/mitos-editor/mitos/pull/329))
+- *(view)* separate document text encoding from model state ([#328](https://github.com/mitos-editor/mitos/pull/328))
+- *(diagnostics)* replace language-server findings by provider ([#299](https://github.com/mitos-editor/mitos/pull/299))
+
 ## [0.1.0](https://github.com/mitos-editor/mitos/releases/tag/v0.1.0) - 2026-10-08
 
 Mitos's first release builds on Helix's selection-first editing, multiple
