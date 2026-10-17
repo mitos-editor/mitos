@@ -52,6 +52,7 @@ path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]
 
 [dependencies]
+search.workspace = true
 clipboard.workspace = true
 grammar-build.workspace = true
 language.workspace = true
@@ -91,7 +92,6 @@ nucleo.workspace = true
 ignore.workspace = true
 grep-regex.workspace = true
 grep-searcher.workspace = true
-grep-matcher.workspace = true
 # markdown doc rendering
 pulldown-cmark.workspace = true
 thiserror.workspace = true
