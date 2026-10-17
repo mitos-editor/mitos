@@ -32,7 +32,10 @@ They reuse input types from `ui-core`; `command-line` only parses command argume
 
 Picker matching, input, and composition live in `term::ui::picker`. Its private
 `preview` module owns preview caches, loading, cancellation, asynchronous
-publication, and rendering. Dynamic query scheduling remains in `handlers`.
+publication, and rendering. Dynamic query scheduling remains in `handlers`. Query callbacks validate
+the originating picker's generation and query before restarting its provider.
+Prompt cleanup captures the prompt instances present at the focus change; queued
+cleanup cannot remove a later prompt in the same application.
 
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.

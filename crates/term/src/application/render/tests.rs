@@ -294,3 +294,38 @@ async fn background_job_failures_are_reported_to_the_application_that_started_th
     assert!(first.editor.get_status().is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
+) -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    let prompt = || crate::ui::Prompt::new(":".into(), None, |_, _| Vec::new(), |_, _, _| {});
+    app.compositor.push(Box::new(prompt()));
+    let doc = doc!(app.editor).id();
+    let view = app.editor.tree.focus;
+    event::dispatch(view::events::DocumentFocusLost {
+        editor: &mut app.editor,
+        doc,
+        view,
+    })
+    .report_to(app.editor.status_sender());
+    let callback = app.jobs.callbacks.try_recv()?;
+    app.compositor.pop();
+    app.compositor.push(Box::new(prompt()));
+    let current = app
+        .compositor
+        .find::<crate::ui::Prompt>()
+        .unwrap()
+        .session()
+        .clone();
+    app.jobs
+        .handle_callback(&mut app.editor, &mut app.compositor, Ok(Some(callback)));
+    assert!(app
+        .compositor
+        .find::<crate::ui::Prompt>()
+        .unwrap()
+        .session()
+        .same(&current));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

@@ -29,6 +29,7 @@ pub fn register_hooks() {
 pub(crate) fn bind_editor(
     editor: &view::Editor,
     jobs: crate::job::JobSender,
+    prompts: crate::compositor::PromptSessions,
 ) -> event::HookRegistration {
-    prompt::register_hook(editor, jobs)
+    prompt::register_hook(editor, jobs, prompts)
 }

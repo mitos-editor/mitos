@@ -98,6 +98,22 @@ impl Fixture {
             .expect("preview callback queue closed")
     }
 
+    async fn completion_while_time_paused(&mut self) -> Callback {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(callback) = self.jobs.callbacks.try_recv() {
+                return callback;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "preview syntax did not finish"
+            );
+            // Keep a task runnable while the blocking parser finishes. Awaiting
+            // recv would let Tokio advance the paused clock to its timeout.
+            tokio::task::yield_now().await;
+        }
+    }
+
     fn publish(&mut self, callback: Callback) {
         assert!(self
             .jobs
@@ -127,7 +143,7 @@ async fn preview_highlights_after_50_ms_without_restarting_or_switching_queues(
     tokio::time::advance(Duration::from_millis(2)).await;
     // Keep the clock paused while CPU work finishes so an older, longer debounce
     // would advance it beyond this deadline before delivering a callback.
-    let callback = fixture.completion().await;
+    let callback = fixture.completion_while_time_paused().await;
     assert_eq!(start.elapsed(), Duration::from_millis(51));
     tokio::time::resume();
     assert!(other_jobs.callbacks.try_recv().is_err());

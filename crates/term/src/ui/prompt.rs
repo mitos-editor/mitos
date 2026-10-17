@@ -28,7 +28,18 @@ type CallbackFn =
     Box<dyn FnMut(&mut Context, &str, PromptEvent) -> Option<crate::compositor::Callback>>;
 pub type DocFn = Box<dyn Fn(&str) -> Option<Cow<str>>>;
 
+/// Identity of one prompt instance, independent of its text and component type.
+#[derive(Clone, Default)]
+pub(crate) struct PromptSession(Arc<()>);
+
+impl PromptSession {
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 pub struct Prompt {
+    session: PromptSession,
     keys: KeymapState,
     prompt: Cow<'static, str>,
     line: String,
@@ -120,6 +131,7 @@ impl Prompt {
             + 'static,
     ) -> Self {
         Self {
+            session: PromptSession::default(),
             prompt,
             line: String::new(),
             cursor: 0,
@@ -138,6 +150,10 @@ impl Prompt {
             keys: KeymapState::default(),
             language: None,
         }
+    }
+
+    pub(crate) fn session(&self) -> &PromptSession {
+        &self.session
     }
 
     /// Gets the byte index in the input representing the current cursor location.

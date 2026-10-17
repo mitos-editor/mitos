@@ -159,7 +159,8 @@ impl Application {
             handlers,
             workspace_trust,
         );
-        let presentation_hooks = handlers::bind_editor(&editor, jobs.sender());
+        let presentation_hooks =
+            handlers::bind_editor(&editor, jobs.sender(), compositor.prompt_sessions());
         editor
             .registers
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));

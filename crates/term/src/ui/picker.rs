@@ -440,7 +440,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         debounce_ms: Option<u64>,
         jobs: &crate::job::Jobs,
     ) -> Self {
-        let handler = DynamicQueryHandler::new(callback, debounce_ms, jobs.sender()).spawn();
+        let handler =
+            DynamicQueryHandler::new(callback, debounce_ms, jobs.sender(), self.version.clone())
+                .spawn();
         let event = DynamicQueryChange {
             query: self.primary_query(),
             // Treat the initial query as a paste.

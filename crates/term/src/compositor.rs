@@ -16,7 +16,8 @@ pub enum EventResult {
 }
 
 use crate::job::Jobs;
-use crate::ui::picker;
+use crate::ui::{picker, prompt::PromptSession, Prompt};
+use std::sync::{Arc, Mutex};
 use view::Editor;
 
 pub use ui_core::input::Event;
@@ -88,7 +89,18 @@ pub trait Component: Any + AnyComponent {
     }
 }
 
+/// Prompt identities visible to editor hooks without retaining UI components.
+#[derive(Clone, Default)]
+pub(crate) struct PromptSessions(Arc<Mutex<Vec<PromptSession>>>);
+
+impl PromptSessions {
+    pub(crate) fn snapshot(&self) -> Vec<PromptSession> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
 pub struct Compositor {
+    prompt_sessions: PromptSessions,
     layers: Vec<Box<dyn Component>>,
     area: Rect,
 
@@ -100,6 +112,7 @@ impl Compositor {
     pub fn new(area: Rect) -> Self {
         Self {
             layers: Vec::new(),
+            prompt_sessions: PromptSessions::default(),
             area,
             last_picker: None,
             full_redraw: false,
@@ -125,6 +138,7 @@ impl Compositor {
         // trigger required_size on init
         layer.required_size((size.width, size.height));
         self.layers.push(layer);
+        self.refresh_prompt_sessions();
     }
 
     /// Replace a component that has the given `id` with the new layer and if
@@ -132,13 +146,16 @@ impl Compositor {
     pub fn replace_or_push<T: Component>(&mut self, id: &'static str, layer: T) {
         if let Some(component) = self.find_id(id) {
             *component = layer;
+            self.refresh_prompt_sessions();
         } else {
             self.push(Box::new(layer))
         }
     }
 
     pub fn pop(&mut self) -> Option<Box<dyn Component>> {
-        self.layers.pop()
+        let layer = self.layers.pop();
+        self.refresh_prompt_sessions();
+        layer
     }
 
     pub fn remove(&mut self, id: &'static str) -> Option<Box<dyn Component>> {
@@ -146,14 +163,45 @@ impl Compositor {
             .layers
             .iter()
             .position(|layer| layer.id() == Some(id))?;
-        Some(self.layers.remove(idx))
+        let layer = self.layers.remove(idx);
+        self.refresh_prompt_sessions();
+        Some(layer)
     }
 
     pub fn remove_type<T: 'static>(&mut self) {
         let type_name = std::any::type_name::<T>();
         self.layers
             .retain(|component| component.type_name() != type_name);
+        self.refresh_prompt_sessions();
     }
+
+    pub(crate) fn prompt_sessions(&self) -> PromptSessions {
+        self.prompt_sessions.clone()
+    }
+
+    fn refresh_prompt_sessions(&self) {
+        *self.prompt_sessions.0.lock().unwrap() = self
+            .layers
+            .iter()
+            .filter_map(|layer| layer.as_any().downcast_ref::<Prompt>())
+            .map(|prompt| prompt.session().clone())
+            .collect();
+    }
+
+    pub(crate) fn remove_prompt_sessions(&mut self, sessions: &[PromptSession]) {
+        self.layers.retain(|layer| {
+            layer
+                .as_any()
+                .downcast_ref::<Prompt>()
+                .is_none_or(|prompt| {
+                    !sessions
+                        .iter()
+                        .any(|session| session.same(prompt.session()))
+                })
+        });
+        self.refresh_prompt_sessions();
+    }
+
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> bool {
         // If it is a key event, a macro is being recorded, and a macro isn't being replayed,
         // push the key event to the recording.
