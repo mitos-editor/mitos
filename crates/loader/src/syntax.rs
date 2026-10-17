@@ -1,6 +1,7 @@
 //! Runtime grammar and query sources, independent of editor syntax compilation.
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -15,6 +16,8 @@ use tree_house::tree_sitter::Grammar;
 #[derive(Debug, Clone)]
 pub struct Resources {
     directories: Arc<[PathBuf]>,
+    owned_queries: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    query_aliases: Arc<BTreeMap<String, String>>,
 }
 
 impl Default for Resources {
@@ -27,6 +30,8 @@ impl Resources {
     pub fn new(directories: Vec<PathBuf>) -> Self {
         Self {
             directories: directories.into(),
+            owned_queries: Default::default(),
+            query_aliases: Default::default(),
         }
     }
 
@@ -42,8 +47,45 @@ impl Resources {
 
     /// Read one query file without inheritance, retaining I/O errors for health checks.
     pub fn query_file(&self, language: &str, filename: &str) -> std::io::Result<String> {
+        if let Some(source) = self
+            .owned_queries
+            .get(language)
+            .and_then(|queries| queries.get(filename))
+        {
+            return Ok(source.clone());
+        }
+        let language = self
+            .query_aliases
+            .get(language)
+            .map(String::as_str)
+            .unwrap_or(language);
         let relative = PathBuf::from("queries").join(language).join(filename);
         std::fs::read_to_string(self.runtime_file(&relative))
+    }
+
+    /// Owned query bytes and aliases never alter native grammar search roots.
+    pub fn with_owned_queries(
+        &self,
+        queries: BTreeMap<(String, String), String>,
+        aliases: BTreeMap<String, String>,
+    ) -> Self {
+        let mut owned: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        for ((language, filename), source) in queries {
+            owned.entry(language).or_default().insert(filename, source);
+        }
+        Self {
+            directories: self.directories.clone(),
+            owned_queries: Arc::new(owned),
+            query_aliases: Arc::new(aliases),
+        }
+    }
+
+    pub fn without_owned(&self) -> Self {
+        Self {
+            directories: self.directories.clone(),
+            owned_queries: Default::default(),
+            query_aliases: Default::default(),
+        }
     }
 
     /// Resolve query inheritance using the same per-file runtime precedence.
@@ -58,6 +100,35 @@ impl Resources {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_queries_override_alias_fallbacks_and_can_be_removed() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), "rust", "highlights.scm", "; native highlights");
+        write(root.path(), "rust", "indents.scm", "; native indents");
+        let native = Resources::new(vec![root.path().into()]);
+        let owned = native.with_owned_queries(
+            [(
+                ("fixture.rust".into(), "highlights.scm".into()),
+                "; owned highlights".into(),
+            )]
+            .into(),
+            [("fixture.rust".into(), "rust".into())].into(),
+        );
+        assert_eq!(
+            owned.query("fixture.rust", "highlights.scm"),
+            "; owned highlights"
+        );
+        assert_eq!(
+            owned.query("fixture.rust", "indents.scm"),
+            "; native indents"
+        );
+        assert_eq!(owned.query("rust", "highlights.scm"), "; native highlights");
+        assert!(owned
+            .without_owned()
+            .query("fixture.rust", "highlights.scm")
+            .is_empty());
+    }
 
     fn write(root: &Path, language: &str, filename: &str, text: &str) {
         let dir = root.join("queries").join(language);
