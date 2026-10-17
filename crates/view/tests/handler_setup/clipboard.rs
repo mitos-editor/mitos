@@ -1,3 +1,4 @@
+use ::clipboard::{ClipboardBackend, ClipboardError, ClipboardProvider, ClipboardType};
 use std::sync::Arc;
 use view::Editor;
 
@@ -6,52 +7,44 @@ use super::Fixture;
 #[derive(Default)]
 struct ClipboardState {
     contents: [String; 2],
-    writes: Vec<(
-        view::clipboard::ClipboardProvider,
-        view::clipboard::ClipboardType,
-        String,
-    )>,
+    writes: Vec<(ClipboardProvider, ClipboardType, String)>,
     unreadable: bool,
     fail_writes: bool,
 }
 
 struct MemoryClipboard(Arc<std::sync::Mutex<ClipboardState>>);
 
-impl view::clipboard::ClipboardBackend for MemoryClipboard {
-    fn name(&self, provider: &view::clipboard::ClipboardProvider) -> String {
+impl ClipboardBackend for MemoryClipboard {
+    fn name(&self, provider: &ClipboardProvider) -> String {
         format!("memory: {provider:?}")
     }
 
     fn get_contents(
         &self,
-        _: &view::clipboard::ClipboardProvider,
-        kind: view::clipboard::ClipboardType,
-    ) -> view::clipboard::Result<String> {
+        _: &ClipboardProvider,
+        kind: ClipboardType,
+    ) -> ::clipboard::Result<String> {
         let state = self.0.lock().unwrap();
         if state.unreadable {
-            Err(view::clipboard::ClipboardError::ReadingNotSupported)
+            Err(ClipboardError::ReadingNotSupported)
         } else {
-            Ok(
-                state.contents[usize::from(kind == view::clipboard::ClipboardType::Selection)]
-                    .clone(),
-            )
+            Ok(state.contents[usize::from(kind == ClipboardType::Selection)].clone())
         }
     }
 
     fn set_contents(
         &self,
-        provider: &view::clipboard::ClipboardProvider,
+        provider: &ClipboardProvider,
         content: &str,
-        kind: view::clipboard::ClipboardType,
-    ) -> view::clipboard::Result<()> {
+        kind: ClipboardType,
+    ) -> ::clipboard::Result<()> {
         let mut state = self.0.lock().unwrap();
         if state.fail_writes {
-            return Err(view::clipboard::ClipboardError::IoError(
+            return Err(ClipboardError::IoError(
                 std::io::ErrorKind::BrokenPipe.into(),
             ));
         }
-        state.contents[usize::from(kind == view::clipboard::ClipboardType::Selection)] =
-            content.into();
+        state.contents[usize::from(kind == ClipboardType::Selection)] = content.into();
         state.writes.push((provider.clone(), kind, content.into()));
         Ok(())
     }
@@ -68,7 +61,6 @@ fn clipboard_values(editor: &Editor, register: char) -> Vec<String> {
 
 #[tokio::test]
 async fn clipboard_backends_are_editor_owned_and_follow_live_configuration() -> anyhow::Result<()> {
-    use view::clipboard::{ClipboardProvider, ClipboardType};
     let mut first = Fixture::new("")?;
     let mut second = Fixture::new("")?;
     let a = Arc::new(std::sync::Mutex::new(ClipboardState::default()));

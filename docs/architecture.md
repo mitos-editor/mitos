@@ -14,6 +14,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
 | `loader` | Resource paths and grammar/query/theme sources |
 | `grammar-build` | Grammar source fetching and native compilation |
+| `clipboard` | Clipboard provider settings and native backends |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
@@ -492,9 +493,10 @@ that data into Ratatui text for pickers, completion, the bufferline, and statusl
 `view` has no direct Ratatui dependency; shared geometry and style types still
 come through `ui-core`.
 
-Clipboard settings and execution have separate owners. `view::clipboard::ClipboardProvider`
-is the serializable provider choice; `Clipboard` holds live configuration access
-and an application-supplied `ClipboardBackend`. Registers own saved selections,
+`clipboard` owns serializable provider settings, the backend interface, native
+provider detection, and OS or command execution. It has no editor or terminal
+dependency. `view::clipboard::Clipboard` holds live configuration access and an
+application-supplied `clipboard::ClipboardBackend`. Registers own saved selections,
 clipboard/primary selection mapping, and fallback for providers that cannot read.
 Each operation takes one settings snapshot, so configuration updates affect the
 next operation without replacing saved registers or the backend.
