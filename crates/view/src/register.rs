@@ -3,10 +3,8 @@ use std::{borrow::Cow, collections::HashMap, iter};
 use anyhow::Result;
 use editor_core::NATIVE_LINE_ENDING;
 
-use crate::{
-    clipboard::{Clipboard, ClipboardBackend, ClipboardError, ClipboardType},
-    Editor,
-};
+use crate::{clipboard::Clipboard, Editor};
+use ::clipboard::{ClipboardBackend, ClipboardError, ClipboardType};
 
 /// A key-value store for saving sets of values.
 ///

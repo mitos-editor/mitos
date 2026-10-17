@@ -23,6 +23,7 @@ unicode-lines = []
 bench = []
 
 [dependencies]
+clipboard.workspace = true
 language.workspace = true
 theme.workspace = true
 workspace.workspace = true
@@ -64,9 +65,6 @@ parking_lot.workspace = true
 thiserror.workspace = true
 
 arrayvec.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-clipboard-win = { workspace = true, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

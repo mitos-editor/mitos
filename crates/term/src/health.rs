@@ -128,7 +128,7 @@ pub fn clipboard() -> std::io::Result<()> {
         }
     };
 
-    use view::clipboard::ClipboardBackend;
+    use ::clipboard::ClipboardBackend;
     match crate::clipboard::TerminalClipboard
         .name(&config.editor.clipboard.provider)
         .as_str()

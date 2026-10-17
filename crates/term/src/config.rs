@@ -1107,7 +1107,7 @@ completer = ":write"
 
     #[test]
     fn clipboard_settings_roundtrip_and_local_override_preserve_schema() {
-        use view::clipboard::ClipboardProvider;
+        use ::clipboard::ClipboardProvider;
         let global = "[editor]\nclipboard-provider = 'termcode'".to_owned();
         let local = "[editor]\nclipboard-provider = 'none'".to_owned();
         let config = Config::load(Ok(&global), Ok(local)).unwrap();

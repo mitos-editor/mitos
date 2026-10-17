@@ -1,8 +1,6 @@
 //! Terminal clipboard selection and OSC 52 output.
+use ::clipboard::{ClipboardBackend, ClipboardProvider, ClipboardType, NativeClipboard, Result};
 use std::io::Write;
-use view::clipboard::{
-    ClipboardBackend, ClipboardProvider, ClipboardType, NativeClipboard, Result,
-};
 
 pub(crate) struct TerminalClipboard;
 
@@ -92,7 +90,7 @@ pub(crate) fn default_provider() -> ClipboardProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use view::clipboard::ClipboardError;
+    use ::clipboard::ClipboardError;
 
     #[derive(Default)]
     struct Output {
