@@ -339,40 +339,32 @@ impl Client {
         Ok(response)
     }
 
-    /// Replies to a reverse request initiated by the debug adapter.
+    /// Queues a reply to a reverse request initiated by the debug adapter.
     pub fn reply(
         &self,
         request_seq: u64,
         command: &str,
         result: core::result::Result<Value, Error>,
-    ) -> impl Future<Output = Result<()>> + use<> {
-        let server_tx = self.server_tx.clone();
-        let command = command.to_string();
-
-        async move {
-            let response = match result {
-                Ok(result) => Response {
-                    request_seq,
-                    command,
-                    success: true,
-                    message: None,
-                    body: Some(result),
-                },
-                Err(error) => Response {
-                    request_seq,
-                    command,
-                    success: false,
-                    message: Some(error.to_string()),
-                    body: None,
-                },
-            };
-
-            server_tx
-                .send(Payload::Response(response))
-                .map_err(|e| Error::Other(e.into()))?;
-
-            Ok(())
-        }
+    ) -> Result<()> {
+        let response = match result {
+            Ok(result) => Response {
+                request_seq,
+                command: command.to_owned(),
+                success: true,
+                message: None,
+                body: Some(result),
+            },
+            Err(error) => Response {
+                request_seq,
+                command: command.to_owned(),
+                success: false,
+                message: Some(format!("{error:#}")),
+                body: None,
+            },
+        };
+        self.server_tx
+            .send(Payload::Response(response))
+            .map_err(|error| Error::Other(error.into()))
     }
 
     /// Returns the negotiated capabilities.
@@ -402,7 +394,11 @@ impl Client {
         Some(status.end_status_line(event.message.as_deref()))
     }
 
-    pub async fn initialize(&mut self, adapter_id: String) -> Result<()> {
+    pub async fn initialize(
+        &mut self,
+        adapter_id: String,
+        supports_run_in_terminal: bool,
+    ) -> Result<()> {
         let args = requests::InitializeArguments {
             client_id: Some("mitos".to_owned()),
             client_name: Some("mitos".to_owned()),
@@ -413,7 +409,7 @@ impl Client {
             path_format: Some("path".to_owned()),
             supports_variable_type: Some(true),
             supports_variable_paging: Some(false),
-            supports_run_in_terminal_request: Some(true),
+            supports_run_in_terminal_request: Some(supports_run_in_terminal),
             supports_memory_references: Some(false),
             supports_progress_reporting: Some(true),
             supports_invalidated_event: Some(false),

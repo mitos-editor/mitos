@@ -306,9 +306,6 @@ pub struct Config {
     #[serde(default)]
     pub search: SearchConfig,
     pub lsp: LspConfig,
-    /// External terminal launcher selected by the frontend.
-    #[serde(skip)]
-    pub terminal: Option<TerminalConfig>,
     /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
     pub rulers: Vec<u16>,
     #[serde(default)]
@@ -479,109 +476,6 @@ impl Default for SmartTabConfig {
             supersede_menu: false,
         }
     }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub struct TerminalConfig {
-    pub command: String,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<String>,
-}
-
-#[cfg(windows)]
-pub fn get_terminal_provider() -> Option<TerminalConfig> {
-    use stdx::env::{binary_exists, env_var_is_set};
-
-    // zellij has added support for Windows in v0.44.0
-    // https://github.com/zellij-org/zellij/releases/tag/v0.44.0
-    if env_var_is_set("ZELLIJ") && binary_exists("zellij") {
-        return Some(TerminalConfig {
-            command: "zellij".to_string(),
-            args: vec!["run".to_string(), "--".to_string()],
-        });
-    }
-    if binary_exists("wt") {
-        return Some(TerminalConfig {
-            command: "wt".to_string(),
-            args: vec![
-                "new-tab".to_string(),
-                "--title".to_string(),
-                "DEBUG".to_string(),
-                "cmd".to_string(),
-                "/C".to_string(),
-            ],
-        });
-    }
-
-    Some(TerminalConfig {
-        command: "conhost".to_string(),
-        args: vec!["cmd".to_string(), "/C".to_string()],
-    })
-}
-
-#[cfg(not(any(windows, target_arch = "wasm32")))]
-pub fn get_terminal_provider() -> Option<TerminalConfig> {
-    use stdx::env::{binary_exists, env_var_is_set};
-
-    if env_var_is_set("TMUX") && binary_exists("tmux") {
-        return Some(TerminalConfig {
-            command: "tmux".to_string(),
-            args: vec!["split-window".to_string()],
-        });
-    }
-
-    if env_var_is_set("ZELLIJ") && binary_exists("zellij") {
-        return Some(TerminalConfig {
-            command: "zellij".to_string(),
-            args: vec!["run".to_string(), "--".to_string()],
-        });
-    }
-
-    if env_var_is_set("WEZTERM_UNIX_SOCKET") && binary_exists("wezterm") {
-        return Some(TerminalConfig {
-            command: "wezterm".to_string(),
-            args: vec!["cli".to_string(), "split-pane".to_string()],
-        });
-    }
-
-    // Require a socket so remote control does not read responses from the
-    // controlling terminal while the editor is using it.
-    if let Ok(socket) = std::env::var("KITTY_LISTEN_ON")
-        && !socket.is_empty()
-        && binary_exists("kitten")
-    {
-        return Some(TerminalConfig {
-            command: "kitten".to_string(),
-            args: vec![
-                "@".to_string(),
-                "--to".to_string(),
-                socket,
-                "launch".to_string(),
-                "--type=window".to_string(),
-                "--".to_string(),
-            ],
-        });
-    }
-
-    if let Ok(socket) = std::env::var("ALACRITTY_SOCKET")
-        && !socket.is_empty()
-        && binary_exists("alacritty")
-    {
-        return Some(TerminalConfig {
-            command: "alacritty".to_string(),
-            args: vec![
-                "msg".to_string(),
-                "--socket".to_string(),
-                socket,
-                "create-window".to_string(),
-                "-e".to_string(),
-            ],
-        });
-    }
-
-    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1248,7 +1142,6 @@ impl Default for Config {
             statusline: StatusLineConfig::default(),
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
-            terminal: get_terminal_provider(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
             breadcrumb: BreadcrumbConfig::default(),

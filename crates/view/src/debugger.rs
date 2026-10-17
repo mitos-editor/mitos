@@ -70,15 +70,52 @@ pub enum BreakpointProperty {
     LogMessage,
 }
 
+/// Frontend-owned launch of a debuggee in a terminal. The shared editor owns
+/// reverse-request completion; implementations honor working directory and environment.
+pub trait TerminalLauncher: Send + Sync {
+    fn launch(
+        &self,
+        args: dap::requests::RunInTerminalArguments,
+    ) -> futures_util::future::BoxFuture<'static, dap::Result<dap::requests::RunInTerminalResponse>>;
+}
+
 /// Owns debugger sessions and the source breakpoints shared across those sessions.
 #[derive(Default)]
 pub struct DebuggerState {
     pub(crate) adapters: Registry,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
+    terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 
 impl DebuggerState {
+    /// Install a frontend terminal operation before starting any debug adapters.
+    pub fn set_terminal_launcher(
+        &mut self,
+        launcher: impl TerminalLauncher + 'static,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.adapters.is_empty(),
+            "Configure terminal launching before starting debug adapters"
+        );
+        self.adapters.set_terminal_support(true);
+        self.terminal_launcher = Some(Box::new(launcher));
+        Ok(())
+    }
+
+    pub(crate) fn run_in_terminal(
+        &self,
+        args: dap::requests::RunInTerminalArguments,
+    ) -> futures_util::future::BoxFuture<'static, dap::Result<dap::requests::RunInTerminalResponse>>
+    {
+        match &self.terminal_launcher {
+            Some(launcher) => launcher.launch(args),
+            None => Box::pin(async {
+                Err(anyhow::anyhow!("This frontend does not provide debug terminals").into())
+            }),
+        }
+    }
+
     pub fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
         self.adapters.get_client(id)
     }

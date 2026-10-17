@@ -13,6 +13,8 @@
 #[macro_use]
 extern crate view;
 
+mod terminal_launcher;
+
 pub mod application;
 pub mod args;
 mod clipboard;
@@ -120,6 +122,12 @@ fn open_external_url_callback(
             editor.set_error(|| "Opening URL in external program failed")
         })))
     }
+}
+
+/// Private entry point used by external debug terminals before normal CLI setup.
+#[doc(hidden)]
+pub fn run_debug_terminal_helper() -> Option<anyhow::Result<i32>> {
+    terminal_launcher::run_helper()
 }
 
 #[cfg(test)]

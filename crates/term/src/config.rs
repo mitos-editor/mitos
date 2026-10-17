@@ -4,6 +4,7 @@ use crate::keymap::component::{
     PromptAction,
 };
 use crate::keymap::KeyTrie;
+pub use crate::terminal_launcher::TerminalLauncherConfig;
 use loader::config::migration;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -35,7 +36,7 @@ pub struct TerminalConfig {
     pub undercurl: bool,
     /// Policy for enabling the Kitty keyboard protocol.
     pub keyboard: KeyboardConfig,
-    pub launcher: Option<view::config::TerminalConfig>,
+    pub launcher: Option<TerminalLauncherConfig>,
 }
 
 impl Default for TerminalConfig {
@@ -44,7 +45,7 @@ impl Default for TerminalConfig {
             true_color: false,
             undercurl: false,
             keyboard: KeyboardConfig::default(),
-            launcher: view::config::get_terminal_provider(),
+            launcher: crate::terminal_launcher::default_launcher(),
         }
     }
 }
@@ -96,9 +97,8 @@ impl<'de> Deserialize<'de> for EditorSettings {
                 .entry("provider".to_owned())
                 .or_insert_with(|| serde_json::json!(crate::clipboard::default_provider()));
         }
-        let mut editor: view::config::Config =
+        let editor: view::config::Config =
             serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?;
-        editor.terminal = terminal.launcher.clone();
         Ok(Self { editor, terminal })
     }
 }
@@ -1261,8 +1261,7 @@ completer = ":write"
         assert_eq!(config.editor.files.reload.poll.interval, 4000);
         assert!(config.editor.rulers.is_empty());
         assert!(config.terminal.true_color);
-        assert_eq!(config.editor.terminal, config.terminal.launcher);
-        assert_eq!(config.editor.terminal.unwrap().command, "tmux");
+        assert_eq!(config.terminal.launcher.unwrap().command, "tmux");
     }
 
     #[test]

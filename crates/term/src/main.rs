@@ -18,6 +18,9 @@ fn setup_logging(verbosity: u64) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    if let Some(result) = term::run_debug_terminal_helper() {
+        std::process::exit(result?);
+    }
     let exit_code = main_impl()?;
     std::process::exit(exit_code);
 }

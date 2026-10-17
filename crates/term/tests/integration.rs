@@ -29,6 +29,7 @@ mod test {
     mod component_keymaps;
     mod config_application;
     mod cursor;
+    mod debugger_terminal;
     mod document_features;
     mod formatting;
     mod inline_completion;

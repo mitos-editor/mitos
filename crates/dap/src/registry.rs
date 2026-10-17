@@ -13,6 +13,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 /// invalidates its generational [`DebugAdapterId`].
 pub struct Registry {
     inner: SlotMap<DebugAdapterId, Client>,
+    supports_run_in_terminal: bool,
     /// The active debugger client
     ///
     /// TODO: You can have multiple active debuggers, so the concept of a single active debugger
@@ -27,9 +28,19 @@ impl Registry {
     pub fn new() -> Self {
         Self {
             inner: SlotMap::with_key(),
+            supports_run_in_terminal: false,
             current_client_id: None,
             incoming: SelectAll::new(),
         }
+    }
+
+    /// Configure frontend terminal support before creating adapter connections.
+    pub fn set_terminal_support(&mut self, supported: bool) {
+        self.supports_run_in_terminal = supported;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 
     /// Starts and initializes a client from configuration.
@@ -58,7 +69,7 @@ impl Registry {
             self.incoming.push(UnboundedReceiverStream::new(receiver));
 
             client.config = Some(config.clone());
-            block_on(client.initialize(config.name.clone()))?;
+            block_on(client.initialize(config.name.clone(), self.supports_run_in_terminal))?;
             client.quirks = config.quirks.clone();
 
             Ok(client)

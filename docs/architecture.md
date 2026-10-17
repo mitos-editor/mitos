@@ -167,6 +167,17 @@ capabilities before storage. Rejected properties leave the previous value intact
 clearing an unsupported property is always
 permitted, even when other settings still prevent adapter synchronization.
 
+Debugger terminal launching is a frontend operation injected into `DebuggerState`
+before adapters start. DAP advertises terminal support only when that operation is
+installed. Shared reverse-request handling returns success or an error to the
+adapter on every path. Terminal startup runs outside the editor mutation loop;
+its completion callback checks the originating adapter ID before replying.
+`term::terminal_launcher` owns launcher discovery and the
+private helper that applies cwd/environment inside the destination terminal,
+including multiplexer sessions. A private temporary handoff carries process inputs;
+only its path appears on the launcher command line. The helper returns the actual
+debuggee process ID, then waits for its exit.
+
 ### Resources and feature coordination
 
 `loader::syntax::Resources` owns the ordered runtime paths used to load native

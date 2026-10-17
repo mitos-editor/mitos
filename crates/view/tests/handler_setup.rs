@@ -8,6 +8,8 @@ mod clipboard;
 mod completion;
 #[path = "handler_setup/configuration.rs"]
 mod configuration;
+#[path = "handler_setup/debugger.rs"]
+mod debugger;
 #[path = "handler_setup/file_navigation.rs"]
 mod file_navigation;
 #[path = "handler_setup/file_watching.rs"]

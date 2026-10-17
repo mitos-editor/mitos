@@ -165,6 +165,9 @@ impl Application {
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
         let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
         let _ = editor.set_theme(theme);
+        editor.debugger_mut().set_terminal_launcher(
+            crate::terminal_launcher::ExternalTerminal::new(config.clone())?,
+        )?;
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
