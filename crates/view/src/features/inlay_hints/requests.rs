@@ -124,7 +124,10 @@ pub fn refresh(editor: &mut Editor) {
                             editor.redraw().request();
                         }
                         Err(error) => {
-                            log::error!("inlay hints request failed: {error}");
+                            log::log!(
+                                lsp_client::error_log_level(&error),
+                                "inlay hints request failed: {error}"
+                            );
                             doc.inlay_hints.retry(view_id);
                         }
                     }

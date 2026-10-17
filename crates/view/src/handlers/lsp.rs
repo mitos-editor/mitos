@@ -199,7 +199,10 @@ impl Editor {
 
         tokio::spawn(async move {
             if let Err(err) = future.await {
-                log::error!("Error executing LSP command: {err}");
+                log::log!(
+                    lsp_client::error_log_level(&err),
+                    "Error executing LSP command: {err}"
+                );
             }
         });
     }

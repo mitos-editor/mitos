@@ -293,7 +293,10 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
                 Some(Some((encoding, Ok(Response::Highlights(response))))) => {
                     highlights = Some((encoding, response))
                 }
-                Some(Some((_, Err(error)))) => log::error!("navigation request failed: {error}"),
+                Some(Some((_, Err(error)))) => log::log!(
+                    lsp_client::error_log_level(&error),
+                    "navigation request failed: {error}"
+                ),
                 Some(None) => break,
                 None => return,
             }

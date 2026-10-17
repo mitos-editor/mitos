@@ -109,7 +109,10 @@ fn request_document_code_lenses(
         loop {
             match cancelable_future(futures.next(), &request.cancel).await {
                 Some(Some(Ok(items))) => lenses.extend(items),
-                Some(Some(Err(err))) => log::error!("code lens request failed: {err}"),
+                Some(Some(Err(err))) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "code lens request failed: {err}"
+                ),
                 Some(None) => break,
                 None => return,
             }
@@ -259,7 +262,10 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
                 Ok(Some(lens)) => lens,
                 Ok(None) => return,
                 Err(err) => {
-                    log::error!("code lens title resolution failed: {err}");
+                    log::log!(
+                        lsp_client::error_log_level(&err),
+                        "code lens title resolution failed: {err}"
+                    );
                     return;
                 }
             };
@@ -388,7 +394,10 @@ pub fn resolve_code_lenses(
             match cancelable_future(futures.next(), &request.cancel).await {
                 Some(Some(Ok(Some(item)))) => items.push(item),
                 Some(Some(Ok(None))) => (),
-                Some(Some(Err(err))) => log::error!("code lens resolution failed: {err}"),
+                Some(Some(Err(err))) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "code lens resolution failed: {err}"
+                ),
                 Some(None) => break,
                 None => return None,
             }

@@ -90,7 +90,10 @@ fn request_document_colors(
         loop {
             match cancelable_future(futures.next(), &request.cancel).await {
                 Some(Some(Ok(items))) => all_colors.extend(items),
-                Some(Some(Err(err))) => log::error!("document color request failed: {err}"),
+                Some(Some(Err(err))) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "document color request failed: {err}"
+                ),
                 Some(None) => break,
                 // The request was cancelled.
                 None => return,

@@ -132,7 +132,10 @@ pub fn request(editor: &mut Editor) {
         loop {
             match cancelable_future(futures.next(), request.target.cancel_handle()).await {
                 Some(Some((name, Ok(Some(hover))))) => hovers.push((name, hover)),
-                Some(Some((_, Err(err)))) => log::error!("hover request failed: {err}"),
+                Some(Some((_, Err(err)))) => log::log!(
+                    lsp_client::error_log_level(&err),
+                    "hover request failed: {err}"
+                ),
                 Some(Some((_, Ok(None)))) => (),
                 Some(None) => break,
                 None => return,

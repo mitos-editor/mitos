@@ -519,7 +519,10 @@ pub fn symbol_picker(cx: &mut Context) {
         while let Some(response) = futures.next().await {
             match response {
                 Ok(mut items) => symbols.append(&mut items),
-                Err(err) => log::error!("Error requesting document symbols: {err}"),
+                Err(err) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "Error requesting document symbols: {err}"
+                ),
             }
         }
         let call = move |editor: &mut Editor, compositor: &mut Compositor| {
@@ -626,7 +629,10 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
                             injector.push(item)?;
                         }
                     }
-                    Err(err) => log::error!("Error requesting workspace symbols: {err}"),
+                    Err(err) => log::log!(
+                        lsp_client::error_log_level(err.as_ref()),
+                        "Error requesting workspace symbols: {err}"
+                    ),
                 }
             }
             Ok(())
@@ -720,7 +726,10 @@ pub fn code_action(cx: &mut Context) {
         while let Some(output) = futures.next().await {
             match output {
                 Ok(mut items) => actions.append(&mut items),
-                Err(err) => log::error!("while gathering code actions: {err}"),
+                Err(err) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "while gathering code actions: {err}"
+                ),
             }
         }
 

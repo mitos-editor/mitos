@@ -235,7 +235,10 @@ impl Request {
                     match result {
                         Ok(response) => self.publish(editor, response),
                         Err(error) => {
-                            log::error!("signature help request failed: {error}");
+                            log::log!(
+                                lsp_client::error_log_level(&error),
+                                "signature help request failed: {error}"
+                            );
                         }
                     }
                 })

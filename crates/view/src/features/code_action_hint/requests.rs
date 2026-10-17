@@ -138,7 +138,10 @@ fn request_code_action_hint(editor: &mut Editor, doc_id: DocumentId, view_id: Vi
                         )
                     });
                 }
-                Some(Some(Err(err))) => log::error!("while gathering code actions: {err}"),
+                Some(Some(Err(err))) => log::log!(
+                    lsp_client::error_log_level(&err),
+                    "while gathering code actions: {err}"
+                ),
                 Some(None) => break,
                 None => return,
             }
