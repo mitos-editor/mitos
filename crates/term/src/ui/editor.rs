@@ -950,7 +950,7 @@ impl EditorView {
             .try_get("ui.bufferline")
             .unwrap_or_else(|| editor.theme.get("ui.statusline.inactive"));
 
-        let current_doc = view!(editor).doc;
+        let current_doc = view!(editor).document_id();
         let mut current_tab = 0;
         // PERF: Ratatui Tabs needs an owned title list every frame. Cache these by document
         // metadata if bufferline rendering becomes measurable with very large buffer sets.
@@ -1638,7 +1638,7 @@ impl EditorView {
         let pos_and_view = |editor: &Editor, row, column, ignore_virtual_text| {
             editor.tree.views().find_map(|(view, _focus)| {
                 view.pos_at_screen_coords(
-                    &editor.documents[&view.doc],
+                    &editor.documents[&view.document_id()],
                     row,
                     column,
                     ignore_virtual_text,
@@ -1649,8 +1649,12 @@ impl EditorView {
 
         let gutter_coords_and_view = |editor: &Editor, row, column| {
             editor.tree.views().find_map(|(view, _focus)| {
-                view.gutter_coords_at_screen_coords(&editor.documents[&view.doc], row, column)
-                    .map(|coords| (coords, view.id))
+                view.gutter_coords_at_screen_coords(
+                    &editor.documents[&view.document_id()],
+                    row,
+                    column,
+                )
+                .map(|coords| (coords, view.id))
             })
         };
 
@@ -1663,7 +1667,7 @@ impl EditorView {
 
                     let prev_view_id = view!(editor).id;
                     let mode = editor.mode();
-                    let doc = doc_mut!(editor, &view!(editor, view_id).doc);
+                    let doc = doc_mut!(editor, &view!(editor, view_id).document_id());
 
                     if modifiers == KeyModifiers::ALT {
                         let selection = doc.selection(view_id).clone();
@@ -1825,7 +1829,7 @@ impl EditorView {
                 }
 
                 if let Some((pos, view_id)) = pos_and_view(editor, row, column, true) {
-                    let doc = doc_mut!(editor, &view!(editor, view_id).doc);
+                    let doc = doc_mut!(editor, &view!(editor, view_id).document_id());
                     doc.set_selection(view_id, Selection::point(pos));
                     cxt.editor.focus(view_id);
 
@@ -2057,12 +2061,12 @@ impl Component for EditorView {
         self.images.retain(|id, _| {
             cx.editor.tree.try_get(*id).is_some_and(|view| {
                 cx.editor
-                    .document(view.doc)
+                    .document(view.document_id())
                     .is_some_and(Document::is_binary)
             })
         });
         for (view, is_focused) in cx.editor.tree.views() {
-            let doc = cx.editor.document(view.doc).unwrap();
+            let doc = cx.editor.document(view.document_id()).unwrap();
             let content = view.content_area(doc);
             if doc.is_binary() && !content.is_empty() {
                 let style = cx.editor.theme.get("ui.text");

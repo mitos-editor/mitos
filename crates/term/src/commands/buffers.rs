@@ -17,7 +17,7 @@ struct BufferMeta {
 }
 
 fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
-    let current = view!(editor).doc;
+    let current = view!(editor).document_id();
     let mut items: Vec<_> = editor
         .documents()
         .map(|doc| BufferMeta {
@@ -175,7 +175,7 @@ pub(super) mod typed {
     ) -> Vec<DocumentId> {
         // No arguments implies current document
         if args.is_empty() {
-            let doc_id = view!(editor).doc;
+            let doc_id = view!(editor).document_id();
             return vec![doc_id];
         }
 
@@ -245,7 +245,7 @@ pub(super) mod typed {
             let visible_document_ids = editor
                 .tree
                 .views()
-                .map(|view| &view.0.doc)
+                .map(|(view, _)| view.document_id())
                 .collect::<HashSet<_>>();
             editor
                 .documents()

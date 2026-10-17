@@ -13,7 +13,7 @@
 macro_rules! current {
     ($editor:expr) => {{
         let view = $crate::view_mut!($editor);
-        let id = view.doc;
+        let id = view.document_id();
         let doc = $crate::doc_mut!($editor, &id);
         (view, doc)
     }};
@@ -23,7 +23,7 @@ macro_rules! current {
 macro_rules! current_ref {
     ($editor:expr) => {{
         let view = $editor.tree.get($editor.tree.focus);
-        let doc = &$editor.documents[&view.doc];
+        let doc = &$editor.documents[&view.document_id()];
         (view, doc)
     }};
 }

@@ -515,7 +515,7 @@ async fn goto_preview_cannot_follow_a_rebound_view() -> anyhow::Result<()> {
 async fn goto_preview_cannot_resume_after_switching_away_and_back() -> anyhow::Result<()> {
     for ending in ["4<esc>", "4<ret>"] {
         let mut app = goto_preview_app()?;
-        let original = view::view!(app.editor).doc;
+        let original = view::view!(app.editor).document_id();
         goto_keys(&mut app, ":goto 3").await?;
         app.editor.new_file(view::editor::Action::Replace);
         app.editor.switch(original, view::editor::Action::Replace);
@@ -541,7 +541,7 @@ async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow:
     ] {
         let mut app = goto_preview_app()?;
         app.editor.switch(
-            view::view!(app.editor).doc,
+            view::view!(app.editor).document_id(),
             view::editor::Action::HorizontalSplit,
         );
         let (view, doc) = view::current!(app.editor);
@@ -561,7 +561,10 @@ async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow:
         doc.set_selection(view.id, Selection::single(2, 3));
         goto_keys(&mut app, ending).await?;
         assert_goto_cursor(&app, 2);
-        let doc = app.editor.document(view::view!(app.editor).doc).unwrap();
+        let doc = app
+            .editor
+            .document(view::view!(app.editor).document_id())
+            .unwrap();
         assert_eq!(doc.selection(original_view), &Selection::single(1, 2));
         assert!(app.close().await.is_empty());
     }
@@ -572,7 +575,7 @@ async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow:
 async fn goto_preview_ignores_a_closed_origin_split() -> anyhow::Result<()> {
     let mut app = goto_preview_app()?;
     app.editor.switch(
-        view::view!(app.editor).doc,
+        view::view!(app.editor).document_id(),
         view::editor::Action::HorizontalSplit,
     );
     goto_keys(&mut app, ":goto 3").await?;

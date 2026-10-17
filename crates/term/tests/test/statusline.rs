@@ -21,7 +21,7 @@ fn assert_per_view(app: &Application) {
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
     for (view, focused) in app.editor.tree.views() {
-        let doc = app.editor.document(view.doc).unwrap();
+        let doc = app.editor.document(view.document_id()).unwrap();
         let area = view.statusline_area(doc);
         let text = row(buffer, area);
         assert!(text.contains(doc.path().unwrap().file_name().unwrap().to_str().unwrap()));
@@ -59,7 +59,7 @@ fn assert_global(app: &Application) {
     assert!(text.contains("NOR"));
     assert_eq!(buffer[(area.x, area.y)].bg, Color::Blue);
     for (view, _) in app.editor.tree.views() {
-        let doc = app.editor.document(view.doc).unwrap();
+        let doc = app.editor.document(view.document_id()).unwrap();
         assert!(view.statusline_area(doc).is_empty());
         assert_eq!(view.content_area(doc), view.area);
     }

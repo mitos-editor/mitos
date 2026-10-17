@@ -32,7 +32,7 @@ pub(super) fn goto_previous_buffer(cx: &mut Context) {
 }
 
 pub(super) fn goto_buffer(editor: &mut Editor, direction: Direction, count: usize) {
-    let current = view!(editor).doc;
+    let current = view!(editor).document_id();
 
     let id = match direction {
         Direction::Forward => {
@@ -224,7 +224,7 @@ pub(super) fn goto_last_modified_file(cx: &mut Context) {
         .last_modified_docs
         .into_iter()
         .flatten()
-        .find(|&id| id != view.doc);
+        .find(|&id| id != view.document_id());
     if let Some(alt) = alternate_file {
         cx.editor.switch(alt, Action::Replace);
     } else {
@@ -282,7 +282,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
             selection,
             line_start,
             text: contents,
-            is_current: view.doc == doc_id,
+            is_current: view.document_id() == doc_id,
         }
     };
 
@@ -559,7 +559,7 @@ pub(super) struct GotoLineOrigin {
 impl GotoLineOrigin {
     fn is_valid(&self, editor: &Editor) -> bool {
         editor.tree.try_get(self.view).is_some_and(|view| {
-            view.doc == self.document && view.binding_revision() == self.binding_revision
+            view.document_id() == self.document && view.binding_revision() == self.binding_revision
         }) && editor
             .document(self.document)
             .is_some_and(|doc| doc.version() == self.document_version)

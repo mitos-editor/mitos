@@ -488,7 +488,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
         .open(&path, view::editor::Action::VerticalSplit)?;
     edit_buffer(&mut app, "local ");
     for (view, _) in app.editor.tree.views() {
-        let doc = app.editor.documents.get_mut(&view.doc).unwrap();
+        let doc = app.editor.documents.get_mut(&view.document_id()).unwrap();
         doc.set_selection(
             view.id,
             editor_core::Selection::point(doc.text().len_chars() - 2),
@@ -502,7 +502,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
     assert!(!current_ref!(app.editor).1.is_modified());
     let scrolloff = app.editor.config().scroll.padding;
     for (view, _) in app.editor.tree.views_mut() {
-        let doc = &app.editor.documents[&view.doc];
+        let doc = &app.editor.documents[&view.document_id()];
         assert!(doc.selection(view.id).primary().head <= doc.text().len_chars());
         assert!(view.is_cursor_in_view(doc, scrolloff));
     }

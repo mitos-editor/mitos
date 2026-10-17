@@ -3,6 +3,8 @@ use slotmap::SlotMap;
 
 // the dimensions are recomputed on window resize/tree change.
 //
+/// Editor-owned split layout. Structural changes go through [`crate::Editor`]
+/// so document selections and service bindings follow the lifetime of each view.
 #[derive(Debug)]
 pub struct Tree {
     root: ViewId,
@@ -84,7 +86,7 @@ impl Default for Container {
 }
 
 impl Tree {
-    pub fn new(area: Rect) -> Self {
+    pub(crate) fn new(area: Rect) -> Self {
         let root = Node::container(Layout::Vertical);
 
         let mut nodes = SlotMap::with_key();
@@ -103,7 +105,7 @@ impl Tree {
         }
     }
 
-    pub fn insert(&mut self, view: View) -> ViewId {
+    pub(crate) fn insert(&mut self, view: View) -> ViewId {
         let focus = self.focus;
         let parent = self.nodes[focus].parent;
         let mut node = Node::view(view);
@@ -141,7 +143,7 @@ impl Tree {
         node
     }
 
-    pub fn split(&mut self, view: View, layout: Layout) -> ViewId {
+    pub(crate) fn split(&mut self, view: View, layout: Layout) -> ViewId {
         let focus = self.focus;
         let parent = self.nodes[focus].parent;
 
@@ -247,7 +249,7 @@ impl Tree {
         }
     }
 
-    pub fn remove(&mut self, index: ViewId) {
+    pub(crate) fn remove(&mut self, index: ViewId) {
         if self.focus == index {
             // focus on something else
             self.focus = self.prev();

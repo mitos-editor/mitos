@@ -107,7 +107,7 @@ pub fn raw_regex_prompt(
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
 ) {
     let (view, doc) = current!(cx.editor);
-    let doc_id = view.doc;
+    let doc_id = view.document_id();
     let view_id = view.id;
     let snapshot = doc.selection(view.id).clone();
     let offset_snapshot = doc.view_offset(view.id);

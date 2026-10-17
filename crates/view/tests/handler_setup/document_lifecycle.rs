@@ -52,7 +52,7 @@ async fn replacing_an_empty_scratch_reports_closed_document_after_rebinding() ->
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
     register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        let focused = event.editor.tree.get(event.editor.tree.focus).doc;
+        let focused = event.editor.tree.get(event.editor.tree.focus).document_id();
         assert!(event.editor.document(focused).is_some());
         captured.lock().unwrap().push((event.doc.id(), focused));
         Ok(())
@@ -121,5 +121,53 @@ async fn scratch_copies_reject_missing_and_binary_sources_before_changing_views(
         assert_eq!(current_ref!(fixture.editor).1.id(), original);
         assert_eq!(current_ref!(fixture.editor).1.text(), "original\n");
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_split_removes_its_selections_from_hidden_documents() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("first\n")?;
+    let original = current_ref!(fixture.editor).1.id();
+    fixture.editor.switch(original, Action::VerticalSplit);
+    let split = current_ref!(fixture.editor).0.id;
+    let scratch = fixture.editor.new_file(Action::Replace);
+    assert_eq!(
+        fixture
+            .editor
+            .document(original)
+            .unwrap()
+            .selections()
+            .len(),
+        2
+    );
+    fixture.editor.close(split);
+    assert_eq!(
+        fixture
+            .editor
+            .document(original)
+            .unwrap()
+            .selections()
+            .len(),
+        1
+    );
+    assert_eq!(
+        fixture.editor.document(scratch).unwrap().selections().len(),
+        0
+    );
+    assert!(fixture.editor.close_document(scratch, true).is_ok());
+    let replacement = fixture.editor.new_file(Action::Replace);
+    assert_ne!(replacement, scratch);
+    let (view, doc) = current_ref!(fixture.editor);
+    assert_eq!(view.document_id(), replacement);
+    assert_eq!(doc.selections().len(), 1);
+    assert_eq!(
+        fixture
+            .editor
+            .document(original)
+            .unwrap()
+            .selections()
+            .len(),
+        1
+    );
     Ok(())
 }

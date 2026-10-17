@@ -1,6 +1,6 @@
 //! Document registration, loading, view binding, and closure.
 
-use std::{io::stdin, num::NonZeroUsize, path::Path};
+use std::{io::stdin, path::Path};
 
 use anyhow::Error;
 use editor_core::Selection;
@@ -154,21 +154,15 @@ impl Editor {
         }
     }
 
-    /// Generate an id for a new document and register it.
-    fn new_document(&mut self, mut doc: Document) -> DocumentId {
-        let id = self.next_document_id;
-        // Safety: adding 1 from 1 is fine, practically impossible to reach usize max
-        self.next_document_id =
-            DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
-        doc.id = id;
-        self.handlers.attach_document(&mut doc);
+    /// Register a document and bind its editor-owned services before publishing it.
+    fn new_document(&mut self, doc: Document) -> DocumentId {
+        let id = self.documents.insert(doc);
+        let doc = self.documents.get_mut(&id).unwrap();
+        self.handlers.attach_document(doc);
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
-        self.documents.insert(id, doc);
         self.refresh_vcs_watches();
-
         self.writes.open_document(id);
-
         id
     }
 
@@ -370,17 +364,13 @@ impl Editor {
         // want to close the editor just for a simple buffer close, so we need to create a new view
         // containing either an existing document, or a brand new document.
         if self.tree.views().next().is_none() {
-            let doc_id = self
-                .documents
-                .iter()
-                .map(|(&doc_id, _)| doc_id)
-                .next()
-                .unwrap_or_else(|| {
-                    self.new_document(Document::default(
-                        self.config.clone(),
-                        self.syn_loader.clone(),
-                    ))
-                });
+            let first_document = self.documents.keys().next().copied();
+            let doc_id = first_document.unwrap_or_else(|| {
+                self.new_document(Document::default(
+                    self.config.clone(),
+                    self.syn_loader.clone(),
+                ))
+            });
             let view = View::new(doc_id, self.config().gutters.clone(), self.redraw().clone());
             let view_id = self.tree.insert(view);
             let doc = doc_mut!(self, &doc_id);

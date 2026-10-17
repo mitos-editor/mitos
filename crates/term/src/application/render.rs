@@ -71,16 +71,19 @@ impl Application {
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents
-            .extend(self.editor.tree.views().map(|(view, _)| view.doc));
+            .extend(self.editor.tree.views().map(|(view, _)| view.document_id()));
     }
 
     /// Only initial presentation may pull syntax completions ahead of normal events.
     fn has_new_pending_syntax(&self) -> bool {
         self.editor.tree.views().any(|(view, _)| {
-            !self.render_state.visible_documents.contains(&view.doc)
+            !self
+                .render_state
+                .visible_documents
+                .contains(&view.document_id())
                 && self
                     .editor
-                    .document(view.doc)
+                    .document(view.document_id())
                     .is_some_and(Document::is_syntax_pending)
         })
     }

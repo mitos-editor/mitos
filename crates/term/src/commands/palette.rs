@@ -109,7 +109,7 @@ pub fn command_palette(cx: &mut Context) {
                         let config = ctx.editor.config();
                         let mode = ctx.editor.mode();
                         let view = view_mut!(ctx.editor, focus);
-                        let doc = doc_mut!(ctx.editor, &view.doc);
+                        let doc = doc_mut!(ctx.editor, &view.document_id());
 
                         view.ensure_cursor_in_view(doc, config.scroll.padding);
 

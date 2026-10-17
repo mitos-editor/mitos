@@ -75,7 +75,7 @@ async fn live_settings_are_visible_to_hooks_and_all_views_are_adjusted_afterward
         // A hook changes selection after the editor's initial layout refresh.
         // The final cursor adjustment must use this selection in every split.
         for (view, _) in event.editor.tree.views() {
-            let doc = event.editor.documents.get_mut(&view.doc).unwrap();
+            let doc = event.editor.documents.get_mut(&view.document_id()).unwrap();
             doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 2));
             doc.set_view_offset(view.id, ViewPosition::default());
         }
@@ -92,7 +92,7 @@ async fn live_settings_are_visible_to_hooks_and_all_views_are_adjusted_afterward
     f.configure(|config| *config = settings);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     for (view, _) in f.editor.tree.views_mut() {
-        let doc = f.editor.documents.get(&view.doc).unwrap();
+        let doc = f.editor.documents.get(&view.document_id()).unwrap();
         assert!(doc.view_offset(view.id).anchor > 0);
         assert!(view.is_cursor_in_view(doc, 3));
     }

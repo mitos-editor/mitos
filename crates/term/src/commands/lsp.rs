@@ -85,7 +85,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
                         && editor
                             .tree
                             .try_get(view_id)
-                            .is_some_and(|view| view.doc == doc_id)
+                            .is_some_and(|view| view.document_id() == doc_id)
                         && editor
                             .document(doc_id)
                             .is_some_and(|doc| doc.selection(view_id) == &selection)

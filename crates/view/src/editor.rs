@@ -2,7 +2,9 @@
 //! live in private implementation modules behind the same public `Editor` API.
 
 mod config;
+mod document_store;
 mod documents;
+pub use document_store::Documents;
 mod filesystem;
 mod language_servers;
 mod mode;
@@ -70,8 +72,7 @@ pub struct Editor {
     /// Current editing mode.
     mode: Mode,
     pub tree: Tree,
-    pub next_document_id: DocumentId,
-    pub documents: BTreeMap<DocumentId, Document>,
+    pub documents: Documents,
 
     writes: WriteQueue,
 
@@ -231,8 +232,7 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             tree: Tree::new(area),
-            next_document_id: DocumentId::default(),
-            documents: BTreeMap::new(),
+            documents: Documents::new(),
             writes: WriteQueue::default(),
             count: None,
             selected_register: None,

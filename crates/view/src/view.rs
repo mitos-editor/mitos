@@ -147,7 +147,7 @@ pub struct ViewPosition {
 pub struct View {
     pub id: ViewId,
     pub area: Rect,
-    pub doc: DocumentId,
+    pub(crate) doc: DocumentId,
     binding_revision: u64,
     pub jumps: JumpList,
     // documents accessed from this view from the oldest one to last viewed one
@@ -201,6 +201,12 @@ impl View {
             doc_revisions: HashMap::new(),
             diagnostics_handler: DiagnosticsHandler::new(redraw),
         }
+    }
+
+    /// The document currently displayed in this view.
+    /// Rebind it through [`crate::Editor::switch`] so selection state is initialized.
+    pub fn document_id(&self) -> DocumentId {
+        self.doc
     }
 
     pub fn add_to_history(&mut self, id: DocumentId) {
