@@ -22,7 +22,7 @@ use crate::{
     Document, DocumentId, View, ViewId,
 };
 use event::dispatch;
-use loader::workspace_trust::{TrustQuery, WorkspaceTrust};
+use loader::workspace_trust::WorkspaceTrust;
 use vcs::DiffProviderRegistry;
 
 use futures_util::StreamExt;
@@ -31,7 +31,7 @@ use lsp_client::{Call, LanguageServerId};
 use std::{
     borrow::Cow,
     cell::Cell,
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -82,6 +82,7 @@ pub struct Editor {
     pub macro_recording: Option<(char, Vec<KeyEvent>)>,
     pub macro_replaying: Vec<char>,
     pub language_servers: lsp_client::Registry,
+    initialized_language_servers: HashSet<LanguageServerId>,
     pub diagnostics: Diagnostics,
     pub diff_providers: DiffProviderRegistry,
 
@@ -240,6 +241,7 @@ impl Editor {
             macro_replaying: Vec::new(),
             theme: theme_loader.default(),
             language_servers,
+            initialized_language_servers: HashSet::new(),
             diagnostics: Diagnostics::new(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
@@ -400,127 +402,6 @@ impl Editor {
         self.config_events.0.send(ConfigEvent::ThemeChanged)?;
 
         Ok(())
-    }
-
-    #[inline]
-    pub fn language_server_by_id(
-        &self,
-        language_server_id: LanguageServerId,
-    ) -> Option<&lsp_client::Client> {
-        self.language_servers
-            .get_by_id(language_server_id)
-            .map(|client| &**client)
-    }
-
-    /// Refreshes the language server for a given document
-    pub fn refresh_language_servers(&mut self, doc_id: DocumentId) {
-        self.launch_language_servers(doc_id);
-        crate::features::code_lenses::refresh_document(self, doc_id);
-    }
-
-    pub fn refresh_doc_language(&mut self, doc_id: DocumentId) {
-        let loader = self.syn_loader.load();
-        let doc = doc_mut!(self, &doc_id);
-        doc.detect_language(&loader);
-        doc.detect_editor_config();
-        doc.detect_indent_and_line_ending();
-        self.refresh_language_servers(doc_id);
-        let doc = doc_mut!(self, &doc_id);
-        let diagnostics = Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, doc);
-        doc.replace_language_server_diagnostics(diagnostics);
-        doc.reset_all_inlay_hints();
-        doc.clear_document_symbols();
-        self.refresh_spelling(doc_id);
-    }
-
-    /// Launch a language server for a given document
-    pub fn launch_language_servers(&mut self, doc_id: DocumentId) {
-        if !self.config().lsp.enable {
-            return;
-        }
-        // if doc doesn't have a URL it's a scratch buffer, ignore it
-        let Some(doc) = self.documents.get_mut(&doc_id) else {
-            return;
-        };
-        let Some(doc_url) = doc.url() else {
-            return;
-        };
-        let (lang, path) = (doc.language.clone(), doc.path());
-        let config = doc.config.load();
-        let root_dirs = &config.lsp.workspace_roots;
-
-        let workspace = doc.workspace_root();
-        let trust = self.workspace_trust.query(workspace, TrustQuery::Lsp);
-        if !trust.is_trusted() {
-            return;
-        }
-
-        // store only successfully started language servers
-        let status_sender = self.handlers.status.clone();
-        let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
-            self.language_servers
-                .get(language, path, root_dirs, config.lsp.completion.snippets)
-                .filter_map(|(lang, client)| match client {
-                    Ok(client) => Some((lang, client)),
-                    Err(err) => {
-                        if let lsp_client::Error::ExecutableNotFound(err) = err {
-                            // Silence by default since some language servers might just not be installed
-                            log::debug!(
-                                "Language server not found for `{}` {} {}", language.scope, lang, err,
-                            );
-                        } else {
-                            status_sender.report_blocking(event::status::StatusMessage {
-                                severity: event::status::Severity::Warning,
-                                message: format!("Could not start language server {lang}: {err}").into(),
-                            });
-                            log::error!(
-                                "Failed to initialize the language servers for `{}` - `{}` {{ {} }}",
-                                language.scope,
-                                lang,
-                                err
-                            );
-                        }
-                        None
-                    }
-                })
-                .collect::<HashMap<_, _>>()
-        });
-
-        if language_servers.is_empty() && doc.language_servers.is_empty() {
-            return;
-        }
-
-        let language_id = doc.language_id().map(ToOwned::to_owned).unwrap_or_default();
-
-        // only spawn new language servers if the servers aren't the same
-        let doc_language_servers_not_in_registry =
-            doc.language_servers.iter().filter(|(name, doc_ls)| {
-                language_servers
-                    .get(*name)
-                    .is_none_or(|ls| ls.id() != doc_ls.id())
-            });
-
-        for (_, language_server) in doc_language_servers_not_in_registry {
-            language_server.text_document_did_close(doc.identifier());
-        }
-
-        let language_servers_not_in_doc = language_servers.iter().filter(|(name, ls)| {
-            doc.language_servers
-                .get(*name)
-                .is_none_or(|doc_ls| ls.id() != doc_ls.id())
-        });
-
-        for (_, language_server) in language_servers_not_in_doc {
-            // TODO: this now races with on_init code if the init happens too quickly
-            language_server.text_document_did_open(
-                doc_url.clone(),
-                doc.version(),
-                doc.text(),
-                language_id.clone(),
-            );
-        }
-
-        doc.language_servers = language_servers;
     }
 
     fn _refresh(&mut self) {

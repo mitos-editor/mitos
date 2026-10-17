@@ -2,42 +2,13 @@ mod workspace;
 
 use std::collections::btree_map::Entry;
 
-use crate::events::{DiagnosticsDidChange, LanguageServerExited, LanguageServerInitialized};
+use crate::events::{DiagnosticsDidChange, LanguageServerExited};
 use crate::Editor;
 use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::Uri;
 use lsp_client::{lsp, LanguageServerId};
 
 impl Editor {
-    /// Synchronize configuration and open documents before feature observers run.
-    pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
-        let Some(language_server) = self.language_server_by_id(server_id) else {
-            log::warn!("can't find language server with id `{server_id}`");
-            return;
-        };
-
-        // Some servers expect configuration after initialization even though the
-        // protocol does not require it. Keep this ahead of the document hooks.
-        if let Some(config) = language_server.config() {
-            language_server.did_change_configuration(config.clone());
-        }
-        for doc in self
-            .documents()
-            .filter(|doc| doc.supports_language_server(server_id))
-        {
-            let Some(url) = doc.url() else {
-                continue;
-            };
-            let language_id = doc.language_id().map(ToOwned::to_owned).unwrap_or_default();
-            language_server.text_document_did_open(url, doc.version(), doc.text(), language_id);
-        }
-        event::dispatch(LanguageServerInitialized {
-            editor: self,
-            server_id,
-        })
-        .report_to(self.status_sender());
-    }
-
     /// Validate a push notification before applying the shared diagnostic update policy.
     pub fn handle_publish_diagnostics(
         &mut self,
@@ -55,7 +26,7 @@ impl Editor {
             log::warn!("can't find language server with id `{server_id}`");
             return;
         };
-        if !language_server.is_initialized() {
+        if !self.language_server_is_ready(server_id) {
             log::error!(
                 "Discarding publishDiagnostic notification sent by an uninitialized server: {}",
                 language_server.name()
@@ -150,6 +121,7 @@ impl Editor {
     /// Clear diagnostics and notify features while the server and attachments still exist.
     /// Registry removal belongs to the caller so manual stop keeps its tombstone.
     pub(crate) fn cleanup_language_server(&mut self, server_id: LanguageServerId) {
+        self.forget_language_server(server_id);
         self.diagnostics.retain(|_, diagnostics| {
             diagnostics.retain(|(_, provider)| provider.language_server_id() != Some(server_id));
             !diagnostics.is_empty()

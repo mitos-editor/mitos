@@ -240,6 +240,12 @@ Each keeps its own queue and request policy; inter-file diagnostic refresh retai
 its separate timing. `DocumentRequest` validates cancellation, document version,
 URI, and server attachment before queued results mutate editor state.
 
+Language-server attachment lives in `editor/language_servers.rs`. Transport
+readiness and editor initialization are distinct: the editor queues configuration,
+opens each pending document with its current snapshot once, and then notifies
+feature observers. Documents expose providers only after their protocol document
+has opened; edits, saves, renames, and closure respect that state.
+
 `Editor::handle_language_server_initialized`, `handle_publish_diagnostics`, and
 `handle_language_server_exit` in `view::handlers::lsp` own editor-side lifecycle
 and push-diagnostic handling. Initialization queues configuration and opens protocol documents before

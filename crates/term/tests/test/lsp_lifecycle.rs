@@ -523,3 +523,99 @@ async fn document_synchronization_precedes_early_change_and_close_observers() ->
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn documents_open_once_with_current_text_after_editor_initialization() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    f.release()?;
+    let (server, call) = f.next().await?;
+    assert!(matches!(&call, Call::Notification(n) if n.method == "initialized"));
+    let second = dir.path().join("second.lifecycle-test");
+    std::fs::write(&second, "second\n")?;
+    f.app.editor.open(&second, view::editor::Action::Replace)?;
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "changed ".into());
+    assert!(view::editing::apply(doc, &transaction, view.id));
+    let uri = doc.identifier().uri;
+    let text = doc.text().to_string();
+    let version = doc.version();
+    f.app.handle_language_server_message(call, server).await;
+    // Repeated lifecycle delivery is idempotent, including configuration and observers.
+    f.app.editor.handle_language_server_initialized(server);
+    f.app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .shutdown()
+        .await?;
+    let messages: Vec<Value> = std::fs::read_to_string(&f.logs[0])?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    let opens: Vec<_> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| {
+            m["method"] == "textDocument/didOpen"
+                && m["params"]["textDocument"]["uri"] == json!(uri)
+        })
+        .collect();
+    assert_eq!(opens.len(), 1);
+    assert_eq!(opens[0].1["params"]["textDocument"]["text"], text);
+    assert_eq!(opens[0].1["params"]["textDocument"]["version"], version);
+    let configs: Vec<_> = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m["method"] == "workspace/didChangeConfiguration")
+        .collect();
+    assert_eq!(configs.len(), 1);
+    assert!(configs[0].0 < opens[0].0);
+    assert!(!messages
+        .iter()
+        .any(|m| m["method"] == "textDocument/didChange"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_attachments_follow_renames_and_discard_closed_documents() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    let original = current_ref!(f.app.editor).1.id();
+    f.release()?;
+    let (server, call) = f.next().await?;
+    assert!(matches!(&call, Call::Notification(n) if n.method == "initialized"));
+    let second = dir.path().join("closed.lifecycle-test");
+    std::fs::write(&second, "closed\n")?;
+    let closed = f.app.editor.open(&second, view::editor::Action::Replace)?;
+    f.app
+        .editor
+        .close_document(closed, true)
+        .map_err(|_| anyhow::anyhow!("close failed"))?;
+    let renamed = dir.path().join("renamed.lifecycle-test");
+    f.app.editor.set_doc_path(original, &renamed);
+    let uri = f.app.editor.document(original).unwrap().identifier().uri;
+    f.app.handle_language_server_message(call, server).await;
+    f.app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .shutdown()
+        .await?;
+    let messages: Vec<Value> = std::fs::read_to_string(&f.logs[0])?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    let opens: Vec<_> = messages
+        .iter()
+        .filter(|m| m["method"] == "textDocument/didOpen")
+        .collect();
+    assert_eq!(opens.len(), 1);
+    assert_eq!(opens[0]["params"]["textDocument"]["uri"], json!(uri));
+    assert!(!messages
+        .iter()
+        .any(|m| m["method"] == "textDocument/didClose"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

@@ -2,9 +2,135 @@
 
 use anyhow::{bail, Context as _};
 
-use crate::{DocumentId, Editor};
+use std::collections::HashMap;
+
+use crate::{events::LanguageServerInitialized, DocumentId, Editor};
+use loader::workspace_trust::TrustQuery;
+use lsp_client::LanguageServerId;
 
 impl Editor {
+    #[inline]
+    pub fn language_server_by_id(
+        &self,
+        language_server_id: LanguageServerId,
+    ) -> Option<&lsp_client::Client> {
+        self.language_servers
+            .get_by_id(language_server_id)
+            .map(|client| &**client)
+    }
+
+    /// Refreshes the language server for a given document
+    pub fn refresh_language_servers(&mut self, doc_id: DocumentId) {
+        self.launch_language_servers(doc_id);
+        crate::features::code_lenses::refresh_document(self, doc_id);
+    }
+
+    pub fn refresh_doc_language(&mut self, doc_id: DocumentId) {
+        let loader = self.syn_loader.load();
+        let doc = doc_mut!(self, &doc_id);
+        doc.detect_language(&loader);
+        doc.detect_editor_config();
+        doc.detect_indent_and_line_ending();
+        self.refresh_language_servers(doc_id);
+        let doc = doc_mut!(self, &doc_id);
+        let diagnostics = Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, doc);
+        doc.replace_language_server_diagnostics(diagnostics);
+        doc.reset_all_inlay_hints();
+        doc.clear_document_symbols();
+        self.refresh_spelling(doc_id);
+    }
+
+    /// Launch a language server for a given document
+    pub fn launch_language_servers(&mut self, doc_id: DocumentId) {
+        if !self.config().lsp.enable {
+            return;
+        }
+        // if doc doesn't have a URL it's a scratch buffer, ignore it
+        let Some(doc) = self.documents.get_mut(&doc_id) else {
+            return;
+        };
+        let Some(_) = doc.url() else {
+            return;
+        };
+        let (lang, path) = (doc.language.clone(), doc.path());
+        let config = doc.config.load();
+        let root_dirs = &config.lsp.workspace_roots;
+
+        let workspace = doc.workspace_root();
+        let trust = self.workspace_trust.query(workspace, TrustQuery::Lsp);
+        if !trust.is_trusted() {
+            return;
+        }
+
+        // store only successfully started language servers
+        let status_sender = self.handlers.status.clone();
+        let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
+            self.language_servers
+                .get(language, path, root_dirs, config.lsp.completion.snippets)
+                .filter_map(|(lang, client)| match client {
+                    Ok(client) => Some((lang, client)),
+                    Err(err) => {
+                        if let lsp_client::Error::ExecutableNotFound(err) = err {
+                            // Silence by default since some language servers might just not be installed
+                            log::debug!(
+                                "Language server not found for `{}` {} {}", language.scope, lang, err,
+                            );
+                        } else {
+                            status_sender.report_blocking(event::status::StatusMessage {
+                                severity: event::status::Severity::Warning,
+                                message: format!("Could not start language server {lang}: {err}").into(),
+                            });
+                            log::error!(
+                                "Failed to initialize the language servers for `{}` - `{}` {{ {} }}",
+                                language.scope,
+                                lang,
+                                err
+                            );
+                        }
+                        None
+                    }
+                })
+                .collect::<HashMap<_, _>>()
+        });
+
+        if language_servers.is_empty() && doc.language_servers.is_empty() {
+            return;
+        }
+
+        doc.attach_language_servers(language_servers, &self.initialized_language_servers);
+    }
+
+    /// Publish editor readiness only after configuration is queued. Pending documents
+    /// open with their latest snapshot before feature observers can request work.
+    pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
+        let Some(server) = self.language_servers.get_by_id(server_id).cloned() else {
+            log::debug!("ignoring initialization from removed server {server_id}");
+            return;
+        };
+        if !server.is_initialized() || !self.initialized_language_servers.insert(server_id) {
+            return;
+        }
+        if let Some(config) = server.config() {
+            server.did_change_configuration(config.clone());
+        }
+        for doc in self.documents.values_mut() {
+            doc.open_language_server_document(server_id);
+        }
+        event::dispatch(LanguageServerInitialized {
+            editor: self,
+            server_id,
+        })
+        .report_to(self.status_sender());
+    }
+
+    pub(crate) fn forget_language_server(&mut self, server_id: LanguageServerId) {
+        self.initialized_language_servers.remove(&server_id);
+    }
+
+    pub(crate) fn language_server_is_ready(&self, server_id: LanguageServerId) -> bool {
+        self.initialized_language_servers.contains(&server_id)
+    }
+
     /// Stop selected servers attached to a document across all workspaces.
     /// An empty selection stops all servers attached to the document, including startup.
     pub fn stop_language_servers(

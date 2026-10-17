@@ -181,15 +181,8 @@ impl Editor {
             if old_path == path {
                 return;
             }
-            // if we are open in LSPs send did_close notification
-            for language_server in doc.language_servers() {
-                language_server.text_document_did_close(doc.identifier());
-            }
         }
-        // we need to clear the list of language servers here so that
-        // refresh_doc_language/refresh_language_servers doesn't resend
-        // text_document_did_close. Since we called `text_document_did_close`
-        // we have fully unregistered this document from its LS
+        doc.close_language_server_documents();
         doc.language_servers.clear();
         doc.set_path(Some(path));
         let trust_full = self

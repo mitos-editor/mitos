@@ -1,5 +1,6 @@
 pub use crate::features::formatting::FormatterError;
 pub(crate) mod history;
+mod language_servers;
 mod lifecycle;
 mod mutation;
 
@@ -263,6 +264,7 @@ pub struct Document {
 
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
+    opened_language_servers: HashSet<LanguageServerId>,
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
@@ -377,6 +379,7 @@ impl Document {
             last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: HashMap::new(),
+            opened_language_servers: HashSet::new(),
             diff_handle: None,
             redraw: event::Redraw::default(),
             status: None,
@@ -542,7 +545,12 @@ impl Document {
         };
 
         let identifier = self.path().map(|_| self.identifier());
-        let language_servers: Vec<_> = self.language_servers.values().cloned().collect();
+        let language_servers: Vec<_> = self
+            .language_servers
+            .values()
+            .filter(|server| self.opened_language_servers.contains(&server.id()))
+            .cloned()
+            .collect();
 
         // mark changes up to now as saved
         let current_rev = self.get_current_revision();
@@ -887,6 +895,7 @@ impl Document {
             self.language = None;
             self.syntax = None;
             self.pending_syntax = None;
+            self.close_language_server_documents();
             self.language_servers.clear();
         } else if was_binary {
             let loader = self.syn_loader.load_full();
@@ -1215,54 +1224,6 @@ impl Document {
         self.language_config()
             .and_then(|lang_config| lang_config.path_completion)
             .unwrap_or_else(|| self.config.load().completion.path.enable)
-    }
-
-    /// maintains the order as configured in the language_servers TOML array
-    pub fn language_servers(&self) -> impl Iterator<Item = &lsp_client::Client> {
-        self.language_config().into_iter().flat_map(move |config| {
-            config.language_servers.iter().filter_map(move |features| {
-                let ls = &**self.language_servers.get(&features.name)?;
-                if ls.is_initialized() {
-                    Some(ls)
-                } else {
-                    None
-                }
-            })
-        })
-    }
-
-    pub fn remove_language_server_by_name(&mut self, name: &str) -> Option<Arc<Client>> {
-        let server = self.language_servers.remove(name);
-        if server.is_some() {
-            self.hover.clear();
-            self.navigation.clear();
-            self.document_links.cancel_navigation();
-            self.reset_all_inlay_hints();
-        }
-        server
-    }
-
-    pub fn language_servers_with_feature(
-        &self,
-        feature: LanguageServerFeature,
-    ) -> impl Iterator<Item = &lsp_client::Client> {
-        self.language_config().into_iter().flat_map(move |config| {
-            config.language_servers.iter().filter_map(move |features| {
-                let ls = &**self.language_servers.get(&features.name)?;
-                if ls.is_initialized()
-                    && ls.supports_feature(feature)
-                    && features.has_feature(feature)
-                {
-                    Some(ls)
-                } else {
-                    None
-                }
-            })
-        })
-    }
-
-    pub fn supports_language_server(&self, id: LanguageServerId) -> bool {
-        self.language_servers().any(|l| l.id() == id)
     }
 
     pub fn servers_to_load(&self) -> bool {
