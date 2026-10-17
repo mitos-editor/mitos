@@ -1,5 +1,7 @@
 //! Character and line insertion, indentation, comment continuation, and insert-mode deletion.
 
+use view::editing::continued_line_comment_token;
+
 use super::{
     context::Context,
     mode::{append_mode, enter_insert_mode, insert_mode},
@@ -9,7 +11,7 @@ use super::{
 use crate::{events::PostInsertChar, key};
 use arc_swap::access::DynAccess;
 use editor_core::{
-    auto_pairs, comment, graphemes,
+    auto_pairs, graphemes,
     indent::IndentStyle,
     line_ending::line_end_char_index,
     movement::{self as core_movement, Direction},
@@ -639,29 +641,6 @@ pub enum Open {
 pub enum CommentContinuation {
     Enabled,
     Disabled,
-}
-
-pub(super) fn continued_line_comment_token<'a>(
-    doc: &'a Document,
-    loader: &'a language::syntax::Loader,
-    text: RopeSlice,
-    line_num: usize,
-    byte_pos: usize,
-) -> Option<&'a str> {
-    if let Some(syntax) = doc.syntax() {
-        let mut token = None;
-        for layer in syntax.layers_for_byte_range(byte_pos as u32, byte_pos as u32) {
-            let config = loader.language(syntax.layer(layer).language).config();
-            if let Some(tokens) = config.comment_tokens.as_ref() {
-                token = comment::get_comment_token(text, tokens, line_num).or(token);
-            }
-        }
-        token
-    } else {
-        doc.language_config()
-            .and_then(|config| config.comment_tokens.as_ref())
-            .and_then(|tokens| comment::get_comment_token(text, tokens, line_num))
-    }
 }
 
 pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentContinuation) {

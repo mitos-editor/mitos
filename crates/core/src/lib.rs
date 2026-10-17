@@ -55,6 +55,7 @@ pub mod test;
 pub mod text_annotations;
 pub mod textobject;
 mod transaction;
+pub mod transform;
 pub mod uri;
 pub mod wrap;
 
