@@ -18,7 +18,7 @@ pub(super) fn insert_snippet(editor: &mut Editor) -> anyhow::Result<()> {
         |range| (range.from(), range.to()),
         &mut ctx,
     );
-    assert!(doc.apply(&transaction, view.id));
+    assert!(view::editing::apply(doc, &transaction, view.id));
     doc.set_selection(view.id, selection);
     doc.active_snippet = snippets::ActiveSnippet::new(rendered);
     Ok(())
@@ -32,7 +32,7 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
     let (view, doc) = current!(first.editor);
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("xx".into()))].into_iter())
         .with_selection(Selection::point(4));
-    assert!(doc.apply(&transaction, view.id));
+    assert!(view::editing::apply(doc, &transaction, view.id));
     assert_eq!(
         doc.active_snippet
             .as_ref()
@@ -50,7 +50,7 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
     let (view, doc) = current!(first.editor);
     let transaction =
         Transaction::delete(doc.text(), [(0, doc.text().len_chars() - 1)].into_iter());
-    assert!(doc.apply(&transaction, view.id));
+    assert!(view::editing::apply(doc, &transaction, view.id));
     assert!(doc.active_snippet.is_none());
     insert_snippet(&mut first.editor)?;
     let id = current_ref!(first.editor).1.id();

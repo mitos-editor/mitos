@@ -267,7 +267,7 @@ mod tests {
             doc.text(),
             [(1, 1, Some("\"updated\": true".into()))].into_iter(),
         );
-        assert!(doc.apply(&transaction, view));
+        assert!(crate::editing::apply(&mut doc, &transaction, view));
         assert!(doc.syntax().is_none());
 
         let result = request.compute().await.unwrap();

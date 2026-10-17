@@ -77,8 +77,8 @@ async fn modified_buffers_prompt_once_and_reload_only_when_confirmed() -> anyhow
             doc.text(),
             [(0, 0, Some("local ".into()))].into_iter(),
         );
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
     }
     changed(&path, "external\n", 2)?;
     notify(&mut app, &path, EventType::Modified).await;
@@ -258,8 +258,8 @@ fn edit_buffer(app: &mut Application, prefix: &str) {
     let (view, doc) = current!(app.editor);
     let transaction =
         editor_core::Transaction::change(doc.text(), [(0, 0, Some(prefix.into()))].into_iter());
-    assert!(doc.apply(&transaction, view.id));
-    doc.append_changes_to_history(view);
+    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::commit(doc, view);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -506,7 +506,7 @@ async fn shared_reload_preserves_undo_and_synchronizes_all_splits() -> anyhow::R
         assert!(view.is_cursor_in_view(doc, scrolloff));
     }
     let (view, doc) = current!(app.editor);
-    assert!(doc.undo(view));
+    assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text().to_string(), "local original text\n");
     assert!(app.close().await.is_empty());
     Ok(())

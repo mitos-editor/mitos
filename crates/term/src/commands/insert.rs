@@ -61,7 +61,7 @@ pub fn insert_char(cx: &mut Context, c: char) {
     });
 
     let doc = doc_mut!(cx.editor, &doc.id());
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 
     event::dispatch(PostInsertChar { c, cx }).report_to(cx.editor.status_sender());
 }
@@ -119,7 +119,7 @@ fn insert_tab_impl(cx: &mut Context, count: usize) {
             (cursor, cursor, Some(indent))
         }),
     );
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 pub fn append_char_interactive(cx: &mut Context) {
@@ -316,7 +316,7 @@ pub fn insert_newline(cx: &mut Context) {
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
     let (view, doc) = current!(cx.editor);
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 fn dedent(doc: &Document, range: &Range) -> Option<Deletion> {
@@ -411,7 +411,7 @@ pub fn delete_char_backward(cx: &mut Context) {
     log::debug!("delete_char_backward transaction: {:?}", transaction);
 
     let doc = doc_mut!(cx.editor, &doc.id());
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 pub fn delete_char_forward(cx: &mut Context) {
@@ -494,7 +494,7 @@ fn delete_by_selection_insert_mode(
             Selection::new(selection, doc.selection(view.id).primary_index()),
         );
     }
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 pub(super) fn kill_to_line_start(cx: &mut Context) {
@@ -626,7 +626,7 @@ fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
     });
 
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 #[derive(PartialEq, Eq)]
@@ -783,7 +783,7 @@ pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentCo
 
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 // o inserts a new line after each line with a selection
@@ -826,5 +826,5 @@ fn add_newline_impl(cx: &mut Context, open: Open) {
     });
 
     let transaction = Transaction::change(text, changes);
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }

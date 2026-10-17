@@ -48,7 +48,7 @@ impl Fixture {
             doc.text(),
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
-        assert!(doc.apply(&change, view.id));
+        assert!(view::editing::apply(doc, &change, view.id));
     }
 
     async fn next(&mut self) -> anyhow::Result<EditorCallback> {

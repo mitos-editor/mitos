@@ -246,7 +246,7 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
     let (view, doc) = current!(a.editor);
     let change = Transaction::change(doc.text(), [(0, 0, Some("inserted\n".into()))].into_iter())
         .with_selection(Selection::point(0));
-    assert!(doc.apply(&change, view.id));
+    assert!(view::editing::apply(doc, &change, view.id));
     wait_for_diff(&a).await?;
     let doc = current_ref!(a.editor).1;
     assert!(matches!(
@@ -281,8 +281,8 @@ async fn visible_blame_refreshes_after_head_changes_and_file_opens() -> anyhow::
     let path = current_ref!(f.editor).1.path().unwrap().to_path_buf();
     std::fs::write(&path, "after\n")?;
     commit(&f, "after commit");
-    let (view, doc) = current!(f.editor);
-    doc.reload(view, &f.editor.diff_providers, true)?;
+    let (_, doc) = current!(f.editor);
+    doc.reload(&f.editor.diff_providers, true)?;
     assert!(doc.file_blame().is_none());
     wait_for_blame(&mut f).await?;
     assert_eq!(
@@ -390,8 +390,8 @@ async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
         .clone();
     let path = current_ref!(f.editor).1.path().unwrap().to_path_buf();
     std::fs::write(&path, "inserted\nbefore\n")?;
-    let (view, doc) = current!(f.editor);
-    doc.reload(view, &f.editor.diff_providers, true)?;
+    let (_, doc) = current!(f.editor);
+    doc.reload(&f.editor.diff_providers, true)?;
     assert!(matches!(
         doc.line_blame(0, "{title}"),
         Err(LineBlameError::NotReadyYet)

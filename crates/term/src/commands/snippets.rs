@@ -37,7 +37,7 @@ fn goto_next_tabstop_impl(cx: &mut Context, direction: Direction) {
             if let Some(c) = key.char() {
                 let (view, doc) = current!(cx.editor);
                 if let Some(snippet) = &doc.active_snippet {
-                    doc.apply(&snippet.delete_placeholder(doc.text()), view.id);
+                    view::editing::apply(doc, &snippet.delete_placeholder(doc.text()), view.id);
                 }
                 insert_char(cx, c);
             }

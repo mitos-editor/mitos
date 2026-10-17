@@ -115,7 +115,7 @@ impl Fixture {
             doc.text(),
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
-        assert!(doc.apply(&transaction, view.id));
+        assert!(view::editing::apply(doc, &transaction, view.id));
     }
 
     async fn keys(&mut self, input: &str) -> anyhow::Result<()> {
@@ -241,7 +241,7 @@ async fn mapped_gutter_positions_follow_newlines_and_resolution_rejects_old_snap
     let resolved = fixture.resolve().await;
     let (view, doc) = current!(fixture.app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "\n".into());
-    assert!(doc.apply(&transaction, view.id));
+    assert!(view::editing::apply(doc, &transaction, view.id));
     assert_eq!(doc.text().char_to_line(doc.code_lenses()[0].char_idx), 1);
     assert!(!resolved.is_current(&fixture.app.editor));
     assert!(code_lenses::resolve_code_lenses(&mut fixture.app.editor, fixture.doc, 1).is_none());
@@ -386,7 +386,7 @@ async fn queued_debounce_does_not_request_server_ranges_for_temporary_text() -> 
     let (view, doc) = current!(fixture.app.editor);
     let original = doc.text().clone();
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "preview".into());
-    assert!(doc.apply_temporary(&transaction, view.id));
+    assert!(view::editing::apply_temporary(doc, &transaction, view.id));
     schedule(&mut fixture.app.editor);
     assert!(fixture.callbacks.try_recv().is_err());
     assert_eq!(
@@ -403,7 +403,7 @@ async fn queued_debounce_does_not_request_server_ranges_for_temporary_text() -> 
         doc.text(),
         [(0, doc.text().len_chars(), Some(original.to_string().into()))].into_iter(),
     );
-    assert!(doc.apply_temporary(&restore, view.id));
+    assert!(view::editing::apply_temporary(doc, &restore, view.id));
     let fresh = fixture.response().await?;
     fresh(&mut fixture.app.editor);
     assert_eq!(fixture.resolve().await.commands.len(), 2);

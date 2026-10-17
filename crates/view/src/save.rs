@@ -40,7 +40,8 @@ pub struct WriteAllOptions {
 #[derive(Debug)]
 pub struct PreparedSave {
     pub doc_id: DocumentId,
-    pub view_id: ViewId,
+    /// Originating split, when the document is displayed.
+    pub origin: Option<ViewId>,
     pub path: Option<PathBuf>,
     pub force: bool,
     pub auto_format: bool,
@@ -48,39 +49,40 @@ pub struct PreparedSave {
 }
 
 /// Normalize a document and checkpoint its edits before submitting a save.
-/// The document and view must exist, with a selection initialized for that view.
+/// The document must exist. An optional origin supplies interactive selection
+/// context; hidden documents can be prepared without any view.
 pub fn prepare(
     editor: &mut Editor,
     doc_id: DocumentId,
-    view_id: ViewId,
+    origin: Option<ViewId>,
     path: Option<PathBuf>,
     options: WriteOptions,
 ) -> PreparedSave {
     let config = editor.config();
-    prepare_with_config(editor, doc_id, view_id, path, options, &config)
+    prepare_with_config(editor, doc_id, origin, path, options, &config)
 }
 
 fn prepare_with_config(
     editor: &mut Editor,
     doc_id: DocumentId,
-    view_id: ViewId,
+    origin: Option<ViewId>,
     path: Option<PathBuf>,
     options: WriteOptions,
     config: &Config,
 ) -> PreparedSave {
+    editor.sync_document_views(doc_id);
     let doc = doc_mut!(editor, &doc_id);
-    let view = view_mut!(editor, view_id);
 
     if doc.trim_trailing_whitespace() {
-        trim_trailing_whitespace(doc, view_id);
+        trim_trailing_whitespace(doc, origin);
     }
     if config.files.save.trim_final_newlines {
-        trim_final_newlines(doc, view_id);
+        trim_final_newlines(doc, origin);
     }
     if doc.insert_final_newline() {
-        insert_final_newline(doc, view_id);
+        insert_final_newline(doc, origin);
     }
-    doc.append_changes_to_history(view);
+    doc.commit_changes();
 
     let code_actions = options.code_actions
         && doc
@@ -88,14 +90,16 @@ fn prepare_with_config(
             .and_then(|config| config.code_actions_on_save.as_deref())
             .is_some_and(|kinds| !kinds.is_empty());
 
-    PreparedSave {
+    let request = PreparedSave {
         doc_id,
-        view_id,
+        origin,
         path,
         force: options.force,
         auto_format: config.format.on_save && options.auto_format,
         code_actions,
-    }
+    };
+    editor.sync_document_views(doc_id);
+    request
 }
 
 /// Prepare and submit each modified file-backed document in editor order.
@@ -113,12 +117,8 @@ pub fn save_all(
     let config = editor.config();
     let saves: Vec<_> = editor
         .documents
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .filter_map(|id| {
-            let doc = doc!(editor, &id);
+        .iter()
+        .filter_map(|(&id, doc)| {
             if !doc.is_modified() {
                 return None;
             }
@@ -128,16 +128,19 @@ pub fn save_all(
                 }
                 return None;
             }
-            let target_view = editor.get_synced_view_id(doc.id());
+            let target_view = editor
+                .tree
+                .views()
+                .find_map(|(view, _)| (view.doc == id).then_some(view.id));
             Some((id, target_view))
         })
         .collect();
 
-    for (doc_id, view_id) in saves {
+    for (doc_id, origin) in saves {
         let request = prepare_with_config(
             editor,
             doc_id,
-            view_id,
+            origin,
             None,
             WriteOptions {
                 force: options.force,
@@ -170,8 +173,18 @@ pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
     )
 }
 
+fn apply_normalization(doc: &mut Document, transaction: &Transaction, origin: Option<ViewId>) {
+    if let Some(origin) = origin {
+        crate::editing::apply(doc, transaction, origin);
+    } else {
+        // Normalization is built synchronously from this document's current text.
+        doc.apply(transaction.changes())
+            .expect("normalization uses current text");
+    }
+}
+
 /// Trim all whitespace preceding line-endings in a document.
-fn trim_trailing_whitespace(doc: &mut Document, view_id: ViewId) {
+fn trim_trailing_whitespace(doc: &mut Document, origin: Option<ViewId>) {
     let text = doc.text();
     let mut pos = 0;
     let transaction = Transaction::delete(
@@ -195,11 +208,11 @@ fn trim_trailing_whitespace(doc: &mut Document, view_id: ViewId) {
             }
         }),
     );
-    doc.apply(&transaction, view_id);
+    apply_normalization(doc, &transaction, origin);
 }
 
 /// Trim any extra line-endings after the final line-ending.
-fn trim_final_newlines(doc: &mut Document, view_id: ViewId) {
+fn trim_final_newlines(doc: &mut Document, origin: Option<ViewId>) {
     let rope = doc.text();
     let mut text = rope.slice(..);
     let mut total_char_len = 0;
@@ -215,16 +228,16 @@ fn trim_final_newlines(doc: &mut Document, view_id: ViewId) {
             rope,
             [(rope.len_chars() - chars_to_delete, rope.len_chars())].into_iter(),
         );
-        doc.apply(&transaction, view_id);
+        apply_normalization(doc, &transaction, origin);
     }
 }
 
 /// Ensure that the document is terminated with a line ending.
-fn insert_final_newline(doc: &mut Document, view_id: ViewId) {
+fn insert_final_newline(doc: &mut Document, origin: Option<ViewId>) {
     let text = doc.text();
     if text.len_chars() > 0 && line_ending::get_line_ending(&text.slice(..)).is_none() {
         let eof = Selection::point(text.len_chars());
         let insert = Transaction::insert(text, &eof, doc.line_ending.as_str().into());
-        doc.apply(&insert, view_id);
+        apply_normalization(doc, &insert, origin);
     }
 }

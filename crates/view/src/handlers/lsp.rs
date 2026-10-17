@@ -96,14 +96,11 @@ impl Editor {
             }
         }
 
-        // Need to determine a view for apply/append_changes_to_history
-        let view_id = self.get_synced_view_id(doc_id);
-        let doc = doc_mut!(self, &doc_id);
-
+        let doc = doc!(self, &doc_id);
+        let version = doc.version();
         let transaction = generate_transaction_from_edits(doc.text(), text_edits, offset_encoding);
-        let view = view_mut!(self, view_id);
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        self.apply_document_changes(doc_id, version, transaction.changes())
+            .map_err(|_| ApplyEditErrorKind::DocumentChanged)?;
         Ok(())
     }
 

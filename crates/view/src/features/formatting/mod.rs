@@ -118,12 +118,12 @@ impl FormattingUpdate {
         };
         let scrolloff = editor.config().scroll.padding;
         let doc = doc_mut!(editor, &snapshot.document);
-        if !doc.apply(&transaction, view) {
+        if !crate::editing::apply(doc, &transaction, view) {
             return Ok(false);
         }
         if matches!(kind, FormatKind::Document) {
             let view = view_mut!(editor, view);
-            doc.append_changes_to_history(view);
+            crate::editing::commit(doc, view);
             doc.detect_indent_and_line_ending();
             view.ensure_cursor_in_view(doc, scrolloff);
         }

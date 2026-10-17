@@ -112,7 +112,7 @@ impl Fixture {
             doc.text(),
             [(2, doc.text().len_chars() - 1, Some(word.into()))].into_iter(),
         );
-        assert!(doc.apply(&change, view.id));
+        assert!(view::editing::apply(doc, &change, view.id));
     }
 
     fn selection(&mut self, start: usize, end: usize) {

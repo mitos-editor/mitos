@@ -256,7 +256,8 @@ async fn queued_resolution_rejects_changed_document() -> anyhow::Result<()> {
     f.action("").execute(&mut f.editor);
     let callback = f.resolved().await?;
     let (view, doc) = current!(f.editor);
-    doc.apply(
+    view::editing::apply(
+        doc,
         &Transaction::insert(
             doc.text(),
             &doc.selection(view.id).clone(),
@@ -313,7 +314,8 @@ async fn actions_capture_request_snapshot_before_selection() -> anyhow::Result<(
     let mut f = Fixture::new().await?;
     let action = f.action("");
     let (view, doc) = current!(f.editor);
-    doc.apply(
+    view::editing::apply(
+        doc,
         &Transaction::insert(
             doc.text(),
             &doc.selection(view.id).clone(),
@@ -454,7 +456,7 @@ async fn save_actions_run_in_order_before_formatting_the_latest_text() -> anyhow
     let request = save::prepare(
         &mut f.editor,
         f.doc,
-        view,
+        Some(view),
         None,
         WriteOptions {
             force: false,
@@ -496,7 +498,7 @@ async fn save_actions_discard_stale_requests_and_resolutions_before_writing_curr
         let request = save::prepare(
             &mut f.editor,
             f.doc,
-            view,
+            Some(view),
             None,
             WriteOptions {
                 force: false,
@@ -517,7 +519,7 @@ async fn save_actions_discard_stale_requests_and_resolutions_before_writing_curr
         }
         let (view, doc) = current!(f.editor);
         let edit = Transaction::change(doc.text(), [(0, 3, Some("newer".into()))].into_iter());
-        doc.apply(&edit, view.id);
+        view::editing::apply(doc, &edit, view.id);
         let mut progress = update.apply(&mut f.editor)?;
         while let SaveProgress::Pending(task) = progress {
             let update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;

@@ -50,7 +50,7 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
     let (view, doc) = current!(fixture.editor);
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("xx".into()))].into_iter())
         .with_selection(Selection::point(4));
-    assert!(doc.apply(&transaction, view.id));
+    assert!(view::editing::apply(doc, &transaction, view.id));
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     Ok(())
 }

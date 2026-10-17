@@ -1457,7 +1457,7 @@ impl EditorView {
                                         (shift_position(start), shift_position(end), t)
                                     }),
                                 );
-                                doc.apply(&tx, view.id);
+                                view::editing::apply(doc, &tx, view.id);
                             }
                             InsertEvent::InlineCompletionApply(applied) => {
                                 let (view, doc) = current!(cxt.editor);
@@ -1475,7 +1475,7 @@ impl EditorView {
                                         .map(|(from, to, text)| (shift(from), shift(to), text)),
                                 )
                                 .with_selection(Selection::point(shift(applied.selection)));
-                                doc.apply(&transaction, view.id);
+                                view::editing::apply(doc, &transaction, view.id);
                             }
                             InsertEvent::TriggerCompletion => {
                                 last_savepoint = take(&mut last_request_savepoint);
@@ -1556,7 +1556,11 @@ impl EditorView {
                         if let Some(c) = key.char() {
                             let (view, doc) = current!(cx.editor);
                             if let Some(snippet) = &doc.active_snippet {
-                                doc.apply(&snippet.delete_placeholder(doc.text()), view.id);
+                                view::editing::apply(
+                                    doc,
+                                    &snippet.delete_placeholder(doc.text()),
+                                    view.id,
+                                );
                             }
                             commands::insert::insert_char(cx, c);
                         }
@@ -1898,7 +1902,7 @@ impl Component for EditorView {
                 // Store a history state if not in insert mode. Otherwise wait till we exit insert
                 // to include any edits to the paste in the history state.
                 if mode != Mode::Insert {
-                    doc.append_changes_to_history(view);
+                    view::editing::commit(doc, view);
                 }
 
                 EventResult::Consumed(None)
@@ -1997,7 +2001,7 @@ impl Component for EditorView {
                 // Store a history state if not in insert mode. This also takes care of
                 // committing changes when leaving insert mode.
                 if mode != Mode::Insert {
-                    doc.append_changes_to_history(view);
+                    view::editing::commit(doc, view);
                 }
                 let callback = if callbacks.is_empty() {
                     None

@@ -34,13 +34,15 @@ pub enum SaveProgress {
 pub struct SaveTask(BoxFuture<'static, Result<SaveUpdate, SaveError>>);
 
 /// A failed save stage. Formatting failures remain nonfatal and still write;
-/// requesting code actions or submitting the write can fail the operation.
+/// requesting code actions, applying edits, or submitting a write can fail it.
 #[derive(Debug, thiserror::Error)]
 pub enum SaveError {
     #[error("{0}")]
     CodeActions(#[source] lsp_client::Error),
     #[error("{0}")]
     Write(#[source] anyhow::Error),
+    #[error("{0}")]
+    Edit(#[from] crate::editing::EditError),
 }
 
 impl SaveTask {
@@ -263,25 +265,22 @@ impl SaveUpdate {
             }
             CompletedStage::Formatting { snapshot, result } => {
                 let doc_id = operation.request.doc_id;
-                let view_id = operation.request.view_id;
                 let Some(doc) = editor.document(doc_id) else {
                     return Ok(SaveProgress::DocumentClosed);
                 };
                 match result {
                     Ok(transaction) if snapshot.is_current(editor, doc) => {
-                        if editor
-                            .tree
-                            .try_get(view_id)
-                            .is_some_and(|view| view.doc == doc_id)
+                        let version = doc.version();
+                        editor.apply_document_changes(doc_id, version, transaction.changes())?;
+                        let scrolloff = editor.config().scroll.padding;
+                        if let Some(view) = operation
+                            .request
+                            .origin
+                            .and_then(|id| editor.tree.try_get(id))
+                            .filter(|view| view.doc == doc_id)
                         {
-                            let scrolloff = editor.config().scroll.padding;
-                            let doc = doc_mut!(editor, &doc_id);
-                            let view = view_mut!(editor, view_id);
-                            doc.apply(&transaction, view_id);
-                            doc.append_changes_to_history(view);
+                            let doc = editor.documents.get_mut(&doc_id).unwrap();
                             view.ensure_cursor_in_view(doc, scrolloff);
-                        } else {
-                            editor.apply_document_transaction(doc_id, &transaction);
                         }
                         doc_mut!(editor, &doc_id).detect_indent_and_line_ending();
                     }

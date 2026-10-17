@@ -48,7 +48,7 @@ pub(super) fn append_mode(cx: &mut Context) {
             doc.text(),
             [(end, end, Some(doc.line_ending.as_str().into()))].into_iter(),
         );
-        doc.apply(&transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id);
     }
 
     let selection = doc.selection(view.id).clone().transform(|range| {

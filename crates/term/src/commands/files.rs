@@ -398,7 +398,6 @@ pub(super) mod typed {
         commands::{
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
-            workspace::doc_trust_full,
         },
         compositor::{self, Compositor},
         job::{self, Callback, Job, Jobs},
@@ -421,7 +420,7 @@ pub(super) mod typed {
         align_view,
         document::{read_to_string, DEFAULT_LANGUAGE_NAME},
         editor::Action,
-        Align, DocumentId, Editor, ViewId,
+        Align, Editor,
     };
 
     #[cold]
@@ -479,7 +478,13 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         let (view, doc) = current!(cx.editor);
         let (doc_id, view_id) = (doc.id(), view.id);
-        let request = save::prepare(cx.editor, doc_id, view_id, path.map(Into::into), options);
+        let request = save::prepare(
+            cx.editor,
+            doc_id,
+            Some(view_id),
+            path.map(Into::into),
+            options,
+        );
         submit_save(cx.editor, cx.jobs, request)
     }
 
@@ -727,8 +732,8 @@ pub(super) mod typed {
                 }
             }),
         );
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
 
         Ok(())
     }
@@ -946,13 +951,9 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scroll.padding;
-        let trust_full = doc_trust_full(cx.editor);
-        let (view, doc) = current!(cx.editor);
-        doc.reload(view, &cx.editor.diff_providers, trust_full)
-            .map(|_| {
-                view.ensure_cursor_in_view(doc, scrolloff);
-            })?;
+        let id = current_ref!(cx.editor).1.id();
+        cx.editor.reload_document(id)?;
+        let doc = doc!(cx.editor, &id);
         if let Some(path) = doc.path().map(ToOwned::to_owned)
             && !cx.editor.file_watcher.is_watching(&path)
         {
@@ -974,68 +975,19 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let scrolloff = cx.editor.config().scroll.padding;
-        let view_id = view!(cx.editor).id;
-
-        let docs_view_ids: Vec<(DocumentId, Vec<ViewId>)> = cx
-            .editor
-            .documents_mut()
-            .map(|doc| {
-                let mut view_ids: Vec<_> = doc.selections().keys().cloned().collect();
-
-                if view_ids.is_empty() {
-                    doc.ensure_view_init(view_id);
-                    view_ids.push(view_id);
-                };
-
-                (doc.id(), view_ids)
-            })
-            .collect();
-
-        for (doc_id, view_ids) in docs_view_ids {
-            let doc = doc_mut!(cx.editor, &doc_id);
-
-            // Every doc is guaranteed to have at least 1 view at this point.
-            let view = view_mut!(cx.editor, view_ids[0]);
-
-            // Ensure that the view is synced with the document's history.
-            view.sync_changes(doc);
-
-            // Per-document trust: each doc's workspace may differ.
-            let trust_full = cx
-                .editor
-                .workspace_trust
-                .query(
-                    doc.workspace_root(),
-                    loader::workspace_trust::TrustQuery::Git,
-                )
-                .is_trusted();
-            if let Err(error) = doc.reload(view, &cx.editor.diff_providers, trust_full) {
-                cx.editor.set_error(|| format!("{}", error));
+        let documents: Vec<_> = cx.editor.documents.keys().copied().collect();
+        for id in documents {
+            if let Err(error) = cx.editor.reload_document(id) {
+                cx.editor.set_error(|| error.to_string());
                 continue;
             }
-
-            if let Some(path) = doc.path().map(ToOwned::to_owned)
+            if let Some(path) = doc!(cx.editor, &id).path().map(ToOwned::to_owned)
                 && !cx.editor.file_watcher.is_watching(&path)
             {
                 cx.editor
                     .language_servers
                     .file_event_handler
                     .file_changed(path, lsp_client::lsp::FileChangeType::CHANGED);
-            }
-
-            for view_id in view_ids {
-                let view = view_mut!(cx.editor, view_id);
-                if view.doc.eq(&doc_id) {
-                    // Reloading commits the diff against disk through the first view
-                    // only (above). Any other view onto this document is left
-                    // pointing at the pre-reload revision, so sync it now; otherwise
-                    // its jumplist entries keep referencing the old (e.g. larger)
-                    // text and a later commit panics when mapping them through a
-                    // changeset whose pre-image no longer contains them.
-                    view.sync_changes(doc);
-                    view.ensure_cursor_in_view(doc, scrolloff);
-                }
             }
         }
 
@@ -1223,8 +1175,8 @@ pub(super) mod typed {
         let contents = Tendril::from(contents);
         let selection = doc.selection(view.id);
         let transaction = Transaction::insert(doc.text(), selection, contents);
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())

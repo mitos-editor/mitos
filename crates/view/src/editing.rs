@@ -1,8 +1,139 @@
 //! Editing operations over documents and their per-view selections.
 
-use editor_core::{line_ending::normalize_line_endings, Range, Tendril, Transaction};
+use std::collections::HashMap;
 
-use crate::{Document, View};
+use editor_core::{
+    history::{HistoryDirection, HistoryStep, UndoKind},
+    line_ending::normalize_line_endings,
+    Assoc, Range, Selection, Tendril, Transaction,
+};
+
+use crate::{document::history::HistoryAction, Document, DocumentId, View, ViewId};
+
+/// Rejections leave both document text and pending undo groups untouched.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum EditError {
+    #[error("Document {0:?} is closed")]
+    DocumentClosed(DocumentId),
+    #[error("Document changed: expected version {expected}, found {actual}")]
+    DocumentChanged { expected: i32, actual: i32 },
+    #[error("Changes require {actual} characters, but the document has {expected}")]
+    InvalidLength { expected: usize, actual: usize },
+    #[error("Cannot edit binary document text")]
+    BinaryDocument,
+}
+
+/// Cursor snapshots are independent of text history and keyed by its revision IDs.
+/// They are shared by the document's views so undo in another split preserves Mitos's
+/// existing cursor-restoration behavior, including when the original split closes.
+#[derive(Debug, Default)]
+pub(crate) struct SelectionHistory {
+    pending: Option<(ViewId, Selection)>,
+    revisions: HashMap<usize, TransactionSelections>,
+}
+
+#[derive(Debug)]
+struct TransactionSelections {
+    undo: Selection,
+    redo: Option<Selection>,
+}
+
+impl SelectionHistory {
+    pub(crate) fn commit(&mut self, revision: usize, selections: &HashMap<ViewId, Selection>) {
+        if let Some((origin, undo)) = self.pending.take() {
+            self.revisions.insert(
+                revision,
+                TransactionSelections {
+                    undo,
+                    redo: selections.get(&origin).cloned(),
+                },
+            );
+        }
+    }
+
+    pub(crate) fn selection(&self, step: &HistoryStep) -> Option<&Selection> {
+        let selections = self.revisions.get(&step.revision)?;
+        match step.direction {
+            HistoryDirection::Undo => Some(&selections.undo),
+            HistoryDirection::Redo => selections.redo.as_ref(),
+        }
+    }
+}
+
+/// Apply an interactive transaction with an originating selection. Text mutation
+/// and pending undo groups use the same document path as edits without a view.
+pub fn apply(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
+    apply_with_notifications(doc, transaction, origin, true)
+}
+
+/// Apply a completion preview without sending its temporary text to language servers.
+pub fn apply_temporary(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
+    apply_with_notifications(doc, transaction, origin, false)
+}
+
+pub(crate) fn apply_with_notifications(
+    doc: &mut Document,
+    transaction: &Transaction,
+    origin: ViewId,
+    notify: bool,
+) -> bool {
+    if doc.validate_changes(transaction.changes()).is_err() {
+        return false;
+    }
+    if doc.changes().is_empty() && !transaction.changes().is_empty() {
+        doc.selection_history.pending = Some((origin, doc.selection(origin).clone()));
+    }
+    doc.apply_inner(transaction, Some(origin), notify).is_ok()
+}
+
+/// End an interactive undo group and synchronize this split's navigation state.
+pub fn commit(doc: &mut Document, view: &mut View) {
+    doc.commit_changes();
+    view.sync_changes(doc);
+}
+
+fn change_history(doc: &mut Document, view: &mut View, action: HistoryAction) -> bool {
+    let applied = doc.change_history(action, Some(view.id));
+    if applied {
+        view.sync_changes(doc);
+    }
+    applied
+}
+
+pub fn undo(doc: &mut Document, view: &mut View) -> bool {
+    change_history(doc, view, HistoryAction::Undo)
+}
+
+pub fn redo(doc: &mut Document, view: &mut View) -> bool {
+    change_history(doc, view, HistoryAction::Redo)
+}
+
+pub fn earlier(doc: &mut Document, view: &mut View, kind: UndoKind) -> bool {
+    change_history(doc, view, HistoryAction::Earlier(kind))
+}
+
+pub fn later(doc: &mut Document, view: &mut View, kind: UndoKind) -> bool {
+    change_history(doc, view, HistoryAction::Later(kind))
+}
+
+/// Prefer the last edit at the original cursor, falling back to the first change
+/// for operations without a cursor snapshot.
+pub fn last_edit_pos(doc: &mut Document) -> Option<usize> {
+    let history = doc.history.get_mut();
+    let transaction = history.current_transaction()?;
+    let at_cursor = doc
+        .selection_history
+        .revisions
+        .get(&history.current_revision())
+        .and_then(|selections| {
+            let primary = selections.undo.primary();
+            transaction
+                .changes_iter()
+                .find(|(from, to, _)| Range::new(*from, *to).overlaps(&primary))
+        });
+    let (_, to, _) = at_cursor.or_else(|| transaction.changes_iter().next())?;
+    Some(transaction.changes().map_pos(to, Assoc::After))
+}
 
 /// Replace every selection with the same literal text and commit pending edits to history.
 ///
@@ -23,8 +154,8 @@ pub fn replace_selections(doc: &mut Document, view: &mut View, replacement: &str
                 Some(selection),
             )
         });
-    doc.apply(&transaction, view.id);
-    doc.append_changes_to_history(view);
+    crate::editing::apply(doc, &transaction, view.id);
+    crate::editing::commit(doc, view);
 }
 
 #[cfg(test)]
@@ -36,6 +167,40 @@ mod tests {
 
     use super::*;
     use crate::config::Config;
+
+    #[tokio::test]
+    async fn text_edits_and_history_work_without_any_view() {
+        let mut doc = Document::from(
+            Rope::from("abc def\n"),
+            None,
+            Arc::new(ArcSwap::from_pointee(Config::default())),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+        );
+        let edit = Transaction::change(
+            doc.text(),
+            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
+        );
+        doc.apply(edit.changes()).unwrap();
+        doc.commit_changes();
+        assert_eq!(last_edit_pos(&mut doc), Some(2));
+        assert!(doc.undo());
+        assert_eq!(doc.text(), "abc def\n");
+        assert!(doc.redo());
+        assert_eq!(doc.text(), "XYbc ZZef\n");
+        assert!(doc.selections().is_empty());
+    }
+
+    #[tokio::test]
+    async fn last_edit_prefers_the_change_at_the_original_selection() {
+        let (mut doc, mut view) = document_and_view("abc #[d|]#ef\n");
+        let edit = Transaction::change(
+            doc.text(),
+            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
+        );
+        assert!(apply(&mut doc, &edit, view.id));
+        commit(&mut doc, &mut view);
+        assert_eq!(last_edit_pos(&mut doc), Some(7));
+    }
 
     fn document_and_view(input: &str) -> (Document, View) {
         let (text, selection) = test::print(input);
@@ -83,11 +248,11 @@ mod tests {
                 expected
             );
             assert_eq!(doc.version(), version + 1);
-            assert!(doc.undo(&mut view));
+            assert!(crate::editing::undo(&mut doc, &mut view));
             assert_eq!(doc.text(), &original_text);
             assert_eq!(doc.selection(view.id), &original_selection);
-            assert!(!doc.undo(&mut view));
-            assert!(doc.redo(&mut view));
+            assert!(!crate::editing::undo(&mut doc, &mut view));
+            assert!(crate::editing::redo(&mut doc, &mut view));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
@@ -103,14 +268,14 @@ mod tests {
         replace_selections(&mut doc, &mut view, "second");
 
         for expected in ["#[first|]#\n", "#[original|]#\n"] {
-            assert!(doc.undo(&mut view));
+            assert!(crate::editing::undo(&mut doc, &mut view));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
             );
         }
         for expected in ["#[first|]#\n", "#[second|]#\n"] {
-            assert!(doc.redo(&mut view));
+            assert!(crate::editing::redo(&mut doc, &mut view));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected

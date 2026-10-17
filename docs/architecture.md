@@ -422,6 +422,24 @@ terminal-output dependency or terminal feature flag for clipboard access.
 
 ### Document mutation phases
 
+Text edits and undo groups belong to the document. `Document::apply` accepts a
+`ChangeSet`, and `commit_changes`, `undo`, `redo`, `earlier`, and `later` do not
+require a view. The core history stores text transactions and returns revision
+identifiers with each history step. `view::editing` stores optional before/after
+selection snapshots separately, keyed by those identifiers, and adapts interactive
+commands to the same mutation path. Selection snapshots are shared by a document's
+views to preserve cursor restoration across splits, even after an origin closes.
+
+`Editor::apply_document_changes` applies an independent undo group and requires the
+expected document version. It rejects stale same-length edits before committing
+pending typing, synchronizes displaying splits before and after the operation,
+and returns a typed rejection reason. Workspace edits and save formatting use
+this operation. Direct document edits must be built from the current text.
+Reload and save preparation also work on hidden documents; loading a buffer does
+not create a selection in the focused split. Completion savepoints deliberately
+retain their originating view and selection because they represent interactive
+preview state.
+
 Document mutations establish text, mapped selections, syntax, diagnostics, cached
 annotation anchors, and snippet ranges before publishing a change. An explicit
 transaction selection is installed before observers inspect the new state.
@@ -501,8 +519,9 @@ success policy; request failures stop that save, and formatter failures still wr
 mutation path, retaining every stage until completion during shutdown. The terminal
 adapter translates those stages into exit-waiting jobs without interpreting save
 policy. Switching or closing a view cannot redirect formatting or discard the
-write: visible origin views retain native history/cursor updates, and background
-formatting uses document-only transactions without synthesizing split selections.
+write. Save formatting always uses a document edit; its optional origin view is
+used only to keep a displayed cursor in view. Save-all normalization does not
+synthesize selections for hidden documents.
 Formatting validates the text version, URI, language, and language-loader instance;
 stale results are discarded while the current document text is written.
 

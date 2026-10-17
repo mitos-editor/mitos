@@ -988,7 +988,10 @@ impl Iterator for ChangeIterator<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::history::State;
+    struct State {
+        doc: Rope,
+        selection: Selection,
+    }
 
     #[test]
     fn composition() {

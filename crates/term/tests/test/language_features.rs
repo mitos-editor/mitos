@@ -105,7 +105,7 @@ impl Fixture {
     fn edit(&mut self) {
         let (view, doc) = current!(self.app.editor);
         let transaction = Transaction::insert(doc.text(), &Selection::point(0), "new ".into());
-        doc.apply(&transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id);
     }
 }
 
@@ -281,7 +281,7 @@ async fn inlay_hints_reject_superseded_viewports() -> anyhow::Result<()> {
             doc.text(),
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
-        assert!(doc.apply(&transaction, view.id));
+        assert!(view::editing::apply(doc, &transaction, view.id));
     }
     inlay_hints::refresh(&mut f.app.editor);
     let old = f.response().await?;

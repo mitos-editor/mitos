@@ -137,7 +137,7 @@ fn paste_impl(
     }
 
     if mode == Mode::Insert {
-        doc.append_changes_to_history(view);
+        view::editing::commit(doc, view);
     }
 
     // if any of values ends with a line ending, it's linewise paste
@@ -203,8 +203,8 @@ fn paste_impl(
         transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
     }
 
-    doc.apply(&transaction, view.id);
-    doc.append_changes_to_history(view);
+    view::editing::apply(doc, &transaction, view.id);
+    view::editing::commit(doc, view);
 }
 
 pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
@@ -286,8 +286,8 @@ pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: ch
     drop(values);
 
     let (view, doc) = current!(editor);
-    doc.apply(&transaction, view.id);
-    doc.append_changes_to_history(view);
+    view::editing::apply(doc, &transaction, view.id);
+    view::editing::commit(doc, view);
     view.ensure_cursor_in_view(doc, scrolloff);
 }
 

@@ -255,8 +255,8 @@ impl Editor {
                                         Some(Tendril::from(&*suggestion)),
                                     )),
                                 );
-                                doc.apply(&transaction, view_id);
-                                doc.append_changes_to_history(view);
+                                crate::editing::apply(doc, &transaction, view_id);
+                                crate::editing::commit(doc, view);
                             },
                         ));
                     }

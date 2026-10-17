@@ -15,7 +15,7 @@ fn formatting_save(fixture: &mut Fixture) -> anyhow::Result<SaveTask> {
     let request = save::prepare(
         &mut fixture.editor,
         doc,
-        view,
+        Some(view),
         None,
         WriteOptions {
             force: false,
@@ -77,9 +77,9 @@ async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_cl
         }
         fixture.editor.switch(id, Action::Replace);
         let (view, doc) = current!(fixture.editor);
-        assert!(doc.undo(view));
+        assert!(view::editing::undo(doc, view));
         assert_eq!(doc.text().to_string(), "original\n");
-        assert!(doc.redo(view));
+        assert!(view::editing::redo(doc, view));
         assert_eq!(doc.text().to_string(), "formatted\n");
     }
     Ok(())

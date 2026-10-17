@@ -264,27 +264,8 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
 
 /// Use the existing reload transaction so selections, undo history, and LSPs stay in sync.
 fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()> {
-    let view_id = editor.get_synced_view_id(doc_id);
-    let scrolloff = editor.config().scroll.padding;
-    let doc = doc_mut!(editor, &doc_id);
-    let trust_full = editor
-        .workspace_trust
-        .query(
-            doc.workspace_root(),
-            loader::workspace_trust::TrustQuery::Git,
-        )
-        .is_trusted();
-    let view = view_mut!(editor, view_id);
-    doc.reload(view, &editor.diff_providers, trust_full)?;
-    // Reload commits history through one view. Sync every split displaying the
-    // document before its jumplist is used against the new text.
-    for (view, _) in editor.tree.views_mut() {
-        if view.doc == doc_id {
-            view.sync_changes(doc);
-            view.ensure_cursor_in_view(doc, scrolloff);
-        }
-    }
-    let display = doc.display_name().to_string();
+    editor.reload_document(doc_id)?;
+    let display = editor.document(doc_id).unwrap().display_name().to_string();
     editor.set_status(format!("{display} reloaded (external changes)"));
     Ok(())
 }

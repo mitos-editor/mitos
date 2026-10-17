@@ -144,19 +144,6 @@ fn current_workspace(cx: &compositor::Context) -> std::path::PathBuf {
     doc.workspace_root().to_path_buf()
 }
 
-/// Whether the currently focused document's workspace is trusted for git operations (gix
-/// `Trust::Full`).
-pub(super) fn doc_trust_full(editor: &view::Editor) -> bool {
-    let (_, doc) = current_ref!(editor);
-    editor
-        .workspace_trust
-        .query(
-            doc.workspace_root(),
-            loader::workspace_trust::TrustQuery::Git,
-        )
-        .is_trusted()
-}
-
 #[cold]
 pub(super) fn trust_workspace(
     cx: &mut compositor::Context,

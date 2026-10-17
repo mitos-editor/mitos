@@ -101,7 +101,7 @@ fn goto_file_end_impl(cx: &mut Context, movement: Movement) {
 
 // Store a jump on the jumplist.
 pub(super) fn push_jump(view: &mut View, doc: &mut Document) {
-    doc.append_changes_to_history(view);
+    view::editing::commit(doc, view);
     let jump = (doc.id(), doc.selection(view.id).clone());
     view.push_jump(doc, jump);
 }
@@ -205,7 +205,7 @@ pub(super) fn goto_last_accessed_file(cx: &mut Context) {
 
 pub(super) fn goto_last_modification(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    let pos = doc.history.get_mut().last_edit_pos();
+    let pos = view::editing::last_edit_pos(doc);
     let text = doc.text().slice(..);
     if let Some(pos) = pos {
         let selection = doc

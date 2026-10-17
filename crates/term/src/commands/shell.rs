@@ -232,8 +232,8 @@ pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: &ShellBeh
     if behavior != &ShellBehavior::Ignore {
         let transaction = Transaction::change(doc.text(), changes.into_iter())
             .with_selection(Selection::new(ranges, selection.primary_index()));
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
     }
 
     // after replace cursor may be out of bounds, do this to

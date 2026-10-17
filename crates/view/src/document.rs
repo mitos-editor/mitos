@@ -1,5 +1,7 @@
 pub use crate::features::formatting::FormatterError;
+pub(crate) mod history;
 mod lifecycle;
+mod mutation;
 
 pub use crate::features::blame::LineBlameError;
 use crate::features::{
@@ -59,7 +61,7 @@ use std::time::SystemTime;
 use editor_core::{
     editor_config::EditorConfig,
     encoding,
-    history::{History, State, UndoKind},
+    history::History,
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
     syntax::{self, config::LanguageConfiguration},
@@ -68,7 +70,7 @@ use editor_core::{
 
 use crate::{
     config::Config,
-    events::{DocumentDidChange, SelectionDidChange},
+    events::SelectionDidChange,
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
         document_highlight::DocumentHighlightsState, document_links::DocumentLinks,
@@ -234,13 +236,14 @@ pub struct Document {
 
     /// Pending changes since last history commit.
     changes: ChangeSet,
-    /// State before the pending changes and the view that started them.
-    old_state: Option<(State, ViewId)>,
+    /// Text before the pending changes; cursor snapshots are kept separately.
+    pending_original_text: Option<Rope>,
+    pub(crate) selection_history: crate::editing::SelectionHistory,
     /// Undo tree.
     // It can be used as a cell where we will take it out to get some parts of the history and put
     // it back as it separated from the edits. We could split out the parts manually but that will
     // be more troublesome.
-    pub history: Cell<History>,
+    pub(crate) history: Cell<History>,
     pub config: Arc<dyn DynAccess<Config>>,
 
     savepoints: Vec<Weak<SavePoint>>,
@@ -281,7 +284,7 @@ pub struct Document {
     syn_loader: Arc<ArcSwap<syntax::Loader>>,
 }
 
-use std::{fmt, mem};
+use std::fmt;
 impl fmt::Debug for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Document")
@@ -296,7 +299,7 @@ impl fmt::Debug for Document {
             .field("syntax", &self.syntax)
             .field("language", &self.language)
             .field("changes", &self.changes)
-            .field("old_state", &self.old_state)
+            .field("pending_original_text", &self.pending_original_text)
             // .field("history", &self.history)
             .field("last_saved_time", &self.last_saved_time)
             .field("last_saved_revision", &self.last_saved_revision)
@@ -316,14 +319,6 @@ impl Editor {
     }
 }
 
-fn take_with<T, F>(mut_ref: &mut T, f: F)
-where
-    T: Default,
-    F: FnOnce(T) -> T,
-{
-    *mut_ref = f(mem::take(mut_ref));
-}
-
 use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName};
 use stdx::Url;
 
@@ -337,7 +332,7 @@ impl Document {
         let (encoding, has_bom) = encoding_with_bom_info.unwrap_or((encoding::UTF_8, false));
         let line_ending = config.load().files.default_line_ending.into();
         let changes = ChangeSet::new(text.slice(..));
-        let old_state = None;
+        let pending_original_text = None;
 
         Self {
             id: DocumentId::default(),
@@ -371,7 +366,8 @@ impl Document {
             spelling_events: None,
             language: None,
             changes,
-            old_state,
+            pending_original_text,
+            selection_history: Default::default(),
             diagnostics: Vec::new(),
             version: 0,
             history: Cell::new(History::default()),
@@ -831,7 +827,6 @@ impl Document {
     /// Reload the document from its path.
     pub fn reload(
         &mut self,
-        view: &mut View,
         provider_registry: &DiffProviderRegistry,
         trust_full: bool,
     ) -> Result<(), Error> {
@@ -859,8 +854,8 @@ impl Document {
         // This is not considered a modification of the contents of the file regardless
         // of the encoding.
         let transaction = editor_core::diff::compare_ropes(self.text(), &rope);
-        self.apply(&transaction, view.id);
-        self.append_changes_to_history(view);
+        self.apply(transaction.changes())?;
+        self.commit_changes();
         self.binary = binary;
         self.detect_readonly();
         if binary {
@@ -1031,211 +1026,6 @@ impl Document {
         self.code_action_hints.remove_view(view_id);
     }
 
-    /// Apply a [`Transaction`] to the [`Document`] to change its text.
-    fn apply_impl(
-        &mut self,
-        transaction: &Transaction,
-        view_id: Option<ViewId>,
-        emit_lsp_notification: bool,
-    ) -> bool {
-        use editor_core::Assoc;
-
-        if self.binary && !transaction.changes().is_empty() {
-            return false;
-        }
-        let old_doc = self.text().clone();
-        let changes = transaction.changes();
-        if !changes.apply(&mut self.text) {
-            return false;
-        }
-
-        if changes.is_empty() {
-            if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
-                self.update_selection(view_id, selection.clone());
-                let errors = event::dispatch(SelectionDidChange {
-                    doc: self,
-                    view: view_id,
-                });
-                self.report_hook_errors(errors);
-            }
-            return true;
-        }
-
-        self.modified_since_accessed = true;
-        self.version += 1;
-
-        for selection in self.selections.values_mut() {
-            *selection = selection
-                .clone()
-                // Map through changes
-                .map(transaction.changes())
-                // Ensure all selections across all views still adhere to invariants.
-                .ensure_invariants(self.text.slice(..));
-        }
-
-        for view_data in self.view_data.values_mut() {
-            view_data.view_position.anchor = transaction
-                .changes()
-                .map_pos(view_data.view_position.anchor, Assoc::Before);
-        }
-
-        // generate revert to savepoint
-        if !self.savepoints.is_empty() {
-            let revert = transaction.invert(&old_doc);
-            self.savepoints
-                .retain_mut(|save_point| match save_point.upgrade() {
-                    Some(savepoint) => {
-                        let mut revert_to_savepoint = savepoint.revert.lock();
-                        *revert_to_savepoint =
-                            revert.clone().compose(mem::take(&mut revert_to_savepoint));
-                        true
-                    }
-                    None => false,
-                })
-        }
-
-        // update tree-sitter syntax tree
-        if let Some(syntax) = &mut self.syntax {
-            let loader = self.syn_loader.load();
-            if let Err(err) = syntax.update(
-                old_doc.slice(..),
-                self.text.slice(..),
-                transaction.changes(),
-                &loader,
-            ) {
-                log::error!("TS parser failed, disabling TS for the current buffer: {err}");
-                self.syntax = None;
-            }
-        }
-
-        // start computing the diff in parallel
-        if let Some(diff_handle) = &self.diff_handle {
-            diff_handle.update_document(self.text.clone(), false);
-        }
-
-        // Map cached anchors as part of the mutation, before protocol synchronization or observers.
-        self.map_diagnostics(changes);
-        self.document_colors.apply_changes(changes);
-        self.document_links.apply_changes(changes);
-        self.code_lenses
-            .apply_changes(changes, &old_doc, &self.text, !emit_lsp_notification);
-        self.inline_completions.clear();
-        self.map_snippet(changes);
-
-        self.inlay_hints.apply_changes(changes);
-        self.hover.clear();
-        self.navigation.clear();
-
-        self.document_highlights
-            .apply_changes(changes, self.text.len_chars());
-
-        // Install an explicit transaction selection before observers inspect the new state.
-        if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
-            self.update_selection(view_id, selection.clone());
-        }
-
-        // Temporary completion previews deliberately remain local to the editor.
-        if emit_lsp_notification {
-            crate::handlers::lsp::synchronize_document(self, &old_doc, changes);
-        }
-
-        // Observers see mapped caches and the final selection, and may now schedule work.
-        let errors = event::dispatch(DocumentDidChange {
-            doc: self,
-            view: view_id,
-            old_text: &old_doc,
-            changes,
-            ghost_transaction: !emit_lsp_notification,
-        });
-        self.report_hook_errors(errors);
-        if let (Some(_), Some(view_id)) = (transaction.selection(), view_id) {
-            let errors = event::dispatch(SelectionDidChange {
-                doc: self,
-                view: view_id,
-            });
-            self.report_hook_errors(errors);
-        }
-
-        true
-    }
-
-    fn apply_inner(
-        &mut self,
-        transaction: &Transaction,
-        view_id: ViewId,
-        emit_lsp_notification: bool,
-    ) -> bool {
-        if self.binary && !transaction.changes().is_empty() {
-            return false;
-        }
-        // store the state just before any changes are made. This allows us to undo to the
-        // state just before a transaction was applied.
-        if self.changes.is_empty() && !transaction.changes().is_empty() {
-            self.old_state = Some((
-                State {
-                    doc: self.text.clone(),
-                    selection: self.selection(view_id).clone(),
-                },
-                view_id,
-            ));
-        }
-
-        let success = self.apply_impl(transaction, Some(view_id), emit_lsp_notification);
-
-        if !transaction.changes().is_empty() {
-            // Compose this transaction with the previous one
-            take_with(&mut self.changes, |changes| {
-                changes.compose(transaction.changes().clone())
-            });
-        }
-        success
-    }
-    /// Apply a [`Transaction`] to the [`Document`] to change its text.
-    pub fn apply(&mut self, transaction: &Transaction, view_id: ViewId) -> bool {
-        self.apply_inner(transaction, view_id, true)
-    }
-
-    /// Apply a [`Transaction`] to the [`Document`] to change its text
-    /// without notifying the language servers. This is useful for temporary transactions
-    /// that must not influence the server.
-    pub fn apply_temporary(&mut self, transaction: &Transaction, view_id: ViewId) -> bool {
-        self.apply_inner(transaction, view_id, false)
-    }
-
-    fn undo_redo_impl(&mut self, view: &mut View, undo: bool) -> bool {
-        if undo {
-            self.append_changes_to_history(view);
-        } else if !self.changes.is_empty() {
-            return false;
-        }
-        let mut history = self.history.take();
-        let txn = if undo { history.undo() } else { history.redo() };
-        let success = if let Some(txn) = txn {
-            self.apply_impl(txn, Some(view.id), true)
-        } else {
-            false
-        };
-        self.history.set(history);
-
-        if success {
-            // reset changeset to fix len
-            self.changes = ChangeSet::new(self.text().slice(..));
-            // Sync with changes with the jumplist selections.
-            view.sync_changes(self);
-        }
-        success
-    }
-
-    /// Undo the last modification to the [`Document`]. Returns whether the undo was successful.
-    pub fn undo(&mut self, view: &mut View) -> bool {
-        self.undo_redo_impl(view, true)
-    }
-
-    /// Redo the last modification to the [`Document`]. Returns whether the redo was successful.
-    pub fn redo(&mut self, view: &mut View) -> bool {
-        self.undo_redo_impl(view, false)
-    }
-
     /// Creates a reference counted snapshot (called savpepoint) of the document.
     ///
     /// The snapshot will remain valid (and updated) idenfinitly as long as ereferences to it exist.
@@ -1282,104 +1072,9 @@ impl Document {
 
         let savepoint_ref = self.savepoints.remove(savepoint_idx);
         let mut revert = savepoint.revert.lock();
-        self.apply_inner(&revert, view.id, emit_lsp_notification);
+        crate::editing::apply_with_notifications(self, &revert, view.id, emit_lsp_notification);
         *revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
         self.savepoints.push(savepoint_ref)
-    }
-
-    fn earlier_later_impl(&mut self, view: &mut View, uk: UndoKind, earlier: bool) -> bool {
-        if earlier {
-            self.append_changes_to_history(view);
-        } else if !self.changes.is_empty() {
-            return false;
-        }
-        let txns = if earlier {
-            self.history.get_mut().earlier(uk)
-        } else {
-            self.history.get_mut().later(uk)
-        };
-        let mut success = false;
-        for txn in txns {
-            if self.apply_impl(&txn, Some(view.id), true) {
-                success = true;
-            }
-        }
-        if success {
-            // reset changeset to fix len
-            self.changes = ChangeSet::new(self.text().slice(..));
-            // Sync with changes with the jumplist selections.
-            view.sync_changes(self);
-        }
-        success
-    }
-
-    /// Undo modifications to the [`Document`] according to `uk`.
-    pub fn earlier(&mut self, view: &mut View, uk: UndoKind) -> bool {
-        self.earlier_later_impl(view, uk, true)
-    }
-
-    /// Redo modifications to the [`Document`] according to `uk`.
-    pub fn later(&mut self, view: &mut View, uk: UndoKind) -> bool {
-        self.earlier_later_impl(view, uk, false)
-    }
-
-    /// Commit pending changes to history
-    pub fn append_changes_to_history(&mut self, view: &mut View) {
-        if self.changes.is_empty() {
-            return;
-        }
-
-        let new_changeset = ChangeSet::new(self.text().slice(..));
-        let changes = std::mem::replace(&mut self.changes, new_changeset);
-        // Instead of doing this messy merge we could always commit, and based on transaction
-        // annotations either add a new layer or compose into the previous one.
-        let transaction =
-            Transaction::from(changes).with_selection(self.selection(view.id).clone());
-
-        // HAXX: we need to reconstruct the state as it was before the changes..
-        let (old_state, _) = self.old_state.take().expect("no old_state available");
-
-        let mut history = self.history.take();
-        history.commit_revision(&transaction, &old_state);
-        self.history.set(history);
-
-        // Update jumplist entries in the view.
-        view.apply(&transaction, self);
-    }
-
-    /// Commit pending native edits without stamping any split's lazy history cache.
-    /// The originating selection is retained even when its document is hidden.
-    pub(crate) fn commit_pending_changes(&mut self) {
-        if self.changes.is_empty() {
-            return;
-        }
-        let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
-        let (original, view) = self.old_state.take().expect("no old_state available");
-        let mut transaction = Transaction::from(changes);
-        if let Some(selection) = self.selections.get(&view) {
-            transaction = transaction.with_selection(selection.clone());
-        }
-        // Native undo retains its original cursor even if its view has closed.
-        let mut history = self.history.take();
-        history.commit_revision(&transaction, &original);
-        self.history.set(history);
-    }
-
-    /// Apply one text-only transaction as its own undo revision without a view.
-    pub(crate) fn apply_document_transaction(&mut self, transaction: &Transaction) -> bool {
-        debug_assert!(self.changes.is_empty());
-        debug_assert!(transaction.selection().is_none());
-        let original = self.text.clone();
-        if !self.apply_impl(transaction, None, true) {
-            return false;
-        }
-        if !transaction.changes().is_empty() {
-            let mut history = self.history.take();
-            history.commit_document_revision(transaction, &original);
-            self.history.set(history);
-        }
-        self.changes = ChangeSet::new(self.text.slice(..));
-        true
     }
 
     pub fn id(&self) -> DocumentId {
@@ -2209,7 +1904,7 @@ mod test {
         let transaction =
             Transaction::change(doc.text(), vec![(5, 7, Some("\n".into()))].into_iter());
         let old_doc = doc.text().clone();
-        doc.apply(&transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view);
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -2249,7 +1944,7 @@ mod test {
 
         let transaction = Transaction::insert(doc.text(), doc.selection(view), " world".into());
         let old_doc = doc.text().clone();
-        doc.apply(&transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view);
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -2273,7 +1968,7 @@ mod test {
 
         let transaction = transaction.invert(&old_doc);
         let old_doc = doc.text().clone();
-        doc.apply(&transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view);
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -2310,7 +2005,7 @@ mod test {
         );
         // aeilou
         let old_doc = doc.text().clone();
-        doc.apply(&transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view);
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),

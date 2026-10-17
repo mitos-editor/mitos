@@ -99,7 +99,7 @@ pub(super) fn align_selections(cx: &mut Context) {
         });
 
     let transaction = Transaction::change(doc.text(), changes);
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
     exit_select_mode(cx);
 }
 
@@ -115,7 +115,7 @@ where
         (range.from(), range.to(), Some(text))
     });
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
     exit_select_mode(cx);
 }
 
@@ -269,7 +269,7 @@ fn join_selections_impl(cx: &mut Context, select_space: bool) {
         Transaction::change(text, changes.into_iter())
     };
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 pub(super) fn join_selections(cx: &mut Context) {
@@ -337,7 +337,7 @@ fn reorder_selection_contents(cx: &mut Context, strategy: ReorderStrategy) {
         view.id,
         Selection::new(selection.ranges().into(), primary_index),
     );
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 }
 
 pub(super) fn rotate_selection_contents_forward(cx: &mut Context) {
@@ -394,7 +394,7 @@ pub(super) fn indent(cx: &mut Context) {
             Some((pos, pos, Some(indent)))
         }),
     );
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
     exit_select_mode(cx);
 }
 
@@ -434,7 +434,7 @@ pub(super) fn unindent(cx: &mut Context) {
 
     let transaction = Transaction::change(doc.text(), changes.into_iter());
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
     exit_select_mode(cx);
 }
 
@@ -492,7 +492,7 @@ fn toggle_comments_impl(cx: &mut Context, comment_transaction: CommentTransactio
     let transaction =
         comment_transaction(line_token, block_tokens, doc.text(), doc.selection(view.id));
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
     exit_select_mode(cx);
 }
 
@@ -627,7 +627,7 @@ pub(super) fn replace_char(cx: &mut Context) {
                 }
             });
 
-            doc.apply(&transaction, view.id);
+            view::editing::apply(doc, &transaction, view.id);
             exit_select_mode(cx);
         }
     })
@@ -709,7 +709,7 @@ fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
     // delete the selection
     let transaction =
         Transaction::delete_by_selection(doc.text(), selection, |range| (range.from(), range.to()));
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 
     match op {
         Operation::Delete => {
@@ -792,7 +792,7 @@ pub(super) fn surround_add(cx: &mut Context) {
 
         let transaction = Transaction::change(doc.text(), changes.into_iter())
             .with_selection(Selection::new(ranges, selection.primary_index()));
-        doc.apply(&transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id);
         exit_select_mode(cx);
     });
 
@@ -857,7 +857,7 @@ pub(super) fn surround_replace(cx: &mut Context) {
                 }),
             );
             doc.set_selection(view.id, selection);
-            doc.apply(&transaction, view.id);
+            view::editing::apply(doc, &transaction, view.id);
             exit_select_mode(cx);
         });
 
@@ -897,7 +897,7 @@ pub(super) fn surround_delete(cx: &mut Context) {
         change_pos.sort_unstable(); // the changeset has to be sorted to allow nested surrounds
         let transaction =
             Transaction::change(doc.text(), change_pos.into_iter().map(|p| (p, p + 1, None)));
-        doc.apply(&transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id);
         exit_select_mode(cx);
     });
 
@@ -968,7 +968,7 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
         let new_selection = Selection::new(new_selection_ranges, selection.primary_index());
         let transaction = Transaction::change(doc.text(), changes.into_iter());
         let transaction = transaction.with_selection(new_selection);
-        doc.apply(&transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id);
         exit_select_mode(cx);
     }
 }
@@ -1022,8 +1022,8 @@ pub(super) mod typed {
                 .map(|(s, fragment)| (s.from(), s.to(), Some(fragment))),
         );
 
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())
@@ -1062,8 +1062,8 @@ pub(super) mod typed {
             (range.from(), range.to(), Some(reflowed_text))
         });
 
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        view::editing::apply(doc, &transaction, view.id);
+        view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())

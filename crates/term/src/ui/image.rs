@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(doc.text(), &Rope::new());
         assert!(doc.language_config().is_none());
         let insert = Transaction::insert(doc.text(), &Selection::point(0), "corrupt".into());
-        assert!(!doc.apply(&insert, ViewId::default()));
+        assert!(!view::editing::apply(&mut doc, &insert, ViewId::default()));
         assert!(!doc.is_modified());
         assert!(doc.save::<PathBuf>(None, false).is_err());
         assert!(doc.save::<PathBuf>(None, true).is_err());
@@ -458,25 +458,28 @@ mod tests {
         let path = dir.path().join("image.png");
         image::DynamicImage::new_rgb8(20, 20).save(&path).unwrap();
         let mut doc = open(&path);
-        let mut view = View::new(doc.id(), Default::default(), event::Redraw::default());
+        let view = View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.set_selection(view.id, Selection::point(0));
         let providers = vcs::DiffProviderRegistry::default();
-        doc.reload(&mut view, &providers, false).unwrap();
+        doc.reload(&providers, false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.readonly);
         assert_eq!(doc.text().len_bytes(), 0);
         // Replacing it with text restores the normal editor path.
         fs::write(&path, "plain text\n").unwrap();
-        doc.reload(&mut view, &providers, false).unwrap();
+        doc.reload(&providers, false).unwrap();
         assert!(!doc.is_binary());
         assert!(!doc.readonly);
         assert_eq!(doc.text().to_string(), "plain text\n");
         image::DynamicImage::new_rgb8(20, 20).save(&path).unwrap();
         doc.set_encoding("utf-16le").unwrap();
-        doc.reload(&mut view, &providers, false).unwrap();
+        doc.reload(&providers, false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.readonly);
         assert_eq!(doc.text().len_bytes(), 0);
+        let revision = doc.get_current_revision();
+        assert!(!doc.undo());
+        assert_eq!(doc.get_current_revision(), revision);
     }
 
     #[test]

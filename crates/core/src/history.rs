@@ -1,16 +1,26 @@
-use crate::{Assoc, ChangeSet, Range, Rope, Selection, Transaction};
+use crate::{ChangeSet, Rope, Transaction};
 use regex::Regex;
 use std::num::NonZeroUsize;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+/// One step through the text history. Selection restoration belongs to the caller.
 #[derive(Debug, Clone)]
-pub struct State {
-    pub doc: Rope,
-    pub selection: Selection,
+pub struct HistoryStep {
+    pub revision: usize,
+    pub transaction: Transaction,
+    pub direction: HistoryDirection,
 }
 
-/// Stores the history of changes to a buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryDirection {
+    Undo,
+    Redo,
+}
+
+/// Stores text history independently of cursors and views. Callers can associate
+/// optional selection snapshots with revision identifiers returned by commits and
+/// [`HistoryStep`]s returned by undo, redo, and chronological navigation.
 ///
 /// Currently the history is represented as a vector of revisions. The vector
 /// always has at least one element: the empty root revision. Each revision
@@ -38,8 +48,6 @@ pub struct State {
 /// jump the given number of revisions in the vector.
 ///
 /// Limitations:
-///  * Changes in selections currently don't commit history changes. The selection
-///    will only be updated to the state after a committed buffer change.
 ///  * The vector of history revisions is currently unbounded. This might
 ///    cause the memory consumption to grow significantly large during long
 ///    editing sessions.
@@ -82,46 +90,30 @@ impl Default for History {
 }
 
 impl History {
-    pub fn commit_revision(&mut self, transaction: &Transaction, original: &State) {
-        self.commit_revision_at_timestamp(transaction, original, Instant::now());
+    /// Commit text changes and return their stable revision identifier.
+    pub fn commit_revision(&mut self, changes: &ChangeSet, original: &Rope) -> usize {
+        self.commit_revision_at_timestamp(changes, original, Instant::now())
     }
 
     pub fn commit_revision_at_timestamp(
         &mut self,
-        transaction: &Transaction,
-        original: &State,
+        changes: &ChangeSet,
+        original: &Rope,
         timestamp: Instant,
-    ) {
-        let inversion = transaction
-            .invert(&original.doc)
-            // Store the current cursor position
-            .with_selection(original.selection.clone());
-
-        self.commit_with_inversion(transaction, inversion, timestamp);
-    }
-
-    /// Commit a text-only change without associating undo with a particular view's cursor.
-    pub fn commit_document_revision(&mut self, transaction: &Transaction, original: &Rope) {
-        debug_assert!(transaction.selection().is_none());
-        self.commit_with_inversion(transaction, transaction.invert(original), Instant::now());
-    }
-
-    fn commit_with_inversion(
-        &mut self,
-        transaction: &Transaction,
-        inversion: Transaction,
-        timestamp: Instant,
-    ) {
+    ) -> usize {
+        let transaction = Transaction::from(changes.clone());
+        let inversion = transaction.invert(original);
         let new_current = self.revisions.len();
         self.revisions[self.current].last_child = NonZeroUsize::new(new_current);
         self.revisions.push(Revision {
             parent: self.current,
             last_child: None,
-            transaction: transaction.clone(),
+            transaction,
             inversion,
             timestamp,
         });
         self.current = new_current;
+        new_current
     }
 
     #[inline]
@@ -149,45 +141,37 @@ impl History {
         down_txns.chain(up_txns).reduce(|acc, tx| tx.compose(acc))
     }
 
-    /// Undo the last edit.
-    pub fn undo(&mut self) -> Option<&Transaction> {
+    /// Undo text independently of any editor's cursor state.
+    pub fn undo(&mut self) -> Option<HistoryStep> {
         if self.at_root() {
             return None;
         }
-
-        let current_revision = &self.revisions[self.current];
-        self.current = current_revision.parent;
-        Some(&current_revision.inversion)
+        let revision = self.current;
+        self.current = self.revisions[revision].parent;
+        Some(self.step(revision, HistoryDirection::Undo))
     }
 
-    /// Redo the last edit.
-    pub fn redo(&mut self) -> Option<&Transaction> {
-        let current_revision = &self.revisions[self.current];
-        let last_child = current_revision.last_child?;
-        self.current = last_child.get();
-
-        Some(&self.revisions[last_child.get()].transaction)
+    pub fn redo(&mut self) -> Option<HistoryStep> {
+        let revision = self.revisions[self.current].last_child?.get();
+        self.current = revision;
+        Some(self.step(revision, HistoryDirection::Redo))
     }
 
-    // Get the position of last change
-    pub fn last_edit_pos(&self) -> Option<usize> {
-        if self.current == 0 {
-            return None;
+    /// Text changes at the current revision, without editor selection metadata.
+    pub fn current_transaction(&self) -> Option<&Transaction> {
+        (self.current != 0).then(|| &self.revisions[self.current].transaction)
+    }
+
+    fn step(&self, revision: usize, direction: HistoryDirection) -> HistoryStep {
+        let entry = &self.revisions[revision];
+        HistoryStep {
+            revision,
+            transaction: match direction {
+                HistoryDirection::Undo => entry.inversion.clone(),
+                HistoryDirection::Redo => entry.transaction.clone(),
+            },
+            direction,
         }
-        let current_revision = &self.revisions[self.current];
-        let transaction = &current_revision.transaction;
-        let change_at_cursor = current_revision
-            .inversion
-            .selection()
-            .and_then(|selection| {
-                let primary = selection.primary();
-                transaction
-                    .changes_iter()
-                    .find(|(from, to, _)| Range::new(*from, *to).overlaps(&primary))
-            });
-        // Document-only revisions have no cursor; fall back to their first change.
-        let (_, to, _) = change_at_cursor.or_else(|| transaction.changes_iter().next())?;
-        Some(transaction.changes().map_pos(to, Assoc::After))
     }
 
     fn lowest_common_ancestor(&self, mut a: usize, mut b: usize) -> usize {
@@ -219,27 +203,27 @@ impl History {
         path
     }
 
-    /// Create a [`Transaction`] that will jump to a specific revision in the history.
-    fn jump_to(&mut self, to: usize) -> Vec<Transaction> {
+    /// Return the text steps needed to reach a revision, including across branches.
+    fn jump_to(&mut self, to: usize) -> Vec<HistoryStep> {
         let lca = self.lowest_common_ancestor(self.current, to);
         let up = self.path_up(self.current, lca);
         let down = self.path_up(to, lca);
         self.current = to;
-        let up_txns = up.iter().map(|&n| self.revisions[n].inversion.clone());
+        let up_txns = up.iter().map(|&n| self.step(n, HistoryDirection::Undo));
         let down_txns = down
             .iter()
             .rev()
-            .map(|&n| self.revisions[n].transaction.clone());
+            .map(|&n| self.step(n, HistoryDirection::Redo));
         up_txns.chain(down_txns).collect()
     }
 
-    /// Creates a [`Transaction`] that will undo `delta` revisions.
-    fn jump_backward(&mut self, delta: usize) -> Vec<Transaction> {
+    /// Return the history steps that undo `delta` revisions.
+    fn jump_backward(&mut self, delta: usize) -> Vec<HistoryStep> {
         self.jump_to(self.current.saturating_sub(delta))
     }
 
-    /// Creates a [`Transaction`] that will redo `delta` revisions.
-    fn jump_forward(&mut self, delta: usize) -> Vec<Transaction> {
+    /// Return the history steps that redo `delta` revisions.
+    fn jump_forward(&mut self, delta: usize) -> Vec<HistoryStep> {
         self.jump_to(
             self.current
                 .saturating_add(delta)
@@ -258,9 +242,9 @@ impl History {
         }
     }
 
-    /// Creates a [`Transaction`] that will match a revision created at around
+    /// Return the history steps to a revision created at around
     /// `instant`.
-    fn jump_instant(&mut self, instant: Instant) -> Vec<Transaction> {
+    fn jump_instant(&mut self, instant: Instant) -> Vec<HistoryStep> {
         let search_result = self
             .revisions
             .binary_search_by(|rev| rev.timestamp.cmp(&instant));
@@ -275,26 +259,26 @@ impl History {
         self.jump_to(revision)
     }
 
-    /// Creates a [`Transaction`] that will match a revision created `duration` ago
+    /// Return the history steps to a revision created `duration` ago
     /// from the timestamp of current revision.
-    fn jump_duration_backward(&mut self, duration: Duration) -> Vec<Transaction> {
+    fn jump_duration_backward(&mut self, duration: Duration) -> Vec<HistoryStep> {
         match self.revisions[self.current].timestamp.checked_sub(duration) {
             Some(instant) => self.jump_instant(instant),
             None => self.jump_to(0),
         }
     }
 
-    /// Creates a [`Transaction`] that will match a revision created `duration` in
+    /// Return the history steps to a revision created `duration` in
     /// the future from the timestamp of the current revision.
-    fn jump_duration_forward(&mut self, duration: Duration) -> Vec<Transaction> {
+    fn jump_duration_forward(&mut self, duration: Duration) -> Vec<HistoryStep> {
         match self.revisions[self.current].timestamp.checked_add(duration) {
             Some(instant) => self.jump_instant(instant),
             None => self.jump_to(self.revisions.len() - 1),
         }
     }
 
-    /// Creates an undo [`Transaction`].
-    pub fn earlier(&mut self, uk: UndoKind) -> Vec<Transaction> {
+    /// Navigate earlier by revision count or duration.
+    pub fn earlier(&mut self, uk: UndoKind) -> Vec<HistoryStep> {
         use UndoKind::*;
         match uk {
             Steps(n) => self.jump_backward(n),
@@ -302,8 +286,8 @@ impl History {
         }
     }
 
-    /// Creates a redo [`Transaction`].
-    pub fn later(&mut self, uk: UndoKind) -> Vec<Transaction> {
+    /// Navigate later by revision count or duration.
+    pub fn later(&mut self, uk: UndoKind) -> Vec<HistoryStep> {
         use UndoKind::*;
         match uk {
             Steps(n) => self.jump_forward(n),
@@ -398,192 +382,155 @@ impl std::str::FromStr for UndoKind {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Selection;
-
-    #[test]
-    fn document_revision_last_edit_uses_the_first_change() {
-        let mut history = History::default();
-        let doc = Rope::from("abc def\n");
-        let transaction = Transaction::change(
-            &doc,
-            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
-        );
-        history.commit_document_revision(&transaction, &doc);
-
-        assert_eq!(history.last_edit_pos(), Some(2));
-    }
-
-    #[test]
-    fn last_edit_prefers_the_change_at_the_original_selection() {
-        let mut history = History::default();
-        let original = State {
-            doc: Rope::from("abc def\n"),
-            selection: Selection::single(4, 5),
-        };
-        let transaction = Transaction::change(
-            &original.doc,
-            [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
-        );
-        history.commit_revision(&transaction, &original);
-
-        assert_eq!(history.last_edit_pos(), Some(7));
-    }
-
     #[test]
     fn test_undo_redo() {
         let mut history = History::default();
         let doc = Rope::from("hello");
-        let mut state = State {
-            doc,
-            selection: Selection::point(0),
-        };
+        let mut state = doc;
 
         let transaction1 =
-            Transaction::change(&state.doc, vec![(5, 5, Some(" world!".into()))].into_iter());
+            Transaction::change(&state, vec![(5, 5, Some(" world!".into()))].into_iter());
 
         // Need to commit before applying!
-        history.commit_revision(&transaction1, &state);
-        transaction1.apply(&mut state.doc);
-        assert_eq!("hello world!", state.doc);
+        history.commit_revision(transaction1.changes(), &state);
+        transaction1.apply(&mut state);
+        assert_eq!("hello world!", state);
 
         // ---
 
         let transaction2 =
-            Transaction::change(&state.doc, vec![(6, 11, Some("世界".into()))].into_iter());
+            Transaction::change(&state, vec![(6, 11, Some("世界".into()))].into_iter());
 
         // Need to commit before applying!
-        history.commit_revision(&transaction2, &state);
-        transaction2.apply(&mut state.doc);
-        assert_eq!("hello 世界!", state.doc);
+        history.commit_revision(transaction2.changes(), &state);
+        transaction2.apply(&mut state);
+        assert_eq!("hello 世界!", state);
 
         // ---
-        fn undo(history: &mut History, state: &mut State) {
-            if let Some(transaction) = history.undo() {
-                transaction.apply(&mut state.doc);
+        fn undo(history: &mut History, state: &mut Rope) {
+            if let Some(step) = history.undo() {
+                step.transaction.apply(state);
             }
         }
-        fn redo(history: &mut History, state: &mut State) {
-            if let Some(transaction) = history.redo() {
-                transaction.apply(&mut state.doc);
+        fn redo(history: &mut History, state: &mut Rope) {
+            if let Some(step) = history.redo() {
+                step.transaction.apply(state);
             }
         }
 
         undo(&mut history, &mut state);
-        assert_eq!("hello world!", state.doc);
+        assert_eq!("hello world!", state);
         redo(&mut history, &mut state);
-        assert_eq!("hello 世界!", state.doc);
+        assert_eq!("hello 世界!", state);
         undo(&mut history, &mut state);
         undo(&mut history, &mut state);
-        assert_eq!("hello", state.doc);
+        assert_eq!("hello", state);
 
         // undo at root is a no-op
         undo(&mut history, &mut state);
-        assert_eq!("hello", state.doc);
+        assert_eq!("hello", state);
     }
 
     #[test]
     fn test_earlier_later() {
         let mut history = History::default();
         let doc = Rope::from("a\n");
-        let mut state = State {
-            doc,
-            selection: Selection::point(0),
-        };
+        let mut state = doc;
 
-        fn undo(history: &mut History, state: &mut State) {
-            if let Some(transaction) = history.undo() {
-                transaction.apply(&mut state.doc);
+        fn undo(history: &mut History, state: &mut Rope) {
+            if let Some(step) = history.undo() {
+                step.transaction.apply(state);
             }
         }
 
-        fn earlier(history: &mut History, state: &mut State, uk: UndoKind) {
+        fn earlier(history: &mut History, state: &mut Rope, uk: UndoKind) {
             let txns = history.earlier(uk);
             for txn in txns {
-                txn.apply(&mut state.doc);
+                txn.transaction.apply(state);
             }
         }
 
-        fn later(history: &mut History, state: &mut State, uk: UndoKind) {
+        fn later(history: &mut History, state: &mut Rope, uk: UndoKind) {
             let txns = history.later(uk);
             for txn in txns {
-                txn.apply(&mut state.doc);
+                txn.transaction.apply(state);
             }
         }
 
         fn commit_change(
             history: &mut History,
-            state: &mut State,
+            state: &mut Rope,
             change: crate::transaction::Change,
             instant: Instant,
         ) {
-            let txn = Transaction::change(&state.doc, vec![change].into_iter());
-            history.commit_revision_at_timestamp(&txn, state, instant);
-            txn.apply(&mut state.doc);
+            let txn = Transaction::change(state, vec![change].into_iter());
+            history.commit_revision_at_timestamp(txn.changes(), state, instant);
+            txn.apply(state);
         }
 
         let t0 = Instant::now();
         let t = |n| t0.checked_add(Duration::from_secs(n)).unwrap();
 
         commit_change(&mut history, &mut state, (1, 1, Some(" b".into())), t(0));
-        assert_eq!("a b\n", state.doc);
+        assert_eq!("a b\n", state);
 
         commit_change(&mut history, &mut state, (3, 3, Some(" c".into())), t(10));
-        assert_eq!("a b c\n", state.doc);
+        assert_eq!("a b c\n", state);
 
         commit_change(&mut history, &mut state, (5, 5, Some(" d".into())), t(20));
-        assert_eq!("a b c d\n", state.doc);
+        assert_eq!("a b c d\n", state);
 
         undo(&mut history, &mut state);
-        assert_eq!("a b c\n", state.doc);
+        assert_eq!("a b c\n", state);
 
         commit_change(&mut history, &mut state, (5, 5, Some(" e".into())), t(30));
-        assert_eq!("a b c e\n", state.doc);
+        assert_eq!("a b c e\n", state);
 
         undo(&mut history, &mut state);
         undo(&mut history, &mut state);
-        assert_eq!("a b\n", state.doc);
+        assert_eq!("a b\n", state);
 
         commit_change(&mut history, &mut state, (1, 3, None), t(40));
-        assert_eq!("a\n", state.doc);
+        assert_eq!("a\n", state);
 
         commit_change(&mut history, &mut state, (1, 1, Some(" f".into())), t(50));
-        assert_eq!("a f\n", state.doc);
+        assert_eq!("a f\n", state);
 
         use UndoKind::*;
 
         earlier(&mut history, &mut state, Steps(3));
-        assert_eq!("a b c d\n", state.doc);
+        assert_eq!("a b c d\n", state);
 
         later(&mut history, &mut state, TimePeriod(Duration::new(20, 0)));
-        assert_eq!("a\n", state.doc);
+        assert_eq!("a\n", state);
 
         earlier(&mut history, &mut state, TimePeriod(Duration::new(19, 0)));
-        assert_eq!("a b c d\n", state.doc);
+        assert_eq!("a b c d\n", state);
 
         earlier(
             &mut history,
             &mut state,
             TimePeriod(Duration::new(10000, 0)),
         );
-        assert_eq!("a\n", state.doc);
+        assert_eq!("a\n", state);
 
         later(&mut history, &mut state, Steps(50));
-        assert_eq!("a f\n", state.doc);
+        assert_eq!("a f\n", state);
 
         earlier(&mut history, &mut state, Steps(4));
-        assert_eq!("a b c\n", state.doc);
+        assert_eq!("a b c\n", state);
 
         later(&mut history, &mut state, TimePeriod(Duration::new(1, 0)));
-        assert_eq!("a b c\n", state.doc);
+        assert_eq!("a b c\n", state);
 
         later(&mut history, &mut state, TimePeriod(Duration::new(5, 0)));
-        assert_eq!("a b c d\n", state.doc);
+        assert_eq!("a b c d\n", state);
 
         later(&mut history, &mut state, TimePeriod(Duration::new(6, 0)));
-        assert_eq!("a b c e\n", state.doc);
+        assert_eq!("a b c e\n", state);
 
         later(&mut history, &mut state, Steps(1));
-        assert_eq!("a\n", state.doc);
+        assert_eq!("a\n", state);
     }
 
     #[test]

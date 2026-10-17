@@ -125,7 +125,7 @@ impl Fixture {
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         )
         .with_selection(Selection::point(0));
-        assert!(doc.apply(&transaction, view.id));
+        assert!(view::editing::apply(doc, &transaction, view.id));
     }
 
     pub fn close_current(&mut self) -> anyhow::Result<()> {

@@ -53,7 +53,7 @@ use editor_core::{
     diagnostic::DiagnosticProvider,
     movement::Direction,
     syntax::{self, config::LanguageServerFeature},
-    Change, Position, Range, Selection, SpellingLanguage, Transaction, Uri,
+    Change, Position, Range, Selection, SpellingLanguage, Uri,
 };
 use lsp_client::{lsp, util::lsp_range_to_range};
 use stdx::path::canonicalize;
@@ -799,7 +799,7 @@ impl Editor {
                 let old_doc_id = doc.id();
 
                 // Append any outstanding changes to history in the old document.
-                doc.append_changes_to_history(view);
+                crate::editing::commit(doc, view);
 
                 let closed = if remove_empty_scratch {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable
@@ -845,9 +845,7 @@ impl Editor {
                 return;
             }
             Action::Load => {
-                let view_id = view!(self).id;
                 let doc = doc_mut!(self, &id);
-                doc.ensure_view_init(view_id);
                 doc.mark_as_focused();
                 return;
             }
@@ -951,8 +949,8 @@ impl Editor {
         let transaction =
             editor_core::Transaction::insert(doc.text(), doc.selection(view.id), stdin.into())
                 .with_selection(Selection::point(0));
-        doc.apply(&transaction, view.id);
-        doc.append_changes_to_history(view);
+        crate::editing::apply(doc, &transaction, view.id);
+        crate::editing::commit(doc, view);
         Ok(doc_id)
     }
 
@@ -1013,46 +1011,73 @@ impl Editor {
         Ok(id)
     }
 
-    /// Apply a text-only transaction to an open document, including hidden buffers.
-    /// Pending native edits retain their own undo group, and every displaying view
-    /// synchronizes its lazy history state before and after this independent edit.
-    /// Transactions with a selection are rejected because they require a target view.
-    /// Rejected and empty transactions leave pending native edits untouched.
-    /// The caller must build the transaction against the document's current text:
-    /// the length check cannot detect intervening edits that preserve its length.
-    pub fn apply_document_transaction(
+    /// Apply one independent undoable edit to any open document, including hidden
+    /// buffers. The expected version rejects asynchronous results built from stale
+    /// text, even when an intervening edit preserved the document's length.
+    /// Validation and empty edits leave pending typing groups untouched.
+    pub fn apply_document_changes(
         &mut self,
         id: DocumentId,
-        transaction: &Transaction,
-    ) -> bool {
-        if transaction.selection().is_some() {
-            return false;
+        expected_version: i32,
+        changes: &editor_core::ChangeSet,
+    ) -> Result<(), crate::editing::EditError> {
+        use crate::editing::EditError;
+
+        let doc = self
+            .documents
+            .get_mut(&id)
+            .ok_or(EditError::DocumentClosed(id))?;
+        if doc.version() != expected_version {
+            return Err(EditError::DocumentChanged {
+                expected: expected_version,
+                actual: doc.version(),
+            });
         }
-        let Some(doc) = self.documents.get_mut(&id) else {
-            return false;
-        };
-        let changes = transaction.changes();
-        if changes.len_before() != doc.text().len_chars()
-            || (doc.is_binary() && !changes.is_empty())
-        {
-            return false;
-        }
+        doc.validate_changes(changes)?;
         if changes.is_empty() {
-            return true;
+            return Ok(());
         }
-        doc.commit_pending_changes();
+        doc.commit_changes();
+        self.sync_document_views(id);
+        let doc = self.documents.get_mut(&id).unwrap();
+        doc.apply(changes)?;
+        doc.commit_changes();
+        self.sync_document_views(id);
+        Ok(())
+    }
+
+    /// Synchronize each displaying split through the document's committed history.
+    pub(crate) fn sync_document_views(&mut self, id: DocumentId) {
+        let Some(doc) = self.documents.get_mut(&id) else {
+            return;
+        };
         for (view, _) in self.tree.views_mut() {
             if view.doc == id {
                 view.sync_changes(doc);
             }
         }
-        let applied = doc.apply_document_transaction(transaction);
+    }
+
+    /// Reload a document without creating a selection in an unrelated split.
+    pub fn reload_document(&mut self, id: DocumentId) -> anyhow::Result<()> {
+        self.sync_document_views(id);
+        let scrolloff = self.config().scroll.padding;
+        let doc = self
+            .documents
+            .get_mut(&id)
+            .ok_or_else(|| anyhow::anyhow!("Document is closed"))?;
+        let trusted = self
+            .workspace_trust
+            .query(doc.workspace_root(), TrustQuery::Git)
+            .is_trusted();
+        doc.reload(&self.diff_providers, trusted)?;
         for (view, _) in self.tree.views_mut() {
             if view.doc == id {
                 view.sync_changes(doc);
+                view.ensure_cursor_in_view(doc, scrolloff);
             }
         }
-        applied
+        Ok(())
     }
 
     pub fn close(&mut self, id: ViewId) {
@@ -1209,7 +1234,7 @@ impl Editor {
         // Reset mode to normal and ensure any pending changes are committed in the old document.
         self.enter_normal_mode();
         let (view, doc) = current!(self);
-        doc.append_changes_to_history(view);
+        crate::editing::commit(doc, view);
         self.ensure_cursor_in_view(view_id);
         // Update jumplist selections with new document changes.
         for (view, _focused) in self.tree.views_mut() {
@@ -1546,30 +1571,6 @@ impl Editor {
         self.debugger.current_stack_frame()
     }
 
-    /// Returns the id of a view that this doc contains a selection for,
-    /// making sure it is synced with the current changes
-    /// if possible or there are no selections returns current_view
-    /// otherwise uses an arbitrary view
-    pub fn get_synced_view_id(&mut self, id: DocumentId) -> ViewId {
-        let current_view = view_mut!(self);
-        let doc = self.documents.get_mut(&id).unwrap();
-        if doc.selections().contains_key(&current_view.id) {
-            // only need to sync current view if this is not the current doc
-            if current_view.doc != id {
-                current_view.sync_changes(doc);
-            }
-            current_view.id
-        } else if let Some(view_id) = doc.selections().keys().next() {
-            let view_id = *view_id;
-            let view = self.tree.get_mut(view_id);
-            view.sync_changes(doc);
-            view_id
-        } else {
-            doc.ensure_view_init(current_view.id);
-            current_view.id
-        }
-    }
-
     /// Include repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
@@ -1893,7 +1894,7 @@ fn try_restore_indent(doc: &mut Document, view: &mut View) {
         let line_start_pos = text.line_to_char(range.cursor_line(text));
         let transaction =
             Transaction::change(doc.text(), [(line_start_pos, pos, None)].into_iter());
-        doc.apply(&transaction, view.id);
+        crate::editing::apply(doc, &transaction, view.id);
     }
 }
 

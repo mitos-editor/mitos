@@ -230,7 +230,7 @@ pub async fn test_key_sequence_with_input_text<T: Into<TestCase>>(
     })
     .with_selection(test_case.in_selection.clone());
 
-    doc.apply(&transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id);
 
     test_key_sequence(
         &mut app,
@@ -444,7 +444,7 @@ impl AppBuilder {
             .with_selection(selection);
 
             // replace the initial text with the input text
-            doc.apply(&trans, view.id);
+            view::editing::apply(doc, &trans, view.id);
         }
 
         Ok(app)

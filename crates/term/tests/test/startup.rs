@@ -41,7 +41,7 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
         doc.text(),
         [(1, 1, Some("\"updated\": true".into()))].into_iter(),
     );
-    assert!(doc.apply(&change, view.id));
+    assert!(view::editing::apply(doc, &change, view.id));
 
     // Publishing an old snapshot must request another one through the same sender.
     callback(&mut app.editor);
@@ -82,7 +82,7 @@ async fn syntax_completions_stay_with_simultaneously_open_editors() -> anyhow::R
         doc.text(),
         [(1, 1, Some("\"first\": 1".into()))].into_iter(),
     );
-    assert!(doc.apply(&change, view.id));
+    assert!(view::editing::apply(doc, &change, view.id));
 
     for app in [&mut first, &mut second] {
         tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
@@ -160,7 +160,7 @@ async fn opening_a_file_publishes_syntax_for_edits_made_before_the_event_loop() 
         doc.text(),
         [(1, 1, Some("\"ready\": true".into()))].into_iter(),
     );
-    assert!(doc.apply(&change, view.id));
+    assert!(view::editing::apply(doc, &change, view.id));
 
     tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(&mut app)).await?;
 

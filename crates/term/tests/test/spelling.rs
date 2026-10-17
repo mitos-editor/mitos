@@ -39,8 +39,8 @@ fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
         doc.text(),
         [(start, end, Some(replacement.into()))].into_iter(),
     );
-    doc.apply(&tx, view.id);
-    doc.append_changes_to_history(view);
+    view::editing::apply(doc, &tx, view.id);
+    view::editing::commit(doc, view);
 }
 
 async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {

@@ -230,10 +230,10 @@ impl Completion {
                                 trigger_offset,
                                 replace_mode,
                             );
-                            doc.apply_temporary(&transaction, view.id)
+                            view::editing::apply_temporary(doc, &transaction, view.id)
                         }
                         CompletionItem::Other(core::CompletionItem { transaction, .. }) => {
-                            doc.apply_temporary(transaction, view.id)
+                            view::editing::apply_temporary(doc, transaction, view.id)
                         }
                     };
                 }
@@ -249,7 +249,7 @@ impl Completion {
                     // if more text was entered, remove it
                     doc.restore(view, savepoint.as_ref().unwrap(), true);
                     // save an undo checkpoint before the completion
-                    doc.append_changes_to_history(view);
+                    view::editing::commit(doc, view);
 
                     // item always present here
                     let (transaction, additional_edits, snippet) = match item.clone() {
@@ -289,7 +289,7 @@ impl Completion {
                         }
                     };
 
-                    doc.apply(&transaction, view.id);
+                    view::editing::apply(doc, &transaction, view.id);
                     let placeholder = snippet.is_some();
                     if let Some(snippet) = snippet {
                         doc.active_snippet = match doc.active_snippet.take() {
@@ -313,7 +313,7 @@ impl Completion {
                             additional_edits,
                             offset_encoding, // TODO: should probably transcode in Client
                         );
-                        doc.apply(&transaction, view.id);
+                        view::editing::apply(doc, &transaction, view.id);
                     }
                     // we could have just inserted a trigger char (like a `crate::` completion for rust
                     // so we want to retrigger immediately when accepting a completion.
