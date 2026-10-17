@@ -11,7 +11,8 @@ use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity},
     RopeSlice,
 };
-use language::{config::SpellingConfig, syntax::Loader, Syntax};
+use language::{syntax::Loader, Syntax};
+use language_config::SpellingConfig;
 use stdx::rope::{Regex, RopeSliceExt as _};
 
 /// The compiled form of a [`SpellingConfig`]'s token filters: words to accept and regexes to skip,

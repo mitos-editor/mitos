@@ -8,7 +8,7 @@ use std::{
 
 use editor_core::{diagnostic::DiagnosticProvider, Uri};
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskController};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId};
 use tokio::{sync::mpsc::Sender, time::Instant};
 

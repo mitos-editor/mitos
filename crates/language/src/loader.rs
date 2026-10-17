@@ -1,10 +1,8 @@
 use loader::syntax::Resources;
 use workspace::trust::WorkspaceTrust;
 
-use crate::{
-    config::{Configuration, LanguageConfiguration},
-    syntax::{Loader, LoaderError},
-};
+use crate::syntax::{Loader, LoaderError};
+use language_config::{Configuration, LanguageConfiguration};
 
 /// Language configuration based on built-in languages.toml.
 pub fn default_lang_config() -> Configuration {
@@ -150,7 +148,7 @@ mod tests {
 #[cfg(test)]
 mod language_server_tests {
     use super::*;
-    use crate::config::LanguageServerFeature;
+    use language_config::LanguageServerFeature;
     use std::path::Path;
 
     fn language(entries: &str) -> LanguageConfiguration {

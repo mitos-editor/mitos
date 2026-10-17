@@ -4,7 +4,7 @@ use std::{fmt::Display, path::Path};
 use command_line::Token;
 use editor_core::{encoding, indent::IndentStyle, Rope, Transaction};
 use futures_util::{future::BoxFuture, FutureExt};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
 use crate::{expansion, Document, Editor};

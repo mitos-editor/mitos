@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{anyhow, bail};
 use dap::{self as dap, requests::TerminateArguments, StackFrame, Thread, ThreadStates};
 use editor_core::SmallVec;
-use language::config::{DebugConfigCompletion, DebugTemplate};
+use language_config::{DebugConfigCompletion, DebugTemplate};
 use lsp_client::block_on;
 use serde_json::{to_value, Value};
 use std::{collections::HashMap, future::Future, path::PathBuf};

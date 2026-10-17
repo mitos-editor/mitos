@@ -2407,9 +2407,9 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "core",
- "dap-types",
  "foldhash 0.2.0",
  "globset",
+ "language-config",
  "loader",
  "log",
  "regex-cursor",
@@ -2421,6 +2421,19 @@ dependencies = [
  "toml",
  "tree-house",
  "workspace",
+]
+
+[[package]]
+name = "language-config"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "dap-types",
+ "globset",
+ "serde",
+ "serde_json",
+ "stdx",
+ "toml",
 ]
 
 [[package]]
@@ -2547,6 +2560,7 @@ dependencies = [
  "futures-util",
  "globset",
  "language",
+ "language-config",
  "loader",
  "log",
  "lsp-types",
@@ -3928,6 +3942,7 @@ dependencies = [
  "anyhow",
  "core",
  "language",
+ "language-config",
  "loader",
  "log",
  "regex",
@@ -4075,6 +4090,7 @@ dependencies = [
  "indexmap",
  "indoc",
  "language",
+ "language-config",
  "libc",
  "loader",
  "log",
@@ -4645,6 +4661,7 @@ dependencies = [
  "futures-util",
  "ignore",
  "language",
+ "language-config",
  "libc",
  "loader",
  "log",

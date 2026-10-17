@@ -1,6 +1,5 @@
 //! Query-driven indentation and syntax scope inspection.
 use crate::{
-    config::IndentationHeuristic,
     syntax,
     tree_sitter::{
         self,
@@ -14,6 +13,7 @@ use editor_core::{
     indent::{indent_level_for_line, IndentStyle},
     Position, RopeSlice,
 };
+use language_config::IndentationHeuristic;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},

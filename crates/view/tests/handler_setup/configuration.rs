@@ -1,5 +1,5 @@
 use editor_core::Selection;
-use language::config::AutoPairConfig;
+use language_config::AutoPairConfig;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

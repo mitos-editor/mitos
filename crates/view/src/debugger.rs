@@ -11,7 +11,7 @@ use dap::{
     registry::{DebugAdapterId, Registry},
     Client, DebuggerCapabilities, StackFrame,
 };
-use language::config::DebugAdapterConfig;
+use language_config::DebugAdapterConfig;
 use lsp_client::block_on;
 
 /// Editor-owned identity, retained across adapter IDs and source-line relocation.

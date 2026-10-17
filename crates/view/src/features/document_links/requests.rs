@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 
 use crate::{
     callbacks::EditorCallbackSender,

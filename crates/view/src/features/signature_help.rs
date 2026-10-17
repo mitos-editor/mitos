@@ -8,7 +8,7 @@ use std::{
 use event::{
     cancelable_future, register_hook, send_blocking, AsyncHook, TaskController, TaskHandle,
 };
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId};
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, time::Instant};

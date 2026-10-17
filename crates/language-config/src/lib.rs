@@ -1,3 +1,5 @@
+//! Language definitions and settings, independent of parser and editor runtime state.
+
 use editor_core::comment::BlockCommentToken;
 use editor_core::{auto_pairs::AutoPairs, diagnostic::Severity};
 

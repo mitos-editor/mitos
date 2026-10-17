@@ -12,7 +12,7 @@ use crate::lsp::{
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
 use editor_core::{ChangeSet, Rope};
-use language::config::{LanguageServerFeature, RootMarkers};
+use language_config::{LanguageServerFeature, RootMarkers};
 use loader::VERSION_AND_GIT_HASH;
 use parking_lot::Mutex;
 use serde::Deserialize;

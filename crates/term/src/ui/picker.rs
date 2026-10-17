@@ -1268,7 +1268,7 @@ mod tests {
         config.editor.files.watch.enable = false;
         config.editor.files.watch.watch_vcs = false;
         let syntax = language::syntax::Loader::new(
-            language::config::Configuration {
+            language_config::Configuration {
                 language: vec![],
                 language_server: Default::default(),
             },

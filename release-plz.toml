@@ -16,7 +16,7 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
   "buffer", "clipboard", "command-line", "core", "dap", "dap-types", "event",
-  "grammar-build", "language", "loader", "lsp", "lsp-types", "parsec", "search",
+  "grammar-build", "language", "language-config", "loader", "lsp", "lsp-types", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
 ]
@@ -61,4 +61,8 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "workspace"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "language-config"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"

@@ -10,7 +10,7 @@ use event::{cancelable_future, register_hook, TaskController, TaskHandle};
 use futures_util::{
     future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt, TryFutureExt,
 };
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, OffsetEncoding};
 use parking_lot::Mutex;
 

@@ -21,6 +21,7 @@ members = [
   "crates/workspace",
   "crates/theme",
   "crates/language",
+  "crates/language-config",
   "crates/vcs",
   "crates/parsec",
   "crates/snippets",
@@ -76,6 +77,7 @@ view = { path = "crates/view" }
 workspace = { path = "crates/workspace" }
 theme = { path = "crates/theme" }
 language = { path = "crates/language" }
+language-config = { path = "crates/language-config" }
 
 # Runtime and diagnostics
 anyhow = "1"

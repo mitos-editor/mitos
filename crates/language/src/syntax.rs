@@ -14,10 +14,12 @@ use std::{
     time::Duration,
 };
 
-use crate::config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
 use anyhow::Result;
 use arc_swap::{ArcSwap, Guard};
 use foldhash::HashSet;
+use language_config::{
+    Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration,
+};
 use loader::syntax::Resources;
 use ropey::RopeSlice;
 use stdx::rope::RopeSliceExt as _;

@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 
 use crate::{
     config::GutterType,

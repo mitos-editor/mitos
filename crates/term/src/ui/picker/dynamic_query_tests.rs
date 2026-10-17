@@ -13,7 +13,7 @@ fn application() -> anyhow::Result<Application> {
     config.editor.files.watch.enable = false;
     config.editor.lsp.enable = false;
     let syntax = language::Loader::new(
-        language::config::Configuration {
+        language_config::Configuration {
             language: vec![],
             language_server: Default::default(),
         },

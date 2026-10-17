@@ -2,7 +2,7 @@
 use std::{collections::HashSet, path::Path, time::Duration};
 
 use anyhow::Context as _;
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{Call, LanguageServerId};
 use term::application::Application;
 use tokio_stream::StreamExt;

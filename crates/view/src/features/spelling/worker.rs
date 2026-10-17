@@ -22,7 +22,8 @@ use editor_core::{
     ChangeSet, Operation, SpellingLanguage,
 };
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
-use language::{config::SpellingConfig, syntax::Loader, Syntax};
+use language::{syntax::Loader, Syntax};
+use language_config::SpellingConfig;
 use tokio::time::Instant;
 
 use crate::callbacks::EditorCallbackSender;

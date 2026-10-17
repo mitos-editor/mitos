@@ -8,11 +8,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+language-config.workspace = true
 core.workspace = true
 loader.workspace = true
 workspace.workspace = true
 stdx.workspace = true
-dap-types.workspace = true
 tree-house.workspace = true
 ropey.workspace = true
 regex-cursor.workspace = true

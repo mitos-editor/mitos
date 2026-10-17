@@ -3,7 +3,7 @@ mod test {
     mod helpers;
 
     use editor_core::Selection;
-    use language::config::AutoPairConfig;
+    use language_config::AutoPairConfig;
     use term::config::Config;
 
     use indoc::indoc;

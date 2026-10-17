@@ -5,7 +5,7 @@ use crate::commands::{
     lsp,
     syntax::{syntax_symbol_picker, syntax_workspace_symbol_picker},
 };
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 
 pub(super) fn lsp_or_syntax_symbol_picker(cx: &mut Context) {
     let doc = doc!(cx.editor);

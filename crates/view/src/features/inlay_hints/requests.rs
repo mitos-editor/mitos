@@ -4,7 +4,7 @@ use std::sync::{Arc, Weak};
 
 use editor_core::text_annotations::InlineAnnotation;
 use event::cancelable_future;
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, OffsetEncoding};
 
 use super::state::{CacheKey, DocumentInlayHints, DocumentInlayHintsId};

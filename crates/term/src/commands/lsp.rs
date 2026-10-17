@@ -7,7 +7,7 @@ use crate::{
 };
 use editor_core::{Selection, Uri};
 use futures_util::{stream::FuturesUnordered, FutureExt};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{
     block_on,
     lsp::{self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind},
@@ -991,7 +991,7 @@ pub(super) mod typed {
     };
     use ::command_line::Args;
     use anyhow::anyhow;
-    use language::config::LanguageServerFeature;
+    use language_config::LanguageServerFeature;
     use serde_json::Value;
     use view::Editor;
 

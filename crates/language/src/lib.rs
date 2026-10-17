@@ -2,7 +2,6 @@
 //!
 //! Text primitives belong to `core`. This crate adds parsers, language resources,
 //! and operations that inspect syntax without depending on editor or frontend state.
-pub mod config;
 pub mod indent;
 pub mod loader;
 pub mod match_brackets;

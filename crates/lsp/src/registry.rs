@@ -5,7 +5,7 @@ use crate::{
 };
 use arc_swap::ArcSwap;
 use futures_util::stream::select_all::SelectAll;
-use language::config::{LanguageConfiguration, LanguageServerConfiguration, RootMarkers};
+use language_config::{LanguageConfiguration, LanguageServerConfiguration, RootMarkers};
 use slotmap::SlotMap;
 use std::{
     collections::HashMap,

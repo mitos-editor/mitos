@@ -7,7 +7,7 @@ use crate::{Document, DocumentId, Editor, ViewId};
 use editor_core::completion::CompletionProvider;
 use event::{cancelable_future, TaskController, TaskHandle};
 use futures_util::Future;
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 use lsp_client::lsp::{CompletionContext, CompletionTriggerKind};
 use lsp_client::util::pos_to_lsp_pos;

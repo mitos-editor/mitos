@@ -1,5 +1,6 @@
 use editor_core::indent::{indent_level_for_line, IndentStyle};
-use language::{config::Configuration, indent::treesitter_indent_for_pos, syntax::Loader, Syntax};
+use language::{indent::treesitter_indent_for_pos, syntax::Loader, Syntax};
+use language_config::Configuration;
 use ropey::Rope;
 use std::{ops::Range, path::PathBuf, process::Command};
 use stdx::rope::RopeSliceExt;

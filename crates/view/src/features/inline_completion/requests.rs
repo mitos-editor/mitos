@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use editor_core::{movement::Direction, Range, Selection, Transaction};
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskController};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, OffsetEncoding};
 use tokio::{sync::mpsc::Sender, time::Instant};
 

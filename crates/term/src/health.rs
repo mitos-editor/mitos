@@ -377,8 +377,8 @@ fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
 /// Describe selection without launching processes or claiming initialization succeeded.
 fn probe_language_servers(
     stdout: &mut impl Write,
-    language: &language::config::LanguageConfiguration,
-    definitions: &std::collections::HashMap<String, language::config::LanguageServerConfiguration>,
+    language: &language_config::LanguageConfiguration,
+    definitions: &std::collections::HashMap<String, language_config::LanguageServerConfiguration>,
     root_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
     writeln!(stdout, "Configured language servers:")?;
@@ -516,7 +516,7 @@ mod language_server_tests {
                 .to_string_lossy()
                 .into_owned(),
         );
-        let config: language::config::Configuration = toml::from_str(&format!(r#"
+        let config: language_config::Configuration = toml::from_str(&format!(r#"
 [language-server.missing]
 command = "/__mitos_nonexistent_server__"
 [language-server.inapplicable]

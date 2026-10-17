@@ -40,7 +40,7 @@ use editor_core::doc_formatter::TextFormat;
 use editor_core::encoding::Encoding;
 use editor_core::text_annotations::Overlay;
 use futures_util::future::BoxFuture;
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
 use stdx::faccess::{copy_metadata, readonly};
@@ -67,7 +67,8 @@ use editor_core::{
     line_ending::auto_detect_line_ending,
     ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
 };
-use language::{config::LanguageConfiguration, syntax, Syntax};
+use language::{syntax, Syntax};
+use language_config::LanguageConfiguration;
 
 use crate::{
     config::Config,
@@ -716,7 +717,7 @@ impl Document {
     pub fn detect_language_config(
         &self,
         loader: &syntax::Loader,
-    ) -> Option<Arc<language::config::LanguageConfiguration>> {
+    ) -> Option<Arc<language_config::LanguageConfiguration>> {
         if self.binary {
             return None;
         }
@@ -951,7 +952,7 @@ impl Document {
     }
 
     /// Set the programming language for the file if you know the language but don't have the
-    /// [`language::config::LanguageConfiguration`] for it.
+    /// [`language_config::LanguageConfiguration`] for it.
     pub fn set_language_by_language_id(
         &mut self,
         language_id: &str,

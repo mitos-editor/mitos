@@ -5,7 +5,7 @@ use std::{collections::HashSet, future::Future, sync::Arc};
 
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, LanguageServerId};
 use tokio::sync::Semaphore;
 

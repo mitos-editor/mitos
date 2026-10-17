@@ -1,0 +1,17 @@
+[package]
+name = "language-config"
+description = "Language definitions and configuration types for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+core.workspace = true
+stdx.workspace = true
+dap-types.workspace = true
+globset.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true

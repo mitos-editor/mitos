@@ -8,7 +8,8 @@ use std::sync::Arc;
 use anyhow::{bail, Context};
 use editor_core::{indent::IndentStyle, Transaction, Uri};
 use futures_util::{future::BoxFuture, FutureExt};
-use language::{config::LanguageServerFeature, syntax};
+use language::syntax;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId};
 
 use crate::{callbacks::EditorCallbackSender, Document, DocumentId, Editor, ViewId};

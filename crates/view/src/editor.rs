@@ -52,7 +52,8 @@ use editor_core::{
     auto_pairs::AutoPairs, diagnostic::DiagnosticProvider, movement::Direction, Change, Position,
     Range, Selection, Uri,
 };
-use language::{config::LanguageServerFeature, syntax};
+use language::syntax;
+use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range};
 
 use arc_swap::{

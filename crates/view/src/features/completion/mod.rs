@@ -2,7 +2,7 @@
 
 use editor_core::{chars::char_is_word, completion::CompletionProvider, Uri};
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 use parking_lot::Mutex;
 use std::{
@@ -216,7 +216,7 @@ impl Session {
                     && editor.language_server_by_id(id).is_some()
                     && doc
                         .language_servers_with_feature(
-                            language::config::LanguageServerFeature::Completion,
+                            language_config::LanguageServerFeature::Completion,
                         )
                         .any(|server| server.id() == id)
             }

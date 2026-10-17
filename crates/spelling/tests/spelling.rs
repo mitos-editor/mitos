@@ -1,7 +1,7 @@
 //! Feature APIs work with explicit inputs, without an editor or async runtime.
 
 use editor_core::Rope;
-use language::config::SpellingConfig;
+use language_config::SpellingConfig;
 use spelling::{check_text, expand_check_window, load_dictionary, suggestions, Dictionary};
 
 #[test]

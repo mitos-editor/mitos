@@ -18,7 +18,7 @@ use editor_core::{
     diagnostic::DiagnosticProvider, ChangeSet, SpellingLanguage, Tendril, Transaction,
 };
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
-use language::config::SpellingConfig;
+use language_config::SpellingConfig;
 use tokio::sync::mpsc::Sender;
 
 use crate::{

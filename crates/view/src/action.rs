@@ -7,7 +7,7 @@ use std::{
 };
 
 use editor_core::Uri;
-use language::config::LanguageServerFeature;
+use language_config::LanguageServerFeature;
 use lsp_client::{
     lsp::{self, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
     util::{diagnostic_to_lsp_diagnostic, range_to_lsp_range},
