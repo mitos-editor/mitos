@@ -1,12 +1,10 @@
 //! This module contains the functionality toggle comments on lines over the selection
 //! using the comment character defined in the user's `languages.toml`
 
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::{
-    syntax::config::BlockCommentToken, Change, Range, Rope, RopeSlice, Selection, Tendril,
-    Transaction,
-};
+use crate::{Change, Range, Rope, RopeSlice, Selection, Tendril, Transaction};
 use std::borrow::Cow;
 use stdx::rope::RopeSliceExt;
 
@@ -323,6 +321,21 @@ pub fn split_lines_of_selection(text: RopeSlice, selection: &Selection) -> Selec
         }
     }
     Selection::new(ranges, 0)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockCommentToken {
+    pub start: String,
+    pub end: String,
+}
+
+impl Default for BlockCommentToken {
+    fn default() -> Self {
+        BlockCommentToken {
+            start: "/*".to_string(),
+            end: "*/".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

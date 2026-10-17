@@ -45,9 +45,8 @@ pub mod tasks {
 
     pub fn indentcheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
         use editor_core::{
-            indent::{
-                is_opaque_interior, is_outdent_token_at, treesitter_indent_for_pos, IndentStyle,
-            },
+            indent::IndentStyle,
+            syntax::indent::{is_opaque_interior, is_outdent_token_at, treesitter_indent_for_pos},
             Syntax,
         };
         use ropey::Rope;
@@ -273,8 +272,11 @@ pub mod tasks {
     }
 
     pub fn highlightcheck(args: impl Iterator<Item = String>) -> Result<(), DynError> {
-        use editor_core::syntax::{HighlightEvent, Loader, Syntax};
         use editor_core::Language;
+        use editor_core::{
+            highlight::HighlightEvent,
+            syntax::{Loader, Syntax},
+        };
         use ropey::Rope;
 
         // The highlighter yields a `Highlight` index into the loader's scope

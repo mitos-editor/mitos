@@ -1,6 +1,6 @@
 //! Document color annotations and their request lifetime.
 
-use editor_core::{syntax, text_annotations::InlineAnnotation, Assoc, ChangeSet};
+use editor_core::{text_annotations::InlineAnnotation, Assoc, ChangeSet};
 use event::TaskController;
 
 use super::DocumentColorsHandler;
@@ -40,7 +40,7 @@ impl DocumentColors {
 #[derive(Debug, Clone, Default)]
 pub struct DocumentColorSwatches {
     pub color_swatches: Vec<InlineAnnotation>,
-    pub colors: Vec<syntax::Highlight>,
+    pub colors: Vec<editor_core::highlight::Highlight>,
     pub color_swatches_padding: Vec<InlineAnnotation>,
 }
 

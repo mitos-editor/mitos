@@ -13,8 +13,8 @@ use std::sync::Arc;
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use editor_core::{
-    syntax::{self, HighlightEvent, OverlayHighlights},
-    RopeSlice, Syntax,
+    highlight::{HighlightEvent, OverlayHighlights},
+    syntax, RopeSlice, Syntax,
 };
 use theme::Modifier;
 use theme::Theme;
@@ -63,7 +63,8 @@ pub fn highlighted_code_block<'a>(
     let mut syntax_highlighter = syntax.highlighter(ropeslice, loader, ..);
     let mut syntax_highlight_stack = Vec::new();
     let mut overlay_highlight_stack = Vec::new();
-    let mut overlay_highlighter = syntax::OverlayHighlighter::new(additional_highlight_spans);
+    let mut overlay_highlighter =
+        editor_core::highlight::OverlayHighlighter::new(additional_highlight_spans);
     let mut pos = 0;
 
     while pos < ropeslice.len_bytes() as u32 {

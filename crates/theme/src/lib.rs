@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::LazyLock};
 
 use anyhow::Result;
-use editor_core::{hashmap, syntax::Highlight};
+use editor_core::{hashmap, highlight::Highlight};
 use loader::theme::Resources;
 pub use loader::theme::{BASE16_DEFAULT_THEME_DATA, DEFAULT_THEME_DATA};
 use log::warn;

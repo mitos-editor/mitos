@@ -279,7 +279,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                     let Some(syntax) = doc.syntax() else {
                         return range;
                     };
-                    textobject::textobject_treesitter(
+                    editor_core::syntax::textobject::textobject_treesitter(
                         text, range, objtype, obj_name, syntax, &loader, count,
                     )
                 };
@@ -317,7 +317,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                         'e' => textobject_treesitter("entry", range),
                         'x' => textobject_treesitter("xml-element", range),
                         'p' => textobject::textobject_paragraph(text, range, objtype, count),
-                        'm' => textobject::textobject_pair_surround_closest(
+                        'm' => editor_core::syntax::textobject::textobject_pair_surround_closest(
                             doc.syntax(),
                             text,
                             range,
@@ -329,14 +329,16 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                             .find(|finding| finding.contains(range.cursor(text)))
                             .map_or(range, |finding| finding.with_direction(range.direction())),
                         // TODO: cancel new ranges if inconsistent surround matches across lines
-                        ch if !ch.is_ascii_alphanumeric() => textobject::textobject_pair_surround(
-                            doc.syntax(),
-                            text,
-                            range,
-                            objtype,
-                            ch,
-                            count,
-                        ),
+                        ch if !ch.is_ascii_alphanumeric() => {
+                            editor_core::syntax::textobject::textobject_pair_surround(
+                                doc.syntax(),
+                                text,
+                                range,
+                                objtype,
+                                ch,
+                                count,
+                            )
+                        }
                         _ => range,
                     }
                 });

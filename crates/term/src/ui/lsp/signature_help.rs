@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ui_core::keymap::{KeymapState, Lookup};
 
 use arc_swap::ArcSwap;
-use editor_core::syntax::{self, OverlayHighlights};
+use editor_core::{highlight::OverlayHighlights, syntax};
 use tui::buffer::Buffer;
 use tui::layout::{Alignment, Constraint, Layout};
 use tui::text::Text;

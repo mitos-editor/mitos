@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::ptr::NonNull;
 
 use crate::doc_formatter::FormattedGrapheme;
-use crate::syntax::{Highlight, OverlayHighlights};
+use crate::highlight::{Highlight, OverlayHighlights};
 use crate::{Position, Tendril};
 
 /// An inline annotation is continuous text shown

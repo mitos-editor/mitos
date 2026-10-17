@@ -1,4 +1,6 @@
-use crate::{movement::Direction, syntax::TreeCursor, Range, RopeSlice, Selection, Syntax};
+use crate::{
+    movement::Direction, syntax::TreeCursor, tree_sitter::Node, Range, RopeSlice, Selection, Syntax,
+};
 
 pub fn expand_selection(syntax: &Syntax, text: RopeSlice, selection: Selection) -> Selection {
     let cursor = &mut syntax.walk();
@@ -79,7 +81,7 @@ fn select_children(cursor: &mut TreeCursor, text: RopeSlice, range: Range) -> Ve
     let children = cursor
         .children()
         .filter(|child| child.is_named())
-        .map(|child| Range::from_node(child, text, range.direction()))
+        .map(|child| range_from_node(child, text, range.direction()))
         .collect::<Vec<_>>();
 
     if !children.is_empty() {
@@ -131,4 +133,10 @@ where
 
         Range::new(from, to).with_direction(direction.unwrap_or_else(|| range.direction()))
     })
+}
+
+pub fn range_from_node(node: Node, text: RopeSlice, direction: Direction) -> Range {
+    let from = text.byte_to_char(node.start_byte() as usize);
+    let to = text.byte_to_char(node.end_byte() as usize);
+    Range::new(from, to).with_direction(direction)
 }

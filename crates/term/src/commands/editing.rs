@@ -8,9 +8,13 @@ use super::{
 use crate::ui::{self, Prompt, PromptEvent};
 use arc_swap::access::DynAccess;
 use editor_core::{
-    comment, increment, indent::IndentStyle, line_ending::line_end_char_index, match_brackets,
-    movement as core_movement, surround, syntax::config::BlockCommentToken, Range, Rope, RopeSlice,
-    Selection, SmallVec, Tendril, Transaction,
+    comment::{self, BlockCommentToken},
+    increment,
+    indent::IndentStyle,
+    line_ending::line_end_char_index,
+    match_brackets, movement as core_movement,
+    syntax::surround,
+    Range, Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
 };
 use std::{
     borrow::Cow,

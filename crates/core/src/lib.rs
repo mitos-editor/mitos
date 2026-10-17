@@ -21,7 +21,7 @@
 //! - [`selection`] and [`movement`] for cursor/range semantics;
 //! - [`Transaction`] and [`ChangeSet`] for composable changes and position mapping;
 //! - [`syntax`] for language configuration and incremental syntax trees;
-//! - [`indent`], [`comment`], [`surround`], and [`textobject`] for editing
+//! - [`indent`], [`comment`], [`syntax::surround`], and [`textobject`] for editing
 //!   operations; and
 //! - [`doc_formatter`] and [`text_annotations`] for converting document text
 //!   into visual rows without depending on a renderer.
@@ -42,6 +42,7 @@ pub mod doc_formatter;
 pub mod editor_config;
 pub mod fuzzy;
 pub mod graphemes;
+pub mod highlight;
 pub mod history;
 pub mod increment;
 pub mod indent;
@@ -49,11 +50,9 @@ pub mod line_ending;
 pub mod macros;
 pub mod match_brackets;
 pub mod movement;
-pub mod object;
 mod position;
 pub mod search;
 pub mod selection;
-pub mod surround;
 pub mod syntax;
 pub mod test;
 pub mod text_annotations;

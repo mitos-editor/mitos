@@ -10,7 +10,7 @@ use crate::{events::PostInsertChar, key};
 use arc_swap::access::DynAccess;
 use editor_core::{
     auto_pairs, comment, graphemes,
-    indent::{self, IndentStyle},
+    indent::IndentStyle,
     line_ending::line_end_char_index,
     movement::{self as core_movement, Direction},
     unicode::width::UnicodeWidthChar,
@@ -220,7 +220,7 @@ pub fn insert_newline(cx: &mut Context) {
 
             let indent = match line.first_non_whitespace_char() {
                 Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
-                _ => indent::indent_for_newline(
+                _ => editor_core::syntax::indent::indent_for_newline(
                     &loader,
                     doc.syntax(),
                     &config.indent.heuristic,
@@ -589,7 +589,7 @@ fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
             // line is empty => auto indent
             let line_end_index = cursor_line_start;
 
-            let indent = indent::indent_for_newline(
+            let indent = editor_core::syntax::indent::indent_for_newline(
                 &loader,
                 syntax,
                 &doc.config.load().indent.heuristic,
@@ -720,7 +720,7 @@ pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentCo
         let line = text.line(curr_line_num);
         let indent = match line.first_non_whitespace_char() {
             Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
-            _ => indent::indent_for_newline(
+            _ => editor_core::syntax::indent::indent_for_newline(
                 &loader,
                 doc.syntax(),
                 &config.indent.heuristic,

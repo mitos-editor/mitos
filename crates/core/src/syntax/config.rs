@@ -1,3 +1,4 @@
+use crate::comment::BlockCommentToken;
 use crate::{auto_pairs::AutoPairs, diagnostic::Severity, Language};
 
 pub use dap_types::{
@@ -271,21 +272,6 @@ where
             CommentTokens::Multiple(vals) => vals,
         }),
     )
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BlockCommentToken {
-    pub start: String,
-    pub end: String,
-}
-
-impl Default for BlockCommentToken {
-    fn default() -> Self {
-        BlockCommentToken {
-            start: "/*".to_string(),
-            end: "*/".to_string(),
-        }
-    }
 }
 
 fn from_block_comment_tokens<'de, D>(

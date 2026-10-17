@@ -5,8 +5,11 @@ use editor_core::doc_formatter::{
 };
 use editor_core::graphemes::Grapheme;
 use editor_core::str_utils::char_to_byte_idx;
-use editor_core::syntax::{self, HighlightEvent, Highlighter, OverlayHighlights};
 use editor_core::text_annotations::TextAnnotations;
+use editor_core::{
+    highlight::{HighlightEvent, OverlayHighlights},
+    syntax::Highlighter,
+};
 use editor_core::{visual_offset_from_block, Position, RopeSlice};
 use stdx::rope::RopeSliceExt;
 use theme::Style;
@@ -40,7 +43,7 @@ pub fn render_document(
     offset: ViewPosition,
     doc_annotations: &TextAnnotations,
     syntax_highlighter: Option<Highlighter<'_>>,
-    overlay_highlights: Vec<syntax::OverlayHighlights>,
+    overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
 ) {
@@ -72,7 +75,7 @@ pub fn render_text(
     text_fmt: &TextFormat,
     text_annotations: &TextAnnotations,
     syntax_highlighter: Option<Highlighter<'_>>,
-    overlay_highlights: Vec<syntax::OverlayHighlights>,
+    overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     mut decorations: DecorationManager,
 ) {
@@ -556,7 +559,7 @@ impl<'h, 'r, 't> SyntaxHighlighter<'h, 'r, 't> {
 }
 
 struct OverlayHighlighter<'t> {
-    inner: syntax::OverlayHighlighter,
+    inner: editor_core::highlight::OverlayHighlighter,
     pos: usize,
     theme: &'t Theme,
     style: Style,
@@ -564,7 +567,7 @@ struct OverlayHighlighter<'t> {
 
 impl<'t> OverlayHighlighter<'t> {
     fn new(overlays: Vec<OverlayHighlights>, theme: &'t Theme) -> Self {
-        let inner = syntax::OverlayHighlighter::new(overlays);
+        let inner = editor_core::highlight::OverlayHighlighter::new(overlays);
         let mut highlighter = Self {
             inner,
             pos: 0,

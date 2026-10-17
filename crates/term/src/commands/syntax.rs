@@ -12,10 +12,9 @@ use crate::{
 };
 use dashmap::DashMap;
 use editor_core::{
-    match_brackets, movement as core_movement,
+    match_brackets,
     movement::{Direction, Movement},
-    object,
-    syntax::{Loader, QueryMatchIterEvent},
+    syntax::{object, Loader, QueryMatchIterEvent},
     Range, Rope, RopeSlice, Selection, Syntax, Uri,
 };
 use futures_util::FutureExt;
@@ -588,7 +587,7 @@ fn move_node_bound_impl(cx: &mut Context, dir: Direction, movement: Movement) {
             let text = doc.text().slice(..);
             let current_selection = doc.selection(view.id);
 
-            let selection = core_movement::move_parent_node_end(
+            let selection = editor_core::syntax::movement::move_parent_node_end(
                 syntax,
                 text,
                 current_selection.clone(),
@@ -660,7 +659,13 @@ pub(super) fn match_brackets(cx: &mut Context) {
         let pos = range.cursor(text_slice);
         if let Some(matched_pos) = doc.syntax().map_or_else(
             || match_brackets::find_matching_bracket_plaintext(text.slice(..), pos),
-            |syntax| match_brackets::find_matching_bracket_fuzzy(syntax, text.slice(..), pos),
+            |syntax| {
+                editor_core::syntax::match_brackets::find_matching_bracket_fuzzy(
+                    syntax,
+                    text.slice(..),
+                    pos,
+                )
+            },
         ) {
             range.put_cursor(text_slice, matched_pos, is_select)
         } else {
@@ -681,7 +686,7 @@ fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direct
             let text = doc.text().slice(..);
 
             let selection = doc.selection(view.id).clone().transform(|range| {
-                let new_range = core_movement::goto_treesitter_object(
+                let new_range = editor_core::syntax::movement::goto_treesitter_object(
                     text, range, object, direction, syntax, &loader, count,
                 );
 
@@ -774,7 +779,6 @@ pub(super) mod typed {
     use ::command_line::Args;
     use anyhow::bail;
     use arc_swap::access::DynAccess;
-    use editor_core::indent;
     use view::Editor;
 
     #[cold]
@@ -791,7 +795,7 @@ pub(super) mod typed {
         let text = doc.text().slice(..);
 
         let pos = doc.selection(view.id).primary().cursor(text);
-        let scopes = indent::get_scopes(doc.syntax(), text, pos);
+        let scopes = editor_core::syntax::indent::get_scopes(doc.syntax(), text, pos);
 
         let contents = format!("```json\n{:?}\n````", scopes);
 
@@ -848,7 +852,7 @@ pub(super) mod typed {
 
         while highlighter.next_event_offset() <= byte {
             let (event, new_highlights) = highlighter.advance();
-            if event == editor_core::syntax::HighlightEvent::Refresh {
+            if event == editor_core::highlight::HighlightEvent::Refresh {
                 highlights.clear();
             }
             highlights.extend(new_highlights);

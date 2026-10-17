@@ -1,11 +1,9 @@
+use crate::syntax::match_brackets::{find_matching_bracket, find_matching_bracket_fuzzy};
 use std::fmt::Display;
 
 use crate::{
     graphemes::next_grapheme_boundary,
-    match_brackets::{
-        self, find_matching_bracket, find_matching_bracket_fuzzy, get_pair, is_close_bracket,
-        is_open_bracket,
-    },
+    match_brackets::{self, get_pair, is_close_bracket, is_open_bracket},
     movement::Direction,
     search, Range, Selection, Syntax,
 };
@@ -182,9 +180,7 @@ pub fn find_nth_pairs_pos(
             syntax
                 .map_or_else(
                     || match_brackets::find_matching_bracket_plaintext(text.slice(..), pos),
-                    |syntax| {
-                        match_brackets::find_matching_bracket_fuzzy(syntax, text.slice(..), pos)
-                    },
+                    |syntax| find_matching_bracket_fuzzy(syntax, text.slice(..), pos),
                 )
                 .map(|matching_pair_pos| {
                     if matching_pair_pos > pos {

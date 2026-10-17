@@ -1,6 +1,6 @@
 use editor_core::{
-    indent::{indent_level_for_line, treesitter_indent_for_pos, IndentStyle},
-    syntax::{config::Configuration, Loader},
+    indent::{indent_level_for_line, IndentStyle},
+    syntax::{config::Configuration, indent::treesitter_indent_for_pos, Loader},
     Syntax,
 };
 use ropey::Rope;

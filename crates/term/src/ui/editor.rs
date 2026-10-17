@@ -17,8 +17,9 @@ use crate::{
 use editor_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
+    highlight::OverlayHighlights,
     movement::Direction,
-    syntax::{self, OverlayHighlights},
+    syntax,
     text_annotations::TextAnnotations,
     unicode::width::UnicodeWidthStr,
     visual_offset_from_block, Change, Position, Range, Selection, Transaction,
@@ -914,7 +915,7 @@ impl EditorView {
         let highlight = theme.find_highlight_exact("ui.cursor.match")?;
         let text = doc.text().slice(..);
         let pos = doc.selection(view.id).primary().cursor(text);
-        let pos = editor_core::match_brackets::find_matching_bracket(syntax, text, pos)?;
+        let pos = editor_core::syntax::match_brackets::find_matching_bracket(syntax, text, pos)?;
         Some(OverlayHighlights::single(highlight, pos..pos + 1))
     }
 

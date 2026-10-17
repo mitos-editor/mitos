@@ -1,3 +1,10 @@
+pub mod indent;
+pub mod match_brackets;
+pub mod movement;
+pub mod object;
+pub mod surround;
+pub mod textobject;
+use crate::highlight::{Highlight, HighlightEvent, OverlayHighlights};
 pub mod config;
 pub mod queries;
 
@@ -31,10 +38,10 @@ use tree_house::{
     Error, InjectionLanguageMarker, LanguageConfig as SyntaxConfig, Layer,
 };
 
-use crate::{indent::IndentQuery, tree_sitter, ChangeSet, Language};
+use self::indent::IndentQuery;
+use crate::{tree_sitter, ChangeSet, Language};
 
 pub use tree_house::{
-    highlighter::{Highlight, HighlightEvent},
     query_iter::{CapturedMatch, QueryIterEvent, QueryMatchIter, QueryMatchIterEvent},
     Error as HighlighterError, LanguageLoader, TreeCursor, TREE_SITTER_MATCH_LIMIT,
 };
@@ -243,7 +250,7 @@ fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
                 best_match_len = len;
             }
         }
-        best_index.map(|idx| Highlight::new(idx as u32))
+        best_index.map(|idx| highlighter::Highlight::new(idx as u32))
     });
 }
 
@@ -794,7 +801,40 @@ fn subtract_regions(
     result
 }
 
-pub type Highlighter<'a> = highlighter::Highlighter<'a, 'a, Loader>;
+/// Syntax highlighter adapted to the text layer's highlight IDs.
+pub struct Highlighter<'a>(highlighter::Highlighter<'a, 'a, Loader>);
+
+impl<'a> Highlighter<'a> {
+    fn new(
+        syntax: &'a tree_house::Syntax,
+        source: RopeSlice<'a>,
+        loader: &'a Loader,
+        range: impl RangeBounds<u32>,
+    ) -> Self {
+        Self(highlighter::Highlighter::new(syntax, source, loader, range))
+    }
+
+    pub fn next_event_offset(&self) -> u32 {
+        self.0.next_event_offset()
+    }
+
+    pub fn advance(
+        &mut self,
+    ) -> (
+        HighlightEvent,
+        impl ExactSizeIterator<Item = Highlight> + '_,
+    ) {
+        let (event, highlights) = self.0.advance();
+        let event = match event {
+            highlighter::HighlightEvent::Refresh => HighlightEvent::Refresh,
+            highlighter::HighlightEvent::Push => HighlightEvent::Push,
+        };
+        (
+            event,
+            highlights.map(|highlight| Highlight::new(highlight.get())),
+        )
+    }
+}
 
 fn generate_edits(old_text: RopeSlice, changeset: &ChangeSet) -> Vec<InputEdit> {
     use crate::Operation::*;
@@ -869,206 +909,6 @@ fn generate_edits(old_text: RopeSlice, changeset: &ChangeSet) -> Vec<InputEdit> 
         old_pos = old_end;
     }
     edits
-}
-
-/// A set of "overlay" highlights and ranges they apply to.
-///
-/// As overlays, the styles for the given `Highlight`s are merged on top of the syntax highlights.
-#[derive(Debug)]
-pub enum OverlayHighlights {
-    /// All highlights use a single `Highlight`.
-    ///
-    /// Note that, currently, all ranges are assumed to be non-overlapping. This could change in
-    /// the future though.
-    Homogeneous {
-        highlight: Highlight,
-        ranges: Vec<ops::Range<usize>>,
-    },
-    /// A collection of different highlights for given ranges.
-    ///
-    /// Note that the ranges **must be non-overlapping**.
-    Heterogenous {
-        highlights: Vec<(Highlight, ops::Range<usize>)>,
-    },
-}
-
-impl OverlayHighlights {
-    pub fn single(highlight: Highlight, range: ops::Range<usize>) -> Self {
-        Self::Homogeneous {
-            highlight,
-            ranges: vec![range],
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match self {
-            Self::Homogeneous { ranges, .. } => ranges.is_empty(),
-            Self::Heterogenous { highlights } => highlights.is_empty(),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Overlay {
-    highlights: OverlayHighlights,
-    /// The position of the highlighter into the Vec of ranges of the overlays.
-    ///
-    /// Used by the `OverlayHighlighter`.
-    idx: usize,
-    /// The currently active highlight (and the ending character index) for this overlay.
-    ///
-    /// Used by the `OverlayHighlighter`.
-    active_highlight: Option<(Highlight, usize)>,
-}
-
-impl Overlay {
-    fn new(highlights: OverlayHighlights) -> Option<Self> {
-        (!highlights.is_empty()).then_some(Self {
-            highlights,
-            idx: 0,
-            active_highlight: None,
-        })
-    }
-
-    fn current(&self) -> Option<(Highlight, ops::Range<usize>)> {
-        match &self.highlights {
-            OverlayHighlights::Homogeneous { highlight, ranges } => ranges
-                .get(self.idx)
-                .map(|range| (*highlight, range.clone())),
-            OverlayHighlights::Heterogenous { highlights } => highlights.get(self.idx).cloned(),
-        }
-    }
-
-    fn start(&self) -> Option<usize> {
-        match &self.highlights {
-            OverlayHighlights::Homogeneous { ranges, .. } => {
-                ranges.get(self.idx).map(|range| range.start)
-            }
-            OverlayHighlights::Heterogenous { highlights } => highlights
-                .get(self.idx)
-                .map(|(_highlight, range)| range.start),
-        }
-    }
-}
-
-/// A collection of highlights to apply when rendering which merge on top of syntax highlights.
-#[derive(Debug)]
-pub struct OverlayHighlighter {
-    overlays: Vec<Overlay>,
-    next_highlight_start: usize,
-    next_highlight_end: usize,
-}
-
-impl OverlayHighlighter {
-    pub fn new(overlays: impl IntoIterator<Item = OverlayHighlights>) -> Self {
-        let overlays: Vec<_> = overlays.into_iter().filter_map(Overlay::new).collect();
-        let next_highlight_start = overlays
-            .iter()
-            .filter_map(|overlay| overlay.start())
-            .min()
-            .unwrap_or(usize::MAX);
-
-        Self {
-            overlays,
-            next_highlight_start,
-            next_highlight_end: usize::MAX,
-        }
-    }
-
-    /// The current position in the overlay highlights.
-    ///
-    /// This method is meant to be used when treating this type as a cursor over the overlay
-    /// highlights.
-    ///
-    /// `usize::MAX` is returned when there are no more overlay highlights.
-    pub fn next_event_offset(&self) -> usize {
-        self.next_highlight_start.min(self.next_highlight_end)
-    }
-
-    pub fn advance(&mut self) -> (HighlightEvent, impl Iterator<Item = Highlight> + '_) {
-        let mut refresh = false;
-        let prev_stack_size = self
-            .overlays
-            .iter()
-            .filter(|overlay| overlay.active_highlight.is_some())
-            .count();
-        let pos = self.next_event_offset();
-
-        if self.next_highlight_end == pos {
-            for overlay in self.overlays.iter_mut() {
-                if overlay
-                    .active_highlight
-                    .is_some_and(|(_highlight, end)| end == pos)
-                {
-                    overlay.active_highlight.take();
-                }
-            }
-
-            refresh = true;
-        }
-
-        while self.next_highlight_start == pos {
-            let mut activated_idx = usize::MAX;
-            for (idx, overlay) in self.overlays.iter_mut().enumerate() {
-                let Some((highlight, range)) = overlay.current() else {
-                    continue;
-                };
-                if range.start != self.next_highlight_start {
-                    continue;
-                }
-
-                // If this overlay has a highlight at this start index, set its active highlight
-                // and increment the cursor position within the overlay.
-                overlay.active_highlight = Some((highlight, range.end));
-                overlay.idx += 1;
-
-                activated_idx = activated_idx.min(idx);
-            }
-
-            // If `self.next_highlight_start == pos` that means that some overlay was ready to
-            // emit a highlight, so `activated_idx` must have been set to an existing index.
-            assert!(
-                (0..self.overlays.len()).contains(&activated_idx),
-                "expected an overlay to highlight (at pos {pos}, there are {} overlays)",
-                self.overlays.len()
-            );
-
-            // If any overlays are active after the (lowest) one which was just activated, the
-            // highlights need to be refreshed.
-            refresh |= self.overlays[activated_idx..]
-                .iter()
-                .any(|overlay| overlay.active_highlight.is_some());
-
-            self.next_highlight_start = self
-                .overlays
-                .iter()
-                .filter_map(|overlay| overlay.start())
-                .min()
-                .unwrap_or(usize::MAX);
-        }
-
-        self.next_highlight_end = self
-            .overlays
-            .iter()
-            .filter_map(|overlay| Some(overlay.active_highlight?.1))
-            .min()
-            .unwrap_or(usize::MAX);
-
-        let (event, start) = if refresh {
-            (HighlightEvent::Refresh, 0)
-        } else {
-            (HighlightEvent::Push, prev_stack_size)
-        };
-
-        (
-            event,
-            self.overlays
-                .iter()
-                .flat_map(|overlay| overlay.active_highlight)
-                .map(|(highlight, _end)| highlight)
-                .skip(start),
-        )
-    }
 }
 
 #[derive(Debug)]

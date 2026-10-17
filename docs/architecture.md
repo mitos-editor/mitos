@@ -789,3 +789,8 @@ as in-flight requests.
 The `theme` crate interprets explicit resource sources and shared UI styles.
 It has no dependency on editor state or LSP/DAP clients. Frontend symbol-kind
 style selection lives in `term::ui::lsp`; theme selection is applied by the editor.
+
+Text selections, indentation normalization, comments, and visual annotations use
+text-only APIs. Parser-node conversion and structural editing live under
+`core::syntax`. Highlight IDs and overlay traversal live in `core::highlight`;
+the syntax highlighter adapts parser output to those shared IDs without allocation.
