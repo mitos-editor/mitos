@@ -246,12 +246,8 @@ pub(super) mod typed {
         io::BufReader,
         path::{Path, PathBuf},
     };
-    use view::{
-        align_view,
-        document::{read_to_string, DEFAULT_LANGUAGE_NAME},
-        editor::Action,
-        Align, Editor,
-    };
+    use text_io::read_to_string;
+    use view::{align_view, document::DEFAULT_LANGUAGE_NAME, editor::Action, Align, Editor};
 
     #[cold]
     pub(in crate::commands) fn open(
