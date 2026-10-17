@@ -309,7 +309,7 @@ mod completion_tests {
                 toml::from_str("language = []")?,
                 loader::syntax::Resources::default(),
             )?,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         )?;
         let mut jobs = Jobs::new();
         let applied = Arc::new(std::sync::atomic::AtomicUsize::new(0));

@@ -5,7 +5,7 @@ use std::{io::stdin, num::NonZeroUsize, path::Path};
 use anyhow::Error;
 use editor_core::Selection;
 use event::dispatch;
-use loader::workspace_trust::TrustQuery;
+use workspace::trust::TrustQuery;
 
 use crate::{
     document::DocumentOpenError,

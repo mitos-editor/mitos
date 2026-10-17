@@ -23,8 +23,8 @@ use crate::{
     Document, DocumentId, View, ViewId,
 };
 use event::dispatch;
-use loader::workspace_trust::WorkspaceTrust;
 use vcs::DiffProviderRegistry;
+use workspace::trust::WorkspaceTrust;
 
 use futures_util::StreamExt;
 use lsp_client::{Call, LanguageServerId};
@@ -816,10 +816,7 @@ impl Editor {
                 };
                 let trust_full = self
                     .workspace_trust
-                    .query(
-                        doc.workspace_root(),
-                        loader::workspace_trust::TrustQuery::Git,
-                    )
+                    .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
                     .is_trusted();
                 paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
             }

@@ -3,7 +3,6 @@ use std::sync::{
     Arc,
 };
 
-use loader::workspace_trust::{ImplicitTrustLevel, TrustQuery};
 use serde_json::json;
 use view::{
     config::ImplicitTrustLevelConfig,
@@ -12,6 +11,7 @@ use view::{
     events::ConfigDidChange,
     theme::Theme,
 };
+use workspace::trust::{ImplicitTrustLevel, TrustQuery};
 
 use super::helpers::{lsp::Fixture, test_syntax_loader, AppBuilder};
 
@@ -345,7 +345,7 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
 #[tokio::test(flavor = "multi_thread")]
 async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> anyhow::Result<()> {
     use super::helpers::{isolation, test_key_sequences};
-    use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
+    use workspace::trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
     let Some(root) = isolation::workspace(
         "test::config_application::config_reload_preserves_legacy_user_and_trusted_project_configs",
     )?
@@ -359,13 +359,14 @@ async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> an
     let local = "# Project settings\n[editor]\nscrolloff = 17\n";
     std::fs::write(&user, global)?;
     std::fs::write(&project, local)?;
-    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let mut app = AppBuilder::new().build()?;
     let check = |app: &term::application::Application| {
         assert_eq!(app.editor.config().scroll.padding, 17);
         assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
         assert_eq!(
-            WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+            WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+                .status(&workspace),
             TrustStatus::Trusted
         );
         assert_eq!(std::fs::read_to_string(&user).unwrap(), global);
@@ -389,7 +390,7 @@ async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> an
 async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope(
 ) -> anyhow::Result<()> {
     use super::helpers::{isolation, test_key_sequences};
-    use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
+    use workspace::trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
     let Some(root) = isolation::workspace(
         "test::config_application::migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope",
     )? else {
@@ -402,7 +403,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
     std::fs::write(&user, global)?;
     std::fs::write(&project, local)?;
     let workspace = root.join("workspace");
-    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let mut app = AppBuilder::new().build()?;
     let unchanged = |_: &term::application::Application| {
         assert_eq!(std::fs::read_to_string(&user).unwrap(), global);
@@ -450,7 +451,8 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
             local
         );
         assert_eq!(
-            WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+            WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+                .status(&workspace),
             TrustStatus::Trusted
         );
     };

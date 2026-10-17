@@ -23,6 +23,7 @@ unicode-lines = []
 bench = []
 
 [dependencies]
+workspace.workspace = true
 filesentry.workspace = true
 ignore.workspace = true
 command-line.workspace = true

@@ -10,7 +10,8 @@ Features live with the state they change; frontends adapt input and present resu
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
 | `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
-| `loader` | Resource paths, grammar/query/theme sources, workspace trust policy and persistence |
+| `loader` | Resource paths and grammar/query/theme sources |
+| `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
 | `lsp-types`, `dap-types` | Protocol data types |
@@ -57,6 +58,10 @@ Keep helpers beside their callers and share them when concrete consumers need
 the same policy. Introduce a feature crate when it has useful explicit inputs and
 outputs independent of editor coordination, as `spelling` does. Existing command
 catalogs and feature wiring are static; this organization does not require a plugin API.
+
+The `workspace` crate depends only on `stdx`; applications supply its trust-store
+directory. Configuration migration
+passes explicit file changes to trust policy without a dependency back on `loader`.
 
 ## Core
 
@@ -297,7 +302,7 @@ and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
 entry point. Unsupported capability registrations retain their compatibility
 acknowledgement; progress and interactive requests stay with the frontend.
 
-`loader::workspace_trust` owns trust policy, persisted grants/exclusions, and
+`workspace::trust` owns trust policy, persisted grants/exclusions, and
 workspace configuration hashing. `view::features::workspace_trust` owns each
 editor's prompt history, pending requests, decisions, and service effects.
 Requests arrive through `EditorEvent::WorkspaceTrust`; delivery and resolution

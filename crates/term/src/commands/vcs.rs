@@ -44,7 +44,7 @@ pub(super) fn toggle_inline_blame(cx: &mut Context) {
 pub(super) fn changed_file_picker(cx: &mut Context) {
     changed_file_picker_for_scope(
         cx,
-        vcs::ChangedFileScope::Directory(loader::find_workspace().0),
+        vcs::ChangedFileScope::Directory(workspace::find_workspace().0),
     );
 }
 
@@ -139,7 +139,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         return;
     }
 
-    let workspace_root = loader::find_workspace_in(scope.path()).0;
+    let workspace_root = workspace::find_workspace_in(scope.path()).0;
     let display_root = match &scope {
         vcs::ChangedFileScope::Directory(path) => Some(path.clone()),
         vcs::ChangedFileScope::Repository(_) => None,
@@ -188,7 +188,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
     let trust_full = cx
         .editor
         .workspace_trust
-        .query(&workspace_root, loader::workspace_trust::TrustQuery::Git)
+        .query(&workspace_root, workspace::trust::TrustQuery::Git)
         .is_trusted();
     let status = cx.editor.status_sender().clone();
     cx.editor.diff_providers.clone().for_each_changed_file(

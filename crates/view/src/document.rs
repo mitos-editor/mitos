@@ -1433,9 +1433,9 @@ impl Document {
             .get_or_init(|| match self.path.as_deref() {
                 Some(p) => p
                     .parent()
-                    .map(|dir| loader::find_workspace_in(dir).0)
-                    .unwrap_or_else(|| loader::find_workspace().0),
-                None => loader::find_workspace().0,
+                    .map(|dir| workspace::find_workspace_in(dir).0)
+                    .unwrap_or_else(|| workspace::find_workspace().0),
+                None => workspace::find_workspace().0,
             })
     }
 

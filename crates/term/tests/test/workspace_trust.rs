@@ -1,4 +1,3 @@
-use loader::workspace_trust::{Config, TrustStatus, WorkspaceTrust};
 use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
@@ -7,6 +6,7 @@ use view::{
         apply_decision, next_request, resolve_request, trust_and_restart, TrustDecision,
     },
 };
+use workspace::trust::{Config, TrustStatus, WorkspaceTrust};
 
 use super::helpers::{lsp::Fixture, test_key_sequence, test_key_sequences, AppBuilder};
 
@@ -126,7 +126,7 @@ async fn modal_and_commands_apply_trust_and_reload_workspace_configuration() -> 
     )
     .await?;
     assert_eq!(
-        WorkspaceTrust::new(Config::default()).status(&workspace),
+        WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir()).status(&workspace),
         TrustStatus::Excluded
     );
     Ok(())
@@ -158,7 +158,8 @@ async fn modal_never_persists_exclusion() -> anyhow::Result<()> {
     )
     .await?;
     assert_eq!(
-        WorkspaceTrust::new(Config::default()).status(&root.join("workspace")),
+        WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir())
+            .status(&root.join("workspace")),
         TrustStatus::Excluded
     );
     Ok(())
@@ -232,7 +233,7 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
     )?);
     assert!(f.app.editor.config_events.1.try_recv().is_err());
     assert_eq!(
-        WorkspaceTrust::new(Config::default()).status(&workspace),
+        WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir()).status(&workspace),
         TrustStatus::Trusted
     );
 
@@ -315,7 +316,8 @@ async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::R
         TrustDecision::Exclude,
     ] {
         for delivered in [false, true] {
-            WorkspaceTrust::new(Config::default()).untrust(&workspace);
+            WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir())
+                .untrust(&workspace);
             let mut app = app(&root)?;
             let request = delivered.then(|| next_request(&mut app.editor).unwrap());
             apply_decision(&mut app.editor, &workspace, decision)?;
@@ -351,10 +353,13 @@ async fn accepting_trust_launches_previously_blocked_servers_for_open_documents(
     let mut f = Fixture::with_trust(
         &workspace,
         &["alpha", "beta"],
-        WorkspaceTrust::new(Config {
-            level: loader::workspace_trust::ImplicitTrustLevel::None,
-            ..Config::default()
-        }),
+        WorkspaceTrust::new(
+            Config {
+                level: workspace::trust::ImplicitTrustLevel::None,
+                ..Config::default()
+            },
+            loader::workspace_trust_dir(),
+        ),
     )?;
     let first = current_ref!(f.app.editor).1.id();
     let path = workspace.join("other.lifecycle-test");

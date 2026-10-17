@@ -68,7 +68,7 @@ fn application(
         args,
         config,
         lang_loader,
-        loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         move |handlers, _| {
             handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
         },

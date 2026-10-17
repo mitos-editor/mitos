@@ -1,4 +1,5 @@
-use loader::{syntax::Resources, workspace_trust::WorkspaceTrust};
+use loader::syntax::Resources;
+use workspace::trust::WorkspaceTrust;
 
 use crate::syntax::{
     config::{Configuration, LanguageConfiguration},

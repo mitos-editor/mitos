@@ -108,7 +108,7 @@ impl Application {
         args: Args,
         config: Config,
         lang_loader: syntax::Loader,
-        workspace_trust: loader::workspace_trust::WorkspaceTrust,
+        workspace_trust: workspace::trust::WorkspaceTrust,
     ) -> Result<Self, Error> {
         Self::new_with_handler_setup(args, config, lang_loader, workspace_trust, |_, _| {})
     }
@@ -118,7 +118,7 @@ impl Application {
         args: Args,
         config: Config,
         lang_loader: syntax::Loader,
-        workspace_trust: loader::workspace_trust::WorkspaceTrust,
+        workspace_trust: workspace::trust::WorkspaceTrust,
         setup: impl FnOnce(&mut view::handlers::Handlers, &view::config::Config),
     ) -> Result<Self, Error> {
         #[cfg(feature = "integration")]

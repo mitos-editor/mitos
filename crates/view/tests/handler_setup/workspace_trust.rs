@@ -1,12 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
-use loader::workspace_trust::{Config, TrustStatus};
 use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
     events::DocumentDidOpen,
     features::workspace_trust::{dismiss_request, next_request, resolve_request, TrustDecision},
 };
+use workspace::trust::{Config, TrustStatus};
 
 use super::Fixture;
 
@@ -102,8 +102,9 @@ async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -
                 }),
                 "handler" => f.editor.reset_workspace_trust_prompts(),
                 "implicit" => {
-                    f.editor.workspace_trust =
-                        loader::workspace_trust::WorkspaceTrust::fully_trusted()
+                    f.editor.workspace_trust = workspace::trust::WorkspaceTrust::fully_trusted(
+                        loader::workspace_trust_dir(),
+                    )
                 }
                 _ => unreachable!(),
             }

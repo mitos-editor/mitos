@@ -107,7 +107,7 @@ impl Fixture {
             Arc::new(ArcSwap::from_pointee(languages)),
             Arc::new(ArcSwap::from_pointee(config)),
             handlers,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         );
         editor.new_file(OpenAction::VerticalSplit);
         let path = dir.path().join("document.action-test");

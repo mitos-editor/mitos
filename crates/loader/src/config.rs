@@ -2,7 +2,7 @@ pub mod migration;
 
 use std::str::from_utf8;
 
-use crate::workspace_trust::{TrustQuery, WorkspaceTrust};
+use workspace::trust::{TrustQuery, WorkspaceTrust};
 
 /// Default built-in languages.toml.
 pub fn default_lang_config() -> toml::Value {

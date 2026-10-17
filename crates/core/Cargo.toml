@@ -19,6 +19,7 @@ unicode-lines = ["ropey/unicode_lines"]
 integration = []
 
 [dependencies]
+workspace.workspace = true
 stdx.workspace = true
 loader.workspace = true
 dap-types.workspace = true

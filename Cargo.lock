@@ -423,6 +423,7 @@ dependencies = [
  "unicode-general-category",
  "unicode-segmentation",
  "unicode-width",
+ "workspace",
 ]
 
 [[package]]
@@ -2454,17 +2455,15 @@ dependencies = [
  "anyhow",
  "cc",
  "etcetera",
- "globset",
  "log",
- "parking_lot",
  "serde",
- "sha2 0.11.0",
  "stdx",
  "tempfile",
  "threadpool",
  "toml",
  "toml_edit",
  "tree-house",
+ "workspace",
 ]
 
 [[package]]
@@ -2514,6 +2513,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
+ "workspace",
 ]
 
 [[package]]
@@ -4039,6 +4039,7 @@ dependencies = [
  "ui-core",
  "vcs",
  "view",
+ "workspace",
 ]
 
 [[package]]
@@ -4571,6 +4572,7 @@ dependencies = [
  "toml",
  "ui-core",
  "vcs",
+ "workspace",
 ]
 
 [[package]]
@@ -5181,6 +5183,18 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "workspace"
+version = "0.1.0"
+dependencies = [
+ "globset",
+ "log",
+ "parking_lot",
+ "sha2 0.11.0",
+ "stdx",
+ "tempfile",
 ]
 
 [[package]]

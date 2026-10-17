@@ -11,12 +11,12 @@ use std::{
 
 use anyhow::bail;
 use editor_core::{diagnostic::Severity, test, Selection, Transaction};
-use loader::workspace_trust::WorkspaceTrust;
 use tempfile::NamedTempFile;
 use term::{application::Application, args::Args, config::Config, keymap::merge_keys};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 use view::{config::ImplicitTrustLevelConfig, current_ref, doc, Editor};
+use workspace::trust::WorkspaceTrust;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};
@@ -217,7 +217,7 @@ pub async fn test_key_sequence_with_input_text<T: Into<TestCase>>(
             Args::default(),
             test_config(),
             test_syntax_loader(None),
-            WorkspaceTrust::fully_trusted(),
+            WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         )?,
     };
 
@@ -431,7 +431,7 @@ impl AppBuilder {
             self.args,
             self.config,
             self.syn_loader,
-            WorkspaceTrust::fully_trusted(),
+            WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
             self.handler_setup,
         )?;
 

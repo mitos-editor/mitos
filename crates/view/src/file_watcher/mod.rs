@@ -94,7 +94,7 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(config: &Config, callbacks: EditorCallbackSender) -> Self {
-        let (workspace, _) = loader::find_workspace();
+        let (workspace, _) = workspace::find_workspace();
         let mut watcher = Self {
             callbacks,
             delivery: event::TaskController::new(),
@@ -113,7 +113,7 @@ impl Watcher {
 
     /// Rebuild watches when configuration or the working directory changes.
     pub fn reload(&mut self, config: &Config) {
-        let (workspace, no_workspace) = loader::find_workspace();
+        let (workspace, no_workspace) = workspace::find_workspace();
         let workspace = canonicalize_existing(&workspace);
         if self.config == *config && self.workspace == workspace && self.watcher.is_some() {
             return;

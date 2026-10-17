@@ -1585,9 +1585,7 @@ impl EditorView {
 /// Whether the focused doc's workspace is in restricted mode and running `trust` would
 /// change something visible at the workspace level.
 fn workspace_trust_indicator_visible(editor: &Editor) -> bool {
-    if editor.workspace_trust.implicit_level()
-        == loader::workspace_trust::ImplicitTrustLevel::Insecure
-    {
+    if editor.workspace_trust.implicit_level() == workspace::trust::ImplicitTrustLevel::Insecure {
         return false;
     }
     let (_, doc) = view::current_ref!(editor);

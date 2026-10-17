@@ -15,9 +15,9 @@ use editor_core::{
     syntax::config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig},
     LineEnding, NATIVE_LINE_ENDING,
 };
-use loader::workspace_trust::ImplicitTrustLevel;
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::time::Duration;
+use workspace::trust::ImplicitTrustLevel;
 
 use crate::{
     annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
@@ -395,12 +395,12 @@ impl From<ImplicitTrustLevelConfig> for ImplicitTrustLevel {
     }
 }
 
-impl From<&WorkspaceTrustConfig> for loader::workspace_trust::Config {
+impl From<&WorkspaceTrustConfig> for workspace::trust::Config {
     fn from(v: &WorkspaceTrustConfig) -> Self {
         Self {
             level: v.level.into(),
             prompt: v.prompt,
-            trusted_globs: loader::workspace_trust::build_trusted_globs(&v.trusted),
+            trusted_globs: workspace::trust::build_trusted_globs(&v.trusted),
         }
     }
 }

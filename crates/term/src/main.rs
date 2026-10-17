@@ -148,8 +148,10 @@ FLAGS:
         }
     };
 
-    let workspace_trust =
-        loader::workspace_trust::WorkspaceTrust::new((&config.editor.workspace_trust).into());
+    let workspace_trust = workspace::trust::WorkspaceTrust::new(
+        (&config.editor.workspace_trust).into(),
+        loader::workspace_trust_dir(),
+    );
 
     let resources = loader::syntax::Resources::default();
     let lang_loader = editor_core::config::user_lang_loader(&workspace_trust, resources.clone())

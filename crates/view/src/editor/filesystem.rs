@@ -2,9 +2,9 @@
 
 use std::{fs, io, path::Path};
 
-use loader::workspace_trust::TrustQuery;
 use lsp_client::lsp;
 use stdx::path::canonicalize;
+use workspace::trust::TrustQuery;
 
 use crate::{DocumentId, Editor};
 

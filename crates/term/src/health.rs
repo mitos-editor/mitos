@@ -167,7 +167,7 @@ fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = loader::workspace_trust::WorkspaceTrust::fully_trusted();
+    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
     let mut syn_loader_conf = match user_lang_config(&trust) {
         Ok(conf) => conf,
         Err(err) => {
@@ -288,7 +288,7 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = loader::workspace_trust::WorkspaceTrust::fully_trusted();
+    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
     let syn_loader_conf = match user_lang_config(&trust) {
         Ok(conf) => conf,
         Err(err) => {

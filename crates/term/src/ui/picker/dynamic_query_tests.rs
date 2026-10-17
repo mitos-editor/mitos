@@ -23,7 +23,7 @@ fn application() -> anyhow::Result<Application> {
         Default::default(),
         config,
         syntax,
-        loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
     )
 }
 

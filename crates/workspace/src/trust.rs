@@ -12,7 +12,7 @@
 //!
 //! ## Storage
 //!
-//! Each trust entry is a small file at `data_dir()/workspace_trust/<sha256(workspace_path)>`. The
+//! Each trust entry is a small file at `<trust-store>/<sha256(workspace_path)>`. The
 //! filename is the SHA-256 of the workspace's absolute path; the contents are a small
 //! `key = value` block:
 //!
@@ -49,7 +49,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
-use crate::{data_dir, find_workspace, find_workspace_in};
+use crate::{find_workspace, find_workspace_in};
 
 /// Checks whether a specific capability is trusted
 #[derive(Debug, Clone, Copy)]
@@ -147,11 +147,21 @@ pub fn build_trusted_globs(patterns: &[String]) -> GlobSet {
     })
 }
 
+/// A completed configuration rewrite whose effect on a trust grant can be verified.
+/// The caller supplies both file paths and the exact contents before and after rewriting.
+pub struct ConfigMigration<'a> {
+    pub target: &'a Path,
+    pub backup: &'a Path,
+    pub original: &'a str,
+    pub updated: &'a str,
+}
+
 /// Runtime workspace-trust state. Cheap to clone (shared `Arc`).
 #[derive(Clone)]
 pub struct WorkspaceTrust {
     inner: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
     config: Config,
+    store: PathBuf,
 }
 
 #[derive(Clone, Copy)]
@@ -164,20 +174,24 @@ struct CacheEntry {
 }
 
 impl WorkspaceTrust {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, store: PathBuf) -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
             config,
+            store,
         }
     }
 
     /// A trust state that grants every capability. Use for non-interactive contexts (CLI grammar
     /// build, `ms --health`) where prompting isn't meaningful.
-    pub fn fully_trusted() -> Self {
-        Self::new(Config {
-            level: ImplicitTrustLevel::Insecure,
-            ..Config::default()
-        })
+    pub fn fully_trusted(store: PathBuf) -> Self {
+        Self::new(
+            Config {
+                level: ImplicitTrustLevel::Insecure,
+                ..Config::default()
+            },
+            store,
+        )
     }
 
     pub fn implicit_level(&self) -> ImplicitTrustLevel {
@@ -214,7 +228,7 @@ impl WorkspaceTrust {
         if let Some(entry) = self.inner.lock().get(workspace).copied() {
             return entry;
         }
-        let status = load_status(workspace);
+        let status = load_status(&self.store, workspace);
         let has_local_config = has_local_config(workspace);
         let entry = CacheEntry {
             status,
@@ -309,6 +323,7 @@ impl WorkspaceTrust {
         let hash = compute_workspace_hash(workspace);
         let has_local_config = has_local_config(workspace);
         write_entry(
+            &self.store,
             workspace,
             &DiskEntry {
                 hash,
@@ -331,9 +346,9 @@ impl WorkspaceTrust {
     pub fn record_config_migration(
         &self,
         workspace: &Path,
-        migration: &crate::config::migration::FileMigration,
+        migration: &ConfigMigration<'_>,
     ) -> bool {
-        let Some(entry) = read_entry(workspace).filter(|entry| !entry.excluded) else {
+        let Some(entry) = read_entry(&self.store, workspace).filter(|entry| !entry.excluded) else {
             return false;
         };
         let Some(approved_hash) = entry.hash else {
@@ -382,7 +397,7 @@ impl WorkspaceTrust {
             hash: Some(format!("sha256:{}", hex_encode(&current.finalize()))),
             excluded: false,
         };
-        if !write_entry(workspace, &entry) {
+        if !write_entry(&self.store, workspace, &entry) {
             return false;
         }
         self.inner.lock().remove(workspace);
@@ -391,7 +406,7 @@ impl WorkspaceTrust {
 
     /// Revoke any persisted trust grant or exclusion for `workspace`.
     pub fn untrust(&self, workspace: &Path) {
-        remove_entry(workspace);
+        remove_entry(&self.store, workspace);
         self.inner.lock().remove(workspace);
     }
 
@@ -399,6 +414,7 @@ impl WorkspaceTrust {
     pub fn exclude(&self, workspace: &Path) {
         let has_local_config = has_local_config(workspace);
         write_entry(
+            &self.store,
             workspace,
             &DiskEntry {
                 hash: None,
@@ -443,8 +459,8 @@ fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {
     }
 }
 
-fn load_status(workspace: &Path) -> TrustStatus {
-    match read_entry(workspace) {
+fn load_status(store: &Path, workspace: &Path) -> TrustStatus {
+    match read_entry(store, workspace) {
         Some(entry) if entry.excluded => TrustStatus::Excluded,
         Some(entry) => {
             let current = compute_workspace_hash(workspace);
@@ -460,7 +476,7 @@ fn load_status(workspace: &Path) -> TrustStatus {
 
 // ---------- on-disk format ----------
 //
-// `data_dir()/workspace_trust/<sha256(canonical_workspace_path)>` is a small key-value file. The
+// `<trust-store>/<sha256(canonical_workspace_path)>` is a small key-value file. The
 // filename derives from the path, so concurrent mitos instances writing trust for *different*
 // workspaces never touch the same file. The original path is stored inside as a sanity check and
 // for `cat workspace_trust/*` debugging.
@@ -470,12 +486,8 @@ struct DiskEntry {
     excluded: bool,
 }
 
-fn workspace_trust_dir() -> PathBuf {
-    data_dir().join("workspace_trust")
-}
-
-fn entry_path(workspace: &Path) -> PathBuf {
-    workspace_trust_dir().join(path_filename(workspace))
+fn entry_path(store: &Path, workspace: &Path) -> PathBuf {
+    store.join(path_filename(workspace))
 }
 
 fn path_filename(workspace: &Path) -> String {
@@ -496,8 +508,8 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn read_entry(workspace: &Path) -> Option<DiskEntry> {
-    let path = entry_path(workspace);
+fn read_entry(store: &Path, workspace: &Path) -> Option<DiskEntry> {
+    let path = entry_path(store, workspace);
     let contents = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
@@ -542,13 +554,13 @@ fn read_entry(workspace: &Path) -> Option<DiskEntry> {
     Some(DiskEntry { hash, excluded })
 }
 
-fn write_entry(workspace: &Path, entry: &DiskEntry) -> bool {
-    let dir = workspace_trust_dir();
-    if let Err(err) = fs::create_dir_all(&dir) {
+fn write_entry(store: &Path, workspace: &Path, entry: &DiskEntry) -> bool {
+    let dir = store;
+    if let Err(err) = fs::create_dir_all(dir) {
         log::error!("Couldn't create workspace trust dir {dir:?}: {err:?}");
         return false;
     }
-    let path = entry_path(workspace);
+    let path = entry_path(store, workspace);
 
     let mut contents = String::new();
     let _ = writeln!(contents, "path = {}", workspace.display());
@@ -564,8 +576,8 @@ fn write_entry(workspace: &Path, entry: &DiskEntry) -> bool {
     true
 }
 
-fn remove_entry(workspace: &Path) {
-    let path = entry_path(workspace);
+fn remove_entry(store: &Path, workspace: &Path) {
+    let path = entry_path(store, workspace);
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
@@ -655,6 +667,24 @@ mod test {
     }
 
     #[test]
+    fn persisted_decisions_are_scoped_to_the_supplied_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("project");
+        fs::create_dir(&workspace).unwrap();
+        let first_store = directory.path().join("first");
+        let second_store = directory.path().join("second");
+        let first = WorkspaceTrust::new(Config::default(), first_store.clone());
+        first.trust(&workspace);
+        let restored = WorkspaceTrust::new(Config::default(), first_store);
+        let independent = WorkspaceTrust::new(Config::default(), second_store);
+        assert_eq!(restored.status(&workspace), TrustStatus::Trusted);
+        assert_eq!(independent.status(&workspace), TrustStatus::Untrusted);
+        restored.exclude(&workspace);
+        assert_eq!(restored.status(&workspace), TrustStatus::Excluded);
+        assert_eq!(independent.status(&workspace), TrustStatus::Untrusted);
+    }
+
+    #[test]
     fn hash_changes_when_mitos_dir_changes() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path();
@@ -697,7 +727,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path();
 
-        let trust = WorkspaceTrust::new(Config::default());
+        let trust = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
         // Untrusted + no .mitos/ → indicator should hide.
         assert!(!trust.workspace_restricted(workspace));
 
@@ -729,7 +759,7 @@ mod test {
         let workspace = dir.path();
         write_file(&workspace.join(".mitos").join("config.toml"), "a = 1");
 
-        let mut trust = WorkspaceTrust::new(Config::default());
+        let mut trust = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
         trust.trust(workspace);
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
 
@@ -808,14 +838,17 @@ mod test {
         let workspace = dir.path();
 
         // Seed an excluded entry via a level=None trust state.
-        let bootstrap = WorkspaceTrust::new(Config::default());
+        let bootstrap = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
         bootstrap.exclude(workspace);
 
         // Fresh state (cold cache) under level=Insecure.
-        let trust = WorkspaceTrust::new(Config {
-            level: ImplicitTrustLevel::Insecure,
-            ..Config::default()
-        });
+        let trust = WorkspaceTrust::new(
+            Config {
+                level: ImplicitTrustLevel::Insecure,
+                ..Config::default()
+            },
+            dir.path().join("trust-store"),
+        );
         assert_eq!(
             trust.query(workspace, TrustQuery::Lsp),
             TrustStatus::Excluded,
@@ -834,11 +867,14 @@ mod test {
         fs::create_dir_all(&trusted).unwrap();
 
         let pattern = format!("{}/*", dir.path().display());
-        let trust = WorkspaceTrust::new(Config {
-            level: ImplicitTrustLevel::None,
-            trusted_globs: build_trusted_globs(&[pattern]),
-            ..Config::default()
-        });
+        let trust = WorkspaceTrust::new(
+            Config {
+                level: ImplicitTrustLevel::None,
+                trusted_globs: build_trusted_globs(&[pattern]),
+                ..Config::default()
+            },
+            dir.path().join("trust-store"),
+        );
 
         // Matching workspace is fully trusted for every capability, even local config (which
         // `level = "servers"` would still gate).
@@ -879,7 +915,7 @@ mod test {
         let workspace = dir.path();
         write_file(&workspace.join(".mitos").join("config.toml"), "a = 1");
 
-        let trust = WorkspaceTrust::new(Config::default());
+        let trust = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
         trust.trust(workspace);
         assert!(!trust.workspace_restricted(workspace));
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);

@@ -7,11 +7,11 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::Uri;
-use loader::workspace_trust::WorkspaceTrust;
 use lsp_client::{Call, LanguageServerId, Notification};
 use term::application::Application;
 use tokio_stream::StreamExt;
 use view::{current_ref, editor::Action};
+use workspace::trust::WorkspaceTrust;
 
 use super::{test_config, test_syntax_loader, AppBuilder};
 
@@ -164,7 +164,12 @@ impl Fixture {
         names: &[&str],
         config: impl Fn(&str) -> Option<String>,
     ) -> anyhow::Result<Self> {
-        Self::with_config_and_trust(dir, names, config, WorkspaceTrust::fully_trusted())
+        Self::with_config_and_trust(
+            dir,
+            names,
+            config,
+            WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        )
     }
 
     pub fn with_trust(dir: &Path, names: &[&str], trust: WorkspaceTrust) -> anyhow::Result<Self> {

@@ -322,7 +322,7 @@ fn expand_variable(editor: &Editor, variable: Variable) -> Result<Cow<'static, s
                 .to_string(),
         )),
         Variable::WorkspaceDirectory => Ok(std::borrow::Cow::Owned(
-            loader::find_workspace().0.to_string_lossy().to_string(),
+            workspace::find_workspace().0.to_string_lossy().to_string(),
         )),
         Variable::Language => Ok(match doc.language_name() {
             Some(lang) => Cow::Owned(lang.to_owned()),

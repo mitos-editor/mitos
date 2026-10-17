@@ -14,16 +14,15 @@
 //! [`syntax`] selects grammar and query sources from ordered runtime paths;
 //! [`grammar`] builds and loads native tree-sitter libraries.
 //! [`theme`] discovers theme sources and resolves their inheritance.
-//! [`workspace_trust`] keeps decisions about executing workspace-controlled
-//! programs separate from path discovery.
+//! Workspace discovery and trust decisions belong to the `workspace` crate.
 
 pub mod config;
 pub mod grammar;
 pub mod syntax;
 pub mod theme;
-pub mod workspace_trust;
 
-use stdx::{env::current_working_dir, path};
+use stdx::path;
+use workspace::find_workspace;
 
 use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};
 use std::path::{Path, PathBuf};
@@ -172,6 +171,11 @@ pub fn state_dir() -> PathBuf {
     path
 }
 
+/// Directory containing persisted workspace trust decisions.
+pub fn workspace_trust_dir() -> PathBuf {
+    data_dir().join("workspace_trust")
+}
+
 pub fn data_dir() -> PathBuf {
     let strategy = choose_base_strategy().expect("Unable to find the data directory!");
     let mut path = strategy.data_dir();
@@ -310,33 +314,6 @@ pub fn merge_toml_values(left: toml::Value, right: toml::Value, merge_depth: usi
         // Catch everything else we didn't handle, and use the right value
         (_, value) => value,
     }
-}
-
-/// Finds the current workspace folder.
-/// Used as a ceiling dir for LSP root resolution, the filepicker and potentially as a future filewatching root
-///
-/// This function starts searching the FS upward from the CWD
-/// and returns the first directory that contains either `.git`, `.svn`, `.jj` or `.mitos`.
-/// If no workspace was found returns (CWD, true).
-/// Otherwise (workspace, false) is returned
-pub fn find_workspace() -> (PathBuf, bool) {
-    let current_dir = current_working_dir();
-    find_workspace_in(current_dir)
-}
-
-pub fn find_workspace_in(dir: impl AsRef<Path>) -> (PathBuf, bool) {
-    let dir = dir.as_ref();
-    for ancestor in dir.ancestors() {
-        if ancestor.join(".git").exists()
-            || ancestor.join(".svn").exists()
-            || ancestor.join(".jj").exists()
-            || ancestor.join(".mitos").exists()
-        {
-            return (ancestor.to_owned(), false);
-        }
-    }
-
-    (dir.to_owned(), true)
 }
 
 fn default_config_file() -> PathBuf {

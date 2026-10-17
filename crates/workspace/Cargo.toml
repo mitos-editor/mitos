@@ -1,0 +1,18 @@
+[package]
+name = "workspace"
+description = "Workspace discovery and trust policy for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+stdx.workspace = true
+globset.workspace = true
+parking_lot.workspace = true
+sha2.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

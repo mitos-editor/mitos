@@ -418,8 +418,11 @@ impl Config {
         match scope {
             MigrationScope::User => Ok(loader::config_file()),
             MigrationScope::Workspace => {
-                use loader::workspace_trust::{TrustQuery, WorkspaceTrust};
-                let trust = WorkspaceTrust::new((&config.editor.workspace_trust).into());
+                use workspace::trust::{TrustQuery, WorkspaceTrust};
+                let trust = WorkspaceTrust::new(
+                    (&config.editor.workspace_trust).into(),
+                    loader::workspace_trust_dir(),
+                );
                 anyhow::ensure!(
                     trust.query_current(TrustQuery::LocalConfig).is_trusted(),
                     "Workspace configuration is not trusted; review and trust it before migrating"
@@ -432,7 +435,7 @@ impl Config {
     fn load_default_impl(
         scope: Option<MigrationScope>,
     ) -> Result<(Config, Vec<ConfigMigration>), ConfigLoadError> {
-        use loader::workspace_trust::{TrustQuery, TrustStatus, WorkspaceTrust};
+        use workspace::trust::{TrustQuery, TrustStatus, WorkspaceTrust};
         let user_path = loader::config_file();
         let (global_config, user_exists) = match fs::read_to_string(&user_path) {
             Ok(source) => (source, true),
@@ -441,8 +444,8 @@ impl Config {
         };
         let global_parsed = Config::load(Ok(&global_config), Err(ConfigLoadError::default()))?;
         let trust_config = (&global_parsed.editor.workspace_trust).into();
-        let trust = WorkspaceTrust::new(trust_config);
-        let workspace = loader::find_workspace().0;
+        let trust = WorkspaceTrust::new(trust_config, loader::workspace_trust_dir());
+        let workspace = workspace::find_workspace().0;
         let project_path = workspace.join(".mitos/config.toml");
         let mut paths = Vec::new();
         if user_exists {
@@ -479,9 +482,20 @@ impl Config {
                         // Never create a grant for implicit trust. Preserve an existing
                         // grant only when the exact migration accounts for the changes.
                         if trust.status(&workspace) == TrustStatus::Trusted
-                            && !trust.record_config_migration(&workspace, &written)
-                            && WorkspaceTrust::new((&config.editor.workspace_trust).into())
-                                .status(&workspace)
+                            && !trust.record_config_migration(
+                                &workspace,
+                                &workspace::trust::ConfigMigration {
+                                    target: &written.target,
+                                    backup: &written.backup,
+                                    original: &written.original,
+                                    updated: &written.updated,
+                                },
+                            )
+                            && WorkspaceTrust::new(
+                                (&config.editor.workspace_trust).into(),
+                                loader::workspace_trust_dir(),
+                            )
+                            .status(&workspace)
                                 != TrustStatus::Trusted
                         {
                             notices.push(ConfigMigration::Warning(

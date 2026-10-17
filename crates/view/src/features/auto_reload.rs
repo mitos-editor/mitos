@@ -277,10 +277,7 @@ fn reload_vcs(editor: &mut Editor) {
         };
         let trust_full = editor
             .workspace_trust
-            .query(
-                doc.workspace_root(),
-                loader::workspace_trust::TrustQuery::Git,
-            )
+            .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
             .is_trusted();
         doc.refresh_vcs(&editor.diff_providers, trust_full);
         log::debug!("refreshed VCS state for {}", path.display());

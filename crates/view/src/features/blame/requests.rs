@@ -51,10 +51,7 @@ impl BlameHandler {
                     };
                     let trust_full = editor
                         .workspace_trust
-                        .query(
-                            doc.workspace_root(),
-                            loader::workspace_trust::TrustQuery::Git,
-                        )
+                        .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
                         .is_trusted();
                     if let Some(line) = request.complete(doc, result, trust_full) {
                         editor.show_line_blame(doc_id, line);
@@ -78,10 +75,7 @@ impl Editor {
         }
         let trust_full = self
             .workspace_trust
-            .query(
-                doc.workspace_root(),
-                loader::workspace_trust::TrustQuery::Git,
-            )
+            .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
             .is_trusted();
         if doc.update_blame_trust(trust_full) {
             doc.refresh_vcs(&self.diff_providers, trust_full);
@@ -132,10 +126,7 @@ fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
     };
     let trust_full = editor
         .workspace_trust
-        .query(
-            doc.workspace_root(),
-            loader::workspace_trust::TrustQuery::Git,
-        )
+        .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
         .is_trusted();
     if doc.update_blame_trust(trust_full) {
         doc.refresh_vcs(&editor.diff_providers, trust_full);
@@ -184,10 +175,7 @@ pub(crate) fn register_hooks() {
             let trust_full = event
                 .editor
                 .workspace_trust
-                .query(
-                    doc.workspace_root(),
-                    loader::workspace_trust::TrustQuery::Git,
-                )
+                .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
                 .is_trusted();
             if doc.update_blame_trust(trust_full) {
                 doc.refresh_vcs(&event.editor.diff_providers, trust_full);

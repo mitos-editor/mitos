@@ -257,9 +257,9 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
     // Search from the workspace that the currently focused document is within. This behaves like global
     // search most of the time but helps when you have two projects open in splits.
     let search_root = if let Some(path) = doc!(cx.editor).path() {
-        loader::find_workspace_in(path).0
+        workspace::find_workspace_in(path).0
     } else {
-        loader::find_workspace().0
+        workspace::find_workspace().0
     };
 
     let absolute_root = search_root

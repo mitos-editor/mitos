@@ -91,13 +91,13 @@ fn ensure_git_is_available() -> Result<()> {
 
 /// Print a notice if the current workspace has a `.mitos/languages.toml` that we *would* have
 /// merged but the workspace-trust gate is keeping us from.
-fn warn_if_workspace_languages_skipped(trust: &crate::workspace_trust::WorkspaceTrust) {
+fn warn_if_workspace_languages_skipped(trust: &workspace::trust::WorkspaceTrust) {
     let workspace_languages = crate::workspace_lang_config_file();
     if !workspace_languages.exists() {
         return;
     }
     if trust
-        .query_current(crate::workspace_trust::TrustQuery::LocalConfig)
+        .query_current(workspace::trust::TrustQuery::LocalConfig)
         .is_trusted()
     {
         return;
@@ -252,7 +252,8 @@ fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     // `.mitos/languages.toml` in through `fully_trusted`, a malicious workspace could inject a
     // grammar with an attacker-controlled git source — running grammar build in that
     // directory would clone and compile attacker code
-    let trust = crate::workspace_trust::WorkspaceTrust::new(Default::default());
+    let trust =
+        workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
     warn_if_workspace_languages_skipped(&trust);
     let config: Configuration = crate::config::user_lang_config(&trust)
         .context("Could not parse languages.toml")?
@@ -279,7 +280,8 @@ pub fn get_grammar_names() -> Result<Option<HashSet<String>>> {
     // See `get_grammar_configs`, same threat: workspace-local
     // `languages.toml` must not influence the grammar set without
     // explicit on-disk trust.
-    let trust = crate::workspace_trust::WorkspaceTrust::new(Default::default());
+    let trust =
+        workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
     warn_if_workspace_languages_skipped(&trust);
     let config: Configuration = crate::config::user_lang_config(&trust)
         .context("Could not parse languages.toml")?

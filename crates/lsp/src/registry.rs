@@ -467,7 +467,7 @@ pub fn language_server_root(
     doc_path: Option<&Path>,
     root_dirs: &[PathBuf],
 ) -> (PathBuf, Option<Url>) {
-    let (workspace, workspace_is_cwd) = loader::find_workspace();
+    let (workspace, workspace_is_cwd) = workspace::find_workspace();
     let workspace = path::normalize(workspace);
     let root = find_lsp_workspace(
         doc_path

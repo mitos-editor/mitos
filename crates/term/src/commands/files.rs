@@ -5,10 +5,10 @@ use crate::{
     job::{self, Callback},
     ui::{self, overlay::overlaid},
 };
-use editor_core::find_workspace;
 use std::io::Read;
 use stdx::Url;
 use view::{editor::Action, Editor};
+use workspace::find_workspace;
 
 pub(super) fn goto_file(cx: &mut Context) {
     goto_file_impl(cx, Action::Replace);

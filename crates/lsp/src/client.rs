@@ -12,7 +12,6 @@ use crate::lsp::{
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
 use editor_core::{
-    find_workspace,
     syntax::config::{LanguageServerFeature, RootMarkers},
     ChangeSet, Rope,
 };
@@ -39,6 +38,7 @@ use tokio::{
         Notify, OnceCell,
     },
 };
+use workspace::find_workspace;
 
 fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     lsp::WorkspaceFolder {

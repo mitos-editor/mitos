@@ -7,7 +7,7 @@ use std::{
 };
 
 use event::register_hook;
-use loader::workspace_trust::{compute_workspace_hash, TrustStatus};
+use workspace::trust::{compute_workspace_hash, TrustStatus};
 
 use crate::{editor::ConfigEvent, events::DocumentDidOpen, DocumentId, Editor};
 

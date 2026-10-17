@@ -68,8 +68,6 @@ pub mod unicode {
     pub use unicode_width as width;
 }
 
-pub use loader::find_workspace;
-
 mod rope_reader;
 
 pub use rope_reader::RopeReader;

@@ -1273,7 +1273,7 @@ mod tests {
             Default::default(),
             config.clone(),
             syntax,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         )?;
         let mut jobs = Jobs::new();
         let updates = tokio::sync::mpsc::unbounded_channel().0;

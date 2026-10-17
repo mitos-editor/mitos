@@ -52,6 +52,7 @@ path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]
 
 [dependencies]
+workspace.workspace = true
 command-line.workspace = true
 stdx.workspace = true
 tempfile.workspace = true

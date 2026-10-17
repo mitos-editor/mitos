@@ -5,8 +5,8 @@ use anyhow::{bail, Context as _};
 use std::collections::HashMap;
 
 use crate::{events::LanguageServerInitialized, DocumentId, Editor};
-use loader::workspace_trust::TrustQuery;
 use lsp_client::LanguageServerId;
+use workspace::trust::TrustQuery;
 
 impl Editor {
     #[inline]

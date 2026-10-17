@@ -1,6 +1,6 @@
-use loader::workspace_trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
 use std::{fs, process::Command};
 use term::config::{Config, ConfigMigration, MigrationScope};
+use workspace::trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
 
 #[path = "test/helpers/isolation.rs"]
 mod isolation;
@@ -56,7 +56,8 @@ fn migrates_both_layers_with_backups_and_preserves_precedence() -> anyhow::Resul
     assert!(fs::read_to_string(&project)?.contains("# Project settings"));
     assert_eq!(fs::read_to_string(languages)?, language_source);
     assert_eq!(
-        WorkspaceTrust::new(TrustConfig::default()).status(&root.join("workspace")),
+        WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+            .status(&root.join("workspace")),
         TrustStatus::Untrusted
     );
     assert!(migrate_both().unwrap().1.is_empty());
@@ -78,7 +79,7 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
     let local = "[editor]\nscrolloff = 17\n";
     fs::write(loader::config_file(), global)?;
     fs::write(&project, local)?;
-    let trust = WorkspaceTrust::new(TrustConfig::default());
+    let trust = WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir());
     // No grant: the project config is not interpreted or rewritten.
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 7);
@@ -89,7 +90,8 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
         "# Changed after approval\n",
     )?;
     assert_eq!(
-        WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+        WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+            .status(&workspace),
         TrustStatus::Stale
     );
     assert!(migrate_both().unwrap().1.is_empty());
@@ -115,14 +117,15 @@ fn preserves_explicit_trust_across_migration_and_reload() -> anyhow::Result<()> 
         loader::workspace_config_file(),
         "[editor]\nscrolloff = 17\n",
     )?;
-    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(notices
         .iter()
         .all(|n| matches!(n, ConfigMigration::Updated { .. })));
     assert_eq!(
-        WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+        WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+            .status(&workspace),
         TrustStatus::Trusted
     );
     let (config, notices) = migrate_both().unwrap();
@@ -144,7 +147,7 @@ fn migration_cannot_approve_concurrent_configuration_changes() -> anyhow::Result
     for tamper_with_project in [false, true] {
         fs::write(&project, "[editor]\nscrolloff = 17\n")?;
         fs::write(&languages, "# Approved language config\n")?;
-        let trust = WorkspaceTrust::new(TrustConfig::default());
+        let trust = WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir());
         trust.trust(&workspace);
         let written = loader::config::migration::file(&project, |_| Ok(()))?.unwrap();
         if tamper_with_project {
@@ -152,9 +155,18 @@ fn migration_cannot_approve_concurrent_configuration_changes() -> anyhow::Result
         } else {
             fs::write(&languages, "# Changed concurrently\n")?;
         }
-        assert!(!trust.record_config_migration(&workspace, &written));
+        assert!(!trust.record_config_migration(
+            &workspace,
+            &workspace::trust::ConfigMigration {
+                target: &written.target,
+                backup: &written.backup,
+                original: &written.original,
+                updated: &written.updated,
+            }
+        ));
         assert_eq!(
-            WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+            WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+                .status(&workspace),
             TrustStatus::Stale
         );
     }
@@ -327,7 +339,8 @@ fn explicit_migration_is_scoped_and_requires_workspace_trust() -> anyhow::Result
     assert_eq!(fs::read_to_string(&project)?, local);
     assert!(!project.with_extension("toml.bak").exists());
     let migrated_user = fs::read_to_string(&user)?;
-    WorkspaceTrust::new(TrustConfig::default()).trust(&root.join("workspace"));
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&root.join("workspace"));
     Config::migrate(MigrationScope::Workspace)?;
     assert_eq!(fs::read_to_string(&user)?, migrated_user);
     assert!(!user.with_extension("toml.bak.1").exists());
@@ -349,7 +362,8 @@ fn trusted_project_migrates_without_creating_a_user_config() -> anyhow::Result<(
         loader::workspace_config_file(),
         "[editor]\nscrolloff = 17\n",
     )?;
-    WorkspaceTrust::new(TrustConfig::default()).trust(&root.join("workspace"));
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&root.join("workspace"));
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert_eq!(notices.len(), 1);
@@ -402,7 +416,7 @@ fn project_symlink_migration_preserves_the_link_and_trust() -> anyhow::Result<()
     fs::write(loader::config_file(), "")?;
     fs::write(&target, original)?;
     symlink(&target, &project)?;
-    WorkspaceTrust::new(TrustConfig::default()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(
@@ -415,7 +429,8 @@ fn project_symlink_migration_preserves_the_link_and_trust() -> anyhow::Result<()
         original
     );
     assert_eq!(
-        WorkspaceTrust::new(TrustConfig::default()).status(&workspace),
+        WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+            .status(&workspace),
         TrustStatus::Trusted
     );
     Ok(())

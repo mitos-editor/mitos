@@ -42,7 +42,7 @@ impl Fixture {
             Args::default(),
             config,
             loader,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         )?;
         let picker = Picker::new(
             app.editor.redraw().clone(),

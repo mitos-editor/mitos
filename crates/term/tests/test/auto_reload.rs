@@ -561,7 +561,7 @@ async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabl
     // Restricted workspaces still support repository reads through reduced Git trust.
     app.editor
         .workspace_trust
-        .set_config(loader::workspace_trust::Config::default());
+        .set_config(workspace::trust::Config::default());
     let head = dir.path().join(".git/HEAD");
     changed(&head, "ref: refs/heads/second\n", 2)?;
     app.editor.handle_file_events(&fs_events(&[&head]));

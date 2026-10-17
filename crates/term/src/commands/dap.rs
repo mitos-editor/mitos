@@ -124,7 +124,7 @@ pub fn dap_start_impl(
     if !cx
         .editor
         .workspace_trust
-        .query(&workspace, loader::workspace_trust::TrustQuery::Dap)
+        .query(&workspace, workspace::trust::TrustQuery::Dap)
         .is_trusted()
     {
         bail!("Workspace is not trusted. Run `:workspace-trust` to enable the debug adapter.");

@@ -76,7 +76,7 @@ impl Fixture {
             )?)),
             config.clone(),
             handlers,
-            loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         );
         editor.new_file(Action::VerticalSplit);
         let dir = tempfile::tempdir()?;
