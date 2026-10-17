@@ -208,7 +208,7 @@ impl ProgressStatus {
 
 #[derive(Default, Debug)]
 /// Acts as a container for progress reported by language servers. Each server
-/// has a unique id assigned at creation through [`Registry`]. This id is then used
+/// has a unique id assigned at creation by the editor's server registry. This id is then used
 /// to store the progress in this map.
 pub struct LspProgressMap(HashMap<LanguageServerId, HashMap<lsp::ProgressToken, ProgressStatus>>);
 
