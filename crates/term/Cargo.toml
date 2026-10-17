@@ -52,6 +52,7 @@ path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]
 
 [dependencies]
+clipboard.workspace = true
 grammar-build.workspace = true
 language.workspace = true
 theme.workspace = true

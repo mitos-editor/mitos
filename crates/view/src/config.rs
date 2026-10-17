@@ -4,6 +4,8 @@
 //! discovery and merging, which live in `term::config`. Applying settings to a
 //! running editor lives in `editor/config.rs` on [`crate::editor::Editor`].
 
+use ::clipboard::ClipboardProvider;
+
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU8,
@@ -18,7 +20,6 @@ use workspace::trust::ImplicitTrustLevel;
 
 use crate::{
     annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
-    clipboard::ClipboardProvider,
     custom_commands::CustomCommands,
     document::Mode,
     file_watcher,

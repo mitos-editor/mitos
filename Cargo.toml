@@ -14,6 +14,7 @@ members = [
   "crates/dap",
   "crates/loader",
   "crates/grammar-build",
+  "crates/clipboard",
   "crates/workspace",
   "crates/theme",
   "crates/language",
@@ -54,6 +55,7 @@ dap-types = { path = "crates/dap-types" }
 event = { path = "crates/event" }
 loader = { path = "crates/loader" }
 grammar-build = { path = "crates/grammar-build" }
+clipboard = { path = "crates/clipboard" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
