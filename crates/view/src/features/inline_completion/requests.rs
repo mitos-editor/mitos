@@ -305,8 +305,10 @@ fn prepare(
 
 pub fn dismiss(editor: &mut Editor) {
     editor.handlers.inline_completions.cancel();
-    let (_, doc) = current!(editor);
-    doc.inline_completions.clear();
+    let document = editor.tree.try_get(editor.tree.focus).map(|view| view.doc);
+    if let Some(doc) = document.and_then(|id| editor.document_mut(id)) {
+        doc.inline_completions.clear();
+    }
 }
 
 /// Concrete edit returned to frontends for insert replay.
@@ -364,7 +366,7 @@ pub fn cycle(editor: &mut Editor, direction: Direction) {
     doc.inline_completions.cycle(view.id, direction);
 }
 
-pub fn mode_changed(editor: &mut Editor, old: Mode) {
+pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
     if old == Mode::Insert && editor.mode() != Mode::Insert {
         dismiss(editor);
     }

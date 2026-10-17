@@ -658,8 +658,8 @@ pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
     let (view, doc) = current!(editor);
     view::editing::replace_selections(doc, view, replacement);
     view.ensure_cursor_in_view(doc, scrolloff);
-    if editor.mode == Mode::Select {
-        editor.mode = Mode::Normal;
+    if editor.mode() == Mode::Select {
+        editor.set_mode(Mode::Normal);
     }
 }
 

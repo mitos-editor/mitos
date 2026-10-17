@@ -216,7 +216,7 @@ pub fn line_numbers<'doc>(
             || "↪".into(),
             |indicator| indicator.chars().take(width).collect::<String>(),
         );
-    let mode = editor.mode;
+    let mode = editor.mode();
 
     Box::new(
         move |line: usize, selected: bool, first_visual_line: bool, out: &mut String| {

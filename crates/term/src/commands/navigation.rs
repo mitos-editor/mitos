@@ -204,6 +204,7 @@ pub(super) fn goto_last_accessed_file(cx: &mut Context) {
 }
 
 pub(super) fn goto_last_modification(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     let pos = view::editing::last_edit_pos(doc);
     let text = doc.text().slice(..);
@@ -211,7 +212,7 @@ pub(super) fn goto_last_modification(cx: &mut Context) {
         let selection = doc
             .selection(view.id)
             .clone()
-            .transform(|range| range.put_cursor(text, pos, cx.editor.mode == Mode::Select));
+            .transform(|range| range.put_cursor(text, pos, mode == Mode::Select));
         push_jump(view, doc);
         doc.set_selection(view.id, selection);
     }
@@ -643,7 +644,7 @@ fn goto_line_preview(editor: &mut Editor, line: Option<NonZeroUsize>) {
     goto_line_without_jumplist(
         editor,
         line,
-        if editor.mode == Mode::Select {
+        if editor.mode() == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move

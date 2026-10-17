@@ -371,14 +371,13 @@ async fn navigation_does_not_interrupt_a_new_editing_mode() -> anyhow::Result<()
         .clone();
     navigation::request(&mut f.app.editor, NavigationKind::SelectReferences);
     let callback = f.response().await?;
-    f.app.editor.mode = view::document::Mode::Insert;
+    f.app.editor.set_mode(view::document::Mode::Insert);
     callback(&mut f.app.editor);
     let (view, doc) = current_ref!(f.app.editor);
     assert_eq!(doc.selection(view.id), &original);
     f.app.editor.enter_normal_mode();
     let update = f.update(NavigationKind::Definition).await?;
-    f.app.editor.mode = view::document::Mode::Insert;
-    navigation::mode_changed(&mut f.app.editor, view::document::Mode::Normal);
+    f.app.editor.set_mode(view::document::Mode::Insert);
     f.app.editor.enter_normal_mode();
     assert!(update.resolve(&mut f.app.editor).is_none());
     Ok(())

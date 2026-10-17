@@ -72,7 +72,7 @@ impl Fixture {
 async fn insert_mode_defers_saves_until_the_terminal_forwards_exit() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path())?;
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.edit("inserted\n");
     f.publish().await?;
     assert_eq!(f.disk(), "before\n");

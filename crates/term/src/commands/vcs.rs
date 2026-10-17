@@ -253,6 +253,7 @@ pub(super) fn goto_prev_change(cx: &mut Context) {
 fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
     let count = cx.count() as u32 - 1;
     let motion = move |editor: &mut Editor| {
+        let mode = editor.mode();
         let (view, doc) = current!(editor);
         let doc_text = doc.text().slice(..);
         let diff_handle = if let Some(diff_handle) = doc.diff_handle() {
@@ -279,7 +280,7 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
             };
             let hunk = diff.nth_hunk(hunk_idx);
             let new_range = hunk_range(hunk, doc_text);
-            if editor.mode == Mode::Select {
+            if mode == Mode::Select {
                 let head = if new_range.head < range.anchor {
                     new_range.anchor
                 } else {

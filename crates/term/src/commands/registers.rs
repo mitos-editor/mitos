@@ -209,12 +209,13 @@ fn paste_impl(
 
 pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
     let count = cx.count();
-    let paste = match cx.editor.mode {
+    let paste = match cx.editor.mode() {
         Mode::Insert | Mode::Select => Paste::Cursor,
         Mode::Normal => Paste::Before,
     };
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
-    paste_impl(&[contents], doc, view, paste, count, cx.editor.mode);
+    paste_impl(&[contents], doc, view, paste, count, mode);
     exit_select_mode(cx);
 }
 
@@ -307,8 +308,9 @@ pub(crate) fn paste(editor: &mut Editor, register: char, pos: Paste, count: usiz
     };
     let values: Vec<_> = values.map(|value| value.to_string()).collect();
 
+    let mode = editor.mode();
     let (view, doc) = current!(editor);
-    paste_impl(&values, doc, view, pos, count, editor.mode);
+    paste_impl(&values, doc, view, pos, count, mode);
 }
 
 pub(super) fn paste_after(cx: &mut Context) {

@@ -1,23 +1,10 @@
-//! Terminal navigation presentation and forwarding of input lifecycle changes.
-use event::register_hook;
-use view::{
-    features::navigation::{self, NavigationUpdate},
-    Editor,
-};
+//! Terminal presentation of shared navigation results.
+use view::{features::navigation::NavigationUpdate, Editor};
 
-use crate::{compositor::Compositor, events::OnModeSwitch};
+use crate::compositor::Compositor;
 
 pub fn show(editor: &mut Editor, compositor: &mut Compositor, update: NavigationUpdate) {
     if let Some(locations) = update.resolve(editor) {
         crate::commands::lsp::goto_impl(editor, compositor, locations);
     }
-}
-
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
-        if event.new_mode != view::document::Mode::Normal {
-            navigation::mode_changed(event.cx.editor, event.old_mode);
-        }
-        Ok(())
-    });
 }

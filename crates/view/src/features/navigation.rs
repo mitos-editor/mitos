@@ -234,7 +234,7 @@ fn cancel(editor: &mut Editor) {
 }
 
 /// Forward a mode transition after applying it to the editor.
-pub fn mode_changed(editor: &mut Editor, old: Mode) {
+pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
     if editor.mode() != old {
         cancel(editor);
     }

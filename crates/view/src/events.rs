@@ -2,9 +2,11 @@ use editor_core::{ChangeSet, Rope};
 use event::events;
 use lsp_client::LanguageServerId;
 
-use crate::{config::Config, Document, DocumentId, Editor, ViewId};
+use crate::{config::Config, document::Mode, Document, DocumentId, Editor, ViewId};
 
 events! {
+    // Required session invalidation has finished; observers see the final mode.
+    ModeDidChange<'a> { editor: &'a mut Editor, old: Mode, new: Mode }
     DocumentDidOpen<'a> {
         editor: &'a mut Editor,
         doc: DocumentId
@@ -54,6 +56,7 @@ pub(crate) fn register() {
     event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
     REGISTER.call_once(|| {
         use event::register_event;
+        register_event::<ModeDidChange>();
         register_event::<DocumentDidOpen>();
         register_event::<DocumentDidChange>();
         register_event::<DocumentDidClose>();

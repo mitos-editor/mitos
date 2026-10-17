@@ -11,7 +11,7 @@ async fn headless_setup_runs_completion_through_its_callback_destination() -> an
     let (view, doc) = current!(f.editor);
     let cursor = doc.text().len_chars() - 1;
     doc.set_selection(view.id, Selection::point(cursor));
-    f.editor.mode = Mode::Insert;
+    f.editor.set_mode(Mode::Insert);
     let (view, doc) = current_ref!(f.editor);
     f.editor
         .handlers()

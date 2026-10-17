@@ -96,7 +96,7 @@ fn clear_completions(cx: &mut commands::Context) {
 fn completion_post_command_hook(
     PostCommand { command, cx }: &mut PostCommand<'_, '_>,
 ) -> anyhow::Result<()> {
-    if cx.editor.mode == Mode::Insert {
+    if cx.editor.mode() == Mode::Insert {
         if cx.editor.last_completion.is_some() {
             match command {
                 MappableCommand::Static {
@@ -143,15 +143,7 @@ pub(super) fn register_hooks() {
 
     register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
         if event.old_mode == Mode::Insert {
-            event
-                .cx
-                .editor
-                .handlers()
-                .completions
-                .event(CompletionEvent::Cancel);
             clear_completions(event.cx);
-        } else if event.new_mode == Mode::Insert {
-            trigger_auto_completion(event.cx.editor, false)
         }
         Ok(())
     });

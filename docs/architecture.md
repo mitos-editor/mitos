@@ -90,6 +90,14 @@ highlighting and other features.
 compositor; frontends supply callback delivery and presentation. Presentation-related
 model data, such as view geometry, theme styles, and gutter settings, remains shared.
 
+### Mode transitions
+
+`Editor::set_mode` in `editor/mode.rs` owns mode changes, feature cancellation,
+insert-mode triggers, diagnostic activity, and deferred autosave. Normal mode also
+restores indentation and the append cursor. `ModeDidChange` observers run after
+those required effects. Terminal hooks retain menu presentation and edit replay;
+headless callers use the same transition operation.
+
 ### Configuration application
 
 `view::config` defines editor configuration types, defaults, and serialization.

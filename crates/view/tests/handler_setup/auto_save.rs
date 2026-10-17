@@ -102,11 +102,10 @@ async fn disabling_autosave_invalidates_queued_and_deferred_saves() -> anyhow::R
     f.editor.flush_writes().await?;
     assert_eq!(f.disk(), "before\n");
 
-    f.editor.mode = Mode::Insert;
+    f.editor.set_mode(Mode::Insert);
     f.replace("deferred\n");
     f.publish().await?;
-    f.editor.mode = Mode::Normal;
-    f.editor.handlers().auto_save.left_insert_mode();
+    f.editor.set_mode(Mode::Normal);
     let deferred = f.next().await?;
     f.settings(false, false);
     f.settings(true, false);
@@ -123,7 +122,7 @@ async fn disabling_autosave_invalidates_queued_and_deferred_saves() -> anyhow::R
 async fn focus_loss_uses_its_own_setting_and_can_save_in_insert_mode() -> anyhow::Result<()> {
     let mut f = Fixture::auto_save()?;
     f.settings(false, false);
-    f.editor.mode = Mode::Insert;
+    f.editor.set_mode(Mode::Insert);
     f.replace("focus\n");
     auto_save::focus_lost(&mut f.editor);
     f.editor.flush_writes().await?;

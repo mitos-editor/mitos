@@ -475,9 +475,9 @@ async fn replace_completions(
     }
 }
 
-// A focus change can precede frontend delivery. Restore ghost text in its original
+// Invalidation can precede frontend delivery. Restore ghost text in its original
 // document now, so clearing the menu cannot apply that savepoint to the new document.
-fn invalidate(editor: &mut Editor) {
+pub(crate) fn invalidate(editor: &mut Editor) {
     let handler = &editor.handlers.completions;
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
         return;

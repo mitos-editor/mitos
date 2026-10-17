@@ -82,7 +82,7 @@ impl Fixture {
         app.editor.open(&path, Action::Replace)?;
         let (view, doc) = current!(app.editor);
         doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
-        app.editor.mode = Mode::Insert;
+        app.editor.set_mode(Mode::Insert);
         while completion::next_update(&mut app.editor).is_some() {}
         Ok(Self {
             app,
@@ -123,7 +123,7 @@ impl Fixture {
                     .context("completion callback queue closed")?;
             if scheduling {
                 callback(&mut self.app.editor);
-                if let Some(update) = completion::next_update(&mut self.app.editor) {
+                while let Some(update) = completion::next_update(&mut self.app.editor) {
                     self.app
                         .handle_editor_event(EditorEvent::Completion(update))
                         .await;
@@ -241,9 +241,9 @@ async fn typing_survives_but_cancel_mode_rename_and_focus_reject_old_results() -
     assert!(old.apply(&mut f.app.editor).is_none());
     f.trigger();
     let old = f.update().await?;
-    f.app.editor.mode = Mode::Normal;
+    f.app.editor.set_mode(Mode::Normal);
     assert!(old.apply(&mut f.app.editor).is_none());
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.trigger();
     let old = f.update().await?;
     f.app.editor.set_doc_path(
@@ -480,7 +480,7 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
     let path = dir.path().join("words.completion-test");
     std::fs::write(&path, "apple apricot ap\n")?;
     f.app.editor.open(&path, Action::Replace)?;
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     let (view, doc) = current!(f.app.editor);
     doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
     while completion::next_update(&mut f.app.editor).is_some() {}
@@ -531,7 +531,7 @@ async fn automatic_triggers_and_configuration_changes_keep_request_lifetimes() -
 async fn terminal_insert_repeat_uses_the_original_request_savepoint() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "ap\nap\n", &["alpha"]).await?;
-    f.app.editor.mode = Mode::Normal;
+    f.app.editor.set_mode(Mode::Normal);
     let (view, doc) = current!(f.app.editor);
     doc.set_selection(view.id, Selection::point(1));
     f.key("a").await?;

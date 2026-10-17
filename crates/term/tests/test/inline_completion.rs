@@ -59,7 +59,7 @@ A-p = "inline_completion_prev"
         app.editor.open(&path, Action::Replace)?;
         let (view, doc) = current!(app.editor);
         doc.set_selection(view.id, Selection::point(4));
-        app.editor.mode = Mode::Insert;
+        app.editor.set_mode(Mode::Insert);
         gate.release()?;
         lsp::initialize(&mut app, 1).await?;
         Ok(Self { app, callbacks })

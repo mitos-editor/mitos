@@ -349,7 +349,7 @@ pub fn next_update(editor: &Editor) -> Option<SignatureHelpUpdate> {
 }
 
 /// Forward a mode transition after applying it to the editor.
-pub fn mode_changed(editor: &Editor, old: Mode) {
+pub(crate) fn mode_changed(editor: &Editor, old: Mode) {
     if old == Mode::Insert {
         editor.handlers.signature_hints.cancel();
     } else if editor.mode() == Mode::Insert {

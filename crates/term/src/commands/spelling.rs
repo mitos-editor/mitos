@@ -22,6 +22,7 @@ pub(super) fn goto_prev_spelling(cx: &mut Context) {
 fn goto_spelling(cx: &mut Context, direction: Direction) {
     let count = cx.count();
     cx.editor.apply_motion(move |editor| {
+        let mode = editor.mode();
         let (view, doc) = current!(editor);
         let text = doc.text().slice(..);
         let selection = doc.selection(view.id).clone().transform(|range| {
@@ -42,7 +43,7 @@ fn goto_spelling(cx: &mut Context, direction: Direction) {
             let Some(target) = target else {
                 return range;
             };
-            if editor.mode == Mode::Select {
+            if mode == Mode::Select {
                 let head = if target.to() <= range.anchor {
                     target.from()
                 } else {

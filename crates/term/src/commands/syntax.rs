@@ -650,8 +650,9 @@ pub(super) fn select_all_children(cx: &mut Context) {
 }
 
 pub(super) fn match_brackets(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
-    let is_select = cx.editor.mode == Mode::Select;
+    let is_select = mode == Mode::Select;
     let text = doc.text();
     let text_slice = text.slice(..);
 
@@ -673,6 +674,7 @@ pub(super) fn match_brackets(cx: &mut Context) {
 fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
     let count = cx.count();
     let motion = move |editor: &mut Editor| {
+        let mode = editor.mode();
         let (view, doc) = current!(editor);
         let loader = editor.syn_loader.load();
         if let Some(syntax) = doc.syntax() {
@@ -683,7 +685,7 @@ fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direct
                     text, range, object, direction, syntax, &loader, count,
                 );
 
-                if editor.mode == Mode::Select {
+                if mode == Mode::Select {
                     let head = if new_range.head < range.anchor {
                         new_range.anchor
                     } else {

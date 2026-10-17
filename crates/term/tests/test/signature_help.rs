@@ -197,7 +197,7 @@ async fn manual_and_automatic_requests_preserve_protocol_and_provider_selection(
             .is_err()
     );
     f.automatic(true);
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     let triggered = tokio::time::Instant::now();
     signature_help::post_insert_char(&f.app.editor);
     let (scheduling, callback) = f.next().await?;
@@ -216,7 +216,7 @@ async fn queued_responses_reject_edits_selection_renames_and_closed_documents() 
 {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.trigger(SignatureHelpInvoked::Manual);
     let old = f.response().await?;
     f.select(3);
@@ -255,9 +255,8 @@ async fn newer_requests_mode_configuration_and_focus_invalidate_presentation() -
     old(&mut f.app.editor);
     assert!(f.take_change().is_none());
     let update = f.update().await?;
-    f.app.editor.mode = Mode::Normal;
-    signature_help::mode_changed(&f.app.editor, Mode::Insert);
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Normal);
+    f.app.editor.set_mode(Mode::Insert);
     assert!(update.resolve(&f.app.editor).is_none());
     f.trigger(SignatureHelpInvoked::Automatic);
     let update = f.update().await?;
@@ -294,7 +293,7 @@ async fn simultaneous_editors_own_triggers_callbacks_and_updates() -> anyhow::Re
     assert!(update.resolve(&second.app.editor).is_none());
     second.trigger(SignatureHelpInvoked::Manual);
     assert_eq!(second.label().await?, "alpha: 😀 second(");
-    first.app.editor.mode = Mode::Insert;
+    first.app.editor.set_mode(Mode::Insert);
     first.edit("😀 changed(\n");
     assert_eq!(first.label().await?, "alpha: 😀 changed(");
     assert!(second.callbacks.try_recv().is_err());
@@ -365,7 +364,7 @@ async fn server_exit_replacement_and_drop_invalidate_work() -> anyhow::Result<()
             .is_none()
     );
     f.callbacks = callbacks;
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.trigger(SignatureHelpInvoked::Manual);
     assert_eq!(f.label().await?, "alpha: 😀 call(");
     // Document edits must retrigger the replacement handler without a manual request.
@@ -419,7 +418,7 @@ async fn terminal_forwards_triggers_and_keeps_popup_navigation_and_dismissal() -
             Some(SignatureHelpChange::Hide)
         ));
     }
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.edit("error\n");
     f.trigger(SignatureHelpInvoked::Manual);
     f.response().await?(&mut f.app.editor);
@@ -437,7 +436,7 @@ async fn missing_provider_is_reported_only_manually_and_retries_after_startup() 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::uninitialized(dir.path(), "😀 call(\n", &["alpha"])?;
     f.app.editor.clear_status();
-    f.app.editor.mode = Mode::Insert;
+    f.app.editor.set_mode(Mode::Insert);
     f.trigger(SignatureHelpInvoked::Automatic);
     f.next().await?.1(&mut f.app.editor);
     assert!(f.app.editor.get_status().is_none());
@@ -481,5 +480,23 @@ async fn replacing_signature_help_dismisses_presented_popup() -> anyhow::Result<
     f.key("<A-n>").await?;
     assert_eq!(f.popup_selection().await?, None);
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn signature_results_do_not_cross_insert_sessions() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "call(\n", &["alpha"]).await?;
+    f.app.editor.set_mode(Mode::Insert);
+    f.trigger(SignatureHelpInvoked::Automatic);
+    let update = f.update().await?;
+    f.app.editor.enter_normal_mode();
+    f.app.editor.set_mode(Mode::Insert);
+    let stale = update.resolve(&f.app.editor);
+    assert!(f.app.close().await.is_empty());
+    assert!(
+        stale.is_none(),
+        "old signature response survived ending its insert session"
+    );
     Ok(())
 }

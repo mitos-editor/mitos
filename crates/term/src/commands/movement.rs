@@ -127,11 +127,12 @@ fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
 }
 
 pub(super) fn goto_line_end(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     goto_line_end_impl(
         view,
         doc,
-        if cx.editor.mode == Mode::Select {
+        if mode == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
@@ -157,11 +158,12 @@ fn goto_line_end_newline_impl(view: &mut View, doc: &mut Document, movement: Mov
 }
 
 pub(super) fn goto_line_end_newline(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     goto_line_end_newline_impl(
         view,
         doc,
-        if cx.editor.mode == Mode::Select {
+        if mode == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
@@ -188,11 +190,12 @@ fn goto_line_start_impl(view: &mut View, doc: &mut Document, movement: Movement)
 }
 
 pub(super) fn goto_line_start(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     goto_line_start_impl(
         view,
         doc,
-        if cx.editor.mode == Mode::Select {
+        if mode == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
@@ -206,12 +209,13 @@ pub(super) fn extend_to_line_start(cx: &mut Context) {
 }
 
 pub(super) fn goto_first_nonwhitespace(cx: &mut Context) {
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
 
     goto_first_nonwhitespace_impl(
         view,
         doc,
-        if cx.editor.mode == Mode::Select {
+        if mode == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
@@ -243,6 +247,7 @@ fn goto_first_nonwhitespace_impl(view: &mut View, doc: &mut Document, movement: 
 fn goto_window(cx: &mut Context, align: Align) {
     let count = cx.count() - 1;
     let config = cx.editor.config();
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     let view_offset = doc.view_offset(view.id);
 
@@ -275,7 +280,7 @@ fn goto_window(cx: &mut Context, align: Align) {
     let selection = doc
         .selection(view.id)
         .clone()
-        .transform(|range| range.put_cursor(text, pos, cx.editor.mode == Mode::Select));
+        .transform(|range| range.put_cursor(text, pos, mode == Mode::Select));
     doc.set_selection(view.id, selection);
 }
 
@@ -360,9 +365,10 @@ where
 {
     let count = cx.count();
     let motion = move |editor: &mut Editor| {
+        let mode = editor.mode();
         let (view, doc) = current!(editor);
         let text = doc.text().slice(..);
-        let behavior = if editor.mode == Mode::Select {
+        let behavior = if mode == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
@@ -610,6 +616,7 @@ pub(super) fn repeat_last_motion(cx: &mut Context) {
 pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
     use Direction::*;
     let config = cx.editor.config();
+    let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
     let mut view_offset = doc.view_offset(view.id);
 
@@ -643,7 +650,7 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
     let mut annotations = view.text_annotations(&*doc, None);
 
     if sync_cursor {
-        let movement = match cx.editor.mode {
+        let movement = match mode {
             Mode::Select => Movement::Extend,
             _ => Movement::Move,
         };
@@ -702,7 +709,7 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
         }
     }
 
-    let anchor = if cx.editor.mode == Mode::Select {
+    let anchor = if mode == Mode::Select {
         range.anchor
     } else {
         head

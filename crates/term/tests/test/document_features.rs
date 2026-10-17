@@ -429,7 +429,7 @@ async fn resolved_link_navigation_validates_queued_delivery() -> anyhow::Result<
             "superseded" => {
                 let _ = view::features::document_links::prepare_navigation(&mut fixture.app.editor);
             }
-            "mode" => fixture.app.editor.mode = view::document::Mode::Insert,
+            "mode" => fixture.app.editor.set_mode(view::document::Mode::Insert),
             "disabled" => {
                 let mut config = (*fixture.app.editor.config()).clone();
                 config.lsp.enable = false;

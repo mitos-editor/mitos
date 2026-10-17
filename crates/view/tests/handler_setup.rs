@@ -50,3 +50,6 @@ mod formatting;
 
 #[path = "handler_setup/write_completion.rs"]
 mod write_completion;
+
+#[path = "handler_setup/mode.rs"]
+mod mode;

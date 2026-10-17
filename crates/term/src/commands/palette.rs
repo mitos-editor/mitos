@@ -60,7 +60,7 @@ pub fn command_palette(cx: &mut Context) {
     cx.callback.push(Box::new(
         move |compositor: &mut Compositor, cx: &mut compositor::Context| {
             let keymap = compositor.find::<ui::EditorView>().unwrap().keymaps.map()
-                [&cx.editor.mode]
+                [&cx.editor.mode()]
                 .reverse_map();
             let data = CommandPaletteData {
                 keymap,

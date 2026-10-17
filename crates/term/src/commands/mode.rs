@@ -6,12 +6,11 @@ use view::document::Mode;
 use super::context::Context;
 
 pub(super) fn enter_insert_mode(cx: &mut Context) {
-    cx.editor.mode = Mode::Insert;
+    cx.editor.set_mode(Mode::Insert);
 }
 
 // inserts at the start of each selection
 pub(super) fn insert_mode(cx: &mut Context) {
-    enter_insert_mode(cx);
     let (view, doc) = current!(cx.editor);
 
     log::trace!(
@@ -26,11 +25,11 @@ pub(super) fn insert_mode(cx: &mut Context) {
         .transform(|range| Range::new(range.to(), range.from()));
 
     doc.set_selection(view.id, selection);
+    enter_insert_mode(cx);
 }
 
 // inserts at the end of each selection
 pub(super) fn append_mode(cx: &mut Context) {
-    enter_insert_mode(cx);
     let (view, doc) = current!(cx.editor);
     doc.restore_cursor = true;
     let text = doc.text().slice(..);
@@ -58,6 +57,7 @@ pub(super) fn append_mode(cx: &mut Context) {
         )
     });
     doc.set_selection(view.id, selection);
+    enter_insert_mode(cx);
 }
 
 pub(super) fn normal_mode(cx: &mut Context) {
@@ -82,11 +82,11 @@ pub(super) fn select_mode(cx: &mut Context) {
     });
     doc.set_selection(view.id, selection);
 
-    cx.editor.mode = Mode::Select;
+    cx.editor.set_mode(Mode::Select);
 }
 
 pub(super) fn exit_select_mode(cx: &mut Context) {
-    if cx.editor.mode == Mode::Select {
-        cx.editor.mode = Mode::Normal;
+    if cx.editor.mode() == Mode::Select {
+        cx.editor.set_mode(Mode::Normal);
     }
 }

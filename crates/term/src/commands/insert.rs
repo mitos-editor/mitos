@@ -124,13 +124,13 @@ fn insert_tab_impl(cx: &mut Context, count: usize) {
 
 pub fn append_char_interactive(cx: &mut Context) {
     // Save the current mode, so we can restore it later.
-    let mode = cx.editor.mode;
+    let mode = cx.editor.mode();
     append_mode(cx);
     insert_selection_interactive(cx, mode);
 }
 
 pub fn insert_char_interactive(cx: &mut Context) {
-    let mode = cx.editor.mode;
+    let mode = cx.editor.mode();
     insert_mode(cx);
     insert_selection_interactive(cx, mode);
 }
@@ -161,7 +161,7 @@ fn insert_selection_interactive(cx: &mut Context, old_mode: Mode) {
             _ => (),
         };
         // Restore the old mode.
-        cx.editor.mode = old_mode;
+        cx.editor.set_mode(old_mode);
     });
 }
 
@@ -565,7 +565,7 @@ pub(super) fn insert_at_line_end(cx: &mut Context) {
 // Enter insert mode and auto-indent the current line if it is empty.
 // If the line is not empty, move the cursor to the specified fallback position.
 fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
-    let was_select_mode = cx.editor.mode == Mode::Select;
+    let was_select_mode = cx.editor.mode() == Mode::Select;
     enter_insert_mode(cx);
 
     let (view, doc) = current!(cx.editor);
