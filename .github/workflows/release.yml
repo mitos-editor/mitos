@@ -35,7 +35,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Fetch tree-sitter grammars
-        run: cargo run --locked --package=loader --bin=loader
+        run: cargo run --locked --package=grammar-build --bin=grammar-fetch
 
       - name: Bundle grammars
         run: tar cJf grammars.tar.xz -C runtime/grammars/sources .

@@ -12,7 +12,8 @@
 //! paths selected from command-line arguments.
 //!
 //! [`syntax`] selects grammar and query sources from ordered runtime paths;
-//! [`grammar`] builds and loads native tree-sitter libraries.
+//! [`grammar`] defines and loads native tree-sitter libraries.
+//! Fetching sources and compilation belong to `grammar-build`.
 //! [`theme`] discovers theme sources and resolves their inheritance.
 //! Workspace discovery and trust decisions belong to the `workspace` crate.
 

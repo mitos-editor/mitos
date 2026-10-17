@@ -17,11 +17,6 @@ fn main() {
         None => VERSION.to_owned(),
     };
 
-    println!(
-        "cargo:rustc-env=BUILD_TARGET={}",
-        std::env::var("TARGET").unwrap()
-    );
-
     println!("cargo:rustc-env=VERSION_AND_GIT_HASH={}", version);
 
     if git_hash.is_none() {
