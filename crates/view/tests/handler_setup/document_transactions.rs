@@ -3,6 +3,44 @@ use editor_core::{Selection, Transaction};
 use view::{current, current_ref, editor::Action};
 
 #[tokio::test(flavor = "multi_thread")]
+async fn reordering_preserves_primary_content_and_can_be_undone() -> anyhow::Result<()> {
+    use editor_core::{transform::ReorderStrategy, Range};
+
+    let mut fixture = Fixture::new("a bb ccc\n")?;
+    let (view, doc) = current!(fixture.editor);
+    doc.set_selection(
+        view.id,
+        Selection::new(
+            vec![Range::new(0, 1), Range::new(2, 4), Range::new(5, 8)].into(),
+            0,
+        ),
+    );
+    view::editing::reorder_selection_contents(doc, view.id, ReorderStrategy::RotateForward, 1);
+    assert_eq!(doc.text().to_string(), "ccc a bb\n");
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .slice(doc.text().slice(..))
+            .to_string(),
+        "a"
+    );
+
+    view::editing::commit(doc, view);
+    assert!(view::editing::undo(doc, view));
+    assert_eq!(doc.text().to_string(), "a bb ccc\n");
+    assert!(view::editing::redo(doc, view));
+    assert_eq!(doc.text().to_string(), "ccc a bb\n");
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .slice(doc.text().slice(..))
+            .to_string(),
+        "a"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn same_length_stale_edits_preserve_pending_typing() -> anyhow::Result<()> {
     let mut fixture = Fixture::new("abc\n")?;
     let (view, doc) = current!(fixture.editor);

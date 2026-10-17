@@ -65,15 +65,7 @@ pub(super) fn join_selections_space(cx: &mut Context) {
 fn reorder_selection_contents(cx: &mut Context, strategy: editor_core::transform::ReorderStrategy) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    if let Some((transaction, selection)) = editor_core::transform::reorder_selection_contents(
-        doc.text(),
-        doc.selection(view.id),
-        strategy,
-        count,
-    ) {
-        doc.set_selection(view.id, selection);
-        view::editing::apply(doc, &transaction, view.id);
-    }
+    view::editing::reorder_selection_contents(doc, view.id, strategy, count);
 }
 
 pub(super) fn rotate_selection_contents_forward(cx: &mut Context) {

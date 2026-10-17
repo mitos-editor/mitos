@@ -4,7 +4,7 @@ use crate::{indent::IndentStyle, Rope, RopeSlice, Selection, Tendril, Transactio
 use std::char::{ToLowercase, ToUppercase};
 use stdx::rope::RopeSliceExt;
 
-/// Align selections on the same line; return `None` for multiline ranges.
+/// Align single-line selections to shared columns; return `None` for multiline ranges.
 #[allow(deprecated)]
 pub fn align_selections(
     doc: &Rope,

@@ -7,6 +7,24 @@ use editor_core::{
     Range, Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
 };
 
+/// Reorder selected contents while retaining primary-selection and undo bookkeeping.
+pub fn reorder_selection_contents(
+    doc: &mut Document,
+    view_id: ViewId,
+    strategy: editor_core::transform::ReorderStrategy,
+    count: usize,
+) {
+    if let Some((transaction, selection)) = editor_core::transform::reorder_selection_contents(
+        doc.text(),
+        doc.selection(view_id),
+        strategy,
+        count,
+    ) {
+        doc.set_selection(view_id, selection);
+        super::apply(doc, &transaction, view_id);
+    }
+}
+
 /// Join selected lines, continuing comments across matching language layers.
 pub fn join_selections(
     doc: &mut Document,

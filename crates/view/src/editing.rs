@@ -300,6 +300,6 @@ mod tests {
 
 mod transform;
 pub use transform::{
-    continued_line_comment_token, join_selections, toggle_block_comments, toggle_comments,
-    toggle_line_comments,
+    continued_line_comment_token, join_selections, reorder_selection_contents,
+    toggle_block_comments, toggle_comments, toggle_line_comments,
 };
