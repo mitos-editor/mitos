@@ -1,7 +1,7 @@
 //! Edit-history commands: count adaptation, history limits, and explicit checkpoints.
 
 use super::context::Context;
-use editor_core::history::UndoKind;
+use buffer::history::UndoKind;
 
 pub(super) fn undo(cx: &mut Context) {
     let count = cx.count();
@@ -60,7 +60,7 @@ pub(super) mod typed {
     use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
     use anyhow::anyhow;
-    use editor_core::history::UndoKind;
+    use buffer::history::UndoKind;
 
     #[cold]
     pub(in crate::commands) fn earlier(

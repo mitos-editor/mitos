@@ -1,5 +1,5 @@
-use crate::{ChangeSet, Rope, Transaction};
-use regex::Regex;
+use editor_core::regex::Regex;
+use editor_core::{ChangeSet, Rope, Transaction};
 use std::num::NonZeroUsize;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -505,7 +505,7 @@ mod test {
         fn commit_change(
             history: &mut History,
             state: &mut Rope,
-            change: crate::transaction::Change,
+            change: editor_core::Change,
             instant: Instant,
         ) {
             let txn = Transaction::change(state, vec![change].into_iter());

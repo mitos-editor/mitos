@@ -63,6 +63,7 @@ command-line.workspace = true
 stdx.workspace = true
 tempfile.workspace = true
 core.workspace = true
+buffer.workspace = true
 event.workspace = true
 view.workspace = true
 lsp.workspace = true

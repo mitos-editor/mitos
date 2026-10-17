@@ -3,12 +3,11 @@
 use std::collections::HashMap;
 
 use editor_core::{
-    history::{HistoryDirection, HistoryStep, UndoKind},
-    line_ending::normalize_line_endings,
-    Assoc, Range, Selection, Tendril, Transaction,
+    line_ending::normalize_line_endings, Assoc, Range, Selection, Tendril, Transaction,
 };
 
 use crate::{Document, DocumentId, View, ViewId};
+use buffer::history::{HistoryDirection, HistoryStep, UndoKind};
 use buffer::HistoryAction;
 
 /// Rejections leave both document text and pending undo groups untouched.

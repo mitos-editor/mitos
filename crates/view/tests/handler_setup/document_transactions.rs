@@ -114,7 +114,7 @@ async fn save_all_normalizes_hidden_buffers_without_creating_selections() -> any
 
 #[tokio::test(flavor = "multi_thread")]
 async fn branching_history_restores_each_revisions_selection() -> anyhow::Result<()> {
-    use editor_core::history::UndoKind;
+    use buffer::history::UndoKind;
     let mut fixture = Fixture::new("abc\n")?;
     let (view, doc) = current!(fixture.editor);
     doc.set_selection(view.id, Selection::single(0, 1));

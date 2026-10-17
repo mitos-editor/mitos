@@ -4059,6 +4059,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "buffer",
  "clipboard",
  "command-line",
  "core",

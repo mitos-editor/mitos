@@ -106,7 +106,7 @@ async fn document_observers_can_commit_the_complete_undo_group() -> anyhow::Resu
 
 #[tokio::test(flavor = "multi_thread")]
 async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyhow::Result<()> {
-    use editor_core::history::UndoKind;
+    use buffer::history::UndoKind;
     let mut fixture = Fixture::new("abc\n")?;
     let (_, doc) = current!(fixture.editor);
     for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {
@@ -138,7 +138,7 @@ async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyho
 
 #[tokio::test(flavor = "multi_thread")]
 async fn edits_from_history_observers_stop_remaining_replay_steps() -> anyhow::Result<()> {
-    use editor_core::history::UndoKind;
+    use buffer::history::UndoKind;
     let mut fixture = Fixture::new("abc\n")?;
     let (_, doc) = current!(fixture.editor);
     for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {

@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use editor_core::{
-    history::{History, HistoryStep},
-    ChangeSet, Rope, Transaction,
-};
+pub mod history;
+
+use editor_core::{ChangeSet, Rope, Transaction};
+use history::{History, HistoryStep};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("Changes require {actual} characters, but the buffer has {expected}")]
@@ -14,7 +14,7 @@ pub struct InvalidLength {
     pub actual: usize,
 }
 
-pub use editor_core::history::HistoryAction;
+pub use history::HistoryAction;
 
 /// Rejections leave text, versions, pending groups, and the history cursor unchanged.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -222,7 +222,7 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use editor_core::history::UndoKind;
+    use crate::history::UndoKind;
 
     fn replace(buffer: &mut Buffer, from: usize, to: usize, text: &str) -> AppliedChange {
         let transaction =

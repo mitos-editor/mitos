@@ -2,7 +2,7 @@
 
 use super::Document;
 use crate::ViewId;
-use editor_core::history::{HistoryStep, UndoKind};
+use buffer::history::{HistoryStep, UndoKind};
 
 use buffer::HistoryAction;
 
