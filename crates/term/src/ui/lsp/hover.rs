@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ui_core::keymap::{KeymapState, Lookup};
 
 use arc_swap::ArcSwap;
-use editor_core::syntax;
+use language::syntax;
 use lsp_client::lsp;
 use tui::buffer::Buffer;
 use tui::layout::{Constraint, Layout};

@@ -4,8 +4,8 @@ use std::{
     time::Duration,
 };
 
-use editor_core::syntax;
 use futures_util::FutureExt;
+use language::syntax;
 use view::{callbacks::EditorCallback, graphics::Rect};
 
 use super::Application;

@@ -2,7 +2,8 @@
 mod test {
     mod helpers;
 
-    use editor_core::{syntax::config::AutoPairConfig, Selection};
+    use editor_core::Selection;
+    use language::config::AutoPairConfig;
     use term::config::Config;
 
     use indoc::indoc;

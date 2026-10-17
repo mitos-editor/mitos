@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use editor_core::{config::LanguageLoaderError, syntax};
+use language::{loader::LanguageLoaderError, syntax};
 
 use crate::{config::Config, events::ConfigDidChange, Editor};
 use theme::Theme;
@@ -18,7 +18,7 @@ impl Editor {
     ) -> Result<syntax::Loader, LanguageLoaderError> {
         self.workspace_trust
             .set_config((&config.workspace_trust).into());
-        editor_core::config::user_lang_loader(
+        language::loader::user_lang_loader(
             &self.workspace_trust,
             self.syn_loader.load().resources().clone(),
         )

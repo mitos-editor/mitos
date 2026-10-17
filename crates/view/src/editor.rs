@@ -49,12 +49,10 @@ use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
 use editor_core::diagnostic::Severity;
 use editor_core::{
-    auto_pairs::AutoPairs,
-    diagnostic::DiagnosticProvider,
-    movement::Direction,
-    syntax::{self, config::LanguageServerFeature},
-    Change, Position, Range, Selection, Uri,
+    auto_pairs::AutoPairs, diagnostic::DiagnosticProvider, movement::Direction, Change, Position,
+    Range, Selection, Uri,
 };
+use language::{config::LanguageServerFeature, syntax};
 use lsp_client::{lsp, util::lsp_range_to_range};
 
 use arc_swap::{

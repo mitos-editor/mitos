@@ -5,8 +5,9 @@ use crate::{
     job::Callback,
     ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
-use editor_core::{syntax::config::LanguageServerFeature, Selection, Uri};
+use editor_core::{Selection, Uri};
 use futures_util::{stream::FuturesUnordered, FutureExt};
+use language::config::LanguageServerFeature;
 use lsp_client::{
     block_on,
     lsp::{self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind},
@@ -990,7 +991,7 @@ pub(super) mod typed {
     };
     use ::command_line::Args;
     use anyhow::anyhow;
-    use editor_core::syntax::config::LanguageServerFeature;
+    use language::config::LanguageServerFeature;
     use serde_json::Value;
     use view::Editor;
 

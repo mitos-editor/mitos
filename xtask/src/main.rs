@@ -28,7 +28,7 @@ pub mod tasks {
 
     pub fn querycheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
         let languages_to_check: HashSet<_> = languages.collect();
-        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
         for (language, lang_data) in loader.languages() {
             if !languages_to_check.is_empty()
                 && !languages_to_check.contains(&lang_data.config().language_id)
@@ -44,16 +44,16 @@ pub mod tasks {
     }
 
     pub fn indentcheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
-        use editor_core::{
-            indent::IndentStyle,
-            syntax::indent::{is_opaque_interior, is_outdent_token_at, treesitter_indent_for_pos},
+        use editor_core::indent::IndentStyle;
+        use language::{
+            indent::{is_opaque_interior, is_outdent_token_at, treesitter_indent_for_pos},
             Syntax,
         };
         use ropey::Rope;
         use stdx::rope::RopeSliceExt;
 
         let filter: HashSet<String> = languages.collect();
-        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
         let corpus = crate::path::tests_indent();
         let tab_width = 4;
         let mut errors = 0usize;
@@ -272,11 +272,9 @@ pub mod tasks {
     }
 
     pub fn highlightcheck(args: impl Iterator<Item = String>) -> Result<(), DynError> {
-        use editor_core::Language;
-        use editor_core::{
-            highlight::HighlightEvent,
-            syntax::{Loader, Syntax},
-        };
+        use editor_core::highlight::HighlightEvent;
+        use language::syntax::{Loader, Syntax};
+        use language::Language;
         use ropey::Rope;
 
         // The highlighter yields a `Highlight` index into the loader's scope
@@ -367,7 +365,7 @@ pub mod tasks {
         }
 
         let scopes = capture_scopes();
-        let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::default());
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
         loader.set_scopes(scopes.clone());
 
         let args: Vec<String> = args.collect();

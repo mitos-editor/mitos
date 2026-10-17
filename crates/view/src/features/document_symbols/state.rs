@@ -230,7 +230,8 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Rope, Selection};
+    use editor_core::{Rope, Selection};
+    use language::syntax;
     use std::path::Path;
 
     #[allow(deprecated)]
@@ -334,7 +335,7 @@ mod tests {
                 crate::config::Config::default(),
             )),
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                editor_core::syntax::Loader::default(),
+                language::syntax::Loader::default(),
             )),
         );
         let view = crate::ViewId::default();

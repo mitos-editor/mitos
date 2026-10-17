@@ -12,8 +12,8 @@ fn application() -> anyhow::Result<Application> {
     let mut config = Config::default();
     config.editor.files.watch.enable = false;
     config.editor.lsp.enable = false;
-    let syntax = editor_core::syntax::Loader::new(
-        editor_core::syntax::config::Configuration {
+    let syntax = language::Loader::new(
+        language::config::Configuration {
             language: vec![],
             language_server: Default::default(),
         },

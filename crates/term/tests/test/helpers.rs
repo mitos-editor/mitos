@@ -243,7 +243,7 @@ pub async fn test_key_sequence_with_input_text<T: Into<TestCase>>(
 
 /// Generates language config loader that merge in overrides, like a user language
 /// config. The argument string must be a raw TOML document.
-pub fn test_syntax_loader(overrides: Option<String>) -> editor_core::syntax::Loader {
+pub fn test_syntax_loader(overrides: Option<String>) -> language::syntax::Loader {
     let mut lang = loader::config::default_lang_config();
 
     if let Some(overrides) = overrides {
@@ -251,7 +251,7 @@ pub fn test_syntax_loader(overrides: Option<String>) -> editor_core::syntax::Loa
         lang = loader::config::migration::merge_languages(lang, override_toml);
     }
 
-    editor_core::syntax::Loader::new(
+    language::syntax::Loader::new(
         lang.try_into().unwrap(),
         loader::syntax::Resources::default(),
     )
@@ -357,7 +357,7 @@ type HandlerSetup = Box<dyn FnOnce(&mut view::handlers::Handlers, &view::config:
 pub struct AppBuilder {
     args: Args,
     config: Config,
-    syn_loader: editor_core::syntax::Loader,
+    syn_loader: language::syntax::Loader,
     input: Option<(String, Selection)>,
     handler_setup: HandlerSetup,
 }
@@ -405,7 +405,7 @@ impl AppBuilder {
         self
     }
 
-    pub fn with_lang_loader(mut self, syn_loader: editor_core::syntax::Loader) -> Self {
+    pub fn with_lang_loader(mut self, syn_loader: language::syntax::Loader) -> Self {
         self.syn_loader = syn_loader;
         self
     }

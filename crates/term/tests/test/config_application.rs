@@ -106,7 +106,7 @@ async fn language_loading_applies_new_trust_before_reading_local_files() -> anyh
     let mut config = (*app.editor.config()).clone();
     config.workspace_trust.level = ImplicitTrustLevelConfig::None;
     let loader = app.editor.load_language_config(&config)?;
-    let width = |loader: &editor_core::syntax::Loader| {
+    let width = |loader: &language::syntax::Loader| {
         loader
             .language_configs()
             .find(|language| language.language_id == "trust-config-test")

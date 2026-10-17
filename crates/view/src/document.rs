@@ -36,9 +36,9 @@ use editor_core::chars::char_is_word;
 use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::doc_formatter::TextFormat;
 use editor_core::encoding::Encoding;
-use editor_core::syntax::config::LanguageServerFeature;
 use editor_core::text_annotations::Overlay;
 use futures_util::future::BoxFuture;
+use language::config::LanguageServerFeature;
 use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
 use stdx::faccess::{copy_metadata, readonly};
@@ -65,9 +65,9 @@ use editor_core::{
     history::History,
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
-    syntax::{self, config::LanguageConfiguration},
-    ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Syntax, Transaction,
+    ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
 };
+use language::{config::LanguageConfiguration, syntax, Syntax};
 
 use crate::{
     config::Config,
@@ -743,7 +743,7 @@ impl Document {
     pub fn detect_language_config(
         &self,
         loader: &syntax::Loader,
-    ) -> Option<Arc<syntax::config::LanguageConfiguration>> {
+    ) -> Option<Arc<language::config::LanguageConfiguration>> {
         if self.binary {
             return None;
         }
@@ -977,7 +977,7 @@ impl Document {
     }
 
     /// Set the programming language for the file if you know the language but don't have the
-    /// [`syntax::config::LanguageConfiguration`] for it.
+    /// [`language::config::LanguageConfiguration`] for it.
     pub fn set_language_by_language_id(
         &mut self,
         language_id: &str,

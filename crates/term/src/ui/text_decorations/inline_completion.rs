@@ -172,7 +172,8 @@ impl Decoration for InlineCompletionDecoration<'_> {
 mod tests {
     use super::*;
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Rope};
+    use editor_core::Rope;
+    use language::syntax;
     use std::sync::Arc;
 
     #[test]

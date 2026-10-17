@@ -1,5 +1,6 @@
-use crate::comment::BlockCommentToken;
-use crate::{auto_pairs::AutoPairs, diagnostic::Severity, Language};
+use crate::Language;
+use editor_core::comment::BlockCommentToken;
+use editor_core::{auto_pairs::AutoPairs, diagnostic::Severity};
 
 pub use dap_types::{
     AdvancedCompletion, DebugAdapterConfig, DebugConfigCompletion, DebugTemplate, DebuggerQuirks,
@@ -630,7 +631,7 @@ pub struct WordCompletion {
 pub struct SpellingConfig {
     /// The dictionaries to check a document against; unset inherits (and the global default is
     /// none, i.e. spell checking off). A word is flagged only when every dictionary rejects it.
-    pub languages: Option<Vec<crate::SpellingLanguage>>,
+    pub languages: Option<Vec<editor_core::SpellingLanguage>>,
     /// Extra accepted words, checked case-insensitively. A language's `words` are *added* to the
     /// global ones rather than replacing them.
     pub words: Vec<String>,
@@ -666,7 +667,7 @@ impl SpellingConfig {
     }
 
     /// The dictionaries to check against (empty when spell checking is off).
-    pub fn languages(&self) -> &[crate::SpellingLanguage] {
+    pub fn languages(&self) -> &[editor_core::SpellingLanguage] {
         self.languages.as_deref().unwrap_or_default()
     }
 
@@ -761,7 +762,7 @@ mod spelling_tests {
     #[test]
     fn dictionary_identifiers_are_safe_case_sensitive_path_components() {
         for valid in ["en_US", "de_DE_frami", "en-GB", "ca"] {
-            let language: crate::SpellingLanguage = valid.parse().unwrap();
+            let language: editor_core::SpellingLanguage = valid.parse().unwrap();
             assert_eq!(language.as_str(), valid);
         }
         for invalid in [
@@ -774,7 +775,7 @@ mod spelling_tests {
             "en_US.txt",
         ] {
             assert!(
-                invalid.parse::<crate::SpellingLanguage>().is_err(),
+                invalid.parse::<editor_core::SpellingLanguage>().is_err(),
                 "{invalid}"
             );
         }

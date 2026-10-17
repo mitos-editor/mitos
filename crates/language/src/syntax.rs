@@ -1,12 +1,5 @@
-pub mod indent;
-pub mod match_brackets;
-pub mod movement;
-pub mod object;
-pub mod surround;
-pub mod textobject;
-use crate::highlight::{Highlight, HighlightEvent, OverlayHighlights};
-pub mod config;
-pub mod queries;
+use crate::queries;
+use editor_core::highlight::{Highlight, HighlightEvent, OverlayHighlights};
 
 #[cfg(test)]
 mod resource_tests;
@@ -21,9 +14,9 @@ use std::{
     time::Duration,
 };
 
+use crate::config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
 use anyhow::Result;
 use arc_swap::{ArcSwap, Guard};
-use config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
 use foldhash::HashSet;
 use loader::syntax::Resources;
 use ropey::RopeSlice;
@@ -38,8 +31,9 @@ use tree_house::{
     Error, InjectionLanguageMarker, LanguageConfig as SyntaxConfig, Layer,
 };
 
-use self::indent::IndentQuery;
-use crate::{tree_sitter, ChangeSet, Language};
+use crate::indent::IndentQuery;
+use crate::{tree_sitter, Language};
+use editor_core::ChangeSet;
 
 pub use tree_house::{
     query_iter::{CapturedMatch, QueryIterEvent, QueryMatchIter, QueryMatchIterEvent},
@@ -227,7 +221,7 @@ impl LanguageData {
     }
 }
 
-fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
+pub(crate) fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
     config.configure(move |capture_name| {
         let capture_parts: Vec<_> = capture_name.split('.').collect();
 
@@ -837,18 +831,18 @@ impl<'a> Highlighter<'a> {
 }
 
 fn generate_edits(old_text: RopeSlice, changeset: &ChangeSet) -> Vec<InputEdit> {
-    use crate::Operation::*;
+    use editor_core::Operation::*;
     use tree_sitter::Point;
 
     let mut old_pos = 0;
 
     let mut edits = Vec::new();
 
-    if changeset.changes.is_empty() {
+    if changeset.changes().is_empty() {
         return edits;
     }
 
-    let mut iter = changeset.changes.iter().peekable();
+    let mut iter = changeset.changes().iter().peekable();
 
     // TODO; this is a lot easier with Change instead of Operation.
     while let Some(change) = iter.next() {
@@ -1101,7 +1095,10 @@ pub struct RainbowQuery {
 }
 
 impl RainbowQuery {
-    fn new(grammar: Grammar, source: &str) -> Result<Self, tree_sitter::query::ParseError> {
+    pub(crate) fn new(
+        grammar: Grammar,
+        source: &str,
+    ) -> Result<Self, tree_sitter::query::ParseError> {
         let mut include_children_patterns = HashSet::default();
 
         let query = Query::new(grammar, source, |pattern, predicate| match predicate {
@@ -1139,7 +1136,10 @@ pub struct SpellcheckQuery {
 }
 
 impl SpellcheckQuery {
-    fn new(grammar: Grammar, source: &str) -> Result<Self, tree_sitter::query::ParseError> {
+    pub(crate) fn new(
+        grammar: Grammar,
+        source: &str,
+    ) -> Result<Self, tree_sitter::query::ParseError> {
         let query = Query::new(grammar, source, |_, _| Ok(()))?;
         Ok(Self {
             spell_capture: query.get_capture("spell"),
@@ -1154,10 +1154,10 @@ mod test {
     use std::sync::LazyLock;
 
     use super::*;
-    use crate::{Rope, Transaction};
+    use editor_core::{Rope, Transaction};
 
     static LOADER: LazyLock<Loader> =
-        LazyLock::new(|| crate::config::default_lang_loader(loader::syntax::Resources::default()));
+        LazyLock::new(|| crate::loader::default_lang_loader(loader::syntax::Resources::default()));
 
     #[test]
     fn test_textobject_queries() {

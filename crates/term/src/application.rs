@@ -1,6 +1,7 @@
 use arc_swap::{access::Map, ArcSwap};
-use editor_core::{pos_at_coords, syntax, Range, Selection};
+use editor_core::{pos_at_coords, Range, Selection};
 use futures_util::Stream;
+use language::syntax;
 use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
 use serde_json::json;
 use stdx::path::get_relative_path;

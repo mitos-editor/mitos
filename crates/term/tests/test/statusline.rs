@@ -84,7 +84,7 @@ async fn split_statuslines_default_to_each_view_and_can_toggle_global() -> anyho
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_file(first, None)
-            .with_lang_loader(editor_core::syntax::Loader::default())
+            .with_lang_loader(language::syntax::Loader::default())
             .build()?;
         app.editor.theme = Theme::from(toml::from_str::<toml::Value>(
             r#"

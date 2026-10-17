@@ -280,7 +280,8 @@ pub(super) fn image_preview_layout(area: Rect, size: Size) -> (Rect, Rect) {
 mod tests {
     use super::*;
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Rope, Selection, Transaction};
+    use editor_core::{Rope, Selection, Transaction};
+    use language::syntax;
     use std::fs;
     use view::{View, ViewId};
 

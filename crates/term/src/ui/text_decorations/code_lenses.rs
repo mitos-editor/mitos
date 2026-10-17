@@ -167,8 +167,9 @@ mod tests {
     use arc_swap::ArcSwap;
     use editor_core::{
         diagnostic::{DiagnosticProvider, Severity},
-        syntax, Diagnostic,
+        Diagnostic,
     };
+    use language::syntax;
     use lsp_client::{lsp, LanguageServerId};
     use std::sync::Arc;
     use theme::Theme;

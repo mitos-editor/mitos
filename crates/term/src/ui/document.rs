@@ -4,13 +4,11 @@ use editor_core::doc_formatter::{
     DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat,
 };
 use editor_core::graphemes::Grapheme;
+use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::str_utils::char_to_byte_idx;
 use editor_core::text_annotations::TextAnnotations;
-use editor_core::{
-    highlight::{HighlightEvent, OverlayHighlights},
-    syntax::Highlighter,
-};
 use editor_core::{visual_offset_from_block, Position, RopeSlice};
+use language::syntax::Highlighter;
 use stdx::rope::RopeSliceExt;
 use theme::Style;
 use theme::Theme;

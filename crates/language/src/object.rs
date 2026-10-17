@@ -1,6 +1,5 @@
-use crate::{
-    movement::Direction, syntax::TreeCursor, tree_sitter::Node, Range, RopeSlice, Selection, Syntax,
-};
+use crate::{syntax::TreeCursor, tree_sitter::Node, Syntax};
+use editor_core::{movement::Direction, Range, RopeSlice, Selection};
 
 pub fn expand_selection(syntax: &Syntax, text: RopeSlice, selection: Selection) -> Selection {
     let cursor = &mut syntax.walk();

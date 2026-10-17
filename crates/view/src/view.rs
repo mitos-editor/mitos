@@ -774,7 +774,8 @@ mod tests {
 
     use super::*;
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Rope};
+    use editor_core::Rope;
+    use language::syntax;
 
     // 1 diagnostic + 1 spacer + 3 linenr (< 1000 lines) + 1 spacer + 1 diff
     const DEFAULT_GUTTER_OFFSET: u16 = 7;

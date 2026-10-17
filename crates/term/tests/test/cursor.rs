@@ -43,7 +43,7 @@ fn cursor_app(cursorline: bool, normal: &str, text: &str) -> Application {
     .unwrap();
     let mut app = AppBuilder::new()
         .with_config(config)
-        .with_lang_loader(editor_core::syntax::Loader::default())
+        .with_lang_loader(language::syntax::Loader::default())
         .with_input_text(text)
         .build()
         .unwrap();

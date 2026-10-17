@@ -19,10 +19,10 @@ use crate::{
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
-    syntax::{config::SpellingConfig, Loader},
-    ChangeSet, Operation, Rope, SpellingLanguage, Syntax,
+    ChangeSet, Operation, Rope, SpellingLanguage,
 };
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
+use language::{config::SpellingConfig, syntax::Loader, Syntax};
 use tokio::time::Instant;
 
 use crate::callbacks::EditorCallbackSender;

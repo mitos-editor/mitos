@@ -2,7 +2,8 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use editor_core::{syntax, Selection, Transaction};
+use editor_core::{Selection, Transaction};
+use language::syntax;
 use tokio::sync::mpsc;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},

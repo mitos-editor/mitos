@@ -15,10 +15,10 @@ use std::{
 };
 
 use editor_core::{
-    diagnostic::DiagnosticProvider, syntax::config::SpellingConfig, ChangeSet, SpellingLanguage,
-    Tendril, Transaction,
+    diagnostic::DiagnosticProvider, ChangeSet, SpellingLanguage, Tendril, Transaction,
 };
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
+use language::config::SpellingConfig;
 use tokio::sync::mpsc::Sender;
 
 use crate::{

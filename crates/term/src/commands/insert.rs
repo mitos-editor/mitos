@@ -40,7 +40,7 @@ pub fn insert_char(cx: &mut Context, c: char) {
     let text = doc.text();
     let selection = doc.selection(view.id);
 
-    let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+    let loader: &language::syntax::Loader = &cx.editor.syn_loader.load();
     let auto_pairs = doc.auto_pairs(cx.editor, loader, view);
 
     let insert_char = |range: Range, ch: char| {
@@ -220,7 +220,7 @@ pub fn insert_newline(cx: &mut Context) {
 
             let indent = match line.first_non_whitespace_char() {
                 Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
-                _ => editor_core::syntax::indent::indent_for_newline(
+                _ => language::indent::indent_for_newline(
                     &loader,
                     doc.syntax(),
                     &config.indent.heuristic,
@@ -233,7 +233,7 @@ pub fn insert_newline(cx: &mut Context) {
                 ),
             };
 
-            let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+            let loader: &language::syntax::Loader = &cx.editor.syn_loader.load();
             // If we are between pairs (such as brackets), we want to
             // insert an additional line which is indented one level
             // more and place the cursor there
@@ -379,7 +379,7 @@ pub fn delete_char_backward(cx: &mut Context) {
     let (view, doc) = current_ref!(cx.editor);
     let text = doc.text().slice(..);
 
-    let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+    let loader: &language::syntax::Loader = &cx.editor.syn_loader.load();
     let auto_pairs = doc.auto_pairs(cx.editor, loader, view);
 
     let transaction =
@@ -589,7 +589,7 @@ fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
             // line is empty => auto indent
             let line_end_index = cursor_line_start;
 
-            let indent = editor_core::syntax::indent::indent_for_newline(
+            let indent = language::indent::indent_for_newline(
                 &loader,
                 syntax,
                 &doc.config.load().indent.heuristic,
@@ -643,7 +643,7 @@ pub enum CommentContinuation {
 
 pub(super) fn continued_line_comment_token<'a>(
     doc: &'a Document,
-    loader: &'a editor_core::syntax::Loader,
+    loader: &'a language::syntax::Loader,
     text: RopeSlice,
     line_num: usize,
     byte_pos: usize,
@@ -720,7 +720,7 @@ pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentCo
         let line = text.line(curr_line_num);
         let indent = match line.first_non_whitespace_char() {
             Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
-            _ => editor_core::syntax::indent::indent_for_newline(
+            _ => language::indent::indent_for_newline(
                 &loader,
                 doc.syntax(),
                 &config.indent.heuristic,

@@ -1,9 +1,8 @@
 //! Editor-owned completion requests and provider results. Frontends own their menus.
 
-use editor_core::{
-    chars::char_is_word, completion::CompletionProvider, syntax::config::LanguageServerFeature, Uri,
-};
+use editor_core::{chars::char_is_word, completion::CompletionProvider, Uri};
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
+use language::config::LanguageServerFeature;
 use lsp_client::lsp;
 use parking_lot::Mutex;
 use std::{
@@ -218,7 +217,7 @@ impl Session {
                     && editor.language_server_by_id(id).is_some()
                     && doc
                         .language_servers_with_feature(
-                            editor_core::syntax::config::LanguageServerFeature::Completion,
+                            language::config::LanguageServerFeature::Completion,
                         )
                         .any(|server| server.id() == id)
             }

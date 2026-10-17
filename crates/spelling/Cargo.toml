@@ -12,6 +12,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+language.workspace = true
 core.workspace = true
 stdx.workspace = true
 anyhow.workspace = true

@@ -4,10 +4,8 @@ use crate::{
     file_event, lsp, Call, Client, Error, LanguageServerId, LanguageServerName, Result, Url,
 };
 use arc_swap::ArcSwap;
-use editor_core::syntax::config::{
-    LanguageConfiguration, LanguageServerConfiguration, RootMarkers,
-};
 use futures_util::stream::select_all::SelectAll;
+use language::config::{LanguageConfiguration, LanguageServerConfiguration, RootMarkers};
 use slotmap::SlotMap;
 use std::{
     collections::HashMap,
@@ -66,7 +64,7 @@ struct AlternativeGroup {
 pub struct Registry {
     inner: SlotMap<LanguageServerId, Arc<Client>>,
     instances: HashMap<LanguageServerName, ServerInstances>,
-    syn_loader: Arc<ArcSwap<editor_core::syntax::Loader>>,
+    syn_loader: Arc<ArcSwap<language::syntax::Loader>>,
     unavailable: HashMap<ServerWorkspace, UnavailableReason>,
     alternative_selections: HashMap<AlternativeGroup, LanguageServerName>,
     pub incoming: SelectAll<UnboundedReceiverStream<(LanguageServerId, Call)>>,
@@ -74,7 +72,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn new(syn_loader: Arc<ArcSwap<editor_core::syntax::Loader>>) -> Self {
+    pub fn new(syn_loader: Arc<ArcSwap<language::syntax::Loader>>) -> Self {
         Self {
             inner: SlotMap::with_key(),
             instances: HashMap::new(),

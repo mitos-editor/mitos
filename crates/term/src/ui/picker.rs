@@ -1262,8 +1262,8 @@ mod tests {
         let mut config = AppConfig::default();
         config.editor.files.watch.enable = false;
         config.editor.files.watch.watch_vcs = false;
-        let syntax = editor_core::syntax::Loader::new(
-            editor_core::syntax::config::Configuration {
+        let syntax = language::syntax::Loader::new(
+            language::config::Configuration {
                 language: vec![],
                 language_server: Default::default(),
             },

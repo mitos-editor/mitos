@@ -2,7 +2,7 @@ use crate::compositor::{Component, Compositor, Context, Cursor, Event, EventResu
 use crate::keymap::component::PromptAction;
 use crate::ui;
 use arc_swap::ArcSwap;
-use editor_core::syntax;
+use language::syntax;
 use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
 use tui::buffer::Buffer as Surface;

@@ -12,10 +12,10 @@ use editor_core::{
     increment,
     indent::IndentStyle,
     line_ending::line_end_char_index,
-    match_brackets, movement as core_movement,
-    syntax::surround,
-    Range, Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
+    match_brackets, movement as core_movement, Range, Rope, RopeSlice, Selection, SmallVec,
+    Tendril, Transaction,
 };
+use language::surround;
 use std::{
     borrow::Cow,
     char::{ToLowercase, ToUppercase},
@@ -451,7 +451,7 @@ type CommentTransactionFn = fn(
 ) -> Transaction;
 
 fn toggle_comments_impl(cx: &mut Context, comment_transaction: CommentTransactionFn) {
-    let loader: &editor_core::syntax::Loader = &cx.editor.syn_loader.load();
+    let loader: &language::syntax::Loader = &cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
     let cursor = doc
         .selection(view.id)

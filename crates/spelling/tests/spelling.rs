@@ -1,6 +1,7 @@
 //! Feature APIs work with explicit inputs, without an editor or async runtime.
 
-use editor_core::{syntax::config::SpellingConfig, Rope};
+use editor_core::Rope;
+use language::config::SpellingConfig;
 use spelling::{check_text, expand_check_window, load_dictionary, suggestions, Dictionary};
 
 #[test]
@@ -50,7 +51,7 @@ fn suggestions_preserve_dictionary_order_without_duplicates() {
 
 #[test]
 fn full_scan_respects_settings_unicode_and_cancellation() {
-    let loader = editor_core::config::default_lang_loader(loader::syntax::Resources::new(vec![]));
+    let loader = language::loader::default_lang_loader(loader::syntax::Resources::new(vec![]));
     let dictionary = Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap();
     let text = Rope::from_str("🚀 quik projectword https://exampel.org/typo hello");
     let config = SpellingConfig {

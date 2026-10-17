@@ -1,14 +1,18 @@
 //! Query-driven indentation and syntax scope inspection.
 use crate::{
-    graphemes::grapheme_width,
-    indent::{indent_level_for_line, IndentStyle},
-    syntax::{self, config::IndentationHeuristic},
+    config::IndentationHeuristic,
+    syntax,
     tree_sitter::{
         self,
         query::{InvalidPredicateError, UserPredicate},
         Capture, Grammar, InactiveQueryCursor, Node, Pattern, Query, QueryMatch, RopeInput,
     },
-    Position, RopeSlice, Syntax,
+    Syntax,
+};
+use editor_core::{
+    graphemes::grapheme_width,
+    indent::{indent_level_for_line, IndentStyle},
+    Position, RopeSlice,
 };
 use std::{
     borrow::Cow,
@@ -50,13 +54,16 @@ fn add_indent_level(
         // instead we iterate over them twice in forward direction.
         let base_indent_rope = RopeSlice::from(base_indent.as_str());
         #[allow(deprecated)]
-        let base_indent_width =
-            crate::visual_coords_at_pos(base_indent_rope, base_indent_rope.len_chars(), tab_width)
-                .col;
+        let base_indent_width = editor_core::visual_coords_at_pos(
+            base_indent_rope,
+            base_indent_rope.len_chars(),
+            tab_width,
+        )
+        .col;
         let target_indent_width = base_indent_width
             .saturating_sub((-added_indent_level) as usize * indent_style.indent_width(tab_width));
         #[allow(deprecated)]
-        let char_end_idx = crate::pos_at_visual_coords(
+        let char_end_idx = editor_core::pos_at_visual_coords(
             base_indent_rope,
             Position {
                 row: 0,

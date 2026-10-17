@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use editor_core::syntax::config::LanguageServerFeature;
+use language::config::LanguageServerFeature;
 
 use crate::{
     config::GutterType,
@@ -414,7 +414,8 @@ mod tests {
     use crate::graphics::Rect;
     use crate::DocumentId;
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Rope};
+    use editor_core::Rope;
+    use language::syntax;
 
     #[test]
     fn test_default_gutter_widths() {

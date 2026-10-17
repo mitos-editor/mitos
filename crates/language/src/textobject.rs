@@ -1,10 +1,6 @@
 //! Structural selections from syntax trees and matched pairs.
-use crate::{
-    graphemes::next_grapheme_boundary,
-    syntax::{self, surround},
-    textobject::TextObject,
-    Range, RopeSlice, Syntax,
-};
+use crate::{surround, syntax, Syntax};
+use editor_core::{graphemes::next_grapheme_boundary, textobject::TextObject, Range, RopeSlice};
 
 pub fn textobject_pair_surround(
     syntax: Option<&Syntax>,
@@ -103,8 +99,8 @@ pub fn textobject_treesitter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::textobject::TextObject::*;
-    use crate::Rope;
+    use editor_core::textobject::TextObject::*;
+    use editor_core::Rope;
     #[test]
     fn test_textobject_surround() {
         // (text, [(cursor position, textobject, final range, surround char, count), ...])

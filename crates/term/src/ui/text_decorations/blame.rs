@@ -86,7 +86,8 @@ mod tests {
     use std::{process::Command, sync::Arc};
 
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, Selection};
+    use editor_core::Selection;
+    use language::syntax;
     use theme;
     use tui::buffer::Buffer;
     use view::{

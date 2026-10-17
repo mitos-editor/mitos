@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use editor_core::syntax;
+use language::syntax;
 
 use super::*;
 use crate::{

@@ -1,10 +1,9 @@
 //! Movement through syntax nodes and query-defined text objects.
-use crate::{
+use crate::{syntax, tree_sitter::Node, Syntax};
+use editor_core::{
     movement::{Direction, Movement},
-    syntax,
     textobject::TextObject,
-    tree_sitter::Node,
-    Range, RopeSlice, Selection, Syntax,
+    Range, RopeSlice, Selection,
 };
 use std::{borrow::Cow, cmp::Reverse};
 

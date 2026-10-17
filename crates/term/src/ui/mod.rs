@@ -472,7 +472,7 @@ pub mod completers {
     use crate::ui::prompt::Completion;
     use command_line::{self, Tokenizer};
     use editor_core::fuzzy::fuzzy_match;
-    use editor_core::syntax::config::LanguageServerFeature;
+    use language::config::LanguageServerFeature;
     use std::borrow::Cow;
     use std::collections::BTreeSet;
     use std::sync::LazyLock;

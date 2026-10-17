@@ -1,9 +1,9 @@
 //! Bracket and pair matching through syntax trees.
-use crate::{
+use crate::{tree_sitter::Node, Syntax};
+use editor_core::{
     match_brackets::{find_matching_bracket_plaintext, is_valid_pair, PAIRS},
     movement::Direction::{self, Backward, Forward},
-    tree_sitter::Node,
-    RopeSlice, Syntax,
+    RopeSlice,
 };
 use std::iter;
 const MATCH_LIMIT: usize = 16;

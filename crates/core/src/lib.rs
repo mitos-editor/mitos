@@ -20,8 +20,7 @@
 //!
 //! - [`selection`] and [`movement`] for cursor/range semantics;
 //! - [`Transaction`] and [`ChangeSet`] for composable changes and position mapping;
-//! - [`syntax`] for language configuration and incremental syntax trees;
-//! - [`indent`], [`comment`], [`syntax::surround`], and [`textobject`] for editing
+//! - [`indent`], [`comment`], and [`textobject`] for text editing
 //!   operations; and
 //! - [`doc_formatter`] and [`text_annotations`] for converting document text
 //!   into visual rows without depending on a renderer.
@@ -35,7 +34,6 @@ pub mod case_conversion;
 pub mod chars;
 pub mod comment;
 pub mod completion;
-pub mod config;
 pub mod diagnostic;
 pub mod diff;
 pub mod doc_formatter;
@@ -53,7 +51,6 @@ pub mod movement;
 mod position;
 pub mod search;
 pub mod selection;
-pub mod syntax;
 pub mod test;
 pub mod text_annotations;
 pub mod textobject;
@@ -82,7 +79,7 @@ pub use smartstring::SmartString;
 pub type Tendril = SmartString<smartstring::LazyCompact>;
 
 #[doc(inline)]
-pub use {regex, tree_house::tree_sitter};
+pub use regex;
 
 pub use position::{
     char_idx_at_visual_offset, coords_at_pos, pos_at_coords, softwrapped_dimensions,
@@ -93,7 +90,6 @@ pub use position::{pos_at_visual_coords, visual_coords_at_pos};
 
 pub use selection::{Range, Selection};
 pub use smallvec::{smallvec, SmallVec};
-pub use syntax::Syntax;
 
 pub use completion::CompletionItem;
 pub use diagnostic::Diagnostic;
@@ -102,8 +98,6 @@ pub use line_ending::{LineEnding, NATIVE_LINE_ENDING};
 pub use transaction::{Assoc, Change, ChangeSet, Deletion, Operation, Transaction};
 
 pub use uri::Uri;
-
-pub use tree_house::Language;
 
 /// A spelling dictionary identifier, such as `en_US`.
 ///

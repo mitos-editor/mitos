@@ -394,21 +394,15 @@ dependencies = [
 name = "core"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "arc-swap",
- "dap-types",
  "encoding_rs",
- "foldhash 0.2.0",
  "globset",
  "imara-diff",
  "jiff",
- "loader",
  "log",
  "nucleo",
  "parking_lot",
  "quickcheck",
  "regex",
- "regex-cursor",
  "ropey",
  "serde",
  "serde_json",
@@ -418,12 +412,9 @@ dependencies = [
  "stdx",
  "tempfile",
  "textwrap",
- "toml",
- "tree-house",
  "unicode-general-category",
  "unicode-segmentation",
  "unicode-width",
- "workspace",
 ]
 
 [[package]]
@@ -2376,6 +2367,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf36173d4167ed999940f804952e6b08197cae5ad5d572eb4db150ce8ad5d58f"
 
 [[package]]
+name = "language"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "core",
+ "dap-types",
+ "foldhash 0.2.0",
+ "globset",
+ "loader",
+ "log",
+ "regex-cursor",
+ "ropey",
+ "serde",
+ "serde_json",
+ "stdx",
+ "tempfile",
+ "toml",
+ "tree-house",
+ "workspace",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2500,6 +2514,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "globset",
+ "language",
  "loader",
  "log",
  "lsp-types",
@@ -3867,6 +3882,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core",
+ "language",
  "loader",
  "log",
  "regex",
@@ -4012,6 +4028,7 @@ dependencies = [
  "image",
  "indexmap",
  "indoc",
+ "language",
  "libc",
  "loader",
  "log",
@@ -4568,6 +4585,7 @@ dependencies = [
  "foldhash 0.2.0",
  "futures-util",
  "ignore",
+ "language",
  "libc",
  "loader",
  "log",
@@ -5228,6 +5246,7 @@ version = "0.1.0"
 dependencies = [
  "core",
  "gix",
+ "language",
  "loader",
  "ropey",
  "serde",

@@ -163,7 +163,8 @@ mod tests {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
-    use editor_core::{syntax, test, LineEnding, Rope};
+    use editor_core::{test, LineEnding, Rope};
+    use language::syntax;
 
     use super::*;
     use crate::config::Config;

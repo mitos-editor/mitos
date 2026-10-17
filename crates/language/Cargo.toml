@@ -1,0 +1,29 @@
+[package]
+name = "language"
+description = "Language definitions, syntax analysis, and structural editing for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+core.workspace = true
+loader.workspace = true
+workspace.workspace = true
+stdx.workspace = true
+dap-types.workspace = true
+tree-house.workspace = true
+ropey.workspace = true
+regex-cursor.workspace = true
+anyhow.workspace = true
+arc-swap.workspace = true
+foldhash.workspace = true
+globset.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

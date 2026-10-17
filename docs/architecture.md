@@ -5,7 +5,8 @@ Features live with the state they change; frontends adapt input and present resu
 
 | Crate | Responsibility |
 | --- | --- |
-| `core` | Ropes, selections, transactions, history, syntax analysis, and editing algorithms |
+| `core` | Ropes, selections, transactions, history, text layout, and text editing algorithms |
+| `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `theme` | Theme interpretation, palette resolution, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
@@ -47,6 +48,7 @@ this guide explains how those owners cooperate.
 | Change | Home |
 | --- | --- |
 | Text transformation independent of open buffers | `core` |
+| Syntax analysis, query compilation, or structural editing | `language` |
 | Operation on documents, selections, history, or editor services | `view` |
 | Document feature cache and request lifetime | With its coordinator in `view/src/features/<feature>.rs` or its feature directory |
 | Feature scheduling, event hooks, and result publication | The same `view/src/features` module as its state |
@@ -90,8 +92,23 @@ applying the transaction.
 > NOTE: `Transaction::change`/`Transaction::change_by_selection` is the main
 > interface used to generate text edits.
 
-`Syntax` is the interface used to interact with tree-sitter ASTs for syntax
-highlighting and other features.
+Text selections, indentation normalization, comments, and visual annotations use
+text-only APIs. Parser-node conversion and structural editing live in `language`.
+Highlight IDs and overlay traversal live in `core::highlight`; the syntax
+highlighter adapts parser output to those shared IDs without allocation.
+
+## Language
+
+`language::Syntax` owns incremental syntax trees, including language injections.
+`language::Loader` resolves language metadata and lazily compiles grammar queries
+from explicit resources. Structural matching, movement, text objects, and
+query-based indentation live beside syntax analysis.
+
+`language` depends on `core`; `core` has no grammar, runtime-loader, workspace,
+protocol, editor, or frontend dependency. Structural editing lives in `language`;
+plain word/paragraph motion, bracket scanning, and indentation normalization stay
+in `core`. Configuration loading uses `language::loader`, schema definitions use
+`language::config`, and query compilation uses `language::queries`.
 
 ## View
 
@@ -203,8 +220,8 @@ each file independently, so partial overrides preserve lower-priority resources.
 Missing grammars remain optional; unreadable query files remain empty. Existing
 health-check entry points retain raw-file I/O errors and process-default paths.
 
-`core::syntax::queries` compiles supplied grammars and source text without file
-I/O. `core::syntax::Loader` holds an explicit resource source and per-language
+`language::queries` compiles supplied grammars and source text without file
+I/O. `language::Loader` holds an explicit resource source and per-language
 lazy compilation caches, including failed compilations. A new loader starts fresh
 caches. `view::Editor::load_language_config` refreshes trust and retains the active
 loader's resource paths; `apply_language_config` installs the replacement before
@@ -228,9 +245,9 @@ decorations belong to `term`, where diagnostics take precedence over blame text.
 filters, text/syntax scanning, suggestions, personal vocabulary snapshots, and
 persistent ignored-word lists. Its API accepts text, syntax, settings,
 dictionaries, scan budgets, and cancellation checks; it returns character-indexed
-diagnostics without an editor or async runtime. `core` retains the serialized
-spelling configuration and language identifiers used by language configuration.
-The dependency direction is `view` → `spelling` → `core`.
+diagnostics without an editor or async runtime. `language::config` owns serialized spelling settings; `core` retains dictionary
+identifiers. Scanning depends on `language` for syntax and on `core` for text and
+diagnostics. Both remain independent of editor coordination.
 
 `view::features::spelling` selects dictionary resources, combines effective
 settings, owns per-editor dictionary/ignore state, and coordinates incremental
@@ -449,7 +466,11 @@ in priority order. Same-name inheritance can continue in a lower-priority root;
 visited paths detect cycles. Style entries replace parent entries, while palette
 entries retain the existing deeper merge. Sources remain lazy and uncached.
 
-`view::theme::Loader` receives those resources and interprets their merged data
+The `theme` crate interprets explicit resource sources and shared UI styles.
+It has no dependency on editor state or LSP/DAP clients. Frontend symbol-kind
+style selection lives in `term::ui::lsp`; theme selection is applied by the editor.
+
+`theme::Loader` receives those resources and interprets their merged data
 as editor styles, palettes, and highlight scopes, preserving warnings and cached
 built-in `Theme` values. `term` selects the initial roots, adaptive light/dark
 themes, and terminal capability fallback. Theme completion enumerates the active
@@ -785,12 +806,3 @@ Place algorithm tests in the owning feature crate. Reuse existing fixtures and
 keep assertions about observable behavior; moving code alone does not require a
 new test. Changes to async ownership need coverage for queued callbacks as well
 as in-flight requests.
-
-The `theme` crate interprets explicit resource sources and shared UI styles.
-It has no dependency on editor state or LSP/DAP clients. Frontend symbol-kind
-style selection lives in `term::ui::lsp`; theme selection is applied by the editor.
-
-Text selections, indentation normalization, comments, and visual annotations use
-text-only APIs. Parser-node conversion and structural editing live under
-`core::syntax`. Highlight IDs and overlay traversal live in `core::highlight`;
-the syntax highlighter adapts parser output to those shared IDs without allocation.

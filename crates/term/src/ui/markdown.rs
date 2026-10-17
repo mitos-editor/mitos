@@ -14,8 +14,9 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, T
 
 use editor_core::{
     highlight::{HighlightEvent, OverlayHighlights},
-    syntax, RopeSlice, Syntax,
+    RopeSlice,
 };
+use language::{syntax, Syntax};
 use theme::Modifier;
 use theme::Theme;
 use view::graphics::{Rect, Style};

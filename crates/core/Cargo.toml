@@ -1,6 +1,6 @@
 [package]
 name = "core"
-description = "Core text-editing primitives and language-aware document operations for Mitos"
+description = "Text primitives, layout, and language-independent editing algorithms for Mitos"
 include = ["src/**/*", "README.md", "LICENSE"]
 version.workspace = true
 authors.workspace = true
@@ -19,10 +19,9 @@ unicode-lines = ["ropey/unicode_lines"]
 integration = []
 
 [dependencies]
-workspace.workspace = true
 stdx.workspace = true
-loader.workspace = true
-dap-types.workspace = true
+slotmap.workspace = true
+globset.workspace = true
 
 ropey.workspace = true
 smallvec.workspace = true
@@ -35,17 +34,11 @@ unicode-segmentation.workspace = true
 # when installing without `--locked`
 unicode-width.workspace = true
 unicode-general-category.workspace = true
-slotmap.workspace = true
-tree-house.workspace = true
-arc-swap.workspace = true
 regex.workspace = true
-foldhash.workspace = true
 
 log.workspace = true
-anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
 
 imara-diff.workspace = true
 encoding_rs.workspace = true
@@ -56,8 +49,6 @@ textwrap.workspace = true
 
 nucleo.workspace = true
 parking_lot.workspace = true
-globset.workspace = true
-regex-cursor.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

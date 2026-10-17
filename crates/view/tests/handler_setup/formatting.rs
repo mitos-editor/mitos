@@ -100,7 +100,7 @@ async fn formatting_rejects_renamed_documents_and_replaced_language_configuratio
                 .set_doc_path(current_ref!(fixture.editor).1.id(), &path);
         } else {
             fixture.editor.apply_language_config(
-                editor_core::syntax::Loader::new(
+                language::syntax::Loader::new(
                     toml::from_str("language = []")?,
                     loader::syntax::Resources::default(),
                 )?,

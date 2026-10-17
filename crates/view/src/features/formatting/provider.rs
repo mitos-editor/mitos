@@ -2,10 +2,9 @@
 use std::{fmt::Display, path::Path};
 
 use command_line::Token;
-use editor_core::{
-    encoding, indent::IndentStyle, syntax::config::LanguageServerFeature, Rope, Transaction,
-};
+use editor_core::{encoding, indent::IndentStyle, Rope, Transaction};
 use futures_util::{future::BoxFuture, FutureExt};
+use language::config::LanguageServerFeature;
 use lsp_client::lsp;
 
 use crate::{document::to_writer, expansion, Document, Editor};

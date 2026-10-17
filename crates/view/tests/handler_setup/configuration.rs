@@ -1,4 +1,5 @@
-use editor_core::{syntax::config::AutoPairConfig, Selection};
+use editor_core::Selection;
+use language::config::AutoPairConfig;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -103,7 +104,7 @@ async fn invalid_theme_keeps_the_previous_theme_and_still_refreshes_documents() 
 {
     let mut f = Fixture::new("text\n")?;
     let old_theme = f.editor.theme.scopes().to_vec();
-    let loader = editor_core::syntax::Loader::new(
+    let loader = language::syntax::Loader::new(
         toml::from_str(
             r#"
         [[language]]

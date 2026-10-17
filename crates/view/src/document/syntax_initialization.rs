@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use editor_core::{syntax, Language, Rope, Syntax};
+use editor_core::Rope;
 use event::{cancelable_future, TaskController, TaskHandle};
+use language::{syntax, Language, Syntax};
 use tokio::sync::Semaphore;
 
 use super::Document;

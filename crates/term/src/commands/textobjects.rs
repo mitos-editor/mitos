@@ -3,8 +3,9 @@
 use crate::commands::{context::Context, spelling::spelling_ranges, vcs::hunk_range};
 use arc_swap::access::DynAccess;
 use editor_core::{
-    graphemes::next_grapheme_boundary, textobject, Range, RopeSlice, Selection, SmallVec, Syntax,
+    graphemes::next_grapheme_boundary, textobject, Range, RopeSlice, Selection, SmallVec,
 };
+use language::Syntax;
 use view::{info::Info, Editor};
 
 pub(super) fn select_textobject_around(cx: &mut Context) {
@@ -21,7 +22,7 @@ fn select_all_treesitter_textobject_ranges(
     objtype: textobject::TextObject,
     obj_name: &str,
     syntax: Option<&Syntax>,
-    loader: &editor_core::syntax::Loader,
+    loader: &language::syntax::Loader,
 ) -> SmallVec<[Range; 1]> {
     let Some(syntax) = syntax else {
         return SmallVec::new();
@@ -279,7 +280,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                     let Some(syntax) = doc.syntax() else {
                         return range;
                     };
-                    editor_core::syntax::textobject::textobject_treesitter(
+                    language::textobject::textobject_treesitter(
                         text, range, objtype, obj_name, syntax, &loader, count,
                     )
                 };
@@ -317,7 +318,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                         'e' => textobject_treesitter("entry", range),
                         'x' => textobject_treesitter("xml-element", range),
                         'p' => textobject::textobject_paragraph(text, range, objtype, count),
-                        'm' => editor_core::syntax::textobject::textobject_pair_surround_closest(
+                        'm' => language::textobject::textobject_pair_surround_closest(
                             doc.syntax(),
                             text,
                             range,
@@ -330,7 +331,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                             .map_or(range, |finding| finding.with_direction(range.direction())),
                         // TODO: cancel new ranges if inconsistent surround matches across lines
                         ch if !ch.is_ascii_alphanumeric() => {
-                            editor_core::syntax::textobject::textobject_pair_surround(
+                            language::textobject::textobject_pair_surround(
                                 doc.syntax(),
                                 text,
                                 range,

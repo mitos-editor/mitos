@@ -5,10 +5,10 @@ use std::{
     time::Duration,
 };
 
-use editor_core::syntax::config::LanguageServerFeature;
 use event::{
     cancelable_future, register_hook, send_blocking, AsyncHook, TaskController, TaskHandle,
 };
+use language::config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId};
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, time::Instant};

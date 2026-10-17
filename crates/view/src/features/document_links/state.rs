@@ -82,7 +82,7 @@ mod tests {
                 crate::config::Config::default(),
             )),
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                editor_core::syntax::Loader::default(),
+                language::syntax::Loader::default(),
             )),
         );
         let view = crate::ViewId::default();

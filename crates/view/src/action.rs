@@ -6,7 +6,8 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use editor_core::{syntax::config::LanguageServerFeature, Uri};
+use editor_core::Uri;
+use language::config::LanguageServerFeature;
 use lsp_client::{
     lsp::{self, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
     util::{diagnostic_to_lsp_diagnostic, range_to_lsp_range},

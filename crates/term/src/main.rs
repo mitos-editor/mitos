@@ -154,14 +154,14 @@ FLAGS:
     );
 
     let resources = loader::syntax::Resources::default();
-    let lang_loader = editor_core::config::user_lang_loader(&workspace_trust, resources.clone())
+    let lang_loader = language::loader::user_lang_loader(&workspace_trust, resources.clone())
         .unwrap_or_else(|err| {
             eprintln!("{}", err);
             eprintln!("Press <ENTER> to continue with default language config");
             use std::io::Read;
             // This waits for an enter press.
             let _ = std::io::stdin().read(&mut []);
-            editor_core::config::default_lang_loader(resources)
+            language::loader::default_lang_loader(resources)
         });
 
     // TODO: use the thread local executor to spawn the application task separately from the work pool

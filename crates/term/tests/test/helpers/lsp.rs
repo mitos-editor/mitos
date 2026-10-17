@@ -104,7 +104,7 @@ pub fn syntax_loader(
     file_type: &str,
     names: &[&str],
     servers: &str,
-) -> editor_core::syntax::Loader {
+) -> language::syntax::Loader {
     let name = toml::Value::String(language.into());
     let scope = toml::Value::String(format!("source.{language}"));
     let file_types = string_array(&[file_type]);

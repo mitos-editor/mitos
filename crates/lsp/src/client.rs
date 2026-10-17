@@ -11,10 +11,8 @@ use crate::lsp::{
     DidChangeWorkspaceFoldersParams, OneOf, PositionEncodingKind, SignatureHelp, Url,
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
-use editor_core::{
-    syntax::config::{LanguageServerFeature, RootMarkers},
-    ChangeSet, Rope,
-};
+use editor_core::{ChangeSet, Rope};
+use language::config::{LanguageServerFeature, RootMarkers};
 use loader::VERSION_AND_GIT_HASH;
 use parking_lot::Mutex;
 use serde::Deserialize;

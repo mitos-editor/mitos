@@ -1,10 +1,14 @@
 //! Compile supplied grammars and query sources. No resource lookup or file I/O.
-use super::{
-    reconfigure_highlights, Grammar, IndentQuery, Query, RainbowQuery, SpellcheckQuery,
-    SyntaxConfig, TagQuery, TextObjectQuery,
+use crate::{
+    indent::IndentQuery,
+    syntax::{reconfigure_highlights, RainbowQuery, SpellcheckQuery, TagQuery, TextObjectQuery},
 };
 use anyhow::{Context, Result};
 use tree_house::tree_sitter::query::{InvalidPredicateError, UserPredicate};
+use tree_house::{
+    tree_sitter::{Grammar, Query},
+    LanguageConfig as SyntaxConfig,
+};
 
 /// Compile highlighting, injections, and locals for one grammar.
 pub fn compile_syntax_config(

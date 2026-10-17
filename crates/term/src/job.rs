@@ -305,7 +305,7 @@ mod completion_tests {
         let mut app = Application::new(
             Args::default(),
             config,
-            editor_core::syntax::Loader::new(
+            language::syntax::Loader::new(
                 toml::from_str("language = []")?,
                 loader::syntax::Resources::default(),
             )?,

@@ -1,5 +1,5 @@
 use crate::config::{Config, ConfigLoadError};
-use editor_core::config::{default_lang_config, user_lang_config};
+use language::loader::{default_lang_config, user_lang_config};
 use loader::grammar::load_runtime_file;
 use std::{
     collections::HashSet,
@@ -377,11 +377,8 @@ fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
 /// Describe selection without launching processes or claiming initialization succeeded.
 fn probe_language_servers(
     stdout: &mut impl Write,
-    language: &editor_core::syntax::config::LanguageConfiguration,
-    definitions: &std::collections::HashMap<
-        String,
-        editor_core::syntax::config::LanguageServerConfiguration,
-    >,
+    language: &language::config::LanguageConfiguration,
+    definitions: &std::collections::HashMap<String, language::config::LanguageServerConfiguration>,
     root_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
     writeln!(stdout, "Configured language servers:")?;
@@ -519,7 +516,7 @@ mod language_server_tests {
                 .to_string_lossy()
                 .into_owned(),
         );
-        let config: editor_core::syntax::config::Configuration = toml::from_str(&format!(r#"
+        let config: language::config::Configuration = toml::from_str(&format!(r#"
 [language-server.missing]
 command = "/__mitos_nonexistent_server__"
 [language-server.inapplicable]

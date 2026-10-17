@@ -1,11 +1,12 @@
-use crate::syntax::match_brackets::{find_matching_bracket, find_matching_bracket_fuzzy};
+use crate::match_brackets::{find_matching_bracket, find_matching_bracket_fuzzy};
 use std::fmt::Display;
 
-use crate::{
+use crate::Syntax;
+use editor_core::{
     graphemes::next_grapheme_boundary,
     match_brackets::{self, get_pair, is_close_bracket, is_open_bracket},
     movement::Direction,
-    search, Range, Selection, Syntax,
+    search, Range, Selection,
 };
 use ropey::RopeSlice;
 
@@ -30,7 +31,7 @@ impl Display for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// Finds the position of surround pairs of any [`crate::match_brackets::PAIRS`]
+/// Finds the position of surround pairs of any [`editor_core::match_brackets::PAIRS`]
 /// using tree-sitter when possible.
 ///
 /// # Returns
@@ -328,10 +329,10 @@ pub fn get_surround_pos(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Range;
+    use editor_core::Range;
 
+    use editor_core::SmallVec;
     use ropey::Rope;
-    use smallvec::SmallVec;
 
     #[test]
     fn test_get_surround_pos() {

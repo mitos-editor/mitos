@@ -10,11 +10,8 @@ use std::{
     path::PathBuf,
 };
 
-use editor_core::{
-    diagnostic::Severity,
-    syntax::config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig},
-    LineEnding, NATIVE_LINE_ENDING,
-};
+use editor_core::{diagnostic::Severity, LineEnding, NATIVE_LINE_ENDING};
+use language::config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::time::Duration;
 use workspace::trust::ImplicitTrustLevel;

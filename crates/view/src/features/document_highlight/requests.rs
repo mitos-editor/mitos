@@ -1,7 +1,7 @@
 //! Shared coordination for LSP document highlights results.
 
-use editor_core::syntax::config::LanguageServerFeature;
 use event::{cancelable_future, register_hook};
+use language::config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 
 use crate::{
