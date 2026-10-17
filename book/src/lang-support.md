@@ -1,16 +1,14 @@
 # Language support
 
-The following languages and Language Servers are supported. To use
-Language Server features, you must first [configure][lsp-config-wiki] the
-appropriate Language Server.
+This table lists built-in support for each language. Language servers provide
+completion, error messages, and other code features; install them separately
+using the [setup guide](./language-server-setup.md).
 
-You can check the language support in your installed Mitos version with `ms --health`.
+In the server column, "first available" means Mitos chooses one server from
+that list. Other listed servers can run alongside it.
 
-Also see the [Language Configuration][lang-config] docs and the [Adding
-Languages][adding-languages] guide for more language configuration information.
+Run `ms --health <language>` to check your installation, for example
+`ms --health rust`. To change a language's settings, see
+[Languages](./languages.md).
 
 {{#include ./generated/lang-support.md}}
-
-[lsp-config-wiki]: https://github.com/helix-editor/helix/wiki/Language-Server-Configurations
-[lang-config]: ./languages.md
-[adding-languages]: ./guides/adding_languages.md

@@ -101,6 +101,20 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        if method == "initialize" && args.iter().any(|arg| arg == "--reject-initialize") {
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": message["id"],
+                "error": {"code": -32603, "message": "test initialization failure"}}),
+            )?;
+            continue;
+        }
+        if method == "initialize" && args.iter().any(|arg| arg == "--ignore-initialize") {
+            continue;
+        }
+        if method == "initialize" && args.iter().any(|arg| arg == "--exit-on-initialize") {
+            return Ok(());
+        }
         match method {
             "textDocument/didOpen" => {
                 versions.insert(

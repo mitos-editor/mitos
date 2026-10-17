@@ -333,14 +333,12 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
         }
     };
 
-    probe_protocols(
-        "language server",
-        lang.language_servers.iter().filter_map(|ls| {
-            syn_loader_conf
-                .language_server
-                .get(&ls.name)
-                .map(|config| (ls.name.as_str(), config.command.as_str()))
-        }),
+    let editor_config = Config::load_default().unwrap_or_default();
+    probe_language_servers(
+        &mut stdout,
+        lang,
+        &syn_loader_conf.language_server,
+        &editor_config.editor.lsp.workspace_roots,
     )?;
 
     probe_protocol(
@@ -376,30 +374,80 @@ fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
     }
 }
 
-/// Display diagnostics about multiple LSPs and DAPs.
-fn probe_protocols<'a, I: Iterator<Item = (&'a str, &'a str)> + 'a>(
-    protocol_name: &str,
-    server_cmds: I,
+/// Describe selection without launching processes or claiming initialization succeeded.
+fn probe_language_servers(
+    stdout: &mut impl Write,
+    language: &editor_core::syntax::config::LanguageConfiguration,
+    definitions: &std::collections::HashMap<
+        String,
+        editor_core::syntax::config::LanguageServerConfiguration,
+    >,
+    root_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-    let mut server_cmds = server_cmds.peekable();
-
-    write!(stdout, "Configured {}s:", protocol_name)?;
-    if server_cmds.peek().is_none() {
-        writeln!(stdout, "{}", " None".yellow())?;
+    writeln!(stdout, "Configured language servers:")?;
+    if language.language_servers.is_empty() {
+        writeln!(stdout, "  None")?;
         return Ok(());
     }
-    writeln!(stdout)?;
-
-    for (name, cmd) in server_cmds {
-        let (diag, icon) = match stdx::env::which(cmd) {
-            Ok(path) => (path.display().to_string().green(), "✓".green()),
-            Err(_) => (format!("'{}' not found in $PATH", cmd).red(), "✘".red()),
-        };
-        writeln!(stdout, "  {} {}: {}", icon, name, diag)?;
+    let (root, _) = lsp_client::language_server_root(language, None, root_dirs);
+    writeln!(stdout, "  Project root: {}", root.display())?;
+    for group in language.language_server_groups() {
+        let alternatives = group[0].alternative_group.is_some();
+        if alternatives {
+            writeln!(
+                stdout,
+                "  Alternatives (first applicable executable; initialization not tested):"
+            )?;
+        }
+        let mut selected = false;
+        for server in group {
+            let Some(definition) = definitions.get(&server.name) else {
+                writeln!(stdout, "    ✘ {}: definition missing", server.name)?;
+                continue;
+            };
+            let path = match stdx::env::which(&definition.command) {
+                Ok(path) => path,
+                Err(_) => {
+                    writeln!(
+                        stdout,
+                        "    ✘ {}: '{}' not found in $PATH",
+                        server.name, definition.command
+                    )?;
+                    continue;
+                }
+            };
+            match lsp_client::has_required_root(definition, &root) {
+                Ok(true) => {}
+                Ok(false) => {
+                    writeln!(
+                        stdout,
+                        "    − {}: project does not match required-root-patterns",
+                        server.name
+                    )?;
+                    continue;
+                }
+                Err(error) => {
+                    writeln!(
+                        stdout,
+                        "    ✘ {}: cannot check project requirements: {error}",
+                        server.name
+                    )?;
+                    continue;
+                }
+            }
+            let role = if alternatives {
+                if selected {
+                    "fallback"
+                } else {
+                    "preferred candidate"
+                }
+            } else {
+                "enabled alongside other entries"
+            };
+            selected = true;
+            writeln!(stdout, "    ✓ {}: {} ({role})", server.name, path.display())?;
+        }
     }
-
     Ok(())
 }
 
@@ -459,4 +507,50 @@ pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
         Some(lang) => language(lang.to_string())?,
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod language_server_tests {
+    #[test]
+    fn health_explains_preference_missing_binaries_project_requirements_and_supplements() {
+        let executable = toml::Value::String(
+            std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let config: editor_core::syntax::config::Configuration = toml::from_str(&format!(r#"
+[language-server.missing]
+command = "/__mitos_nonexistent_server__"
+[language-server.inapplicable]
+command = {executable}
+required-root-patterns = ["__mitos_missing_marker__"]
+[language-server.preferred]
+command = {executable}
+[language-server.fallback]
+command = {executable}
+[language-server.linter]
+command = {executable}
+[[language]]
+name = "health-test"
+scope = "source.health-test"
+file-types = []
+language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "fallback"] }}, "linter"]
+"#)).unwrap();
+        let mut output = Vec::new();
+        super::probe_language_servers(
+            &mut output,
+            &config.language[0],
+            &config.language_server,
+            &[],
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("initialization not tested"));
+        assert!(output.contains("not found in $PATH"));
+        assert!(output.contains("project does not match required-root-patterns"));
+        assert!(output.contains("preferred candidate"));
+        assert!(output.contains("(fallback)"));
+        assert!(output.contains("enabled alongside other entries"));
+    }
 }

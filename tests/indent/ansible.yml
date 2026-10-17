@@ -1,0 +1,6 @@
+- name: Provision
+  hosts: all
+  tasks:
+    - name: Announce
+      ansible.builtin.debug:
+        msg: hello

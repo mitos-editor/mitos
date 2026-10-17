@@ -1,50 +1,55 @@
 # Language servers
 
-Mitos has built-in support for the [Language Server Protocol][lsp], providing
-IDE-like features — diagnostics, completion, goto-definition, rename and more,
-for any language that has a server configured. Language servers are separate
-programs you install yourself: the [language support](./lang-support.md) page
-lists which languages ship with a server configured, and the
-[language server configuration wiki][wiki] has per-server installation notes.
+Language servers add completion, error messages, code navigation, renaming,
+and formatting. Install them separately from Mitos.
 
-Run `ms --health <language>` to check whether Mitos found the configured server
-for a language. After changing a server's configuration, `:lsp-restart` reloads
-it and `:lsp-stop` stops it; `:lsp-workspace-command` runs a command the server
-exposes for the workspace.
+## Get started
 
-## Features
+1. Find your language in the [language support table](./lang-support.md).
+2. Install a listed server.
+3. Run `ms --health <language>`, for example `ms --health python`, to check
+   that Mitos can find it.
+4. Open a file in that language. If Mitos is already running, use `:lsp-restart`.
 
-Most features are bound by default (see the [keymap](./keymap.md)); the relevant
-keys are listed below.
+Some languages list alternatives. Mitos tries them in order and uses the
+first one that starts successfully for your project. Separately listed tools
+can run alongside it, for example Ruff for Python checking and formatting.
 
-| Feature | Default key / command |
+## Common actions
+
+Available features depend on the server.
+
+| Action | Keys or command |
 | --- | --- |
-| Diagnostics — shown inline and in the gutter | navigate with `[d` / `]d`; `Space-d` / `Space-D` open the document / workspace pickers |
-| Completion | automatic while typing; `Ctrl-x` triggers it manually |
-| Hover documentation | `Space-k` |
-| Signature help (parameter hints) | automatic while typing arguments |
-| Goto definition / declaration / type / references / implementation | `gd` / `gD` / `gy` / `gr` / `gi` |
-| Rename symbol | `Space-r` |
-| Code actions | `Space-a` |
-| Document / workspace symbols | `Space-s` / `Space-S` |
-| Format document | `:format`, or set `format.on-save` to format on save |
-| Inlay hints | enable with `lsp.inlay-hints.enable` (see below) |
+| Next / previous error or warning | `]d` / `[d` |
+| File / workspace diagnostics | `Space-d` / `Space-D` |
+| Completion | Automatic while typing; `Ctrl-x` opens it manually |
+| Documentation at the cursor | `Space-k` |
+| Parameter hints | Automatic while typing arguments |
+| Go to definition / declaration / type | `gd` / `gD` / `gy` |
+| Find references / implementations | `gr` / `gi` |
+| Rename a symbol | `Space-r` |
+| Code actions, such as quick fixes | `Space-a` |
+| File / workspace symbols | `Space-s` / `Space-S` |
+| Format the file | `:format` |
 
-## Configuration
+## Change settings
 
-The [`[editor.lsp]`](./editor.md#editorlsp-section) section of `config.toml`
-groups LSP behaviour into feature subsections, including `inlay-hints.enable`,
-`signature-help.auto-trigger`, `document-highlight.auto-trigger`, and
-`completion.snippets`. Set `enable = false` to disable LSP entirely. How
-much diagnostic detail is shown inline at the cursor is configured separately in
-[`[editor.diagnostics.inline]`](./editor.md#editordiagnosticsinline-section).
+Use `:config-open` to edit `config.toml`. For example, to show type hints:
 
-Which server(s) a language uses, the server's command and arguments, and any
-language-specific settings are configured in `languages.toml` (see
-[Language Server configuration](./languages.md#language-server-configuration)). A
-language may use [several servers](./languages.md#configuring-language-servers-for-a-language):
-for each request the first server in the list that supports it is used, and a
-server's features can be limited with `only-features` / `except-features`.
+```toml
+[editor.lsp.inlay-hints]
+enable = true
+```
 
-[lsp]: https://microsoft.github.io/language-server-protocol/
-[wiki]: https://github.com/helix-editor/helix/wiki/Language-Server-Configurations
+Run `:config-reload` to apply changes. See the
+[language-server settings](./configuration.md#editorlsp) for more options,
+or set `enable = false` under `[editor.lsp]` to disable language servers.
+
+To choose a server or change its settings, edit
+[`languages.toml`](./languages.md#language-server-configuration).
+Use `:lsp-restart` afterwards. `:lsp-stop` stops servers for the current file;
+`:lsp-workspace-command` runs a command provided by the server.
+
+If a feature is missing, start with the
+[troubleshooting guide](./troubleshooting.md#language-features-are-missing).

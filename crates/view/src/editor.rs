@@ -666,6 +666,7 @@ impl Editor {
         }
 
         // store only successfully started language servers
+        let status_sender = self.handlers.status.clone();
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
             self.language_servers
                 .get(language, path, root_dirs, config.lsp.completion.snippets)
@@ -678,6 +679,10 @@ impl Editor {
                                 "Language server not found for `{}` {} {}", language.scope, lang, err,
                             );
                         } else {
+                            status_sender.report_blocking(event::status::StatusMessage {
+                                severity: event::status::Severity::Warning,
+                                message: format!("Could not start language server {lang}: {err}").into(),
+                            });
                             log::error!(
                                 "Failed to initialize the language servers for `{}` - `{}` {{ {} }}",
                                 language.scope,

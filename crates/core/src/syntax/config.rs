@@ -116,6 +116,13 @@ impl LanguageConfiguration {
         // This value must be set by `super::Loader::new`.
         self.language.unwrap()
     }
+
+    /// Single servers and contiguous groups of ordered alternatives.
+    pub fn language_server_groups(&self) -> impl Iterator<Item = &[LanguageServerFeatures]> {
+        self.language_servers.chunk_by(|a, b| {
+            a.alternative_group.is_some() && a.alternative_group == b.alternative_group
+        })
+    }
 }
 
 pub type RootMarkers = GlobSet;
@@ -377,16 +384,63 @@ enum LanguageServerFeatureConfiguration {
     Simple(String),
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum LanguageServerEntry {
+    Server(LanguageServerFeatureConfiguration),
+    Alternatives {
+        alternatives: Vec<LanguageServerFeatureConfiguration>,
+    },
+}
+
 #[derive(Debug, Default)]
 pub struct LanguageServerFeatures {
     pub name: String,
     pub only: HashSet<LanguageServerFeature>,
     pub excluded: HashSet<LanguageServerFeature>,
+    /// Entries from an alternatives table share its position in the original list.
+    /// Flattening preserves feature routing and the configured server order.
+    pub alternative_group: Option<usize>,
 }
 
 impl LanguageServerFeatures {
     pub fn has_feature(&self, feature: LanguageServerFeature) -> bool {
         (self.only.is_empty() || self.only.contains(&feature)) && !self.excluded.contains(&feature)
+    }
+}
+
+impl From<LanguageServerFeatureConfiguration> for LanguageServerFeatures {
+    fn from(config: LanguageServerFeatureConfiguration) -> Self {
+        match config {
+            LanguageServerFeatureConfiguration::Simple(name) => Self {
+                name,
+                ..Default::default()
+            },
+            LanguageServerFeatureConfiguration::Features {
+                only_features,
+                except_features,
+                name,
+            } => Self {
+                name,
+                only: only_features,
+                excluded: except_features,
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl From<&LanguageServerFeatures> for LanguageServerFeatureConfiguration {
+    fn from(features: &LanguageServerFeatures) -> Self {
+        if features.only.is_empty() && features.excluded.is_empty() {
+            Self::Simple(features.name.clone())
+        } else {
+            Self::Features {
+                only_features: features.only.clone(),
+                except_features: features.excluded.clone(),
+                name: features.name.clone(),
+            }
+        }
     }
 }
 
@@ -396,46 +450,58 @@ fn deserialize_lang_features<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    let raw: Vec<LanguageServerFeatureConfiguration> = Deserialize::deserialize(deserializer)?;
-    let res = raw
-        .into_iter()
-        .map(|config| match config {
-            LanguageServerFeatureConfiguration::Simple(name) => LanguageServerFeatures {
-                name,
-                ..Default::default()
-            },
-            LanguageServerFeatureConfiguration::Features {
-                only_features,
-                except_features,
-                name,
-            } => LanguageServerFeatures {
-                name,
-                only: only_features,
-                excluded: except_features,
-            },
-        })
-        .collect();
-    Ok(res)
+    let raw: Vec<LanguageServerEntry> = Deserialize::deserialize(deserializer)?;
+    let mut result = Vec::new();
+    for (index, entry) in raw.into_iter().enumerate() {
+        match entry {
+            LanguageServerEntry::Server(server) => result.push(server.into()),
+            LanguageServerEntry::Alternatives { alternatives } => {
+                if alternatives.is_empty() {
+                    return Err(serde::de::Error::custom(
+                        "language-server alternatives must not be empty",
+                    ));
+                }
+                for alternative in alternatives {
+                    let mut features = LanguageServerFeatures::from(alternative);
+                    features.alternative_group = Some(index);
+                    result.push(features);
+                }
+            }
+        }
+    }
+    let mut names = HashMap::new();
+    for server in &result {
+        if let Some(previous_group) = names.insert(&server.name, server.alternative_group)
+            && (previous_group.is_some() || server.alternative_group.is_some())
+        {
+            return Err(serde::de::Error::custom(format!(
+                "language server '{}' occurs more than once in an alternatives configuration",
+                server.name
+            )));
+        }
+    }
+    Ok(result)
 }
+
 fn serialize_lang_features<S>(
-    map: &Vec<LanguageServerFeatures>,
+    servers: &[LanguageServerFeatures],
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    let mut serializer = serializer.serialize_seq(Some(map.len()))?;
-    for features in map {
-        let features = if features.only.is_empty() && features.excluded.is_empty() {
-            LanguageServerFeatureConfiguration::Simple(features.name.to_owned())
-        } else {
-            LanguageServerFeatureConfiguration::Features {
-                only_features: features.only.clone(),
-                except_features: features.excluded.clone(),
-                name: features.name.to_owned(),
+    let mut serializer = serializer.serialize_seq(None)?;
+    for group in servers.chunk_by(|a, b| {
+        a.alternative_group.is_some() && a.alternative_group == b.alternative_group
+    }) {
+        let entry = if group[0].alternative_group.is_some() {
+            LanguageServerEntry::Alternatives {
+                alternatives: group.iter().map(Into::into).collect(),
             }
+        } else {
+            LanguageServerEntry::Server((&group[0]).into())
         };
-        serializer.serialize_element(&features)?;
+        serializer.serialize_element(&entry)?;
     }
     serializer.end()
 }

@@ -145,3 +145,105 @@ mod tests {
         assert!(!default_lang_config().language.is_empty());
     }
 }
+
+#[cfg(test)]
+mod language_server_tests {
+    use super::*;
+    use crate::syntax::config::LanguageServerFeature;
+    use std::path::Path;
+
+    fn language(entries: &str) -> LanguageConfiguration {
+        toml::from_str(&format!(
+            r#"name = "example"
+scope = "source.example"
+file-types = ["example"]
+language-servers = {entries}
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn alternative_groups_round_trip_and_keep_per_candidate_feature_filters() {
+        let config = language(
+            r#"[
+            "standalone",
+            { alternatives = ["preferred", { name = "fallback", except-features = ["format"] }] },
+            { name = "linter", only-features = ["diagnostics", "code-action"] },
+        ]"#,
+        );
+        let groups = config.language_server_groups().collect::<Vec<_>>();
+        assert_eq!(
+            groups.iter().map(|group| group.len()).collect::<Vec<_>>(),
+            [1, 2, 1]
+        );
+        assert_eq!(groups[1][0].name, "preferred");
+        assert!(!groups[1][1].has_feature(LanguageServerFeature::Format));
+        assert!(!groups[2][0].has_feature(LanguageServerFeature::Hover));
+        let roundtrip: LanguageConfiguration =
+            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(
+            roundtrip
+                .language_server_groups()
+                .map(|group| group.len())
+                .collect::<Vec<_>>(),
+            [1, 2, 1]
+        );
+        assert!(!roundtrip.language_servers[2].has_feature(LanguageServerFeature::Format));
+        let legacy = language(r#"["first", { name = "second", only-features = ["format"] }]"#);
+        assert!(legacy
+            .language_servers
+            .iter()
+            .all(|server| server.alternative_group.is_none()));
+    }
+
+    #[test]
+    fn invalid_or_ambiguous_alternative_groups_are_rejected() {
+        for entries in [
+            r#"[{ alternatives = [] }]"#,
+            r#"[{ alternatives = ["same", "same"] }]"#,
+            r#"["same", { alternatives = ["same", "other"] }]"#,
+            r#"[{ alternatives = [{ alternatives = ["nested"] }] }]"#,
+            r#"[{ alternatives = ["first"], name = "ambiguous" }]"#,
+            r#"[{ alternatives = [{ name = "first", unknown = true }] }]"#,
+        ] {
+            let text = format!("name = 'test'\nscope = 'source.test'\nfile-types = []\nlanguage-servers = {entries}");
+            assert!(
+                toml::from_str::<LanguageConfiguration>(&text).is_err(),
+                "{entries}"
+            );
+        }
+    }
+
+    #[test]
+    fn built_in_servers_are_defined_and_specialized_files_keep_their_language() {
+        let config = default_lang_config();
+        for language in &config.language {
+            for server in &language.language_servers {
+                assert!(
+                    config.language_server.contains_key(&server.name),
+                    "{}: {} is undefined",
+                    language.language_id,
+                    server.name
+                );
+            }
+        }
+        let loader = default_lang_loader(Resources::new(Vec::new()));
+        for (path, expected) in [
+            ("/project/docs/page.mdx", "mdx"),
+            ("/project/docs/page.md", "markdown"),
+            ("/project/config.yaml", "yaml"),
+            ("/project/playbooks/deploy.yml", "ansible"),
+            ("/project/roles/web/tasks/main.yaml", "ansible"),
+            ("/project/roles/web/tasks/nested/install.yml", "ansible"),
+            ("/project/.github/workflows/ci.yml", "github-action"),
+        ] {
+            let language = loader.language_for_filename(Path::new(path)).unwrap();
+            assert_eq!(
+                loader.language(language).config().language_id,
+                expected,
+                "{path}"
+            );
+        }
+    }
+}

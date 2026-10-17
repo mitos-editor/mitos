@@ -6,7 +6,7 @@ use crate::{DocumentId, Editor};
 
 impl Editor {
     /// Stop selected servers attached to a document across all workspaces.
-    /// An empty selection stops all initialized servers attached to the document.
+    /// An empty selection stops all servers attached to the document, including startup.
     pub fn stop_language_servers(
         &mut self,
         document: DocumentId,
@@ -17,7 +17,8 @@ impl Editor {
             .get(&document)
             .context("Document no longer exists")?;
         let language_servers: Vec<_> = doc
-            .language_servers()
+            .language_servers
+            .values()
             .map(|ls| ls.name().to_owned())
             .collect();
         let language_servers = if servers.is_empty() {
@@ -92,6 +93,39 @@ impl Editor {
             valid
         };
 
+        for group in config
+            .language_server_groups()
+            .filter(|group| group[0].alternative_group.is_some())
+        {
+            if servers
+                .iter()
+                .filter(|name| group.iter().any(|server| server.name == **name))
+                .count()
+                > 1
+            {
+                bail!(
+                    "Choose one language-server alternative from: {}",
+                    group
+                        .iter()
+                        .map(|server| server.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+
+        // Selecting one member restarts its whole alternatives group so an old
+        // selected member cannot keep running alongside the requested server.
+        let language_servers: Vec<_> = config
+            .language_server_groups()
+            .filter(|group| {
+                group
+                    .iter()
+                    .any(|server| language_servers.contains(&server.name.as_str()))
+            })
+            .flat_map(|group| group.iter().map(|server| server.name.as_str()))
+            .collect();
+
         // Restart removes these clients from the registry before their exit notifications
         // arrive, so the exit handler can no longer clear their diagnostics.
         let old_server_ids: Vec<_> = self
@@ -105,9 +139,12 @@ impl Editor {
             self.cleanup_language_server(server_id);
         }
 
+        self.language_servers.reset(&language_servers);
         let mut errors = Vec::new();
-        for server in language_servers.iter() {
-            match self
+        // With no explicit names, refresh below selects one candidate per group.
+        // An explicit name is started first, overriding the group's preference.
+        for server in servers {
+            if let Err(err) = self
                 .language_servers
                 .restart_server(
                     server,
@@ -118,11 +155,7 @@ impl Editor {
                 )
                 .transpose()
             {
-                // Ignore the executable-not-found error unless the server was explicitly requested
-                // in the arguments.
-                Err(lsp_client::Error::ExecutableNotFound(_)) if !servers.contains(server) => {}
-                Err(err) => errors.push(err.to_string()),
-                _ => (),
+                errors.push(err.to_string());
             }
         }
 

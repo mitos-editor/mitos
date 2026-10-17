@@ -27,6 +27,7 @@ circom-lsp = { command = "circom-lsp" }
 cl-lsp = { command = "cl-lsp" }
 clangd = { command = "clangd" }
 clojure-lsp = { command = "clojure-lsp" }
+cucumber-language-server = { command = "cucumber-language-server", args = ["--stdio"] }
 cmake-language-server = { command = "cmake-language-server" }
 codeql = { command = "codeql", args = ["execute", "language-server", "--check-errors=ON_CHANGE"] }
 commit-lsp = { command = "commit-lsp", args = ["run"] }
@@ -49,6 +50,7 @@ elixir-ls = { command = "elixir-ls", config = { elixirLS.dialyzerEnabled = false
 elm-language-server = { command = "elm-language-server" }
 elp = { command = "elp", args = ["server"] }
 elvish = { command = "elvish", args = ["-lsp"] }
+esbonio = { command = "esbonio", args = ["server"] }
 erlang-ls = { command = "erlang_ls" }
 expert = { command = "expert", args = ["--stdio"] }
 fennel-ls = { command = "fennel-ls" }
@@ -60,11 +62,14 @@ fsharp-ls = { command = "fsautocomplete", config = { AutomaticWorkspaceInit = tr
 ghostty-ls = { command = "ghostty-ls" } # https://github.com/MKindberg/ghostty-ls
 gitlab-ci-ls = { command = "gitlab-ci-ls" }
 gleam = { command = "gleam", args = ["lsp"] }
+gn-language-server = { command = "gn-language-server" }
+groovy-language-server = { command = "groovy-language-server" }
 glsl_analyzer = { command = "glsl_analyzer" }
 glsld = { command = "glsld", args = ["--stdio"] }
 graphql-language-service = { command = "graphql-lsp", args = ["server", "-m", "stream"] }
 hare-lsp = { command = "hare-lsp", args = ["-S"] }
 harper-ls = { command = "harper-ls", args = ["--stdio"] }
+haxe-language-server = { command = "haxe-language-server" }
 haskell-language-server = { command = "haskell-language-server-wrapper", args = ["--lsp"] }
 hdls = { command = "hdls" }
 hyprls = { command = "hyprls" }
@@ -81,12 +86,15 @@ koka = { command = "koka", args = ["--language-server", "--lsstdio"] }
 koto-ls = { command = "koto-ls" }
 kotlin-lsp = { command = "kotlin-lsp", args = ["--stdio"] }
 kotlin-language-server = { command = "kotlin-language-server" }
+lemminx = { command = "lemminx" }
 lean = { command = "lake", args = ["serve"] }
 ltex-ls = { command = "ltex-ls" }
 ltex-ls-plus = { command = "ltex-ls-plus" }
 markdoc-ls = { command = "markdoc-ls", args = ["--stdio"] }
 markdown-oxide = { command = "markdown-oxide" }
 marksman = { command = "marksman", args = ["server"] }
+matlab-language-server = { command = "matlab-language-server", args = ["--stdio"] }
+mdx-language-server = { command = "mdx-language-server", args = ["--stdio"] }
 metals = { command = "metals", config = { "isHttpEnabled" = true, metals = { inlayHints = { typeParameters = {enable = true} , hintsInPatternMatch = {enable = true} }  } } }
 mesonlsp = { command = "mesonlsp", args = ["--lsp"] }
 mint = { command = "mint", args = ["tool", "ls"] }
@@ -114,6 +122,8 @@ perlnavigator = { command = "perlnavigator", args= ["--stdio"] }
 pest-language-server = { command = "pest-language-server" }
 pkl-lsp = { command = "pkl-lsp" }
 pony-lsp = { command = "pony-lsp", args = ["--stdio"], config = {defines = [], ponypath = []}}
+postgres-language-server = { command = "postgres-language-server", args = ["lsp-proxy"], required-root-patterns = ["postgres-language-server.json", "postgres-language-server.jsonc"] }
+powershell-editor-services = { command = "powershell-editor-services" }
 prisma-language-server = { command = "prisma-language-server", args = ["--stdio"], config.prisma.enableDiagnostics = true }
 puppet-languageserver = { command = "puppet-languageserver", args = ["--stdio"] }
 purescript-language-server = { command = "purescript-language-server", args = ["--stdio"] }
@@ -148,6 +158,7 @@ solargraph = { command = "solargraph", args = ["stdio"] }
 solc = { command = "solc", args = ["--lsp"] }
 sourcekit-lsp = { command = "sourcekit-lsp" }
 spade-language-server = {command = "swim", args = ["lsp"]}
+sqls = { command = "sqls" }
 starpls = {command = "starpls"}
 styx = { command = "styx", args = ["lsp"] }
 svlangserver = { command = "svlangserver", args = [], config.systemverilog.includeIndexing = ["*.{v,vh,sv,svh}", "**/*.{v,vh,sv,svh}"] }
@@ -158,9 +169,11 @@ taplo = { command = "taplo", args = ["lsp", "stdio"], config = {} }
 templ = { command = "templ", args = ["lsp"] }
 terraform-ls = { command = "terraform-ls", args = ["serve"] }
 texlab = { command = "texlab" }
+thrift-ls = { command = "thrift-ls" }
 tilt = { command = "tilt", args = ["lsp", "start"] }
 tombi = { command = "tombi", args = ["lsp"] }
 ty = { command = "ty", args = ["server"] }
+typescript-native = { command = "tsc", args = ["--lsp", "--stdio"] }
 typespec = { command = "tsp-server", args = ["--stdio"] }
 vala-language-server = { command = "vala-language-server" }
 vale-ls = { command = "vale-ls" }
@@ -301,7 +314,6 @@ args = ["--stdio"]
 
 [language-server.vscode-eslint-language-server.config]
 validate = "on"
-experimental = { useFlatConfig = false }
 rulesCustomizations = []
 run = "onType"
 problems = { shortenToSingleLine = false }
@@ -430,7 +442,7 @@ file-types = [
   { glob = "staticcheck.conf" },
 ]
 comment-token = "#"
-language-servers = [ "taplo", "tombi" ]
+language-servers = [{ alternatives = ["tombi", "taplo"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
@@ -455,7 +467,7 @@ name = "protobuf"
 scope = "source.proto"
 injection-regex = "proto"
 file-types = ["proto"]
-language-servers = [ "buf", "pbkit", "protols" ]
+language-servers = [{ alternatives = ["buf", "protols", "pbkit"] }]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 2, unit = "  " }
@@ -497,7 +509,7 @@ file-types = ["ex", "exs", { glob = "mix.lock" }]
 shebangs = ["elixir"]
 roots = ["mix.exs", "mix.lock"]
 comment-token = "#"
-language-servers = [ "elixir-ls", "expert" ]
+language-servers = [{ alternatives = ["elixir-ls", "expert"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
@@ -794,7 +806,7 @@ roots = ["*.slnx", "*.sln", "*.csproj"]
 comment-tokens = ["//", "///"]
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 4, unit = "\t" }
-language-servers = [ "roslyn-language-server", "omnisharp", "csharp-ls" ]
+language-servers = [{ alternatives = ["roslyn-language-server", "csharp-ls", "omnisharp"] }]
 
 [language.debugger]
 name = "netcoredbg"
@@ -1001,7 +1013,7 @@ shebangs = ["node"]
 roots = [ "package.json", "jsconfig.json" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
-language-servers = [ "typescript-language-server" ]
+language-servers = [{ alternatives = ["typescript-native", "typescript-language-server", "vtsls"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [language.debugger]
@@ -1030,7 +1042,7 @@ file-types = ["jsx"]
 roots = [ "package.json", "jsconfig.json" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
-language-servers = [ "typescript-language-server" ]
+language-servers = [{ alternatives = ["typescript-native", "typescript-language-server", "vtsls"] }]
 indent = { tab-width = 2, unit = "  " }
 grammar = "javascript"
 
@@ -1044,7 +1056,7 @@ shebangs = ["deno", "bun", "ts-node"]
 roots = [ "package.json", "tsconfig.json" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
-language-servers = [ "typescript-language-server" ]
+language-servers = [{ alternatives = ["typescript-native", "typescript-language-server", "vtsls"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
@@ -1077,7 +1089,7 @@ file-types = ["tsx"]
 roots = [ "package.json", "tsconfig.json" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
-language-servers = [ "typescript-language-server" ]
+language-servers = [{ alternatives = ["typescript-native", "typescript-language-server", "vtsls"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
@@ -1132,7 +1144,7 @@ scope = "text.html.basic"
 injection-regex = "html"
 file-types = ["html", "htm", "shtml", "xhtml", "xht", "jsp", "asp", "aspx", "jshtm", "volt", "rhtml", "cshtml"]
 block-comment-tokens = { start = "<!--", end = "-->" }
-language-servers = [ "vscode-html-language-server", "superhtml" ]
+language-servers = [{ alternatives = ["vscode-html-language-server", "superhtml"] }]
 auto-format = true
 indent = { tab-width = 2, unit = "  " }
 
@@ -1152,7 +1164,10 @@ source = { git = "https://github.com/tree-sitter/tree-sitter-html", rev = "73a39
 name = "htmldjango"
 scope = "source.htmldjango"
 injection-regex = "htmldjango"
-language-servers = ["djlsp", "vscode-html-language-server", "superhtml"]
+language-servers = ["djlsp", { alternatives = [
+  { name = "vscode-html-language-server", except-features = ["diagnostics"] },
+  { name = "superhtml", except-features = ["diagnostics"] },
+] }]
 file-types = []
 roots = ["manage.py"]
 
@@ -1176,7 +1191,10 @@ file-types = ["py", "pyi", "py3", "pyw", "ptl", "rpy", "cpy", "ipy", "pyt", { gl
 shebangs = ["python", "uv"]
 roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
 comment-token = "#"
-language-servers = ["ty", "ruff", "jedi", "pylsp", "zuban"]
+language-servers = [
+  { alternatives = ["ty", "basedpyright", "pyright", "pylsp", "jedi", "zuban"] },
+  { name = "ruff", only-features = ["diagnostics", "code-action", "format"] },
+]
 # TODO: pyls needs utf-8 offsets
 indent = { tab-width = 4, unit = "    " }
 
@@ -1212,7 +1230,7 @@ file-types = ["nix"]
 shebangs = []
 comment-token = "#"
 block-comment-tokens = { start = "/*", end = "*/" }
-language-servers = [ "nil", "nixd" ]
+language-servers = [{ alternatives = ["nixd", "nil"] }]
 indent = { tab-width = 2, unit = "  " }
 formatter = { command = "nixfmt" }
 
@@ -1266,7 +1284,7 @@ file-types = [
 ]
 shebangs = ["ruby"]
 comment-token = "#"
-language-servers = [ "ruby-lsp", "solargraph" ]
+language-servers = [{ alternatives = ["ruby-lsp", "solargraph"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
@@ -1279,8 +1297,10 @@ file-types = [{ glob = "*.rs.html" }]
 scope = "source.rshtml"
 language-servers = [
   "rshtml-analyzer",
-  "vscode-html-language-server",
-  "superhtml",
+  { alternatives = [
+    { name = "vscode-html-language-server", except-features = ["diagnostics"] },
+    { name = "superhtml", except-features = ["diagnostics"] },
+  ] },
 ]
 roots = ["Cargo.lock", "Cargo.toml"]
 indent = { tab-width = 2, unit = "  " }
@@ -1713,7 +1733,7 @@ file-types = [
 ]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
-language-servers = [ "yaml-language-server", "ansible-language-server" ]
+language-servers = ["yaml-language-server"]
 injection-regex = "yml|yaml"
 formatter = { command = "yamlfmt", args = ['-'] }
 auto-format = true
@@ -1721,6 +1741,21 @@ auto-format = true
 [[grammar]]
 name = "yaml"
 source = { git = "https://github.com/ikatyang/tree-sitter-yaml", rev = "0e36bed171768908f331ff7dff9d956bae016efb" }
+
+[[language]]
+name = "ansible"
+scope = "source.yaml.ansible"
+file-types = [
+  { glob = "**/playbooks/*.{yml,yaml}" },
+  { glob = "**/roles/*/{tasks,handlers,defaults,vars,meta}/**/*.{yml,yaml}" },
+]
+roots = ["ansible.cfg", "galaxy.yml"]
+language-servers = ["ansible-language-server"]
+grammar = "yaml"
+comment-token = "#"
+indent = { tab-width = 2, unit = "  " }
+formatter = { command = "yamlfmt", args = ["-"] }
+auto-format = true
 
 [[language]]
 name = "nestedtext"
@@ -1884,7 +1919,7 @@ file-types = ["cmake", { glob = "CMakeLists.txt" }]
 comment-token = "#"
 block-comment-tokens = { start = "#[[", end = "]]" }
 indent = { tab-width = 2, unit = "  " }
-language-servers = ["neocmakelsp", "cmake-language-server"]
+language-servers = [{ alternatives = ["neocmakelsp", "cmake-language-server"] }]
 injection-regex = "cmake"
 
 [[grammar]]
@@ -1911,7 +1946,7 @@ file-types = ["glsl", "vert", "tesc", "tese", "geom", "frag", "comp" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 4, unit = "    " }
-language-servers = [ "glsl_analyzer", "glsld" ]
+language-servers = [{ alternatives = ["glsl_analyzer", "glsld"] }]
 injection-regex = "glsl"
 
 [[grammar]]
@@ -2107,9 +2142,12 @@ source = { git = "https://codeberg.org/ficd/tree-sitter-mail", rev = "5eddbfdbec
 name = "markdown"
 scope = "source.md"
 injection-regex = "md|markdown"
-file-types = ["md", "livemd", "markdown", "mdx", "mkd", "mkdn", "mdwn", "mdown", "markdn", "mdtxt", "mdtext", "workbook", { glob = "PULLREQ_EDITMSG" }]
+file-types = ["md", "livemd", "markdown", "mkd", "mkdn", "mdwn", "mdown", "markdn", "mdtxt", "mdtext", "workbook", { glob = "PULLREQ_EDITMSG" }]
 roots = [".marksman.toml"]
-language-servers = [ "marksman", "markdown-oxide", "rumdl" ]
+language-servers = [
+  { alternatives = ["marksman", "markdown-oxide"] },
+  { name = "rumdl", only-features = ["diagnostics", "code-action", "format"] },
+]
 indent = { tab-width = 2, unit = "  " }
 block-comment-tokens = { start = "<!--", end = "-->" }
 word-completion.trigger-length = 4
@@ -2128,6 +2166,18 @@ word-completion.trigger-length = 4
 [[grammar]]
 name = "markdown"
 source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-markdown", rev = "a0a00f817d02412bd92c54d316f164d827b57b5c", subpath = "tree-sitter-markdown" }
+
+[[language]]
+name = "mdx"
+scope = "source.mdx"
+injection-regex = "mdx"
+file-types = ["mdx"]
+roots = ["package.json"]
+language-servers = ["mdx-language-server"]
+grammar = "markdown"
+indent = { tab-width = 2, unit = "  " }
+block-comment-tokens = { start = "{/*", end = "*/}" }
+word-completion.trigger-length = 4
 
 [[language]]
 name = "markdown-rustdoc"
@@ -2223,7 +2273,7 @@ name = "docker-compose"
 language-id = "dockercompose"
 scope = "source.yaml.docker-compose"
 roots = ["docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"]
-language-servers = [ "docker-compose-langserver", "yaml-language-server", "docker-language-server" ]
+language-servers = [{ alternatives = ["docker-language-server", "docker-compose-langserver", "yaml-language-server"] }]
 file-types = [{ glob = "docker-compose.yaml" }, { glob = "docker-compose.yml" }, { glob = "compose.yaml" }, { glob = "compose.yml" }]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
@@ -2399,10 +2449,10 @@ roots = ["rebar.config"]
 shebangs = ["escript"]
 comment-token = "%%"
 indent = { tab-width = 4, unit = "    " }
-language-servers = [
+language-servers = [{ alternatives = [
   { name = "erlang-ls", except-features = ["document-symbols", "workspace-symbols"] },
-  { name = "elp", except-features = ["document-symbols", "workspace-symbols"] }
-]
+  { name = "elp", except-features = ["document-symbols", "workspace-symbols"] },
+] }]
 
 [[grammar]]
 name = "erlang"
@@ -2416,7 +2466,7 @@ roots = ["settings.gradle", "settings.gradle.kts"]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 4, unit = "    " }
-language-servers = [ "kotlin-language-server" ]
+language-servers = [{ alternatives = ["kotlin-lsp", "kotlin-language-server"] }]
 
 [[grammar]]
 name = "kotlin"
@@ -2524,7 +2574,7 @@ injection-regex = "robot"
 file-types = ["robot", "resource"]
 comment-token = "#"
 indent = { tab-width = 4, unit = " " }
-language-servers = [ "robotcode", "robotframework_ls" ]
+language-servers = [{ alternatives = ["robotcode", "robotframework_ls"] }]
 
 [[grammar]]
 name = "robot"
@@ -2614,7 +2664,7 @@ file-types = ["heex"]
 roots = ["mix.exs", "mix.lock"]
 block-comment-tokens = { start = "<!--", end = "-->" }
 indent = { tab-width = 2, unit = "  " }
-language-servers = [ "elixir-ls", "expert" ]
+language-servers = [{ alternatives = ["elixir-ls", "expert"] }]
 
 [[grammar]]
 name = "heex"
@@ -2624,10 +2674,13 @@ source = { git = "https://github.com/phoenixframework/tree-sitter-heex", rev = "
 name = "sql"
 scope = "source.sql"
 file-types = ["sql", "dsql"]
+roots = ["postgres-language-server.json", "postgres-language-server.jsonc", ".sqls.yml"]
 comment-token = "--"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 4, unit = "    " }
 injection-regex = "sql"
+language-servers = [{ alternatives = ["postgres-language-server", "sqls"] }]
+
 
 [[grammar]]
 name = "sql"
@@ -3348,6 +3401,8 @@ file-types = [
 block-comment-tokens = { start = "<!--", end = "-->" }
 indent = { tab-width = 2, unit = "  " }
 
+language-servers = ["lemminx"]
+
 [language.auto-pairs]
 '(' = ')'
 '{' = '}'
@@ -3367,6 +3422,8 @@ injection-regex = "dtd"
 file-types = ["dtd", "ent"]
 indent = {tab-width = 2, unit = "  "}
 block-comment-tokens = { start = "<!--", end = "-->" }
+
+language-servers = ["lemminx"]
 
 [language.auto-pairs]
 '(' = ')'
@@ -3546,6 +3603,8 @@ file-types = ["m"]
 comment-token = "%"
 shebangs = ["octave-cli", "matlab"]
 indent = { tab-width = 2, unit = "  " }
+language-servers = ["matlab-language-server"]
+
 
 [[grammar]]
 name = "matlab"
@@ -3719,6 +3778,10 @@ name = "rst"
 scope = "source.rst"
 comment-token = ".."
 file-types = ["rst"]
+language-id = "restructuredtext"
+roots = ["conf.py", "pyproject.toml"]
+language-servers = ["esbonio"]
+
 
 [[grammar]]
 name = "rst"
@@ -3875,10 +3938,12 @@ name = "gn"
 scope = "source.gn"
 injection-regex = "gn"
 file-types = ["gn", "gni"]
-roots = []
+roots = [".gn"]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
 formatter = { command = "gn", args = ["format", "--stdin"] }
+language-servers = ["gn-language-server"]
+
 
 [[grammar]]
 name = "gn"
@@ -3998,7 +4063,7 @@ injection-regex = "jjconfig"
 grammar = "toml"
 file-types = [{ glob = "jj/config.toml" }, { glob = "jj/**/*.toml" }, { glob = ".jj/repo/*.toml" }]
 comment-token = "#"
-language-servers = [ "taplo", "tombi" ]
+language-servers = [{ alternatives = ["tombi", "taplo"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[language]]
@@ -4048,7 +4113,7 @@ file-types = [
   { glob = ".config/mise/conf.d/*.toml" },
 ]
 comment-token = "#"
-language-servers = [ "taplo", "tombi" ]
+language-servers = [{ alternatives = ["tombi", "taplo"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[language]]
@@ -4286,9 +4351,12 @@ name = "groovy"
 language-id = "groovy"
 scope = "source.groovy"
 file-types = ["gradle", "groovy", "jenkinsfile", { glob = "Jenkinsfile" },  { glob = "Jenkinsfile.*" }]
+roots = ["settings.gradle", "settings.gradle.kts", "pom.xml", "Jenkinsfile"]
 shebangs = ["groovy"]
 comment-token = "//"
 indent = { tab-width = 2, unit = "  " }
+language-servers = ["groovy-language-server"]
+
 
 [[grammar]]
 name = "groovy"
@@ -4321,6 +4389,8 @@ shebangs = [ "pwsh", "powershell" ]
 comment-token = '#'
 block-comment-tokens = { start = "<#", end = "#>" }
 indent = { tab-width = 4, unit = "    " }
+language-servers = ["powershell-editor-services"]
+
 
 [[grammar]]
 name = "powershell"
@@ -4631,9 +4701,12 @@ source = { git = "https://github.com/ember-tooling/tree-sitter-glimmer-typescrip
 [[language]]
 name = "gherkin"
 scope = "source.feature"
+language-id = "cucumber"
 file-types = ["feature"]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
+language-servers = ["cucumber-language-server"]
+
 
 [[grammar]]
 name = "gherkin"
@@ -4646,6 +4719,8 @@ file-types = ["thrift"]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 2, unit = "  " }
+language-servers = ["thrift-ls"]
+
 
 [[grammar]]
 name = "thrift"
@@ -5154,7 +5229,7 @@ injection-regex = "cross(-config)"
 grammar = "toml"
 comment-token = "#"
 file-types = [{glob = "Cross.toml"}]
-language-servers = [ "taplo", "tombi" ]
+language-servers = [{ alternatives = ["tombi", "taplo"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[language]]
@@ -5164,7 +5239,7 @@ injection-regex = "git-cliff(-config)"
 grammar = "toml"
 comment-token = "#"
 file-types = [{ glob = "cliff.toml" }]
-language-servers = ["taplo", "tombi"]
+language-servers = [{ alternatives = ["tombi", "taplo"] }]
 indent = { tab-width = 2, unit = "  " }
 
 [[language]]

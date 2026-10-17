@@ -163,23 +163,27 @@ pub fn lang_features() -> Result<String, DynError> {
                 .to_owned(),
             );
         }
-        let mut seen_commands = HashSet::new();
         let mut commands = String::new();
-        for ls_config in lc
-            .language_servers
-            .iter()
-            .filter_map(|ls| config.language_server.get(&ls.name))
-        {
-            let command = &ls_config.command;
-            if !seen_commands.insert(command) {
+        for group in lc.language_server_groups() {
+            let mut seen_commands = HashSet::new();
+            let entries = group
+                .iter()
+                .filter_map(|server| config.language_server.get(&server.name))
+                .filter(|server| seen_commands.insert(&server.command))
+                .map(|server| md_mono(&server.command))
+                .collect::<Vec<_>>();
+            if entries.is_empty() {
                 continue;
             }
-
             if !commands.is_empty() {
                 commands.push_str(", ");
             }
-
-            commands.push_str(&md_mono(command));
+            if group[0].alternative_group.is_some() {
+                commands.push_str("first available: ");
+                commands.push_str(&entries.join(" → "));
+            } else {
+                commands.push_str(&entries[0]);
+            }
         }
         row.push(commands);
 

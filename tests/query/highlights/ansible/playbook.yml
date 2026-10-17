@@ -1,0 +1,4 @@
+- name: Deploy
+# ^^^^ @variable.other.member
+  enabled: true
+#          ^^^^ @constant.builtin.boolean

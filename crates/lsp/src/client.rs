@@ -299,6 +299,10 @@ impl Client {
         &self.name
     }
 
+    pub fn root_path(&self) -> &Path {
+        &self.root_path
+    }
+
     pub fn id(&self) -> LanguageServerId {
         self.id
     }

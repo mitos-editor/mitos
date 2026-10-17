@@ -1,113 +1,60 @@
 # Languages
 
-Language-specific settings and settings for language servers are configured
-in `languages.toml` files.
+Use `languages.toml` to change language-specific settings, choose language
+servers, or configure a formatter. Most languages already have defaults; you
+only need to add the settings you want to change.
 
-The [main configuration reference](./configuration.md#languagestoml-reference)
-contains the canonical list of every accepted key. This chapter explains how
-the language, server, formatter, debugger, and grammar sections work together.
+For installation help, see [Language servers](./lsp.md). The
+[configuration reference](./configuration.md#languagestoml-reference) lists
+all available settings.
 
 ## `languages.toml` files
 
-There are three possible locations for a `languages.toml` file:
+Create `languages.toml` in your [configuration directory](./configuration.md)
+to change your defaults:
 
-1. In the Mitos source code, which lives in the
-   [Mitos repository](https://github.com/mitos-editor/mitos/blob/main/languages.toml).
-   It provides the default configurations for languages and language servers.
+- Linux and macOS: `~/.config/mitos/languages.toml`
+- Windows: `%AppData%\mitos\languages.toml`
 
-2. In your [configuration directory](./configuration.md). This overrides values
-   from the built-in language configuration. For example, to disable
-   auto-formatting for Rust:
-
-   ```toml
-   # in <config_dir>/mitos/languages.toml
-
-   [language-server.mylang-lsp]
-   command = "mylang-lsp"
-
-   [[language]]
-   name = "rust"
-   auto-format = false
-   ```
-
-3. In a `.mitos` folder in your project. Language configuration may also be
-   overridden local to a project by creating a `languages.toml` file in a
-   `.mitos` folder. Its settings will be merged with the language configuration
-   in the configuration directory and the built-in configuration.
+For settings that apply to one project, use `.mitos/languages.toml` in that
+project. Project settings override your own and are loaded after you
+[trust the workspace](./workspace-trust.md).
 
 ## Language configuration
 
-Each language is configured by adding a `[[language]]` section to a
-`languages.toml` file. For example:
+Add a `[[language]]` section with the language's name and the settings you
+want to change. For example, to disable formatting on save for Rust:
 
 ```toml
 [[language]]
-name = "mylang"
-scope = "source.mylang"
-injection-regex = "mylang"
-file-types = ["mylang", "myl"]
-comment-tokens = "#"
-indent = { tab-width = 2, unit = "  " }
-formatter = { command = "mylang-formatter" , args = ["--stdin"] }
-language-servers = [ "mylang-lsp" ]
+name = "rust"
+auto-format = false
 ```
 
-These configuration keys are available:
-
-| Key                   | Description                                                   |
-| ----                  | -----------                                                   |
-| `name`                | The name of the language                                      |
-| `language-id`         | The language-id for language servers, checkout the table at [TextDocumentItem](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocumentItem) for the right id |
-| `scope`               | A string like `source.js` that identifies the language. Currently, we strive to match the scope names used by popular TextMate grammars and by the Linguist library. Usually `source.<name>` or `text.<name>` in case of markup languages |
-| `injection-regex`     | regex pattern that will be tested against a language name in order to determine whether this language should be used for a potential [language injection][treesitter-language-injection] site. |
-| `file-types`          | The filetypes of the language, for example `["yml", "yaml"]`. See the file-type detection section below. |
-| `shebangs`            | The interpreters from the shebang line, for example `["sh", "bash"]` |
-| `roots`               | A set of marker files used for LSP working directory selection. Mitos starts at the file, walks upward, and remembers the *topmost* i.e. *last* directory that contains a marker file. For example Cargo.lock, yarn.lock |
-| `auto-format`         | Whether to autoformat this language when saving               |
-| `diagnostic-severity` | Minimal severity of diagnostic for it to be displayed. (Allowed values: `error`, `warning`, `info`, `hint`) |
-| `comment-tokens`      | The tokens to use as a comment token, either a single token `"//"` or an array `["//", "///", "//!"]` (the first token will be used for commenting). Also configurable as `comment-token` for backwards compatibility|
-| `block-comment-tokens`| The start and end tokens for a multiline comment either an array or single table of `{ start = "/*", end = "*/"}`. The first set of tokens will be used for commenting, any pairs in the array can be uncommented |
-| `indent`              | The indent to use. Has sub keys `unit` (the text inserted into the document when indenting; usually set to N spaces or `"\t"` for tabs) and `tab-width` (the number of spaces rendered for a tab) |
-| `language-servers`    | The Language Servers used for this language. See below for more information in the section [Configuring Language Servers for a language](#configuring-language-servers-for-a-language)   |
-| `grammar`             | The tree-sitter grammar to use (defaults to the value of `name`) |
-| `formatter`           | The formatter for the language, it will take precedence over the lsp when defined. The formatter must be able to take the original file as input from stdin and write the formatted file to stdout. The filename of the current buffer can be passed as argument by using the `%{buffer_name}` expansion variable. See below for more information in the [Configuring the formatter command](#configuring-the-formatter-command) |
-| `soft-wrap`           | [editor.softwrap](./editor.md#editorsoft-wrap-section)
-| `text-width`          |  Maximum line length. Used for the `:reflow` command and soft-wrapping if `soft-wrap.wrap-at-text-width` is set, defaults to `editor.text-width`   |
-| `rulers`              | Overrides the `editor.rulers` config key for the language. |
-| `path-completion`     | Overrides the `editor.completion.path.enable` config key for the language. |
-| `word-completion`     | Overrides the [`editor.completion.word`](./editor.md#editorcompletionword-section) configuration for the language. |
-| `spelling` | Layers over [`editor.spelling`](./configuration.md#editorspelling): `languages` and `min-word-length` replace the global value; `words` and `ignore-regexes` extend it. |
-| `auto-pairs`          | Overrides the [`editor.auto-pairs`](./editor.md#editorauto-pairs-section) configuration for the language. |
-| `debugger`            | Defines the language's debug adapter, transport, and launch/attach templates. See [Debugging (DAP)](./debugging.md) and the [complete reference](./configuration.md#languagedebugger). |
-| `workspace-lsp-roots`     | Directories (relative to the workspace root) that stop the upward root search early. Meant for project-specific hard overrides in a local `.mitos/config.toml`; |
-| `persistent-diagnostic-sources` | An array of LSP diagnostic sources assumed unchanged when the language server resends the same set of diagnostics. Mitos can track the position for these diagnostics internally instead. Useful for diagnostics that are recomputed on save.
-| `rainbow-brackets` | Overrides the `editor.rainbow-brackets.enable` config key for the language |
-| `code-actions-on-save`    | List of LSP code actions to be run in order on save, for example `["source.organizeImports"]` |
+Use the names in the [language support table](./lang-support.md).
+For example, JavaScript, JSX, TypeScript, and TSX have separate entries.
 
 ## Project and LSP root selection
 
-This is the model Mitos uses:
+Mitos usually finds the project folder automatically. A language's `roots`
+setting lists project files such as `Cargo.toml` or `package.json`. For a file
+inside nested projects, Mitos uses the outermost matching folder within the
+workspace.
 
-- The **workspace root** is found once by walking upward from the current
-  working directory and picking the first directory that contains `.git`, `.svn`,
-  `.jj`, or `.mitos`. If none are found, the current working directory is the
-  workspace root.
-- Root markers (`roots`) are used only for LSP root selection and are found by
-  starting at the **file**, not the folder Mitos was opened in.
-- We use the **topmost** directory that has a root marker (we stop the search at
-  the workspace root).
-- In most cases, root markers are enough. In some repos there are multiple
-  nested root markers and whether you want the inner or outer one is project
-  specific. For these situations, use `workspace-lsp-roots` to stop the search
-  early in a particular directory.
-- `workspace-lsp-roots` is meant to be set in the **project-specific** config:
-  `$PROJECT/.mitos/config.toml`.
+For a monorepo where servers should treat subfolders as separate projects,
+add this to `.mitos/config.toml`:
 
-Interaction with `required-root-patterns` (a language_server configuration key):
+```toml
+[editor.lsp]
+workspace-roots = ["frontend", "backend"]
+```
 
-- After the LSP root is selected, Mitos checks for `required-root-patterns` in
-  that directory. If none match, the server is not started.
-- This is validation, not root detection.
+You can also set `workspace-lsp-roots` in a language entry in
+`.mitos/languages.toml` to apply this to one language.
+
+Some servers have `required-root-patterns`, such as a database configuration
+file. Mitos starts those servers only when a pattern matches in the selected
+project folder.
 
 ### File-type detection and the `file-types` key
 
@@ -172,108 +119,109 @@ code-actions-on-save = ["source.fixAll.eslint", "source.organizeImports"]
 
 ## Language Server configuration
 
-Language servers are configured separately in the table `language-server` in the same file as the languages `languages.toml`
-
-For example:
-
-```toml
-[language-server.mylang-lsp]
-command = "mylang-lsp"
-args = ["--stdio"]
-config = { provideFormatter = true }
-environment = { "ENV1" = "value1", "ENV2" = "value2" }
-
-[language-server.efm-lsp-prettier]
-command = "efm-langserver"
-
-[language-server.efm-lsp-prettier.config]
-documentFormatting = true
-languages = { typescript = [ { formatCommand ="prettier --stdin-filepath ${INPUT}", formatStdin = true } ] }
-```
-
-These are the available options for a language server.
-
-| Key                        | Description                                                                                                                       |
-| ----                       | -----------                                                                                                                       |
-| `command`                  | The name or path of the language server binary to execute. Binaries must be in `$PATH`                                            |
-| `args`                     | A list of arguments to pass to the language server binary                                                                         |
-| `config`                   | Language server initialization options                                                                                            |
-| `timeout`                  | The maximum time a request to the language server may take, in seconds. Defaults to `20`                                          |
-| `environment`              | Any environment variables that will be used when starting the language server `{ "KEY1" = "Value1", "KEY2" = "Value2" }`          |
-| `required-root-patterns`   | A list of `glob` patterns to look for in the working directory of the lsp. The language server is only started if at least one of them is found. |
-
-A `format` sub-table within `config` can be used to pass extra formatting options to
-[Document Formatting Requests](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_formatting).
-For example, with typescript:
-
-```toml
-[language-server.typescript-language-server]
-# pass format options according to https://github.com/typescript-language-server/typescript-language-server#workspacedidchangeconfiguration omitting the "[language].format." prefix.
-config = { format = { "semicolons" = "insert", "insertSpaceBeforeFunctionParenthesis" = true } }
-```
-
 ### Configuring Language Servers for a language
 
-The `language-servers` attribute in a language tells mitos which language servers are used for this language.
-
-They have to be defined in the `[language-server]` table as described in the previous section.
-
-Different languages can use the same language server instance, e.g. `typescript-language-server` is used for javascript, jsx, tsx and typescript by default.
-
-The definition order of language servers affects the order in the results list of code action menu.
-
-In case multiple language servers are specified in the `language-servers` attribute of a `language`,
-it's often useful to only enable/disable certain language-server features for these language servers.
-
-As an example, `efm-lsp-prettier` of the previous example is used only with a formatting command `prettier`,
-so everything else should be handled by the `typescript-language-server` (which is configured by default).
-The language configuration for typescript could look like this:
+Set `language-servers` to choose which tools a language uses:
 
 ```toml
 [[language]]
-name = "typescript"
-language-servers = [ { name = "efm-lsp-prettier", only-features = [ "format" ] }, "typescript-language-server" ]
+name = "python"
+language-servers = ["basedpyright", "ruff"]
 ```
 
-or equivalent:
+This runs both servers when installed. Use
+[alternatives](#ordered-alternatives-and-supplementary-servers) to choose
+between servers that provide the same features.
+
+### Change a server's command or settings
+
+Most servers already have a definition. Add only the settings you want to
+change under `[language-server.<name>]`:
+
+```toml
+[language-server.basedpyright]
+command = "/path/to/basedpyright-langserver"
+args = ["--stdio"]
+```
+
+For a new server, define its `command` here, then add its name to the
+language's `language-servers` list. The command must be on your `PATH` or be
+an absolute path.
+
+Use `config` for the server's own settings. Their names and values depend
+on the server; check its documentation. For example:
+
+```toml
+[language-server.rust-analyzer.config]
+check.command = "clippy"
+```
+
+Run `:lsp-restart` after changing server settings. See the
+[server configuration reference](./configuration.md#language-servername)
+for arguments, environment variables, timeouts, and project requirements.
+
+### Ordered alternatives and supplementary servers
+
+Use `alternatives` to choose one server from a list, in preference order.
+List other servers separately to run them alongside it:
 
 ```toml
 [[language]]
-name = "typescript"
-language-servers = [ { name = "typescript-language-server", except-features = [ "format" ] }, "efm-lsp-prettier" ]
+name = "python"
+language-servers = [
+  { alternatives = ["ty", "basedpyright", "pylsp"] },
+  { name = "ruff", only-features = ["diagnostics", "code-action", "format"] },
+]
 ```
 
-Each requested LSP feature is prioritized in the order of the `language-servers` array.
-For example, the first `goto-definition` supported language server (in this case `typescript-language-server`) will be taken for the relevant LSP request (command `goto_definition`).
-The features `diagnostics`, `code-action`, `code-lens`, `completion`, `document-symbols` and `workspace-symbols` are an exception to that rule, as they are working for all language servers at the same time and are merged together, if enabled for the language.
-If no `except-features` or `only-features` is given, all features for the language server are enabled.
-If a language server itself doesn't support a feature, the next language server array entry will be tried (and so on).
+Here, Mitos uses the first installed server that can start for the project,
+plus Ruff for checking and formatting. If a server fails to start, Mitos tries
+the next alternative. Each group needs at least one server; use each server
+name only once when configuring alternatives.
 
-The list of supported features is:
+Run `ms --health python` to check which servers are installed and suitable for
+the current project. This checks availability without starting them.
 
-- `format`
-- `goto-declaration`
-- `goto-definition`
-- `goto-type-definition`
-- `goto-reference`
-- `goto-implementation`
-- `signature-help`
-- `hover`
-- `document-highlight`
-- `completion`
-- `inline-completion`
-- `code-action`
-- `code-lens`
-- `document-links`
-- `workspace-command`
-- `document-symbols`
-- `workspace-symbols`
-- `diagnostics`
-- `pull-diagnostics`
-- `rename-symbol`
-- `inlay-hints`
-- `document-colors`
-- `call-hierarchy`
+Use `:lsp-restart` to retry the list after installing or fixing a server, or
+`:lsp-restart basedpyright` to choose a specific alternative. To make that
+choice permanent, change `language-servers` in your `languages.toml`.
+
+Once a server starts, Mitos keeps using it until you run `:lsp-restart`.
+If it stops working, use that command to recover. `:lsp-stop` keeps it
+stopped until you restart it.
+
+### Feature routing
+
+When servers run together, use `only-features` or `except-features` to choose
+what each one provides. For example, to use Ruff only for formatting:
+
+```toml
+[[language]]
+name = "python"
+language-servers = [
+  "basedpyright",
+  { name = "ruff", only-features = ["format"] },
+]
+```
+
+Without a filter, all features the server supports are enabled. You can also
+put filtered entries inside an `alternatives` list.
+
+For navigation, hover, and formatting, Mitos uses the first listed server
+that supports the feature. Completion, diagnostics, code actions, code lenses,
+and symbol lists combine results from all enabled servers.
+
+Available feature names:
+
+| Purpose | Names |
+| --- | --- |
+| Formatting | `format` |
+| Navigation | `goto-declaration`, `goto-definition`, `goto-type-definition`, `goto-reference`, `goto-implementation`, `call-hierarchy` |
+| Hints and documentation | `hover`, `signature-help`, `document-highlight`, `inlay-hints`, `document-colors` |
+| Completion | `completion`, `inline-completion` |
+| Actions | `code-action`, `code-lens`, `rename-symbol`, `workspace-command`, `document-links` |
+| Symbols | `document-symbols`, `workspace-symbols` |
+| Diagnostics | `diagnostics`, `pull-diagnostics` |
 
 ## Tree-sitter grammar configuration
 
@@ -313,10 +261,12 @@ fetched and built when using `ms --grammar fetch` and `ms --grammar build`.
 ```toml
 # Note: this key must come **before** the [[language]] and [[grammar]] sections
 use-grammars = { only = [ "rust", "c", "cpp" ] }
-# or
+```
+
+Or exclude specific grammars instead:
+
+```toml
 use-grammars = { except = [ "yaml", "json" ] }
 ```
 
 When omitted, all grammars are fetched and built.
-
-[treesitter-language-injection]: https://tree-sitter.github.io/tree-sitter/3-syntax-highlighting.html#language-injection

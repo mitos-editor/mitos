@@ -30,7 +30,7 @@ pub use lsp::{Position, Url};
 pub use lsp_types as lsp;
 
 use editor_core::syntax::config::{
-    LanguageConfiguration, LanguageServerConfiguration, LanguageServerFeatures, RootMarkers,
+    LanguageConfiguration, LanguageServerConfiguration, RootMarkers,
 };
 use futures_util::stream::select_all::SelectAll;
 use slotmap::SlotMap;
@@ -38,7 +38,7 @@ use stdx::path;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -611,6 +611,9 @@ pub struct Registry {
     inner: SlotMap<LanguageServerId, Arc<Client>>,
     inner_by_name: HashMap<LanguageServerName, Vec<Arc<Client>>>,
     syn_loader: Arc<ArcSwap<editor_core::syntax::Loader>>,
+    failed_startups: HashSet<(LanguageServerName, PathBuf)>,
+    exited_servers: HashSet<(LanguageServerName, PathBuf)>,
+    alternative_selections: HashMap<(String, usize, PathBuf), LanguageServerName>,
     pub incoming: SelectAll<UnboundedReceiverStream<(LanguageServerId, Call)>>,
     pub file_event_handler: file_event::Handler,
 }
@@ -621,6 +624,9 @@ impl Registry {
             inner: SlotMap::with_key(),
             inner_by_name: HashMap::new(),
             syn_loader,
+            failed_startups: HashSet::new(),
+            exited_servers: HashSet::new(),
+            alternative_selections: HashMap::new(),
             incoming: SelectAll::new(),
             file_event_handler: file_event::Handler::new(),
         }
@@ -687,6 +693,8 @@ impl Registry {
         root_dirs: &[PathBuf],
         enable_snippets: bool,
     ) -> Option<Result<Arc<Client>>> {
+        self.failed_startups.retain(|(server, _)| server != name);
+        self.exited_servers.retain(|(server, _)| server != name);
         if let Some(old_clients) = self.inner_by_name.remove(name) {
             if old_clients.is_empty() {
                 log::info!("restarting client for '{name}' which was manually stopped");
@@ -712,6 +720,18 @@ impl Registry {
         };
         self.inner_by_name
             .insert(name.to_owned(), vec![client.clone()]);
+        if let Some(server) = language_config
+            .language_servers
+            .iter()
+            .find(|server| server.name == name)
+            && let Some(group) = server.alternative_group
+        {
+            let (root, _) = language_server_root(language_config, doc_path, root_dirs);
+            self.alternative_selections.insert(
+                (language_config.language_id.clone(), group, root),
+                name.to_owned(),
+            );
+        }
 
         Some(Ok(client))
     }
@@ -731,33 +751,140 @@ impl Registry {
         }
     }
 
-    pub fn get<'a>(
-        &'a mut self,
-        language_config: &'a LanguageConfiguration,
-        doc_path: Option<&'a std::path::Path>,
-        root_dirs: &'a [PathBuf],
-        enable_snippets: bool,
-    ) -> impl Iterator<Item = (LanguageServerName, Result<Arc<Client>>)> + 'a {
-        language_config.language_servers.iter().filter_map(
-            move |LanguageServerFeatures { name, .. }| {
-                if let Some(clients) = self.inner_by_name.get(name) {
-                    // If the clients vec is empty, do not automatically start a client
-                    // for this server. The empty vec is a tombstone left to mean that a
-                    // server has been manually stopped and shouldn't be started automatically.
-                    // See `stop`.
-                    if clients.is_empty() {
-                        return None;
-                    }
+    /// Remember failures per workspace. A running server's exit does not cause
+    /// a switch to an alternative; explicit restart clears this state.
+    pub fn record_exit(
+        &mut self,
+        id: LanguageServerId,
+        roots: impl IntoIterator<Item = PathBuf>,
+    ) -> bool {
+        let Some(client) = self.inner.get(id) else {
+            return false;
+        };
+        let initialized = client.is_initialized();
+        let entries = std::iter::once(client.root_path().to_owned())
+            .chain(roots)
+            .map(|root| (client.name().to_owned(), root));
+        if initialized {
+            self.exited_servers.extend(entries);
+        } else {
+            self.failed_startups.extend(entries);
+        }
+        !initialized
+    }
 
-                    if let Some((_, client)) = clients.iter().enumerate().find(|(i, client)| {
-                        let manual_roots = language_config
-                            .workspace_lsp_roots
-                            .as_deref()
-                            .unwrap_or(root_dirs);
-                        client.try_add_doc(&language_config.roots, manual_roots, doc_path, *i == 0)
-                    }) {
-                        return Some((name.to_owned(), Ok(client.clone())));
+    /// Stop and reset selected definitions without starting every alternative.
+    pub fn reset(&mut self, names: &[&str]) {
+        for name in names {
+            self.stop(name);
+            self.inner_by_name.remove(*name);
+        }
+        self.failed_startups
+            .retain(|(name, _)| !names.contains(&name.as_str()));
+        self.exited_servers
+            .retain(|(name, _)| !names.contains(&name.as_str()));
+        self.alternative_selections
+            .retain(|_, name| !names.contains(&name.as_str()));
+    }
+
+    fn existing_client(
+        &self,
+        name: &str,
+        language: &LanguageConfiguration,
+        doc_path: Option<&Path>,
+        root_dirs: &[PathBuf],
+    ) -> Option<Arc<Client>> {
+        let (root, _) = language_server_root(language, doc_path, root_dirs);
+        self.inner_by_name
+            .get(name)?
+            .iter()
+            .enumerate()
+            .find_map(|(index, client)| {
+                // Pending clients have not negotiated workspace-folder support yet.
+                // Do not attach a different root to an initialization that may fail.
+                if !client.is_initialized() && client.root_path() != root {
+                    return None;
+                }
+                client
+                    .try_add_doc(
+                        &language.roots,
+                        language.workspace_lsp_roots.as_deref().unwrap_or(root_dirs),
+                        doc_path,
+                        index == 0,
+                    )
+                    .then(|| client.clone())
+            })
+    }
+
+    pub fn get(
+        &mut self,
+        language_config: &LanguageConfiguration,
+        doc_path: Option<&Path>,
+        root_dirs: &[PathBuf],
+        enable_snippets: bool,
+    ) -> impl Iterator<Item = (LanguageServerName, Result<Arc<Client>>)> {
+        let (root_path, _) = language_server_root(language_config, doc_path, root_dirs);
+        let mut result = Vec::new();
+        for group in language_config.language_server_groups() {
+            let selection_key = group[0].alternative_group.map(|index| {
+                (
+                    language_config.language_id.clone(),
+                    index,
+                    root_path.clone(),
+                )
+            });
+            // Keep this language's selection stable without letting servers
+            // chosen for another language override its preference order.
+            if let Some(key) = &selection_key
+                && let Some(name) = self.alternative_selections.get(key).cloned()
+            {
+                let server_key = (name.clone(), root_path.clone());
+                if group.iter().any(|server| server.name == name) {
+                    if self.inner_by_name.get(&name).is_some_and(Vec::is_empty)
+                        || self.exited_servers.contains(&server_key)
+                    {
+                        continue;
                     }
+                    if !self.failed_startups.contains(&server_key)
+                        && let Some(client) =
+                            self.existing_client(&name, language_config, doc_path, root_dirs)
+                    {
+                        result.push((name, Ok(client)));
+                        continue;
+                    }
+                }
+                self.alternative_selections.remove(key);
+            }
+            for server in group {
+                let name = &server.name;
+                let server_key = (name.clone(), root_path.clone());
+                if self.inner_by_name.get(name).is_some_and(Vec::is_empty)
+                    || (selection_key.is_some()
+                        && (self.failed_startups.contains(&server_key)
+                            || self.exited_servers.contains(&server_key)))
+                {
+                    continue;
+                }
+                let loader = self.syn_loader.load();
+                if let Some(config) = loader.language_server_configs().get(name) {
+                    match has_required_root(config, &root_path) {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(error) => {
+                            result.push((name.clone(), Err(error.into())));
+                            continue;
+                        }
+                    }
+                }
+                drop(loader);
+                if let Some(client) =
+                    self.existing_client(name, language_config, doc_path, root_dirs)
+                {
+                    if let Some(key) = selection_key {
+                        self.alternative_selections.insert(key, name.clone());
+                    }
+                    result.push((name.clone(), Ok(client)));
+                    break;
                 }
                 match self.start_client(
                     name.clone(),
@@ -768,16 +895,26 @@ impl Registry {
                 ) {
                     Ok(client) => {
                         self.inner_by_name
-                            .entry(name.to_owned())
+                            .entry(name.clone())
                             .or_default()
                             .push(client.clone());
-                        Some((name.clone(), Ok(client)))
+                        if let Some(key) = selection_key {
+                            self.alternative_selections.insert(key, name.clone());
+                        }
+                        result.push((name.clone(), Ok(client)));
+                        break;
                     }
-                    Err(StartupError::NoRequiredRootFound) => None,
-                    Err(StartupError::Error(err)) => Some((name.to_owned(), Err(err))),
+                    Err(StartupError::NoRequiredRootFound) => {}
+                    Err(StartupError::Error(err)) => {
+                        if selection_key.is_some() && !matches!(err, Error::ExecutableNotFound(_)) {
+                            self.failed_startups.insert(server_key);
+                        }
+                        result.push((name.clone(), Err(err)));
+                    }
                 }
-            },
-        )
+            }
+        }
+        result.into_iter()
     }
 
     pub fn iter_clients(&self) -> impl Iterator<Item = &Arc<Client>> {
@@ -926,32 +1063,9 @@ fn start_client(
     root_dirs: &[PathBuf],
     enable_snippets: bool,
 ) -> Result<NewClient, StartupError> {
-    let (workspace, workspace_is_cwd) = loader::find_workspace();
-    let workspace = path::normalize(workspace);
-    let root = find_lsp_workspace(
-        doc_path
-            .and_then(|x| x.parent().and_then(|x| x.to_str()))
-            .unwrap_or("."),
-        &config.roots,
-        config.workspace_lsp_roots.as_deref().unwrap_or(root_dirs),
-        &workspace,
-        workspace_is_cwd,
-    );
-
-    // `root_uri` and `workspace_folder` can be empty in case there is no workspace
-    // `root_url` can not, use `workspace` as a fallback
-    let root_path = root.clone().unwrap_or_else(|| workspace.clone());
-    let root_uri = root.and_then(|root| lsp::Url::from_file_path(root).ok());
-
-    if let Some(globset) = &ls_config.required_root_patterns
-        && !root_path
-            .read_dir()?
-            .flatten()
-            .map(|entry| entry.file_name())
-            .any(|entry| globset.is_match(entry))
-    {
-        // TODO: also show the globset that should be matched: https://github.com/BurntSushi/ripgrep/issues/3274
-        warn!("The lsp {name:?} tried to start at {root_path:?} but failed to match it's 'required_root_patterns'");
+    let (root_path, root_uri) = language_server_root(config, doc_path, root_dirs);
+    if !has_required_root(ls_config, &root_path)? {
+        warn!("The lsp {name:?} did not match its required-root-patterns at {root_path:?}");
         return Err(StartupError::NoRequiredRootFound);
     }
 
@@ -983,7 +1097,14 @@ fn start_client(
             .await;
 
         if let Err(e) = value {
-            log::error!("failed to initialize language server: {}", e);
+            log::error!(
+                "failed to initialize language server {}: {}",
+                _client.name(),
+                e
+            );
+            // Close the transport even when a server rejects initialize but stays
+            // alive. Its exit drives startup fallback through the editor handler.
+            _client.force_shutdown();
             return;
         }
 
@@ -994,6 +1115,41 @@ fn start_client(
     });
 
     Ok(NewClient(client, incoming))
+}
+
+/// Resolve the root used for server startup and applicability checks.
+pub fn language_server_root(
+    config: &LanguageConfiguration,
+    doc_path: Option<&Path>,
+    root_dirs: &[PathBuf],
+) -> (PathBuf, Option<Url>) {
+    let (workspace, workspace_is_cwd) = loader::find_workspace();
+    let workspace = path::normalize(workspace);
+    let root = find_lsp_workspace(
+        doc_path
+            .and_then(|path| path.parent().and_then(Path::to_str))
+            .unwrap_or("."),
+        &config.roots,
+        config.workspace_lsp_roots.as_deref().unwrap_or(root_dirs),
+        &workspace,
+        workspace_is_cwd,
+    );
+    let root_path = root.clone().unwrap_or(workspace);
+    let root_uri = root.and_then(|root| Url::from_file_path(root).ok());
+    (root_path, root_uri)
+}
+
+pub fn has_required_root(
+    config: &LanguageServerConfiguration,
+    root: &Path,
+) -> std::io::Result<bool> {
+    let Some(patterns) = &config.required_root_patterns else {
+        return Ok(true);
+    };
+    Ok(root
+        .read_dir()?
+        .flatten()
+        .any(|entry| patterns.is_match(entry.file_name())))
 }
 
 /// Find an LSP workspace of a file using the following mechanism:

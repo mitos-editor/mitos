@@ -33,6 +33,7 @@ mod test {
     mod formatting;
     mod inline_completion;
     mod language_features;
+    mod lsp_alternatives;
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
