@@ -538,51 +538,127 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
     jump_to_label(cx, words, behaviour)
 }
 
+/// A command prompt owns its preview until it is confirmed or cancelled.
+#[derive(Default)]
+pub(super) enum GotoLinePreview {
+    #[default]
+    Idle,
+    Active(GotoLineOrigin),
+    Invalidated,
+}
+
+pub(super) struct GotoLineOrigin {
+    document: DocumentId,
+    view: view::ViewId,
+    binding_revision: u64,
+    document_version: i32,
+    selection: Selection,
+}
+
+impl GotoLineOrigin {
+    fn is_valid(&self, editor: &Editor) -> bool {
+        editor.tree.try_get(self.view).is_some_and(|view| {
+            view.doc == self.document && view.binding_revision() == self.binding_revision
+        }) && editor
+            .document(self.document)
+            .is_some_and(|doc| doc.version() == self.document_version)
+    }
+}
+
+impl GotoLinePreview {
+    pub(super) fn abort(&mut self, editor: &mut Editor) {
+        if matches!(self, Self::Invalidated) {
+            return;
+        }
+        let Self::Active(origin) = std::mem::take(self) else {
+            return;
+        };
+        if !origin.is_valid(editor) {
+            *self = Self::Invalidated;
+            return;
+        }
+        if editor.tree.focus != origin.view {
+            *self = Self::Invalidated;
+        }
+        let scrolloff = editor.config().scroll.padding;
+        let doc = editor.documents.get_mut(&origin.document).unwrap();
+        doc.set_selection(origin.view, origin.selection);
+        editor
+            .tree
+            .get_mut(origin.view)
+            .ensure_cursor_in_view(doc, scrolloff);
+    }
+
+    pub(super) fn handle(
+        &mut self,
+        editor: &mut Editor,
+        args: ::command_line::Args,
+        event: ui::PromptEvent,
+    ) -> anyhow::Result<()> {
+        use ui::PromptEvent;
+
+        if event == PromptEvent::Abort || (event == PromptEvent::Update && args.is_empty()) {
+            self.abort(editor);
+            return Ok(());
+        }
+        let line = args[0].parse::<usize>()?;
+        if matches!(self, Self::Idle) {
+            let (view, doc) = current_ref!(editor);
+            *self = Self::Active(GotoLineOrigin {
+                document: doc.id(),
+                view: view.id,
+                binding_revision: view.binding_revision(),
+                document_version: doc.version(),
+                selection: doc.selection(view.id).clone(),
+            });
+        }
+        let Self::Active(origin) = self else {
+            return Ok(());
+        };
+        if !origin.is_valid(editor) {
+            // A stale session must not attach itself to a replacement document or split.
+            *self = Self::Invalidated;
+            return Ok(());
+        }
+        if editor.tree.focus != origin.view {
+            self.abort(editor);
+            *self = Self::Invalidated;
+            return Ok(());
+        }
+
+        goto_line_preview(editor, NonZeroUsize::new(line));
+
+        if event == PromptEvent::Validate
+            && let Self::Active(origin) = std::mem::take(self)
+        {
+            let (view, doc) = current!(editor);
+            view.push_jump(doc, (origin.document, origin.selection));
+        }
+        Ok(())
+    }
+}
+
+fn goto_line_preview(editor: &mut Editor, line: Option<NonZeroUsize>) {
+    let scrolloff = editor.config().scroll.padding;
+    goto_line_without_jumplist(
+        editor,
+        line,
+        if editor.mode == Mode::Select {
+            Movement::Extend
+        } else {
+            Movement::Move
+        },
+    );
+    let (view, doc) = current!(editor);
+    view.ensure_cursor_in_view(doc, scrolloff);
+}
+
 pub(super) mod typed {
     //! Typable navigation commands.
 
-    use crate::{commands::navigation::goto_line_without_jumplist, compositor, ui::PromptEvent};
+    use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
-    use editor_core::movement::Movement;
     use std::num::NonZeroUsize;
-    use view::document::Mode;
-
-    fn abort_goto_line_number_preview(cx: &mut compositor::Context) {
-        if let Some(last_selection) = cx.editor.last_selection.take() {
-            let scrolloff = cx.editor.config().scroll.padding;
-
-            let (view, doc) = current!(cx.editor);
-            doc.set_selection(view.id, last_selection);
-            view.ensure_cursor_in_view(doc, scrolloff);
-        }
-    }
-
-    fn update_goto_line_number_preview(
-        cx: &mut compositor::Context,
-        args: Args,
-    ) -> anyhow::Result<()> {
-        cx.editor.last_selection.get_or_insert_with(|| {
-            let (view, doc) = current!(cx.editor);
-            doc.selection(view.id).clone()
-        });
-
-        let scrolloff = cx.editor.config().scroll.padding;
-        let line = args[0].parse::<usize>()?;
-        goto_line_without_jumplist(
-            cx.editor,
-            NonZeroUsize::new(line),
-            if cx.editor.mode == Mode::Select {
-                Movement::Extend
-            } else {
-                Movement::Move
-            },
-        );
-
-        let (view, doc) = current!(cx.editor);
-        view.ensure_cursor_in_view(doc, scrolloff);
-
-        Ok(())
-    }
 
     #[cold]
     pub(in crate::commands) fn goto_line_number(
@@ -590,31 +666,13 @@ pub(super) mod typed {
         args: Args,
         event: PromptEvent,
     ) -> anyhow::Result<()> {
-        match event {
-            PromptEvent::Abort => abort_goto_line_number_preview(cx),
-            PromptEvent::Validate => {
-                // If we are invoked directly via a keybinding, Validate is
-                // sent without any prior Update events. Ensure the cursor
-                // is moved to the appropriate location.
-                update_goto_line_number_preview(cx, args)?;
-
-                let last_selection = cx
-                    .editor
-                    .last_selection
-                    .take()
-                    .expect("update_goto_line_number_preview should always set last_selection");
-
-                let (view, doc) = current!(cx.editor);
-                view.push_jump(doc, (doc.id(), last_selection));
-            }
-
-            // When a user hits backspace and there are no numbers left,
-            // we can bring them back to their original selection. If they
-            // begin typing numbers again, we'll start a new preview session.
-            PromptEvent::Update if args.is_empty() => abort_goto_line_number_preview(cx),
-            PromptEvent::Update => update_goto_line_number_preview(cx, args)?,
+        if event == PromptEvent::Validate {
+            let line = args[0].parse::<usize>()?;
+            let (view, doc) = current!(cx.editor);
+            let selection = doc.selection(view.id).clone();
+            view.push_jump(doc, (doc.id(), selection));
+            super::goto_line_preview(cx.editor, NonZeroUsize::new(line));
         }
-
         Ok(())
     }
 }

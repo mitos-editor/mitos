@@ -401,3 +401,214 @@ async fn feature_commands_use_canonical_paths_and_accept_legacy_aliases() -> any
     )
     .await
 }
+
+fn goto_preview_app() -> anyhow::Result<term::application::Application> {
+    let mut app = AppBuilder::new()
+        .with_input_text("o#[|n]#e\ntwo\nthree\nfour\n")
+        .build()?;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(view.id, Selection::single(1, 2));
+    view::editing::commit(doc, view);
+    Ok(app)
+}
+
+async fn goto_keys(app: &mut term::application::Application, input: &str) -> anyhow::Result<()> {
+    for key in ui_core::input::parse_macro(input)? {
+        #[cfg(not(windows))]
+        let event = termina::event::Event::Key(key.into());
+        #[cfg(windows)]
+        let event = crossterm::event::Event::Key(key.into());
+        app.handle_terminal_events(Ok(event)).await;
+    }
+    Ok(())
+}
+
+fn assert_goto_cursor(app: &term::application::Application, position: usize) {
+    let (view, doc) = view::current_ref!(app.editor);
+    assert_eq!(
+        doc.selection(view.id),
+        &Selection::single(position, (position + 1).min(doc.text().len_chars())),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_cancellation_restores_its_original_selection() -> anyhow::Result<()> {
+    for keys in [
+        ":goto 3<esc>",
+        ":3<esc>",
+        ":goto 3<backspace>4<esc>",
+        ":goto 3x<esc>",
+        ":3<C-u>echo changed<ret>",
+    ] {
+        let mut app = goto_preview_app()?;
+        goto_keys(&mut app, keys).await?;
+        assert_goto_cursor(&app, 1);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_confirmation_records_the_selection_before_previewing() -> anyhow::Result<()> {
+    let mut app = goto_preview_app()?;
+    goto_keys(&mut app, ":goto 3<ret>").await?;
+    let (_, doc) = view::current_ref!(app.editor);
+    assert_goto_cursor(&app, doc.text().line_to_char(2));
+    goto_keys(&mut app, "<C-o>").await?;
+    assert_goto_cursor(&app, 1);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_keybinding_records_a_jump_without_a_prompt() -> anyhow::Result<()> {
+    let mut config = test_config();
+    let source = r#"[keys.normal]
+        "+" = ":goto 3"
+    "#
+    .to_owned();
+    config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+        .unwrap()
+        .keys;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("o#[|n]#e\ntwo\nthree\nfour\n")
+        .build()?;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(view.id, Selection::single(1, 2));
+    view::editing::commit(doc, view);
+    goto_keys(&mut app, "+<C-o>").await?;
+    assert_goto_cursor(&app, 1);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_cannot_follow_a_rebound_view() -> anyhow::Result<()> {
+    for ending in [
+        "4<esc>",
+        "4<ret>",
+        "4x<backspace><ret>",
+        "4<C-u>goto 2<ret>",
+        "<backspace>2<ret>",
+    ] {
+        let mut app = goto_preview_app()?;
+        goto_keys(&mut app, ":goto 3").await?;
+        app.editor.new_file(view::editor::Action::Replace);
+        let (view, doc) = view::current!(app.editor);
+        let transaction = editor_core::Transaction::change(
+            doc.text(),
+            std::iter::once((0, 0, Some("alpha\nbeta\ngamma\ndelta\n".into()))),
+        );
+        assert!(view::editing::apply(doc, &transaction, view.id));
+        doc.set_selection(view.id, Selection::single(1, 2));
+        let jumps = view.jumps.iter().count();
+        goto_keys(&mut app, ending).await?;
+        assert_goto_cursor(&app, 1);
+        assert_eq!(view::view!(app.editor).jumps.iter().count(), jumps);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_cannot_resume_after_switching_away_and_back() -> anyhow::Result<()> {
+    for ending in ["4<esc>", "4<ret>"] {
+        let mut app = goto_preview_app()?;
+        let original = view::view!(app.editor).doc;
+        goto_keys(&mut app, ":goto 3").await?;
+        app.editor.new_file(view::editor::Action::Replace);
+        app.editor.switch(original, view::editor::Action::Replace);
+        let (view, doc) = view::current!(app.editor);
+        doc.set_selection(view.id, Selection::single(2, 3));
+        let jumps = view.jumps.iter().count();
+        goto_keys(&mut app, ending).await?;
+        assert_goto_cursor(&app, 2);
+        assert_eq!(view::view!(app.editor).jumps.iter().count(), jumps);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow::Result<()> {
+    for ending in [
+        "<esc>",
+        "4<esc>",
+        "4<ret>",
+        "<backspace>2<ret>",
+        "<C-u>goto 2<ret>",
+    ] {
+        let mut app = goto_preview_app()?;
+        app.editor.switch(
+            view::view!(app.editor).doc,
+            view::editor::Action::HorizontalSplit,
+        );
+        let (view, doc) = view::current!(app.editor);
+        doc.set_selection(view.id, Selection::single(1, 2));
+        let original_view = view.id;
+        let other_view = app
+            .editor
+            .tree
+            .views()
+            .find(|(view, _)| view.id != original_view)
+            .unwrap()
+            .0
+            .id;
+        goto_keys(&mut app, ":goto 3").await?;
+        app.editor.tree.focus = other_view;
+        let (view, doc) = view::current!(app.editor);
+        doc.set_selection(view.id, Selection::single(2, 3));
+        goto_keys(&mut app, ending).await?;
+        assert_goto_cursor(&app, 2);
+        let doc = app.editor.document(view::view!(app.editor).doc).unwrap();
+        assert_eq!(doc.selection(original_view), &Selection::single(1, 2));
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_ignores_a_closed_origin_split() -> anyhow::Result<()> {
+    let mut app = goto_preview_app()?;
+    app.editor.switch(
+        view::view!(app.editor).doc,
+        view::editor::Action::HorizontalSplit,
+    );
+    goto_keys(&mut app, ":goto 3").await?;
+    app.editor.close(app.editor.tree.focus);
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(view.id, Selection::single(2, 3));
+    goto_keys(&mut app, "4<ret>").await?;
+    assert_goto_cursor(&app, 2);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_rejects_a_selection_snapshot_after_text_changes() -> anyhow::Result<()> {
+    for ending in ["<esc>", "4<ret>"] {
+        let mut app = goto_preview_app()?;
+        goto_keys(&mut app, ":goto 3").await?;
+        let (view, doc) = view::current!(app.editor);
+        let transaction = editor_core::Transaction::change(
+            doc.text(),
+            std::iter::once((0, doc.text().len_chars(), None)),
+        );
+        assert!(view::editing::apply(doc, &transaction, view.id));
+        goto_keys(&mut app, ending).await?;
+        assert_goto_cursor(&app, 0);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_preview_rolls_back_when_the_argument_becomes_invalid() -> anyhow::Result<()> {
+    let mut app = goto_preview_app()?;
+    goto_keys(&mut app, ":goto 3x").await?;
+    assert_goto_cursor(&app, 1);
+    goto_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

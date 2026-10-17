@@ -103,10 +103,6 @@ pub struct Editor {
     /// is set here.
     pub theme: Theme,
 
-    /// The primary Selection prior to starting a goto_line_number preview. This is
-    /// restored when the preview is aborted, or added to the jumplist when it is
-    /// confirmed.
-    pub last_selection: Option<Selection>,
     pub quicklist: Quicklist,
 
     pub status_msg: Option<(Cow<'static, str>, Severity)>,
@@ -261,7 +257,6 @@ impl Editor {
             syn_loader,
             theme_loader,
             last_theme: None,
-            last_selection: None,
             quicklist: Quicklist::default(),
             registers: Registers::new(crate::clipboard::Clipboard::native(Box::new(
                 arc_swap::access::Map::new(Arc::clone(&config), |config: &Config| {

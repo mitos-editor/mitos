@@ -15,75 +15,118 @@ use super::{
     catalog::{CommandCompleter, TypableCommand, TYPABLE_COMMAND_LIST, TYPABLE_COMMAND_MAP},
     context::Context,
     mappable::MappableCommand,
+    navigation::GotoLinePreview,
 };
 use crate::{
     compositor,
     ui::{self, completers::Completer, Prompt, PromptEvent},
 };
 
-fn execute_command_line(
-    cx: &mut compositor::Context,
-    input: &str,
-    event: PromptEvent,
-) -> anyhow::Result<Vec<compositor::Callback>> {
-    let (command, args, _) = command_line::split(input);
-    if command.is_empty() {
-        return Ok(Vec::new());
+#[derive(Default)]
+struct CommandLineSession {
+    goto_preview: GotoLinePreview,
+    preview_updated: bool,
+}
+
+impl CommandLineSession {
+    fn execute(
+        &mut self,
+        cx: &mut compositor::Context,
+        input: &str,
+        event: PromptEvent,
+    ) -> anyhow::Result<Vec<compositor::Callback>> {
+        self.preview_updated = false;
+        let result = self.execute_command_line(cx, input, event);
+        if !self.preview_updated || result.is_err() {
+            self.goto_preview.abort(cx.editor);
+        }
+        result
     }
 
-    let (escaped, command) = command
-        .strip_prefix(CustomCommand::ESCAPE)
-        .map_or((false, command), |command| (true, command));
+    fn execute_command(
+        &mut self,
+        cx: &mut compositor::Context,
+        cmd: &TypableCommand,
+        args: &str,
+        positional_args: &Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if cmd.name == "goto" {
+            self.preview_updated = true;
+            let args = parse_command_args(cx.editor, cmd, args, positional_args, event)?;
+            self.goto_preview
+                .handle(cx.editor, args, event)
+                .map_err(|err| anyhow!("'{}': {err}", cmd.name))
+        } else {
+            execute_command(cx, cmd, args, positional_args, event)
+        }
+    }
 
-    if !escaped {
-        let custom_commands = cx.editor.config().commands.clone();
-        if let Some(custom) = custom_commands.get(command) {
-            let positional_args =
-                Args::parse(args, Signature::DEFAULT, false, |token| Ok(token.content))
-                    .expect("argument parsing cannot fail when validation is disabled");
-            let mut callbacks = Vec::new();
+    fn execute_command_line(
+        &mut self,
+        cx: &mut compositor::Context,
+        input: &str,
+        event: PromptEvent,
+    ) -> anyhow::Result<Vec<compositor::Callback>> {
+        let (command, args, _) = command_line::split(input);
+        if command.is_empty() {
+            return Ok(Vec::new());
+        }
 
-            for configured in &custom.commands {
-                if let Some(typable) = configured.strip_prefix(':') {
-                    let (name, args, _) = command_line::split(typable);
-                    let command = TYPABLE_COMMAND_MAP
-                        .get(name)
-                        .ok_or_else(|| anyhow!("no such command: '{name}'"))?;
-                    execute_command(cx, command, args, &positional_args, event)?;
-                } else if event == PromptEvent::Validate {
-                    let command: MappableCommand = configured.parse()?;
-                    let mut command_cx = super::Context {
-                        config: cx.config,
-                        register: None,
-                        count: None,
-                        editor: cx.editor,
-                        callback: Vec::new(),
-                        on_next_key_callback: None,
-                        jobs: cx.jobs,
-                    };
-                    command.execute(&mut command_cx);
-                    callbacks.extend(command_cx.callback);
+        let (escaped, command) = command
+            .strip_prefix(CustomCommand::ESCAPE)
+            .map_or((false, command), |command| (true, command));
+
+        if !escaped {
+            let custom_commands = cx.editor.config().commands.clone();
+            if let Some(custom) = custom_commands.get(command) {
+                let positional_args =
+                    Args::parse(args, Signature::DEFAULT, false, |token| Ok(token.content))
+                        .expect("argument parsing cannot fail when validation is disabled");
+                let mut callbacks = Vec::new();
+
+                for configured in &custom.commands {
+                    if let Some(typable) = configured.strip_prefix(':') {
+                        let (name, args, _) = command_line::split(typable);
+                        let command = TYPABLE_COMMAND_MAP
+                            .get(name)
+                            .ok_or_else(|| anyhow!("no such command: '{name}'"))?;
+                        self.execute_command(cx, command, args, &positional_args, event)?;
+                    } else if event == PromptEvent::Validate {
+                        let command: MappableCommand = configured.parse()?;
+                        let mut command_cx = super::Context {
+                            config: cx.config,
+                            register: None,
+                            count: None,
+                            editor: cx.editor,
+                            callback: Vec::new(),
+                            on_next_key_callback: None,
+                            jobs: cx.jobs,
+                        };
+                        command.execute(&mut command_cx);
+                        callbacks.extend(command_cx.callback);
+                    }
                 }
+
+                return Ok(callbacks);
             }
-
-            return Ok(callbacks);
         }
-    }
 
-    // If command is numeric, interpret as line number and go there.
-    if command.parse::<usize>().is_ok() && args.trim().is_empty() {
-        let cmd = TYPABLE_COMMAND_MAP.get("goto").unwrap();
-        execute_command(cx, cmd, command, &Args::empty(), event)?;
-        return Ok(Vec::new());
-    }
-
-    match TYPABLE_COMMAND_MAP.get(command) {
-        Some(cmd) => {
-            execute_command(cx, cmd, args, &Args::empty(), event)?;
-            Ok(Vec::new())
+        // If command is numeric, interpret as line number and go there.
+        if command.parse::<usize>().is_ok() && args.trim().is_empty() {
+            let cmd = TYPABLE_COMMAND_MAP.get("goto").unwrap();
+            self.execute_command(cx, cmd, command, &Args::empty(), event)?;
+            return Ok(Vec::new());
         }
-        None if event == PromptEvent::Validate => Err(anyhow!("no such command: '{command}'")),
-        None => Ok(Vec::new()),
+
+        match TYPABLE_COMMAND_MAP.get(command) {
+            Some(cmd) => {
+                self.execute_command(cx, cmd, args, &Args::empty(), event)?;
+                Ok(Vec::new())
+            }
+            None if event == PromptEvent::Validate => Err(anyhow!("no such command: '{command}'")),
+            None => Ok(Vec::new()),
+        }
     }
 }
 
@@ -94,10 +137,20 @@ pub(super) fn execute_command(
     positional_args: &Args,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    let args = parse_command_args(cx.editor, cmd, args, positional_args, event)?;
+    (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
+}
+
+fn parse_command_args<'a>(
+    editor: &Editor,
+    cmd: &TypableCommand,
+    args: &'a str,
+    positional_args: &Args<'a>,
+    event: PromptEvent,
+) -> anyhow::Result<Args<'a>> {
     let args = if event == PromptEvent::Validate {
         Args::parse(args, cmd.signature, true, |token| {
-            expansion::expand(cx.editor, token, positional_args.as_slice())
-                .map_err(|err| err.into())
+            expansion::expand(editor, token, positional_args.as_slice()).map_err(|err| err.into())
         })
         .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
     } else {
@@ -107,27 +160,28 @@ pub(super) fn execute_command(
         .map_err(|err| anyhow!("'{}': {err}", cmd.name))?
     };
 
-    (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
+    Ok(args)
 }
 
 #[allow(clippy::unnecessary_unwrap)]
 pub(super) fn command_mode(cx: &mut Context) {
+    let mut session = CommandLineSession::default();
     let mut prompt = Prompt::new_with_callback(
         ":".into(),
         Some(':'),
         complete_command_line,
-        move |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
-            match execute_command_line(cx, input, event) {
-                Ok(callbacks) if !callbacks.is_empty() => Some(Box::new(move |compositor, cx| {
-                    for callback in callbacks {
-                        callback(compositor, cx);
-                    }
-                })),
-                Ok(_) => None,
-                Err(err) => {
-                    cx.editor.set_error(|| err.to_string());
-                    None
+        move |cx: &mut compositor::Context, input: &str, event: PromptEvent| match session
+            .execute(cx, input, event)
+        {
+            Ok(callbacks) if !callbacks.is_empty() => Some(Box::new(move |compositor, cx| {
+                for callback in callbacks {
+                    callback(compositor, cx);
                 }
+            })),
+            Ok(_) => None,
+            Err(err) => {
+                cx.editor.set_error(|| err.to_string());
+                None
             }
         },
     );
