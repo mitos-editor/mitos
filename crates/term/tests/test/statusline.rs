@@ -1,11 +1,11 @@
 use term::application::Application;
+use theme::Theme;
 use tui::{buffer::Buffer, style::Color};
 use view::{
     config::{BufferLine, StatusLineElement},
     current_ref,
     editor::Action,
     graphics::Rect,
-    theme::Theme,
 };
 
 use super::helpers::{test_config, test_key_sequences, AppBuilder};

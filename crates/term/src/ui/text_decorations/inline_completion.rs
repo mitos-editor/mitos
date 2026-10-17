@@ -4,10 +4,8 @@ use editor_core::{
     doc_formatter::{FormattedGrapheme, TextFormat},
     Position,
 };
-use view::{
-    document::{InlineCompletion, InlineCompletionRow},
-    theme::Style,
-};
+use theme::Style;
+use view::document::{InlineCompletion, InlineCompletionRow};
 
 /// Paint a formatted preview while keeping the insertion cursor at its anchor.
 pub struct InlineCompletionDecoration<'a> {
@@ -185,9 +183,8 @@ mod tests {
             Arc::new(ArcSwap::from_pointee(view::config::Config::default())),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         );
-        let theme = view::theme::Theme::from(
-            toml::from_str::<toml::Value>("\"ui.text\" = \"white\"").unwrap(),
-        );
+        let theme =
+            theme::Theme::from(toml::from_str::<toml::Value>("\"ui.text\" = \"white\"").unwrap());
         let mut surface = tui::buffer::Buffer::empty(tui::layout::Rect::new(0, 0, 20, 8));
         for cell in &mut surface.content {
             cell.set_symbol("#");

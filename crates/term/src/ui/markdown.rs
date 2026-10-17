@@ -16,11 +16,9 @@ use editor_core::{
     syntax::{self, HighlightEvent, OverlayHighlights},
     RopeSlice, Syntax,
 };
-use view::{
-    graphics::{Rect, Style},
-    theme::Modifier,
-    Theme,
-};
+use theme::Modifier;
+use theme::Theme;
+use view::graphics::{Rect, Style};
 
 fn styled_multiline_text<'a>(text: &str, style: Style) -> Text<'a> {
     let spans: Vec<_> = text

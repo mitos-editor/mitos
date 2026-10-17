@@ -18,11 +18,11 @@ use crate::{
     quicklist::{Quicklist, QuicklistEntry, QuicklistMatch, QuicklistPosition, QuicklistTarget},
     register::Registers,
     save::WriteQueue,
-    theme::{self, Theme},
     tree::{self, Tree},
     Document, DocumentId, View, ViewId,
 };
 use event::dispatch;
+use theme::Theme;
 use vcs::DiffProviderRegistry;
 use workspace::trust::WorkspaceTrust;
 

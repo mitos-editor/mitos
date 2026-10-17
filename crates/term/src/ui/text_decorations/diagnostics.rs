@@ -9,8 +9,9 @@ use view::annotations::diagnostics::{
     DiagnosticFilter, InlineDiagnosticAccumulator, InlineDiagnosticsConfig,
 };
 
-use view::theme::Style;
-use view::{icons::ICONS, Document, Theme};
+use theme::Style;
+use theme::Theme;
+use view::{icons::ICONS, Document};
 
 use crate::ui::document::{LinePos, TextRenderer};
 use crate::ui::text_decorations::Decoration;

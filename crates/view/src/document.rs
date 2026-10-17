@@ -79,8 +79,9 @@ use crate::{
         navigation::NavigationState,
     },
     view::ViewPosition,
-    DocumentId, Editor, Theme, View, ViewId,
+    DocumentId, Editor, View, ViewId,
 };
+use theme::Theme;
 
 const DEFAULT_INDENT: IndentStyle = IndentStyle::Tabs;
 const DEFAULT_TAB_WIDTH: usize = 4;

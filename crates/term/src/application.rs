@@ -10,7 +10,6 @@ use view::{
     document::{DocumentOpenError, DocumentSavedEventResult},
     editor::{ConfigEvent, EditorEvent},
     graphics::Rect,
-    theme,
     tree::Layout,
     Align, Editor,
 };

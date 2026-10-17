@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use editor_core::{config::LanguageLoaderError, syntax};
 
-use crate::{config::Config, events::ConfigDidChange, theme::Theme, Editor};
+use crate::{config::Config, events::ConfigDidChange, Editor};
+use theme::Theme;
 
 impl Editor {
     /// Update trust before loading global and workspace language configuration.

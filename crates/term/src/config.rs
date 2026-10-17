@@ -15,7 +15,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use toml::de::Error as TomlError;
 use ui_core::{keymap::Keymap, terminal::KittyKeyboardProtocolConfig};
 use view::custom_commands::{CustomCommand, CustomCommands};
-use view::{document::Mode, theme};
+use view::document::Mode;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {

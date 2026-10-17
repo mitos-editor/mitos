@@ -11,7 +11,7 @@ use view::{
     editor::Action,
     graphics::Rect,
     handlers::Handlers,
-    theme, Editor,
+    Editor,
 };
 
 pub(crate) struct Fixture {

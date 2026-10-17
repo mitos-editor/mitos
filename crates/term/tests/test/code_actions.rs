@@ -17,7 +17,7 @@ use view::{
     features::{document_links::DocumentLinksHandler, syntax::SyntaxHandler},
     graphics::Rect,
     handlers::Handlers,
-    theme, DocumentId, Editor,
+    DocumentId, Editor,
 };
 
 use super::helpers::{

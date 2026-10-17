@@ -35,7 +35,6 @@ pub mod info;
 pub mod quicklist;
 pub mod register;
 pub mod save;
-pub mod theme;
 pub mod tree;
 pub mod view;
 pub mod workspace_edit;
@@ -118,5 +117,4 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
 pub use document::Document;
 pub use editor::Editor;
 use editor_core::char_idx_at_visual_offset;
-pub use theme::Theme;
 pub use view::View;

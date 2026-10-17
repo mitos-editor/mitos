@@ -1,7 +1,7 @@
 use editor_core::Position;
+use theme::Style;
 use view::{
     config::{InlineBlameConfig, InlineBlameShow},
-    theme::Style,
     Document, ViewId,
 };
 
@@ -87,11 +87,11 @@ mod tests {
 
     use arc_swap::ArcSwap;
     use editor_core::{syntax, Selection};
+    use theme;
     use tui::buffer::Buffer;
     use view::{
         config::Config,
         graphics::{Rect, RectExt},
-        theme,
         view::ViewPosition,
     };
 

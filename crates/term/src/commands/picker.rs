@@ -2,14 +2,15 @@
 
 use crate::ui::icon_span;
 use std::path::Path;
+use theme::Style;
 use tui::{
     text::{Line, Span},
     widgets::Cell,
 };
-use view::{document::SCRATCH_BUFFER_NAME, icons::ICONS, theme::Style, Editor};
+use view::{document::SCRATCH_BUFFER_NAME, icons::ICONS, Editor};
 
 pub(super) struct PathStyleConfig {
-    theme: std::sync::Arc<view::Theme>,
+    theme: std::sync::Arc<theme::Theme>,
     icons: bool,
     directory_style: Style,
     number_style: Style,

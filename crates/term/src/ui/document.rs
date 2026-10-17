@@ -9,12 +9,13 @@ use editor_core::syntax::{self, HighlightEvent, Highlighter, OverlayHighlights};
 use editor_core::text_annotations::TextAnnotations;
 use editor_core::{visual_offset_from_block, Position, RopeSlice};
 use stdx::rope::RopeSliceExt;
+use theme::Style;
+use theme::Theme;
 use tui::buffer::Buffer as Surface;
 use view::config::{WhitespaceConfig, WhitespaceRenderValue};
 use view::graphics::Rect;
-use view::theme::Style;
 use view::view::ViewPosition;
-use view::{Document, Theme};
+use view::Document;
 
 use crate::ui::text_decorations::DecorationManager;
 

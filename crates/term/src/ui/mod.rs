@@ -34,11 +34,12 @@ pub use select::Select;
 pub use spinner::{ProgressSpinners, Spinner};
 use stdx::rope;
 pub use text::Text;
+use theme::Theme;
 use view::{
     graphics::RectExt as _,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    Editor, Theme,
+    Editor,
 };
 
 use tui::text::{Line, Span};

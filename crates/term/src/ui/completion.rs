@@ -7,6 +7,7 @@ use nucleo::{
     Config, Utf32Str,
 };
 use snippets::{ActiveSnippet, RenderedSnippet, Snippet};
+use theme::{Color, Modifier, Style};
 use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
 use view::features::completion::LspCompletionItem;
@@ -14,11 +15,7 @@ use view::features::completion::{
     trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler,
 };
 use view::{
-    editor::CompleteAction,
-    features::signature_help::SignatureHelpInvoked,
-    icons::ICONS,
-    theme::{Color, Modifier, Style},
-    ViewId,
+    editor::CompleteAction, features::signature_help::SignatureHelpInvoked, icons::ICONS, ViewId,
 };
 use view::{graphics::Rect, Document, Editor};
 

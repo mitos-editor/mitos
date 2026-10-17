@@ -1,3 +1,5 @@
+//! Theme parsing, palette resolution, and style lookup without editor or protocol state.
+
 use std::{collections::HashMap, sync::LazyLock};
 
 use anyhow::Result;
@@ -23,36 +25,6 @@ pub static BASE16_DEFAULT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
     name: "base16_default".into(),
     ..Theme::from(BASE16_DEFAULT_THEME_DATA.clone())
 });
-
-pub fn symbol_kind_scope(kind: lsp_client::lsp::SymbolKind) -> &'static str {
-    use lsp_client::lsp::SymbolKind;
-
-    match kind {
-        SymbolKind::FILE => "ui.text.directory",
-        SymbolKind::MODULE | SymbolKind::NAMESPACE | SymbolKind::PACKAGE => "namespace",
-        SymbolKind::OBJECT | SymbolKind::STRUCT | SymbolKind::INTERFACE | SymbolKind::CLASS => {
-            "type"
-        }
-        SymbolKind::METHOD => "function.method",
-        SymbolKind::FUNCTION => "function",
-        SymbolKind::ENUM => "type.enum",
-        SymbolKind::ENUM_MEMBER => "type.enum.variant",
-        SymbolKind::FIELD | SymbolKind::PROPERTY => "variable.other.member",
-        SymbolKind::VARIABLE => "variable",
-        SymbolKind::CONSTANT => "constant",
-        SymbolKind::CONSTRUCTOR => "constructor",
-        SymbolKind::STRING => "string",
-        SymbolKind::NUMBER => "constant.numeric",
-        SymbolKind::BOOLEAN => "constant.builtin.boolean",
-        SymbolKind::ARRAY => "punctuation.bracket",
-        SymbolKind::KEY => "label",
-        SymbolKind::NULL => "constant.builtin",
-        SymbolKind::EVENT => "function",
-        SymbolKind::OPERATOR => "operator",
-        SymbolKind::TYPE_PARAMETER => "type.parameter",
-        _ => "ui.text",
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged, deny_unknown_fields, rename_all = "kebab-case")]

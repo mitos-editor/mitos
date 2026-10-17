@@ -14,6 +14,7 @@ members = [
   "crates/dap",
   "crates/loader",
   "crates/workspace",
+  "crates/theme",
   "crates/vcs",
   "crates/parsec",
   "crates/snippets",
@@ -62,6 +63,7 @@ ui-core = { path = "crates/ui-core" }
 vcs = { path = "crates/vcs" }
 view = { path = "crates/view" }
 workspace = { path = "crates/workspace" }
+theme = { path = "crates/theme" }
 
 # Runtime and diagnostics
 anyhow = "1"

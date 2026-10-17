@@ -5,8 +5,9 @@ use crate::{
     document::{DocumentColorSwatches, DocumentInlayHints},
     features::diagnostics::DiagnosticsHandler,
     graphics::{Rect, RectExt as _},
-    Align, Document, DocumentId, Theme, ViewId,
+    Align, Document, DocumentId, ViewId,
 };
+use theme::Theme;
 
 use editor_core::{
     char_idx_at_visual_offset,

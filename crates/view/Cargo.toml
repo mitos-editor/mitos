@@ -23,6 +23,7 @@ unicode-lines = []
 bench = []
 
 [dependencies]
+theme.workspace = true
 workspace.workspace = true
 filesentry.workspace = true
 ignore.workspace = true

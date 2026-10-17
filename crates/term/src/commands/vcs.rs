@@ -7,8 +7,9 @@ use crate::{
 use ::vcs::{FileChange, Hunk};
 use editor_core::{movement::Direction, Range, RopeSlice, Selection};
 use std::{error::Error, path::Path};
+use theme::Style;
 use tui::{text::Span, widgets::Cell};
-use view::{document::Mode, icons::ICONS, theme::Style, Editor};
+use view::{document::Mode, icons::ICONS, Editor};
 
 pub(super) fn blame_line(cx: &mut Context) {
     let (view, doc) = current_ref!(cx.editor);

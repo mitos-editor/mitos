@@ -1,5 +1,5 @@
+use theme::Theme;
 use tui::widgets::Block;
-use view::Theme;
 
 pub use tui::panel::{
     content_area, top_border, BORDER_INSET, HORIZONTAL_INSET, PADDED_HORIZONTAL_INSET,

@@ -7,6 +7,7 @@ Features live with the state they change; frontends adapt input and present resu
 | --- | --- |
 | `core` | Ropes, selections, transactions, history, syntax analysis, and editing algorithms |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
+| `theme` | Theme interpretation, palette resolution, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
 | `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
@@ -784,3 +785,7 @@ Place algorithm tests in the owning feature crate. Reuse existing fixtures and
 keep assertions about observable behavior; moving code alone does not require a
 new test. Changes to async ownership need coverage for queued callbacks as well
 as in-flight requests.
+
+The `theme` crate interprets explicit resource sources and shared UI styles.
+It has no dependency on editor state or LSP/DAP clients. Frontend symbol-kind
+style selection lives in `term::ui::lsp`; theme selection is applied by the editor.

@@ -27,6 +27,7 @@ use loader::VERSION_AND_GIT_HASH;
 use std::{
     collections::HashMap, mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc, sync::LazyLock,
 };
+use theme::Theme;
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -39,7 +40,7 @@ use view::{
     features::completion::CompletionItem,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     icons::ICONS,
-    Document, Editor, Theme, View, ViewId,
+    Document, Editor, View, ViewId,
 };
 
 use tui::{
@@ -1095,7 +1096,7 @@ impl EditorView {
 
                 let style = editor
                     .theme
-                    .get(view::theme::symbol_kind_scope(symbol.kind));
+                    .get(crate::ui::lsp::symbol_kind_scope(symbol.kind));
 
                 x = draw_element(surface, viewport, x, symbol.name.as_ref(), style);
             }

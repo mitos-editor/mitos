@@ -8,7 +8,8 @@ use editor_core::{
     unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
     Position, Rope,
 };
-use view::{document::CodeLens, theme::Style};
+use theme::Style;
+use view::document::CodeLens;
 
 use super::Decoration;
 use crate::ui::document::{LinePos, TextRenderer};
@@ -170,10 +171,11 @@ mod tests {
     };
     use lsp_client::{lsp, LanguageServerId};
     use std::sync::Arc;
+    use theme::Theme;
     use tui::{buffer::Buffer, layout::Rect};
     use view::{
         annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
-        Document, Theme,
+        Document,
     };
 
     fn document(text: &str, soft_wrap: bool) -> Document {

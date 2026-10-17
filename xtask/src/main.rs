@@ -239,7 +239,7 @@ pub mod tasks {
     }
 
     pub fn themecheck(themes: impl Iterator<Item = String>) -> Result<(), DynError> {
-        use view::theme::Loader;
+        use theme::Loader;
 
         let themes_to_check: HashSet<_> = themes.collect();
 

@@ -1,8 +1,9 @@
 use super::helpers::{test_config, AppBuilder};
 use term::application::Application;
+use theme::Theme;
 use tui::{backend::Backend, style::Color};
 use ui_core::input::parse_macro;
-use view::{current_ref, theme::Theme};
+use view::current_ref;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};

@@ -1,7 +1,3 @@
-use crate::{
-    theme::{Color, Style},
-    Theme,
-};
 use arrayvec::ArrayString;
 use editor_core::unicode::width::UnicodeWidthStr;
 use std::{
@@ -10,6 +6,8 @@ use std::{
     path::Path,
     sync::LazyLock,
 };
+use theme::Theme;
+use theme::{Color, Style};
 
 type SmartString = String;
 type StackString = ArrayString<28>;

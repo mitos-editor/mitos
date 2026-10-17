@@ -11,8 +11,9 @@ use crate::{
     callbacks::EditorCallbackSender,
     events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
     features::{debounce::debounce_documents, request::DocumentRequest},
-    DocumentId, Editor, Theme,
+    DocumentId, Editor,
 };
+use theme::Theme;
 
 use super::DocumentColorSwatches;
 

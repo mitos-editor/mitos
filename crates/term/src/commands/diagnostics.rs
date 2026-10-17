@@ -14,13 +14,13 @@ use std::{
     path::{Path, PathBuf},
 };
 use stdx::path;
+use theme::Style;
 use tui::text::Span;
 use view::{
     align_view,
     editor::Action,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    theme::Style,
     Align, Document, DocumentId, Editor,
 };
 

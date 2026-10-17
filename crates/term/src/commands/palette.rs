@@ -6,8 +6,9 @@ use crate::{
     ui::{self, overlay::overlaid, Picker},
 };
 use std::borrow::Cow;
+use theme::Style;
 use tui::{text::Span, widgets::Cell};
-use view::{document::Mode, theme::Style};
+use view::document::Mode;
 
 pub(super) struct CommandPaletteData {
     keymap: crate::keymap::ReverseKeymap,

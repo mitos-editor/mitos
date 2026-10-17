@@ -3,13 +3,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use view::{
-    current_ref,
-    editor::Action,
-    events::ConfigDidChange,
-    theme::{self, Theme},
-    view::ViewPosition,
-};
+use theme::Theme;
+use view::{current_ref, editor::Action, events::ConfigDidChange, view::ViewPosition};
 
 use super::Fixture;
 

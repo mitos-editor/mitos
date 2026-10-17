@@ -113,7 +113,7 @@ async fn inline_completion_previews_cycles_and_accepts_utf16_replacements() -> a
             .cursor(doc.text().slice(..)),
         4
     );
-    f.app.editor.theme = view::theme::Theme::from(toml::from_str::<toml::Value>(
+    f.app.editor.theme = theme::Theme::from(toml::from_str::<toml::Value>(
         r#"
         "ui.text" = "white"
         "ui.selection" = { bg = "black" }

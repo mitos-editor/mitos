@@ -4,12 +4,12 @@ use std::sync::{
 };
 
 use serde_json::json;
+use theme::Theme;
 use view::{
     config::ImplicitTrustLevelConfig,
     current_ref,
     editor::{Action, ConfigEvent},
     events::ConfigDidChange,
-    theme::Theme,
 };
 use workspace::trust::{ImplicitTrustLevel, TrustQuery};
 
@@ -245,7 +245,7 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
 async fn theme_completion_and_commands_use_each_editors_selected_resources() -> anyhow::Result<()> {
     use super::helpers::{test_config, test_key_sequence, test_key_sequences};
     use loader::theme::Resources;
-    use view::theme::{Color, Loader, Style};
+    use theme::{Color, Loader, Style};
 
     fn write(root: &std::path::Path, name: &str, color: &str) -> anyhow::Result<()> {
         std::fs::create_dir_all(root.join("themes"))?;

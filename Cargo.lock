@@ -4031,6 +4031,7 @@ dependencies = [
  "tempfile",
  "termina 0.4.0",
  "termini",
+ "theme",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -4150,6 +4151,20 @@ dependencies = [
  "smawk",
  "unicode-linebreak",
  "unicode-width",
+]
+
+[[package]]
+name = "theme"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "core",
+ "loader",
+ "log",
+ "serde",
+ "tempfile",
+ "toml",
+ "ui-core",
 ]
 
 [[package]]
@@ -4566,6 +4581,7 @@ dependencies = [
  "spelling",
  "stdx",
  "tempfile",
+ "theme",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -5219,6 +5235,7 @@ dependencies = [
  "stdx",
  "tempfile",
  "term",
+ "theme",
  "toml",
  "toml_edit",
  "view",

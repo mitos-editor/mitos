@@ -549,7 +549,7 @@ fn render_preview_placeholder(
     surface: &mut Surface,
     area: Rect,
     placeholder: &str,
-    style: view::theme::Style,
+    style: theme::Style,
 ) {
     let x = area.x + area.width.saturating_sub(placeholder.len() as u16) / 2;
     let y = area.y + area.height / 2;

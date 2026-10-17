@@ -6,8 +6,9 @@ use crate::{
     config::GutterType,
     graphics::{Style, UnderlineStyle},
     icons::ICONS,
-    Document, Editor, Theme, View,
+    Document, Editor, View,
 };
+use theme::Theme;
 
 fn count_digits(n: usize) -> usize {
     (usize::checked_ilog10(n).unwrap_or(0) + 1) as usize

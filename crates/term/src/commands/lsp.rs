@@ -1,4 +1,5 @@
 use super::{navigation::push_jump, Context};
+use crate::ui::lsp::symbol_kind_scope;
 use crate::{
     compositor::{self, Compositor},
     job::Callback,
@@ -14,6 +15,7 @@ use lsp_client::{
 };
 use std::{collections::HashSet, path::Path};
 use stdx::path;
+use theme::Theme;
 use tokio_stream::StreamExt;
 use tui::{
     text::{Line, Span},
@@ -28,7 +30,6 @@ use view::{
     features::signature_help::SignatureHelpInvoked,
     icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    theme::{symbol_kind_scope, Theme},
     Align, Editor,
 };
 
@@ -336,7 +337,7 @@ fn nested_symbol_to_flat(
 #[cfg(test)]
 mod symbol_picker_tests {
     use super::*;
-    use view::theme::DEFAULT_THEME;
+    use theme::DEFAULT_THEME;
 
     fn symbol_information_item() -> SymbolInformationItem {
         let uri = lsp::Url::parse("file:///tmp/main.rs").unwrap();
