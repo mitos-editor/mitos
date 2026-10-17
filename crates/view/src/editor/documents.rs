@@ -195,7 +195,7 @@ impl Editor {
     }
 
     pub fn new_file_from_stdin(&mut self, action: Action) -> Result<DocumentId, Error> {
-        let (stdin, encoding, has_bom) = crate::document::read_to_string(&mut stdin(), None)?;
+        let (stdin, encoding, has_bom) = text_io::read_to_string(&mut stdin(), None)?;
         let doc = Document::from(
             editor_core::Rope::default(),
             Some((encoding, has_bom)),

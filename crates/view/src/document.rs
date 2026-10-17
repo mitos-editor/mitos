@@ -19,9 +19,9 @@ pub use crate::features::{
     inlay_hints::{DocumentInlayHints, DocumentInlayHintsId},
 };
 
-mod text_io;
-pub use text_io::{from_reader, read_to_string, to_writer};
-use text_io::{read_file, DecodedFile};
+mod file_io;
+use ::text_io::{from_reader, to_writer};
+use file_io::{read_file, DecodedFile};
 
 mod syntax_initialization;
 

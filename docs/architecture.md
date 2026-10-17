@@ -16,6 +16,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `grammar-build` | Grammar source fetching and native compilation |
 | `clipboard` | Clipboard provider settings and native backends |
 | `search` | Workspace traversal and text matches over files or unsaved snapshots |
+| `text-io` | Streaming text decoding, encoding detection, BOM handling, and encoded writes |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
@@ -826,3 +827,12 @@ ignore paths, traversal settings, cancellation, and a result sink. The terminal
 owns the search prompt, picker, quicklist conversion, and navigation. Picker
 invalidation stops traversal even when a query produces no matches. Buffer text
 search and selection transformations remain in `core` and editor commands.
+
+## Text I/O
+
+`text-io` converts readers to ropes or strings and writes encoded ropes to async
+streams. It owns encoding detection, BOM handling, and conversion fixtures with
+no editor or protocol dependency. `view::document::file_io` retains file sniffing
+and binary detection; documents retain file metadata, conflict handling, history,
+and save coordination. Formatters, stdin loading, shell commands, and runtime
+query inspection call the text conversion crate directly.

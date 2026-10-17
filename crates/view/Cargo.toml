@@ -23,6 +23,7 @@ unicode-lines = []
 bench = []
 
 [dependencies]
+text-io.workspace = true
 clipboard.workspace = true
 language.workspace = true
 theme.workspace = true
@@ -53,8 +54,6 @@ tokio-stream.workspace = true
 futures-util.workspace = true
 
 slotmap.workspace = true
-
-chardetng.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true

@@ -4087,6 +4087,7 @@ dependencies = [
  "tempfile",
  "termina 0.4.0",
  "termini",
+ "text-io",
  "theme",
  "thiserror 2.0.21",
  "tokio",
@@ -4196,6 +4197,17 @@ dependencies = [
  "wezterm-dynamic",
  "wezterm-input-types",
  "winapi",
+]
+
+[[package]]
+name = "text-io"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chardetng",
+ "core",
+ "futures-executor",
+ "tokio",
 ]
 
 [[package]]
@@ -4613,7 +4625,6 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "arrayvec",
- "chardetng",
  "clipboard",
  "command-line",
  "core",
@@ -4638,6 +4649,7 @@ dependencies = [
  "spelling",
  "stdx",
  "tempfile",
+ "text-io",
  "theme",
  "thiserror 2.0.21",
  "tokio",

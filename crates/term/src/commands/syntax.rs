@@ -34,9 +34,10 @@ use stdx::{
     path,
     rope::{self, RopeSliceExt},
 };
+use text_io::from_reader;
 use view::{
     align_view,
-    document::{from_reader, Mode, SCRATCH_BUFFER_NAME},
+    document::{Mode, SCRATCH_BUFFER_NAME},
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Document, DocumentId, Editor,
 };
