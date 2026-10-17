@@ -33,6 +33,9 @@ They reuse input types from `ui-core`; `command-line` only parses command argume
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.
 
+The [cleanup merge plan](architecture-cleanup.md) records the current PR dependencies
+and the completion criteria for this ownership refactor.
+
 ## Where new code belongs
 
 | Change | Home |
