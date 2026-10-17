@@ -214,7 +214,9 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
         target,
         future: async move {
             Ok(request.await?.map(|edits| {
-                lsp_client::util::generate_transaction_from_edits(&text, edits, encoding)
+                crate::language_servers::edits::generate_transaction_from_edits(
+                    &text, edits, encoding,
+                )
             }))
         }
         .boxed(),

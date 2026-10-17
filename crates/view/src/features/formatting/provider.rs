@@ -152,11 +152,13 @@ impl Document {
                     Default::default()
                 })
                 .unwrap_or_default();
-            Ok(lsp_client::util::generate_transaction_from_edits(
-                &text,
-                edits,
-                offset_encoding,
-            ))
+            Ok(
+                crate::language_servers::edits::generate_transaction_from_edits(
+                    &text,
+                    edits,
+                    offset_encoding,
+                ),
+            )
         };
         Some(fut.boxed())
     }

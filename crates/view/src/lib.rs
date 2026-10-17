@@ -32,6 +32,7 @@ pub mod gutter;
 pub mod handlers;
 pub mod icons;
 pub mod info;
+pub mod language_servers;
 pub mod quicklist;
 pub mod register;
 pub mod save;

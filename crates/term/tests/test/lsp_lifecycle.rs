@@ -17,7 +17,7 @@ use view::{
     },
 };
 
-use super::helpers::lsp::Fixture;
+use super::helpers::lsp::{read_log, Fixture};
 
 enum ObserverMarker {}
 impl lsp::notification::Notification for ObserverMarker {
@@ -66,11 +66,7 @@ async fn initialization_sends_configuration_before_open_and_feature_requests() -
     assert_eq!((diagnostic.range.start, diagnostic.range.end), (2, 5));
     let messages = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let messages: Vec<Value> = std::fs::read_to_string(&f.logs[0])?
-                .split_inclusive('\n')
-                .filter(|line| line.ends_with('\n'))
-                .map(serde_json::from_str)
-                .collect::<Result<_, _>>()?;
+            let messages: Vec<Value> = read_log(&f.logs[0])?;
             if messages
                 .iter()
                 .any(|m| m["method"] == "textDocument/documentSymbol")
@@ -440,11 +436,7 @@ async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Resul
             .shutdown()
             .await?;
         assert!(fixture.app.close().await.is_empty());
-        let messages: Vec<Value> = std::fs::read_to_string(&fixture.logs[0])?
-            .split_inclusive('\n')
-            .filter(|line| line.ends_with('\n'))
-            .map(serde_json::from_str)
-            .collect::<Result<_, _>>()?;
+        let messages: Vec<Value> = read_log(&fixture.logs[0])?;
         for method in [
             "textDocument/didOpen",
             "textDocument/didChange",
@@ -497,10 +489,7 @@ async fn document_synchronization_precedes_early_change_and_close_observers() ->
         .unwrap()
         .shutdown()
         .await?;
-    let messages: Vec<Value> = std::fs::read_to_string(&fixture.logs[0])?
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()?;
+    let messages: Vec<Value> = read_log(&fixture.logs[0])?;
     for (synchronization, phase) in [
         ("textDocument/didChange", "changed"),
         ("textDocument/didClose", "closed"),
@@ -549,10 +538,7 @@ async fn documents_open_once_with_current_text_after_editor_initialization() -> 
         .unwrap()
         .shutdown()
         .await?;
-    let messages: Vec<Value> = std::fs::read_to_string(&f.logs[0])?
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()?;
+    let messages: Vec<Value> = read_log(&f.logs[0])?;
     let opens: Vec<_> = messages
         .iter()
         .enumerate()
@@ -603,10 +589,7 @@ async fn pending_attachments_follow_renames_and_discard_closed_documents() -> an
         .unwrap()
         .shutdown()
         .await?;
-    let messages: Vec<Value> = std::fs::read_to_string(&f.logs[0])?
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()?;
+    let messages: Vec<Value> = read_log(&f.logs[0])?;
     let opens: Vec<_> = messages
         .iter()
         .filter(|m| m["method"] == "textDocument/didOpen")

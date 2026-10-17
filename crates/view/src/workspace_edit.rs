@@ -6,8 +6,8 @@
 
 use std::path::PathBuf;
 
+use crate::language_servers::edits::generate_transaction_from_edits;
 use editor_core::Uri;
-use lsp_client::util::generate_transaction_from_edits;
 use lsp_client::{lsp, OffsetEncoding};
 
 use crate::{editing::EditError, editor::Action, Editor};

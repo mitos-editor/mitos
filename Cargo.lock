@@ -2566,7 +2566,6 @@ dependencies = [
  "serde",
  "serde_json",
  "slotmap",
- "snippets",
  "sonic-rs",
  "stdx",
  "thiserror 2.0.21",

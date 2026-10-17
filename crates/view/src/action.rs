@@ -10,10 +10,11 @@ use editor_core::Uri;
 use language_config::LanguageServerFeature;
 use lsp_client::{
     lsp::{self, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind},
-    util::{diagnostic_to_lsp_diagnostic, range_to_lsp_range},
+    util::range_to_lsp_range,
     LanguageServerId,
 };
 
+use crate::language_servers::edits::diagnostic_to_lsp_diagnostic;
 use crate::{Document, DocumentId, Editor};
 
 /// A titled action against the editor, shown in the code action menu.

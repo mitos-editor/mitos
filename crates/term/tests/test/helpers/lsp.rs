@@ -45,6 +45,39 @@ pub fn log_path(directory: &Path, name: &str) -> PathBuf {
     directory.join(format!("{name}.jsonl"))
 }
 
+/// Read complete JSON records while the fixture may still be appending to its log.
+/// An unfinished trailing record can also end in the middle of a UTF-8 character.
+pub fn read_log(path: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
+    std::fs::read(path)?
+        .split_inclusive(|byte| *byte == b'\n')
+        .filter(|record| record.ends_with(b"\n"))
+        .map(serde_json::from_slice)
+        .collect::<Result<_, _>>()
+        .map_err(Into::into)
+}
+
+#[test]
+fn log_snapshots_wait_for_complete_records_and_report_invalid_json() -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut log = tempfile::NamedTempFile::new()?;
+    log.write_all(b"{\"phase\":\"ready\"}\n{\"phase\":\"\xe7")?;
+    assert_eq!(
+        read_log(log.path())?,
+        vec![serde_json::json!({"phase": "ready"})]
+    );
+    log.write_all(b"\x95\x8c\"}\n")?;
+    assert_eq!(
+        read_log(log.path())?,
+        vec![
+            serde_json::json!({"phase": "ready"}),
+            serde_json::json!({"phase": "界"})
+        ]
+    );
+    log.write_all(b"invalid\n")?;
+    assert!(read_log(log.path()).is_err());
+    Ok(())
+}
+
 /// Configure the existing stdio test server. Feature modes require the mode,
 /// server name, and log path in that order; additional arguments stay explicit.
 pub struct ServerConfig<'a> {

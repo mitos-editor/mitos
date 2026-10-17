@@ -23,7 +23,6 @@ stdx.workspace = true
 core.workspace = true
 loader.workspace = true
 lsp-types.workspace = true
-snippets.workspace = true
 
 anyhow.workspace = true
 futures-executor.workspace = true

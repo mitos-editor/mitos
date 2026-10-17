@@ -305,11 +305,12 @@ impl Completion {
                     if let Some((additional_edits, offset_encoding)) = additional_edits
                         && !additional_edits.is_empty()
                     {
-                        let transaction = util::generate_transaction_from_edits(
-                            doc.text(),
-                            additional_edits,
-                            offset_encoding, // TODO: should probably transcode in Client
-                        );
+                        let transaction =
+                            view::language_servers::edits::generate_transaction_from_edits(
+                                doc.text(),
+                                additional_edits,
+                                offset_encoding, // TODO: should probably transcode in Client
+                            );
                         view::editing::apply(doc, &transaction, view.id);
                     }
                     // we could have just inserted a trigger char (like a `crate::` completion for rust
@@ -661,17 +662,18 @@ fn lsp_item_to_transaction(
             log::error!("Failed to parse snippet: {new_text:?}",);
             return (Transaction::new(doc.text()), None);
         };
-        let (transaction, snippet) = util::generate_transaction_from_snippet(
-            doc.text(),
-            selection,
-            edit_offset,
-            replace_mode,
-            snippet,
-            &mut doc.snippet_ctx(),
-        );
+        let (transaction, snippet) =
+            view::language_servers::edits::generate_transaction_from_snippet(
+                doc.text(),
+                selection,
+                edit_offset,
+                replace_mode,
+                snippet,
+                &mut doc.snippet_ctx(),
+            );
         (transaction, Some(snippet))
     } else {
-        let transaction = util::generate_transaction_from_completion_edit(
+        let transaction = view::language_servers::edits::generate_transaction_from_completion_edit(
             doc.text(),
             selection,
             edit_offset,
