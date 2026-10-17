@@ -1,7 +1,8 @@
 use editor_core::diagnostic::Severity;
+use editor_core::display_coords::softwrapped_dimensions;
 use editor_core::doc_formatter::{FormattedGrapheme, TextFormat};
 use editor_core::text_annotations::LineAnnotation;
-use editor_core::{softwrapped_dimensions, Diagnostic, Position};
+use editor_core::{Diagnostic, Position};
 use serde::{Deserialize, Serialize};
 
 use crate::Document;

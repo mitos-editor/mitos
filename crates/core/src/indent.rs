@@ -207,8 +207,7 @@ pub fn normalize_indentation(
     indent_style: IndentStyle,
     tab_width: usize,
 ) -> usize {
-    #[allow(deprecated)]
-    let off = crate::visual_coords_at_pos(prefix, prefix.len_chars(), tab_width).col;
+    let off = crate::line_cell_coords_at_pos(prefix, prefix.len_chars(), tab_width).col;
     let mut len = 0;
     let mut original_len = 0;
     for ch in line.chars() {

@@ -14,6 +14,7 @@ use crate::{
     },
 };
 
+use editor_core::display_coords::visual_offset_from_block;
 use editor_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
@@ -21,7 +22,7 @@ use editor_core::{
     movement::Direction,
     text_annotations::TextAnnotations,
     unicode::width::UnicodeWidthStr,
-    visual_offset_from_block, Change, Position, Range, Selection, Transaction,
+    Change, Position, Range, Selection, Transaction,
 };
 use language::syntax;
 use loader::VERSION_AND_GIT_HASH;

@@ -9,13 +9,13 @@ use crate::{
 };
 use theme::Theme;
 
-use editor_core::{
-    char_idx_at_visual_offset,
-    doc_formatter::TextFormat,
-    text_annotations::TextAnnotations,
-    visual_offset_from_anchor, visual_offset_from_block, Position, RopeSlice, Selection,
-    Transaction,
+use editor_core::display_coords::{
+    char_idx_at_visual_offset, visual_offset_from_anchor, visual_offset_from_block,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
+};
+use editor_core::{
+    doc_formatter::TextFormat, text_annotations::TextAnnotations, Position, RopeSlice, Selection,
+    Transaction,
 };
 
 use std::{

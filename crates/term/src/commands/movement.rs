@@ -1,7 +1,7 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
+use editor_core::display_coords::{char_idx_at_visual_offset, visual_offset_from_block};
 use editor_core::{
-    char_idx_at_visual_offset,
     doc_formatter::TextFormat,
     graphemes::{self, next_grapheme_boundary},
     line_ending::line_end_char_index,
@@ -10,7 +10,7 @@ use editor_core::{
     },
     search,
     text_annotations::TextAnnotations,
-    visual_offset_from_block, Range, RopeSlice,
+    Range, RopeSlice,
 };
 use stdx::rope::RopeSliceExt;
 use ui_core::keyboard::KeyCode;

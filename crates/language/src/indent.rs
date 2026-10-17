@@ -53,8 +53,7 @@ fn add_indent_level(
         // the chars of `base_indent` in reverse until we have the desired indent reduction,
         // instead we iterate over them twice in forward direction.
         let base_indent_rope = RopeSlice::from(base_indent.as_str());
-        #[allow(deprecated)]
-        let base_indent_width = editor_core::visual_coords_at_pos(
+        let base_indent_width = editor_core::line_cell_coords_at_pos(
             base_indent_rope,
             base_indent_rope.len_chars(),
             tab_width,
@@ -62,8 +61,7 @@ fn add_indent_level(
         .col;
         let target_indent_width = base_indent_width
             .saturating_sub((-added_indent_level) as usize * indent_style.indent_width(tab_width));
-        #[allow(deprecated)]
-        let char_end_idx = editor_core::pos_at_visual_coords(
+        let char_end_idx = editor_core::pos_at_line_cell_coords(
             base_indent_rope,
             Position {
                 row: 0,

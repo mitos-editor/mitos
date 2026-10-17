@@ -116,5 +116,5 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
 
 pub use document::Document;
 pub use editor::Editor;
-use editor_core::char_idx_at_visual_offset;
+use editor_core::display_coords::char_idx_at_visual_offset;
 pub use view::View;

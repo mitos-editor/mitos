@@ -188,7 +188,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         let text = doc.text().slice(..);
         let format = doc.text_format(area.width, Some(&editor.theme));
         let annotations = view.text_annotations(doc, Some(&editor.theme));
-        let row_offset = editor_core::visual_offset_from_block(
+        let row_offset = editor_core::display_coords::visual_offset_from_block(
             text,
             offset.anchor,
             offset.anchor,

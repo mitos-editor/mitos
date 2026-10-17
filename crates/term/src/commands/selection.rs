@@ -43,14 +43,12 @@ pub(super) fn trim_selections(cx: &mut Context) {
     };
 }
 
-#[allow(deprecated)]
-// currently uses the deprecated `visual_coords_at_pos`/`pos_at_visual_coords` functions
-// as this function ignores softwrapping (and virtual text) and instead only cares
-// about "text visual position"
+// Copy selections using cell columns within document lines, ignoring soft wrapping
+// and virtual text.
 //
 // TODO: implement a variant of that uses visual lines and respects virtual text
 fn copy_selection_on_line(cx: &mut Context, direction: Direction) {
-    use editor_core::{pos_at_visual_coords, visual_coords_at_pos};
+    use editor_core::{line_cell_coords_at_pos, pos_at_line_cell_coords};
 
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
@@ -71,8 +69,8 @@ fn copy_selection_on_line(cx: &mut Context, direction: Direction) {
 
         let tab_width = doc.tab_width();
 
-        let head_pos = visual_coords_at_pos(text, head, tab_width);
-        let anchor_pos = visual_coords_at_pos(text, anchor, tab_width);
+        let head_pos = line_cell_coords_at_pos(text, head, tab_width);
+        let anchor_pos = line_cell_coords_at_pos(text, anchor, tab_width);
 
         let height = std::cmp::max(head_pos.row, anchor_pos.row)
             - std::cmp::min(head_pos.row, anchor_pos.row)
@@ -103,12 +101,13 @@ fn copy_selection_on_line(cx: &mut Context, direction: Direction) {
             }
 
             let anchor =
-                pos_at_visual_coords(text, Position::new(anchor_row, anchor_pos.col), tab_width);
-            let head = pos_at_visual_coords(text, Position::new(head_row, head_pos.col), tab_width);
+                pos_at_line_cell_coords(text, Position::new(anchor_row, anchor_pos.col), tab_width);
+            let head =
+                pos_at_line_cell_coords(text, Position::new(head_row, head_pos.col), tab_width);
 
             // skip lines that are too short
-            if visual_coords_at_pos(text, anchor, tab_width).col == anchor_pos.col
-                && visual_coords_at_pos(text, head, tab_width).col == head_pos.col
+            if line_cell_coords_at_pos(text, anchor, tab_width).col == anchor_pos.col
+                && line_cell_coords_at_pos(text, head, tab_width).col == head_pos.col
             {
                 if is_primary {
                     primary_index = ranges.len();

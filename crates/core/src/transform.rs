@@ -5,13 +5,12 @@ use std::char::{ToLowercase, ToUppercase};
 use stdx::rope::RopeSliceExt;
 
 /// Align single-line selections to shared columns; return `None` for multiline ranges.
-#[allow(deprecated)]
 pub fn align_selections(
     doc: &Rope,
     selection: &Selection,
     tab_width: usize,
 ) -> Option<Transaction> {
-    use crate::visual_coords_at_pos;
+    use crate::line_cell_coords_at_pos;
 
     let text = doc.slice(..);
 
@@ -23,8 +22,8 @@ pub fn align_selections(
     let mut running_offset = 0;
 
     for range in selection {
-        let coords = visual_coords_at_pos(text, range.head, tab_width);
-        let anchor_coords = visual_coords_at_pos(text, range.anchor, tab_width);
+        let coords = line_cell_coords_at_pos(text, range.head, tab_width);
+        let anchor_coords = line_cell_coords_at_pos(text, range.anchor, tab_width);
 
         if coords.row != anchor_coords.row {
             return None;

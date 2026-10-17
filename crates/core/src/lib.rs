@@ -36,6 +36,7 @@ pub mod comment;
 pub mod completion;
 pub mod diagnostic;
 pub mod diff;
+pub mod display_coords;
 pub mod doc_formatter;
 pub mod editor_config;
 pub mod fuzzy;
@@ -83,11 +84,8 @@ pub type Tendril = SmartString<smartstring::LazyCompact>;
 pub use regex;
 
 pub use position::{
-    char_idx_at_visual_offset, coords_at_pos, pos_at_coords, softwrapped_dimensions,
-    visual_offset_from_anchor, visual_offset_from_block, Position, VisualOffsetError,
+    coords_at_pos, line_cell_coords_at_pos, pos_at_coords, pos_at_line_cell_coords, Position,
 };
-#[allow(deprecated)]
-pub use position::{pos_at_visual_coords, visual_coords_at_pos};
 
 pub use selection::{Range, Selection};
 pub use smallvec::{smallvec, SmallVec};

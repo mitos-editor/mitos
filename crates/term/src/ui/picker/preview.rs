@@ -12,7 +12,8 @@ use crate::{
         EditorView,
     },
 };
-use editor_core::{char_idx_at_visual_offset, text_annotations::TextAnnotations};
+use editor_core::display_coords::char_idx_at_visual_offset;
+use editor_core::text_annotations::TextAnnotations;
 use ratatui_image::picker::Picker as ImagePicker;
 use std::{
     borrow::Cow,

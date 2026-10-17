@@ -3,17 +3,18 @@ use std::iter;
 use ropey::iter::Chars;
 
 use crate::{
-    char_idx_at_visual_offset,
     chars::{categorize_char, char_is_line_ending, CharCategory},
+    display_coords::{
+        char_idx_at_visual_block_offset, char_idx_at_visual_offset, visual_offset_from_block,
+    },
     doc_formatter::TextFormat,
     graphemes::{
         next_grapheme_boundary, nth_next_grapheme_boundary, nth_prev_grapheme_boundary,
         prev_grapheme_boundary,
     },
     line_ending::rope_is_line_ending,
-    position::char_idx_at_visual_block_offset,
     text_annotations::TextAnnotations,
-    visual_offset_from_block, Range, RopeSlice,
+    Range, RopeSlice,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
