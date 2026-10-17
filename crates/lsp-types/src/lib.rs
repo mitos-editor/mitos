@@ -30,6 +30,9 @@ use serde::{de, de::Error as Error_, Deserialize, Serialize};
 use serde_json::Value;
 pub use stdx::Url;
 
+mod interactive;
+pub use interactive::*;
+
 // Large enough to contain any enumeration name defined in this crate
 type PascalCaseBuf = [u8; 32];
 const fn fmt_pascal_case_const(name: &str) -> (PascalCaseBuf, usize) {
@@ -1337,6 +1340,9 @@ pub struct SymbolKindCapability {
 #[derive(Debug, Eq, PartialEq, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
+    /// Proposed standard location; experimental servers use ClientCapabilities.experimental.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interactive_resolve: Option<InteractiveResolveClientCapabilities>,
     /// The client supports applying batch edits to the workspace by supporting
     /// the request 'workspace/applyEdit'
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1956,6 +1962,9 @@ impl From<bool> for TypeDefinitionProviderCapability {
 #[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
+    /// Proposed standard location for interactive command resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interactive_resolve_provider: Option<InteractiveResolveOptions>,
     /// The position encoding the server picked from the encodings offered
     /// by the client via the client capability `general.positionEncodings`.
     ///
@@ -2682,6 +2691,8 @@ impl From<Vec<LocationLink>> for GotoDefinitionResponse {
 
 #[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize)]
 pub struct ExecuteCommandParams {
+    #[serde(flatten)]
+    pub interactive: InteractiveParams,
     /// The identifier of the actual command handler.
     pub command: String,
     /// Arguments that the command should be invoked with.

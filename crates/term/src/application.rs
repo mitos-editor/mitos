@@ -661,6 +661,15 @@ impl Application {
         log::debug!("received editor event: {:?}", event);
 
         match event {
+            EditorEvent::Interactive(request) => {
+                crate::handlers::interactive::show(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    &self.jobs,
+                    request,
+                );
+                self.render().await;
+            }
             EditorEvent::DocumentSaved(event) => {
                 self.handle_document_write(event);
                 self.render().await;
@@ -815,7 +824,17 @@ impl Application {
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self.compositor.handle_event(&event.into(), &mut cx),
+            event => {
+                let event = event.into();
+                if matches!(&event, Event::Key(key) if *key == crate::key!(Esc))
+                    && view::features::interactive::cancel(cx.editor)
+                {
+                    crate::handlers::interactive::clear_stale(cx.editor, &mut self.compositor);
+                    true
+                } else {
+                    self.compositor.handle_event(&event, &mut cx)
+                }
+            }
         };
 
         if should_redraw && !self.editor.should_close() {

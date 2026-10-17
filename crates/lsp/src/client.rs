@@ -581,6 +581,9 @@ impl Client {
     // -------------------------------------------------------------------------------------------
 
     pub(crate) async fn initialize(&self, enable_snippets: bool) -> Result<lsp::InitializeResult> {
+        let interactive_input_types = [
+            "string", "bool", "number", "enum", "lazyEnum", "file", "list",
+        ];
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
         }
@@ -595,7 +598,16 @@ impl Client {
             root_uri: self.root_uri.clone(),
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
+                experimental: Some(serde_json::json!({
+                    "interactiveResolve": { "inputTypes": interactive_input_types }
+                })),
                 workspace: Some(lsp::WorkspaceClientCapabilities {
+                    interactive_resolve: Some(lsp::InteractiveResolveClientCapabilities {
+                        input_types: interactive_input_types
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
+                    }),
                     configuration: Some(true),
                     did_change_configuration: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
@@ -781,7 +793,6 @@ impl Client {
                     ]),
                     ..Default::default()
                 }),
-                ..Default::default()
             },
             trace: None,
             client_info: Some(lsp::ClientInfo {
@@ -1882,8 +1893,48 @@ impl Client {
             work_done_progress_params: lsp::WorkDoneProgressParams {
                 work_done_token: None,
             },
+            interactive: Default::default(),
         };
 
+        self.execute_command(params)
+    }
+
+    pub fn supports_interactive_commands(&self) -> bool {
+        let capabilities = self.capabilities();
+        let experimental = capabilities
+            .experimental
+            .as_ref()
+            .and_then(|value| value.get("interactiveResolveProvider"))
+            .and_then(|value| {
+                serde_json::from_value::<lsp::InteractiveResolveOptions>(value.clone()).ok()
+            });
+        capabilities
+            .interactive_resolve_provider
+            .as_ref()
+            .or(experimental.as_ref())
+            .is_some_and(|options| options.kinds.iter().any(|kind| kind == "command"))
+    }
+
+    pub fn resolve_command(
+        &self,
+        params: lsp::ExecuteCommandParams,
+    ) -> impl Future<Output = Result<lsp::ExecuteCommandParams>> + use<> {
+        self.call::<lsp::ResolveCommand>(params)
+    }
+
+    pub fn interactive_list_enum(
+        &self,
+        params: lsp::InteractiveListEnumParams,
+    ) -> impl Future<Output = Result<Vec<lsp::FormEnumEntry>>> + use<> {
+        self.call::<lsp::InteractiveListEnum>(params)
+    }
+
+    /// Execute the complete resolved payload, including its typed form answers.
+    pub fn execute_command(
+        &self,
+        params: lsp::ExecuteCommandParams,
+    ) -> Option<impl Future<Output = Result<Option<Value>>> + use<>> {
+        self.capabilities().execute_command_provider.as_ref()?;
         Some(self.call::<lsp::request::ExecuteCommand>(params))
     }
 

@@ -6,6 +6,7 @@ pub mod completion;
 mod diagnostics;
 pub(crate) mod hover;
 mod inline_completion;
+pub(crate) mod interactive;
 pub(crate) mod navigation;
 mod prompt;
 pub(crate) mod signature_help;
