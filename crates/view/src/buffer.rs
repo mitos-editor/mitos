@@ -19,6 +19,23 @@ pub(crate) enum HistoryAction {
     Later(UndoKind),
 }
 
+/// Text change already applied to a buffer. The caller synchronously updates its
+/// derived state before publishing the change to observers.
+#[derive(Debug)]
+pub(crate) struct AppliedChange {
+    before: Rope,
+    changes: ChangeSet,
+}
+
+impl AppliedChange {
+    pub(crate) fn before(&self) -> &Rope {
+        &self.before
+    }
+    pub(crate) fn changes(&self) -> &ChangeSet {
+        &self.changes
+    }
+}
+
 pub(crate) struct Buffer {
     text: Rope,
     version: i32,
@@ -78,9 +95,20 @@ impl Buffer {
         Ok(())
     }
 
-    /// Mutate text; the document maps its own state before recording the undo group.
-    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) -> Result<(), InvalidLength> {
+    /// Apply text and record its pending undo group before returning to the caller.
+    pub(crate) fn apply(&mut self, changes: &ChangeSet) -> Result<AppliedChange, InvalidLength> {
+        let applied = self.apply_changes(changes)?;
+        if !changes.is_empty() {
+            self.pending_original_text
+                .get_or_insert_with(|| applied.before.clone());
+            self.changes = std::mem::take(&mut self.changes).compose(changes.clone());
+        }
+        Ok(applied)
+    }
+
+    fn apply_changes(&mut self, changes: &ChangeSet) -> Result<AppliedChange, InvalidLength> {
         self.validate_changes(changes)?;
+        let before = self.text.clone();
         if !changes.apply(&mut self.text) {
             return Err(InvalidLength {
                 expected: self.text.len_chars(),
@@ -90,14 +118,20 @@ impl Buffer {
         if !changes.is_empty() {
             self.version += 1;
         }
-        Ok(())
+        Ok(AppliedChange {
+            before,
+            changes: changes.clone(),
+        })
     }
 
-    pub(crate) fn record_changes(&mut self, before: Rope, changes: &ChangeSet) {
-        if !changes.is_empty() {
-            self.pending_original_text.get_or_insert(before);
-            self.changes = std::mem::take(&mut self.changes).compose(changes.clone());
-        }
+    /// Replay a planned history step without adding it to the pending undo group.
+    pub(crate) fn apply_history_step(
+        &mut self,
+        step: &HistoryStep,
+    ) -> Result<AppliedChange, InvalidLength> {
+        let applied = self.apply_changes(step.transaction.changes())?;
+        self.clear_pending_changes();
+        Ok(applied)
     }
 
     pub(crate) fn commit_changes(&mut self) -> Option<usize> {
@@ -112,7 +146,15 @@ impl Buffer {
         Some(self.history.commit_revision(&changes, &original))
     }
 
-    pub(crate) fn history_steps(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
+    /// Advance history and return its steps. Apply every returned step in order
+    /// with `apply_history_step`, updating derived state between steps.
+    /// Undo/earlier commit pending text; redo/later refuse to discard pending edits.
+    pub(crate) fn prepare_history(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
+        if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
+            self.commit_changes();
+        } else if !self.changes.is_empty() {
+            return Vec::new();
+        }
         match action {
             HistoryAction::Undo => self.history.undo().into_iter().collect(),
             HistoryAction::Redo => self.history.redo().into_iter().collect(),
@@ -121,8 +163,85 @@ impl Buffer {
         }
     }
 
-    pub(crate) fn clear_pending_changes(&mut self) {
+    fn clear_pending_changes(&mut self) {
         self.changes = ChangeSet::new(self.text.slice(..));
         self.pending_original_text = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn replace(buffer: &mut Buffer, from: usize, to: usize, text: &str) -> AppliedChange {
+        let transaction =
+            Transaction::change(buffer.text(), [(from, to, Some(text.into()))].into_iter());
+        buffer.apply(transaction.changes()).unwrap()
+    }
+
+    fn navigate(buffer: &mut Buffer, action: HistoryAction) {
+        for step in buffer.prepare_history(action) {
+            buffer.apply_history_step(&step).unwrap();
+        }
+    }
+
+    #[test]
+    fn successive_edits_share_an_undo_group_and_replay_without_pending_changes() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        let change = replace(&mut buffer, 0, 1, "α");
+        assert_eq!(change.before(), "abc");
+        let mut original = change.before().clone();
+        assert!(change.changes().apply(&mut original));
+        assert_eq!(&original, buffer.text());
+        replace(&mut buffer, 1, 2, "界");
+        assert_eq!(buffer.version(), 2);
+        let revision = buffer.commit_changes().unwrap();
+        assert_eq!(buffer.current_revision(), revision);
+        navigate(&mut buffer, HistoryAction::Undo);
+        assert_eq!(buffer.text(), "abc");
+        assert!(buffer.changes().is_empty());
+        navigate(&mut buffer, HistoryAction::Redo);
+        assert_eq!(buffer.text(), "α界c");
+        assert_eq!(buffer.version(), 4);
+        assert_eq!(buffer.commit_changes(), None);
+    }
+
+    #[test]
+    fn rejected_changes_and_empty_edits_preserve_text_version_and_pending_group() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 0, "x");
+        let pending = buffer.changes().clone();
+        let invalid = ChangeSet::new(Rope::from("wrong length").slice(..));
+        assert_eq!(
+            buffer.apply(&invalid).unwrap_err(),
+            InvalidLength {
+                expected: 4,
+                actual: 12
+            }
+        );
+        let identity = ChangeSet::new(buffer.text().slice(..));
+        buffer.apply(&identity).unwrap();
+        assert_eq!(buffer.text(), "xabc");
+        assert_eq!(buffer.version(), 1);
+        assert_eq!(buffer.changes(), &pending);
+        navigate(&mut buffer, HistoryAction::Undo);
+        assert_eq!(buffer.text(), "abc");
+    }
+
+    #[test]
+    fn chronological_history_crosses_branches_without_views() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        buffer.commit_changes();
+        replace(&mut buffer, 1, 2, "B");
+        buffer.commit_changes();
+        navigate(&mut buffer, HistoryAction::Undo);
+        replace(&mut buffer, 1, 2, "Z");
+        buffer.commit_changes();
+        navigate(&mut buffer, HistoryAction::Earlier(UndoKind::Steps(1)));
+        assert_eq!(buffer.text(), "ABc");
+        navigate(&mut buffer, HistoryAction::Later(UndoKind::Steps(1)));
+        assert_eq!(buffer.text(), "AZc");
+        assert!(buffer.changes().is_empty());
     }
 }

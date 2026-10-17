@@ -37,24 +37,21 @@ impl Document {
         }
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
             self.commit_changes();
-        } else if !self.buffer.changes().is_empty() {
-            return false;
         }
-        let steps = self.buffer.history_steps(action);
+        let steps = self.buffer.prepare_history(action);
         self.replay_history(steps, origin)
     }
 
     fn replay_history(&mut self, steps: Vec<HistoryStep>, origin: Option<ViewId>) -> bool {
         let mut applied = false;
         for step in steps {
-            let transaction = match origin.and_then(|_| self.selection_history.selection(&step)) {
-                Some(selection) => step.transaction.with_selection(selection.clone()),
-                None => step.transaction,
-            };
-            applied |= self.apply_impl(&transaction, origin, true).is_ok();
-        }
-        if applied {
-            self.buffer.clear_pending_changes();
+            let selection = origin
+                .and_then(|_| self.selection_history.selection(&step))
+                .cloned();
+            if let Ok(change) = self.buffer.apply_history_step(&step) {
+                self.publish_change(&change, selection.as_ref(), origin, true);
+                applied = true;
+            }
         }
         applied
     }

@@ -77,3 +77,29 @@ async fn selection_observers_see_invalid_snippets_removed() -> anyhow::Result<()
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_observers_can_commit_the_complete_undo_group() -> anyhow::Result<()> {
+    event::register_event::<DocumentDidChange>();
+    let armed = Arc::new(AtomicBool::new(false));
+    let observe = armed.clone();
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        if observe.load(Ordering::Relaxed) {
+            assert!(!event.doc.changes().is_empty());
+            assert!(event.doc.commit_changes().is_some());
+        }
+        Ok(())
+    });
+    let mut fixture = Fixture::new("abc\n")?;
+    let (_, doc) = current!(fixture.editor);
+    let transaction = Transaction::change(doc.text(), [(0, 1, Some("界".into()))].into_iter());
+    armed.store(true, Ordering::Relaxed);
+    doc.apply(transaction.changes())?;
+    armed.store(false, Ordering::Relaxed);
+    assert!(doc.changes().is_empty());
+    assert!(doc.undo());
+    assert_eq!(doc.text(), "abc\n");
+    assert!(doc.redo());
+    assert_eq!(doc.text(), "界bc\n");
+    Ok(())
+}

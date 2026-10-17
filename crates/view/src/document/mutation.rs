@@ -1,12 +1,13 @@
 //! The common text mutation path, including mandatory document invariants.
 
 use super::Document;
+use crate::buffer::AppliedChange;
 use crate::editing::EditError;
 use crate::{
     events::{DocumentDidChange, SelectionDidChange},
     ViewId,
 };
-use editor_core::{ChangeSet, Transaction};
+use editor_core::{ChangeSet, Selection, Transaction};
 use std::mem;
 
 impl Document {
@@ -32,28 +33,31 @@ impl Document {
         origin: Option<ViewId>,
         emit_lsp_notification: bool,
     ) -> Result<(), EditError> {
-        let before = self.text().clone();
-        self.apply_impl(transaction, origin, emit_lsp_notification)?;
-        self.buffer.record_changes(before, transaction.changes());
+        self.validate_changes(transaction.changes())?;
+        let change = self.buffer.apply(transaction.changes())?;
+        self.publish_change(
+            &change,
+            transaction.selection(),
+            origin,
+            emit_lsp_notification,
+        );
         Ok(())
     }
 
-    /// Apply a [`Transaction`] to the [`Document`] to change its text.
-    pub(crate) fn apply_impl(
+    /// Map mandatory document state, queue protocol synchronization, then notify observers.
+    pub(super) fn publish_change(
         &mut self,
-        transaction: &Transaction,
+        change: &AppliedChange,
+        selection: Option<&Selection>,
         view_id: Option<ViewId>,
         emit_lsp_notification: bool,
-    ) -> Result<(), EditError> {
+    ) {
         use editor_core::Assoc;
 
-        self.validate_changes(transaction.changes())?;
-        let old_doc = self.text().clone();
-        let changes = transaction.changes();
-        self.buffer.apply_changes(changes)?;
-
+        let old_doc = change.before();
+        let changes = change.changes();
         if changes.is_empty() {
-            if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
+            if let (Some(selection), Some(view_id)) = (selection, view_id) {
                 self.update_selection(view_id, selection.clone());
                 let errors = event::dispatch(SelectionDidChange {
                     doc: self,
@@ -61,7 +65,7 @@ impl Document {
                 });
                 self.report_hook_errors(errors);
             }
-            return Ok(());
+            return;
         }
 
         self.modified_since_accessed = true;
@@ -70,20 +74,19 @@ impl Document {
             *selection = selection
                 .clone()
                 // Map through changes
-                .map(transaction.changes())
+                .map(changes)
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.buffer.text().slice(..));
         }
 
         for view_data in self.view_data.values_mut() {
-            view_data.view_position.anchor = transaction
-                .changes()
-                .map_pos(view_data.view_position.anchor, Assoc::Before);
+            view_data.view_position.anchor =
+                changes.map_pos(view_data.view_position.anchor, Assoc::Before);
         }
 
         // generate revert to savepoint
         if !self.savepoints.is_empty() {
-            let revert = transaction.invert(&old_doc);
+            let revert = Transaction::from(changes.invert(old_doc));
             self.savepoints
                 .retain_mut(|save_point| match save_point.upgrade() {
                     Some(savepoint) => {
@@ -102,7 +105,7 @@ impl Document {
             if let Err(err) = syntax.update(
                 old_doc.slice(..),
                 self.buffer.text().slice(..),
-                transaction.changes(),
+                changes,
                 &loader,
             ) {
                 log::error!("TS parser failed, disabling TS for the current buffer: {err}");
@@ -121,7 +124,7 @@ impl Document {
         self.document_links.apply_changes(changes);
         self.code_lenses.apply_changes(
             changes,
-            &old_doc,
+            old_doc,
             self.buffer.text(),
             !emit_lsp_notification,
         );
@@ -136,32 +139,30 @@ impl Document {
             .apply_changes(changes, self.buffer.text().len_chars());
 
         // Install an explicit transaction selection before observers inspect the new state.
-        if let (Some(selection), Some(view_id)) = (transaction.selection(), view_id) {
+        if let (Some(selection), Some(view_id)) = (selection, view_id) {
             self.update_selection(view_id, selection.clone());
         }
 
         // Temporary completion previews deliberately remain local to the editor.
         if emit_lsp_notification {
-            crate::handlers::lsp::synchronize_document(self, &old_doc, changes);
+            crate::handlers::lsp::synchronize_document(self, old_doc, changes);
         }
 
         // Observers see mapped caches and the final selection, and may now schedule work.
         let errors = event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
-            old_text: &old_doc,
+            old_text: old_doc,
             changes,
             ghost_transaction: !emit_lsp_notification,
         });
         self.report_hook_errors(errors);
-        if let (Some(_), Some(view_id)) = (transaction.selection(), view_id) {
+        if let (Some(_), Some(view_id)) = (selection, view_id) {
             let errors = event::dispatch(SelectionDidChange {
                 doc: self,
                 view: view_id,
             });
             self.report_hook_errors(errors);
         }
-
-        Ok(())
     }
 }

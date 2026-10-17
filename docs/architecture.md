@@ -518,7 +518,10 @@ terminal-output dependency or terminal feature flag for clipboard access.
 The private `view::buffer::Buffer` owns rope text, text versions, pending undo
 groups, and text history. `Document` retains per-view cursor snapshots, file
 metadata, syntax, and editor services. History reads use shared references;
-reading the current revision never temporarily removes the undo tree.
+reading the current revision never temporarily removes the undo tree. Buffer
+mutation returns an `AppliedChange` with the original text and changes. Text and
+pending undo groups are complete before document effects or observers run; replay
+uses the same publication path without recording history steps as new edits.
 
 Text edits and undo groups belong to the document. `Document::apply` accepts a
 `ChangeSet`, and `commit_changes`, `undo`, `redo`, `earlier`, and `later` do not
