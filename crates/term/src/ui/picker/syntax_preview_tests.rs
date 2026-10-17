@@ -10,6 +10,8 @@ use crate::{
     job::{Callback, Jobs},
     ui::overlay::{overlaid, Overlay},
 };
+use crate::{compositor::Compositor, ui::picker::Column};
+use view::editor::Action;
 
 struct Fixture {
     app: Application,

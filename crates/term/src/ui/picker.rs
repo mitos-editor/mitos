@@ -1,22 +1,12 @@
 use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction};
 use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod handlers;
+mod preview;
 mod query;
 
-#[cfg(all(test, feature = "integration"))]
-mod syntax_preview_tests;
-
-use crate::ui::image::{cached_image, render_image, PreparedImage};
 use crate::{
     compositor::{self, Component, Compositor, Context, Cursor, Event, EventResult},
-    ui::{
-        self,
-        document::{render_document, LinePos, TextRenderer},
-        panel,
-        picker::query::PickerQuery,
-        text_decorations::DecorationManager,
-        EditorView,
-    },
+    ui::{self, panel, picker::query::PickerQuery},
 };
 use event::AsyncHook;
 use futures_util::future::BoxFuture;
@@ -37,9 +27,6 @@ use view::graphics::RectExt as _;
 
 use std::{
     borrow::Cow,
-    collections::HashMap,
-    io::Read,
-    path::{Path, PathBuf},
     sync::{
         atomic::{self, AtomicUsize},
         Arc,
@@ -48,28 +35,29 @@ use std::{
 
 use crate::ui::{Prompt, PromptEvent};
 use editor_core::{
-    char_idx_at_visual_offset, fuzzy::MATCHER, movement::Direction,
-    text_annotations::TextAnnotations, unicode::segmentation::UnicodeSegmentation,
+    fuzzy::MATCHER, movement::Direction, unicode::segmentation::UnicodeSegmentation,
 };
 use view::{
     editor::Action,
     graphics::{Modifier, Rect},
-    icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    view::ViewPosition,
-    Document, DocumentId, Editor,
+    Editor,
 };
 
-use self::handlers::{
-    highlight_preview, spawn_image_preview, DynamicQueryChange, DynamicQueryHandler,
-    ImagePreviewTask,
+use self::handlers::{DynamicQueryChange, DynamicQueryHandler};
+use self::preview::{render_preview_content, FilePreview};
+
+// These types remain available through the picker facade.
+pub use self::preview::{
+    CachedPreview, FileLocation, ImagePreview, PathOrId, Preview, MAX_FILE_SIZE_FOR_PREVIEW,
 };
+
+type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
+type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
 
 pub const ID: &str = "picker";
 
 pub const MIN_AREA_WIDTH_FOR_PREVIEW: u16 = 72;
-/// Biggest file size to preview in bytes
-pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
 fn split_picker_area(area: Rect, show_preview: bool) -> (Rect, Option<Rect>) {
     if show_preview {
@@ -80,520 +68,6 @@ fn split_picker_area(area: Rect, show_preview: bool) -> (Rect, Option<Rect>) {
     } else {
         (area, None)
     }
-}
-
-#[derive(PartialEq, Eq, Hash)]
-pub enum PathOrId<'a> {
-    Id(DocumentId),
-    Path(&'a Path),
-}
-
-impl<'a> From<&'a Path> for PathOrId<'a> {
-    fn from(path: &'a Path) -> Self {
-        Self::Path(path)
-    }
-}
-
-impl From<DocumentId> for PathOrId<'_> {
-    fn from(v: DocumentId) -> Self {
-        Self::Id(v)
-    }
-}
-
-type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
-type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
-
-/// File path and range of lines (used to align and highlight lines)
-pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
-
-pub enum CachedPreview {
-    Document(Box<Document>),
-    Directory(Vec<(PathBuf, bool)>),
-    Image(Box<ImagePreview>),
-    Binary,
-    LargeFile,
-    NotFound,
-}
-
-pub enum ImagePreview {
-    Loading {
-        size: Size,
-        request: Arc<()>,
-    },
-    Ready {
-        size: Size,
-        image: Arc<PreparedImage>,
-    },
-    Failed {
-        size: Size,
-    },
-}
-
-impl ImagePreview {
-    fn size(&self) -> Size {
-        match self {
-            Self::Loading { size, .. } | Self::Ready { size, .. } | Self::Failed { size } => *size,
-        }
-    }
-}
-
-// We don't store this enum in the cache so as to avoid lifetime constraints
-// from borrowing a document already opened in the editor.
-pub enum Preview<'picker, 'editor> {
-    Cached(&'picker mut CachedPreview),
-    EditorDocument(&'editor Document),
-}
-
-impl Preview<'_, '_> {
-    fn document(&self) -> Option<&Document> {
-        match self {
-            Preview::EditorDocument(doc) => Some(doc),
-            Preview::Cached(CachedPreview::Document(doc)) => Some(doc),
-            _ => None,
-        }
-    }
-
-    fn dir_content(&self) -> Option<&Vec<(PathBuf, bool)>> {
-        match self {
-            Preview::Cached(CachedPreview::Directory(dir_content)) => Some(dir_content),
-            _ => None,
-        }
-    }
-
-    fn image(&mut self) -> Option<&mut ImagePreview> {
-        match self {
-            Preview::Cached(CachedPreview::Image(image)) => Some(image.as_mut()),
-            _ => None,
-        }
-    }
-
-    /// Alternate text to show for the preview.
-    fn placeholder(&self) -> &str {
-        match self {
-            Self::EditorDocument(_) => "<Invalid file location>",
-            Self::Cached(preview) => match &**preview {
-                CachedPreview::Document(_) => "<Invalid file location>",
-                CachedPreview::Directory(_) => "<Invalid directory location>",
-                CachedPreview::Image(image) => match &**image {
-                    ImagePreview::Loading { .. } => "<Loading image>",
-                    ImagePreview::Ready { .. } => "<Rendering image>",
-                    ImagePreview::Failed { .. } => "<Image preview unavailable>",
-                },
-                CachedPreview::Binary => "<Binary file>",
-                CachedPreview::LargeFile => "<File too large to preview>",
-                CachedPreview::NotFound => "<File not found>",
-            },
-        }
-    }
-}
-
-struct FilePreview {
-    preview_cache: HashMap<Arc<Path>, CachedPreview>,
-    read_buffer: Vec<u8>,
-    image_task: Option<ImagePreviewTask>,
-    syntax_path: Option<Arc<Path>>,
-}
-
-impl Default for FilePreview {
-    fn default() -> Self {
-        Self {
-            preview_cache: HashMap::new(),
-            read_buffer: Vec::with_capacity(1024),
-            image_task: None,
-            syntax_path: None,
-        }
-    }
-}
-
-impl FilePreview {
-    fn cancel_image_load(&mut self, location: Option<(&Path, Size)>) {
-        if self
-            .image_task
-            .as_ref()
-            .is_some_and(|task| location != Some((task.path.as_ref(), task.size)))
-        {
-            let task = self.image_task.take().unwrap();
-            if matches!(self.preview_cache.get(&task.path), Some(CachedPreview::Image(image))
-                if matches!(image.as_ref(), ImagePreview::Loading { .. }))
-            {
-                self.preview_cache.remove(&task.path);
-            }
-        }
-    }
-
-    fn cancel_syntax_load(&mut self, path: Option<&Path>) {
-        if self.syntax_path.as_deref() == path {
-            return;
-        }
-        if let Some(path) = self.syntax_path.take()
-            && let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path)
-        {
-            doc.cancel_syntax_request();
-        }
-    }
-
-    fn cancel_loads(&mut self, location: Option<(&Path, Size)>) {
-        self.cancel_image_load(location);
-        self.cancel_syntax_load(location.map(|(path, _)| path));
-    }
-
-    fn highlight<T: 'static + Send + Sync, D: 'static + Send + Sync>(
-        &mut self,
-        path: Arc<Path>,
-        jobs: &crate::job::Jobs,
-    ) {
-        let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path) else {
-            return;
-        };
-        if let Some(request) = doc.syntax_request() {
-            self.syntax_path = Some(path.clone());
-            highlight_preview::<T, D>(jobs, path, request);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.cancel_loads(None);
-        self.preview_cache.clear();
-        self.read_buffer.clear();
-    }
-
-    fn get<'preview, 'editor, T: 'static + Send + Sync, D: 'static + Send + Sync>(
-        &'preview mut self,
-        editor: &'editor Editor,
-        (path_or_id, range): FileLocation<'_>,
-        jobs: &crate::job::Jobs,
-        image_picker: Option<&ratatui_image::picker::Picker>,
-        image_size: Size,
-    ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
-        let path_or_id = match path_or_id {
-            PathOrId::Id(id) => {
-                let Some(doc) = editor.documents.get(&id) else {
-                    self.cancel_loads(None);
-                    return None;
-                };
-                if doc.is_binary() {
-                    doc.path().map_or(PathOrId::Id(id), PathOrId::Path)
-                } else {
-                    PathOrId::Id(id)
-                }
-            }
-            path => path,
-        };
-        self.cancel_loads(match path_or_id {
-            PathOrId::Path(path) => Some((path, image_size)),
-            PathOrId::Id(_) => None,
-        });
-        match path_or_id {
-            PathOrId::Path(path) => {
-                if let Some(doc) = editor.document_by_path(path).filter(|doc| !doc.is_binary()) {
-                    self.cancel_syntax_load(None);
-                    return Some((Preview::EditorDocument(doc), range));
-                }
-
-                if matches!(self.preview_cache.get(path), Some(CachedPreview::Image(image))
-                    if image.size() != image_size || matches!(image.as_ref(), ImagePreview::Ready { image, .. }
-                        if image_picker.is_some_and(|picker| !image.is_current(path, picker, image_size))))
-                {
-                    self.preview_cache.remove(path);
-                }
-                if self.preview_cache.contains_key(path) {
-                    let (path, _) = self.preview_cache.get_key_value(path).unwrap();
-                    let path = Arc::clone(path);
-                    self.highlight::<T, D>(path.clone(), jobs);
-                    let preview = self.preview_cache.get_mut(&path).unwrap();
-                    return Some((Preview::Cached(preview), range));
-                }
-
-                let path: Arc<Path> = path.into();
-                if let Some(image) =
-                    image_picker.and_then(|picker| cached_image(&path, picker, image_size))
-                {
-                    // Other images remain available in the shared, bounded cache.
-                    self.preview_cache
-                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
-                    self.preview_cache.insert(
-                        path.clone(),
-                        CachedPreview::Image(Box::new(ImagePreview::Ready {
-                            size: image_size,
-                            image,
-                        })),
-                    );
-                    return Some((
-                        Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
-                        range,
-                    ));
-                }
-                let preview = std::fs::metadata(&path)
-                    .and_then(|metadata| {
-                        if metadata.is_dir() {
-                            let files =
-                                super::directory_content(&path, &editor.config().file_explorer)?;
-                            Ok(CachedPreview::Directory(files))
-                        } else if metadata.is_file() {
-                            if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
-                                return Ok(CachedPreview::LargeFile);
-                            }
-                            let is_binary = std::fs::File::open(&path).and_then(|file| {
-                                let n = file.take(1024).read_to_end(&mut self.read_buffer)?;
-                                let bytes = &self.read_buffer[..n];
-                                let is_binary =
-                                    crate::is_binary(bytes) || image::guess_format(bytes).is_ok();
-                                self.read_buffer.clear();
-                                Ok(is_binary)
-                            })?;
-                            if is_binary {
-                                return Ok(if image_picker.is_some() {
-                                    CachedPreview::Image(Box::new(ImagePreview::Loading {
-                                        size: image_size,
-                                        request: Arc::new(()),
-                                    }))
-                                } else {
-                                    CachedPreview::Binary
-                                });
-                            }
-                            let mut doc = Document::open(
-                                &path,
-                                None,
-                                false,
-                                editor.config.clone(),
-                                editor.syn_loader.clone(),
-                            )
-                            .or(Err(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "Cannot open document",
-                            )))?;
-                            doc.detect_language(&editor.syn_loader.load_full());
-                            Ok(CachedPreview::Document(Box::new(doc)))
-                        } else {
-                            Err(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "Neither a dir, nor a file",
-                            ))
-                        }
-                    })
-                    .unwrap_or(CachedPreview::NotFound);
-                let request = match &preview {
-                    CachedPreview::Image(image) => match image.as_ref() {
-                        ImagePreview::Loading { request, .. } => Some(request.clone()),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if request.is_some() {
-                    // Decoded images and their terminal encodings can be much larger than the
-                    // files on disk. Keep only the active image preview while retaining the
-                    // existing cache behavior for text documents and directories.
-                    self.preview_cache
-                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
-                }
-                self.preview_cache.insert(path.clone(), preview);
-                self.highlight::<T, D>(path.clone(), jobs);
-                if let Some(request) = request {
-                    self.image_task = Some(spawn_image_preview::<T, D>(
-                        jobs.sender(),
-                        path.clone(),
-                        image_picker.unwrap().clone(),
-                        image_size,
-                        request,
-                    ));
-                }
-                Some((
-                    Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
-                    range,
-                ))
-            }
-            PathOrId::Id(id) => {
-                let doc = editor.documents.get(&id).unwrap();
-                Some((Preview::EditorDocument(doc), range))
-            }
-        }
-    }
-}
-
-fn render_preview_content(
-    mut preview: Preview<'_, '_>,
-    range: Option<(usize, usize)>,
-    area: Rect,
-    inner: Rect,
-    surface: &mut Surface,
-    cx: &Context,
-) {
-    let text_style = cx.editor.theme.get("ui.text");
-    let directory_style = cx.editor.theme.get("ui.text.directory");
-    if let Some(image) = preview.image() {
-        match image {
-            ImagePreview::Loading { .. } => {
-                render_preview_placeholder(surface, inner, "<Loading image>", text_style);
-            }
-            ImagePreview::Ready { image, .. } => {
-                render_image(&image.protocol, &image.details, inner, surface, text_style);
-            }
-            ImagePreview::Failed { .. } => {
-                render_preview_placeholder(
-                    surface,
-                    inner,
-                    "<Image preview unavailable>",
-                    text_style,
-                );
-            }
-        }
-        return;
-    }
-
-    let doc = match preview.document() {
-        Some(doc)
-            if range.is_none_or(|(start, end)| start <= end && end <= doc.text().len_lines()) =>
-        {
-            doc
-        }
-        _ => {
-            if let Some(dir_content) = preview.dir_content() {
-                for (i, (path, is_dir)) in
-                    dir_content.iter().take(inner.height as usize).enumerate()
-                {
-                    let name = path
-                        .file_name()
-                        .map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
-
-                    if cx.editor.config().icons {
-                        let icons = ICONS.load();
-                        let icon = if *is_dir {
-                            icons.fs().directory().map(|directory_icons| {
-                                directory_icons.get_with_style_or_default(
-                                    &name,
-                                    path.file_name().is_none(),
-                                    &cx.editor.theme,
-                                    directory_style,
-                                )
-                            })
-                        } else {
-                            icons.fs().file().map(|file_icons| {
-                                file_icons.get_with_style_or_default(path, &cx.editor.theme)
-                            })
-                        };
-
-                        if let Some(icon) = icon {
-                            surface.set_stringn(
-                                inner.x,
-                                inner.y + i as u16,
-                                icon.glyph(),
-                                inner.width as usize,
-                                icon.style(),
-                            );
-                            let suffix = if *is_dir { "/" } else { "" };
-                            surface.set_stringn(
-                                inner.x + icon.width(),
-                                inner.y + i as u16,
-                                format!("{name}{suffix}"),
-                                inner.width.saturating_sub(icon.width()) as usize,
-                                if *is_dir { directory_style } else { text_style },
-                            );
-                            continue;
-                        }
-                    }
-
-                    let suffix = if *is_dir { "/" } else { "" };
-                    surface.set_stringn(
-                        inner.x,
-                        inner.y + i as u16,
-                        format!("{name}{suffix}"),
-                        inner.width as usize,
-                        if *is_dir { directory_style } else { text_style },
-                    );
-                }
-                return;
-            }
-
-            let alt_text = preview.placeholder();
-            let x = inner.x + inner.width.saturating_sub(alt_text.len() as u16) / 2;
-            let y = inner.y + inner.height / 2;
-            surface.set_stringn(x, y, alt_text, inner.width as usize, text_style);
-            return;
-        }
-    };
-
-    let mut offset = ViewPosition::default();
-    if let Some((start_line, end_line)) = range {
-        let height = end_line - start_line;
-        let text = doc.text().slice(..);
-        let start = text.line_to_char(start_line);
-        let middle = text.line_to_char(start_line + height / 2);
-        if height < inner.height as usize {
-            let text_fmt = doc.text_format(inner.width, None);
-            let annotations = TextAnnotations::default();
-            (offset.anchor, offset.vertical_offset) = char_idx_at_visual_offset(
-                text,
-                middle,
-                -(inner.height as isize / 2),
-                0,
-                &text_fmt,
-                &annotations,
-            );
-            if start < offset.anchor {
-                offset.anchor = start;
-                offset.vertical_offset = 0;
-            }
-        } else {
-            offset.anchor = start;
-        }
-    }
-
-    let loader = cx.editor.syn_loader.load();
-    let config = cx.editor.config();
-
-    let syntax_highlighter =
-        EditorView::doc_syntax_highlighter(doc, offset.anchor, area.height, &loader);
-    let mut overlay_highlights = Vec::new();
-    if doc
-        .language_config()
-        .and_then(|config| config.rainbow_brackets)
-        .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = EditorView::doc_rainbow_highlights(
-            doc,
-            offset.anchor,
-            area.height,
-            &cx.editor.theme,
-            &loader,
-        )
-    {
-        overlay_highlights.push(overlay);
-    }
-
-    EditorView::doc_diagnostics_highlights_into(doc, &cx.editor.theme, &mut overlay_highlights);
-
-    let mut decorations = DecorationManager::default();
-
-    if let Some((start, end)) = range {
-        let style = cx
-            .editor
-            .theme
-            .try_get("ui.highlight")
-            .unwrap_or_else(|| cx.editor.theme.get("ui.selection"));
-        let draw_highlight = move |renderer: &mut TextRenderer, pos: LinePos| {
-            if (start..=end).contains(&pos.doc_line) {
-                let area = Rect::new(
-                    renderer.viewport.x,
-                    pos.visual_line,
-                    renderer.viewport.width,
-                    1,
-                );
-                renderer.set_style(area, style)
-            }
-        };
-        decorations.add_decoration(draw_highlight);
-    }
-
-    render_document(
-        surface,
-        inner,
-        doc,
-        offset,
-        &TextAnnotations::default(),
-        syntax_highlighter,
-        overlay_highlights,
-        &cx.editor.theme,
-        decorations,
-    );
 }
 
 fn inject_nucleo_item<T, D>(
@@ -1606,17 +1080,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         EventResult::Consumed(None)
     }
-}
-
-fn render_preview_placeholder(
-    surface: &mut Surface,
-    area: Rect,
-    placeholder: &str,
-    style: view::theme::Style,
-) {
-    let x = area.x + area.width.saturating_sub(placeholder.len() as u16) / 2;
-    let y = area.y + area.height / 2;
-    surface.set_stringn(x, y, placeholder, area.width as usize, style);
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
