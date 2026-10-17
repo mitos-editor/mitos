@@ -98,7 +98,10 @@ fn request_document_links(
         loop {
             match cancelable_future(futures.next(), &request.cancel).await {
                 Some(Some(Ok(items))) => all_links.extend(items),
-                Some(Some(Err(err))) => log::error!("document link request failed: {err}"),
+                Some(Some(Err(err))) => log::log!(
+                    lsp_client::error_log_level(err.as_ref()),
+                    "document link request failed: {err}"
+                ),
                 Some(None) => break,
                 None => return,
             }

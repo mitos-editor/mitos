@@ -87,6 +87,26 @@ impl From<sonic_rs::Error> for Error {
     }
 }
 
+/// Routine request cancellations are debug events, including through error wrappers.
+/// All other failures retain error severity.
+pub fn error_log_level(error: &(dyn std::error::Error + 'static)) -> log::Level {
+    let mut source = Some(error);
+    while let Some(error) = source {
+        if let Some(error) = error.downcast_ref::<jsonrpc::Error>()
+            && matches!(
+                error.code.code(),
+                lsp::error_codes::REQUEST_CANCELLED
+                    | lsp::error_codes::SERVER_CANCELLED
+                    | lsp::error_codes::CONTENT_MODIFIED
+            )
+        {
+            return log::Level::Debug;
+        }
+        source = error.source();
+    }
+    log::Level::Error
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 /// Unit used by the server for the `character` component of LSP positions.
 ///
@@ -1065,6 +1085,44 @@ pub fn find_lsp_workspace(
 mod tests {
     use super::{lsp, util::*, OffsetEncoding};
     use editor_core::Rope;
+
+    #[test]
+    fn cancellation_severity_survives_error_wrapping() {
+        for code in [
+            lsp::error_codes::REQUEST_CANCELLED,
+            lsp::error_codes::SERVER_CANCELLED,
+            lsp::error_codes::CONTENT_MODIFIED,
+        ] {
+            let rpc_error = super::jsonrpc::Error {
+                code: code.into(),
+                message: "request superseded".into(),
+                data: None,
+            };
+            assert_eq!(super::error_log_level(&rpc_error), log::Level::Debug);
+            let error = super::Error::Rpc(rpc_error);
+            assert_eq!(super::error_log_level(&error), log::Level::Debug);
+            let error = anyhow::Error::new(error).context("request failed");
+            assert_eq!(super::error_log_level(error.as_ref()), log::Level::Debug);
+        }
+    }
+
+    #[test]
+    fn genuine_failures_retain_error_severity() {
+        let error = super::Error::Rpc(super::jsonrpc::Error {
+            code: lsp::error_codes::REQUEST_FAILED.into(),
+            message: "not a cancellation".into(),
+            data: None,
+        });
+        assert_eq!(super::error_log_level(&error), log::Level::Error);
+        let error = anyhow::Error::new(error).context("request failed");
+        assert_eq!(super::error_log_level(error.as_ref()), log::Level::Error);
+        let error = std::io::Error::other("request canceled");
+        assert_eq!(super::error_log_level(&error), log::Level::Error);
+        assert_eq!(
+            super::error_log_level(&super::Error::StreamClosed),
+            log::Level::Error
+        );
+    }
 
     #[test]
     fn converts_lsp_pos_to_pos() {

@@ -333,7 +333,12 @@ fn request_completions_from_language_server(
     async move {
         let response: Option<lsp::CompletionResponse> = completion_response
             .await
-            .inspect_err(|err| log::error!("completion request failed: {err}"))
+            .inspect_err(|err| {
+                log::log!(
+                    lsp_client::error_log_level(err),
+                    "completion request failed: {err}"
+                )
+            })
             .ok()
             .flatten();
         let (mut items, is_incomplete) = match response {

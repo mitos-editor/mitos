@@ -77,7 +77,10 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
         let response = match cancelable_future(future, &request.cancel).await {
             Some(Ok(response)) => response,
             Some(Err(err)) => {
-                log::error!("document highlight request failed: {err}");
+                log::log!(
+                    lsp_client::error_log_level(&err),
+                    "document highlight request failed: {err}"
+                );
                 return;
             }
             None => return,

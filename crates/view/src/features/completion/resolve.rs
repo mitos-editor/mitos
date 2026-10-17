@@ -172,7 +172,10 @@ impl ResolveRequest {
                 ..*self.item
             },
             Err(err) => {
-                log::error!("completion resolve request failed: {err}");
+                log::log!(
+                    lsp_client::error_log_level(&err),
+                    "completion resolve request failed: {err}"
+                );
                 // set item to resolved so we don't request it again
                 // we could also remove it but that oculd be odd ui
                 let mut item = (*self.item).clone();
@@ -212,7 +215,11 @@ pub fn resolve_item(
     match response {
         Ok(item) => Some(item),
         Err(err) => {
-            log::error!("Failed to resolve completion item: {}", err);
+            log::log!(
+                lsp_client::error_log_level(&err),
+                "Failed to resolve completion item: {}",
+                err
+            );
             None
         }
     }

@@ -111,7 +111,10 @@ impl PendingRequests {
             return;
         };
         if let Err(err) = &result {
-            log::error!("{language_server_name} <- {err}");
+            log::log!(
+                crate::error_log_level(err),
+                "{language_server_name} <- {err}"
+            );
         }
         if request.sender.send(result).is_err() {
             log::debug!(

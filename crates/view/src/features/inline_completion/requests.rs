@@ -224,7 +224,10 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
                     Ok(Some(lsp::InlineCompletionResponse::List(list))) => list.items,
                     Ok(None) => Vec::new(),
                     Err(err) => {
-                        log::error!("inline completion request failed: {err}");
+                        log::log!(
+                            lsp_client::error_log_level(&err),
+                            "inline completion request failed: {err}"
+                        );
                         return;
                     }
                 };
@@ -348,7 +351,10 @@ pub fn accept(editor: &mut Editor) -> Option<AppliedInlineCompletion> {
     {
         tokio::spawn(async move {
             if let Err(err) = future.await {
-                log::error!("inline completion command failed: {err}");
+                log::log!(
+                    lsp_client::error_log_level(&err),
+                    "inline completion command failed: {err}"
+                );
             }
         });
     }

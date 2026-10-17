@@ -177,7 +177,9 @@ impl Transport {
         if err.read_line(buffer).await? == 0 {
             return Err(Error::StreamClosed);
         };
-        error!("{language_server_name} err <- {buffer:?}");
+        // Servers also write routine diagnostics to stderr; the stream itself
+        // carries no severity. Keep it available for debugging.
+        log::debug!("{language_server_name} err <- {buffer:?}");
 
         Ok(())
     }
