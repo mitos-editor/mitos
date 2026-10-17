@@ -9,14 +9,12 @@ use crate::{
 };
 use theme::Theme;
 
-use editor_core::display_coords::{
+use editor_core::{Position, RopeSlice, Selection, Transaction};
+use text_layout::{
     char_idx_at_visual_offset, visual_offset_from_anchor, visual_offset_from_block,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
 };
-use editor_core::{
-    doc_formatter::TextFormat, text_annotations::TextAnnotations, Position, RopeSlice, Selection,
-    Transaction,
-};
+use text_layout::{doc_formatter::TextFormat, text_annotations::TextAnnotations};
 
 use std::{
     collections::{HashMap, VecDeque},

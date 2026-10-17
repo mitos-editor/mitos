@@ -1,7 +1,8 @@
 //! State belonging to one document/view relationship.
 
 use crate::view::ViewPosition;
-use editor_core::{text_annotations::Overlay, Selection};
+use editor_core::Selection;
+use text_layout::text_annotations::Overlay;
 
 #[derive(Debug)]
 pub(super) struct DocumentViewState {

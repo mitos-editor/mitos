@@ -1,6 +1,6 @@
 [package]
 name = "core"
-description = "Text primitives, layout, and language-independent editing algorithms for Mitos"
+description = "Text primitives and language-independent editing algorithms for Mitos"
 include = ["src/**/*", "README.md", "LICENSE"]
 version.workspace = true
 authors.workspace = true

@@ -5,8 +5,8 @@ use std::ops::Range;
 use std::ptr::NonNull;
 
 use crate::doc_formatter::FormattedGrapheme;
-use crate::highlight::{Highlight, OverlayHighlights};
-use crate::{Position, Tendril};
+use editor_core::highlight::{Highlight, OverlayHighlights};
+use editor_core::{Position, Tendril};
 
 /// An inline annotation is continuous text shown
 /// on the screen before the grapheme that starts at
@@ -41,7 +41,7 @@ impl InlineAnnotation {
 /// `aX͎̊͢͜͝͡bc`
 ///
 /// ```
-/// use editor_core::text_annotations::Overlay;
+/// use text_layout::text_annotations::Overlay;
 ///
 /// // replaces a
 /// Overlay::new(0, "X");
@@ -56,7 +56,7 @@ impl InlineAnnotation {
 /// The following examples are invalid uses
 ///
 /// ```
-/// use editor_core::text_annotations::Overlay;
+/// use text_layout::text_annotations::Overlay;
 ///
 /// // overlay is not aligned at grapheme boundary
 /// Overlay::new(3, "x");

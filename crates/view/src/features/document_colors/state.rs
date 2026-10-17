@@ -1,7 +1,8 @@
 //! Document color annotations and their request lifetime.
 
-use editor_core::{text_annotations::InlineAnnotation, Assoc, ChangeSet};
+use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
+use text_layout::text_annotations::InlineAnnotation;
 
 use super::DocumentColorsHandler;
 use crate::Document;

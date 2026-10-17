@@ -1,9 +1,7 @@
 use super::Decoration;
 use crate::ui::document::{LinePos, TextRenderer};
-use editor_core::{
-    doc_formatter::{FormattedGrapheme, TextFormat},
-    Position,
-};
+use editor_core::Position;
+use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use theme::Style;
 use view::document::{InlineCompletion, InlineCompletionRow};
 

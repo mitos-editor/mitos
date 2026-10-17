@@ -2,11 +2,11 @@
 
 use std::collections::HashSet;
 
-use editor_core::text_annotations::InlineAnnotation;
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use language::config::LanguageServerFeature;
 use lsp_client::lsp;
+use text_layout::text_annotations::InlineAnnotation;
 
 use crate::{
     callbacks::EditorCallbackSender,

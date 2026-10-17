@@ -162,7 +162,7 @@ async fn eof_cursor_remains_visible_when_a_prompt_takes_focus() {
 
 #[tokio::test]
 async fn inlay_hints_do_not_capture_the_document_cursor() {
-    use editor_core::text_annotations::InlineAnnotation;
+    use text_layout::text_annotations::InlineAnnotation;
     use view::document::{DocumentInlayHints, DocumentInlayHintsId};
 
     for shape in ["block", "bar"] {

@@ -81,12 +81,11 @@ pub struct InlineCompletionRow {
 impl InlineCompletion {
     pub fn layout(
         &self,
-        format: &editor_core::doc_formatter::TextFormat,
+        format: &text_layout::doc_formatter::TextFormat,
         col: usize,
     ) -> Vec<InlineCompletionRow> {
-        use editor_core::{
-            doc_formatter::DocumentFormatter, text_annotations::TextAnnotations, Rope,
-        };
+        use editor_core::Rope;
+        use text_layout::{doc_formatter::DocumentFormatter, text_annotations::TextAnnotations};
         // Padding supplies the actual anchor column to the formatter for tab stops and wrapping.
         // A non-whitespace sentinel prevents this padding from becoming retained indentation.
         let prefix = if col == 0 {

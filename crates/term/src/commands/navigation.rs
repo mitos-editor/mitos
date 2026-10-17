@@ -11,11 +11,11 @@ use editor_core::{
     line_ending::line_end_char_index,
     movement as core_movement,
     movement::{Direction, Movement},
-    text_annotations::Overlay,
     Range, Selection, Tendril,
 };
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
 use stdx::rope::RopeSliceExt;
+use text_layout::text_annotations::Overlay;
 use view::{
     document::Mode,
     editor::Action,

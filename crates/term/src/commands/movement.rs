@@ -1,18 +1,16 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
-use editor_core::display_coords::{char_idx_at_visual_offset, visual_offset_from_block};
+use text_layout::movement::{move_vertically, move_vertically_visual};
+
 use editor_core::{
-    doc_formatter::TextFormat,
     graphemes::{self, next_grapheme_boundary},
     line_ending::line_end_char_index,
-    movement::{
-        self, move_horizontally, move_vertically, move_vertically_visual, Direction, Movement,
-    },
-    search,
-    text_annotations::TextAnnotations,
-    Range, RopeSlice,
+    movement::{self, move_horizontally, Direction, Movement},
+    search, Range, RopeSlice,
 };
 use stdx::rope::RopeSliceExt;
+use text_layout::{char_idx_at_visual_offset, visual_offset_from_block};
+use text_layout::{doc_formatter::TextFormat, text_annotations::TextAnnotations};
 use ui_core::keyboard::KeyCode;
 use view::{align_view, document::Mode, editor::Motion, view::View, Align, Document, Editor};
 
@@ -43,12 +41,23 @@ fn move_impl(cx: &mut Context, move_fn: MoveFn, dir: Direction, behaviour: Movem
     doc.set_selection(view.id, selection);
 }
 
+fn move_char_impl(cx: &mut Context, dir: Direction, behaviour: Movement) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc
+        .selection(view.id)
+        .clone()
+        .transform(|range| move_horizontally(text, range, dir, count, behaviour));
+    doc.set_selection(view.id, selection);
+}
+
 pub(super) fn move_char_left(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Backward, Movement::Move)
+    move_char_impl(cx, Direction::Backward, Movement::Move)
 }
 
 pub(super) fn move_char_right(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Forward, Movement::Move)
+    move_char_impl(cx, Direction::Forward, Movement::Move)
 }
 
 pub(super) fn move_line_up(cx: &mut Context) {
@@ -78,11 +87,11 @@ pub(super) fn move_visual_line_down(cx: &mut Context) {
 }
 
 pub(super) fn extend_char_left(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Backward, Movement::Extend)
+    move_char_impl(cx, Direction::Backward, Movement::Extend)
 }
 
 pub(super) fn extend_char_right(cx: &mut Context) {
-    move_impl(cx, move_horizontally, Direction::Forward, Movement::Extend)
+    move_char_impl(cx, Direction::Forward, Movement::Extend)
 }
 
 pub(super) fn extend_line_up(cx: &mut Context) {

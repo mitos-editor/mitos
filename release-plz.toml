@@ -19,6 +19,7 @@ changelog_include = [
   "grammar-build", "language", "loader", "lsp", "lsp-types", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
+  "text-layout",
 ]
 git_release_name = "Mitos {{ version }}"
 git_release_enable = true
@@ -53,6 +54,10 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "text-io"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "text-layout"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]

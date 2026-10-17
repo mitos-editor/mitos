@@ -1,16 +1,16 @@
 use std::cmp::min;
 
-use editor_core::display_coords::visual_offset_from_block;
-use editor_core::doc_formatter::{
-    DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat,
-};
 use editor_core::graphemes::Grapheme;
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::str_utils::char_to_byte_idx;
-use editor_core::text_annotations::TextAnnotations;
 use editor_core::{Position, RopeSlice};
 use language::syntax::Highlighter;
 use stdx::rope::RopeSliceExt;
+use text_layout::doc_formatter::{
+    DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat,
+};
+use text_layout::text_annotations::TextAnnotations;
+use text_layout::visual_offset_from_block;
 use theme::Style;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;

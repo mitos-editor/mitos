@@ -4096,6 +4096,7 @@ dependencies = [
  "termina 0.4.0",
  "termini",
  "text-io",
+ "text-layout",
  "theme",
  "thiserror 2.0.21",
  "tokio",
@@ -4216,6 +4217,15 @@ dependencies = [
  "core",
  "futures-executor",
  "tokio",
+]
+
+[[package]]
+name = "text-layout"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "stdx",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -4659,6 +4669,7 @@ dependencies = [
  "stdx",
  "tempfile",
  "text-io",
+ "text-layout",
  "theme",
  "thiserror 2.0.21",
  "tokio",

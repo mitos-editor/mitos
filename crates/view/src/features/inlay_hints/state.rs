@@ -2,9 +2,10 @@
 
 use std::{collections::HashMap, fmt};
 
-use editor_core::{text_annotations::InlineAnnotation, ChangeSet, Uri};
+use editor_core::{ChangeSet, Uri};
 use event::{TaskController, TaskHandle};
 use lsp_client::LanguageServerId;
+use text_layout::text_annotations::InlineAnnotation;
 
 use crate::ViewId;
 

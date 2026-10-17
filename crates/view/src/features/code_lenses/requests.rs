@@ -188,7 +188,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         let text = doc.text().slice(..);
         let format = doc.text_format(area.width, Some(&editor.theme));
         let annotations = view.text_annotations(doc, Some(&editor.theme));
-        let row_offset = editor_core::display_coords::visual_offset_from_block(
+        let row_offset = text_layout::visual_offset_from_block(
             text,
             offset.anchor,
             offset.anchor,
@@ -198,7 +198,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         .0
         .row + offset.vertical_offset;
         let mut visible_lines = HashSet::new();
-        for grapheme in editor_core::doc_formatter::DocumentFormatter::new_at_prev_checkpoint(
+        for grapheme in text_layout::doc_formatter::DocumentFormatter::new_at_prev_checkpoint(
             text,
             &format,
             &annotations,

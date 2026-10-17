@@ -21,9 +21,8 @@
 //! - [`selection`] and [`movement`] for cursor/range semantics;
 //! - [`Transaction`] and [`ChangeSet`] for composable changes and position mapping;
 //! - [`indent`], [`comment`], and [`textobject`] for text editing
-//!   operations; and
-//! - [`doc_formatter`] and [`text_annotations`] for converting document text
-//!   into visual rows without depending on a renderer.
+//!   operations. Display layout and annotation-aware positioning live in
+//!   the `text-layout` crate.
 
 use std::fmt;
 
@@ -36,8 +35,6 @@ pub mod comment;
 pub mod completion;
 pub mod diagnostic;
 pub mod diff;
-pub mod display_coords;
-pub mod doc_formatter;
 pub mod editor_config;
 pub mod fuzzy;
 pub mod graphemes;
@@ -53,7 +50,6 @@ mod position;
 pub mod search;
 pub mod selection;
 pub mod test;
-pub mod text_annotations;
 pub mod textobject;
 mod transaction;
 pub mod transform;

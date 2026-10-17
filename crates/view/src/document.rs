@@ -36,14 +36,14 @@ use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::chars::char_is_word;
 use editor_core::diagnostic::DiagnosticProvider;
-use editor_core::doc_formatter::TextFormat;
 use editor_core::encoding::Encoding;
-use editor_core::text_annotations::Overlay;
 use futures_util::future::BoxFuture;
 use language::config::LanguageServerFeature;
 use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
 use stdx::faccess::{copy_metadata, readonly};
+use text_layout::doc_formatter::TextFormat;
+use text_layout::text_annotations::Overlay;
 use thiserror;
 use vcs::{DiffHandle, DiffProviderRegistry};
 

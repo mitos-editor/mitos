@@ -3,11 +3,11 @@
 use std::ops::Range;
 
 use editor_core::{
-    doc_formatter::FormattedGrapheme,
     line_ending::line_end_char_index,
     unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
     Position, Rope,
 };
+use text_layout::doc_formatter::FormattedGrapheme;
 use theme::Style;
 use view::document::CodeLens;
 
@@ -250,7 +250,7 @@ mod tests {
             doc.text().slice(..),
             0,
             &doc.text_format(width, Some(&theme)),
-            &editor_core::text_annotations::TextAnnotations::default(),
+            &text_layout::text_annotations::TextAnnotations::default(),
             None,
             vec![],
             &theme,

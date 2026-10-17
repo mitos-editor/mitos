@@ -1,8 +1,8 @@
 use crate::document::InlineCompletion;
-use editor_core::{
+use editor_core::Position;
+use text_layout::{
     doc_formatter::{FormattedGrapheme, TextFormat},
     text_annotations::LineAnnotation,
-    Position,
 };
 
 /// Reserve only the preview rows that don't fit in the original document line.

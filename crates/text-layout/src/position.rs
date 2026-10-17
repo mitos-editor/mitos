@@ -1,13 +1,13 @@
 //! Coordinates after soft wrapping and display annotations.
 //!
 //! For positions within unwrapped document lines, use the text coordinate
-//! helpers in the crate root instead.
+//! helpers in `editor_core` instead.
 
 use crate::{
     doc_formatter::{DocumentFormatter, TextFormat},
     text_annotations::TextAnnotations,
-    Position, RopeSlice,
 };
+use editor_core::{Position, RopeSlice};
 use std::cmp::Ordering;
 
 /// Returns the visual offset from the start of the first visual line
@@ -239,7 +239,8 @@ pub fn char_idx_at_visual_block_offset(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{text_annotations::InlineAnnotation, Rope};
+    use crate::text_annotations::InlineAnnotation;
+    use editor_core::Rope;
 
     #[test]
     fn test_visual_off_from_block() {

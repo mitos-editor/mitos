@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
-use editor_core::doc_formatter::FormattedGrapheme;
 use editor_core::Position;
+use text_layout::doc_formatter::FormattedGrapheme;
 use view::editor::CursorCache;
 
 use crate::ui::document::{LinePos, TextRenderer};
@@ -23,7 +23,7 @@ pub mod inline_completion;
 /// the rendering infrastructure.
 ///
 /// To reserve space for virtual text lines (which is then filled by this trait) emit appropriate
-/// [`LineAnnotation`](editor_core::text_annotations::LineAnnotation)s in [`view::View::text_annotations`]
+/// [`LineAnnotation`](text_layout::text_annotations::LineAnnotation)s in [`view::View::text_annotations`]
 pub trait Decoration {
     /// Called **before** a **visual** line is rendered. A visual line does not
     /// necessarily correspond to a single line in a document as soft wrapping can

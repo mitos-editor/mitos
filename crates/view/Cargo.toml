@@ -25,6 +25,7 @@ bench = []
 [dependencies]
 buffer.workspace = true
 text-io.workspace = true
+text-layout.workspace = true
 clipboard.workspace = true
 language.workspace = true
 theme.workspace = true

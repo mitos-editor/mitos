@@ -12,8 +12,6 @@ use crate::{
         EditorView,
     },
 };
-use editor_core::display_coords::char_idx_at_visual_offset;
-use editor_core::text_annotations::TextAnnotations;
 use ratatui_image::picker::Picker as ImagePicker;
 use std::{
     borrow::Cow,
@@ -23,6 +21,8 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use text_layout::char_idx_at_visual_offset;
+use text_layout::text_annotations::TextAnnotations;
 use tui::{buffer::Buffer as Surface, layout::Size};
 use view::{graphics::Rect, icons::ICONS, view::ViewPosition, Document, DocumentId, Editor};
 

@@ -21,10 +21,10 @@ use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use stdx::rope::{RopeGraphemes, RopeSliceExt};
 
-use crate::graphemes::{Grapheme, GraphemeStr};
-use crate::highlight::Highlight;
 use crate::text_annotations::TextAnnotations;
-use crate::{Position, RopeSlice};
+use editor_core::graphemes::{Grapheme, GraphemeStr};
+use editor_core::highlight::Highlight;
+use editor_core::{Position, RopeSlice};
 
 #[derive(Debug, Clone, Copy)]
 pub enum GraphemeSource {

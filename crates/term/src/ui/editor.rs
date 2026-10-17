@@ -14,13 +14,11 @@ use crate::{
     },
 };
 
-use editor_core::display_coords::visual_offset_from_block;
 use editor_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
     highlight::OverlayHighlights,
     movement::Direction,
-    text_annotations::TextAnnotations,
     unicode::width::UnicodeWidthStr,
     Change, Position, Range, Selection, Transaction,
 };
@@ -29,6 +27,8 @@ use loader::VERSION_AND_GIT_HASH;
 use std::{
     collections::HashMap, mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc, sync::LazyLock,
 };
+use text_layout::text_annotations::TextAnnotations;
+use text_layout::visual_offset_from_block;
 use theme::Theme;
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},

@@ -2,10 +2,10 @@
 
 use std::sync::{Arc, Weak};
 
-use editor_core::text_annotations::InlineAnnotation;
 use event::cancelable_future;
 use language::config::LanguageServerFeature;
 use lsp_client::{lsp, OffsetEncoding};
+use text_layout::text_annotations::InlineAnnotation;
 
 use super::state::{CacheKey, DocumentInlayHints, DocumentInlayHintsId};
 use crate::{
