@@ -13,6 +13,6 @@ Theme parsing, palette resolution, and style lookup belong to the `theme` crate.
 Clipboard provider definitions and native backends belong to `clipboard`. The
 editor retains live configuration and register fallback behavior.
 
-Text, versions, pending changes, and undo history are owned by the private
-`buffer` module. Documents retain selection history, file lifecycle, and editor
+Text, versions, pending changes, and undo history are owned by the
+`buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.

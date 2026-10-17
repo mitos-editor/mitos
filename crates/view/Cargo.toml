@@ -23,6 +23,7 @@ unicode-lines = []
 bench = []
 
 [dependencies]
+buffer.workspace = true
 text-io.workspace = true
 clipboard.workspace = true
 language.workspace = true

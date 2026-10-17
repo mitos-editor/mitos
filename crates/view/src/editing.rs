@@ -8,7 +8,8 @@ use editor_core::{
     Assoc, Range, Selection, Tendril, Transaction,
 };
 
-use crate::{buffer::HistoryAction, Document, DocumentId, View, ViewId};
+use crate::{Document, DocumentId, View, ViewId};
+use buffer::HistoryAction;
 
 /// Rejections leave both document text and pending undo groups untouched.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -23,8 +24,8 @@ pub enum EditError {
     BinaryDocument,
 }
 
-impl From<crate::buffer::InvalidLength> for EditError {
-    fn from(error: crate::buffer::InvalidLength) -> Self {
+impl From<buffer::InvalidLength> for EditError {
+    fn from(error: buffer::InvalidLength) -> Self {
         Self::InvalidLength {
             expected: error.expected,
             actual: error.actual,

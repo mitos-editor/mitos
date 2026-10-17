@@ -7,12 +7,12 @@ use editor_core::{
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("Changes require {actual} characters, but the buffer has {expected}")]
-pub(crate) struct InvalidLength {
+pub struct InvalidLength {
     pub expected: usize,
     pub actual: usize,
 }
 
-pub(crate) enum HistoryAction {
+pub enum HistoryAction {
     Undo,
     Redo,
     Earlier(UndoKind),
@@ -22,21 +22,21 @@ pub(crate) enum HistoryAction {
 /// Text change already applied to a buffer. The caller synchronously updates its
 /// derived state before publishing the change to observers.
 #[derive(Debug)]
-pub(crate) struct AppliedChange {
+pub struct AppliedChange {
     before: Rope,
     changes: ChangeSet,
 }
 
 impl AppliedChange {
-    pub(crate) fn before(&self) -> &Rope {
+    pub fn before(&self) -> &Rope {
         &self.before
     }
-    pub(crate) fn changes(&self) -> &ChangeSet {
+    pub fn changes(&self) -> &ChangeSet {
         &self.changes
     }
 }
 
-pub(crate) struct Buffer {
+pub struct Buffer {
     text: Rope,
     version: i32,
     changes: ChangeSet,
@@ -56,7 +56,7 @@ impl std::fmt::Debug for Buffer {
 }
 
 impl Buffer {
-    pub(crate) fn new(text: Rope) -> Self {
+    pub fn new(text: Rope) -> Self {
         Self {
             changes: ChangeSet::new(text.slice(..)),
             text,
@@ -66,26 +66,26 @@ impl Buffer {
         }
     }
 
-    pub(crate) fn text(&self) -> &Rope {
+    pub fn text(&self) -> &Rope {
         &self.text
     }
-    pub(crate) fn version(&self) -> i32 {
+    pub fn version(&self) -> i32 {
         self.version
     }
-    pub(crate) fn changes(&self) -> &ChangeSet {
+    pub fn changes(&self) -> &ChangeSet {
         &self.changes
     }
-    pub(crate) fn current_revision(&self) -> usize {
+    pub fn current_revision(&self) -> usize {
         self.history.current_revision()
     }
-    pub(crate) fn current_transaction(&self) -> Option<&Transaction> {
+    pub fn current_transaction(&self) -> Option<&Transaction> {
         self.history.current_transaction()
     }
-    pub(crate) fn changes_since(&self, revision: usize) -> Option<Transaction> {
+    pub fn changes_since(&self, revision: usize) -> Option<Transaction> {
         self.history.changes_since(revision)
     }
 
-    pub(crate) fn validate_changes(&self, changes: &ChangeSet) -> Result<(), InvalidLength> {
+    pub fn validate_changes(&self, changes: &ChangeSet) -> Result<(), InvalidLength> {
         if changes.len_before() != self.text.len_chars() {
             return Err(InvalidLength {
                 expected: self.text.len_chars(),
@@ -96,7 +96,7 @@ impl Buffer {
     }
 
     /// Apply text and record its pending undo group before returning to the caller.
-    pub(crate) fn apply(&mut self, changes: &ChangeSet) -> Result<AppliedChange, InvalidLength> {
+    pub fn apply(&mut self, changes: &ChangeSet) -> Result<AppliedChange, InvalidLength> {
         let applied = self.apply_changes(changes)?;
         if !changes.is_empty() {
             self.pending_original_text
@@ -125,7 +125,7 @@ impl Buffer {
     }
 
     /// Replay a planned history step without adding it to the pending undo group.
-    pub(crate) fn apply_history_step(
+    pub fn apply_history_step(
         &mut self,
         step: &HistoryStep,
     ) -> Result<AppliedChange, InvalidLength> {
@@ -134,7 +134,7 @@ impl Buffer {
         Ok(applied)
     }
 
-    pub(crate) fn commit_changes(&mut self) -> Option<usize> {
+    pub fn commit_changes(&mut self) -> Option<usize> {
         if self.changes.is_empty() {
             return None;
         }
@@ -149,7 +149,7 @@ impl Buffer {
     /// Advance history and return its steps. Apply every returned step in order
     /// with `apply_history_step`, updating derived state between steps.
     /// Undo/earlier commit pending text; redo/later refuse to discard pending edits.
-    pub(crate) fn prepare_history(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
+    pub fn prepare_history(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
             self.commit_changes();
         } else if !self.changes.is_empty() {

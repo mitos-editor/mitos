@@ -1,12 +1,12 @@
 //! The common text mutation path, including mandatory document invariants.
 
 use super::Document;
-use crate::buffer::AppliedChange;
 use crate::editing::EditError;
 use crate::{
     events::{DocumentDidChange, SelectionDidChange},
     ViewId,
 };
+use buffer::AppliedChange;
 use editor_core::{ChangeSet, Selection, Transaction};
 use std::mem;
 

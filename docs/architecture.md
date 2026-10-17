@@ -6,6 +6,7 @@ Features live with the state they change; frontends adapt input and present resu
 | Crate | Responsibility |
 | --- | --- |
 | `core` | Ropes, selections, transactions, history, text layout, and text editing algorithms |
+| `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `theme` | Theme interpretation, palette resolution, and style lookup |
@@ -515,7 +516,7 @@ terminal-output dependency or terminal feature flag for clipboard access.
 
 ### Document mutation phases
 
-The private `view::buffer::Buffer` owns rope text, text versions, pending undo
+`buffer::Buffer` owns rope text, text versions, pending undo
 groups, and text history. `Document` retains per-view cursor snapshots, file
 metadata, syntax, and editor services. History reads use shared references;
 reading the current revision never temporarily removes the undo tree. Buffer

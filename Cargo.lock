@@ -187,6 +187,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "buffer"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4625,6 +4633,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "arrayvec",
+ "buffer",
  "clipboard",
  "command-line",
  "core",

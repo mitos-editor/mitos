@@ -4,7 +4,7 @@ use super::Document;
 use crate::ViewId;
 use editor_core::history::{HistoryStep, UndoKind};
 
-use crate::buffer::HistoryAction;
+use buffer::HistoryAction;
 
 impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
