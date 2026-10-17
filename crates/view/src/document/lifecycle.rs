@@ -6,8 +6,10 @@ use editor_core::{Assoc, ChangeSet, Selection};
 
 impl Document {
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
-        self.selections
-            .insert(view, selection.ensure_invariants(self.text.slice(..)));
+        self.selections.insert(
+            view,
+            selection.ensure_invariants(self.buffer.text().slice(..)),
+        );
         if self
             .active_snippet
             .as_ref()
@@ -56,7 +58,7 @@ impl Document {
             } else if diagnostic.range.start >= diagnostic.range.end {
                 return false;
             }
-            diagnostic.line = self.text.char_to_line(diagnostic.range.start);
+            diagnostic.line = self.buffer.text().char_to_line(diagnostic.range.start);
             true
         });
 

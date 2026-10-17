@@ -74,7 +74,7 @@ impl SyntaxRequest {
             doc.detect_language(&loader);
             return false;
         }
-        if self.version != doc.version {
+        if self.version != doc.version() {
             doc.initialize_syntax(self.loader);
             return false;
         }
@@ -108,8 +108,8 @@ impl Document {
             return None;
         }
         Some(SyntaxRequest {
-            text: self.text.clone(),
-            version: self.version,
+            text: self.buffer.text().clone(),
+            version: self.buffer.version(),
             language: self.language.as_ref()?.language(),
             loader: pending.loader.clone(),
             cancel: pending.controller.restart(),

@@ -515,6 +515,11 @@ terminal-output dependency or terminal feature flag for clipboard access.
 
 ### Document mutation phases
 
+The private `view::buffer::Buffer` owns rope text, text versions, pending undo
+groups, and text history. `Document` retains per-view cursor snapshots, file
+metadata, syntax, and editor services. History reads use shared references;
+reading the current revision never temporarily removes the undo tree.
+
 Text edits and undo groups belong to the document. `Document::apply` accepts a
 `ChangeSet`, and `commit_changes`, `undo`, `redo`, `earlier`, and `later` do not
 require a view. The core history stores text transactions and returns revision

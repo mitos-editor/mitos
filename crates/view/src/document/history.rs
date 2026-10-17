@@ -2,30 +2,14 @@
 
 use super::Document;
 use crate::ViewId;
-use editor_core::{
-    history::{HistoryStep, UndoKind},
-    ChangeSet,
-};
+use editor_core::history::{HistoryStep, UndoKind};
 
-pub(crate) enum HistoryAction {
-    Undo,
-    Redo,
-    Earlier(UndoKind),
-    Later(UndoKind),
-}
+use crate::buffer::HistoryAction;
 
 impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
     pub fn commit_changes(&mut self) -> Option<usize> {
-        if self.changes.is_empty() {
-            return None;
-        }
-        let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
-        let original = self
-            .pending_original_text
-            .take()
-            .expect("pending changes have original text");
-        let revision = self.history.get_mut().commit_revision(&changes, &original);
+        let revision = self.buffer.commit_changes()?;
         self.selection_history.commit(revision, &self.selections);
         Some(revision)
     }
@@ -53,15 +37,10 @@ impl Document {
         }
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
             self.commit_changes();
-        } else if !self.changes.is_empty() {
+        } else if !self.buffer.changes().is_empty() {
             return false;
         }
-        let steps = match action {
-            HistoryAction::Undo => self.history.get_mut().undo().into_iter().collect(),
-            HistoryAction::Redo => self.history.get_mut().redo().into_iter().collect(),
-            HistoryAction::Earlier(kind) => self.history.get_mut().earlier(kind),
-            HistoryAction::Later(kind) => self.history.get_mut().later(kind),
-        };
+        let steps = self.buffer.history_steps(action);
         self.replay_history(steps, origin)
     }
 
@@ -75,7 +54,7 @@ impl Document {
             applied |= self.apply_impl(&transaction, origin, true).is_ok();
         }
         if applied {
-            self.changes = ChangeSet::new(self.text.slice(..));
+            self.buffer.clear_pending_changes();
         }
         applied
     }

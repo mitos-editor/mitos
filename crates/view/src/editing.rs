@@ -8,7 +8,7 @@ use editor_core::{
     Assoc, Range, Selection, Tendril, Transaction,
 };
 
-use crate::{document::history::HistoryAction, Document, DocumentId, View, ViewId};
+use crate::{buffer::HistoryAction, Document, DocumentId, View, ViewId};
 
 /// Rejections leave both document text and pending undo groups untouched.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -21,6 +21,15 @@ pub enum EditError {
     InvalidLength { expected: usize, actual: usize },
     #[error("Cannot edit binary document text")]
     BinaryDocument,
+}
+
+impl From<crate::buffer::InvalidLength> for EditError {
+    fn from(error: crate::buffer::InvalidLength) -> Self {
+        Self::InvalidLength {
+            expected: error.expected,
+            actual: error.actual,
+        }
+    }
 }
 
 /// Cursor snapshots are independent of text history and keyed by its revision IDs.
@@ -119,12 +128,11 @@ pub fn later(doc: &mut Document, view: &mut View, kind: UndoKind) -> bool {
 /// Prefer the last edit at the original cursor, falling back to the first change
 /// for operations without a cursor snapshot.
 pub fn last_edit_pos(doc: &mut Document) -> Option<usize> {
-    let history = doc.history.get_mut();
-    let transaction = history.current_transaction()?;
+    let transaction = doc.buffer.current_transaction()?;
     let at_cursor = doc
         .selection_history
         .revisions
-        .get(&history.current_revision())
+        .get(&doc.buffer.current_revision())
         .and_then(|selections| {
             let primary = selections.undo.primary();
             transaction

@@ -754,7 +754,7 @@ impl View {
             return None;
         }
 
-        doc.history.get_mut().changes_since(current_revision)
+        doc.buffer.changes_since(current_revision)
     }
 
     pub fn push_jump(&mut self, doc: &mut Document, jump: (DocumentId, Selection)) {

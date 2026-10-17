@@ -49,7 +49,6 @@ use ::parking_lot::Mutex;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
 use std::borrow::Cow;
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::future::Future;
@@ -62,7 +61,6 @@ use std::time::SystemTime;
 use editor_core::{
     editor_config::EditorConfig,
     encoding,
-    history::History,
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
     ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
@@ -171,7 +169,7 @@ pub struct Document {
     redraw: event::Redraw,
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
-    text: Rope,
+    pub(crate) buffer: crate::buffer::Buffer,
     binary: bool,
     selections: HashMap<ViewId, Selection>,
     view_data: HashMap<ViewId, ViewData>,
@@ -236,16 +234,7 @@ pub struct Document {
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub language: Option<Arc<LanguageConfiguration>>,
 
-    /// Pending changes since last history commit.
-    changes: ChangeSet,
-    /// Text before the pending changes; cursor snapshots are kept separately.
-    pending_original_text: Option<Rope>,
     pub(crate) selection_history: crate::editing::SelectionHistory,
-    /// Undo tree.
-    // It can be used as a cell where we will take it out to get some parts of the history and put
-    // it back as it separated from the edits. We could split out the parts manually but that will
-    // be more troublesome.
-    pub(crate) history: Cell<History>,
     pub config: Arc<dyn DynAccess<Config>>,
 
     savepoints: Vec<Weak<SavePoint>>,
@@ -260,7 +249,6 @@ pub struct Document {
     pub auto_reload_seen_mtime: Option<SystemTime>,
 
     last_saved_revision: usize,
-    version: i32, // should be usize?
     pub(crate) modified_since_accessed: bool,
 
     pub(crate) diagnostics: Vec<Diagnostic>,
@@ -292,7 +280,7 @@ impl fmt::Debug for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Document")
             .field("id", &self.id)
-            .field("text", &self.text)
+            .field("buffer", &self.buffer)
             .field("selections", &self.selections)
             .field("text_annotations", &self.inlay_hints)
             .field("view_data", &self.view_data)
@@ -301,12 +289,8 @@ impl fmt::Debug for Document {
             .field("restore_cursor", &self.restore_cursor)
             .field("syntax", &self.syntax)
             .field("language", &self.language)
-            .field("changes", &self.changes)
-            .field("pending_original_text", &self.pending_original_text)
-            // .field("history", &self.history)
             .field("last_saved_time", &self.last_saved_time)
             .field("last_saved_revision", &self.last_saved_revision)
-            .field("version", &self.version)
             .field("modified_since_accessed", &self.modified_since_accessed)
             .field("diagnostics", &self.diagnostics)
             // .field("language_server", &self.language_server)
@@ -334,8 +318,6 @@ impl Document {
     ) -> Self {
         let (encoding, has_bom) = encoding_with_bom_info.unwrap_or((encoding::UTF_8, false));
         let line_ending = config.load().files.default_line_ending.into();
-        let changes = ChangeSet::new(text.slice(..));
-        let pending_original_text = None;
 
         Self {
             id: DocumentId::default(),
@@ -346,7 +328,7 @@ impl Document {
             workspace_root: OnceLock::new(),
             encoding,
             has_bom,
-            text,
+            buffer: crate::buffer::Buffer::new(text),
             binary: false,
             selections: HashMap::default(),
             inlay_hints: Default::default(),
@@ -368,12 +350,8 @@ impl Document {
             signature_help_trigger: None,
             spelling_events: None,
             language: None,
-            changes,
-            pending_original_text,
             selection_history: Default::default(),
             diagnostics: Vec::new(),
-            version: 0,
-            history: Cell::new(History::default()),
             savepoints: Vec::new(),
             last_saved_time: SystemTime::now(),
             auto_reload_seen_mtime: None,
@@ -761,7 +739,7 @@ impl Document {
         self.indent_style = if let Some(indent_style) = self.editor_config.indent_style {
             indent_style
         } else {
-            auto_detect_indent_style(&self.text).unwrap_or_else(|| {
+            auto_detect_indent_style(self.buffer.text()).unwrap_or_else(|| {
                 self.language_config()
                     .and_then(|config| config.indent.as_ref())
                     .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
@@ -770,7 +748,7 @@ impl Document {
         if let Some(line_ending) = self
             .editor_config
             .line_ending
-            .or_else(|| auto_detect_line_ending(&self.text))
+            .or_else(|| auto_detect_line_ending(self.buffer.text()))
         {
             self.line_ending = line_ending;
         }
@@ -966,7 +944,7 @@ impl Document {
         self.reset_all_inlay_hints();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
-            Syntax::new(self.text.slice(..), config.language(), loader)
+            Syntax::new(self.buffer.text().slice(..), config.language(), loader)
                 .map_err(|err| {
                     if err != syntax::HighlighterError::NoRootConfig {
                         log::warn!("Error building syntax for '{}': {err}", self.display_name());
@@ -1118,23 +1096,19 @@ impl Document {
 
     /// If there are unsaved modifications.
     pub fn is_modified(&self) -> bool {
-        let history = self.history.take();
-        let current_revision = history.current_revision();
-        self.history.set(history);
+        let current_revision = self.buffer.current_revision();
         log::debug!(
             "id {} modified - last saved: {}, current: {}",
             self.id,
             self.last_saved_revision,
             current_revision
         );
-        current_revision != self.last_saved_revision || !self.changes.is_empty()
+        current_revision != self.last_saved_revision || !self.buffer.changes().is_empty()
     }
 
     /// Save modifications to history, and so [`Self::is_modified`] will return false.
     pub fn reset_modified(&mut self) {
-        let history = self.history.take();
-        let current_revision = history.current_revision();
-        self.history.set(history);
+        let current_revision = self.buffer.current_revision();
         self.last_saved_revision = current_revision;
     }
 
@@ -1157,11 +1131,8 @@ impl Document {
     }
 
     /// Get the current revision number
-    pub fn get_current_revision(&mut self) -> usize {
-        let history = self.history.take();
-        let current_revision = history.current_revision();
-        self.history.set(history);
-        current_revision
+    pub fn get_current_revision(&self) -> usize {
+        self.buffer.current_revision()
     }
 
     /// Corresponding language scope name. Usually `source.<lang>`.
@@ -1212,7 +1183,7 @@ impl Document {
 
     /// Current document version, incremented at each change.
     pub fn version(&self) -> i32 {
-        self.version
+        self.buffer.version()
     }
 
     pub fn word_completion_enabled(&self) -> bool {
@@ -1296,7 +1267,7 @@ impl Document {
                 }
                 self.diff_handle = Some(DiffHandle::new(
                     diff_base,
-                    self.text.clone(),
+                    self.buffer.text().clone(),
                     self.redraw.clone(),
                 ))
             }
@@ -1355,7 +1326,7 @@ impl Document {
     }
 
     pub fn changes(&self) -> &ChangeSet {
-        &self.changes
+        self.buffer.changes()
     }
 
     #[inline]
@@ -1381,7 +1352,7 @@ impl Document {
 
     #[inline]
     pub fn text(&self) -> &Rope {
-        &self.text
+        self.buffer.text()
     }
 
     #[inline]
@@ -1466,7 +1437,7 @@ impl Document {
     }
 
     pub fn versioned_identifier(&self) -> lsp::VersionedTextDocumentIdentifier {
-        lsp::VersionedTextDocumentIdentifier::new(self.url().unwrap(), self.version)
+        lsp::VersionedTextDocumentIdentifier::new(self.url().unwrap(), self.buffer.version())
     }
 
     pub fn position(
