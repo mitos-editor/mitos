@@ -1,0 +1,20 @@
+[package]
+name = "text-io"
+description = "Streaming text encoding and decoding for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+core.workspace = true
+chardetng.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+futures-executor.workspace = true

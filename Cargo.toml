@@ -16,6 +16,7 @@ members = [
   "crates/grammar-build",
   "crates/clipboard",
   "crates/search",
+  "crates/text-io",
   "crates/workspace",
   "crates/theme",
   "crates/language",
@@ -58,6 +59,7 @@ loader = { path = "crates/loader" }
 grammar-build = { path = "crates/grammar-build" }
 clipboard = { path = "crates/clipboard" }
 search = { path = "crates/search" }
+text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }

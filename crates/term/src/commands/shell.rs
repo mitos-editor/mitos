@@ -123,7 +123,7 @@ pub(super) async fn shell_impl_async(
         Some(mut stdin) => {
             let input_task = tokio::spawn(async move {
                 if let Some(input) = input {
-                    view::document::to_writer(&mut stdin, (encoding::UTF_8, false), &input).await?;
+                    text_io::to_writer(&mut stdin, (encoding::UTF_8, false), &input).await?;
                 }
                 anyhow::Ok(())
             });

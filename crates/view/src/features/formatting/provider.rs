@@ -7,7 +7,8 @@ use futures_util::{future::BoxFuture, FutureExt};
 use language::config::LanguageServerFeature;
 use lsp_client::lsp;
 
-use crate::{document::to_writer, expansion, Document, Editor};
+use crate::{expansion, Document, Editor};
+use text_io::to_writer;
 
 impl Document {
     /// The same as [`Self::format`], but only returns formatting changes if auto-formatting
