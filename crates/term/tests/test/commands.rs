@@ -1285,3 +1285,53 @@ async fn align_selections_with_varying_columns() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn file_navigation_decodes_file_urls_and_preserves_native_paths() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("space # and ünicode.txt");
+    std::fs::write(&path, "decoded target\n")?;
+    let url = stdx::Url::from_file_path(&path).unwrap();
+    for target in [
+        url.to_string(),
+        format!("{url}#line-1"),
+        path.to_string_lossy().into_owned(),
+    ] {
+        let mut app = AppBuilder::new()
+            .with_input_text(format!("#[{target}|]#\n"))
+            .build()?;
+        test_key_sequence(
+            &mut app,
+            Some("gf"),
+            Some(&|app| {
+                let doc = doc!(app.editor);
+                assert_eq!(doc.path(), Some(stdx::path::canonicalize(&path).as_path()));
+                assert_eq!(doc.text(), "decoded target\n");
+            }),
+            false,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn native_file_navigation_opens_binary_documents_in_the_editor() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("target.pdf");
+    std::fs::write(&path, b"%PDF-1.7 binary fixture")?;
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[{}|]#\n", path.display()))
+        .build()?;
+    test_key_sequence(
+        &mut app,
+        Some("gf"),
+        Some(&|app| {
+            let doc = doc!(app.editor);
+            assert_eq!(doc.path(), Some(stdx::path::canonicalize(&path).as_path()));
+            assert!(doc.is_binary());
+        }),
+        false,
+    )
+    .await
+}

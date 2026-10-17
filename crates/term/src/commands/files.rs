@@ -2,17 +2,12 @@
 
 use crate::{
     commands::context::Context,
-    compositor::Compositor,
     job::{self, Callback},
     ui::{self, overlay::overlaid},
 };
-use editor_core::{find_workspace, Range};
-use std::{borrow::Cow, collections::HashSet, future::Future, io::Read, path::Path};
-use stdx::{
-    path::{self, find_paths},
-    rope::RopeSliceExt,
-    Url,
-};
+use editor_core::find_workspace;
+use std::io::Read;
+use stdx::Url;
 use view::{editor::Action, Editor};
 
 pub(super) fn goto_file(cx: &mut Context) {
@@ -27,266 +22,101 @@ pub(super) fn goto_file_vsplit(cx: &mut Context) {
     goto_file_impl(cx, Action::VerticalSplit);
 }
 
-/// Returns true when a selection overlaps an LSP document link range.
-fn selection_overlaps_document_link(
-    selection: &Range,
-    link: &view::document::DocumentLink,
-) -> bool {
-    if selection.is_empty() {
-        let pos = selection.from();
-        link.start <= pos && pos < link.end
-    } else {
-        selection.from() < link.end && selection.to() > link.start
-    }
-}
-
-/// Create a document link resolve request when the target isn't already present.
-///
-/// This only builds the LSP request. The request is awaited from a background
-/// job so `goto_file_impl` does not block the UI thread while the language
-/// server resolves the target.
-fn resolve_document_link_request(
-    editor: &Editor,
-    link: &view::document::DocumentLink,
-) -> Option<
-    impl Future<Output = lsp_client::Result<lsp_client::lsp::DocumentLink>> + Send + 'static + use<>,
-> {
-    let language_server = editor.language_server_by_id(link.language_server_id)?;
-    let supports_resolve = language_server
-        .capabilities()
-        .document_link_provider
-        .as_ref()?
-        .resolve_provider
-        .unwrap_or(false);
-
-    if !supports_resolve {
-        return None;
-    }
-
-    language_server.resolve_document_link(link.link.clone())
-}
-
-/// Goto files/URLs in selection.
-///
-/// Prefers LSP document links when the cursor/selection overlaps a link range,
-/// falling back to the built-in path/URL detection otherwise.
+/// Follow cached document links or literal paths at the current selections.
 fn goto_file_impl(cx: &mut Context, action: Action) {
-    let (view, doc) = current_ref!(cx.editor);
-    let text = doc.text().clone();
-    let selections = doc.selection(view.id).ranges().to_vec();
-    let document_dir = doc
-        .path()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-    let text = text.slice(..);
+    use view::features::document_links::{prepare_navigation, FileNavigation};
 
-    let mut lsp_targets = Vec::new();
-    let mut lsp_targets_seen = HashSet::new();
-    let mut unresolved_links = HashSet::new();
-    let mut resolve_requests = Vec::new();
-    let mut fallback_ranges = Vec::new();
-
-    if doc.document_links().is_empty() {
-        fallback_ranges.extend_from_slice(&selections);
-    } else {
-        for selection in &selections {
-            let mut matched = false;
-            for link in doc.document_links() {
-                if !selection_overlaps_document_link(selection, link) {
-                    continue;
-                }
-                matched = true;
-                if let Some(target) = link.link.target.clone() {
-                    if lsp_targets_seen.insert(target.clone()) {
-                        lsp_targets.push(target);
+    match prepare_navigation(cx.editor) {
+        FileNavigation::Ready(update) => {
+            if let Some(targets) = update.into_targets(cx.editor) {
+                for target in targets {
+                    if let Some(layer) =
+                        open_navigation_target(cx.editor, &cx.jobs.sender(), target, action)
+                    {
+                        cx.push_layer(layer);
                     }
-                } else if unresolved_links.insert((link.start, link.end, link.language_server_id))
-                    && let Some(request) = resolve_document_link_request(cx.editor, link)
-                {
-                    resolve_requests.push(request);
                 }
-            }
-            if !matched {
-                fallback_ranges.push(*selection);
             }
         }
-    }
-
-    for target in lsp_targets {
-        open_url(cx, target, action);
-    }
-
-    if !resolve_requests.is_empty() {
-        let document_dir = document_dir.clone();
-        let jobs = cx.jobs.sender();
-        cx.jobs.callback(async move {
-            let mut targets = Vec::new();
-            let mut seen = HashSet::new();
-
-            // Resolve links off the main thread, then hand the resulting URLs
-            // back to the editor/compositor callback once all requests finish.
-            for request in resolve_requests {
-                match request.await {
-                    Ok(link) => {
-                        if let Some(target) = link.target
-                            && seen.insert(target.clone())
-                        {
-                            targets.push(target);
+        FileNavigation::Pending(task) => {
+            let jobs = cx.jobs.sender();
+            cx.jobs.callback(async move {
+                let update = task.run().await;
+                Ok(Callback::EditorCompositor(Box::new(
+                    move |editor, compositor| {
+                        let Some(targets) = update.into_targets(editor) else {
+                            return;
+                        };
+                        for target in targets {
+                            if let Some(layer) =
+                                open_navigation_target(editor, &jobs, target, action)
+                            {
+                                compositor.push(layer);
+                            }
                         }
-                    }
-                    Err(err) => log::warn!("Failed to resolve document link: {err}"),
-                }
-            }
-
-            Ok(Callback::EditorCompositor(Box::new(
-                move |editor, compositor| {
-                    for target in targets {
-                        open_url_in_callback(
-                            editor,
-                            compositor,
-                            target,
-                            action,
-                            &document_dir,
-                            &jobs,
-                        );
-                    }
-                },
-            )))
-        });
-    }
-
-    if fallback_ranges.is_empty() {
-        return;
-    }
-
-    let paths: Vec<_> = if fallback_ranges.len() == 1 && fallback_ranges[0].len() == 1 {
-        let selection = fallback_ranges[0];
-        // Cap the search at roughly 1k bytes around the cursor.
-        let lookaround = 1000;
-        let pos = text.char_to_byte(selection.cursor(text));
-        let search_start = text
-            .line_to_byte(text.byte_to_line(pos))
-            .max(text.floor_char_boundary(pos.saturating_sub(lookaround)));
-        let search_end = text
-            .line_to_byte(text.byte_to_line(pos) + 1)
-            .min(text.ceil_char_boundary(pos + lookaround));
-        let search_range = text.byte_slice(search_start..search_end);
-        // we also allow paths that are next to the cursor (can be ambiguous but
-        // rarely so in practice) so that gf on quoted/braced path works (not sure about this
-        // but apparently that is how gf has worked historically in mitos)
-        let path = find_paths(search_range, true)
-            .take_while(|range| search_start + range.start <= pos + 1)
-            .find(|range| pos <= search_start + range.end)
-            .map(|range| Cow::from(search_range.byte_slice(range)));
-        log::debug!("goto_file auto-detected path: {path:?}");
-        let path = path.unwrap_or_else(|| selection.fragment(text));
-        vec![path.into_owned()]
-    } else {
-        // Otherwise use each selection, trimmed.
-        fallback_ranges
-            .iter()
-            .map(|range| range.fragment(text).trim().to_owned())
-            .filter(|sel| !sel.is_empty())
-            .collect()
-    };
-
-    for sel in paths {
-        if let Ok(url) = Url::parse(&sel) {
-            open_url(cx, url, action);
-            continue;
-        }
-
-        let path = path::expand(&sel);
-        let path = &document_dir.join(path);
-        if path.is_dir() {
-            let picker = ui::file_picker(cx.editor, path.into());
-            cx.push_layer(Box::new(overlaid(picker)));
-        } else if let Err(e) = cx.editor.open(path, action) {
-            cx.editor.set_error(|| format!("Open file failed: {:?}", e));
+                    },
+                )))
+            });
         }
     }
 }
 
-/// Opens the given url. If the URL points to a valid textual file it is open in mitos.
-/// Otherwise, the file is open using external program.
-fn open_url(cx: &mut Context, url: Url, action: Action) {
-    let doc = doc!(cx.editor);
-    let document_dir = doc
-        .path()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-
-    if should_open_url_externally(&url) {
-        return cx.jobs.callback(crate::open_external_url_callback(url));
-    }
-
-    let path = &document_dir.join(url.path());
-    if path.is_dir() {
-        let picker = ui::file_picker(cx.editor, path.into());
-        cx.push_layer(Box::new(overlaid(picker)));
-    } else if let Err(e) = cx.editor.open(path, action) {
-        cx.editor.set_error(|| format!("Open file failed: {:?}", e));
-    }
-}
-
-/// Open a URL from an editor/compositor callback.
-///
-/// This mirrors `open_url` but does not require a full `Context`, which makes
-/// it usable from async job completions such as deferred document link
-/// resolves.
-fn open_url_in_callback(
+/// One opening policy for immediate targets and queued link resolutions.
+fn open_navigation_target(
     editor: &mut Editor,
-    compositor: &mut Compositor,
-    url: Url,
-    action: Action,
-    rel_path: &Path,
     jobs: &job::JobSender,
-) {
-    if should_open_url_externally(&url) {
-        let jobs = jobs.clone();
-        tokio::spawn(async move {
-            match crate::open_external_url_callback(url).await {
-                Ok(callback) => jobs.send_callback(callback).await,
-                Err(err) => {
-                    jobs.send(move |editor, _| {
-                        editor.set_error(|| err.to_string());
-                    })
-                    .await
-                }
-            }
-        });
-        return;
-    }
+    target: view::features::document_links::NavigationTarget,
+    action: Action,
+) -> Option<Box<dyn crate::compositor::Component>> {
+    use view::features::document_links::NavigationTarget;
 
-    let path = &rel_path.join(url.path());
+    let (path, open_binary_externally) = match target {
+        NavigationTarget::Path(path) => (path, false),
+        NavigationTarget::Url(url) if url.scheme() == "file" => match url.to_file_path() {
+            Ok(path) => (path, true),
+            Err(()) => {
+                editor.set_error(|| format!("Invalid file URL: {url}"));
+                return None;
+            }
+        },
+        NavigationTarget::Url(url) => {
+            launch_url(jobs, url);
+            return None;
+        }
+    };
     if path.is_dir() {
-        let picker = ui::file_picker(editor, path.into());
-        compositor.push(Box::new(overlaid(picker)));
-    } else if let Err(e) = editor.open(path, action) {
-        editor.set_error(|| format!("Open file failed: {:?}", e));
+        return Some(Box::new(overlaid(ui::file_picker(editor, path))));
     }
+    let binary = open_binary_externally
+        && std::fs::File::open(&path)
+            .and_then(|file| {
+                let mut prefix = Vec::new();
+                file.take(1024).read_to_end(&mut prefix)?;
+                Ok(crate::is_binary(&prefix))
+            })
+            .unwrap_or(false);
+    if binary {
+        match Url::from_file_path(stdx::path::canonicalize(&path)) {
+            Ok(url) => launch_url(jobs, url),
+            Err(()) => editor.set_error(|| format!("Invalid file path: {}", path.display())),
+        }
+    } else if let Err(error) = editor.open(&path, action) {
+        editor.set_error(|| format!("Open file failed: {error}"));
+    }
+    None
 }
 
-/// Returns whether a URL should opened externally.
-///
-/// Non-`file` URLs always open externally. `file` URLs are opened externally
-/// only when the target looks like a binary file (a non-textual file that can't
-/// be viewed in mitos).
-fn should_open_url_externally(url: &Url) -> bool {
-    if url.scheme() != "file" {
-        return true;
-    }
-
-    let is_binary = std::fs::File::open(url.path()).and_then(|file| {
-        // Read up to 1kb to detect the content type
-        let mut read_buffer = Vec::new();
-        let n = file.take(1024).read_to_end(&mut read_buffer)?;
-        Ok(crate::is_binary(&read_buffer[..n]))
+fn launch_url(jobs: &job::JobSender, url: Url) {
+    let jobs = jobs.clone();
+    tokio::spawn(async move {
+        match crate::open_external_url_callback(url).await {
+            Ok(callback) => jobs.send_callback(callback).await,
+            Err(error) => {
+                jobs.send(move |editor, _| editor.set_error(|| error.to_string()))
+                    .await
+            }
+        }
     });
-
-    matches!(is_binary, Ok(true))
 }
 
 pub(super) fn file_picker(cx: &mut Context) {

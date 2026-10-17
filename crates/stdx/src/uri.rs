@@ -137,10 +137,8 @@ impl Url {
             return Err(());
         }
         let rest = self.0["file:".len()..].strip_prefix("//").ok_or(())?;
-        let (authority, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, ""),
-        };
+        let authority = rest.find('/').map_or(rest, |i| &rest[..i]);
+        let path = self.path();
         let local_host = authority.is_empty() || authority.eq_ignore_ascii_case("localhost");
 
         #[cfg(not(windows))]
@@ -195,14 +193,14 @@ fn serialize_path(out: &mut String, path: &Path) -> Result<(), ()> {
     let mut components = path.components();
     match components.next() {
         Some(Component::Prefix(prefix)) => match prefix.kind() {
-            Prefix::Disk(_) | Prefix::VerbatimDisk(_) => {
-                // `C:` -> `/C:`
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => {
+                // A verbatim disk prefix contributes only its drive letter.
                 out.push('/');
-                out.push_str(&prefix.as_os_str().to_string_lossy());
+                out.push(char::from(drive));
+                out.push(':');
             }
             Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-                // `\\server\share` -> `//server/share` (authority + first seg)
-                out.pop(); // drop one `/` from the `file://` we were appended to
+                // The server follows `file://` as the authority, followed by the share.
                 out.push_str(&server.to_string_lossy());
                 out.push('/');
                 out.extend(percent_encode(share.to_string_lossy().as_bytes(), PATH));
@@ -320,6 +318,52 @@ mod tests {
     fn directory_path_has_trailing_slash() {
         let url = Url::from_directory_path("/home/user").unwrap();
         assert_eq!(url.as_str(), "file:///home/user/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_file_paths_serialize_without_verbatim_prefixes() {
+        for (path, expected_uri, expected_path) in [
+            (
+                r"C:\tmp\[test]\a b#ü.rs",
+                "file:///C:/tmp/%5Btest%5D/a%20b%23%C3%BC.rs",
+                r"C:\tmp\[test]\a b#ü.rs",
+            ),
+            (
+                r"\\?\C:\tmp\[test]\a b#ü.rs",
+                "file:///C:/tmp/%5Btest%5D/a%20b%23%C3%BC.rs",
+                r"C:\tmp\[test]\a b#ü.rs",
+            ),
+            (
+                r"\\server\share\[test]\a b#ü.rs",
+                "file://server/share/%5Btest%5D/a%20b%23%C3%BC.rs",
+                r"\\server\share\[test]\a b#ü.rs",
+            ),
+            (
+                r"\\?\UNC\server\share\[test]\a b#ü.rs",
+                "file://server/share/%5Btest%5D/a%20b%23%C3%BC.rs",
+                r"\\server\share\[test]\a b#ü.rs",
+            ),
+        ] {
+            let url = Url::from_file_path(path).unwrap();
+            assert_eq!(url.as_str(), expected_uri);
+            assert_eq!(url.to_file_path().unwrap(), PathBuf::from(expected_path));
+        }
+    }
+
+    #[test]
+    fn file_path_conversion_ignores_uri_query_and_fragment() {
+        #[cfg(not(windows))]
+        let (uri, expected) = ("file:///tmp/a%20b%23c.rs", PathBuf::from("/tmp/a b#c.rs"));
+        #[cfg(windows)]
+        let (uri, expected) = (
+            "file:///C:/tmp/a%20b%23c.rs",
+            PathBuf::from(r"C:\tmp\a b#c.rs"),
+        );
+        for suffix in ["", "?query=value", "#line-1", "?query=value#line-1"] {
+            let url = Url::parse(&format!("{uri}{suffix}")).unwrap();
+            assert_eq!(url.to_file_path().unwrap(), expected);
+        }
     }
 
     #[test]

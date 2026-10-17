@@ -8,7 +8,10 @@ use futures_util::{stream::FuturesUnordered, StreamExt};
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
+    events::{
+        DocumentDidChange, DocumentDidOpen, DocumentFocusLost, LanguageServerExited,
+        LanguageServerInitialized, SelectionDidChange,
+    },
     features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
@@ -129,6 +132,16 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
 }
 
 pub(crate) fn register_hooks() {
+    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+        event.doc.document_links.cancel_navigation_for(event.view);
+        Ok(())
+    });
+    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+        if let Some(doc) = event.editor.document_mut(event.doc) {
+            doc.document_links.cancel_navigation_for(event.view);
+        }
+        Ok(())
+    });
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         request_document_links(event.editor, event.doc, None);
         Ok(())

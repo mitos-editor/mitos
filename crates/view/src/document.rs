@@ -704,6 +704,7 @@ impl Document {
     pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
         self.hover.clear();
         self.navigation.clear();
+        self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         self.language = self.detect_language_config(loader);
         self.initialize_syntax(loader.clone());
@@ -861,6 +862,7 @@ impl Document {
         if binary {
             self.hover.clear();
             self.navigation.clear();
+            self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();
             self.language = None;
             self.syntax = None;
@@ -901,6 +903,7 @@ impl Document {
         self.invalidate_blame();
         self.hover.clear();
         self.navigation.clear();
+        self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         let path = path.map(stdx::path::canonicalize);
 
@@ -929,6 +932,7 @@ impl Document {
         self.pending_syntax = None;
         self.hover.clear();
         self.navigation.clear();
+        self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
@@ -1019,6 +1023,7 @@ impl Document {
         self.inlay_hints.remove_view(view_id);
         self.hover.remove_view(view_id);
         self.navigation.remove_view(view_id);
+        self.document_links.cancel_navigation_for(view_id);
         self.jump_labels.remove(&view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
@@ -1211,6 +1216,7 @@ impl Document {
         if server.is_some() {
             self.hover.clear();
             self.navigation.clear();
+            self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();
         }
         server

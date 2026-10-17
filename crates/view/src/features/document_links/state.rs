@@ -1,29 +1,50 @@
 //! Document links and their request lifetime.
 
 use editor_core::{Assoc, ChangeSet};
-use event::TaskController;
+use event::{TaskController, TaskHandle};
 use lsp_client::{lsp, LanguageServerId};
 
 use super::DocumentLinksHandler;
-use crate::Document;
+use crate::{Document, ViewId};
 
 #[derive(Default)]
 pub(crate) struct DocumentLinks {
     pub(super) cache: Vec<DocumentLink>,
     pub(super) request: TaskController,
+    /// An explicit follow operation has a separate lifetime from cache refreshes.
+    follow: TaskController,
+    follow_view: Option<ViewId>,
     pub(super) handler: Option<DocumentLinksHandler>,
 }
 
 impl DocumentLinks {
     pub(crate) fn bind_handler(&mut self, handler: DocumentLinksHandler) {
+        self.cancel_navigation();
         self.handler = Some(handler);
     }
 
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        self.cancel_navigation();
         changes.update_positions(self.cache.iter_mut().flat_map(|link| {
             std::iter::once((&mut link.start, Assoc::After))
                 .chain(std::iter::once((&mut link.end, Assoc::After)))
         }));
+    }
+
+    pub(super) fn start_navigation(&mut self, view: ViewId) -> TaskHandle {
+        self.follow_view = Some(view);
+        self.follow.restart()
+    }
+
+    pub(crate) fn cancel_navigation(&mut self) {
+        self.follow_view = None;
+        self.follow.cancel();
+    }
+
+    pub(crate) fn cancel_navigation_for(&mut self, view: ViewId) {
+        if self.follow_view == Some(view) {
+            self.cancel_navigation();
+        }
     }
 
     /// Clear cached navigation targets without interrupting a replacement request.

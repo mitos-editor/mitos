@@ -214,7 +214,7 @@ feature. Ordinary completion retains its savepoint-based session, which remains
 valid across typing and temporary previews.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
-have state modules under `view/src/document/`. Each groups its cache, request
+have state modules under `view/src/features/`. Each groups its cache, request
 controllers, and attached scheduling handle. Pull diagnostics keeps its handle
 with its diagnostic state. Removing a view cancels its per-view work; dropping a
 document drops its request controllers. Cache-only clearing preserves replacement
@@ -344,6 +344,12 @@ checks cover edits, selection, focus, mode, language, URI, and server attachment
 Typed `EditorEvent::Navigation` updates validate again before the frontend opens
 a picker or jumps. Selecting references applies first-server document highlights
 in the shared editor, preserving the primary reference and shared LSP position conversion.
+
+`view::features::document_links` prepares file navigation from cached links and
+literal paths. Pending resolves retain the original editor, document, selection,
+mode, and split binding. Document changes cancel work; queued updates validate
+again before opening targets. Terminal commands share one opening policy and
+convert file URIs with `to_file_path()` before filesystem access.
 
 `view::features::inlay_hints` owns viewport selection, request deduplication,
 position conversion, and annotation publication. Per-view cache keys include the

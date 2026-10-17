@@ -466,6 +466,15 @@ fn main() -> anyhow::Result<()> {
                 )?;
             }
         }
+        if method == "documentLink/resolve"
+            && let Some(index) = args.iter().position(|arg| arg == "--resolve-link-gate")
+        {
+            let gate = std::path::Path::new(&args[index + 1]);
+            std::fs::write(gate.with_extension("started"), "ready")?;
+            while !gate.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         let result = match method {
             "initialize" if formatting => json!({"capabilities": {
@@ -520,7 +529,7 @@ fn main() -> anyhow::Result<()> {
             "initialize" => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "documentSymbolProvider": true, "documentHighlightProvider": true,
-                "colorProvider": true, "documentLinkProvider": {}, "codeLensProvider": {}
+                "colorProvider": true, "documentLinkProvider": {"resolveProvider": args.iter().any(|arg| arg == "--resolve-links")}, "codeLensProvider": {}
             }}),
             "textDocument/documentSymbol" => json!([{
                 "name": text, "kind": 12, "range": range(0, end), "selectionRange": range(3, end)
@@ -531,6 +540,16 @@ fn main() -> anyhow::Result<()> {
             "textDocument/documentColor" => json!([{
                 "range": range(3, end), "color": {"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0}
             }]),
+            "textDocument/documentLink" if args.iter().any(|arg| arg == "--resolve-links") => {
+                json!([{
+                    "range": range(3, end), "data": {"target": format!("{uri}.resolved")}
+                }])
+            }
+            "documentLink/resolve" => {
+                let mut link = params.clone();
+                link["target"] = params["data"]["target"].clone();
+                link
+            }
             "textDocument/documentLink" => json!([{
                 "range": range(3, end), "target": "https://example.test/target"
             }]),

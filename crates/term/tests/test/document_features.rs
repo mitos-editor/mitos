@@ -49,6 +49,15 @@ impl Fixture {
     }
 
     fn with_servers(path: &Path, text: &str, servers: &[&str]) -> anyhow::Result<Self> {
+        Self::with_options(path, text, servers, false)
+    }
+
+    fn with_options(
+        path: &Path,
+        text: &str,
+        servers: &[&str],
+        resolve_links: bool,
+    ) -> anyhow::Result<Self> {
         std::fs::write(path, text)?;
         let mut config = test_config();
         config.editor.lsp.enable = true;
@@ -61,7 +70,18 @@ impl Fixture {
         let server_config = servers
             .iter()
             .zip(&gates)
-            .map(|(name, gate)| ServerConfig::new(name).initialize_gate(gate).toml())
+            .map(|(name, gate)| {
+                let server = ServerConfig::new(name).initialize_gate(gate);
+                if resolve_links {
+                    server
+                        .arg("--resolve-links")
+                        .arg("--resolve-link-gate")
+                        .arg(path.with_extension("resolve-ready"))
+                        .toml()
+                } else {
+                    server.toml()
+                }
+            })
             .collect::<String>();
         let loader = lsp::syntax_loader(
             "document-feature-test",
@@ -331,5 +351,152 @@ async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::
     assert_eq!(doc.code_lenses().len(), 1);
     assert_ne!(doc.code_lenses()[0].language_server_id, server_id);
     assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+async fn prepare_link_follow(
+    fixture: &mut Fixture,
+) -> anyhow::Result<view::features::document_links::FileNavigationTask> {
+    use view::features::document_links::{prepare_navigation, FileNavigation};
+    let replies = fixture.initialize().await?;
+    fixture.apply(replies);
+    let (view, doc) = current!(fixture.app.editor);
+    doc.set_selection(view.id, Selection::single(2, 3));
+    match prepare_navigation(&mut fixture.app.editor) {
+        FileNavigation::Pending(task) => Ok(task),
+        FileNavigation::Ready(_) => anyhow::bail!("expected a deferred document link"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolved_link_navigation_validates_queued_delivery() -> anyhow::Result<()> {
+    use view::features::document_links::NavigationTarget;
+    for invalidation in [
+        "none",
+        "edit",
+        "selection",
+        "rebind",
+        "focus",
+        "close",
+        "rename",
+        "detach",
+        "disabled",
+        "superseded",
+        "mode",
+    ] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("document.feature-test");
+        let mut fixture =
+            Fixture::with_options(&path, "😀 original\n", &["document-feature-test"], true)?;
+        let gate = Gate::new(path.with_extension("resolve-ready"));
+        let task = prepare_link_follow(&mut fixture).await?;
+        gate.release()?;
+        let update = tokio::time::timeout(Duration::from_secs(5), task.run()).await?;
+        let id = current_ref!(fixture.app.editor).1.id();
+        let expected = lsp_client::Url::parse(&format!(
+            "{}.resolved",
+            current_ref!(fixture.app.editor).1.url().unwrap()
+        ))?;
+        match invalidation {
+            "edit" => fixture.edit("changed"),
+            "selection" => {
+                let (view, doc) = current!(fixture.app.editor);
+                doc.set_selection(view.id, Selection::single(3, 4));
+                doc.set_selection(view.id, Selection::single(2, 3));
+            }
+            "rebind" => {
+                fixture.app.editor.new_file(Action::Replace);
+                fixture.app.editor.switch(id, Action::Replace);
+            }
+            "focus" => {
+                fixture.app.editor.new_file(Action::VerticalSplit);
+            }
+            "close" => {
+                assert!(fixture.app.editor.close_document(id, true).is_ok());
+            }
+            "rename" => fixture
+                .app
+                .editor
+                .set_doc_path(id, &dir.path().join("renamed.feature-test")),
+            "detach" => {
+                fixture
+                    .app
+                    .editor
+                    .document_mut(id)
+                    .unwrap()
+                    .remove_language_server_by_name("document-feature-test");
+            }
+            "superseded" => {
+                let _ = view::features::document_links::prepare_navigation(&mut fixture.app.editor);
+            }
+            "mode" => fixture.app.editor.mode = view::document::Mode::Insert,
+            "disabled" => {
+                let mut config = (*fixture.app.editor.config()).clone();
+                config.lsp.enable = false;
+                fixture.app.editor.config =
+                    std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(config));
+            }
+            _ => {}
+        }
+        let targets = update.into_targets(&fixture.app.editor);
+        if invalidation == "none" {
+            assert_eq!(targets, Some(vec![NavigationTarget::Url(expected)]));
+        } else {
+            assert!(
+                targets.is_none(),
+                "stale navigation survived {invalidation}"
+            );
+        }
+        assert!(fixture.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn origin_changes_cancel_pending_link_resolution() -> anyhow::Result<()> {
+    for invalidation in ["selection", "view", "path", "language"] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("document.feature-test");
+        let mut fixture =
+            Fixture::with_options(&path, "😀 original\n", &["document-feature-test"], true)?;
+        let gate = Gate::new(path.with_extension("resolve-ready"));
+        let task = prepare_link_follow(&mut fixture).await?;
+        let task = tokio::spawn(task.run());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !gate.path().with_extension("started").exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        let (view, doc) = current_ref!(fixture.app.editor);
+        let (view, id) = (view.id, doc.id());
+        match invalidation {
+            "selection" => fixture
+                .app
+                .editor
+                .document_mut(id)
+                .unwrap()
+                .set_selection(view, Selection::single(3, 4)),
+            "view" => fixture.app.editor.close(view),
+            "path" => fixture
+                .app
+                .editor
+                .set_doc_path(id, &dir.path().join("renamed.feature-test")),
+            _ => {
+                let loader = fixture.app.editor.syn_loader.load_full();
+                fixture
+                    .app
+                    .editor
+                    .document_mut(id)
+                    .unwrap()
+                    .set_language(None, &loader);
+            }
+        }
+        // Cancellation completes locally before the server releases its held reply.
+        let update = tokio::time::timeout(Duration::from_secs(5), task).await??;
+        assert!(update.into_targets(&fixture.app.editor).is_none());
+        gate.release()?;
+        assert!(fixture.app.close().await.is_empty());
+    }
     Ok(())
 }
