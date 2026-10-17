@@ -939,7 +939,8 @@ impl Document {
         self.reset_all_inlay_hints();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
-            Syntax::new(self.buffer.text().slice(..), config.language(), loader)
+            let language = loader.language_for_name(config.language_id.as_str())?;
+            Syntax::new(self.buffer.text().slice(..), language, loader)
                 .map_err(|err| {
                     if err != syntax::HighlighterError::NoRootConfig {
                         log::warn!("Error building syntax for '{}': {err}", self.display_name());

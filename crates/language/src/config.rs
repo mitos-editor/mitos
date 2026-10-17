@@ -1,4 +1,3 @@
-use crate::Language;
 use editor_core::comment::BlockCommentToken;
 use editor_core::{auto_pairs::AutoPairs, diagnostic::Severity};
 
@@ -27,9 +26,6 @@ pub struct Configuration {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LanguageConfiguration {
-    #[serde(skip)]
-    pub(super) language: Option<Language>,
-
     #[serde(rename = "name")]
     pub language_id: String, // c-sharp, rust, tsx
     #[serde(rename = "language-id")]
@@ -114,11 +110,6 @@ pub struct LanguageConfiguration {
 }
 
 impl LanguageConfiguration {
-    pub fn language(&self) -> Language {
-        // This value must be set by `super::Loader::new`.
-        self.language.unwrap()
-    }
-
     /// Single servers and contiguous groups of ordered alternatives.
     pub fn language_server_groups(&self) -> impl Iterator<Item = &[LanguageServerFeatures]> {
         self.language_servers.chunk_by(|a, b| {

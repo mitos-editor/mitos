@@ -268,9 +268,8 @@ impl Loader {
         let mut languages_by_shebang = HashMap::new();
         let mut file_type_globs = Vec::new();
 
-        for mut config in config.language {
+        for config in config.language {
             let language = Language(languages.len() as u32);
-            config.language = Some(language);
 
             for file_type in &config.file_types {
                 match file_type {

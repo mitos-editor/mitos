@@ -12,6 +12,7 @@ use super::Document;
 static WORKERS: Semaphore = Semaphore::const_new(2);
 
 pub(super) struct PendingSyntax {
+    language: Language,
     loader: Arc<syntax::Loader>,
     controller: TaskController,
 }
@@ -107,7 +108,7 @@ impl Document {
         }
         Some(SyntaxRequest {
             snapshot: self.buffer.snapshot(),
-            language: self.language.as_ref()?.language(),
+            language: pending.language,
             loader: pending.loader.clone(),
             cancel: pending.controller.restart(),
         })
@@ -115,9 +116,13 @@ impl Document {
 
     pub(crate) fn initialize_syntax(&mut self, loader: Arc<syntax::Loader>) {
         self.syntax = None;
-        self.pending_syntax = self.language.as_ref().map(|_| PendingSyntax {
-            loader,
-            controller: TaskController::new(),
+        self.pending_syntax = self.language.as_ref().and_then(|config| {
+            let language = loader.language_for_name(config.language_id.as_str())?;
+            Some(PendingSyntax {
+                language,
+                loader,
+                controller: TaskController::new(),
+            })
         });
         if self.pending_syntax.is_some()
             && let Some(handler) = self.syntax_handler.clone()
@@ -219,6 +224,43 @@ mod tests {
         finish(&mut doc).await;
         assert!(!doc.is_syntax_pending());
         assert_eq!(doc.syntax().unwrap().tree().root_node().byte_range(), 0..2);
+    }
+
+    #[tokio::test]
+    async fn selected_language_uses_the_current_loaders_parser_order() {
+        let original = loader();
+        let mut doc = document(&original);
+        let json = original.language_for_name("json").unwrap();
+        let config = original.language(json).config().clone();
+        let current = Arc::new(
+            syntax::Loader::new(
+                toml::from_str(
+                    r#"
+                    [[language]]
+                    name = "toml"
+                    scope = "source.toml"
+                    file-types = ["toml"]
+                    [[language]]
+                    name = "json"
+                    scope = "source.json"
+                    file-types = ["json"]
+                    "#,
+                )
+                .unwrap(),
+                loader::syntax::Resources::default(),
+            )
+            .unwrap(),
+        );
+        let expected = current.language_for_name("json").unwrap();
+        assert_ne!(json, expected);
+
+        doc.syn_loader.store(current.clone());
+        doc.set_language(Some(config), &current);
+        assert_eq!(doc.syntax().unwrap().root_language(), expected);
+
+        doc.initialize_syntax(current);
+        finish(&mut doc).await;
+        assert_eq!(doc.syntax().unwrap().root_language(), expected);
     }
 
     #[tokio::test]
