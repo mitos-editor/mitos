@@ -72,7 +72,7 @@ fn schedule(doc: &mut Document, view: ViewId) {
 }
 
 fn schedule_document(doc: &mut Document) {
-    let views: Vec<_> = doc.selections().keys().copied().collect();
+    let views: Vec<_> = doc.view_ids().collect();
     for view in views {
         schedule(doc, view);
     }

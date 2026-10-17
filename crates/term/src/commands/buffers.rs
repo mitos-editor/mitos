@@ -114,7 +114,7 @@ pub(super) fn buffer_picker(cx: &mut Context) {
     .with_initial_cursor(initial_cursor)
     .with_preview(|editor, meta| {
         let doc = &editor.documents.get(&meta.id)?;
-        let lines = doc.selections().values().next().map(|selection| {
+        let lines = doc.selections().next().map(|selection| {
             let cursor_line = selection.primary().cursor_line(doc.text().slice(..));
             (cursor_line, cursor_line)
         });

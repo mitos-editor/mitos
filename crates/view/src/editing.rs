@@ -49,13 +49,17 @@ struct TransactionSelections {
 }
 
 impl SelectionHistory {
-    pub(crate) fn commit(&mut self, revision: usize, selections: &HashMap<ViewId, Selection>) {
+    pub(crate) fn commit(
+        &mut self,
+        revision: usize,
+        selection: impl FnOnce(ViewId) -> Option<Selection>,
+    ) {
         if let Some((origin, undo)) = self.pending.take() {
             self.revisions.insert(
                 revision,
                 TransactionSelections {
                     undo,
-                    redo: selections.get(&origin).cloned(),
+                    redo: selection(origin),
                 },
             );
         }
@@ -197,7 +201,7 @@ mod tests {
         assert_eq!(doc.text(), "abc def\n");
         assert!(doc.redo());
         assert_eq!(doc.text(), "XYbc ZZef\n");
-        assert!(doc.selections().is_empty());
+        assert!(doc.selections().next().is_none());
     }
 
     #[tokio::test]

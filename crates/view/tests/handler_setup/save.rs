@@ -73,7 +73,13 @@ async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_cl
         );
         // A hidden formatted document gains no synthetic selection in the unrelated split.
         if close {
-            assert!(fixture.editor.document(id).unwrap().selections().is_empty());
+            assert!(fixture
+                .editor
+                .document(id)
+                .unwrap()
+                .selections()
+                .next()
+                .is_none());
         }
         fixture.editor.switch(id, Action::Replace);
         let (view, doc) = current!(fixture.editor);

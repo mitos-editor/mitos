@@ -124,7 +124,7 @@ fn schedule(
     view: ViewId,
     invoked: SignatureHelpInvoked,
 ) {
-    if !doc.selections().contains_key(&view) {
+    if doc.try_selection(view).is_none() {
         return;
     }
     let server = doc

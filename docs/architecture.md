@@ -855,3 +855,13 @@ Saving uses one snapshot for both bytes and revision accounting. Formatting, syn
 and full spelling workers consume the captured text; their existing request wrappers
 validate the same snapshot before publishing. Document IDs, paths, language/loaders,
 protocol sessions, cancellation, and view bindings remain editor-level checks.
+
+## Document/view state
+
+Each document owns one `DocumentViewState` per bound view, containing its selection,
+viewport position, and jump labels. Initialization preserves existing records;
+removal drops all three together while feature coordinators cancel their own
+requests. Selection and viewport anchors map through each edit before observers
+run. Optional selection lookup and read-only iterators expose the state without
+parallel maps. Revision-keyed cursor history remains document-owned so undo in
+another split can restore the original selection after its originating view closes.

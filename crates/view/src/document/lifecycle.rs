@@ -6,10 +6,15 @@ use editor_core::{Assoc, ChangeSet, Selection};
 
 impl Document {
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
-        self.selections.insert(
-            view,
-            selection.ensure_invariants(self.buffer.text().slice(..)),
-        );
+        let selection = selection.ensure_invariants(self.buffer.text().slice(..));
+        match self.view_states.entry(view) {
+            std::collections::hash_map::Entry::Occupied(mut state) => {
+                state.get_mut().selection = selection
+            }
+            std::collections::hash_map::Entry::Vacant(state) => {
+                state.insert(super::DocumentViewState::new(selection));
+            }
+        }
         if self
             .active_snippet
             .as_ref()

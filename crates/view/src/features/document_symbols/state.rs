@@ -128,7 +128,7 @@ impl Document {
 
         // PERF: Symbol responses are cold. Collecting the usually tiny view-id set here avoids
         // allocations on cursor movement while ensuring every split is refreshed immediately.
-        let view_ids: Vec<_> = self.selections().keys().copied().collect();
+        let view_ids: Vec<_> = self.view_ids().collect();
         for view_id in view_ids {
             self.update_breadcrumbs_for_view(view_id);
         }

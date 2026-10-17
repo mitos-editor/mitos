@@ -195,8 +195,7 @@ impl Session {
             && editor.document(self.trigger.doc).is_some_and(|doc| {
                 doc.uri() == self.uri
                     && doc
-                        .selections()
-                        .get(&self.trigger.view)
+                        .try_selection(self.trigger.view)
                         .is_some_and(|selection| {
                             matches!(
                                 editor.last_completion,

@@ -10,7 +10,11 @@ impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
     pub fn commit_changes(&mut self) -> Option<usize> {
         let revision = self.buffer.commit_changes()?;
-        self.selection_history.commit(revision, &self.selections);
+        self.selection_history.commit(revision, |view| {
+            self.view_states
+                .get(&view)
+                .map(|state| state.selection.clone())
+        });
         Some(revision)
     }
 

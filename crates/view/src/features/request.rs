@@ -122,6 +122,6 @@ impl SelectionRequest {
 
     pub(crate) fn get<'a>(&self, editor: &'a Editor) -> Option<(&'a View, &'a Document)> {
         let (view, doc) = self.target.get(editor)?;
-        (doc.selections().get(&view.id) == Some(&self.selection)).then_some((view, doc))
+        (doc.try_selection(view.id) == Some(&self.selection)).then_some((view, doc))
     }
 }

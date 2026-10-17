@@ -3,6 +3,8 @@ pub(crate) mod history;
 mod language_servers;
 mod lifecycle;
 mod mutation;
+mod view_state;
+use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
 use crate::features::{
@@ -171,12 +173,8 @@ pub struct Document {
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
     binary: bool,
-    selections: HashMap<ViewId, Selection>,
-    view_data: HashMap<ViewId, ViewData>,
+    view_states: HashMap<ViewId, DocumentViewState>,
     pub active_snippet: Option<ActiveSnippet>,
-
-    /// Jump label overlays for each view.
-    pub(crate) jump_labels: HashMap<ViewId, Vec<Overlay>>,
 
     // Each feature owns its cache, scheduling handle, and request controllers.
     // Dropping the document drops those controllers and cancels in-flight work.
@@ -281,9 +279,8 @@ impl fmt::Debug for Document {
         f.debug_struct("Document")
             .field("id", &self.id)
             .field("buffer", &self.buffer)
-            .field("selections", &self.selections)
+            .field("views", &self.view_states)
             .field("text_annotations", &self.inlay_hints)
-            .field("view_data", &self.view_data)
             .field("path", &self.path)
             .field("encoding", &self.encoding)
             .field("restore_cursor", &self.restore_cursor)
@@ -330,12 +327,11 @@ impl Document {
             has_bom,
             buffer: buffer::Buffer::new(text),
             binary: false,
-            selections: HashMap::default(),
+            view_states: HashMap::default(),
             inlay_hints: Default::default(),
             hover: Default::default(),
             navigation: Default::default(),
             inline_completions: Default::default(),
-            view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
             spelling_languages: Vec::new(),
@@ -367,7 +363,6 @@ impl Document {
             version_control_head: None,
             focused_at: std::time::Instant::now(),
             readonly: false,
-            jump_labels: HashMap::new(),
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
             document_links: Default::default(),
@@ -1005,14 +1000,11 @@ impl Document {
         self.set_selection(view_id, Selection::single(origin.anchor, origin.head));
     }
 
-    /// Initializes a new selection and view_data for the given view
-    /// if it does not already have them.
+    /// Initialize this document/view relationship without resetting existing state.
     pub fn ensure_view_init(&mut self, view_id: ViewId) {
-        if !self.selections.contains_key(&view_id) {
+        if !self.view_states.contains_key(&view_id) {
             self.reset_selection(view_id);
         }
-
-        self.view_data_mut(view_id);
 
         if self.breadcrumb_enabled() {
             self.update_breadcrumbs_for_view(view_id);
@@ -1026,13 +1018,11 @@ impl Document {
 
     /// Remove any views' data and state that is stored in the `Document`.
     pub fn remove_view(&mut self, view_id: ViewId) {
-        self.selections.remove(&view_id);
-        self.view_data.remove(&view_id);
+        self.view_states.remove(&view_id);
         self.inlay_hints.remove_view(view_id);
         self.hover.remove_view(view_id);
         self.navigation.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);
-        self.jump_labels.remove(&view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
         self.inline_completions.remove_view(self.id, view_id);
@@ -1362,34 +1352,41 @@ impl Document {
 
     #[inline]
     pub fn selection(&self, view_id: ViewId) -> &Selection {
-        &self.selections[&view_id]
+        self.try_selection(view_id)
+            .expect("view must be initialized for this document")
     }
 
-    #[inline]
-    pub fn selections(&self) -> &HashMap<ViewId, Selection> {
-        &self.selections
+    /// Selection only when this document has state for the given view.
+    pub fn try_selection(&self, view_id: ViewId) -> Option<&Selection> {
+        Some(&self.view_states.get(&view_id)?.selection)
     }
 
-    fn view_data(&self, view_id: ViewId) -> &ViewData {
-        self.view_data
-            .get(&view_id)
-            .expect("This should only be called after ensure_view_init")
+    pub fn selections(&self) -> impl ExactSizeIterator<Item = &Selection> {
+        self.view_states.values().map(|state| &state.selection)
     }
 
-    fn view_data_mut(&mut self, view_id: ViewId) -> &mut ViewData {
-        self.view_data.entry(view_id).or_default()
+    pub fn view_ids(&self) -> impl ExactSizeIterator<Item = ViewId> + '_ {
+        self.view_states.keys().copied()
+    }
+
+    fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
+        let text = self.buffer.text().slice(..);
+        self.view_states
+            .entry(view_id)
+            .or_insert_with(|| DocumentViewState::new(Selection::point(0).ensure_invariants(text)))
     }
 
     pub(crate) fn get_view_offset(&self, view_id: ViewId) -> Option<ViewPosition> {
-        Some(self.view_data.get(&view_id)?.view_position)
+        Some(self.view_states.get(&view_id)?.position)
     }
 
     pub fn view_offset(&self, view_id: ViewId) -> ViewPosition {
-        self.view_data(view_id).view_position
+        self.get_view_offset(view_id)
+            .expect("view must be initialized for this document")
     }
 
     pub fn set_view_offset(&mut self, view_id: ViewId, new_offset: ViewPosition) {
-        self.view_data_mut(view_id).view_position = new_offset;
+        self.view_state_mut(view_id).position = new_offset;
     }
 
     pub fn relative_path(&self) -> Option<&Path> {
@@ -1743,11 +1740,18 @@ impl Document {
     }
 
     pub fn set_jump_labels(&mut self, view_id: ViewId, labels: Vec<Overlay>) {
-        self.jump_labels.insert(view_id, labels);
+        self.view_state_mut(view_id).jump_labels = labels;
     }
 
     pub fn remove_jump_labels(&mut self, view_id: ViewId) {
-        self.jump_labels.remove(&view_id);
+        if let Some(state) = self.view_states.get_mut(&view_id) {
+            state.jump_labels.clear();
+        }
+    }
+
+    pub(crate) fn jump_labels(&self, view_id: ViewId) -> Option<&[Overlay]> {
+        let labels = &self.view_states.get(&view_id)?.jump_labels;
+        (!labels.is_empty()).then_some(labels.as_slice())
     }
 
     /// Get the inlay hints for this document and `view_id`.
@@ -1764,11 +1768,6 @@ impl Document {
     pub fn has_language_server_with_feature(&self, feature: LanguageServerFeature) -> bool {
         self.language_servers_with_feature(feature).next().is_some()
     }
-}
-
-#[derive(Debug, Default)]
-pub struct ViewData {
-    view_position: ViewPosition,
 }
 
 #[cfg(test)]
@@ -2021,5 +2020,74 @@ mod test {
             .to_string(),
             editor_core::NATIVE_LINE_ENDING.as_str()
         );
+    }
+    #[tokio::test]
+    async fn document_view_state_is_preserved_on_init_and_removed_together() {
+        let mut doc = feature_document();
+        let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
+        let first = views.insert(());
+        let second = views.insert(());
+        doc.ensure_view_init(first);
+        doc.ensure_view_init(second);
+        let selection = Selection::single(2, 3);
+        let position = ViewPosition {
+            anchor: 3,
+            horizontal_offset: 2,
+            vertical_offset: 1,
+        };
+        doc.set_selection(first, selection.clone());
+        doc.set_view_offset(first, position);
+        doc.set_jump_labels(first, vec![Overlay::new(4, "a")]);
+        doc.ensure_view_init(first);
+        assert_eq!(doc.selection(first), &selection);
+        assert_eq!(doc.view_offset(first), position);
+        assert_eq!(doc.jump_labels(first).unwrap().len(), 1);
+        let other_selection = doc.selection(second).clone();
+
+        doc.remove_view(first);
+        assert!(doc.try_selection(first).is_none());
+        assert!(doc.get_view_offset(first).is_none());
+        assert!(doc.jump_labels(first).is_none());
+        assert_eq!(doc.selection(second), &other_selection);
+        assert_eq!(doc.view_ids().collect::<Vec<_>>(), [second]);
+        doc.remove_jump_labels(first);
+        assert!(doc.try_selection(first).is_none());
+        doc.ensure_view_init(first);
+        assert_eq!(doc.selection(first).primary(), doc.origin());
+        assert_eq!(doc.view_offset(first), ViewPosition::default());
+        assert!(doc.jump_labels(first).is_none());
+    }
+
+    #[tokio::test]
+    async fn document_edits_map_each_views_selection_and_viewport_anchor() {
+        let mut doc = feature_document();
+        let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
+        let first = views.insert(());
+        let second = views.insert(());
+        for (view, anchor) in [(first, 2), (second, 7)] {
+            doc.ensure_view_init(view);
+            doc.set_selection(view, Selection::single(anchor, anchor + 1));
+            doc.set_view_offset(
+                view,
+                ViewPosition {
+                    anchor,
+                    horizontal_offset: 3,
+                    vertical_offset: 1,
+                },
+            );
+        }
+        let edit = Transaction::change(doc.text(), [(0, 0, Some("界x".into()))].into_iter());
+        doc.apply(edit.changes()).unwrap();
+        for (view, anchor) in [(first, 4), (second, 9)] {
+            assert_eq!(doc.selection(view), &Selection::single(anchor, anchor + 1));
+            assert_eq!(
+                doc.view_offset(view),
+                ViewPosition {
+                    anchor,
+                    horizontal_offset: 3,
+                    vertical_offset: 1
+                }
+            );
+        }
     }
 }

@@ -38,7 +38,13 @@ async fn workspace_edits_and_reload_do_not_create_hidden_buffer_selections() -> 
     std::fs::write(&path, "abc\n")?;
     let id = fixture.editor.open(&path, Action::Load)?;
     let focused = current_ref!(fixture.editor).1.id();
-    assert!(fixture.editor.document(id).unwrap().selections().is_empty());
+    assert!(fixture
+        .editor
+        .document(id)
+        .unwrap()
+        .selections()
+        .next()
+        .is_none());
     let edit = lsp::WorkspaceEdit {
         changes: Some(
             [(
@@ -65,7 +71,7 @@ async fn workspace_edits_and_reload_do_not_create_hidden_buffer_selections() -> 
     fixture.editor.reload_document(id)?;
     let doc = fixture.editor.document_mut(id).unwrap();
     assert_eq!(doc.text(), "disk\n");
-    assert!(doc.selections().is_empty());
+    assert!(doc.selections().next().is_none());
     assert!(doc.undo());
     assert_eq!(doc.text(), "Abc\n");
     assert_eq!(current_ref!(fixture.editor).1.id(), focused);
@@ -100,7 +106,7 @@ async fn save_all_normalizes_hidden_buffers_without_creating_selections() -> any
     fixture.editor.flush_writes().await?;
     let doc = fixture.editor.document_mut(id).unwrap();
     assert_eq!(std::fs::read_to_string(path)?, "abc\n");
-    assert!(doc.selections().is_empty());
+    assert!(doc.selections().next().is_none());
     assert!(doc.undo());
     assert_eq!(doc.text(), "abc  ");
     Ok(())

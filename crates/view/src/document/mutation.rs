@@ -70,18 +70,15 @@ impl Document {
 
         self.modified_since_accessed = true;
 
-        for selection in self.selections.values_mut() {
+        for state in self.view_states.values_mut() {
+            let selection = &mut state.selection;
             *selection = selection
                 .clone()
                 // Map through changes
                 .map(changes)
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.buffer.text().slice(..));
-        }
-
-        for view_data in self.view_data.values_mut() {
-            view_data.view_position.anchor =
-                changes.map_pos(view_data.view_position.anchor, Assoc::Before);
+            state.position.anchor = changes.map_pos(state.position.anchor, Assoc::Before);
         }
 
         // generate revert to savepoint

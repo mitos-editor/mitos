@@ -275,7 +275,7 @@ pub async fn test_with_config<T: Into<TestCase>>(
             let doc = doc!(app.editor);
             assert_eq!(&test_case.out_text, doc.text());
 
-            let mut selections: Vec<_> = doc.selections().values().cloned().collect();
+            let mut selections: Vec<_> = doc.selections().cloned().collect();
             assert_eq!(1, selections.len());
 
             let sel = selections.pop().unwrap();
