@@ -3,7 +3,7 @@
 //! Adapted from Michael Davis's [Helix PR #15910](https://github.com/helix-editor/helix/pull/15910),
 //! revision `1849ccc29792484a1e00bcc48ee8018ca058cf33`.
 //!
-//! Owns document scheduling, dictionary resource selection, cancellation, and result publication.
+//! Owns document scheduling, dictionary loading and caching, cancellation, and result publication.
 //! The `spelling` crate supplies scanning, suggestions, and dictionary storage;
 //! frontends present actions and diagnostics.
 
@@ -11,6 +11,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     future::Future,
+    sync::Arc,
 };
 
 use editor_core::{
@@ -29,7 +30,7 @@ use crate::{
 
 mod worker;
 
-use ::spelling::{add_personal_word, suggestions, IgnoredWordsFile};
+use ::spelling::{add_personal_word, suggestions, Dictionary, IgnoredWordsFile};
 
 #[derive(Debug)]
 pub struct SpellingHandler {
@@ -38,6 +39,8 @@ pub struct SpellingHandler {
     /// In-flight full-document checks, keyed by document. Starting a new full check for a document
     /// cancels the previous one (incremental checks run synchronously and need no cancellation).
     requests: HashMap<DocumentId, TaskController>,
+    /// Loaded dictionaries shared with in-flight checks and correction menus.
+    dictionaries: HashMap<SpellingLanguage, Arc<Dictionary>>,
     /// Languages whose dictionary is currently being loaded, so the same one isn't loaded twice
     /// concurrently.
     loading_dictionaries: HashSet<SpellingLanguage>,
@@ -45,7 +48,7 @@ pub struct SpellingHandler {
     /// Ignoring a word does not add it to dictionary suggestions or persistence.
     ignored_words: HashMap<SpellingLanguage, HashSet<String>>,
     /// Loaded user ignore files, one per dictionary language.
-    pub ignored_word_files: HashMap<SpellingLanguage, IgnoredWordsFile>,
+    ignored_word_files: HashMap<SpellingLanguage, IgnoredWordsFile>,
 }
 
 impl SpellingHandler {
@@ -55,10 +58,26 @@ impl SpellingHandler {
             event_tx,
             callbacks,
             requests: HashMap::new(),
+            dictionaries: HashMap::new(),
             loading_dictionaries: HashSet::new(),
             ignored_words: HashMap::new(),
             ignored_word_files: HashMap::new(),
         }
+    }
+
+    /// Configure a preloaded dictionary before the editor takes ownership of its handlers.
+    pub fn set_dictionary(&mut self, language: SpellingLanguage, dictionary: Arc<Dictionary>) {
+        self.dictionaries.insert(language, dictionary);
+    }
+
+    /// Configure persistent ignores before the editor takes ownership of its handlers.
+    pub fn set_ignored_words_file(&mut self, language: SpellingLanguage, file: IgnoredWordsFile) {
+        self.ignored_word_files.insert(language, file);
+    }
+
+    /// Read a loaded dictionary without exposing the cache for mutation.
+    pub fn dictionary(&self, language: &SpellingLanguage) -> Option<&Arc<Dictionary>> {
+        self.dictionaries.get(language)
     }
 
     /// Registers a new in-flight full check for `document`, cancelling any previous one, and
@@ -191,7 +210,10 @@ impl Editor {
             .spelling_languages
             .iter()
             .filter_map(|language| {
-                Some((language.clone(), self.dictionaries.get(language)?.clone()))
+                Some((
+                    language.clone(),
+                    self.handlers.spelling.dictionary(language)?.clone(),
+                ))
             })
             .collect();
         let doc_id = doc.id();
@@ -289,7 +311,8 @@ impl Editor {
                             title,
                             SPELLING_ACTION_PRIORITY,
                             move |editor| {
-                                let Some(dictionary) = editor.dictionaries.get_mut(&language)
+                                let Some(dictionary) =
+                                    editor.handlers.spelling.dictionaries.get_mut(&language)
                                 else {
                                     return;
                                 };

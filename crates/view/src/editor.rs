@@ -53,7 +53,7 @@ use editor_core::{
     diagnostic::DiagnosticProvider,
     movement::Direction,
     syntax::{self, config::LanguageServerFeature},
-    Change, Position, Range, Selection, SpellingLanguage, Uri,
+    Change, Position, Range, Selection, Uri,
 };
 use lsp_client::{lsp, util::lsp_range_to_range};
 use stdx::path::canonicalize;
@@ -145,8 +145,6 @@ pub struct Editor {
     /// avoid calculating the cursor position multiple
     /// times during rendering and should not be set by other functions.
     pub cursor_cache: CursorCache,
-    /// Loaded spelling dictionaries keyed by language.
-    pub dictionaries: HashMap<SpellingLanguage, Arc<spelling::Dictionary>>,
     pub file_watcher: Watcher,
     pub workspace_trust: WorkspaceTrust,
 }
@@ -284,7 +282,6 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
-            dictionaries: HashMap::new(),
             file_watcher,
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
             workspace_trust,

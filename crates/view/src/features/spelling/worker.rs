@@ -12,7 +12,10 @@
 
 use std::{collections::HashMap, future::Future, ops::Range, sync::Arc, time::Duration};
 
-use crate::{features::spelling::SpellingEvent, DocumentId, Editor};
+use crate::{
+    features::spelling::{SpellingEvent, SpellingHandler},
+    DocumentId, Editor,
+};
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
@@ -266,7 +269,7 @@ fn lookup_dictionaries(
     let mut missing = false;
     for language in languages {
         // Call through for every language so all missing loads are kicked off, not just the first.
-        match lookup_dictionary(editor, language.clone()) {
+        match editor.handlers.spelling.lookup_dictionary(language.clone()) {
             Some(dictionary) => dictionaries.push(dictionary),
             None => missing = true,
         }
@@ -274,20 +277,17 @@ fn lookup_dictionaries(
     (!missing).then_some(dictionaries)
 }
 
-/// Returns the dictionary for `language`, kicking off an async load (once) if it isn't loaded yet.
-fn lookup_dictionary(editor: &mut Editor, language: SpellingLanguage) -> Option<Arc<Dictionary>> {
-    if let Some(dictionary) = editor.dictionaries.get(&language) {
-        return Some(dictionary.clone());
+impl SpellingHandler {
+    /// Return the dictionary, starting one background load if it is not available yet.
+    fn lookup_dictionary(&mut self, language: SpellingLanguage) -> Option<Arc<Dictionary>> {
+        if let Some(dictionary) = self.dictionary(&language) {
+            return Some(dictionary.clone());
+        }
+        if self.loading_dictionaries.insert(language.clone()) {
+            load_dictionary(language, self.callbacks.clone());
+        }
+        None
     }
-    if editor
-        .handlers
-        .spelling
-        .loading_dictionaries
-        .insert(language.clone())
-    {
-        load_dictionary(language, editor.handlers.spelling.callbacks.clone());
-    }
-    None
 }
 
 fn load_dictionary(language: SpellingLanguage, callbacks: EditorCallbackSender) {
@@ -309,21 +309,12 @@ fn load_dictionary(language: SpellingLanguage, callbacks: EditorCallbackSender) 
 
         match load() {
             Ok((dictionary, ignored_words)) => callbacks.send_blocking(move |editor| {
-                editor
-                    .handlers
-                    .spelling
-                    .loading_dictionaries
-                    .remove(&language);
-                editor
-                    .dictionaries
-                    .insert(language.clone(), Arc::new(dictionary));
-                editor
-                    .handlers
-                    .spelling
-                    .ignored_word_files
-                    .insert(language.clone(), ignored_words);
+                let spelling = &mut editor.handlers.spelling;
+                spelling.loading_dictionaries.remove(&language);
+                spelling.set_dictionary(language.clone(), Arc::new(dictionary));
+                spelling.set_ignored_words_file(language.clone(), ignored_words);
                 send_blocking(
-                    &editor.handlers.spelling.event_tx,
+                    &spelling.event_tx,
                     SpellingEvent::DictionaryLoaded { language },
                 );
             }),

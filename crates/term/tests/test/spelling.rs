@@ -223,6 +223,12 @@ async fn spelling_textobjects_select_findings_and_preserve_direction() -> anyhow
 async fn opt_in_commands_corrections_and_undo() -> anyhow::Result<()> {
     let mut app = AppBuilder::new()
         .with_input_text("t#[e|]#h quik\n")
+        .with_handler_setup(|handlers, _| {
+            handlers.spelling.set_dictionary(
+                "second_dictionary".parse().unwrap(),
+                std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nworld\n").unwrap()),
+            );
+        })
         .build()?;
     run_event_loop_until_idle(&mut app).await;
     assert!(mistakes(&app).is_empty());
@@ -230,11 +236,6 @@ async fn opt_in_commands_corrections_and_undo() -> anyhow::Result<()> {
     assert_eq!(current_ref!(app.editor).1.spelling_languages.len(), 1);
     wait_for_mistakes(&mut app, &["teh", "quik"]).await?;
     // A later dictionary with no useful corrections must not erase earlier suggestions.
-    let second = "second_dictionary".parse()?;
-    app.editor.dictionaries.insert(
-        second,
-        std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nworld\n").unwrap()),
-    );
     current!(app.editor)
         .1
         .spelling_languages
@@ -358,7 +359,13 @@ async fn session_ignore_survives_edits_and_settings_changes_without_persisting(
     keys(&mut app, ":spelling en_US<ret>").await?;
     wait_for_mistakes(&mut app, &["Zorblé", "zorblé", "ZORBLÉ", "quik"]).await?;
     let language = "en_US".parse()?;
-    let dictionary = app.editor.dictionaries[&language].clone();
+    let dictionary = app
+        .editor
+        .handlers()
+        .spelling
+        .dictionary(&language)
+        .unwrap()
+        .clone();
     let personal_path = loader::personal_dictionary_file("en_US");
     let personal_before = fs::read(&personal_path).ok();
     let original = current_ref!(app.editor).1.text().to_string();
@@ -391,7 +398,11 @@ async fn session_ignore_survives_edits_and_settings_changes_without_persisting(
         .any(|diagnostic| diagnostic.provider == provider));
     assert!(std::sync::Arc::ptr_eq(
         &dictionary,
-        &app.editor.dictionaries[&language]
+        app.editor
+            .handlers()
+            .spelling
+            .dictionary(&language)
+            .unwrap()
     ));
     assert!(!dictionary.check("Zorblé"));
     assert_eq!(app.editor.config().spelling, config.spelling);
@@ -414,13 +425,15 @@ async fn session_ignore_survives_edits_and_settings_changes_without_persisting(
 async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow::Result<()> {
     let mut app = AppBuilder::new()
         .with_input_text("#[z|]#orble quik\n")
+        .with_handler_setup(|handlers, _| {
+            for language in ["session_a", "session_b"] {
+                handlers.spelling.set_dictionary(
+                    language.parse().unwrap(),
+                    std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
+                );
+            }
+        })
         .build()?;
-    for language in ["session_a", "session_b"] {
-        app.editor.dictionaries.insert(
-            language.parse()?,
-            std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
-        );
-    }
     keys(&mut app, ":spelling session_a session_b<ret>").await?;
     wait_for_mistakes(&mut app, &["zorble", "quik"]).await?;
     let first = current_ref!(app.editor).1.id();
@@ -461,22 +474,25 @@ async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow
 
 async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<Application> {
     // Install the loader's state with a temporary user ignore file before opening documents.
-    let language: editor_core::SpellingLanguage = "en_US".parse()?;
+    let ignored_language: editor_core::SpellingLanguage = "en_US".parse()?;
     let ignored_words = IgnoredWordsFile::load(path.to_owned())?;
-    let ignored_language = language.clone();
     let mut app = AppBuilder::new()
         .with_input_text("#[Z|]#orblé ZORBLÉ quik\n")
         .with_handler_setup(move |handlers, _| {
+            let dictionary =
+                std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap());
             handlers
                 .spelling
-                .ignored_word_files
-                .insert(ignored_language, ignored_words);
+                .set_dictionary(ignored_language.clone(), dictionary.clone());
+            // The second language shares dictionary contents, but has no persistent ignores.
+            handlers
+                .spelling
+                .set_dictionary("second_language".parse().unwrap(), dictionary);
+            handlers
+                .spelling
+                .set_ignored_words_file(ignored_language, ignored_words);
         })
         .build()?;
-    app.editor.dictionaries.insert(
-        language,
-        std::sync::Arc::new(Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap()),
-    );
     keys(&mut app, ":spelling en_US<ret>").await?;
     Ok(app)
 }
@@ -491,7 +507,13 @@ fn forever_ignore_survives_editor_restart() -> anyhow::Result<()> {
         let mut app = app_with_ignore_file(&path).await?;
         wait_for_mistakes(&mut app, &["Zorblé", "ZORBLÉ", "quik"]).await?;
         let version = current_ref!(app.editor).1.version();
-        let dictionary = app.editor.dictionaries[&"en_US".parse()?].clone();
+        let dictionary = app
+            .editor
+            .handlers()
+            .spelling
+            .dictionary(&"en_US".parse()?)
+            .unwrap()
+            .clone();
         open_corrections(&mut app).await?;
         choose_correction(&mut app, "Ignore 'Zorblé' forever (en_US)").await?;
         wait_for_mistakes(&mut app, &["quik"]).await?;
@@ -512,10 +534,6 @@ fn forever_ignore_survives_editor_restart() -> anyhow::Result<()> {
         let mut app = app_with_ignore_file(&path).await?;
         // Only the persistent entry survives; a fresh editor flags the session-only word again.
         wait_for_mistakes(&mut app, &["quik"]).await?;
-        let dictionary = app.editor.dictionaries[&"en_US".parse()?].clone();
-        app.editor
-            .dictionaries
-            .insert("second_language".parse()?, dictionary);
         keys(&mut app, ":spelling second_language<ret>").await?;
         wait_for_mistakes(&mut app, &["Zorblé", "ZORBLÉ", "quik"]).await?;
         keys(&mut app, ":spelling en_US second_language<ret>").await?;
