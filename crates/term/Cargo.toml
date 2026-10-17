@@ -52,6 +52,7 @@ path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]
 
 [dependencies]
+grammar-build.workspace = true
 language.workspace = true
 theme.workspace = true
 workspace.workspace = true
@@ -113,6 +114,7 @@ signal-hook-tokio = { workspace = true, features = ["futures-v0_3"] }
 libc.workspace = true
 
 [build-dependencies]
+grammar-build.workspace = true
 loader.workspace = true
 
 [dev-dependencies]

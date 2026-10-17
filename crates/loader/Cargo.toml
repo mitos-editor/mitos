@@ -1,6 +1,6 @@
 [package]
 name = "loader"
-description = "Runtime discovery, grammar loading, and workspace trust support for Mitos"
+description = "Configuration discovery and runtime resource loading for Mitos"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -9,10 +9,6 @@ rust-version.workspace = true
 categories.workspace = true
 repository.workspace = true
 homepage.workspace = true
-
-[[bin]]
-name = "loader"
-path = "src/main.rs"
 
 [dependencies]
 workspace.workspace = true
@@ -25,11 +21,6 @@ toml_edit.workspace = true
 etcetera.workspace = true
 log.workspace = true
 
-# TODO: these two should be on !wasm32 only
-
-# cloning/compiling tree-sitter grammars
-cc.workspace = true
-threadpool.workspace = true
-tempfile.workspace = true
-
 tree-house.workspace = true
+
+tempfile.workspace = true

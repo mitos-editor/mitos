@@ -13,6 +13,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
 | `loader` | Resource paths and grammar/query/theme sources |
+| `grammar-build` | Grammar source fetching and native compilation |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
@@ -53,6 +54,7 @@ this guide explains how those owners cooperate.
 | Document feature cache and request lifetime | With its coordinator in `view/src/features/<feature>.rs` or its feature directory |
 | Feature scheduling, event hooks, and result publication | The same `view/src/features` module as its state |
 | Resource discovery or source inheritance | `loader` |
+| Grammar fetching or compiler invocation | `grammar-build` |
 | Protocol request/response transport | Its protocol crate; editor effects belong in `view` |
 | Keybinding, prompt, picker, popup, or terminal rendering | `term` |
 | Backend output or terminal capabilities | `tui` |
@@ -213,6 +215,12 @@ only its path appears on the launcher command line. The helper returns the actua
 debuggee process ID, then waits for its exit.
 
 ### Resources and feature coordination
+
+`grammar-build` fetches grammar sources and compiles native libraries from explicit
+grammar definitions, a runtime output directory, and an optional compilation target.
+CLI and build-script callers resolve configuration and persisted workspace trust
+through `loader` before invoking it. Runtime consumers do not depend on compiler
+tooling; release CI uses the small `grammar-fetch` executable.
 
 `loader::syntax::Resources` owns the ordered runtime paths used to load native
 grammars and query sources, including inheritance. Reads stay lazy and resolve
