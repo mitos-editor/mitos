@@ -235,7 +235,13 @@ Exit clears the server's diagnostics from open documents and the workspace cache
 runs feature cleanup while the server is still registered, then removes it.
 `Editor::stop_language_servers` and `restart_language_servers` in
 `view::editor::language_servers` run the same cleanup before removing old servers.
-Stop keeps the registry's manual-stop tombstone; restart refreshes affected documents.
+Stop keeps the registry's explicit stopped state; restart refreshes affected documents.
+The LSP crate keeps selection and lifecycle state in private `registry.rs`,
+with typed server/workspace and alternative-group keys. Active and manually
+stopped instances have explicit states; workspace unavailability distinguishes
+startup failure from an exit after initialization. Protocol/editor position and
+edit conversions live in `util.rs`, behind their existing public paths.
+
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
 
