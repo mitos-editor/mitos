@@ -1,8 +1,8 @@
 //! The fixed code-actions, formatting, and write pipeline for one accepted save.
 
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
-use editor_core::{syntax, Transaction, Uri};
+use editor_core::Transaction;
 use futures_util::{future::BoxFuture, FutureExt};
 use lsp_client::{
     lsp::{CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind, WorkspaceEdit},
@@ -13,6 +13,7 @@ use super::PreparedSave;
 use crate::{
     action::{code_actions_for_range, LspActionContext},
     document::FormatterError,
+    features::formatting::FormatSnapshot,
     Editor,
 };
 
@@ -81,25 +82,6 @@ enum CompletedStage {
     },
 }
 
-struct FormatSnapshot {
-    version: i32,
-    uri: Option<Uri>,
-    language: Option<String>,
-    loader: Arc<syntax::Loader>,
-}
-
-impl FormatSnapshot {
-    fn is_current(&self, editor: &Editor, doc: &crate::Document) -> bool {
-        doc.version() == self.version
-            && doc.uri() == self.uri
-            && doc
-                .language_config()
-                .map(|config| config.language_id.as_str())
-                == self.language.as_deref()
-            && Arc::ptr_eq(&self.loader, &editor.syn_loader.load_full())
-    }
-}
-
 /// Submit a prepared document save. Plain writes are queued immediately; saves
 /// with pre-save work return tasks for the frontend to drive without owning policy.
 pub fn submit(editor: &mut Editor, request: PreparedSave) -> Result<SaveProgress, SaveError> {
@@ -166,14 +148,7 @@ impl SaveOperation {
         if self.request.auto_format
             && let Some(format) = doc.auto_format(editor)
         {
-            let snapshot = FormatSnapshot {
-                version: doc.version(),
-                uri: doc.uri(),
-                language: doc
-                    .language_config()
-                    .map(|config| config.language_id.clone()),
-                loader: editor.syn_loader.load_full(),
-            };
+            let snapshot = FormatSnapshot::new(editor, doc);
             return Ok(SaveProgress::Pending(SaveTask(
                 async move {
                     let result = format.await;

@@ -30,6 +30,7 @@ mod test {
     mod config_application;
     mod cursor;
     mod document_features;
+    mod formatting;
     mod inline_completion;
     mod language_features;
     mod lsp_lifecycle;

@@ -369,6 +369,20 @@ replacement, focus changes, and stale targets prevent old results from being
 applied. `term` forwards input and owns menu filtering, navigation, documentation,
 and preview/acceptance UI, including insert-repeat history.
 
+`view::features::formatting` prepares explicit document and range-formatting tasks.
+Frontends run each task and apply its typed update on the editor mutation path.
+Updates validate their editor, document revision, URI, language loader, and original
+split binding before applying edits or reporting failures. Range formatting checks
+its provider is still attached and supports servers that only advertise range
+formatting. Whole-document formatting commits one undo revision and restores the
+cursor viewport; selection formatting preserves its existing history policy.
+
+Manual formatting and accepted saves share the same document/configuration
+snapshot checks. Their view lifetimes differ intentionally: manual formatting
+requires its original split, while an accepted save continues on its document
+through the save coordinator if that split closes or changes documents. Terminal
+formatting commands only submit tasks and present current errors.
+
 `loader::theme::Resources` owns theme file discovery, embedded default sources,
 inheritance resolution, and TOML merging. It searches explicitly supplied roots
 in priority order. Same-name inheritance can continue in a lower-priority root;

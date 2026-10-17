@@ -15,6 +15,7 @@ pub mod document_colors;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;
+pub mod formatting;
 pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;
