@@ -345,3 +345,23 @@ async fn document_edits_synchronize_stale_split_jump_lists() -> anyhow::Result<(
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_undo_groups_do_not_supply_cursors_to_later_document_edits() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("abc\n")?;
+    let (view, doc) = current!(fixture.editor);
+    doc.set_selection(view.id, Selection::single(1, 2));
+    let insert = Transaction::change(doc.text(), [(0, 0, Some("x".into()))].into_iter());
+    assert!(view::editing::apply(doc, &insert, view.id));
+    let remove = Transaction::change(doc.text(), [(0, 1, None)].into_iter());
+    doc.apply(remove.changes())?;
+    assert_eq!(doc.commit_changes(), None);
+    let edit = Transaction::change(doc.text(), [(0, 1, Some("A".into()))].into_iter());
+    doc.apply(edit.changes())?;
+    doc.commit_changes();
+    doc.set_selection(view.id, Selection::single(2, 3));
+    assert!(view::editing::undo(doc, view));
+    assert_eq!(doc.text(), "abc\n");
+    assert_eq!(doc.selection(view.id), &Selection::single(2, 3));
+    Ok(())
+}

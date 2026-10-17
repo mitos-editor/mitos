@@ -18,6 +18,15 @@ pub enum HistoryDirection {
     Redo,
 }
 
+/// Text history navigation, independent of any editor's cursor state.
+#[derive(Debug, Clone, Copy)]
+pub enum HistoryAction {
+    Undo,
+    Redo,
+    Earlier(UndoKind),
+    Later(UndoKind),
+}
+
 /// Stores text history independently of cursors and views. Callers can associate
 /// optional selection snapshots with revision identifiers returned by commits and
 /// [`HistoryStep`]s returned by undo, redo, and chronological navigation.
@@ -205,30 +214,21 @@ impl History {
 
     /// Return the text steps needed to reach a revision, including across branches.
     fn jump_to(&mut self, to: usize) -> Vec<HistoryStep> {
+        let steps = self.steps_to(to);
+        self.current = to;
+        steps
+    }
+
+    fn steps_to(&self, to: usize) -> Vec<HistoryStep> {
         let lca = self.lowest_common_ancestor(self.current, to);
         let up = self.path_up(self.current, lca);
         let down = self.path_up(to, lca);
-        self.current = to;
         let up_txns = up.iter().map(|&n| self.step(n, HistoryDirection::Undo));
         let down_txns = down
             .iter()
             .rev()
             .map(|&n| self.step(n, HistoryDirection::Redo));
         up_txns.chain(down_txns).collect()
-    }
-
-    /// Return the history steps that undo `delta` revisions.
-    fn jump_backward(&mut self, delta: usize) -> Vec<HistoryStep> {
-        self.jump_to(self.current.saturating_sub(delta))
-    }
-
-    /// Return the history steps that redo `delta` revisions.
-    fn jump_forward(&mut self, delta: usize) -> Vec<HistoryStep> {
-        self.jump_to(
-            self.current
-                .saturating_add(delta)
-                .min(self.revisions.len() - 1),
-        )
     }
 
     /// Helper for a binary search case below.
@@ -242,57 +242,102 @@ impl History {
         }
     }
 
-    /// Return the history steps to a revision created at around
+    /// Find the revision created at around
     /// `instant`.
-    fn jump_instant(&mut self, instant: Instant) -> Vec<HistoryStep> {
+    fn revision_at_instant(&self, instant: Instant) -> usize {
         let search_result = self
             .revisions
             .binary_search_by(|rev| rev.timestamp.cmp(&instant));
-        let revision = match search_result {
+        match search_result {
             Ok(revision) => revision,
             Err(insert_point) => match insert_point {
                 0 => 0,
                 n if n == self.revisions.len() => n - 1,
                 i => self.revision_closer_to_instant(i, instant),
             },
-        };
-        self.jump_to(revision)
+        }
     }
 
-    /// Return the history steps to a revision created `duration` ago
+    /// Find the revision created `duration` ago
     /// from the timestamp of current revision.
-    fn jump_duration_backward(&mut self, duration: Duration) -> Vec<HistoryStep> {
+    fn revision_duration_backward(&self, duration: Duration) -> usize {
         match self.revisions[self.current].timestamp.checked_sub(duration) {
-            Some(instant) => self.jump_instant(instant),
-            None => self.jump_to(0),
+            Some(instant) => self.revision_at_instant(instant),
+            None => 0,
         }
     }
 
-    /// Return the history steps to a revision created `duration` in
+    /// Find the revision created `duration` in
     /// the future from the timestamp of the current revision.
-    fn jump_duration_forward(&mut self, duration: Duration) -> Vec<HistoryStep> {
+    fn revision_duration_forward(&self, duration: Duration) -> usize {
         match self.revisions[self.current].timestamp.checked_add(duration) {
-            Some(instant) => self.jump_instant(instant),
-            None => self.jump_to(self.revisions.len() - 1),
+            Some(instant) => self.revision_at_instant(instant),
+            None => self.revisions.len() - 1,
         }
+    }
+
+    fn target_for(&self, action: HistoryAction) -> usize {
+        match action {
+            HistoryAction::Undo => self.revisions[self.current].parent,
+            HistoryAction::Redo => self.revisions[self.current]
+                .last_child
+                .map_or(self.current, NonZeroUsize::get),
+            HistoryAction::Earlier(UndoKind::Steps(n)) => self.current.saturating_sub(n),
+            HistoryAction::Later(UndoKind::Steps(n)) => {
+                self.current.saturating_add(n).min(self.revisions.len() - 1)
+            }
+            HistoryAction::Earlier(UndoKind::TimePeriod(duration)) => {
+                self.revision_duration_backward(duration)
+            }
+            HistoryAction::Later(UndoKind::TimePeriod(duration)) => {
+                self.revision_duration_forward(duration)
+            }
+        }
+    }
+
+    /// Plan navigation without changing the current revision. Replay clients can
+    /// apply each step with its text change before notifying observers.
+    pub fn plan(&self, action: HistoryAction) -> Vec<HistoryStep> {
+        self.steps_to(self.target_for(action))
+    }
+
+    /// Advance one step obtained from `plan`, rejecting stale or altered steps.
+    /// The caller validates and applies the corresponding text change as part of
+    /// the same operation, without publishing an intermediate state.
+    pub fn advance(&mut self, step: &HistoryStep) -> bool {
+        let Some(revision) = self.revisions.get(step.revision) else {
+            return false;
+        };
+        if step.revision == 0 {
+            return false;
+        }
+        let next = match step.direction {
+            HistoryDirection::Undo
+                if self.current == step.revision
+                    && step.transaction.changes() == revision.inversion.changes() =>
+            {
+                revision.parent
+            }
+            HistoryDirection::Redo
+                if revision.parent == self.current
+                    && step.transaction.changes() == revision.transaction.changes() =>
+            {
+                step.revision
+            }
+            _ => return false,
+        };
+        self.current = next;
+        true
     }
 
     /// Navigate earlier by revision count or duration.
-    pub fn earlier(&mut self, uk: UndoKind) -> Vec<HistoryStep> {
-        use UndoKind::*;
-        match uk {
-            Steps(n) => self.jump_backward(n),
-            TimePeriod(d) => self.jump_duration_backward(d),
-        }
+    pub fn earlier(&mut self, kind: UndoKind) -> Vec<HistoryStep> {
+        self.jump_to(self.target_for(HistoryAction::Earlier(kind)))
     }
 
     /// Navigate later by revision count or duration.
-    pub fn later(&mut self, uk: UndoKind) -> Vec<HistoryStep> {
-        use UndoKind::*;
-        match uk {
-            Steps(n) => self.jump_forward(n),
-            TimePeriod(d) => self.jump_duration_forward(d),
-        }
+    pub fn later(&mut self, kind: UndoKind) -> Vec<HistoryStep> {
+        self.jump_to(self.target_for(HistoryAction::Later(kind)))
     }
 }
 

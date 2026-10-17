@@ -51,10 +51,10 @@ struct TransactionSelections {
 impl SelectionHistory {
     pub(crate) fn commit(
         &mut self,
-        revision: usize,
+        revision: Option<usize>,
         selection: impl FnOnce(ViewId) -> Option<Selection>,
     ) {
-        if let Some((origin, undo)) = self.pending.take() {
+        if let (Some((origin, undo)), Some(revision)) = (self.pending.take(), revision) {
             self.revisions.insert(
                 revision,
                 TransactionSelections {

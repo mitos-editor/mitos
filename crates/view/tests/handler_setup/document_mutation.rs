@@ -103,3 +103,67 @@ async fn document_observers_can_commit_the_complete_undo_group() -> anyhow::Resu
     assert_eq!(doc.text(), "界bc\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyhow::Result<()> {
+    use editor_core::history::UndoKind;
+    let mut fixture = Fixture::new("abc\n")?;
+    let (_, doc) = current!(fixture.editor);
+    for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {
+        let transaction =
+            Transaction::change(doc.text(), [(from, to, Some(text.into()))].into_iter());
+        doc.apply(transaction.changes())?;
+        doc.commit_changes();
+    }
+    assert!(doc.undo());
+    let transaction = Transaction::change(doc.text(), [(1, 2, Some("Z".into()))].into_iter());
+    doc.apply(transaction.changes())?;
+    doc.commit_changes();
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let records = observed.clone();
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        records.lock().unwrap().push((
+            event.doc.snapshot().revision(),
+            event.doc.text().to_string(),
+        ));
+        Ok(())
+    });
+    assert!(doc.earlier(UndoKind::Steps(1)));
+    assert_eq!(
+        *observed.lock().unwrap(),
+        [(1, "Abc\n".into()), (2, "ABc\n".into())]
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edits_from_history_observers_stop_remaining_replay_steps() -> anyhow::Result<()> {
+    use editor_core::history::UndoKind;
+    let mut fixture = Fixture::new("abc\n")?;
+    let (_, doc) = current!(fixture.editor);
+    for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {
+        let transaction =
+            Transaction::change(doc.text(), [(from, to, Some(text.into()))].into_iter());
+        doc.apply(transaction.changes())?;
+        doc.commit_changes();
+    }
+    assert!(doc.undo());
+    let transaction = Transaction::change(doc.text(), [(1, 2, Some("Z".into()))].into_iter());
+    doc.apply(transaction.changes())?;
+    doc.commit_changes();
+    let armed = Arc::new(AtomicBool::new(true));
+    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+        if armed.swap(false, Ordering::Relaxed) {
+            let transaction =
+                Transaction::change(event.doc.text(), [(0, 1, Some("Q".into()))].into_iter());
+            event.doc.apply(transaction.changes())?;
+            event.doc.commit_changes();
+        }
+        Ok(())
+    });
+    assert!(doc.earlier(UndoKind::Steps(1)));
+    assert_eq!(doc.text(), "Qbc\n");
+    assert!(doc.undo());
+    assert_eq!(doc.text(), "Abc\n");
+    Ok(())
+}

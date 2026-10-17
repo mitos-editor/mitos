@@ -9,13 +9,13 @@ use buffer::HistoryAction;
 impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
     pub fn commit_changes(&mut self) -> Option<usize> {
-        let revision = self.buffer.commit_changes()?;
+        let revision = self.buffer.commit_changes();
         self.selection_history.commit(revision, |view| {
             self.view_states
                 .get(&view)
                 .map(|state| state.selection.clone())
         });
-        Some(revision)
+        revision
     }
 
     /// Undo text without restoring a particular view's cursor.
@@ -52,10 +52,12 @@ impl Document {
             let selection = origin
                 .and_then(|_| self.selection_history.selection(&step))
                 .cloned();
-            if let Ok(change) = self.buffer.apply_history_step(&step) {
-                self.publish_change(&change, selection.as_ref(), origin, true);
-                applied = true;
-            }
+            let Ok(change) = self.buffer.apply_history_step(&step) else {
+                // An observer may have edited or committed after the previous step.
+                break;
+            };
+            self.publish_change(&change, selection.as_ref(), origin, true);
+            applied = true;
         }
         applied
     }

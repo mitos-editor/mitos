@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use editor_core::{
-    history::{History, HistoryStep, UndoKind},
+    history::{History, HistoryStep},
     ChangeSet, Rope, Transaction,
 };
 
@@ -14,11 +14,17 @@ pub struct InvalidLength {
     pub actual: usize,
 }
 
-pub enum HistoryAction {
-    Undo,
-    Redo,
-    Earlier(UndoKind),
-    Later(UndoKind),
+pub use editor_core::history::HistoryAction;
+
+/// Rejections leave text, versions, pending groups, and the history cursor unchanged.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ReplayError {
+    #[error(transparent)]
+    InvalidLength(#[from] InvalidLength),
+    #[error("Cannot replay history while edits are pending")]
+    PendingChanges,
+    #[error("History step is no longer applicable")]
+    InvalidStep,
 }
 
 /// Text change already applied to a buffer. The caller synchronously updates its
@@ -166,11 +172,17 @@ impl Buffer {
         })
     }
 
-    /// Replay a planned history step without adding it to the pending undo group.
-    pub fn apply_history_step(
-        &mut self,
-        step: &HistoryStep,
-    ) -> Result<AppliedChange, InvalidLength> {
+    /// Apply a planned history step and advance its revision together. New pending
+    /// edits or an out-of-order step reject the replay rather than discarding edits.
+    pub fn apply_history_step(&mut self, step: &HistoryStep) -> Result<AppliedChange, ReplayError> {
+        if !self.changes.is_empty() {
+            return Err(ReplayError::PendingChanges);
+        }
+        self.validate_changes(step.transaction.changes())?;
+        if !self.history.advance(step) {
+            return Err(ReplayError::InvalidStep);
+        }
+        // ChangeSet::apply only rejects a mismatched length, already validated above.
         let applied = self.apply_changes(step.transaction.changes())?;
         self.clear_pending_changes();
         Ok(applied)
@@ -178,6 +190,7 @@ impl Buffer {
 
     pub fn commit_changes(&mut self) -> Option<usize> {
         if self.changes.is_empty() {
+            self.pending_original_text = None;
             return None;
         }
         let changes = std::mem::replace(&mut self.changes, ChangeSet::new(self.text.slice(..)));
@@ -188,7 +201,7 @@ impl Buffer {
         Some(self.history.commit_revision(&changes, &original))
     }
 
-    /// Advance history and return its steps. Apply every returned step in order
+    /// Plan history without advancing its current revision. Apply the steps in order
     /// with `apply_history_step`, updating derived state between steps.
     /// Undo/earlier commit pending text; redo/later refuse to discard pending edits.
     pub fn prepare_history(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
@@ -197,12 +210,7 @@ impl Buffer {
         } else if !self.changes.is_empty() {
             return Vec::new();
         }
-        match action {
-            HistoryAction::Undo => self.history.undo().into_iter().collect(),
-            HistoryAction::Redo => self.history.redo().into_iter().collect(),
-            HistoryAction::Earlier(kind) => self.history.earlier(kind),
-            HistoryAction::Later(kind) => self.history.later(kind),
-        }
+        self.history.plan(action)
     }
 
     fn clear_pending_changes(&mut self) {
@@ -214,6 +222,7 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use editor_core::history::UndoKind;
 
     fn replace(buffer: &mut Buffer, from: usize, to: usize, text: &str) -> AppliedChange {
         let transaction =
@@ -315,5 +324,49 @@ mod tests {
         navigate(&mut buffer, HistoryAction::Redo);
         assert_eq!(snapshot.text(), buffer.text());
         assert!(!snapshot.is_current(&buffer));
+    }
+    #[test]
+    fn planned_replay_keeps_each_text_snapshot_at_its_own_revision() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        let first = buffer.commit_changes().unwrap();
+        replace(&mut buffer, 1, 2, "B");
+        let second = buffer.commit_changes().unwrap();
+        navigate(&mut buffer, HistoryAction::Undo);
+        replace(&mut buffer, 1, 2, "Z");
+        let branch = buffer.commit_changes().unwrap();
+        let steps = buffer.prepare_history(HistoryAction::Earlier(UndoKind::Steps(1)));
+        assert_eq!(buffer.snapshot().revision(), branch);
+        assert_eq!(buffer.text(), "AZc");
+        assert_eq!(steps.len(), 2);
+        buffer.apply_history_step(&steps[0]).unwrap();
+        assert_eq!(buffer.snapshot().revision(), first);
+        assert_eq!(buffer.text(), "Abc");
+        buffer.apply_history_step(&steps[1]).unwrap();
+        assert_eq!(buffer.snapshot().revision(), second);
+        assert_eq!(buffer.text(), "ABc");
+    }
+
+    #[test]
+    fn interrupted_replay_preserves_pending_edits_and_rejects_stale_steps() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        let revision = buffer.commit_changes().unwrap();
+        let steps = buffer.prepare_history(HistoryAction::Undo);
+        replace(&mut buffer, 0, 1, "Q");
+        assert_eq!(
+            buffer.apply_history_step(&steps[0]).unwrap_err(),
+            ReplayError::PendingChanges
+        );
+        assert_eq!(buffer.text(), "Qbc");
+        assert_eq!(buffer.current_revision(), revision);
+        buffer.commit_changes();
+        let current = buffer.snapshot();
+        assert_eq!(
+            buffer.apply_history_step(&steps[0]).unwrap_err(),
+            ReplayError::InvalidStep
+        );
+        assert!(current.is_current(&buffer));
+        assert_eq!(buffer.current_revision(), current.revision());
     }
 }

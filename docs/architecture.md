@@ -865,3 +865,12 @@ requests. Selection and viewport anchors map through each edit before observers
 run. Optional selection lookup and read-only iterators expose the state without
 parallel maps. Revision-keyed cursor history remains document-owned so undo in
 another split can restore the original selection after its originating view closes.
+
+History navigation plans its steps without moving the current revision. Each
+applied step advances the text, text version, and history cursor together before
+publication, so intermediate snapshots and saves refer to the text they contain.
+If an observer introduces a new edit or commits a different history branch during
+replay, remaining stale steps stop without discarding that edit.
+
+Committing an empty undo group clears its pending cursor snapshot as well as its
+original text, preventing a later document-only edit from inheriting cursor state.
