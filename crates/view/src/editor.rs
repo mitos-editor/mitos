@@ -155,6 +155,7 @@ pub type Motion = Box<dyn Fn(&mut Editor)>;
 
 #[derive(Debug)]
 pub enum EditorEvent {
+    Interactive(crate::features::interactive::FormRequest),
     DocumentSaved(DocumentSavedEventResult),
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::features::auto_reload::ReloadRequest),
@@ -1433,6 +1434,9 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
+        if let Some(request) = crate::features::interactive::next_request(self) {
+            return EditorEvent::Interactive(request);
+        }
         if let Some(update) = crate::features::completion::next_update(self) {
             return EditorEvent::Completion(update);
         }

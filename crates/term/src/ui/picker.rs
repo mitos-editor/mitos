@@ -102,6 +102,7 @@ impl From<DocumentId> for PathOrId<'_> {
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
+type CancelCallback = Box<dyn Fn(&mut Context)>;
 
 /// File path and range of lines (used to align and highlight lines)
 pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
@@ -740,6 +741,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T, D>,
+    cancel_fn: Option<CancelCallback>,
     default_action: Action,
 
     pub truncate_start: bool,
@@ -903,6 +905,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             callback_fn: Box::new(callback_fn),
+            cancel_fn: None,
             default_action: Action::Replace,
             completion_height: 0,
             widths,
@@ -957,6 +960,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_initial_cursor(mut self, cursor: u32) -> Self {
         self.cursor = cursor;
+        self
+    }
+
+    pub(crate) fn with_cancel_callback(
+        mut self,
+        callback: impl Fn(&mut Context) + 'static,
+    ) -> Self {
+        self.cancel_fn = Some(Box::new(callback));
         self
     }
 
@@ -1078,6 +1089,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.reset_options(options, editor_data);
     }
 
+    /// Replace asynchronously queried options while retaining the current filter.
+    pub(crate) fn refresh_options(&mut self, options: Vec<T>, editor_data: D) {
+        self.cursor = 0;
+        self.refreshing = true;
+        self.reset_options(options, editor_data);
+    }
+
     fn reset_options(&mut self, options: Vec<T>, editor_data: D) {
         // Cancel existing injectors before replacing the matcher contents.
         self.version.fetch_add(1, atomic::Ordering::Relaxed);
@@ -1134,7 +1152,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         entries
     }
-    fn primary_query(&self) -> Arc<str> {
+    pub(crate) fn primary_query(&self) -> Arc<str> {
         self.query
             .get(&self.columns[self.primary_column].name)
             .cloned()
@@ -1501,7 +1519,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 PickerAction::MoveEnd => {
                     self.to_end();
                 }
-                PickerAction::Cancel => return close_fn(self, None),
+                PickerAction::Cancel => {
+                    if let Some(callback) = &self.cancel_fn {
+                        callback(ctx);
+                    }
+                    return close_fn(self, None);
+                }
                 PickerAction::PopulateQuicklist => {
                     // Pickers can provide explicit quicklist entries when they have
                     // more precise jump data. Everything else falls back to preview

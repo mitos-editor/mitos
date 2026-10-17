@@ -19,6 +19,7 @@ pub mod formatting;
 pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;
+pub mod interactive;
 pub mod navigation;
 pub(crate) mod request;
 pub mod signature_help;

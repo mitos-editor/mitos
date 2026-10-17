@@ -189,6 +189,7 @@ pub struct Document {
     pub(crate) document_links: DocumentLinks,
     pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: CodeActionHints,
+    pub(crate) interactive_command: Option<std::sync::Weak<crate::features::interactive::Session>>,
     pub(crate) document_symbols: DocumentSymbols,
 
     path: Option<PathBuf>,
@@ -388,6 +389,7 @@ impl Document {
             jump_labels: HashMap::new(),
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
+            interactive_command: None,
             document_links: Default::default(),
             document_colors: Default::default(),
             code_lenses: Default::default(),
