@@ -4,7 +4,7 @@ use std::future::Future;
 
 use futures_util::future::BoxFuture;
 
-use dap::{events, registry::DebugAdapterId, requests, ConnectionType, ThreadId};
+use dap::{events, requests, ConnectionType, DebugAdapterId, ThreadId};
 use event::{TaskController, TaskHandle};
 use serde_json::Value;
 
@@ -94,13 +94,14 @@ struct StoppedState {
 
 impl super::DebuggerState {
     pub(super) fn is_terminating(&self, id: DebugAdapterId) -> bool {
-        self.events.get(&id).is_some_and(|state| state.terminating)
+        self.get_session(id)
+            .is_some_and(|session| session.events.terminating)
     }
 }
 
 impl Editor {
     fn debugger_lifecycle_context(&mut self, id: DebugAdapterId) -> EventContext {
-        let lifetime = self.debugger.events.entry(id).or_default().current.clone();
+        let lifetime = self.debugger.sessions[id].events.current.clone();
         EventContext {
             id,
             owner: self.callback_sender().clone(),
@@ -118,7 +119,7 @@ impl Editor {
 
     pub(crate) fn reset_debugger_events(&mut self, id: DebugAdapterId) {
         self.debugger.invalidate_requests(id);
-        let state = self.debugger.events.entry(id).or_default();
+        let state = &mut self.debugger.sessions[id].events;
         state.current = state.transition.restart();
         state.terminating = false;
     }
@@ -128,32 +129,32 @@ impl Editor {
             return;
         }
         self.debugger.invalidate_requests(id);
-        let Some(client) = self.debugger.get_client_mut(id) else {
+        let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
         let all_stopped = event.all_threads_stopped.unwrap_or(false);
-        let previous = client.thread_id;
+        let previous = session.thread_id;
         let hydrate = all_stopped
             || event.thread_id.is_none()
             || previous == event.thread_id
-            || client.current_stack_frame().is_none();
-        client.thread_id = previous.or(event.thread_id);
+            || session.current_stack_frame().is_none();
+        session.thread_id = previous.or(event.thread_id);
         // Invalidate displayed frames immediately, before any adapter can reply.
         if all_stopped {
-            client.stack_frames.clear();
-            for state in client.thread_states.values_mut() {
+            session.stack_frames.clear();
+            for state in session.thread_states.values_mut() {
                 *state = event.reason.clone();
             }
         } else if let Some(thread) = event.thread_id {
-            client.stack_frames.remove(&thread);
+            session.stack_frames.remove(&thread);
         }
         if hydrate {
-            client.active_frame = None;
+            session.active_frame = None;
         }
         if let Some(thread) = event.thread_id {
-            client.thread_states.insert(thread, event.reason.clone());
+            session.thread_states.insert(thread, event.reason.clone());
         }
-        let sender = client.request_sender();
+        let sender = session.client.as_ref().unwrap().request_sender();
         let context = self.debugger_execution_context(id);
         if context.is_active(self) {
             let scope = event
@@ -235,23 +236,23 @@ impl Editor {
                     return;
                 }
             };
-            let client = editor.debugger.get_client_mut(id).unwrap();
+            let session = editor.debugger.get_session_mut(id).unwrap();
             if all_stopped {
-                client
+                session
                     .thread_states
                     .retain(|thread, _| state.threads.contains(thread));
             }
             for thread in state.threads {
-                client.thread_states.insert(thread, reason.clone());
+                session.thread_states.insert(thread, reason.clone());
             }
-            client.thread_id = state.selected;
+            session.thread_id = state.selected;
             match state.frames {
                 Ok(frames) => {
-                    client.active_frame = (!frames.is_empty()).then_some(0);
+                    session.active_frame = (!frames.is_empty()).then_some(0);
                     if let Some(thread) = state.selected {
-                        client.stack_frames.insert(thread, frames);
+                        session.stack_frames.insert(thread, frames);
                     }
-                    let frame = client.current_stack_frame().cloned();
+                    let frame = session.current_stack_frame().cloned();
                     // Cache frames independently, but do not interrupt input or
                     // navigation that happened while the adapter was responding.
                     if context.is_active(editor)
@@ -273,22 +274,22 @@ impl Editor {
 
     pub(crate) fn debugger_continued(&mut self, id: DebugAdapterId, event: events::ContinuedBody) {
         self.debugger.invalidate_requests(id);
-        let Some(client) = self.debugger.get_client_mut(id) else {
+        let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
         if event.all_threads_continued.unwrap_or(true) {
-            client.resume_application();
-            client.stack_frames.clear();
-            for state in client.thread_states.values_mut() {
+            session.resume_application();
+            session.stack_frames.clear();
+            for state in session.thread_states.values_mut() {
                 *state = "running".to_owned();
             }
         } else {
-            client.stack_frames.remove(&event.thread_id);
-            if client.thread_id == Some(event.thread_id) {
-                client.resume_application();
+            session.stack_frames.remove(&event.thread_id);
+            if session.thread_id == Some(event.thread_id) {
+                session.resume_application();
             }
         }
-        client
+        session
             .thread_states
             .insert(event.thread_id, "running".to_owned());
     }
@@ -301,21 +302,21 @@ impl Editor {
         if event.reason == "exited" {
             self.debugger.invalidate_requests(id);
         }
-        let Some(client) = self.debugger.get_client_mut(id) else {
+        let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
         match event.reason.as_str() {
             "started" => {
-                client
+                session
                     .thread_states
                     .insert(event.thread_id, "running".to_owned());
             }
             "exited" => {
-                client.thread_states.remove(&event.thread_id);
-                client.stack_frames.remove(&event.thread_id);
-                if client.thread_id == Some(event.thread_id) {
-                    client.thread_id = None;
-                    client.active_frame = None;
+                session.thread_states.remove(&event.thread_id);
+                session.stack_frames.remove(&event.thread_id);
+                if session.thread_id == Some(event.thread_id) {
+                    session.thread_id = None;
+                    session.active_frame = None;
                 }
             }
             _ => {}
@@ -325,14 +326,15 @@ impl Editor {
     pub(crate) fn debugger_terminated(&mut self, id: DebugAdapterId, restart: Option<Value>) {
         self.debugger.cancel_startup_requests(id);
         self.debugger.invalidate_requests(id);
-        let Some(client) = self.debugger.get_client_mut(id) else {
+        let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
+        session.resume_application();
+        session.stack_frames.clear();
+        session.thread_states.clear();
+        let client = session.client.as_mut().unwrap();
         let connection = client.connection_type();
         let starting_arguments = client.starting_request_args().cloned();
-        client.resume_application();
-        client.stack_frames.clear();
-        client.thread_states.clear();
         let restart = restart.filter(|value| *value != Value::Bool(false));
         let disconnect = client.disconnect(Some(requests::DisconnectArguments {
             restart: Some(restart.is_some()),
@@ -340,8 +342,8 @@ impl Editor {
             suspend_debuggee: None,
         }));
         // Configuration and breakpoint replies from the terminated execution are stale.
-        self.debugger.breakpoint_sessions.remove(&id);
-        let state = self.debugger.events.entry(id).or_default();
+        session.breakpoints = None;
+        let state = &mut session.events;
         state.current = state.transition.restart();
         state.terminating = true;
         // Disconnect belongs to the adapter lifecycle, independent of thread
@@ -350,12 +352,12 @@ impl Editor {
         context.spawn(disconnect, move |editor, context, result| {
             if let Err(error) = result {
                 context.report_error(editor, "Cannot disconnect terminated debugger", error);
-                editor.debugger.remove_client(id);
+                editor.debugger.remove_session(id);
                 return;
             }
             let Some(restart_data) = restart else {
                 let active = context.is_active(editor);
-                editor.debugger.remove_client(id);
+                editor.debugger.remove_session(id);
                 if active {
                     editor.set_status("Terminated debugging session and disconnected debugger.");
                 }
@@ -367,7 +369,7 @@ impl Editor {
                         "No starting request found to restart the debugging session."
                     });
                 }
-                editor.debugger.remove_client(id);
+                editor.debugger.remove_session(id);
                 return;
             };
             let Some(Value::Object(mut arguments)) = starting_arguments else {
@@ -376,14 +378,14 @@ impl Editor {
                         "No launch or attach arguments found to restart the debugging session."
                     });
                 }
-                editor.debugger.remove_client(id);
+                editor.debugger.remove_session(id);
                 return;
             };
             // DAP forwards the adapter's opaque restart data in the original
             // launch/attach configuration, rather than replacing that configuration.
             arguments.insert("__restart".to_owned(), restart_data);
             let arguments = Value::Object(arguments);
-            editor.debugger.events.get_mut(&id).unwrap().terminating = false;
+            editor.debugger.sessions[id].events.terminating = false;
             let client = editor.debugger.get_client_mut(id).unwrap();
             let future: BoxFuture<'static, dap::Result<Value>> = match connection {
                 ConnectionType::Launch => Box::pin(client.launch(arguments)),
@@ -393,7 +395,7 @@ impl Editor {
             context.spawn(future, |editor, context, result| {
                 if let Err(error) = result {
                     context.report_error(editor, "Failed to restart debugging session", error);
-                    editor.debugger.remove_client(context.id);
+                    editor.debugger.remove_session(context.id);
                 }
             });
         });

@@ -3,7 +3,7 @@
 use super::startup::StartupOrigin;
 use crate::{DocumentId, Editor};
 use anyhow::{bail, Context as _, Result};
-use dap::{registry::DebugAdapterId, ConnectionType};
+use dap::{ConnectionType, DebugAdapterId};
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use serde_json::{to_value, Value};
 use std::{collections::HashMap, net::SocketAddr};

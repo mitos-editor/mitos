@@ -2,7 +2,7 @@ mod requests;
 
 use crate::editor::Action;
 use crate::{align_view, Align, Editor};
-use dap::{self as dap, registry::DebugAdapterId, Payload};
+use dap::{self as dap, DebugAdapterId, Payload};
 use editor_core::Selection;
 
 #[macro_export]
@@ -105,7 +105,7 @@ impl Editor {
                     }
                     Event::ProgressStart(body) => {
                         let status = {
-                            let debugger = match self.debugger.adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.get_session_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };
@@ -117,7 +117,7 @@ impl Editor {
                     }
                     Event::ProgressUpdate(body) => {
                         let status = {
-                            let debugger = match self.debugger.adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.get_session_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };
@@ -131,7 +131,7 @@ impl Editor {
                     }
                     Event::ProgressEnd(body) => {
                         let status = {
-                            let debugger = match self.debugger.adapters.get_client_mut(id) {
+                            let debugger = match self.debugger.get_session_mut(id) {
                                 Some(debugger) => debugger,
                                 None => return false,
                             };

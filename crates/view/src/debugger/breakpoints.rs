@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result};
-use dap::{registry::DebugAdapterId, requests, SourceBreakpoint};
+use dap::{requests, DebugAdapterId, SourceBreakpoint};
 use event::{TaskController, TaskHandle};
 
 use super::{validate_capabilities, Breakpoint, BreakpointId, BreakpointProperty, DebuggerState};
@@ -180,9 +180,7 @@ impl BreakpointSession {
 impl DebuggerState {
     /// Verification and resolved location in the currently selected adapter.
     pub fn breakpoint_binding(&self, identity: BreakpointId) -> Option<&BreakpointBinding> {
-        let session = self
-            .breakpoint_sessions
-            .get(&self.get_active_client()?.id())?;
+        let session = self.get_active_session()?.breakpoints.as_ref()?;
         session.bindings.get(&identity)
     }
 
@@ -197,8 +195,8 @@ impl DebuggerState {
         path: &'a Path,
     ) -> impl Iterator<Item = BreakpointLocation<'a>> {
         let session = self
-            .get_active_client()
-            .and_then(|client| self.breakpoint_sessions.get(&client.id()));
+            .get_active_session()
+            .and_then(|session| session.breakpoints.as_ref());
         self.breakpoints(path)
             .iter()
             .map(move |definition| {
@@ -250,14 +248,11 @@ impl Editor {
         self.debugger
             .get_client(id)
             .context("Debugger has stopped")?;
-        self.debugger.breakpoint_sessions.insert(
-            id,
-            BreakpointSession {
-                configuring: true,
-                ..Default::default()
-            },
-        );
-        self.debugger.adapters.set_active_client(id);
+        self.debugger.sessions[id].breakpoints = Some(BreakpointSession {
+            configuring: true,
+            ..Default::default()
+        });
+        self.debugger.active_session = Some(id);
         let paths: Vec<_> = self.debugger.breakpoints.keys().cloned().collect();
         for path in paths {
             if let Err(error) = self.sync_debugger_breakpoints(id, path) {
@@ -270,7 +265,12 @@ impl Editor {
     }
 
     fn sync_all_debugger_breakpoints(&mut self, path: &Path) -> Result<()> {
-        let sessions: Vec<_> = self.debugger.breakpoint_sessions.keys().copied().collect();
+        let sessions: Vec<_> = self
+            .debugger
+            .sessions
+            .iter()
+            .filter_map(|(id, session)| session.breakpoints.is_some().then_some(id))
+            .collect();
         let mut first_error = None;
         for id in sessions {
             if let Err(error) = self.sync_debugger_breakpoints(id, path.to_owned()) {
@@ -286,7 +286,12 @@ impl Editor {
         reason: &str,
         response: dap::Breakpoint,
     ) {
-        let Some(session) = self.debugger.breakpoint_sessions.get_mut(&id) else {
+        let Some(session) = self
+            .debugger
+            .sessions
+            .get_mut(id)
+            .and_then(|session| session.breakpoints.as_mut())
+        else {
             return;
         };
         let message = response.message.clone();
@@ -302,12 +307,18 @@ impl Editor {
     }
 
     fn sync_debugger_breakpoints(&mut self, id: DebugAdapterId, path: PathBuf) -> Result<()> {
-        let client = self
+        let debug_session = self
             .debugger
-            .adapters
-            .get_client(id)
+            .sessions
+            .get_mut(id)
             .context("Debugger has stopped")?;
-        let session = self.debugger.breakpoint_sessions.entry(id).or_default();
+        let client = debug_session
+            .client
+            .as_ref()
+            .context("Debugger is connecting")?;
+        let session = debug_session
+            .breakpoints
+            .get_or_insert_with(BreakpointSession::default);
         let source = session.sources.entry(path.clone()).or_default();
         if source.request.is_running() {
             source.dirty = true;
@@ -354,7 +365,12 @@ impl Editor {
                     {
                         return;
                     }
-                    let Some(session) = editor.debugger.breakpoint_sessions.get_mut(&id) else {
+                    let Some(session) = editor
+                        .debugger
+                        .sessions
+                        .get_mut(id)
+                        .and_then(|session| session.breakpoints.as_mut())
+                    else {
                         return;
                     };
                     let dirty = session
@@ -395,7 +411,12 @@ impl Editor {
     }
 
     fn finish_breakpoint_configuration(&mut self, id: DebugAdapterId) {
-        let Some(session) = self.debugger.breakpoint_sessions.get_mut(&id) else {
+        let Some(session) = self
+            .debugger
+            .sessions
+            .get_mut(id)
+            .and_then(|session| session.breakpoints.as_mut())
+        else {
             return;
         };
         if !session.configuring
@@ -446,8 +467,8 @@ impl Editor {
                     }
                     match result {
                         Some(Ok(()))
-                            if editor.debugger.get_active_client().is_some_and(|client| {
-                                client.id() == id && client.thread_id.is_none()
+                            if editor.debugger.get_active_session().is_some_and(|session| {
+                                session.id() == id && session.thread_id.is_none()
                             }) =>
                         {
                             editor.set_status("Debugged application started")

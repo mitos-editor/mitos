@@ -88,9 +88,6 @@ impl std::fmt::Display for ThreadId {
     }
 }
 
-/// Associates debugger thread identifiers with Mitos's display state.
-pub type ThreadStates = HashMap<ThreadId, String>;
-
 /// Associates a typed DAP request marker with its argument and result payloads.
 ///
 /// Implementations are zero-sized marker types in [`requests`]. `COMMAND` must

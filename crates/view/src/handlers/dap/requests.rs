@@ -1,7 +1,7 @@
 //! Reverse requests have one result path; errors reach the adapter as well as status UI.
 
 use crate::Editor;
-use dap::{registry::DebugAdapterId, Request};
+use dap::{DebugAdapterId, Request};
 use serde_json::Value;
 
 impl Editor {
@@ -47,13 +47,13 @@ impl Editor {
         result: dap::Result<Value>,
     ) {
         // A delayed terminal result belongs only to the originating adapter.
-        if self.debugger.adapters.get_client(id).is_none() {
+        if self.debugger.get_client(id).is_none() {
             return;
         }
         if let Err(error) = &result {
             self.set_error(|| format!("Debug adapter request failed: {error:#}"));
         }
-        if let Some(debugger) = self.debugger.adapters.get_client(id)
+        if let Some(debugger) = self.debugger.get_client(id)
             && let Err(error) = debugger.reply(sequence, command, result)
         {
             log::warn!("Could not reply to debug adapter: {error}");

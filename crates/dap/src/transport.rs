@@ -1,4 +1,4 @@
-use crate::{registry::DebugAdapterId, Error, Result};
+use crate::{DebugAdapterId, Error, Result};
 use anyhow::Context;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -275,13 +275,11 @@ impl Transport {
                 ..
             }) => {
                 info!("[{}] <- DAP request {} #{}", self.id, command, seq);
-                client_tx.send(msg).expect("Failed to send");
-                Ok(())
+                client_tx.send(msg).map_err(|_| Error::StreamClosed)
             }
             Payload::Event(ref event) => {
                 info!("[{}] <- DAP event {:?}", self.id, event);
-                client_tx.send(msg).expect("Failed to send");
-                Ok(())
+                client_tx.send(msg).map_err(|_| Error::StreamClosed)
             }
         }
     }
@@ -306,7 +304,9 @@ impl Transport {
                 Ok(msg) => match transport.process_server_message(&client_tx, msg).await {
                     Ok(_) => (),
                     Err(err) => {
-                        error!(" [{id}] err: <- {err:?}");
+                        if !matches!(err, Error::StreamClosed) {
+                            error!(" [{id}] err: <- {err:?}");
+                        }
                         break;
                     }
                 },
@@ -374,6 +374,43 @@ impl Transport {
                     break;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn adapter_reads_end_when_the_client_receiver_closes() {
+        for payload in [
+            json!({"type":"event", "event":"initialized"}),
+            json!({"type":"request", "seq":1, "command":"runInTerminal"}),
+        ] {
+            let id = DebugAdapterId::default();
+            let transport = Arc::new(Transport {
+                id,
+                pending_requests: Mutex::new(HashMap::new()),
+            });
+            let (client_tx, client_rx) = unbounded_channel();
+            drop(client_rx);
+            let (read, mut write) = tokio::io::duplex(4096);
+            let body = serde_json::to_vec(&payload).unwrap();
+            write
+                .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+                .await
+                .unwrap();
+            write.write_all(&body).await.unwrap();
+            drop(write);
+            Transport::recv(
+                id,
+                transport,
+                Box::new(tokio::io::BufReader::new(read)),
+                client_tx,
+            )
+            .await;
         }
     }
 }

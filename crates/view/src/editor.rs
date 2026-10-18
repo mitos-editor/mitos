@@ -681,7 +681,7 @@ impl Editor {
                 Some(message) = self.language_servers.incoming.next() => {
                     return EditorEvent::LanguageServerMessage(message)
                 }
-                Some(event) = self.debugger.adapters.incoming.next() => {
+                Some(event) = self.debugger.incoming.next() => {
                     return EditorEvent::DebuggerEvent(event)
                 }
 

@@ -3,6 +3,9 @@
 mod breakpoints;
 pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod events;
+mod progress;
+mod session;
+pub use session::{DebugSession, ThreadStates};
 mod launch;
 mod startup;
 pub(crate) use startup::register_hooks;
@@ -17,10 +20,10 @@ use std::{
 };
 
 use anyhow::bail;
-use dap::{
-    registry::{DebugAdapterId, Registry},
-    Client, DebuggerCapabilities, StackFrame,
-};
+use dap::{DebugAdapterId, DebuggerCapabilities};
+use futures_util::stream::SelectAll;
+use slotmap::SlotMap;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// Editor-owned identity, retained across adapter IDs and source-line relocation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -86,13 +89,11 @@ pub trait TerminalLauncher: Send + Sync {
 /// Owns debugger sessions and the source breakpoints shared across those sessions.
 #[derive(Default)]
 pub struct DebuggerState {
-    pub(crate) adapters: Registry,
+    sessions: SlotMap<DebugAdapterId, DebugSession>,
+    active_session: Option<DebugAdapterId>,
+    pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::Payload)>>,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
-    breakpoint_sessions: HashMap<DebugAdapterId, breakpoints::BreakpointSession>,
-    requests: HashMap<DebugAdapterId, operations::SessionRequests>,
-    events: HashMap<DebugAdapterId, events::SessionEvents>,
-    startups: HashMap<DebugAdapterId, startup::Startup>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 
@@ -103,7 +104,7 @@ impl DebuggerState {
         launcher: impl TerminalLauncher + 'static,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.adapters.is_empty(),
+            self.is_empty(),
             "Configure terminal launching before starting debug adapters"
         );
         self.terminal_launcher = Some(Box::new(launcher));
@@ -121,48 +122,6 @@ impl DebuggerState {
                 Err(anyhow::anyhow!("This frontend does not provide debug terminals").into())
             }),
         }
-    }
-
-    pub fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
-        self.adapters.get_client(id)
-    }
-
-    pub fn get_client_mut(&mut self, id: DebugAdapterId) -> Option<&mut Client> {
-        self.adapters.get_client_mut(id)
-    }
-
-    pub fn get_active_client(&self) -> Option<&Client> {
-        self.adapters.get_active_client()
-    }
-
-    pub fn get_active_client_mut(&mut self) -> Option<&mut Client> {
-        self.adapters.get_active_client_mut()
-    }
-
-    /// Includes pending connections, even before a client can be selected.
-    pub fn is_empty(&self) -> bool {
-        self.adapters.is_empty()
-    }
-
-    pub fn is_starting(&self, id: DebugAdapterId) -> bool {
-        self.startups.contains_key(&id)
-    }
-
-    /// Cancel connection, initialization, or launch without affecting running sessions.
-    pub fn cancel_startup(&mut self, id: DebugAdapterId) -> bool {
-        if !self.is_starting(id) {
-            return false;
-        }
-        self.remove_client(id);
-        true
-    }
-
-    pub fn unset_active_client(&mut self) {
-        self.adapters.unset_active_client();
-    }
-
-    pub fn current_stack_frame(&self) -> Option<&StackFrame> {
-        self.adapters.current_stack_frame()
     }
 
     /// Source breakpoints in a file, including breakpoints configured before debugging starts.
@@ -191,7 +150,11 @@ impl DebuggerState {
             let breakpoints = self.breakpoints.entry(path.clone()).or_default();
             if let Some(identity) = existing {
                 breakpoints.retain(|breakpoint| breakpoint.identity != identity);
-                for session in self.breakpoint_sessions.values_mut() {
+                for session in self
+                    .sessions
+                    .values_mut()
+                    .filter_map(|session| session.breakpoints.as_mut())
+                {
                     session.remove_binding(identity);
                 }
             } else {
@@ -223,9 +186,9 @@ impl DebuggerState {
             .position(|breakpoint| breakpoint.identity == identity)
             .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
         let capabilities = self
-            .adapters
-            .get_active_client()
-            .and_then(|client| client.caps.as_ref());
+            .active_session
+            .and_then(|id| self.sessions.get(id))
+            .and_then(|session| session.client.as_ref()?.caps.as_ref());
         breakpoints[position].set_property(property, value, capabilities)?;
         Ok(())
     }

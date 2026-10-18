@@ -4,8 +4,8 @@ mod startup;
 use super::Fixture;
 use anyhow::Context as _;
 use dap::{
-    registry::DebugAdapterId,
     requests::{RunInTerminalArguments, RunInTerminalResponse},
+    DebugAdapterId,
 };
 use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
@@ -667,7 +667,7 @@ async fn stop_adapter(f: &mut Fixture, id: DebugAdapterId) {
         while f
             .editor
             .debugger()
-            .get_client(id)
+            .get_session(id)
             .unwrap()
             .current_stack_frame()
             .is_none()
@@ -720,7 +720,7 @@ async fn debugger_inspection_returns_typed_results_and_rejects_other_editors() -
         first
             .editor
             .debugger()
-            .get_active_client()
+            .get_active_session()
             .unwrap()
             .current_stack_frame()
             .unwrap()
@@ -765,7 +765,12 @@ async fn queued_debugger_controls_preserve_new_stops_and_replacement_sessions() 
     use view::debugger::DebuggerCommand;
     let mut f = Fixture::new("")?;
     let (id, mut wire) = paused_adapter(&mut f).await?;
-    let stopped_thread = f.editor.debugger().get_client(id).unwrap().thread_id;
+    let stopped_thread = f
+        .editor
+        .debugger()
+        .get_session(id)
+        .unwrap()
+        .selected_thread();
     f.editor.debugger_command(DebuggerCommand::Continue)?;
     command(&mut wire, "continue").await?;
     let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
@@ -774,7 +779,11 @@ async fn queued_debugger_controls_preserve_new_stops_and_replacement_sessions() 
     stop_adapter(&mut f, id).await;
     old(&mut f.editor);
     assert_eq!(
-        f.editor.debugger().get_client(id).unwrap().thread_id,
+        f.editor
+            .debugger()
+            .get_session(id)
+            .unwrap()
+            .selected_thread(),
         stopped_thread
     );
     f.editor.debugger_command(DebuggerCommand::Continue)?;
@@ -791,9 +800,9 @@ async fn queued_debugger_controls_preserve_new_stops_and_replacement_sessions() 
     assert_eq!(
         f.editor
             .debugger()
-            .get_client(replacement)
+            .get_session(replacement)
             .unwrap()
-            .thread_id,
+            .selected_thread(),
         stopped_thread
     );
     f.editor.debugger_command(DebuggerCommand::Continue)?;
@@ -802,9 +811,9 @@ async fn queued_debugger_controls_preserve_new_stops_and_replacement_sessions() 
         while f
             .editor
             .debugger()
-            .get_client(replacement)
+            .get_session(replacement)
             .unwrap()
-            .thread_id
+            .selected_thread()
             .is_some()
         {
             f.callbacks.recv().await.unwrap()(&mut f.editor);
@@ -832,14 +841,21 @@ async fn debugger_picker_contexts_preserve_new_thread_and_frame_selections() -> 
     f.editor.select_debugger_frame(&frames.context, 1)?;
     old(&mut f.editor);
     f.editor.select_debugger_frame(&context, 0)?;
-    let client = f.editor.debugger().get_client(id).unwrap();
-    assert_eq!(client.thread_id, Some(main));
-    assert_eq!(client.current_stack_frame().unwrap().id, 102);
+    let session = f.editor.debugger().get_session(id).unwrap();
+    assert_eq!(session.selected_thread(), Some(main));
+    assert_eq!(session.current_stack_frame().unwrap().id, 102);
     let threads = f.editor.debugger_threads()?.run().await.unwrap();
     f.editor
         .select_debugger_thread(&threads.context(), worker)?;
     tokio::time::timeout(Duration::from_secs(5), async {
-        while f.editor.debugger().get_client(id).unwrap().thread_id != Some(worker) {
+        while f
+            .editor
+            .debugger()
+            .get_session(id)
+            .unwrap()
+            .selected_thread()
+            != Some(worker)
+        {
             f.callbacks.recv().await.unwrap()(&mut f.editor);
         }
     })
@@ -847,7 +863,7 @@ async fn debugger_picker_contexts_preserve_new_thread_and_frame_selections() -> 
     assert_eq!(
         f.editor
             .debugger()
-            .get_client(id)
+            .get_session(id)
             .unwrap()
             .current_stack_frame()
             .unwrap()
@@ -868,9 +884,9 @@ async fn inactive_adapter_events_preserve_the_active_session() -> anyhow::Result
         while f
             .editor
             .debugger()
-            .get_client(active)
+            .get_session(active)
             .unwrap()
-            .thread_id
+            .selected_thread()
             .is_some()
         {
             f.callbacks.recv().await.unwrap()(&mut f.editor);
@@ -885,9 +901,9 @@ async fn inactive_adapter_events_preserve_the_active_session() -> anyhow::Result
     assert!(f
         .editor
         .debugger()
-        .get_client(active)
+        .get_session(active)
         .unwrap()
-        .thread_id
+        .selected_thread()
         .is_none());
     f.editor
         .handle_debugger_message(inactive, debugger_event("terminated", Value::Null))
@@ -1120,7 +1136,11 @@ async fn stopped_stack_requests_keep_the_editor_available_and_cancel_on_continue
         .await?;
         command(&mut wire, "stackTrace").await?;
         assert_eq!(
-            f.editor.debugger().get_client(id).unwrap().thread_id,
+            f.editor
+                .debugger()
+                .get_session(id)
+                .unwrap()
+                .selected_thread(),
             Some(serde_json::from_value(json!(1))?)
         );
         f.editor
@@ -1134,9 +1154,9 @@ async fn stopped_stack_requests_keep_the_editor_available_and_cancel_on_continue
         while let Ok(callback) = f.callbacks.try_recv() {
             callback(&mut f.editor);
         }
-        let client = f.editor.debugger().get_client(id).unwrap();
-        assert!(client.thread_id.is_none());
-        assert!(client.stack_frames.is_empty());
+        let session = f.editor.debugger().get_session(id).unwrap();
+        assert!(session.selected_thread().is_none());
+        assert!(session.stack_frames().is_empty());
         assert_eq!(f.editor.get_status().unwrap().0, "editor remains available");
     }
     Ok(())
@@ -1164,7 +1184,7 @@ async fn queued_stopped_frames_do_not_replace_a_new_execution() -> anyhow::Resul
     assert!(f
         .editor
         .debugger()
-        .get_client(id)
+        .get_session(id)
         .unwrap()
         .current_stack_frame()
         .is_none());
@@ -1209,27 +1229,30 @@ async fn stopped_thread_selection_handles_missing_threads_and_empty_or_failed_st
         let trace = command(&mut wire, "stackTrace").await?;
         assert_eq!(trace["arguments"]["threadId"], 1);
         debugger_callback(&mut f).await?;
-        let client = f.editor.debugger().get_client(id).unwrap();
-        assert_eq!(client.thread_id, Some(serde_json::from_value(json!(1))?));
+        let session = f.editor.debugger().get_session(id).unwrap();
         assert_eq!(
-            client
-                .thread_states
+            session.selected_thread(),
+            Some(serde_json::from_value(json!(1))?)
+        );
+        assert_eq!(
+            session
+                .thread_states()
                 .get(&serde_json::from_value(json!(1))?)
                 .map(String::as_str),
             Some("breakpoint")
         );
         assert_eq!(
-            client
-                .thread_states
+            session
+                .thread_states()
                 .get(&serde_json::from_value(json!(2))?)
                 .map(String::as_str),
             all_stopped.then_some("breakpoint")
         );
         assert_eq!(
-            client.current_stack_frame().is_some(),
+            session.current_stack_frame().is_some(),
             !(empty_stack || fail_stack)
         );
-        assert_eq!(client.active_frame.is_some(), !(empty_stack || fail_stack));
+
         release_adapter_request(&f, id).await?;
         while let Ok(request) = wire.try_recv() {
             assert_ne!(
@@ -1253,7 +1276,11 @@ async fn thread_events_and_partial_continues_preserve_other_stopped_threads() ->
         )
         .await;
     assert_eq!(
-        f.editor.debugger().get_client(id).unwrap().thread_id,
+        f.editor
+            .debugger()
+            .get_session(id)
+            .unwrap()
+            .selected_thread(),
         Some(serde_json::from_value(json!(1))?)
     );
     f.editor
@@ -1265,7 +1292,7 @@ async fn thread_events_and_partial_continues_preserve_other_stopped_threads() ->
     assert_eq!(
         f.editor
             .debugger()
-            .get_client(id)
+            .get_session(id)
             .unwrap()
             .current_stack_frame()
             .unwrap()
@@ -1284,7 +1311,7 @@ async fn thread_events_and_partial_continues_preserve_other_stopped_threads() ->
     assert_eq!(
         f.editor
             .debugger()
-            .get_client(id)
+            .get_session(id)
             .unwrap()
             .current_stack_frame()
             .unwrap()
@@ -1294,11 +1321,11 @@ async fn thread_events_and_partial_continues_preserve_other_stopped_threads() ->
     f.editor
         .handle_debugger_message(id, debugger_event("continued", json!({"threadId":2})))
         .await;
-    let client = f.editor.debugger().get_client(id).unwrap();
-    assert!(client.thread_id.is_none());
-    assert!(client.stack_frames.is_empty());
-    assert!(client
-        .thread_states
+    let session = f.editor.debugger().get_session(id).unwrap();
+    assert!(session.selected_thread().is_none());
+    assert!(session.stack_frames().is_empty());
+    assert!(session
+        .thread_states()
         .values()
         .all(|state| state == "running"));
     Ok(())
@@ -1379,7 +1406,7 @@ async fn termination_disconnects_and_relaunches_without_blocking_the_editor() ->
         assert_eq!(
             f.editor
                 .debugger()
-                .get_client(id)
+                .get_session(id)
                 .unwrap()
                 .current_stack_frame()
                 .unwrap()
@@ -1409,7 +1436,7 @@ async fn terminated_disconnect_results_cannot_remove_a_new_execution() -> anyhow
     assert!(f
         .editor
         .debugger()
-        .get_client(id)
+        .get_session(id)
         .unwrap()
         .current_stack_frame()
         .is_some());
@@ -1453,9 +1480,9 @@ async fn thread_exit_during_disconnect_does_not_cancel_session_cleanup() -> anyh
     assert!(f
         .editor
         .debugger()
-        .get_client(id)
+        .get_session(id)
         .unwrap()
-        .thread_id
+        .selected_thread()
         .is_none());
     release_adapter_request(&f, id).await?;
     debugger_callback(&mut f).await?;
@@ -1489,10 +1516,10 @@ async fn a_stopped_target_without_threads_has_no_selected_frame() -> anyhow::Res
         )
         .await;
     debugger_callback(&mut f).await?;
-    let client = f.editor.debugger().get_client(id).unwrap();
-    assert!(client.thread_id.is_none());
-    assert!(client.active_frame.is_none());
-    assert!(client.stack_frames.is_empty());
+    let session = f.editor.debugger().get_session(id).unwrap();
+    assert!(session.selected_thread().is_none());
+    assert!(session.current_stack_frame().is_none());
+    assert!(session.stack_frames().is_empty());
     Ok(())
 }
 
@@ -1531,7 +1558,7 @@ async fn events_from_removed_adapters_preserve_the_active_session() -> anyhow::R
         assert_eq!(
             f.editor
                 .debugger()
-                .get_client(active)
+                .get_session(active)
                 .unwrap()
                 .current_stack_frame()
                 .unwrap()
@@ -1608,7 +1635,7 @@ async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
             while f
                 .editor
                 .debugger()
-                .get_client(id)
+                .get_session(id)
                 .unwrap()
                 .current_stack_frame()
                 .is_none()
@@ -1622,7 +1649,7 @@ async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
         assert_eq!(
             f.editor
                 .debugger()
-                .get_client(id)
+                .get_session(id)
                 .unwrap()
                 .current_stack_frame()
                 .unwrap()
@@ -1658,4 +1685,77 @@ async fn wait_for_startup(f: &mut Fixture, id: DebugAdapterId) -> anyhow::Result
         anyhow::Ok(())
     })
     .await?
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_reports_are_isolated_by_session_and_expire_on_removal() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (first, _) = adapter(&mut f).await?;
+    let (second, _) = adapter(&mut f).await?;
+    for (id, title) in [(first, "first"), (second, "second")] {
+        f.editor.handle_debugger_message(id, debugger_event("progressStart",
+            json!({"progressId":"build", "title":title, "message":"compiling", "percentage":10})
+        )).await;
+    }
+    f.editor
+        .handle_debugger_message(
+            first,
+            debugger_event(
+                "progressUpdate",
+                json!({"progressId":"build", "percentage":50}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "Debug: first - compiling (50%)"
+    );
+    f.editor
+        .handle_debugger_message(
+            second,
+            debugger_event(
+                "progressEnd",
+                json!({"progressId":"build", "message":"done"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "Debug: second - done"
+    );
+    f.editor
+        .handle_debugger_message(
+            first,
+            debugger_event(
+                "progressUpdate",
+                json!({"progressId":"build", "message":"linking"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "Debug: first - linking (50%)"
+    );
+    f.editor
+        .handle_debugger_message(first, debugger_event("terminated", Value::Null))
+        .await;
+    wait_for_adapter_removal(&mut f, first).await?;
+    let (replacement, _) = adapter(&mut f).await?;
+    assert_ne!(replacement, first);
+    assert!(f.editor.debugger().get_session(first).is_none());
+    f.editor.set_status("replacement session");
+    f.editor
+        .handle_debugger_message(
+            replacement,
+            debugger_event(
+                "progressUpdate",
+                json!({"progressId":"build", "message":"late"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "replacement session"
+    );
+    Ok(())
 }

@@ -4,13 +4,13 @@ use crate::{
     job::{Callback, Jobs},
     ui::{self, overlay::overlaid, Picker, Popup, Prompt, PromptEvent, Text},
 };
-use dap::{self as dap, StackFrame, Thread, ThreadStates};
+use dap::{self as dap, StackFrame, Thread};
 use editor_core::SmallVec;
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use std::path::PathBuf;
 use tui::text::Line;
 use view::{
-    debugger::{Breakpoint, BreakpointProperty},
+    debugger::{Breakpoint, BreakpointProperty, ThreadStates},
     Editor,
 };
 
@@ -60,9 +60,9 @@ fn thread_picker(
             }
             let thread_states = editor
                 .debugger()
-                .get_active_client()
+                .get_active_session()
                 .unwrap()
-                .thread_states
+                .thread_states()
                 .clone();
             let columns = [
                 ui::PickerColumn::new("name", |item: &Thread, _| item.name.as_str().into()),
@@ -93,8 +93,8 @@ fn thread_picker(
                 }
                 let frames = editor
                     .debugger()
-                    .get_active_client()?
-                    .stack_frames
+                    .get_active_session()?
+                    .stack_frames()
                     .get(&thread.id)?;
                 let frame = frames.first()?;
                 let path = frame.source.as_ref()?.path.as_ref()?.as_path();

@@ -2,7 +2,7 @@
 
 use crate::{callbacks::EditorCallbackSender, events::DocumentDidClose, DocumentId, Editor};
 use anyhow::Context as _;
-use dap::{registry::DebugAdapterId, ConnectionType, DebugAdapterConfig, DebuggerCapabilities};
+use dap::{ConnectionType, DebugAdapterConfig, DebugAdapterId, DebuggerCapabilities};
 use event::{register_hook, TaskController, TaskHandle};
 use serde_json::Value;
 use std::{future::Future, net::SocketAddr};
@@ -34,7 +34,11 @@ impl Startup {
 
 impl super::DebuggerState {
     pub(super) fn cancel_startup_requests(&mut self, id: DebugAdapterId) {
-        let Some(startup) = self.startups.remove(&id) else {
+        let Some(startup) = self
+            .sessions
+            .get_mut(id)
+            .and_then(|session| session.startup.take())
+        else {
             return;
         };
         let origin = startup.origin;
@@ -76,7 +80,7 @@ impl StartupContext {
                 .send(move |editor| {
                     if self.cancel.is_canceled()
                         || !self.owner.same_destination(editor.callback_sender())
-                        || !editor.debugger.adapters.contains(self.id)
+                        || !editor.debugger.sessions.contains_key(self.id)
                     {
                         return;
                     }
@@ -90,7 +94,7 @@ impl StartupContext {
                                 .is_trusted()
                         })
                     {
-                        editor.debugger.remove_client(self.id);
+                        editor.debugger.remove_session(self.id);
                         return;
                     }
                     match result {
@@ -103,9 +107,9 @@ impl StartupContext {
     }
 
     fn finish(self, editor: &mut Editor, result: dap::Result<Value>) {
-        editor.debugger.startups.remove(&self.id);
+        editor.debugger.sessions[self.id].startup = None;
         if result.is_err() {
-            editor.debugger.remove_client(self.id);
+            editor.debugger.remove_session(self.id);
         }
         match self.origin {
             StartupOrigin::Child { parent, sequence } => {
@@ -141,7 +145,11 @@ impl Editor {
     ) -> DebugAdapterId {
         let name = config.name.clone();
         let terminal_support = self.debugger.terminal_launcher.is_some();
-        let (id, connect) = self.debugger.adapters.start_client(socket, config);
+        let id = self
+            .debugger
+            .sessions
+            .insert_with_key(super::DebugSession::new);
+        let connect = dap::Client::connect(socket, config, id);
         let mut startup = Startup {
             cancel: TaskController::new(),
             origin,
@@ -153,19 +161,22 @@ impl Editor {
             cancel: startup.cancel.restart(),
             origin,
         };
-        self.debugger.startups.insert(id, startup);
-        context.spawn(connect, move |editor, context, connection| {
-            let Some(client) = editor.debugger.adapters.register_client(connection) else {
-                return;
-            };
+        self.debugger.sessions[id].startup = Some(startup);
+        context.spawn(connect, move |editor, context, (client, incoming)| {
             let initialize = client.initialize(name, terminal_support);
+            editor.debugger.sessions[id].client = Some(client);
+            editor
+                .debugger
+                .incoming
+                .push(tokio_stream::wrappers::UnboundedReceiverStream::new(
+                    incoming,
+                ));
             context.spawn(
                 initialize,
                 move |editor, context, capabilities: DebuggerCapabilities| {
-                    let initialized = editor
-                        .debugger
-                        .startups
-                        .get(&id)
+                    let initialized = editor.debugger.sessions[id]
+                        .startup
+                        .as_ref()
                         .is_some_and(|startup| startup.initialized);
                     let client = editor.debugger.get_client_mut(id).unwrap();
                     client.caps = Some(capabilities);
@@ -196,7 +207,12 @@ impl Editor {
             .get_client(id)
             .is_some_and(|client| client.caps.is_none())
         {
-            if let Some(startup) = self.debugger.startups.get_mut(&id) {
+            if let Some(startup) = self
+                .debugger
+                .sessions
+                .get_mut(id)
+                .and_then(|session| session.startup.as_mut())
+            {
                 startup.initialized = true;
             }
             return;
@@ -237,11 +253,12 @@ impl Editor {
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        let startups: Vec<_> = event.editor.debugger.startups.iter().filter_map(|(&id, startup)| {
+        let startups: Vec<_> = event.editor.debugger.sessions.iter().filter_map(|(id, session)| {
+            let startup = session.startup.as_ref()?;
             matches!(startup.origin, StartupOrigin::Document(document) if document == event.doc.id()).then_some(id)
         }).collect();
         for id in startups {
-            event.editor.debugger.remove_client(id);
+            event.editor.debugger.remove_session(id);
         }
         Ok(())
     });

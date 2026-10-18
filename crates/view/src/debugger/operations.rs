@@ -3,7 +3,7 @@
 use super::DebuggerState;
 use crate::{callbacks::EditorCallbackSender, Editor};
 use anyhow::{bail, Context as _, Result};
-use dap::{registry::DebugAdapterId, requests, RequestSender, ThreadId};
+use dap::{requests, DebugAdapterId, RequestSender, ThreadId};
 use event::{TaskController, TaskHandle};
 use futures_util::future::BoxFuture;
 use std::{collections::HashMap, future::Future};
@@ -37,27 +37,12 @@ impl Default for SessionRequests {
 
 impl DebuggerState {
     pub(super) fn execution_handle(&mut self, id: DebugAdapterId) -> TaskHandle {
-        self.requests.entry(id).or_default().current.clone()
-    }
-
-    pub(crate) fn remove_client(&mut self, id: DebugAdapterId) {
-        let children: Vec<_> = self
-            .startups
-            .iter()
-            .filter_map(|(&child, startup)| (startup.parent() == Some(id)).then_some(child))
-            .collect();
-        for child in children {
-            self.remove_client(child);
-        }
-        self.cancel_startup_requests(id);
-        self.requests.remove(&id);
-        self.events.remove(&id);
-        self.breakpoint_sessions.remove(&id);
-        self.adapters.remove_client(id);
+        self.sessions[id].requests.current.clone()
     }
 
     pub(crate) fn invalidate_requests(&mut self, id: DebugAdapterId) {
-        if let Some(requests) = self.requests.get_mut(&id) {
+        if let Some(session) = self.sessions.get_mut(id) {
+            let requests = &mut session.requests;
             requests.current = requests.lifetime.restart();
             requests.requests.clear();
         }
@@ -81,10 +66,10 @@ impl DebuggerContext {
             && !self.request.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
             && !editor.debugger.is_terminating(self.id)
-            && editor.debugger.get_active_client().is_some_and(|client| {
-                client.id() == self.id
-                    && client.thread_id == self.thread
-                    && client.current_stack_frame().map(|frame| frame.id) == self.frame
+            && editor.debugger.get_active_session().is_some_and(|session| {
+                session.id() == self.id
+                    && session.thread_id == self.thread
+                    && session.current_stack_frame().map(|frame| frame.id) == self.frame
             })
     }
 }
@@ -161,22 +146,26 @@ pub enum DebuggerCommand {
 
 impl Editor {
     fn debugger_context(&mut self, kind: RequestKind) -> Result<(DebuggerContext, RequestSender)> {
-        let client = self
+        let session = self
             .debugger
-            .get_active_client()
+            .get_active_session()
             .context("Debugger is not running")?;
         let (id, thread, frame, sender) = (
-            client.id(),
-            client.thread_id,
-            client.current_stack_frame().map(|frame| frame.id),
-            client.request_sender(),
+            session.id(),
+            session.thread_id,
+            session.current_stack_frame().map(|frame| frame.id),
+            session
+                .client
+                .as_ref()
+                .context("Debugger is connecting")?
+                .request_sender(),
         );
         anyhow::ensure!(
             !self.debugger.is_terminating(id),
             "Debugger session is disconnecting"
         );
         let owner = self.callback_sender().clone();
-        let state = self.debugger.requests.entry(id).or_default();
+        let state = &mut self.debugger.sessions[id].requests;
         let context = DebuggerContext {
             id,
             owner,
@@ -294,11 +283,11 @@ impl Editor {
                 .await
         });
         self.spawn_debugger_task(task, move |editor, response| {
-            let client = editor.debugger.get_client_mut(id).unwrap();
-            client.thread_id = Some(thread);
-            client.stack_frames.insert(thread, response.stack_frames);
-            client.active_frame = Some(0);
-            let frame = client.current_stack_frame().cloned();
+            let session = editor.debugger.get_session_mut(id).unwrap();
+            session.thread_id = Some(thread);
+            session.stack_frames.insert(thread, response.stack_frames);
+            session.active_frame = Some(0);
+            let frame = session.current_stack_frame().cloned();
             editor.debugger.invalidate_requests(id);
             if let Some(frame) = frame {
                 crate::handlers::dap::jump_to_stack_frame(editor, &frame);
@@ -309,9 +298,9 @@ impl Editor {
 
     pub fn debugger_stack_frames(&mut self) -> Result<DebuggerFrames> {
         let (context, _) = self.debugger_context(RequestKind::SelectThread)?;
-        let client = self.debugger.get_client(context.id).unwrap();
-        let thread = client.thread_id.context("No thread is currently active")?;
-        let frames = client
+        let session = self.debugger.get_session(context.id).unwrap();
+        let thread = session.thread_id.context("No thread is currently active")?;
+        let frames = session
             .stack_frames
             .get(&thread)
             .context("No stack frames for the active thread")?
@@ -319,7 +308,7 @@ impl Editor {
             .cloned()
             .enumerate()
             .collect();
-        let state = client
+        let state = session
             .thread_states
             .get(&thread)
             .cloned()
@@ -335,14 +324,14 @@ impl Editor {
         if !context.is_current(self) {
             return Ok(());
         }
-        let client = self.debugger.get_client_mut(context.id).unwrap();
-        let frame = client
+        let session = self.debugger.get_session_mut(context.id).unwrap();
+        let frame = session
             .thread_id
-            .and_then(|thread| client.stack_frames.get(&thread))
+            .and_then(|thread| session.stack_frames.get(&thread))
             .and_then(|frames| frames.get(index))
             .context("Stack frame is no longer available")?
             .clone();
-        client.active_frame = Some(index);
+        session.active_frame = Some(index);
         self.debugger.invalidate_requests(context.id);
         crate::handlers::dap::jump_to_stack_frame(self, &frame);
         Ok(())
@@ -351,14 +340,20 @@ impl Editor {
     /// Queue a control request against the active session. Replies cannot mutate a replacement.
     pub fn debugger_command(&mut self, command: DebuggerCommand) -> Result<()> {
         if matches!(command, DebuggerCommand::Terminate)
-            && self.debugger.get_active_client().is_none()
-            && !self.debugger.startups.is_empty()
+            && self.debugger.get_active_session().is_none()
         {
-            let startups: Vec<_> = self.debugger.startups.keys().copied().collect();
-            for id in startups {
-                self.debugger.remove_client(id);
+            let startups: Vec<_> = self
+                .debugger
+                .sessions
+                .iter()
+                .filter_map(|(id, session)| session.startup.is_some().then_some(id))
+                .collect();
+            if !startups.is_empty() {
+                for id in startups {
+                    self.debugger.remove_session(id);
+                }
+                return Ok(());
             }
-            return Ok(());
         }
         let client = self
             .debugger
@@ -377,7 +372,7 @@ impl Editor {
                 "No arguments found with which to restart the session"
             );
         }
-        let thread = client.thread_id;
+        let thread = self.debugger.get_active_session().unwrap().thread_id;
         if matches!(
             command,
             DebuggerCommand::Continue
@@ -434,13 +429,13 @@ impl Editor {
                 | DebuggerCommand::Restart => {
                     editor
                         .debugger
-                        .get_client_mut(id)
+                        .get_session_mut(id)
                         .unwrap()
                         .resume_application();
                     editor.debugger.invalidate_requests(id);
                 }
                 DebuggerCommand::Terminate => {
-                    editor.debugger.remove_client(id);
+                    editor.debugger.remove_session(id);
                 }
                 _ => {}
             },

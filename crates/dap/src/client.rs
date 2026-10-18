@@ -1,8 +1,7 @@
 use crate::{
-    registry::DebugAdapterId,
     requests::{DisconnectArguments, TerminateArguments},
     transport::{Payload, Request, Response, Transport, TransportSender},
-    Error, ProgressMap, ProgressState, Result,
+    DebugAdapterId, Error, Result,
 };
 use dap_types::*;
 
@@ -10,7 +9,6 @@ use serde_json::Value;
 
 use anyhow::anyhow;
 use std::{
-    collections::HashMap,
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
@@ -29,7 +27,7 @@ use tokio::{
 };
 
 #[derive(Debug)]
-/// One running debug-adapter session and the editor state derived from it.
+/// One debug-adapter transport and its negotiated protocol configuration.
 ///
 /// Construction returns a separate receiver for adapter events and reverse
 /// requests. Callers must continue polling that receiver while awaiting typed
@@ -44,19 +42,36 @@ pub struct Client {
     /// The socket address of the debugger, if using TCP transport.
     pub socket: Option<SocketAddr>,
     pub caps: Option<DebuggerCapabilities>,
-    // thread_id -> frames
-    pub stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
-    pub thread_states: ThreadStates,
-    pub progress: ProgressMap,
-    pub thread_id: Option<ThreadId>,
-    /// Currently active frame for the current thread.
-    pub active_frame: Option<usize>,
     pub quirks: DebuggerQuirks,
     /// The config which was used to start this debugger.
     pub config: Option<DebugAdapterConfig>,
 }
 
 impl Client {
+    /// Establish the configured transport, leaving initialization to the session owner.
+    pub async fn connect(
+        socket: Option<SocketAddr>,
+        config: DebugAdapterConfig,
+        id: DebugAdapterId,
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+        let (mut client, incoming) = match socket {
+            Some(socket) => Self::tcp(socket, id).await?,
+            None => {
+                Self::process(
+                    &config.transport,
+                    &config.command,
+                    config.args.iter().map(String::as_str).collect(),
+                    config.port_arg.as_deref(),
+                    id,
+                )
+                .await?
+            }
+        };
+        client.quirks = config.quirks.clone();
+        client.config = Some(config);
+        Ok((client, incoming))
+    }
+
     /// Spawns an adapter and communicates over its configured transport.
     ///
     /// The receiver tags every payload with `id`, allowing a registry to merge
@@ -103,11 +118,6 @@ impl Client {
             connection_type: None,
             starting_request_args: None,
             socket: None,
-            stack_frames: HashMap::new(),
-            thread_states: HashMap::new(),
-            progress: HashMap::new(),
-            thread_id: None,
-            active_frame: None,
             quirks: DebuggerQuirks::default(),
             config: None,
         };
@@ -240,16 +250,11 @@ impl Client {
     ) {
         while let Some(msg) = server_rx.recv().await {
             match msg {
-                Payload::Event(ev) => {
-                    client_tx
-                        .send((id, Payload::Event(ev)))
-                        .expect("Failed to send");
-                }
                 Payload::Response(_) => unreachable!(),
-                Payload::Request(req) => {
-                    client_tx
-                        .send((id, Payload::Request(req)))
-                        .expect("Failed to send");
+                msg @ (Payload::Event(_) | Payload::Request(_)) => {
+                    if client_tx.send((id, msg)).is_err() {
+                        break;
+                    }
                 }
             }
         }
@@ -263,19 +268,6 @@ impl Client {
     /// Returns whether this session was started by launch or attach.
     pub fn connection_type(&self) -> Option<ConnectionType> {
         self.connection_type
-    }
-
-    /// Clears stack-frame state after execution resumes.
-    ///
-    /// Command handlers should call this after a successful continue or step so
-    /// paused-state UI is not rendered from stale frames.
-    pub fn resume_application(&mut self) {
-        if let Some(thread_id) = self.thread_id {
-            self.thread_states.insert(thread_id, "running".to_string());
-            self.stack_frames.remove(&thread_id);
-        }
-        self.active_frame = None;
-        self.thread_id = None;
     }
 
     /// An owned transport handle for requests that must outlive a borrow of editor state.
@@ -337,24 +329,6 @@ impl Client {
     /// Panics until the owner installs the capabilities returned by [`Self::initialize`].
     pub fn capabilities(&self) -> &DebuggerCapabilities {
         self.caps.as_ref().expect("debugger not yet initialized!")
-    }
-
-    pub fn progress_start(&mut self, event: events::ProgressStartBody) -> String {
-        let status = ProgressState::new(event.title, event.message, event.percentage);
-        let status_line = status.status_line();
-        self.progress.insert(event.progress_id, status);
-        status_line
-    }
-
-    pub fn progress_update(&mut self, event: events::ProgressUpdateBody) -> Option<String> {
-        let status = self.progress.get_mut(&event.progress_id)?;
-        status.update(event.message, event.percentage);
-        Some(status.status_line())
-    }
-
-    pub fn progress_end(&mut self, event: events::ProgressEndBody) -> Option<String> {
-        let status = self.progress.remove(&event.progress_id)?;
-        Some(status.end_status_line(event.message.as_deref()))
     }
 
     /// Return an owned initialization request. The owner installs its capabilities
@@ -571,12 +545,6 @@ impl Client {
 
         self.call::<requests::SetExceptionBreakpoints>(args)
     }
-
-    pub fn current_stack_frame(&self) -> Option<&StackFrame> {
-        self.stack_frames
-            .get(&self.thread_id?)?
-            .get(self.active_frame?)
-    }
 }
 
 /// Cloneable request transport. It carries no selected thread, frame, or editor state.
@@ -669,5 +637,28 @@ struct PendingRequest {
 impl Drop for PendingRequest {
     fn drop(&mut self) {
         self.sender.forget(self.sequence);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn adapter_delivery_ends_when_the_session_receiver_closes() {
+        for payload in [
+            json!({"type":"event", "event":"initialized"}),
+            json!({"type":"request", "seq":1, "command":"runInTerminal"}),
+        ] {
+            let (server_tx, server_rx) = unbounded_channel();
+            let (client_tx, client_rx) = unbounded_channel();
+            drop(client_rx);
+            server_tx
+                .send(serde_json::from_value(payload).unwrap())
+                .unwrap();
+            drop(server_tx);
+            Client::recv(DebugAdapterId::default(), server_rx, client_tx).await;
+        }
     }
 }
