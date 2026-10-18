@@ -27,6 +27,7 @@ members = [
   "crates/fuzzy",
   "crates/file-watch",
   "crates/text-diff",
+  "crates/syntax-diff",
   "crates/text-io",
   "crates/workspace",
   "crates/theme",
@@ -82,6 +83,7 @@ syntax-symbols = { path = "crates/syntax-symbols" }
 fuzzy = { path = "crates/fuzzy" }
 file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
+syntax-diff = { path = "crates/syntax-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }

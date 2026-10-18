@@ -127,6 +127,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `soft-wrap` | table | See below | Soft wrapping. See [`[editor.soft-wrap]`](#editorsoft-wrap). |
 | `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
 | `inline-blame` | table | See below | Git blame rendered at the end of buffer lines. See [`[editor.inline-blame]`](#editorinline-blame). |
+| `diff` | table | `engine = "line"` | Review comparison engine: `line`, `syntax`, or `auto`. See [syntax-aware review](./version-control.md#syntax-aware-review). |
 | `workspace-trust` | table | See below | Implicit workspace trust policy. See [`[editor.workspace-trust]`](#editorworkspace-trust). |
 | `bufferline` | table | See below | See [`[editor.bufferline]`](#editorbufferline). |
 | `clipboard` | table | See below | See [`[editor.clipboard]`](#editorclipboard). |
@@ -800,6 +801,7 @@ applies to `config.toml` for now.
 | `formatter` | table; unset | External formatter. `command` is required; `args` defaults to `[]`. |
 | `path-completion` | boolean; inherits editor | Override `editor.completion.path.enable`. |
 | `spelling` | table; inherits editor | `languages` and `min-word-length` replace global values; `words` and `ignore-regexes` extend them. See [spell checking](./spell-checking.md). |
+| `diff-engine` | `line`, `syntax`, or `auto`; inherits editor | Overrides `editor.diff.engine` for review views. See [syntax-aware review](./version-control.md#syntax-aware-review). |
 | `word-completion` | table; inherits editor | Override `enable` and/or `trigger-length` from `editor.completion.word`. |
 | `diagnostic-severity` | `"hint"`, `"info"`, `"warning"`, or `"error"`; `"hint"` | Minimum accepted diagnostic severity. |
 | `grammar` | string; defaults to `name` | Tree-sitter grammar name. |

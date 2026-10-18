@@ -52,6 +52,7 @@ pub enum PickerAction {
     PreviewPrevious,
     PreviewNext,
     OpenPreview,
+    ToggleDiffEngine,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(untagged, skip_deserializing)]
@@ -104,6 +105,7 @@ pub enum BlameAction {
 pub enum DiffAction {
     ScrollLeft,
     ScrollRight,
+    ToggleEngine,
 }
 
 /// Terminal component maps, resolved from defaults and user configuration.
@@ -180,6 +182,7 @@ impl Default for ComponentKeymaps {
             ("A-left", K::PreviewPrevious),
             ("A-right", K::PreviewNext),
             ("A-o", K::OpenPreview),
+            ("A-d", K::ToggleDiffEngine),
         ]);
         Self {
             prompt: bindings(&[
@@ -252,6 +255,7 @@ impl Default for ComponentKeymaps {
             diff: bindings(&[
                 ("left", DiffAction::ScrollLeft),
                 ("right", DiffAction::ScrollRight),
+                ("A-d", DiffAction::ToggleEngine),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),

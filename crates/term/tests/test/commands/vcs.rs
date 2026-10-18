@@ -518,6 +518,97 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     Ok(())
 }
 
+#[cfg(feature = "syntax-diff")]
+#[tokio::test(flavor = "multi_thread")]
+async fn syntax_hunk_reviews_toggle_captured_snapshots_with_configurable_keys() -> anyhow::Result<()>
+{
+    use editor_config::DiffEngine;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.json");
+    std::fs::write(&path, "{\"value\": 1}\n")?;
+    std::fs::write(dir.path().join(".gitattributes"), "* text eol=lf\n")?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    std::fs::write(&path, "{\n  \"value\": 2\n}\n")?;
+    let index = std::fs::read(dir.path().join(".git/index"))?;
+    let mut config = test_config();
+    config.editor.diff.engine = DiffEngine::Syntax;
+    let keys = term::config::Config::load(
+        Ok(&"[keys.diff]\nA-e = 'toggle_engine'\n".to_owned()),
+        Err(term::config::ConfigLoadError::default()),
+    )
+    .unwrap();
+    config.component_keys = keys.component_keys;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+    press_keys(&mut app, ":show-change<ret>").await?;
+    wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let selection = doc.selection(view.id).clone();
+    let version = doc.version();
+    // Changing disk after opening must not replace either captured side when toggling.
+    std::fs::write(&path, "{\"value\": 999}\n")?;
+    press_keys(&mut app, "<A-e>").await?;
+    wait_for_review_screen(&mut app, "line · Current change", "\"value\": 2").await?;
+    press_keys(&mut app, "<A-e><A-e><A-e>").await?;
+    wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.selection(view.id), &selection);
+    assert_eq!(doc.version(), version);
+    assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
+    press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[cfg(feature = "syntax-diff")]
+#[tokio::test(flavor = "multi_thread")]
+async fn syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbacks(
+) -> anyhow::Result<()> {
+    let Some(root) = super::super::helpers::isolation::workspace(
+        "test::commands::vcs::syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbacks",
+    )? else { return Ok(()); };
+    let repo = root.join("workspace");
+    let path = repo.join("file.json");
+    std::fs::write(&path, "{\"value\": 1}\n")?;
+    std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n")?;
+    git(&repo, &["init"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-m", "initial"]);
+    std::fs::write(&path, "{\"value\": 2}\n")?;
+    git(&repo, &["add", "file.json"]);
+    std::fs::write(&path, "{\"value\": 3}\n")?;
+    let index = std::fs::read(repo.join(".git/index"))?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "<space>gfile.json").await?;
+    wait_for_review_screen(&mut app, "line · Unstaged", "\"value\": 3").await?;
+    press_keys(&mut app, "<A-d>").await?;
+    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
+    press_keys(&mut app, "<A-left>").await?;
+    wait_for_review_screen(&mut app, "syntax · Staged", "\"value\": 1").await?;
+    press_keys(&mut app, "<A-o>").await?;
+    wait_for_review_screen(&mut app, "syntax · Diff", "\"value\": 2").await?;
+    press_keys(&mut app, "<A-d>").await?;
+    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 2").await?;
+    // Toggle while a cold popup is loading with its preview pane hidden.
+    press_keys(&mut app, "<esc><C-t><A-o><A-d>").await?;
+    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 2").await?;
+    press_keys(&mut app, "<esc><C-t><esc>").await?;
+    assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
+    std::fs::write(&path, "{]\n")?;
+    press_keys(&mut app, "<space>gfile.json").await?;
+    wait_for_review_screen(&mut app, "line · Unstaged", "{]").await?;
+    press_keys(&mut app, "<A-d>").await?;
+    wait_for_review_screen(&mut app, "line · Unstaged", "parse errors").await?;
+    assert!(review_screen(&app).contains("{]"));
+    press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_index(
 ) -> anyhow::Result<()> {

@@ -32,7 +32,8 @@ assets = [
 ]
 
 [features]
-default = ["git"]
+default = ["git", "syntax-diff"]
+syntax-diff = ["view/syntax-diff"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
 integration = ["event/integration_test"]
 git = ["view/git"]

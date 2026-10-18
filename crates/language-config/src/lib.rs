@@ -3,6 +3,25 @@
 mod spelling;
 pub use spelling::{ParseSpellingLanguageError, SpellingConfig, SpellingLanguage};
 
+/// Comparison policy for review views. Exact edit hunks always remain textual.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiffEngine {
+    #[default]
+    Line,
+    Syntax,
+    Auto,
+}
+
+impl DiffEngine {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Line => Self::Syntax,
+            Self::Syntax | Self::Auto => Self::Line,
+        }
+    }
+}
+
 use ::diagnostics::Severity;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::comment::BlockCommentToken;
@@ -76,6 +95,9 @@ pub struct LanguageConfiguration {
 
     /// Layers over `editor.spelling` for this language.
     pub spelling: Option<SpellingConfig>,
+
+    /// Overrides `editor.diff.engine` for review views.
+    pub diff_engine: Option<DiffEngine>,
 
     #[serde(default)]
     pub diagnostic_severity: Severity,

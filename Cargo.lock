@@ -4103,6 +4103,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syntax-diff"
+version = "0.1.1"
+dependencies = [
+ "core",
+ "imara-diff",
+ "loader",
+ "text-diff",
+ "tree-house",
+]
+
+[[package]]
 name = "syntax-symbols"
 version = "0.1.2"
 dependencies = [
@@ -4789,6 +4800,7 @@ dependencies = [
  "snippets",
  "spelling",
  "stdx",
+ "syntax-diff",
  "syntax-symbols",
  "tempfile",
  "text-diff",

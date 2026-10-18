@@ -35,13 +35,14 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
                     return;
                 }
                 match result {
-                    Ok(review)
+                    Ok((source, review))
                         if review.additions != 0 || review.deletions != 0 || review.truncated =>
                     {
                         let view = crate::ui::change_review::ReviewView::new(
                             "Current change · HEAD → buffer".into(),
                             review,
-                        );
+                        )
+                        .with_source(source);
                         compositor.replace_or_push(
                             crate::ui::change_review::ReviewView::ID,
                             crate::ui::Popup::new(crate::ui::change_review::ReviewView::ID, view)
