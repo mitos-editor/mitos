@@ -89,6 +89,12 @@ represented by a `Selection`. Each `Range` in the selection consists of a moving
 a selection with a single range, with the head and the anchor in the same
 position.
 
+`core::selection::operations` owns whitespace trimming, copying at document cell
+columns, whole-line selection, and line-bound transformations. These functions
+return a selection without accessing a document or view. Terminal commands supply
+text and options, then apply results through `Document::set_selection` so shared
+selection events continue to run.
+
 Ropes are modified by constructing an OT-like `Transaction`. It represents
 a single coherent change to the document and can be applied to the rope.
 A transaction can be inverted to produce an undo. Selections and marks can be

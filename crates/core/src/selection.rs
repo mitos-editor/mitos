@@ -2,6 +2,8 @@
 //! defined as a selection range.
 //!
 //! All positioning is done via `char` offsets into the buffer.
+pub mod operations;
+
 use crate::{
     graphemes::{
         ensure_grapheme_boundary_next, ensure_grapheme_boundary_prev, next_grapheme_boundary,
