@@ -38,7 +38,7 @@ impl Document {
             config.language_servers.iter().filter_map(move |features| {
                 let ls = &**self.language_servers.get(&features.name)?;
                 if self.opened_language_servers.contains(&ls.id())
-                    && ls.supports_feature(feature)
+                    && crate::language_servers::supports_feature(ls.capabilities(), feature)
                     && features.has_feature(feature)
                 {
                     Some(ls)

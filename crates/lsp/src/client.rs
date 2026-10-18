@@ -12,7 +12,6 @@ use crate::lsp::{
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
 use editor_core::{ChangeSet, Rope};
-use language_config::LanguageServerFeature;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -301,109 +300,6 @@ impl Client {
     pub(crate) fn file_operations_intests(&self) -> &FileOperationsInterest {
         self.file_operation_interest
             .get_or_init(|| FileOperationsInterest::new(self.capabilities()))
-    }
-
-    /// Client has to be initialized otherwise this function panics
-    #[inline]
-    pub fn supports_feature(&self, feature: LanguageServerFeature) -> bool {
-        let capabilities = self.capabilities();
-
-        use lsp::*;
-        match feature {
-            LanguageServerFeature::Format => matches!(
-                capabilities.document_formatting_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::GotoDeclaration => matches!(
-                capabilities.declaration_provider,
-                Some(
-                    DeclarationCapability::Simple(true)
-                        | DeclarationCapability::RegistrationOptions(_)
-                        | DeclarationCapability::Options(_),
-                )
-            ),
-            LanguageServerFeature::GotoDefinition => matches!(
-                capabilities.definition_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::GotoTypeDefinition => matches!(
-                capabilities.type_definition_provider,
-                Some(
-                    TypeDefinitionProviderCapability::Simple(true)
-                        | TypeDefinitionProviderCapability::Options(_),
-                )
-            ),
-            LanguageServerFeature::GotoReference => matches!(
-                capabilities.references_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::GotoImplementation => matches!(
-                capabilities.implementation_provider,
-                Some(
-                    ImplementationProviderCapability::Simple(true)
-                        | ImplementationProviderCapability::Options(_),
-                )
-            ),
-            LanguageServerFeature::SignatureHelp => capabilities.signature_help_provider.is_some(),
-            LanguageServerFeature::Hover => matches!(
-                capabilities.hover_provider,
-                Some(HoverProviderCapability::Simple(true) | HoverProviderCapability::Options(_),)
-            ),
-            LanguageServerFeature::DocumentHighlight => matches!(
-                capabilities.document_highlight_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::InlineCompletion => matches!(
-                capabilities.inline_completion_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::Completion => capabilities.completion_provider.is_some(),
-            LanguageServerFeature::CodeAction => matches!(
-                capabilities.code_action_provider,
-                Some(
-                    CodeActionProviderCapability::Simple(true)
-                        | CodeActionProviderCapability::Options(_),
-                )
-            ),
-            LanguageServerFeature::DocumentLinks => capabilities.document_link_provider.is_some(),
-            LanguageServerFeature::WorkspaceCommand => {
-                capabilities.execute_command_provider.is_some()
-            }
-            LanguageServerFeature::DocumentSymbols => matches!(
-                capabilities.document_symbol_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::WorkspaceSymbols => matches!(
-                capabilities.workspace_symbol_provider,
-                Some(OneOf::Left(true) | OneOf::Right(_))
-            ),
-            LanguageServerFeature::Diagnostics => true, // there's no extra server capability
-            LanguageServerFeature::PullDiagnostics => capabilities.diagnostic_provider.is_some(),
-            LanguageServerFeature::RenameSymbol => matches!(
-                capabilities.rename_provider,
-                Some(OneOf::Left(true)) | Some(OneOf::Right(_))
-            ),
-            LanguageServerFeature::InlayHints => matches!(
-                capabilities.inlay_hint_provider,
-                Some(OneOf::Left(true) | OneOf::Right(InlayHintServerCapabilities::Options(_)))
-            ),
-            LanguageServerFeature::DocumentColors => matches!(
-                capabilities.color_provider,
-                Some(
-                    ColorProviderCapability::Simple(true)
-                        | ColorProviderCapability::ColorProvider(_)
-                        | ColorProviderCapability::Options(_)
-                )
-            ),
-            LanguageServerFeature::CallHierarchy => matches!(
-                capabilities.call_hierarchy_provider,
-                Some(
-                    CallHierarchyServerCapability::Simple(true)
-                        | CallHierarchyServerCapability::Options(_)
-                )
-            ),
-            LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
-        }
     }
 
     pub fn offset_encoding(&self) -> OffsetEncoding {
@@ -1292,7 +1188,10 @@ impl Client {
         position: lsp::Position,
         trigger_kind: lsp::InlineCompletionTriggerKind,
     ) -> Option<impl Future<Output = Result<Option<lsp::InlineCompletionResponse>>> + use<>> {
-        if !self.supports_feature(LanguageServerFeature::InlineCompletion) {
+        if !matches!(
+            self.capabilities().inline_completion_provider,
+            Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+        ) {
             return None;
         }
         Some(
@@ -1334,9 +1233,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         work_done_token: Option<lsp::ProgressToken>,
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::DocumentLink>>>> + use<>> {
-        if !self.supports_feature(LanguageServerFeature::DocumentLinks) {
-            return None;
-        }
+        self.capabilities().document_link_provider.as_ref()?;
 
         let params = lsp::DocumentLinkParams {
             text_document,
@@ -1351,9 +1248,7 @@ impl Client {
         &self,
         params: lsp::DocumentLink,
     ) -> Option<impl Future<Output = Result<lsp::DocumentLink>> + use<>> {
-        if !self.supports_feature(LanguageServerFeature::DocumentLinks) {
-            return None;
-        }
+        self.capabilities().document_link_provider.as_ref()?;
 
         Some(self.call::<lsp::request::DocumentLinkResolve>(params))
     }
@@ -1820,7 +1715,10 @@ impl Client {
         position: lsp::Position,
         new_name: String,
     ) -> Option<impl Future<Output = Result<Option<lsp::WorkspaceEdit>>> + use<>> {
-        if !self.supports_feature(LanguageServerFeature::RenameSymbol) {
+        if !matches!(
+            self.capabilities().rename_provider,
+            Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+        ) {
             return None;
         }
 
@@ -1842,9 +1740,7 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CodeLens>>>> + use<>> {
-        if !self.supports_feature(LanguageServerFeature::CodeLens) {
-            return None;
-        }
+        self.capabilities().code_lens_provider?;
         Some(
             self.call::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
                 text_document,

@@ -2556,7 +2556,6 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "globset",
- "language-config",
  "log",
  "lsp-types",
  "parking_lot",

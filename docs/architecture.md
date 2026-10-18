@@ -313,11 +313,16 @@ runs feature cleanup while the server is still registered, then removes it.
 `Editor::stop_language_servers` and `restart_language_servers` in
 `view::editor::language_servers` run the same cleanup before removing old servers.
 Stop keeps the registry's explicit stopped state; restart refreshes affected documents.
-The LSP crate keeps selection and lifecycle state in private `registry.rs`,
+`view::language_servers` keeps selection and lifecycle state in private `registry.rs`,
 with typed server/workspace and alternative-group keys. Active and manually
 stopped instances have explicit states; workspace unavailability distinguishes
-startup failure from an exit after initialization. Protocol/editor position and
-edit conversions live in `util.rs`, behind their existing public paths.
+startup failure from an exit after initialization. Text synchronization conversions remain in `lsp::util`; conversions that apply
+edits and snippets to documents live in `view::language_servers::edits`.
+
+Configured feature selection maps `language_config::LanguageServerFeature` to
+negotiated capabilities in `view::language_servers::capabilities`. The LSP client
+has no language configuration dependency; individual request guards read protocol
+capabilities directly.
 
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
