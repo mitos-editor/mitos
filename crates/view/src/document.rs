@@ -225,11 +225,11 @@ pub struct Document {
     ///
     /// Resolved by [`Document::detect_spelling_languages`] from the manual override, the
     /// document's `.editorconfig` (`spelling_language = en_US`), or the resolved config.
-    pub spelling_languages: Vec<editor_core::SpellingLanguage>,
+    pub spelling_languages: Vec<language_config::SpellingLanguage>,
     /// A manual `:set-spelling-language` choice, which takes precedence over `.editorconfig` and
     /// config when resolving [`Document::spelling_languages`]. `None` means derive from those; an
     /// empty `Vec` forces spell checking off regardless of what they say.
-    pub spelling_language_override: Option<Vec<editor_core::SpellingLanguage>>,
+    pub spelling_language_override: Option<Vec<language_config::SpellingLanguage>>,
 
     /// The document's default line ending.
     pub line_ending: LineEnding,

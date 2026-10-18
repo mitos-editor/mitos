@@ -474,7 +474,7 @@ async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow
 
 async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<Application> {
     // Install the loader's state with a temporary user ignore file before opening documents.
-    let ignored_language: editor_core::SpellingLanguage = "en_US".parse()?;
+    let ignored_language: language_config::SpellingLanguage = "en_US".parse()?;
     let ignored_words = IgnoredWordsFile::load(path.to_owned())?;
     let mut app = AppBuilder::new()
         .with_input_text("#[Z|]#orblé ZORBLÉ quik\n")

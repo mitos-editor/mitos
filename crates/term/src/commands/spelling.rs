@@ -100,7 +100,7 @@ pub(super) mod typed {
         } else {
             args.iter()
                 .map(|arg| arg.parse())
-                .collect::<Result<Vec<editor_core::SpellingLanguage>, _>>()?
+                .collect::<Result<Vec<language_config::SpellingLanguage>, _>>()?
         };
         let doc = doc_mut!(cx.editor);
         let doc_id = doc.id();

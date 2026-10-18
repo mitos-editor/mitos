@@ -280,7 +280,7 @@ filters, scanning of supplied character ranges, suggestions, personal vocabulary
 snapshots, and persistent ignored-word lists. Its API accepts text, ranges, settings,
 dictionaries, scan budgets, and cancellation checks; it returns character-indexed
 diagnostics without a parser, editor, or async runtime. `language-config` owns
-serialized spelling settings; `core` retains dictionary identifiers and text types.
+serialized spelling settings and validated dictionary identifiers; `core` supplies text types.
 The background worker in `view::features::spelling` selects prose regions through
 syntax queries and converts byte ranges at that boundary before scanning.
 

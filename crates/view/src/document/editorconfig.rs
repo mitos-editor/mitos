@@ -18,10 +18,11 @@ use std::{
 
 use editor_core::encoding::Encoding;
 use globset::{GlobBuilder, GlobMatcher};
+use language_config::SpellingLanguage;
 
 use editor_core::{
     indent::{IndentStyle, MAX_INDENT},
-    LineEnding, SpellingLanguage,
+    LineEnding,
 };
 
 /// Configuration declared for a path in `.editorconfig` files.

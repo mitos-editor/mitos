@@ -1,5 +1,8 @@
 //! Language definitions and settings, independent of parser and editor runtime state.
 
+mod spelling;
+pub use spelling::{ParseSpellingLanguageError, SpellingConfig, SpellingLanguage};
+
 use editor_core::comment::BlockCommentToken;
 use editor_core::{auto_pairs::AutoPairs, diagnostic::Severity};
 
@@ -616,60 +619,6 @@ pub struct WordCompletion {
     pub trigger_length: Option<NonZeroU8>,
 }
 
-/// Spell-checking configuration. The same shape is used globally (`[editor.spelling]`) and
-/// per-language in `languages.toml`; a language's settings layer over the global ones (see
-/// [`SpellingConfig::merged`]).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub struct SpellingConfig {
-    /// The dictionaries to check a document against; unset inherits (and the global default is
-    /// none, i.e. spell checking off). A word is flagged only when every dictionary rejects it.
-    pub languages: Option<Vec<editor_core::SpellingLanguage>>,
-    /// Extra accepted words, checked case-insensitively. A language's `words` are *added* to the
-    /// global ones rather than replacing them.
-    pub words: Vec<String>,
-    /// Tokens matching any of these regexes are not checked (e.g. `"^[A-Z0-9_]+$"` to skip
-    /// SCREAMING_CASE). A language's regexes are *added* to the global ones.
-    pub ignore_regexes: Vec<String>,
-    /// Tokens shorter than this are not checked. Unset inherits; the global default is 1 (check
-    /// everything).
-    pub min_word_length: Option<usize>,
-}
-
-impl SpellingConfig {
-    /// Layers a language's `spelling` settings over these (global) ones: `languages` and
-    /// `min-word-length` replace, while `words` and `ignore-regexes` are unioned.
-    pub fn merged(&self, language: Option<&SpellingConfig>) -> SpellingConfig {
-        let Some(language) = language else {
-            return self.clone();
-        };
-        SpellingConfig {
-            languages: language
-                .languages
-                .clone()
-                .or_else(|| self.languages.clone()),
-            words: self.words.iter().chain(&language.words).cloned().collect(),
-            ignore_regexes: self
-                .ignore_regexes
-                .iter()
-                .chain(&language.ignore_regexes)
-                .cloned()
-                .collect(),
-            min_word_length: language.min_word_length.or(self.min_word_length),
-        }
-    }
-
-    /// The dictionaries to check against (empty when spell checking is off).
-    pub fn languages(&self) -> &[editor_core::SpellingLanguage] {
-        self.languages.as_deref().unwrap_or_default()
-    }
-
-    /// The shortest token length that is checked.
-    pub fn min_word_length(&self) -> usize {
-        self.min_word_length.unwrap_or(1)
-    }
-}
-
 fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<rope::Regex>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -724,53 +673,4 @@ where
 
 fn default_timeout() -> u64 {
     20
-}
-
-#[cfg(test)]
-mod spelling_tests {
-    use super::*;
-
-    #[test]
-    fn language_settings_override_scalars_and_extend_filters() {
-        let global = SpellingConfig {
-            languages: Some(vec!["en_US".parse().unwrap()]),
-            words: vec!["Mitos".into()],
-            ignore_regexes: vec!["^[A-Z_]+$".into()],
-            min_word_length: Some(2),
-        };
-        let local = SpellingConfig {
-            languages: Some(Vec::new()),
-            words: vec!["Tokio".into()],
-            ignore_regexes: vec!["^v[0-9]+$".into()],
-            min_word_length: Some(3),
-        };
-        let merged = global.merged(Some(&local));
-        assert!(merged.languages().is_empty());
-        assert_eq!(merged.words, ["Mitos", "Tokio"]);
-        assert_eq!(merged.ignore_regexes, ["^[A-Z_]+$", "^v[0-9]+$"]);
-        assert_eq!(merged.min_word_length(), 3);
-        assert_eq!(global.merged(None), global);
-    }
-
-    #[test]
-    fn dictionary_identifiers_are_safe_case_sensitive_path_components() {
-        for valid in ["en_US", "de_DE_frami", "en-GB", "ca"] {
-            let language: editor_core::SpellingLanguage = valid.parse().unwrap();
-            assert_eq!(language.as_str(), valid);
-        }
-        for invalid in [
-            "",
-            "..",
-            "../en_US",
-            "de/DE",
-            r"de\DE",
-            " en_US",
-            "en_US.txt",
-        ] {
-            assert!(
-                invalid.parse::<editor_core::SpellingLanguage>().is_err(),
-                "{invalid}"
-            );
-        }
-    }
 }

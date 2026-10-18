@@ -12,6 +12,7 @@ core.workspace = true
 stdx.workspace = true
 dap-types.workspace = true
 globset.workspace = true
+smartstring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

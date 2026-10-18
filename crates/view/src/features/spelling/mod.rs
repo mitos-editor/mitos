@@ -14,11 +14,9 @@ use std::{
     sync::Arc,
 };
 
-use editor_core::{
-    diagnostic::DiagnosticProvider, ChangeSet, SpellingLanguage, Tendril, Transaction,
-};
+use editor_core::{diagnostic::DiagnosticProvider, ChangeSet, Tendril, Transaction};
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
-use language_config::SpellingConfig;
+use language_config::{SpellingConfig, SpellingLanguage};
 use tokio::sync::mpsc::Sender;
 
 use crate::{
