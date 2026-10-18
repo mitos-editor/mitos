@@ -722,6 +722,11 @@ explicit inputs; editor-specific state changes belong in `view`. The terminal
 application decodes incoming protocol messages, delegates shared operations, and
 handles frontend requests such as progress display and interactive prompts.
 
+`lsp::client` keeps shared client state and JSON-RPC dispatch at its root.
+Private modules own process initialization and shutdown, workspace configuration,
+file operations, document synchronization, and typed feature requests. All requests
+use the same transport timeout and cancellation machinery.
+
 ## Term
 
 The terminal frontend.
