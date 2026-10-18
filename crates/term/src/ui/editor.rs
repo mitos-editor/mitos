@@ -294,6 +294,7 @@ impl EditorView {
 
         let text_annotations = view.text_annotations(doc, Some(theme));
         let mut decorations = DecorationManager::default();
+        text_decorations::multibuffer::add_headers(doc, view, theme, surface, &mut decorations);
 
         if doc.breadcrumb_enabled() && !area.is_empty() {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
@@ -324,6 +325,13 @@ impl EditorView {
         let syntax_highlighter =
             Self::doc_syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
         let mut overlays = Vec::new();
+        if doc.multibuffer().is_some() {
+            let first = doc.text().char_to_line(view_offset.anchor);
+            let end = doc
+                .text()
+                .line_to_char((first + inner.height as usize + 1).min(doc.text().len_lines()));
+            overlays.extend(doc.multibuffer_highlights(view_offset.anchor..end, &loader));
+        }
 
         overlays.push(Self::overlay_syntax_highlights(
             doc,
@@ -1148,9 +1156,13 @@ impl EditorView {
                     (true, false) => gutter_selected_style_virtual,
                 };
 
-                if let Some(style) =
-                    gutter(pos.doc_line, selected, pos.first_visual_line, &mut text)
-                {
+                if let Some(style) = gutter(
+                    pos.doc_line,
+                    pos.doc_char,
+                    selected,
+                    pos.first_visual_line,
+                    &mut text,
+                ) {
                     renderer.set_stringn(x, y, &text, width, gutter_style.patch(style));
                 } else {
                     renderer.set_style(

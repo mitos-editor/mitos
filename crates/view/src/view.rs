@@ -248,13 +248,13 @@ impl View {
 
     pub fn inner_area(&self, doc: &Document) -> Rect {
         self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
+            .clip_top(self.breadcrumb_offset(doc) + u16::from(doc.multibuffer().is_some()))
             .clip_left(self.gutter_offset(doc))
     }
 
     pub fn inner_height(&self, doc: &Document) -> usize {
         self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
+            .clip_top(self.breadcrumb_offset(doc) + u16::from(doc.multibuffer().is_some()))
             .height
             .into()
     }
@@ -508,6 +508,13 @@ impl View {
         theme: Option<&Theme>,
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
+        if let Some(multi) = doc.multibuffer() {
+            text_annotations
+                .add_line_breaks(multi.segments().iter().map(|s| s.projection_range.start));
+            text_annotations.add_line_annotation(
+                crate::annotations::multibuffer::MultiBufferHeaders::new(doc),
+            );
+        }
 
         if let Some(labels) = doc.jump_labels(self.id) {
             let style = theme.and_then(|t| t.find_highlight("ui.virtual.jump-label"));

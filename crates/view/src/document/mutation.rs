@@ -21,6 +21,18 @@ impl Document {
 
     pub(crate) fn validate_changes(&self, changes: &ChangeSet) -> Result<(), EditError> {
         self.buffer.validate_changes(changes)?;
+        if !changes.is_empty()
+            && self
+                .multibuffer
+                .as_ref()
+                .is_some_and(|m| !m.validate_changes(self.text(), changes))
+        {
+            let error = EditError::InvalidExcerptBoundary;
+            if let Some(status) = &self.status {
+                status.report_blocking(anyhow::anyhow!(error.to_string()));
+            }
+            return Err(error);
+        }
         if self.binary && !changes.is_empty() {
             return Err(EditError::BinaryDocument);
         }
@@ -34,6 +46,9 @@ impl Document {
         emit_lsp_notification: bool,
     ) -> Result<(), EditError> {
         self.validate_changes(transaction.changes())?;
+        if let Some(multi) = &mut self.multibuffer {
+            multi.before_change(transaction.changes());
+        }
         let change = self.buffer.apply(transaction.changes())?;
         self.publish_change(
             &change,
@@ -67,6 +82,12 @@ impl Document {
             }
             return;
         }
+
+        if let Some(multi) = &mut self.multibuffer {
+            multi.apply_changes(changes);
+            multi.modified = multi.projection.is_modified(self.buffer.text());
+        }
+        self.request_multibuffer_syntax();
 
         self.modified_since_accessed = true;
 

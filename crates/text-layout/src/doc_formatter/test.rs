@@ -211,3 +211,78 @@ fn annotation_and_overlay() {
         "fooo  bar "
     );
 }
+
+#[test]
+fn hard_boundaries_split_graphemes_and_softwrap_words() {
+    use crate::DisplayPosition;
+    for softwrap in [false, true] {
+        let text = "é\u{301}abcd🦀";
+        let mut annotations = TextAnnotations::default();
+        annotations.add_line_breaks([0, 1, 5]);
+        let format = TextFormat::new_test(softwrap);
+        let graphemes: Vec<_> =
+            DocumentFormatter::new_at_prev_checkpoint(text.into(), &format, &annotations, 0)
+                .collect();
+        assert_eq!(graphemes[0].doc_chars(), 1);
+        assert_eq!(graphemes[0].visual_pos, DisplayPosition::new(0, 0));
+        assert_eq!(graphemes[1].char_idx, 1);
+        assert_eq!(graphemes[1].visual_pos, DisplayPosition::new(1, 0));
+        let next = graphemes.iter().find(|g| g.char_idx == 5).unwrap();
+        assert_eq!(next.visual_pos, DisplayPosition::new(2, 0));
+        let later: Vec<_> =
+            DocumentFormatter::new_at_prev_checkpoint(text.into(), &format, &annotations, 5)
+                .collect();
+        assert_eq!(later[0].char_idx, 5);
+        assert_eq!(later[0].visual_pos, DisplayPosition::new(0, 0));
+    }
+}
+
+#[test]
+fn virtual_lines_before_are_reserved_once_with_inline_annotations() {
+    use crate::{
+        doc_formatter::FormattedGrapheme, text_annotations::LineAnnotation, DisplayPosition,
+    };
+    struct Headers {
+        next: usize,
+    }
+    impl LineAnnotation for Headers {
+        fn reset_pos(&mut self, pos: usize) -> usize {
+            self.next = if pos == 0 { 0 } else { usize::MAX };
+            self.next
+        }
+        fn process_anchor(&mut self, _: &FormattedGrapheme) -> usize {
+            self.next = usize::MAX;
+            self.next
+        }
+        fn insert_virtual_lines_before(
+            &mut self,
+            pos: usize,
+            _: DisplayPosition,
+            _: usize,
+        ) -> DisplayPosition {
+            DisplayPosition::new(usize::from(pos == self.next), 0)
+        }
+        fn insert_virtual_lines(
+            &mut self,
+            _: usize,
+            _: DisplayPosition,
+            _: usize,
+        ) -> DisplayPosition {
+            DisplayPosition::default()
+        }
+    }
+    for softwrap in [false, true] {
+        let inline = [InlineAnnotation {
+            char_idx: 0,
+            text: "hint".into(),
+        }];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_line_annotation(Box::new(Headers { next: 0 }));
+        annotations.add_inline_annotations(&inline, None);
+        let format = TextFormat::new_test(softwrap);
+        let graphemes: Vec<_> =
+            DocumentFormatter::new_at_prev_checkpoint("x".into(), &format, &annotations, 0)
+                .collect();
+        assert!(graphemes.iter().all(|g| g.visual_pos.row == 1));
+    }
+}

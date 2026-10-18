@@ -21,6 +21,8 @@ pub enum EditError {
     InvalidLength { expected: usize, actual: usize },
     #[error("Cannot edit binary document text")]
     BinaryDocument,
+    #[error("This edit joins parts of one character across excerpts; keep the separating newline")]
+    InvalidExcerptBoundary,
 }
 
 impl From<buffer::InvalidLength> for EditError {

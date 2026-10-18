@@ -45,6 +45,7 @@ pub enum PickerAction {
     AcceptVerticalSplit,
     TogglePreview,
     PopulateQuicklist,
+    OpenMultibuffer,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(skip)]
     Item(PickerItemAction),
@@ -137,6 +138,7 @@ impl Default for ComponentKeymaps {
             ("esc", K::Cancel),
             ("C-c", K::Cancel),
             ("C-q", K::PopulateQuicklist),
+            ("C-o", K::OpenMultibuffer),
             ("A-ret", K::AcceptKeepOpen),
             ("ret", K::Accept),
             ("C-s", K::AcceptHorizontalSplit),

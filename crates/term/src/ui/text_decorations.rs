@@ -12,6 +12,7 @@ pub mod blame;
 pub mod code_lenses;
 mod diagnostics;
 pub mod inline_completion;
+pub mod multibuffer;
 
 /// Decorations are the primary mechanism for extending the text rendering.
 ///

@@ -187,6 +187,7 @@ pub struct Document {
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
+    pub(crate) multibuffer: Option<crate::multibuffer::MultiBuffer>,
     binary: bool,
     view_states: HashMap<ViewId, DocumentViewState>,
     pub active_snippet: Option<ActiveSnippet>,
@@ -285,7 +286,7 @@ pub struct Document {
     // NOTE: this field should eventually go away - we should use the Editor's syn_loader instead
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.
-    syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    pub(crate) syn_loader: Arc<ArcSwap<syntax::Loader>>,
 }
 
 use std::fmt;
@@ -342,6 +343,7 @@ impl Document {
             has_bom,
             buffer: buffer::Buffer::new(text),
             binary: false,
+            multibuffer: None,
             view_states: HashMap::default(),
             inlay_hints: Default::default(),
             hover: Default::default(),
@@ -513,6 +515,9 @@ impl Document {
     > {
         if self.binary {
             bail!("Binary files are read-only and cannot be saved as text");
+        }
+        if self.multibuffer.is_some() {
+            bail!("Save multi-buffers through the editor to write their source files");
         }
         log::debug!(
             "submitting save of doc '{:?}'",
@@ -1102,6 +1107,9 @@ impl Document {
 
     /// If there are unsaved modifications.
     pub fn is_modified(&self) -> bool {
+        if let Some(multi) = &self.multibuffer {
+            return !multi.writes.is_empty() || multi.modified;
+        }
         let current_revision = self.buffer.current_revision();
         log::debug!(
             "id {} modified - last saved: {}, current: {}",
@@ -1441,6 +1449,9 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
+        if self.multibuffer.is_some() {
+            return "[multibuffer]".into();
+        }
         self.display_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }

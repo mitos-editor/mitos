@@ -17,6 +17,7 @@
 - [Textobjects](./textobjects.md)
 - [Syntax-aware motions](./syntax-aware-motions.md)
 - [Pickers](./pickers.md)
+- [Multi-buffers](./multibuffers.md)
 - [Image previews](./image-previews.md)
 - [Quicklist](./quicklist.md)
 - [Jumplist](./jumplist.md)
