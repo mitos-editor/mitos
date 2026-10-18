@@ -150,3 +150,67 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Result<()> {
+    use std::time::Duration;
+    use tokio::sync::{mpsc, oneshot};
+
+    struct Finished(Option<oneshot::Sender<()>>);
+    impl Drop for Finished {
+        fn drop(&mut self) {
+            let _ = self.0.take().unwrap().send(());
+        }
+    }
+
+    for close in [false, true] {
+        let mut app = application()?;
+        let mut jobs = Jobs::new();
+        let mut compositor = Compositor::new(Rect::new(0, 0, 80, 24));
+        let (started, mut running) = mpsc::unbounded_channel();
+        let picker = Picker::new(
+            app.editor.redraw().clone(),
+            [Column::new(
+                "name",
+                |_: &u8, _: &mpsc::UnboundedSender<oneshot::Receiver<()>>| "entry".into(),
+            )],
+            0,
+            [],
+            started,
+            |_, _, _| {},
+        )
+        .with_dynamic_query(
+            |_, _, started, _| {
+                Box::pin(async move {
+                    let (finished, done) = oneshot::channel();
+                    let _finished = Finished(Some(finished));
+                    started.send(done).unwrap();
+                    std::future::pending().await
+                })
+            },
+            Some(0),
+            &jobs,
+        );
+        compositor.push(Box::new(overlaid(picker)));
+        let callback = tokio::time::timeout(Duration::from_secs(5), jobs.callbacks.recv())
+            .await?
+            .unwrap();
+        jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(callback)));
+        let done = tokio::time::timeout(Duration::from_secs(5), running.recv())
+            .await?
+            .unwrap();
+        if close {
+            compositor.pop();
+        } else {
+            let picker = &mut compositor
+                .find::<Overlay<Picker<u8, mpsc::UnboundedSender<oneshot::Receiver<()>>>>>()
+                .unwrap()
+                .content;
+            picker.prompt.set_line("new".into(), &app.editor);
+            picker.handle_prompt_change(true);
+        }
+        tokio::time::timeout(Duration::from_secs(5), done).await??;
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}

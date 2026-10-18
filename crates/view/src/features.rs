@@ -28,4 +28,5 @@ pub mod signature_help;
 pub mod spelling;
 pub mod syntax;
 pub mod word_index;
+pub mod workspace_symbols;
 pub mod workspace_trust;

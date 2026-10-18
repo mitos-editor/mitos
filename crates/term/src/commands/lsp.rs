@@ -549,97 +549,71 @@ pub fn symbol_picker(cx: &mut Context) {
     });
 }
 
+struct WorkspaceSymbolPickerData {
+    style: SymbolPickerData,
+    symbols: std::sync::Arc<view::features::workspace_symbols::WorkspaceSymbolsSession>,
+}
+
 pub fn workspace_symbol_picker(cx: &mut Context) {
     use crate::ui::picker::Injector;
 
-    let doc = doc!(cx.editor);
-    if doc
-        .language_servers_with_feature(LanguageServerFeature::WorkspaceSymbols)
-        .count()
-        == 0
-    {
-        cx.editor
-            .set_error(|| "No configured language server supports workspace symbols");
-        return;
-    }
-
-    let get_symbols = |pattern: &str, editor: &mut Editor, _data, injector: &Injector<_, _>| {
-        let doc = doc!(editor);
-        let mut seen_language_servers = HashSet::new();
-        let mut futures: FuturesUnordered<_> = doc
-            .language_servers_with_feature(LanguageServerFeature::WorkspaceSymbols)
-            .filter(|ls| seen_language_servers.insert(ls.id()))
-            .map(|language_server| {
-                let request = language_server
-                    .workspace_symbols(pattern.to_string())
-                    .unwrap();
-                let offset_encoding = language_server.offset_encoding();
-                async move {
-                    let symbols = request
-                        .await?
-                        .and_then(|resp| match resp {
-                            lsp::WorkspaceSymbolResponse::Flat(symbols) => Some(symbols),
-                            lsp::WorkspaceSymbolResponse::Nested(_) => None,
-                        })
-                        .unwrap_or_default();
-
-                    let response: Vec<_> = symbols
-                        .into_iter()
-                        .filter_map(|symbol| {
-                            let uri = match Uri::try_from(&symbol.location.uri) {
-                                Ok(uri) => uri,
-                                Err(err) => {
-                                    log::warn!("discarding symbol with invalid URI: {err}");
-                                    return None;
-                                }
-                            };
-                            Some(SymbolInformationItem {
-                                location: Location {
-                                    uri,
-                                    range: symbol.location.range,
-                                    offset_encoding,
-                                },
-                                symbol,
-                                tree_prefix: String::new(),
-                            })
-                        })
-                        .collect();
-
-                    anyhow::Ok(response)
-                }
-            })
-            .collect();
-
-        if futures.is_empty() {
-            editor.set_error(|| "No configured language server supports workspace symbols");
+    let document = doc!(cx.editor).id();
+    let session = match cx.editor.workspace_symbols(document) {
+        Ok(session) => session,
+        Err(error) => {
+            cx.editor.set_error(|| error.to_string());
+            return;
         }
-
+    };
+    let get_symbols = |pattern: &str,
+                       editor: &mut Editor,
+                       data: std::sync::Arc<WorkspaceSymbolPickerData>,
+                       injector: &Injector<_, _>| {
+        let request = data.symbols.query(editor, pattern.to_owned());
         let injector = injector.clone();
         async move {
-            while let Some(response) = futures.next().await {
+            let mut task = request?;
+            while let Some(response) = task.next_batch().await {
                 match response {
                     Ok(items) => {
                         for item in items {
-                            injector.push(item)?;
+                            injector.push(SymbolInformationItem {
+                                symbol: item.symbol,
+                                location: item.location,
+                                tree_prefix: String::new(),
+                            })?;
                         }
                     }
-                    Err(err) => log::error!("Error requesting workspace symbols: {err}"),
+                    Err(error) => log::error!("Error requesting workspace symbols: {error}"),
                 }
             }
             Ok(())
         }
         .boxed()
     };
+    let session = std::sync::Arc::new(session);
     let columns = [
-        ui::PickerColumn::new("kind", symbol_kind_cell),
-        ui::PickerColumn::new("name", symbol_name_cell).without_filtering(),
-        ui::PickerColumn::new("container", symbol_container_cell),
-        ui::PickerColumn::new("path", symbol_path_cell),
+        ui::PickerColumn::new("kind", |item, data: &WorkspaceSymbolPickerData| {
+            symbol_kind_cell(item, &data.style)
+        }),
+        ui::PickerColumn::new("name", |item, data: &WorkspaceSymbolPickerData| {
+            symbol_name_cell(item, &data.style)
+        })
+        .without_filtering(),
+        ui::PickerColumn::new("container", |item, data: &WorkspaceSymbolPickerData| {
+            symbol_container_cell(item, &data.style)
+        }),
+        ui::PickerColumn::new("path", |item, data: &WorkspaceSymbolPickerData| {
+            symbol_path_cell(item, &data.style)
+        }),
     ];
 
-    let picker_data = SymbolPickerData {
-        show_icons: cx.editor.config().icons,
-        theme: cx.editor.theme.clone(),
+    let picker_data = WorkspaceSymbolPickerData {
+        style: SymbolPickerData {
+            show_icons: cx.editor.config().icons,
+            theme: cx.editor.theme.clone(),
+        },
+        symbols: session.clone(),
     };
 
     let picker = Picker::new(
@@ -649,6 +623,9 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
         [],
         picker_data,
         move |cx, item, action| {
+            if !session.is_current(cx.editor) {
+                return;
+            }
             jump_to_location(cx.editor, &item.location, action);
         },
     )

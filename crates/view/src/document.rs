@@ -185,6 +185,7 @@ pub struct Document {
     pub(crate) code_action_hints: CodeActionHints,
     pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
     pub(crate) document_symbols: DocumentSymbols,
+    pub(crate) workspace_symbols: event::TaskController,
 
     file: file::FileState,
 
@@ -327,6 +328,7 @@ impl Document {
             document_colors: Default::default(),
             code_lenses: Default::default(),
             document_symbols: Default::default(),
+            workspace_symbols: Default::default(),
             syn_loader,
             pull_diagnostics: Default::default(),
             is_welcome: false,

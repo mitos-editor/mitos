@@ -228,6 +228,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    dynamic_query_request: event::TaskController,
     poll: Option<PollTask>,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
     restore_selection: Option<T>,
@@ -405,6 +406,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             quicklist_fn: None,
             dynamic_query_handler: None,
+            dynamic_query_request: event::TaskController::new(),
             poll: None,
             file_updates: None,
             restore_selection: None,
@@ -709,6 +711,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // If this is a dynamic picker, notify the query hook that the primary
         // query might have been updated.
         if let Some(handler) = &self.dynamic_query_handler {
+            let previous = old_query
+                .get(&self.columns[self.primary_column].name)
+                .map(|pattern| &**pattern)
+                .unwrap_or_default();
+            if &*self.primary_query() != previous {
+                self.dynamic_query_request.cancel();
+                self.version.fetch_add(1, atomic::Ordering::Relaxed);
+            }
             let event = DynamicQueryChange {
                 query: self.primary_query(),
                 is_paste,
@@ -958,6 +968,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            picker.dynamic_query_request.cancel();
             picker.poll = None;
             if let Some(updates) = &mut picker.file_updates {
                 updates.stop();

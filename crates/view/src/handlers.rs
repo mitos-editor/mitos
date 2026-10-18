@@ -8,7 +8,7 @@ use crate::{
         inlay_hints, inline_completion, navigation, rename,
         signature_help::{self, SignatureHelpInvoked},
         spelling::{self, SpellingHandler},
-        syntax, word_index, workspace_trust,
+        syntax, word_index, workspace_symbols, workspace_trust,
     },
     DocumentId, Editor, ViewId,
 };
@@ -216,6 +216,7 @@ fn register_hooks() {
         crate::features::shell::register_hooks();
         rename::register_hooks();
         code_actions::register_hooks();
+        workspace_symbols::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
         word_index::register_hooks();

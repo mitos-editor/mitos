@@ -23,8 +23,7 @@ pub(super) struct DynamicQueryHandler<T: 'static + Send + Sync, D: 'static + Sen
     // Defaults to 100ms if not provided via `Picker::with_dynamic_query`. Callers may want to set
     // this higher if the dynamic query is expensive - for example global search.
     debounce: Duration,
-    last_query: Arc<str>,
-    last_query_version: usize,
+    last_query: Option<(Arc<str>, usize)>,
     query: Option<Arc<str>>,
 }
 
@@ -40,8 +39,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> DynamicQueryHandler<T, 
             jobs,
             picker_version,
             debounce: Duration::from_millis(duration_ms.unwrap_or(100)),
-            last_query: "".into(),
-            last_query_version: 0,
+            last_query: None,
             query: None,
         }
     }
@@ -52,8 +50,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
 
     fn handle_event(&mut self, change: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
         let DynamicQueryChange { query, is_paste } = change;
-        if query == self.last_query
-            && self.picker_version.load(atomic::Ordering::Relaxed) == self.last_query_version
+        if self
+            .last_query
+            .as_ref()
+            .is_some_and(|(last_query, version)| {
+                query == *last_query
+                    && self.picker_version.load(atomic::Ordering::Relaxed) == *version
+            })
         {
             // If the search query reverts to the last one we requested, no need to
             // make a new request.
@@ -74,12 +77,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
         let Some(query) = self.query.take() else {
             return;
         };
-        self.last_query = query.clone();
         let callback = self.callback.clone();
         let picker_version = self.picker_version.clone();
         // Supersede older queued queries and their injectors before publication.
         let version = picker_version.fetch_add(1, atomic::Ordering::Relaxed) + 1;
-        self.last_query_version = version;
+        self.last_query = Some((query.clone(), version));
 
         self.jobs.send_blocking(move |editor, compositor| {
             let Some(Overlay {
@@ -107,8 +109,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
             picker.matcher.restart(false);
             let injector = picker.injector();
             let get_options = (callback)(&query, editor, picker.editor_data.clone(), &injector);
+            let cancel = picker.dynamic_query_request.restart();
             tokio::spawn(async move {
-                if let Err(err) = get_options.await {
+                if let Some(Err(err)) = event::cancelable_future(get_options, &cancel).await {
                     log::info!("Dynamic request failed: {err}");
                 }
                 // NOTE: the Drop implementation of Injector will request a redraw when the

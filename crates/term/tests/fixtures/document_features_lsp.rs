@@ -29,6 +29,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let file_operations = args.first().is_some_and(|arg| arg == "--file-operations");
     let rename = args.first().is_some_and(|arg| arg == "--rename");
+    let workspace_symbols = args.first().is_some_and(|arg| arg == "--workspace-symbols");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
@@ -44,6 +45,7 @@ fn main() -> anyhow::Result<()> {
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
     let mut request_log = if file_operations
         || rename
+        || workspace_symbols
         || formatting
         || diagnostics
         || code_actions
@@ -91,6 +93,7 @@ fn main() -> anyhow::Result<()> {
         }
         if file_operations
             || rename
+            || workspace_symbols
             || formatting
             || action_execution
             || code_lenses
@@ -200,6 +203,22 @@ fn main() -> anyhow::Result<()> {
                     "edits": [{"range": range(3, 6), "newText": params["newName"]}]
                 }]})
             };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if workspace_symbols && method == "workspace/symbol" {
+            if args.iter().any(|arg| arg == "--hold-symbols") {
+                continue;
+            }
+            let uri = documents
+                .keys()
+                .next()
+                .expect("document opened before symbol query");
+            let result = json!([{"name": format!("{}:{}", args[1], params["query"].as_str().unwrap()),
+                "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}]);
             respond(
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": result}),
@@ -596,6 +615,9 @@ fn main() -> anyhow::Result<()> {
             "initialize" if rename => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "renameProvider": {"prepareProvider": !args.iter().any(|arg| arg == "--no-prepare")}
+            }}),
+            "initialize" if workspace_symbols => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": true
             }}),
             "initialize" if formatting => json!({"capabilities": {
                 "textDocumentSync": 1, "documentRangeFormattingProvider": true

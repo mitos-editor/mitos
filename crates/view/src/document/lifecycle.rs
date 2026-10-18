@@ -11,6 +11,7 @@ impl Document {
         self.navigation.clear();
         self.rename.cancel();
         self.code_actions.clear();
+        self.workspace_symbols.cancel();
         self.inlay_hints.clear();
         self.inline_completions.clear();
         self.accepted_completions.cancel();

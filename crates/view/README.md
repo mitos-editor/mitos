@@ -52,3 +52,8 @@ frontends collect the new name and present validated preparation results.
 filters disabled actions, and orders them by priority. Requests belong to the
 originating document/view and selection. Frontends validate the returned update
 before presenting a menu; input changes and replacement requests cancel gathering.
+
+`view::features::workspace_symbols` captures providers from the document that
+opens a symbol session. Queries keep that origin across focus changes and stream
+normalized provider batches. The frontend owns query replacement and presentation;
+changing the primary picker query or closing the picker cancels its active task.

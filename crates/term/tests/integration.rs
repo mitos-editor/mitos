@@ -48,5 +48,6 @@ mod test {
     mod splits;
     mod startup;
     mod statusline;
+    mod workspace_symbols;
     mod workspace_trust;
 }
