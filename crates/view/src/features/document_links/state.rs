@@ -18,6 +18,12 @@ pub(crate) struct DocumentLinks {
 }
 
 impl DocumentLinks {
+    pub(crate) fn invalidate(&mut self) {
+        self.request.cancel();
+        self.cancel_navigation();
+        self.clear_cache();
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: DocumentLinksHandler) {
         self.cancel_navigation();
         self.handler = Some(handler);

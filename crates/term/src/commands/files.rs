@@ -235,7 +235,6 @@ pub(super) mod typed {
     };
     use ::command_line::Args;
     use anyhow::{anyhow, bail, ensure, Context as _};
-    use arc_swap::access::DynAccess;
     use editor_core::{
         encoding, graphemes,
         indent::{IndentStyle, MAX_INDENT},
@@ -880,20 +879,9 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let doc = doc_mut!(cx.editor);
-
-        let loader = cx.editor.syn_loader.load();
-        if &args[0] == DEFAULT_LANGUAGE_NAME {
-            doc.set_language(None, &loader)
-        } else {
-            doc.set_language_by_language_id(&args[0], &loader)?;
-        }
-        doc.detect_indent_and_line_ending();
-
-        let id = doc.id();
-        cx.editor.refresh_language_servers(id);
-        cx.editor.refresh_language_server_diagnostics(id);
-        cx.editor.refresh_spelling(id);
+        let id = doc!(cx.editor).id();
+        let language = (&args[0] != DEFAULT_LANGUAGE_NAME).then_some(args[0].as_ref());
+        cx.editor.set_document_language(id, language)?;
         Ok(())
     }
 

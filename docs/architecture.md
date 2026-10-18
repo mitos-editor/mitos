@@ -155,6 +155,14 @@ restores indentation and the append cursor. `ModeDidChange` observers run after
 those required effects. Terminal hooks retain menu presentation and edit replay;
 headless callers use the same transition operation.
 
+### Document settings
+
+`Editor::set_document_language` and `set_document_spelling_languages` apply complete
+setting changes by document ID. Language changes cancel dependent feature work,
+reopen protocol documents even when the client is reused, and refresh diagnostics
+and spelling. Raw language, syntax, and dictionary state is read-only to frontends.
+Automatic language detection uses the same service refresh path.
+
 ### Configuration application
 
 `view::document::editorconfig` discovers and resolves `.editorconfig` files for

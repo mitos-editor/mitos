@@ -25,20 +25,6 @@ impl Editor {
         crate::features::code_lenses::refresh_document(self, doc_id);
     }
 
-    pub fn refresh_doc_language(&mut self, doc_id: DocumentId) {
-        let loader = self.syn_loader.load();
-        let doc = doc_mut!(self, &doc_id);
-        doc.detect_language(&loader);
-        doc.detect_editor_config();
-        doc.detect_indent_and_line_ending();
-        self.refresh_language_servers(doc_id);
-        self.refresh_language_server_diagnostics(doc_id);
-        let doc = doc_mut!(self, &doc_id);
-        doc.reset_all_inlay_hints();
-        doc.clear_document_symbols();
-        self.refresh_spelling(doc_id);
-    }
-
     /// Launch a language server for a given document
     pub fn launch_language_servers(&mut self, doc_id: DocumentId) {
         if !self.config().lsp.enable {

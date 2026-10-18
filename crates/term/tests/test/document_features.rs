@@ -253,6 +253,39 @@ async fn requests_events_and_results_stay_with_each_editor() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn language_changes_reject_queued_results_and_refresh_reused_servers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("language.feature-test"), "😀 original\n")?;
+    let old = fixture.initialize().await?;
+    let doc = current_ref!(fixture.app.editor).1;
+    let id = doc.id();
+    let server_id = doc.language_servers().next().unwrap().id();
+
+    fixture.app.editor.set_document_language(id, None)?;
+    fixture.assert_empty();
+    fixture
+        .app
+        .editor
+        .set_document_language(id, Some("document-feature-test"))?;
+    assert_eq!(
+        current_ref!(fixture.app.editor)
+            .1
+            .language_servers()
+            .next()
+            .unwrap()
+            .id(),
+        server_id
+    );
+    fixture.apply(old);
+    fixture.assert_empty();
+    let refreshed = fixture.batch(ALL).await?;
+    fixture.apply(refreshed);
+    fixture.assert_features("😀 original");
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn queued_results_are_discarded_after_edits_and_document_closure() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new(&dir.path().join("edit.feature-test"), "😀 original\n")?;
@@ -483,13 +516,7 @@ async fn origin_changes_cancel_pending_link_resolution() -> anyhow::Result<()> {
                 .editor
                 .set_doc_path(id, &dir.path().join("renamed.feature-test")),
             _ => {
-                let loader = fixture.app.editor.syn_loader.load_full();
-                fixture
-                    .app
-                    .editor
-                    .document_mut(id)
-                    .unwrap()
-                    .set_language(None, &loader);
+                fixture.app.editor.set_document_language(id, None)?;
             }
         }
         // Cancellation completes locally before the server releases its held reply.

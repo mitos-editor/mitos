@@ -232,6 +232,7 @@ async fn queued_responses_reject_edits_selection_renames_and_closed_documents() 
         current_ref!(f.app.editor).1.id(),
         &dir.path().join("renamed.signature-test"),
     );
+    assert!(matches!(f.take_change(), Some(SignatureHelpChange::Hide)));
     old(&mut f.app.editor);
     assert!(f.take_change().is_none());
     f.trigger(SignatureHelpInvoked::Manual);

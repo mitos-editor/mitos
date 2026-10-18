@@ -15,7 +15,10 @@ use tokio::{sync::mpsc::Sender, time::Instant};
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
+    events::{
+        DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange, LanguageServerExited,
+        LanguageServerInitialized,
+    },
     features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
@@ -29,6 +32,11 @@ pub(crate) struct DocumentDiagnostics {
 }
 
 impl DocumentDiagnostics {
+    pub(crate) fn clear(&mut self) {
+        self.requests.clear();
+        self.result_ids.clear();
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: PullDiagnosticsHandler) {
         self.handler = Some(handler);
     }
@@ -232,6 +240,10 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
 
 /// Each event routes work through its owning editor or document.
 pub(crate) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+        request_document_diagnostics(event.editor, event.doc);
+        Ok(())
+    });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event.ghost_transaction {
             return Ok(());

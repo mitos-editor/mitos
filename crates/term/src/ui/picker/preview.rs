@@ -302,10 +302,8 @@ impl FilePreview {
                                     CachedPreview::Binary
                                 });
                             }
-                            let mut doc = Document::open(
+                            let doc = Document::open_for_preview(
                                 &path,
-                                None,
-                                false,
                                 editor.config.clone(),
                                 editor.syn_loader.clone(),
                             )
@@ -313,7 +311,6 @@ impl FilePreview {
                                 std::io::ErrorKind::NotFound,
                                 "Cannot open document",
                             )))?;
-                            doc.detect_language(&editor.syn_loader.load_full());
                             Ok(CachedPreview::Document(Box::new(doc)))
                         } else {
                             Err(std::io::Error::new(

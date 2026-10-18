@@ -2,6 +2,7 @@
 //! live in private implementation modules behind the same public `Editor` API.
 
 mod config;
+mod document_settings;
 mod document_store;
 mod documents;
 use document_store::Documents;

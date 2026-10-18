@@ -234,13 +234,16 @@ async fn opt_in_commands_corrections_and_undo() -> anyhow::Result<()> {
     run_event_loop_until_idle(&mut app).await;
     assert!(mistakes(&app).is_empty());
     keys(&mut app, ":spelling en_US en_US<ret>").await?;
-    assert_eq!(current_ref!(app.editor).1.spelling_languages.len(), 1);
+    assert_eq!(current_ref!(app.editor).1.spelling_languages().len(), 1);
     wait_for_mistakes(&mut app, &["teh", "quik"]).await?;
     // A later dictionary with no useful corrections must not erase earlier suggestions.
-    current!(app.editor)
-        .1
-        .spelling_languages
-        .push("second_dictionary".parse()?);
+    let doc = current_ref!(app.editor).1;
+    let id = doc.id();
+    let mut languages = doc.spelling_languages().to_vec();
+    languages.push("second_dictionary".parse()?);
+    app.editor
+        .set_document_spelling_languages(id, Some(languages))?;
+    wait_for_mistakes(&mut app, &["teh", "quik"]).await?;
     let actions = app.editor.spelling_actions().await?;
     let correction = actions
         .iter()
@@ -584,7 +587,7 @@ async fn missing_dictionaries_report_an_error_and_bad_names_preserve_settings() 
     .await?;
     keys(&mut app, ":spelling ../../invalid<ret>").await?;
     assert_eq!(
-        current_ref!(app.editor).1.spelling_languages[0].as_str(),
+        current_ref!(app.editor).1.spelling_languages()[0].as_str(),
         "mitos_nonexistent_dictionary"
     );
     assert!(mistakes(&app).is_empty());
@@ -668,7 +671,7 @@ async fn editorconfig_and_manual_override_take_precedence() -> anyhow::Result<()
         .build()?;
     wait_for_mistakes(&mut app, &["teh"]).await?;
     assert_eq!(
-        current_ref!(app.editor).1.spelling_languages[0].as_str(),
+        current_ref!(app.editor).1.spelling_languages()[0].as_str(),
         "en_US"
     );
     let mut config = (*app.editor.config()).clone();
@@ -683,7 +686,7 @@ async fn editorconfig_and_manual_override_take_precedence() -> anyhow::Result<()
     let config = (*app.editor.config()).clone();
     app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     wait_for_mistakes(&mut app, &[]).await?;
-    assert!(current_ref!(app.editor).1.spelling_languages.is_empty());
+    assert!(current_ref!(app.editor).1.spelling_languages().is_empty());
     Ok(())
 }
 

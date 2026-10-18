@@ -55,3 +55,6 @@ mod write_completion;
 
 #[path = "handler_setup/mode.rs"]
 mod mode;
+
+#[path = "handler_setup/document_settings.rs"]
+mod document_settings;

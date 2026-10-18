@@ -100,6 +100,18 @@ impl Editor {
 }
 
 impl Document {
+    /// Load an unregistered preview and prepare its cancellable syntax request.
+    pub fn open_for_preview(
+        path: &Path,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Result<Self, DocumentOpenError> {
+        let mut doc = Self::open(path, None, false, config, syn_loader)?;
+        let loader = doc.syn_loader.load_full();
+        doc.detect_language(&loader);
+        Ok(doc)
+    }
+
     /// Whether the file is read-only, including binary content.
     pub fn is_readonly(&self) -> bool {
         self.file.readonly

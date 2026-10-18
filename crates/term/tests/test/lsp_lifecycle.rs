@@ -603,3 +603,54 @@ async fn pending_attachments_follow_renames_and_discard_closed_documents() -> an
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn language_changes_reopen_documents_on_reused_servers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(dir.path(), &["alpha"])?;
+    fixture.initialize().await?;
+    let server = fixture.server("alpha");
+    let doc = current_ref!(fixture.app.editor).1.id();
+    let uri = fixture.uri();
+    fixture
+        .app
+        .editor
+        .handle_publish_diagnostics(server, params(&uri, Some(0), "previous language"));
+    assert_eq!(fixture.messages(), ["previous language"]);
+    fixture.app.editor.set_document_language(doc, None)?;
+    fixture
+        .app
+        .editor
+        .set_document_language(doc, Some("lifecycle-test"))?;
+    assert_eq!(fixture.server("alpha"), server);
+    assert!(fixture.messages().is_empty());
+    assert!(!fixture.app.editor.diagnostics().contains_key(&uri));
+    // Await a response to flush all preceding notifications into the server's log.
+    fixture
+        .app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .shutdown()
+        .await?;
+    let messages = read_log(&fixture.logs[0])?;
+    let lifecycle: Vec<_> = messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message["method"].as_str(),
+                Some("textDocument/didOpen" | "textDocument/didClose")
+            )
+        })
+        .collect();
+    assert_eq!(lifecycle.len(), 3);
+    assert_eq!(lifecycle[0]["method"], "textDocument/didOpen");
+    assert_eq!(lifecycle[1]["method"], "textDocument/didClose");
+    assert_eq!(lifecycle[2]["method"], "textDocument/didOpen");
+    assert_eq!(
+        lifecycle[2]["params"]["textDocument"],
+        lifecycle[0]["params"]["textDocument"]
+    );
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}

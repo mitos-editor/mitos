@@ -10,7 +10,10 @@ use text_layout::text_annotations::InlineAnnotation;
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{DocumentDidChange, DocumentDidOpen, LanguageServerExited, LanguageServerInitialized},
+    events::{
+        DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange, LanguageServerExited,
+        LanguageServerInitialized,
+    },
     features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
@@ -150,6 +153,10 @@ fn attach_document_colors(
 }
 
 pub(crate) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+        request_document_colors(event.editor, event.doc, None);
+        Ok(())
+    });
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         // when a document is initially opened, request colors for it
         request_document_colors(event.editor, event.doc, None);

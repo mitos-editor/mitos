@@ -59,7 +59,7 @@ impl DocumentCodeLenses {
         self.titles.clear();
     }
 
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.cancel_requests();
         self.cache.clear();
         self.version = None;

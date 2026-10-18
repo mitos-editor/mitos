@@ -15,6 +15,11 @@ pub(crate) struct DocumentColors {
 }
 
 impl DocumentColors {
+    pub(crate) fn invalidate(&mut self) {
+        self.request.cancel();
+        self.clear_cache();
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: DocumentColorsHandler) {
         self.handler = Some(handler);
     }

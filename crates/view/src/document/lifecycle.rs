@@ -5,6 +5,21 @@ use crate::ViewId;
 use editor_core::{ChangeSet, Selection};
 
 impl Document {
+    /// Cancel language-dependent work before installing a new language configuration.
+    pub(super) fn invalidate_language_features(&mut self) {
+        self.hover.clear();
+        self.navigation.clear();
+        self.inlay_hints.clear();
+        self.inline_completions.clear();
+        self.document_colors.invalidate();
+        self.document_links.invalidate();
+        self.code_lenses.clear();
+        self.document_symbols.clear();
+        self.clear_all_document_highlights();
+        self.clear_all_code_action_hints();
+        self.pull_diagnostics.clear();
+    }
+
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
         let selection = selection.ensure_invariants(self.buffer.text().slice(..));
         match self.view_states.entry(view) {

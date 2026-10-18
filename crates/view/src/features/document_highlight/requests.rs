@@ -7,8 +7,8 @@ use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{
-        ConfigDidChange, DocumentDidChange, DocumentDidOpen, LanguageServerExited,
-        LanguageServerInitialized, SelectionDidChange,
+        ConfigDidChange, DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange,
+        LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
     },
     features::request::DocumentRequest,
     DocumentId, Editor, ViewId,
@@ -179,6 +179,12 @@ fn apply_document_highlights(
 }
 
 pub(crate) fn register_hooks() {
+    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+        let view_id = event.editor.tree.focus;
+        request_document_highlights(event.editor, event.doc, view_id);
+        Ok(())
+    });
+
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         if event.doc.config.load().lsp.document_highlight.auto_trigger
             && event

@@ -23,3 +23,7 @@ The `diagnostics` crate owns diagnostic values, provider identities, collections
 and edit mapping. `features/diagnostics` owns LSP conversion and publication for
 push and pull providers. Frontends receive immutable diagnostic views; text
 mutations map diagnostic anchors before notifying observers.
+
+Language and dictionary overrides change through editor operations taking a
+document ID. These operations own feature invalidation, language-server reopening,
+and diagnostic/spelling refresh without requiring the document to be focused.

@@ -11,6 +11,8 @@ events! {
         editor: &'a mut Editor,
         doc: DocumentId
     }
+    // Language settings, protocol synchronization, and diagnostic refresh are installed.
+    DocumentLanguageDidChange<'a> { editor: &'a mut Editor, doc: DocumentId }
     // Text, mapped anchors, and the transaction's selection are consistent. Protocol
     // synchronization is queued before observers can request derived feature results.
     DocumentDidChange<'a> {
@@ -58,6 +60,7 @@ pub(crate) fn register() {
         use event::register_event;
         register_event::<ModeDidChange>();
         register_event::<DocumentDidOpen>();
+        register_event::<DocumentLanguageDidChange>();
         register_event::<DocumentDidChange>();
         register_event::<DocumentDidClose>();
         register_event::<DocumentFocusLost>();

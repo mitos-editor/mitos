@@ -24,7 +24,7 @@ impl DocumentSymbols {
     }
 
     /// Invalidate both the request and every derived breadcrumb.
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.request.cancel();
         self.clear_cache();
     }

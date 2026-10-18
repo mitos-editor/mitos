@@ -36,7 +36,7 @@ mod syntax_initialization;
 use syntax_initialization::PendingSyntax;
 pub use syntax_initialization::SyntaxRequest;
 
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use arc_swap::access::DynAccess;
 use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
@@ -187,16 +187,16 @@ pub struct Document {
     ///
     /// Resolved by [`Document::detect_spelling_languages`] from the manual override, the
     /// document's `.editorconfig` (`spelling_language = en_US`), or the resolved config.
-    pub spelling_languages: Vec<language_config::SpellingLanguage>,
+    pub(crate) spelling_languages: Vec<language_config::SpellingLanguage>,
     /// A manual `:set-spelling-language` choice, which takes precedence over `.editorconfig` and
     /// config when resolving [`Document::spelling_languages`]. `None` means derive from those; an
     /// empty `Vec` forces spell checking off regardless of what they say.
-    pub spelling_language_override: Option<Vec<language_config::SpellingLanguage>>,
+    pub(crate) spelling_language_override: Option<Vec<language_config::SpellingLanguage>>,
 
     /// The document's default line ending.
     pub line_ending: LineEnding,
 
-    pub syntax: Option<Syntax>,
+    pub(crate) syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
     // Assigned when the document joins an editor so its events return to that editor.
     pub(crate) signature_help_trigger:
@@ -207,7 +207,7 @@ pub struct Document {
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::features::spelling::SpellingEvent>>,
     /// Corresponding language scope name. Usually `source.<lang>`.
-    pub language: Option<Arc<LanguageConfiguration>>,
+    pub(crate) language: Option<Arc<LanguageConfiguration>>,
 
     pub(crate) selection_history: crate::editing::SelectionHistory,
     pub config: Arc<dyn DynAccess<Config>>,
@@ -334,11 +334,8 @@ impl Document {
     }
 
     /// Detect the language and initialize syntax without delaying file loading.
-    pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
-        self.hover.clear();
-        self.navigation.clear();
-        self.document_links.cancel_navigation();
-        self.reset_all_inlay_hints();
+    pub(crate) fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
+        self.invalidate_language_features();
         self.language = self.detect_language_config(loader);
         self.initialize_syntax(loader.clone());
     }
@@ -424,16 +421,13 @@ impl Document {
 
     /// Set the language and load its syntax immediately for an explicit language command.
     /// Automatic file loading uses [`Self::detect_language`] to initialize in the background.
-    pub fn set_language(
+    pub(crate) fn set_language(
         &mut self,
         language_config: Option<Arc<LanguageConfiguration>>,
         loader: &syntax::Loader,
     ) {
         self.pending_syntax = None;
-        self.hover.clear();
-        self.navigation.clear();
-        self.document_links.cancel_navigation();
-        self.reset_all_inlay_hints();
+        self.invalidate_language_features();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
             let language = loader.language_for_name(config.language_id.as_str())?;
@@ -445,21 +439,6 @@ impl Document {
                 })
                 .ok()
         });
-    }
-
-    /// Set the programming language for the file if you know the language but don't have the
-    /// [`language_config::LanguageConfiguration`] for it.
-    pub fn set_language_by_language_id(
-        &mut self,
-        language_id: &str,
-        loader: &syntax::Loader,
-    ) -> anyhow::Result<()> {
-        let language = loader
-            .language_for_name(language_id)
-            .ok_or_else(|| anyhow!("invalid language id: {}", language_id))?;
-        let config = loader.language(language).config().clone();
-        self.set_language(Some(config), loader);
-        Ok(())
     }
 
     /// Select text within the [`Document`].
@@ -609,6 +588,11 @@ impl Document {
             .language_server_language_id
             .as_deref()
             .or_else(|| self.language_name())
+    }
+
+    /// Resolved dictionaries after applying document, language, and editor settings.
+    pub fn spelling_languages(&self) -> &[language_config::SpellingLanguage] {
+        &self.spelling_languages
     }
 
     /// Corresponding [`LanguageConfiguration`].

@@ -83,10 +83,10 @@ pub(super) mod typed {
 
         if args.is_empty() {
             let doc = doc!(cx.editor);
-            let status = if doc.spelling_languages.is_empty() {
+            let status = if doc.spelling_languages().is_empty() {
                 "off".to_string()
             } else {
-                doc.spelling_languages
+                doc.spelling_languages()
                     .iter()
                     .map(|language| language.to_string())
                     .collect::<Vec<_>>()
@@ -103,10 +103,9 @@ pub(super) mod typed {
                 .map(|arg| arg.parse())
                 .collect::<Result<Vec<language_config::SpellingLanguage>, _>>()?
         };
-        let doc = doc_mut!(cx.editor);
-        let doc_id = doc.id();
-        doc.spelling_language_override = Some(languages);
-        cx.editor.refresh_spelling(doc_id);
+        let doc_id = doc!(cx.editor).id();
+        cx.editor
+            .set_document_spelling_languages(doc_id, Some(languages))?;
 
         Ok(())
     }
