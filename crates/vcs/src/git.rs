@@ -1,19 +1,21 @@
 use anyhow::{bail, Context, Result};
 use arc_swap::ArcSwap;
 use gix::filter::plumbing::driver::apply::Delay;
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gix::bstr::{BString, ByteSlice, ByteVec};
-use gix::diff::Rewrites;
+use gix::diff::{index::Change as IndexChange, Rewrites};
 use gix::dir::entry::Status;
 use gix::objs::tree::EntryKind;
 use gix::sec::trust::DefaultForLevel;
 use gix::status::{
     index_worktree::Item,
     plumbing::index_as_worktree::{Change, EntryStatus},
-    UntrackedFiles,
+    tree_index::TrackRenames,
+    Item as StatusItem, UntrackedFiles,
 };
 use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 
@@ -171,6 +173,12 @@ fn status(
         .ok_or_else(|| anyhow::anyhow!("working tree not found"))?
         .to_path_buf();
 
+    let rewrites = Rewrites {
+        copies: None,
+        percentage: Some(0.5),
+        limit: 1000,
+        ..Default::default()
+    };
     let status_platform = repo
         .status(gix::progress::Discard)?
         // Here we discard the `status.showUntrackedFiles` config, as it makes little sense in
@@ -178,26 +186,37 @@ fn status(
         // if the default value weren't `Collapsed` though, as this default value would render
         // the feature unusable to many.
         .untracked_files(UntrackedFiles::Files)
-        // Turn on file rename detection, which is off by default.
-        .index_worktree_rewrites(Some(Rewrites {
-            copies: None,
-            percentage: Some(0.5),
-            limit: 1000,
-            ..Default::default()
-        }));
+        // Detect renames in both the staging area and the working tree.
+        .index_worktree_rewrites(Some(rewrites))
+        .tree_index_track_renames(TrackRenames::Given(rewrites));
 
     let patterns = status_patterns(&work_dir, scope)?;
 
-    let status_iter = status_platform.into_index_worktree_iter(patterns)?;
+    let status_iter = status_platform.into_iter(patterns)?;
+    // The two comparisons arrive in arbitrary order. Collect them per path so
+    // partially staged files appear once with a deterministic status.
+    #[derive(Default)]
+    struct FileChanges {
+        staged: Option<FileChange>,
+        worktree: Option<FileChange>,
+    }
+    let mut changes: BTreeMap<PathBuf, FileChanges> = BTreeMap::new();
 
     for item in status_iter {
-        let Ok(item) = item.map_err(|err| f(&work_dir, Err(err.into()))) else {
-            continue;
+        let item = match item {
+            Ok(item) => item,
+            Err(err) => {
+                if !f(&work_dir, Err(err.into())) {
+                    return Ok(());
+                }
+                continue;
+            }
         };
+        let staged = matches!(&item, StatusItem::TreeIndex(_));
         let change = match item {
-            Item::Modification {
+            StatusItem::IndexWorktree(Item::Modification {
                 rela_path, status, ..
-            } => {
+            }) => {
                 let path = work_dir.join(rela_path.to_path()?);
                 match status {
                     EntryStatus::Conflict { .. } => FileChange::Conflict { path },
@@ -215,20 +234,60 @@ fn status(
                     _ => continue,
                 }
             }
-            Item::DirectoryContents { entry, .. } if entry.status == Status::Untracked => {
+            StatusItem::IndexWorktree(Item::DirectoryContents { entry, .. })
+                if entry.status == Status::Untracked =>
+            {
                 FileChange::Untracked {
                     path: work_dir.join(entry.rela_path.to_path()?),
                 }
             }
-            Item::Rewrite {
+            StatusItem::IndexWorktree(Item::Rewrite {
                 source,
                 dirwalk_entry,
                 ..
-            } => FileChange::Renamed {
+            }) => FileChange::Renamed {
                 from_path: work_dir.join(source.rela_path().to_path()?),
                 to_path: work_dir.join(dirwalk_entry.rela_path.to_path()?),
             },
+            StatusItem::TreeIndex(IndexChange::Addition { location, .. }) => FileChange::Added {
+                path: work_dir.join(location.to_path()?),
+            },
+            StatusItem::TreeIndex(IndexChange::Deletion { location, .. }) => FileChange::Deleted {
+                path: work_dir.join(location.to_path()?),
+            },
+            StatusItem::TreeIndex(IndexChange::Modification { location, .. }) => {
+                FileChange::Modified {
+                    path: work_dir.join(location.to_path()?),
+                }
+            }
+            StatusItem::TreeIndex(IndexChange::Rewrite {
+                source_location,
+                location,
+                ..
+            }) => FileChange::Renamed {
+                from_path: work_dir.join(source_location.to_path()?),
+                to_path: work_dir.join(location.to_path()?),
+            },
             _ => continue,
+        };
+        let entry = changes.entry(change.path().to_path_buf()).or_default();
+        if staged {
+            entry.staged = Some(change);
+        } else {
+            entry.worktree = Some(change);
+        }
+    }
+
+    for changes in changes.into_values() {
+        let change = match (changes.staged, changes.worktree) {
+            // An unstaged edit doesn't erase a staged addition or rename.
+            (
+                Some(staged @ (FileChange::Added { .. } | FileChange::Renamed { .. })),
+                Some(FileChange::Modified { .. }),
+            ) => staged,
+            (_, Some(worktree)) => worktree,
+            (Some(staged), None) => staged,
+            (None, None) => continue,
         };
         if !f(&work_dir, Ok(change)) {
             break;

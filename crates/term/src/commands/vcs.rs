@@ -78,6 +78,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
 
         match change {
             FileChange::Untracked { path }
+            | FileChange::Added { path }
             | FileChange::Modified { path }
             | FileChange::Conflict { path }
             | FileChange::Deleted { path } => display_path(path),
@@ -94,6 +95,12 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 "+ untracked",
                 icons.vcs().added(),
                 "untracked",
+                data.style_untracked,
+            ),
+            FileChange::Added { .. } => (
+                "+ added",
+                icons.vcs().added(),
+                "added",
                 data.style_untracked,
             ),
             FileChange::Modified { .. } => (

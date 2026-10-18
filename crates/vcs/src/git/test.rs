@@ -2,7 +2,7 @@ use std::{cell::RefCell, fs::File, io::Write, path::Path, process::Command};
 
 use tempfile::TempDir;
 
-use crate::{git, ChangedFileScope};
+use crate::{git, ChangedFileScope, FileChange};
 
 pub(crate) fn exec_git_cmd(args: &[&str], git_dir: &Path) {
     let res = Command::new("git")
@@ -148,20 +148,25 @@ fn changed_files_can_be_scoped_to_a_directory() {
         .write_all(b"after")
         .unwrap();
 
-    let changes = RefCell::new(Vec::new());
-    git::for_each_changed_file(
-        &ChangedFileScope::Directory(project.clone()),
-        true,
-        |_worktree_root, change| {
-            changes.borrow_mut().push(change.unwrap());
-            true
-        },
-    )
-    .unwrap();
+    for staged in [false, true] {
+        if staged {
+            exec_git_cmd(&["add", "-A"], temp_git.path());
+        }
+        let changes = RefCell::new(Vec::new());
+        git::for_each_changed_file(
+            &ChangedFileScope::Directory(project.clone()),
+            true,
+            |_worktree_root, change| {
+                changes.borrow_mut().push(change.unwrap());
+                true
+            },
+        )
+        .unwrap();
 
-    let changes = changes.into_inner();
-    assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].path(), project_file);
+        let changes = changes.into_inner();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path(), project_file);
+    }
 
     let patterns = git::status_patterns(
         temp_git.path(),
@@ -169,6 +174,146 @@ fn changed_files_can_be_scoped_to_a_directory() {
     )
     .unwrap();
     assert_eq!(patterns, [":(top,literal)project"]);
+}
+
+#[test]
+fn changed_files_include_staged_changes_without_duplicate_paths() {
+    let repo = empty_git_repo();
+    let root = repo.path();
+    std::fs::write(root.join(".gitattributes"), "* text eol=lf\n").unwrap();
+    for (name, text) in [
+        ("modified.txt", "modify this\n"),
+        ("deleted.txt", "delete this\n"),
+        ("original.txt", "rename this\n"),
+        ("mixed.txt", "original content\n"),
+    ] {
+        std::fs::write(root.join(name), text).unwrap();
+    }
+    create_commit(root, true);
+    std::fs::write(root.join("modified.txt"), "staged modification\n").unwrap();
+    std::fs::write(root.join("added.txt"), "staged addition\n").unwrap();
+    std::fs::write(root.join("mixed.txt"), "staged content\n").unwrap();
+    exec_git_cmd(&["rm", "deleted.txt"], root);
+    exec_git_cmd(&["mv", "original.txt", "renamed.txt"], root);
+    exec_git_cmd(&["add", "-A"], root);
+    // Keep the addition and rename classifications after further working-tree edits.
+    std::fs::write(root.join("added.txt"), "staged addition\nfurther edit\n").unwrap();
+    std::fs::write(root.join("renamed.txt"), "rename this\nfurther edit\n").unwrap();
+    // Both comparisons matter even when the working file matches HEAD again.
+    std::fs::write(root.join("mixed.txt"), "original content\n").unwrap();
+    std::fs::write(root.join("untracked.txt"), "untracked\n").unwrap();
+    let index = std::fs::read(root.join(".git/index")).unwrap();
+
+    let changes = RefCell::new(Vec::new());
+    git::for_each_changed_file(
+        &ChangedFileScope::Repository(root.into()),
+        true,
+        |_, change| {
+            changes.borrow_mut().push(change.unwrap());
+            true
+        },
+    )
+    .unwrap();
+    let changes = changes.into_inner();
+    let mut paths: Vec<_> = changes
+        .iter()
+        .map(|change| change.path().file_name().unwrap().to_owned())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            "added.txt",
+            "deleted.txt",
+            "mixed.txt",
+            "modified.txt",
+            "renamed.txt",
+            "untracked.txt"
+        ]
+    );
+    assert!(changes.iter().any(
+        |change| matches!(change, FileChange::Added { path } if path == &root.join("added.txt"))
+    ));
+    assert!(changes.iter().any(
+        |change| matches!(change, FileChange::Deleted { path } if path == &root.join("deleted.txt"))
+    ));
+    assert!(changes.iter().any(|change| matches!(change, FileChange::Modified { path } if path == &root.join("modified.txt"))));
+    assert!(changes.iter().any(|change| matches!(change, FileChange::Renamed { from_path, to_path } if from_path == &root.join("original.txt") && to_path == &root.join("renamed.txt"))));
+    assert_eq!(std::fs::read(root.join(".git/index")).unwrap(), index);
+}
+
+#[test]
+fn changed_files_include_staged_additions_before_the_first_commit() {
+    let repo = empty_git_repo();
+    let root = repo.path();
+    for name in ["added.txt", "intent.txt", "untracked.txt"] {
+        std::fs::write(root.join(name), name).unwrap();
+    }
+    exec_git_cmd(&["add", "added.txt"], root);
+    exec_git_cmd(&["add", "--intent-to-add", "intent.txt"], root);
+
+    let changes = RefCell::new(Vec::new());
+    git::for_each_changed_file(
+        &ChangedFileScope::Repository(root.into()),
+        false,
+        |_, change| {
+            changes.borrow_mut().push(change.unwrap());
+            true
+        },
+    )
+    .unwrap();
+    let changes = changes.into_inner();
+    assert_eq!(changes.len(), 3);
+    assert!(changes.iter().any(
+        |change| matches!(change, FileChange::Added { path } if path == &root.join("added.txt"))
+    ));
+    for name in ["intent.txt", "untracked.txt"] {
+        assert!(changes.iter().any(
+            |change| matches!(change, FileChange::Untracked { path } if path == &root.join(name))
+        ));
+    }
+}
+
+#[test]
+fn changed_files_keep_conflicts_alongside_staged_changes() {
+    let repo = empty_git_repo();
+    let root = repo.path();
+    std::fs::write(root.join("conflict.txt"), "base\n").unwrap();
+    std::fs::write(root.join("staged.txt"), "before\n").unwrap();
+    create_commit(root, true);
+    exec_git_cmd(&["checkout", "-b", "other"], root);
+    std::fs::write(root.join("conflict.txt"), "theirs\n").unwrap();
+    create_commit(root, true);
+    exec_git_cmd(&["checkout", "main"], root);
+    std::fs::write(root.join("conflict.txt"), "ours\n").unwrap();
+    create_commit(root, true);
+    let merge = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["merge", "--no-commit", "other"])
+        .env_remove("GIT_DIR")
+        .output()
+        .unwrap();
+    assert_eq!(merge.status.code(), Some(1), "merge should conflict");
+    std::fs::write(root.join("staged.txt"), "after\n").unwrap();
+    exec_git_cmd(&["add", "staged.txt"], root);
+
+    let changes = RefCell::new(Vec::new());
+    git::for_each_changed_file(
+        &ChangedFileScope::Repository(root.into()),
+        true,
+        |_, change| {
+            changes.borrow_mut().push(change.unwrap());
+            true
+        },
+    )
+    .unwrap();
+    let changes = changes.into_inner();
+    assert_eq!(changes.len(), 2);
+    assert!(changes.iter().any(|change| matches!(change, FileChange::Conflict { path } if path == &root.join("conflict.txt"))));
+    assert!(changes.iter().any(
+        |change| matches!(change, FileChange::Modified { path } if path == &root.join("staged.txt"))
+    ));
 }
 
 /// Test that `get_file_head` does not return content for a directory.

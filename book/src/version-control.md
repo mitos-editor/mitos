@@ -36,4 +36,4 @@ Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 
 Restoring a change replaces whole intersecting hunks in the current buffer. Use `u` to undo it. The command does not save the file or modify Git's staging area.
 
-The changed-file pickers currently list unstaged changes and untracked files; staged-only changes are not included.
+The changed-file pickers include staged changes, unstaged changes, and untracked files. Each path appears once, including files with both staged and unstaged edits. Staged new files are labeled `added`; files not yet added to Git are labeled `untracked`.

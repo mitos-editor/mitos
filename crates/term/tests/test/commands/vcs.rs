@@ -363,3 +363,55 @@ async fn restore_change_restores_only_the_buffer_and_is_undoable() -> anyhow::Re
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> {
+    let Some(root) = super::super::helpers::isolation::workspace(
+        "test::commands::vcs::changed_file_pickers_include_staged_only_files",
+    )?
+    else {
+        return Ok(());
+    };
+    let repo = root.join("workspace");
+    let existing = repo.join("existing.txt");
+    std::fs::write(&existing, "before\n")?;
+    std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n")?;
+    git(&repo, &["init"]);
+    git(&repo, &["add", "existing.txt", ".gitattributes"]);
+    git(&repo, &["commit", "-m", "initial"]);
+    std::fs::write(&existing, "staged modification\n")?;
+    std::fs::write(repo.join("staged-only.txt"), "staged addition\n")?;
+    git(&repo, &["add", "existing.txt", "staged-only.txt"]);
+    std::fs::write(repo.join("untracked.txt"), "untracked\n")?;
+
+    let mut config = test_config();
+    config.editor.icons = false;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&existing, None)
+        .build()?;
+    run_event_loop_until_idle(&mut app).await;
+    for keys in ["<space>g", "<space>?changed_file_picker_in_repository<ret>"] {
+        press_keys(&mut app, keys).await?;
+        let screen: String = app
+            .terminal_backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        for text in [
+            "existing.txt",
+            "staged-only.txt",
+            "untracked.txt",
+            "+ added",
+            "~ modified",
+            "+ untracked",
+        ] {
+            assert!(screen.contains(text), "missing {text}: {screen}");
+        }
+        press_keys(&mut app, "<esc>").await?;
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

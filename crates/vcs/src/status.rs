@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 pub enum FileChange {
     /// Not tracked by the VCS.
     Untracked { path: PathBuf },
+    /// File has been added to version control.
+    Added { path: PathBuf },
     /// File has been modified.
     Modified { path: PathBuf },
     /// File modification is in conflict with a different update.
@@ -21,6 +23,7 @@ impl FileChange {
     pub fn path(&self) -> &Path {
         match self {
             Self::Untracked { path } => path,
+            Self::Added { path } => path,
             Self::Modified { path } => path,
             Self::Conflict { path } => path,
             Self::Deleted { path } => path,
