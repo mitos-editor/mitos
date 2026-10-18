@@ -1,7 +1,6 @@
 use crate::editor::Action;
-use crate::{align_view, Align, Editor};
+use crate::{align_view, debugger::source, Align, Editor};
 use dap::{self as dap, DebugAdapterId, Payload};
-use editor_core::Selection;
 
 #[macro_export]
 macro_rules! debugger {
@@ -13,16 +12,10 @@ macro_rules! debugger {
     }};
 }
 
-// general utils:
-pub fn dap_pos_to_pos(doc: &editor_core::Rope, line: usize, column: usize) -> Option<usize> {
-    // 1-indexing to 0 indexing
-    let line = doc.try_line_to_char(line - 1).ok()?;
-    let pos = line + column.saturating_sub(1);
-    // TODO: this is probably utf-16 offsets
-    Some(pos)
-}
-
 pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
+    if source::line_index(frame.line).is_none() {
+        return;
+    }
     let path = if let Some(dap::Source {
         path: Some(ref path),
         ..
@@ -40,14 +33,9 @@ pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
 
     let (view, doc) = current!(editor);
 
-    let text_end = doc.text().len_chars().saturating_sub(1);
-    let start = dap_pos_to_pos(doc.text(), frame.line, frame.column).unwrap_or(0);
-    let end = frame
-        .end_line
-        .and_then(|end_line| dap_pos_to_pos(doc.text(), end_line, frame.end_column.unwrap_or(0)))
-        .unwrap_or(start);
-
-    let selection = Selection::single(start.min(text_end), end.min(text_end));
+    let Some(selection) = source::frame_selection(doc.text(), frame) else {
+        return;
+    };
     doc.set_selection(view.id, selection);
     align_view(doc, view, Align::Center);
 }

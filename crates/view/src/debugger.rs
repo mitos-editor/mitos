@@ -1,6 +1,7 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
 mod breakpoints;
+pub mod source;
 pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod events;
 mod progress;
@@ -34,6 +35,7 @@ pub struct BreakpointId(u64);
 pub struct Breakpoint {
     pub(crate) identity: BreakpointId,
     pub line: usize,
+    /// Optional one-based UTF-16 column, matching the DAP source-breakpoint format.
     pub column: Option<usize>,
     pub condition: Option<String>,
     pub hit_condition: Option<String>,

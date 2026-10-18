@@ -336,7 +336,8 @@ fn execution_pause_indicator<'doc>(
 ) -> GutterFn<'doc> {
     let style = theme.get("ui.debug.active");
     let current_stack_frame = editor.current_stack_frame();
-    let frame_line = current_stack_frame.map(|frame| frame.line.saturating_sub(1));
+    let frame_line =
+        current_stack_frame.and_then(|frame| crate::debugger::source::line_index(frame.line));
     let frame_source_path = current_stack_frame.map(|frame| {
         frame
             .source

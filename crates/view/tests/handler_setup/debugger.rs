@@ -2053,3 +2053,43 @@ async fn selecting_stopped_sessions_opens_their_cached_frames() -> anyhow::Resul
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stack_navigation_selects_unicode_source_ranges_and_ignores_unknown_lines(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    for ending in ["\n", "\r\n"] {
+        let source = f.dir.path().join(if ending == "\n" {
+            "lf.words"
+        } else {
+            "crlf.words"
+        });
+        std::fs::write(&source, format!("a😀b{ending}next{ending}"))?;
+        let mut frame: dap::StackFrame = serde_json::from_value(
+            json!({"id":1,"name":"main","source":{"path":source},"line":1,"column":2,"endColumn":4}),
+        )?;
+        view::handlers::dap::jump_to_stack_frame(&mut f.editor, &frame);
+        let (view, doc) = view::current_ref!(f.editor);
+        assert_eq!(
+            doc.selection(view.id),
+            &editor_core::Selection::single(1, 2)
+        );
+        assert_eq!(doc.text().slice(1..2).to_string(), "😀");
+        frame.column = usize::MAX;
+        frame.end_column = None;
+        view::handlers::dap::jump_to_stack_frame(&mut f.editor, &frame);
+        let (view, doc) = view::current_ref!(f.editor);
+        assert_eq!(
+            doc.selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..)),
+            3
+        );
+        f.editor.new_file(view::editor::Action::Replace);
+        let before = view::current_ref!(f.editor).1.id();
+        frame.line = 0;
+        view::handlers::dap::jump_to_stack_frame(&mut f.editor, &frame);
+        assert_eq!(view::current_ref!(f.editor).1.id(), before);
+    }
+    Ok(())
+}

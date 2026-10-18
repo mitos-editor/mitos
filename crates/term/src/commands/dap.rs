@@ -100,10 +100,7 @@ fn thread_picker(
                 let path = frame.source.as_ref()?.path.as_ref()?.as_path();
                 Some((
                     path.into(),
-                    Some((
-                        frame.line.saturating_sub(1),
-                        frame.end_line.unwrap_or(frame.line).saturating_sub(1),
-                    )),
+                    Some(view::debugger::source::frame_line_range(frame)?),
                 ))
             });
             compositor.push(Box::new(picker));
@@ -564,17 +561,9 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
         if !preview_context.is_current(editor) {
             return None;
         }
-        frame.source.as_ref().and_then(|source| {
-            source.path.as_ref().map(|path| {
-                (
-                    path.as_path().into(),
-                    Some((
-                        frame.line.saturating_sub(1),
-                        frame.end_line.unwrap_or(frame.line).saturating_sub(1),
-                    )),
-                )
-            })
-        })
+        let lines = view::debugger::source::frame_line_range(frame)?;
+        let path = frame.source.as_ref()?.path.as_ref()?;
+        Some((path.as_path().into(), Some(lines)))
     });
     cx.push_layer(Box::new(picker))
 }

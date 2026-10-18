@@ -9,7 +9,10 @@ use anyhow::{Context as _, Result};
 use dap::{requests, DebugAdapterId, SourceBreakpoint};
 use event::{TaskController, TaskHandle};
 
-use super::{validate_capabilities, Breakpoint, BreakpointId, BreakpointProperty, DebuggerState};
+use super::{
+    source::line_index, validate_capabilities, Breakpoint, BreakpointId, BreakpointProperty,
+    DebuggerState,
+};
 use crate::Editor;
 
 #[derive(Default)]
@@ -58,8 +61,11 @@ fn source_breakpoints(
                 )?;
             }
             Ok(SourceBreakpoint {
-                line: breakpoint.line + 1,
-                column: breakpoint.column,
+                line: breakpoint
+                    .line
+                    .checked_add(1)
+                    .context("Breakpoint line is out of range")?,
+                column: breakpoint.column.filter(|column| *column > 0),
                 condition: breakpoint.condition.clone(),
                 hit_condition: breakpoint.hit_condition.clone(),
                 log_message: breakpoint.log_message.clone(),
@@ -76,6 +82,7 @@ pub struct BreakpointBinding {
     pub message: Option<String>,
     pub path: PathBuf,
     pub line: usize,
+    /// Optional one-based UTF-16 column supplied by the adapter.
     pub column: Option<usize>,
 }
 
@@ -86,18 +93,18 @@ impl BreakpointBinding {
             verified: response.verified,
             message: response.message,
             path,
-            line: response.line.map_or(line, |line| line.saturating_sub(1)),
-            column: response.column.or(column),
+            line: response.line.and_then(line_index).unwrap_or(line),
+            column: response.column.filter(|column| *column > 0).or(column),
         }
     }
 
     fn update(&mut self, response: dap::Breakpoint) {
         self.verified = response.verified;
         self.message = response.message;
-        if let Some(line) = response.line {
-            self.line = line.saturating_sub(1);
+        if let Some(line) = response.line.and_then(line_index) {
+            self.line = line;
         }
-        if let Some(column) = response.column {
+        if let Some(column) = response.column.filter(|column| *column > 0) {
             self.column = Some(column);
         }
     }
@@ -171,12 +178,10 @@ impl BreakpointSession {
                 .source
                 .as_ref()
                 .and_then(|source| source.path.clone())
-            && let Some(line) = response.line
+            && let Some(line) = response.line.and_then(line_index)
         {
-            self.discovered.insert(
-                id,
-                BreakpointBinding::new(path, line.saturating_sub(1), None, response),
-            );
+            self.discovered
+                .insert(id, BreakpointBinding::new(path, line, None, response));
         }
     }
 }
@@ -517,5 +522,19 @@ mod tests {
             vec![response(200, None)],
         );
         assert_eq!(session.bindings[&BreakpointId(1)].line, 7);
+    }
+
+    #[test]
+    fn unknown_adapter_locations_preserve_requested_breakpoints() {
+        let path = PathBuf::from("main.rs");
+        let mut binding = BreakpointBinding::new(path.clone(), 7, Some(3), response(1, Some(0)));
+        assert_eq!(binding.line, 7);
+        binding.update(response(1, Some(0)));
+        assert_eq!(binding.line, 7);
+        let mut session = BreakpointSession::default();
+        let mut unknown = response(2, Some(0));
+        unknown.source = Some(serde_json::from_value(serde_json::json!({"path":path})).unwrap());
+        session.handle_event("new", unknown);
+        assert!(session.discovered.is_empty());
     }
 }
