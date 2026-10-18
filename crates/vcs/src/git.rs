@@ -49,10 +49,9 @@ pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
     // This will apply the user's git config or attributes like crlf conversions.
     //
     // The whole filter pipeline still runs in untrusted (`Trust::Reduced`) mode so built-in
-    // conversions like autocrlf keep working, but gix drops `filter.*.clean` / `filter.*.smudge`
-    // drivers defined in untrusted (repository-local) config, so those external programs are not
-    // executed unless the workspace was explicitly trusted. This relies on `open_repo` forcing the
-    // trust level instead of letting gix re-derive it from `.git` ownership; see the note there.
+    // conversions like autocrlf keep working, but `open_repo` excludes repository-local
+    // `filter.*.clean` / `filter.*.smudge` drivers from sensitive configuration lookups, so those
+    // external programs are not executed unless the workspace was explicitly trusted.
     if let Some(work_dir) = repo.workdir() {
         let rela_path = file.strip_prefix(work_dir)?;
         let rela_path = gix::path::try_into_bstr(rela_path)?;
@@ -127,15 +126,10 @@ pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> 
 }
 
 pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
-    // `trust_full` is the workspace-trust decision made by the caller, and it must be the
-    // authority on the gix trust level. gix's own discovery (`discover_*`) ignores a
-    // caller-supplied trust level: it always re-derives trust from `.git` ownership, so a malicious
-    // `.git/config` in a user-owned directory would be opened as `Trust::Full` regardless of our
-    // gate. Worse, the GIT_DIR-environment branch of that discovery panics because it never sets a
-    // trust level at all. So we split discovery from opening: find the repository path ourselves,
-    // then `open_opts(..).with(trust)`, which forces the trust level and skips gix's ownership
-    // check. Under `Trust::Reduced`, gix then refuses to honor untrusted repository-local config
-    // such as `filter.*` smudge/clean drivers.
+    // Discover paths before opening so gix's discovery cannot replace the caller's workspace
+    // trust decision with an ownership check. `with(trust)` sets the initial level, but gix can
+    // still promote configuration metadata through `safe.directory`. Filter sensitive lookups by
+    // source as well so repository-local programs stay disabled in reduced-trust workspaces.
 
     let trust = if trust_full {
         gix::sec::Trust::Full
@@ -173,6 +167,13 @@ pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepos
         // as-is rather than letting gix append `.git` again.
         .open_path_as_is(true)
         .with(trust);
+    let options = if trust_full {
+        options
+    } else {
+        options.filter_config_section(|meta| {
+            meta.source.kind() != gix::config::source::Kind::Repository
+        })
+    };
 
     Ok(ThreadSafeRepository::open_opts(git_dir, options)?)
 }

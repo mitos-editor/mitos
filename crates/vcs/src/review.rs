@@ -388,8 +388,42 @@ mod trust_tests {
         let reduced = read_git_comparison(&status, ComparisonKind::Staged, false).unwrap();
         assert_eq!(reduced.before, b"original\n");
         assert_eq!(reduced.after, b"original\n");
+        assert_eq!(
+            crate::git::get_diff_base(status.path(), false).unwrap(),
+            b"original\n"
+        );
         let trusted = read_git_comparison(&status, ComparisonKind::Staged, true).unwrap();
         assert!(trusted.before.starts_with(b"git version "));
         assert!(trusted.after.starts_with(b"git version "));
+    }
+
+    #[test]
+    fn git_safety_allowlist_does_not_override_workspace_trust() {
+        const CHILD: &str = "MITOS_TEST_REVIEW_TRUST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            reduced_trust_does_not_execute_repository_local_smudge_filters();
+            return;
+        }
+
+        // Isolate Git configuration without changing the environment of parallel tests.
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("gitconfig");
+        std::fs::write(&config, "[safe]\n\tdirectory = *\n").unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "review::trust_tests::git_safety_allowlist_does_not_override_workspace_trust",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
