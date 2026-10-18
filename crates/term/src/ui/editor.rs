@@ -35,7 +35,7 @@ use ui_core::{
     keyboard::{KeyCode, KeyModifiers},
 };
 use view::{
-    annotations::diagnostics::DiagnosticFilter,
+    config::DiagnosticFilter,
     config::{BufferLine, CursorShapeConfig},
     document::{Mode, SCRATCH_BUFFER_NAME},
     editor::CompleteAction,
@@ -422,10 +422,11 @@ impl EditorView {
         let enable_cursor_line = view
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
-        let inline_diagnostic_config = document_config
-            .diagnostics
-            .inline
-            .prepare(width, enable_cursor_line);
+        let inline_diagnostic_config = view::annotations::diagnostics::prepare_inline_diagnostics(
+            &document_config.diagnostics.inline,
+            width,
+            enable_cursor_line,
+        );
         decorations.add_decoration(InlineDiagnostics::new(
             doc,
             theme,
@@ -814,7 +815,7 @@ impl EditorView {
         let selection = doc.selection(view.id);
         let primary_idx = selection.primary_index();
 
-        let cursorkind = cursor_shape_config.from_mode(mode);
+        let cursorkind = mode.cursor_shape(cursor_shape_config);
         let cursor_is_block = cursorkind == CursorKind::Block || !is_cursor_owner;
         let draw_primary =
             primary_cursor_is_software(cursorkind, is_terminal_focused, is_cursor_owner);
@@ -1128,9 +1129,9 @@ impl EditorView {
         let gutter_style_virtual = theme.get("ui.gutter.virtual");
         let gutter_selected_style_virtual = theme.get("ui.gutter.selected.virtual");
 
-        for gutter_type in view.gutters() {
-            let mut gutter = gutter_type.style(editor, doc, view, theme, is_focused);
-            let width = gutter_type.width(view, doc);
+        for &gutter_type in view.gutters() {
+            let mut gutter = view::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
+            let width = view::gutter::width(gutter_type, view, doc);
             // avoid lots of small allocations by reusing a text buffer for each line
             let mut text = String::with_capacity(width);
             let cursors = cursors.clone();

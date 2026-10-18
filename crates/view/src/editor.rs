@@ -649,7 +649,7 @@ impl Editor {
             let inner = view.inner_area(doc);
             pos.col += inner.x as usize;
             pos.row += inner.y as usize;
-            let cursorkind = config.cursor.shape.from_mode(self.mode);
+            let cursorkind = self.mode.cursor_shape(&config.cursor.shape);
             (Some(pos), cursorkind)
         } else {
             (None, CursorKind::default())

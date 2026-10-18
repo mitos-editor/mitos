@@ -888,7 +888,7 @@ impl Component for Prompt {
 
         Cursor::Native(
             (col as u16, area.y + line as u16).into(),
-            editor.config().cursor.shape.from_mode(Mode::Insert),
+            Mode::Insert.cursor_shape(&editor.config().cursor.shape),
         )
     }
 }

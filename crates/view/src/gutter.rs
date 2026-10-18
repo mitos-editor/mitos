@@ -18,34 +18,30 @@ pub type GutterFn<'doc> = Box<dyn FnMut(usize, bool, bool, &mut String) -> Optio
 pub type Gutter =
     for<'doc> fn(&'doc Editor, &'doc Document, &View, &Theme, bool, usize) -> GutterFn<'doc>;
 
-impl GutterType {
-    pub fn style<'doc>(
-        self,
-        editor: &'doc Editor,
-        doc: &'doc Document,
-        view: &View,
-        theme: &Theme,
-        is_focused: bool,
-    ) -> GutterFn<'doc> {
-        match self {
-            GutterType::Diagnostics => {
-                diagnostics_or_breakpoints(editor, doc, view, theme, is_focused)
-            }
-            GutterType::LineNumbers => line_numbers(editor, doc, view, theme, is_focused),
-            GutterType::Spacer => padding(editor, doc, view, theme, is_focused),
-            GutterType::Diff => diff(editor, doc, view, theme, is_focused),
-            GutterType::CodeActionHint => code_action_hint(editor, doc, view, theme, is_focused),
-        }
+pub fn style<'doc>(
+    gutter: GutterType,
+    editor: &'doc Editor,
+    doc: &'doc Document,
+    view: &View,
+    theme: &Theme,
+    is_focused: bool,
+) -> GutterFn<'doc> {
+    match gutter {
+        GutterType::Diagnostics => diagnostics_or_breakpoints(editor, doc, view, theme, is_focused),
+        GutterType::LineNumbers => line_numbers(editor, doc, view, theme, is_focused),
+        GutterType::Spacer => padding(editor, doc, view, theme, is_focused),
+        GutterType::Diff => diff(editor, doc, view, theme, is_focused),
+        GutterType::CodeActionHint => code_action_hint(editor, doc, view, theme, is_focused),
     }
+}
 
-    pub fn width(self, view: &View, doc: &Document) -> usize {
-        match self {
-            GutterType::Diagnostics => 1,
-            GutterType::LineNumbers => line_numbers_width(view, doc),
-            GutterType::Spacer => 1,
-            GutterType::Diff => 1,
-            GutterType::CodeActionHint => 1,
-        }
+pub fn width(gutter: GutterType, view: &View, doc: &Document) -> usize {
+    match gutter {
+        GutterType::Diagnostics => 1,
+        GutterType::LineNumbers => line_numbers_width(view, doc),
+        GutterType::Spacer => 1,
+        GutterType::Diff => 1,
+        GutterType::CodeActionHint => 1,
     }
 }
 
@@ -435,11 +431,11 @@ mod tests {
         );
 
         assert_eq!(view.gutters.layout.len(), 5);
-        assert_eq!(view.gutters.layout[0].width(&view, &doc), 1);
-        assert_eq!(view.gutters.layout[1].width(&view, &doc), 1);
-        assert_eq!(view.gutters.layout[2].width(&view, &doc), 3);
-        assert_eq!(view.gutters.layout[3].width(&view, &doc), 1);
-        assert_eq!(view.gutters.layout[4].width(&view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[1], &view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[2], &view, &doc), 3);
+        assert_eq!(width(view.gutters.layout[3], &view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[4], &view, &doc), 1);
     }
 
     #[test]
@@ -461,7 +457,7 @@ mod tests {
         );
 
         assert_eq!(view.gutters.layout.len(), 1);
-        assert_eq!(view.gutters.layout[0].width(&view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
 
         let gutters = GutterConfig {
             layout: vec![GutterType::Diagnostics, GutterType::LineNumbers],
@@ -480,8 +476,8 @@ mod tests {
         );
 
         assert_eq!(view.gutters.layout.len(), 2);
-        assert_eq!(view.gutters.layout[0].width(&view, &doc), 1);
-        assert_eq!(view.gutters.layout[1].width(&view, &doc), 10);
+        assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
+        assert_eq!(width(view.gutters.layout[1], &view, &doc), 10);
     }
 
     #[test]
@@ -511,7 +507,7 @@ mod tests {
         );
 
         assert_eq!(view.gutters.layout.len(), 2);
-        assert_eq!(view.gutters.layout[1].width(&view, &doc_short), 1);
-        assert_eq!(view.gutters.layout[1].width(&view, &doc_long), 2);
+        assert_eq!(width(view.gutters.layout[1], &view, &doc_short), 1);
+        assert_eq!(width(view.gutters.layout[1], &view, &doc_long), 2);
     }
 }

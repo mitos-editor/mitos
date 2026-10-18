@@ -14,8 +14,8 @@ use filesentry::{Filter, ShutdownOnDrop};
 mod filter;
 use filter::WatchFilter;
 
+use crate::config::WatchConfig;
 use crate::{callbacks::EditorCallbackSender, Editor};
-use serde::{Deserialize, Serialize};
 use stdx::path::canonicalize_existing;
 use tokio::sync::mpsc;
 
@@ -39,45 +39,6 @@ impl Editor {
     }
 }
 
-/// Config for file watching
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
-pub struct Config {
-    /// Enable recursive native file watching.
-    pub enable: bool,
-    pub watch_vcs: bool,
-    /// Only enable the file watcher inside Mitos workspaces (VCS repos and directories with .mitos
-    /// directory) this prevents watching large directories like $HOME by default
-    ///
-    /// Defaults to `true`
-    pub require_workspace: bool,
-    /// Enables ignoring hidden files.
-    pub hidden: bool,
-    /// Enables reading `.ignore` files.
-    pub ignore: bool,
-    /// Enables reading `.gitignore` files.
-    pub git_ignore: bool,
-    /// Enables reading global .gitignore, whose path is specified in git's config: `core.excludefile` option.
-    pub git_global: bool,
-    /// Maximum depth below a watch root; deeper open files use polling.
-    pub max_depth: Option<usize>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            enable: true,
-            watch_vcs: true,
-            require_workspace: true,
-            hidden: true,
-            ignore: true,
-            git_ignore: true,
-            git_global: true,
-            max_depth: Some(10),
-        }
-    }
-}
-
 /// Recursive native watches, with coverage information for the polling fallback.
 pub struct Watcher {
     callbacks: EditorCallbackSender,
@@ -88,12 +49,12 @@ pub struct Watcher {
     workspace: PathBuf,
     roots: Vec<PathBuf>,
     active_roots: Vec<(PathBuf, Arc<std::sync::atomic::AtomicBool>)>,
-    config: Config,
+    config: WatchConfig,
     extra_watched_paths: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 impl Watcher {
-    pub fn new(config: &Config, callbacks: EditorCallbackSender) -> Self {
+    pub fn new(config: &WatchConfig, callbacks: EditorCallbackSender) -> Self {
         let (workspace, _) = workspace::find_workspace();
         let mut watcher = Self {
             callbacks,
@@ -112,7 +73,7 @@ impl Watcher {
     }
 
     /// Rebuild watches when configuration or the working directory changes.
-    pub fn reload(&mut self, config: &Config) {
+    pub fn reload(&mut self, config: &WatchConfig) {
         let (workspace, no_workspace) = workspace::find_workspace();
         let workspace = canonicalize_existing(&workspace);
         if self.config == *config && self.workspace == workspace && self.watcher.is_some() {
@@ -315,13 +276,13 @@ mod tests {
 
     #[test]
     fn polling_tracks_missing_metadata_and_preserves_timestamps_when_refreshed() {
-        use super::{Config, Watcher};
+        use super::{WatchConfig, Watcher};
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("HEAD");
         let mut watcher = Watcher::new(
-            &Config {
+            &WatchConfig {
                 enable: false,
-                ..Config::default()
+                ..WatchConfig::default()
             },
             crate::callbacks::EditorCallbackSender::new(
                 event::Redraw::default(),

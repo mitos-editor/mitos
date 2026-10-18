@@ -18,7 +18,6 @@ pub mod annotations;
 pub mod callbacks;
 pub mod clipboard;
 pub mod config;
-pub mod custom_commands;
 pub mod debugger;
 pub mod document;
 pub mod editing;

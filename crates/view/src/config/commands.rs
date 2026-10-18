@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Write, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde::{Deserialize, Deserializer};
 
@@ -50,30 +50,6 @@ impl CustomCommand {
         self.hidden = !name.starts_with(':');
         self.name = name.trim_start_matches(':').to_owned();
         self
-    }
-
-    /// Builds Markdown documentation for the command prompt.
-    pub fn prompt(&self) -> String {
-        let mut prompt = format!("`:{}`", self.name);
-
-        if let Some(accepts) = &self.accepts {
-            write!(prompt, " `{accepts}`").unwrap();
-        }
-        if let Some(description) = &self.description {
-            write!(prompt, " — {description}").unwrap();
-        }
-
-        if !self.commands.is_empty() {
-            prompt.push_str("\n\nMaps to: ");
-            for (index, command) in self.commands.iter().enumerate() {
-                if index > 0 {
-                    prompt.push_str(" → ");
-                }
-                write!(prompt, "`{command}`").unwrap();
-            }
-        }
-
-        prompt
     }
 }
 
@@ -152,7 +128,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(detailed.completer.as_deref(), Some("write"));
-        assert!(detailed.prompt().contains("`<path>` — Save a path"));
+        assert_eq!(detailed.accepts.as_deref(), Some("<path>"));
+        assert_eq!(detailed.description.as_deref(), Some("Save a path"));
     }
 
     #[derive(Deserialize)]

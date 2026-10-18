@@ -1,122 +1,50 @@
-use editor_core::diagnostic::Severity;
+use crate::config::{DiagnosticFilter, InlineDiagnosticsConfig};
 use editor_core::{Diagnostic, Position};
-use serde::{Deserialize, Serialize};
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::softwrapped_dimensions;
 use text_layout::text_annotations::LineAnnotation;
 
 use crate::Document;
 
-/// Describes the severity level of a [`Diagnostic`].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-pub enum DiagnosticFilter {
-    Disable,
-    Enable(Severity),
+pub fn prepare_inline_diagnostics(
+    config: &InlineDiagnosticsConfig,
+    width: u16,
+    enable_cursor_line: bool,
+) -> InlineDiagnosticsConfig {
+    let mut config = config.clone();
+    if width < config.min_diagnostic_width + config.prefix_len {
+        config.cursor_line = DiagnosticFilter::Disable;
+        config.other_lines = DiagnosticFilter::Disable;
+    } else if !enable_cursor_line {
+        config.cursor_line = config.cursor_line.min(config.other_lines);
+    }
+    config
 }
 
-impl<'de> Deserialize<'de> for DiagnosticFilter {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        match &*String::deserialize(deserializer)? {
-            "disable" => Ok(DiagnosticFilter::Disable),
-            "hint" => Ok(DiagnosticFilter::Enable(Severity::Hint)),
-            "info" => Ok(DiagnosticFilter::Enable(Severity::Info)),
-            "warning" => Ok(DiagnosticFilter::Enable(Severity::Warning)),
-            "error" => Ok(DiagnosticFilter::Enable(Severity::Error)),
-            variant => Err(serde::de::Error::unknown_variant(
-                variant,
-                &["disable", "hint", "info", "warning", "error"],
-            )),
-        }
-    }
+pub fn max_diagnostic_start(config: &InlineDiagnosticsConfig, width: u16) -> u16 {
+    width - config.min_diagnostic_width - config.prefix_len
 }
 
-impl Serialize for DiagnosticFilter {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let filter = match self {
-            DiagnosticFilter::Disable => "disable",
-            DiagnosticFilter::Enable(Severity::Hint) => "hint",
-            DiagnosticFilter::Enable(Severity::Info) => "info",
-            DiagnosticFilter::Enable(Severity::Warning) => "warning",
-            DiagnosticFilter::Enable(Severity::Error) => "error",
-        };
-        filter.serialize(serializer)
-    }
-}
+pub fn diagnostic_text_format(
+    config: &InlineDiagnosticsConfig,
+    anchor_col: u16,
+    width: u16,
+) -> TextFormat {
+    let width = if anchor_col > max_diagnostic_start(config, width) {
+        config.min_diagnostic_width
+    } else {
+        width - anchor_col - config.prefix_len
+    };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub struct InlineDiagnosticsConfig {
-    pub cursor_line: DiagnosticFilter,
-    pub other_lines: DiagnosticFilter,
-    pub min_diagnostic_width: u16,
-    pub prefix_len: u16,
-    pub max_wrap: u16,
-    pub max_diagnostics: usize,
-}
-
-impl InlineDiagnosticsConfig {
-    pub fn disabled(&self) -> bool {
-        matches!(
-            self,
-            Self {
-                cursor_line: DiagnosticFilter::Disable,
-                other_lines: DiagnosticFilter::Disable,
-                ..
-            }
-        )
-    }
-
-    pub fn prepare(&self, width: u16, enable_cursor_line: bool) -> Self {
-        let mut config = self.clone();
-        if width < self.min_diagnostic_width + self.prefix_len {
-            config.cursor_line = DiagnosticFilter::Disable;
-            config.other_lines = DiagnosticFilter::Disable;
-        } else if !enable_cursor_line {
-            config.cursor_line = self.cursor_line.min(self.other_lines);
-        }
-        config
-    }
-
-    pub fn max_diagnostic_start(&self, width: u16) -> u16 {
-        width - self.min_diagnostic_width - self.prefix_len
-    }
-
-    pub fn text_fmt(&self, anchor_col: u16, width: u16) -> TextFormat {
-        let width = if anchor_col > self.max_diagnostic_start(width) {
-            self.min_diagnostic_width
-        } else {
-            width - anchor_col - self.prefix_len
-        };
-
-        TextFormat {
-            soft_wrap: true,
-            tab_width: 4,
-            max_wrap: self.max_wrap.min(width / 4),
-            max_indent_retain: 0,
-            wrap_indicator: Box::from(""),
-            wrap_indicator_highlight: None,
-            viewport_width: width,
-            soft_wrap_at_text_width: true,
-        }
-    }
-}
-
-impl Default for InlineDiagnosticsConfig {
-    fn default() -> Self {
-        InlineDiagnosticsConfig {
-            cursor_line: DiagnosticFilter::Enable(Severity::Warning),
-            other_lines: DiagnosticFilter::Disable,
-            min_diagnostic_width: 40,
-            prefix_len: 1,
-            max_wrap: 20,
-            max_diagnostics: 10,
-        }
+    TextFormat {
+        soft_wrap: true,
+        tab_width: 4,
+        max_wrap: config.max_wrap.min(width / 4),
+        max_indent_retain: 0,
+        wrap_indicator: Box::from(""),
+        wrap_indicator_highlight: None,
+        viewport_width: width,
+        soft_wrap_at_text_width: true,
     }
 }
 
@@ -251,7 +179,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     pub fn has_multi(&self, width: u16) -> bool {
         self.stack
             .last()
-            .is_some_and(|&(_, anchor)| anchor > self.config.max_diagnostic_start(width))
+            .is_some_and(|&(_, anchor)| anchor > max_diagnostic_start(&self.config, width))
     }
 }
 
@@ -305,7 +233,7 @@ impl LineAnnotation for InlineDiagnostics<'_> {
             .stack
             .drain(..)
             .map(|(diag, anchor)| {
-                let text_fmt = self.state.config.text_fmt(anchor, self.width);
+                let text_fmt = diagnostic_text_format(&self.state.config, anchor, self.width);
                 softwrapped_dimensions(diag.message.trim().into(), &text_fmt).0
             })
             .sum();

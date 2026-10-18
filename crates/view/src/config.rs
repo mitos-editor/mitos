@@ -6,25 +6,21 @@
 
 use ::clipboard::ClipboardProvider;
 
-use std::{
-    collections::{HashMap, HashSet},
-    num::NonZeroU8,
-    path::PathBuf,
-};
+use std::{collections::HashSet, num::NonZeroU8, path::PathBuf, time::Duration};
 
 use editor_core::{diagnostic::Severity, LineEnding, NATIVE_LINE_ENDING};
 use language_config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
-use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
-use tokio::time::Duration;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use workspace::trust::ImplicitTrustLevel;
 
-use crate::{
-    annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
-    custom_commands::CustomCommands,
-    document::Mode,
-    file_watcher,
-    graphics::CursorKind,
-};
+use ui_core::graphics::CursorKind;
+
+mod commands;
+mod diagnostics;
+mod watch;
+pub use commands::{CustomCommand, CustomCommands};
+pub use diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig};
+pub use watch::WatchConfig;
 
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 
@@ -761,58 +757,13 @@ pub enum StatusLineElement {
     CodeActionHint,
 }
 
-// Cursor shape is read and used on every rendered frame and so needs
-// to be fast. Therefore we avoid a hashmap and use an enum indexed array.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CursorShapeConfig([CursorKind; 3]);
-
-impl CursorShapeConfig {
-    pub fn from_mode(&self, mode: Mode) -> CursorKind {
-        self.get(mode as usize).copied().unwrap_or_default()
-    }
-}
-
-impl<'de> Deserialize<'de> for CursorShapeConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let m = HashMap::<Mode, CursorKind>::deserialize(deserializer)?;
-        let into_cursor = |mode: Mode| m.get(&mode).copied().unwrap_or_default();
-        Ok(CursorShapeConfig([
-            into_cursor(Mode::Normal),
-            into_cursor(Mode::Select),
-            into_cursor(Mode::Insert),
-        ]))
-    }
-}
-
-impl Serialize for CursorShapeConfig {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(self.len()))?;
-        let modes = [Mode::Normal, Mode::Select, Mode::Insert];
-        for mode in modes {
-            map.serialize_entry(&mode, &self.from_mode(mode))?;
-        }
-        map.end()
-    }
-}
-
-impl std::ops::Deref for CursorShapeConfig {
-    type Target = [CursorKind; 3];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Default for CursorShapeConfig {
-    fn default() -> Self {
-        Self([CursorKind::Block; 3])
-    }
+/// Cursor shapes for each editor mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CursorShapeConfig {
+    pub normal: CursorKind,
+    pub select: CursorKind,
+    pub insert: CursorKind,
 }
 
 /// bufferline render modes
@@ -1373,7 +1324,7 @@ pub struct FilesConfig {
     /// `true`.
     pub editor_config: bool,
     pub reload: AutoReloadConfig,
-    pub watch: file_watcher::Config,
+    pub watch: WatchConfig,
     pub save: SaveConfig,
 }
 
@@ -1384,7 +1335,7 @@ impl Default for FilesConfig {
             default_line_ending: LineEndingConfig::default(),
             editor_config: true,
             reload: AutoReloadConfig::default(),
-            watch: file_watcher::Config::default(),
+            watch: WatchConfig::default(),
             save: SaveConfig::default(),
         }
     }
@@ -1486,5 +1437,42 @@ pub struct PathCompletionConfig {
 impl Default for PathCompletionConfig {
     fn default() -> Self {
         Self { enable: true }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_shapes_default_each_omitted_mode() {
+        let shapes: CursorShapeConfig = toml::from_str("insert = 'bar'").unwrap();
+        assert_eq!(shapes.normal, CursorKind::Block);
+        assert_eq!(shapes.select, CursorKind::Block);
+        assert_eq!(shapes.insert, CursorKind::Bar);
+        let serialized = toml::to_string(&shapes).unwrap();
+        assert_eq!(
+            toml::from_str::<CursorShapeConfig>(&serialized).unwrap(),
+            shapes
+        );
+        assert!(toml::from_str::<CursorShapeConfig>("unknown = 'bar'").is_err());
+    }
+
+    #[test]
+    fn watcher_and_diagnostic_settings_keep_their_file_format() {
+        let config: Config = toml::from_str(
+            "[files.watch]\nmax-depth = 3\n[diagnostics.inline]\ncursor-line = 'error'",
+        )
+        .unwrap();
+        assert_eq!(config.files.watch.max_depth, Some(3));
+        assert!(config.files.watch.enable);
+        assert_eq!(
+            config.diagnostics.inline.cursor_line,
+            DiagnosticFilter::Enable(Severity::Error)
+        );
+        assert_eq!(
+            config.diagnostics.inline.other_lines,
+            DiagnosticFilter::Disable
+        );
     }
 }

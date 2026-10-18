@@ -141,7 +141,7 @@ async fn native_watcher_detects_atomic_replacement() -> anyhow::Result<()> {
     let mut app = app(&path)?;
     app.editor
         .file_watcher
-        .reload(&view::file_watcher::Config::default());
+        .reload(&view::config::WatchConfig::default());
     app.editor.file_watcher.add_root(dir.path());
     tokio::time::timeout(Duration::from_secs(10), async {
         while !app.editor.file_watcher.is_watching(&path) {
@@ -275,7 +275,7 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
         .app
         .editor
         .file_watcher
-        .reload(&view::file_watcher::Config::default());
+        .reload(&view::config::WatchConfig::default());
     first.app.editor.file_watcher.add_root(dir.path());
     first.wait_for_watch(&path).await?;
     changed(&path, "first update\n", 2)?;
@@ -304,7 +304,7 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
         .app
         .editor
         .file_watcher
-        .reload(&view::file_watcher::Config {
+        .reload(&view::config::WatchConfig {
             enable: false,
             ..Default::default()
         });
@@ -319,7 +319,7 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
         .app
         .editor
         .file_watcher
-        .reload(&view::file_watcher::Config::default());
+        .reload(&view::config::WatchConfig::default());
     // Restarting a native watcher installs its watches asynchronously.
     first.wait_for_watch(&path).await?;
     changed(&path, "replacement watcher\n", 5)?;

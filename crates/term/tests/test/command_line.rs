@@ -1,7 +1,7 @@
 use super::*;
 
 use editor_core::diagnostic::Severity;
-use view::custom_commands::{CustomCommand, CustomCommands};
+use view::config::{CustomCommand, CustomCommands};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn labeled_keybindings_execute_typable_commands_macros_and_sequences() -> anyhow::Result<()> {

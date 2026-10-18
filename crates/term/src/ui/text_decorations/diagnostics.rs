@@ -6,8 +6,9 @@ use editor_core::{Diagnostic, Position};
 use text_layout::doc_formatter::{DocumentFormatter, FormattedGrapheme};
 use text_layout::text_annotations::TextAnnotations;
 use view::annotations::diagnostics::{
-    DiagnosticFilter, InlineDiagnosticAccumulator, InlineDiagnosticsConfig,
+    diagnostic_text_format, max_diagnostic_start, InlineDiagnosticAccumulator,
 };
+use view::config::{DiagnosticFilter, InlineDiagnosticsConfig};
 
 use theme::Style;
 use theme::Theme;
@@ -164,7 +165,7 @@ impl Renderer<'_, '_> {
         }
 
         let text_col = col + self.config.prefix_len + 1;
-        let text_fmt = self.config.text_fmt(text_col, self.renderer.viewport.width);
+        let text_fmt = diagnostic_text_format(self.config, text_col, self.renderer.viewport.width);
         let annotations = TextAnnotations::default();
         let formatter = DocumentFormatter::new_at_prev_checkpoint(
             diag.message.trim().into(),
@@ -200,9 +201,7 @@ impl Renderer<'_, '_> {
         let Some(&(last_diag, last_anchor)) = stack.last() else {
             return;
         };
-        let start = self
-            .config
-            .max_diagnostic_start(self.renderer.viewport.width);
+        let start = max_diagnostic_start(self.config, self.renderer.viewport.width);
 
         if last_anchor <= start {
             return;

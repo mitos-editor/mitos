@@ -98,6 +98,19 @@ pub enum Mode {
     Insert = 2,
 }
 
+impl Mode {
+    pub fn cursor_shape(
+        self,
+        shapes: &crate::config::CursorShapeConfig,
+    ) -> crate::graphics::CursorKind {
+        match self {
+            Self::Normal => shapes.normal,
+            Self::Select => shapes.select,
+            Self::Insert => shapes.insert,
+        }
+    }
+}
+
 impl Display for Mode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use editor_core::fuzzy::fuzzy_match;
 use tui::text::Span;
 use view::{
-    custom_commands::{CustomCommand, CustomCommands},
+    config::{CustomCommand, CustomCommands},
     expansion, Editor,
 };
 
@@ -283,7 +283,7 @@ fn command_line_doc_with_custom<'a>(
     if !command.starts_with(CustomCommand::ESCAPE)
         && let Some(command) = custom_commands.get(command)
     {
-        return (!command.hidden).then(|| Cow::Owned(command.prompt()));
+        return (!command.hidden).then(|| Cow::Owned(custom_command_prompt(command)));
     }
     command_line_doc(input)
 }
@@ -604,6 +604,30 @@ fn complete_expansion_kind(content: &str, offset: usize) -> Vec<ui::prompt::Comp
     .into_iter()
     .map(|(name, _)| (offset.., (*name).into()))
     .collect()
+}
+
+/// Builds Markdown documentation for the command prompt.
+fn custom_command_prompt(command: &CustomCommand) -> String {
+    let mut prompt = format!("`:{}`", command.name);
+
+    if let Some(accepts) = &command.accepts {
+        write!(prompt, " `{accepts}`").unwrap();
+    }
+    if let Some(description) = &command.description {
+        write!(prompt, " — {description}").unwrap();
+    }
+
+    if !command.commands.is_empty() {
+        prompt.push_str("\n\nMaps to: ");
+        for (index, command) in command.commands.iter().enumerate() {
+            if index > 0 {
+                prompt.push_str(" → ");
+            }
+            write!(prompt, "`{command}`").unwrap();
+        }
+    }
+
+    prompt
 }
 
 #[cfg(test)]

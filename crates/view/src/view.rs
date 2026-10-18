@@ -1,6 +1,6 @@
 use crate::{
     align_view,
-    annotations::diagnostics::InlineDiagnostics,
+    annotations::diagnostics::{prepare_inline_diagnostics, InlineDiagnostics},
     config::{GutterConfig, GutterType},
     document::{DocumentColorSwatches, DocumentInlayHints},
     features::diagnostics::DiagnosticsHandler,
@@ -271,7 +271,7 @@ impl View {
             .gutters
             .layout
             .iter()
-            .map(|gutter| gutter.width(self, doc) as u16)
+            .map(|gutter| crate::gutter::width(*gutter, self, doc) as u16)
             .sum();
         if total_width < self.area.width {
             total_width
@@ -570,7 +570,8 @@ impl View {
         let enable_cursor_line = self
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, self.id);
-        let config = config.diagnostics.inline.prepare(width, enable_cursor_line);
+        let config =
+            prepare_inline_diagnostics(&config.diagnostics.inline, width, enable_cursor_line);
         if !config.disabled() {
             let cursor = doc
                 .selection(self.id)

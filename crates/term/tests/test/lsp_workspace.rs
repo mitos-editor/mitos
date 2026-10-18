@@ -2,8 +2,8 @@ use std::{path::Path, time::Duration};
 
 use lsp_client::{jsonrpc::ErrorCode, lsp};
 use serde_json::{json, Value};
+use view::config::WatchConfig;
 use view::current;
-use view::file_watcher::Config;
 
 use super::helpers::lsp::Fixture;
 
@@ -141,11 +141,11 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
     let folder = lsp::Url::from_directory_path(&folder_path).unwrap();
     let mut f = Fixture::new(dir.path(), &["alpha", "beta"])?;
     f.initialize().await?;
-    f.app.editor.file_watcher.reload(&Config {
+    f.app.editor.file_watcher.reload(&WatchConfig {
         enable: true,
         hidden: false,
         max_depth: Some(1),
-        ..Config::default()
+        ..WatchConfig::default()
     });
     let alpha = f.server("alpha");
     let beta = f.server("beta");
@@ -307,7 +307,11 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
         );
     }
     // Only the first editor watches this root. Both servers are interested in it.
-    first.app.editor.file_watcher.reload(&Config::default());
+    first
+        .app
+        .editor
+        .file_watcher
+        .reload(&WatchConfig::default());
     first.app.editor.file_watcher.add_root(&root);
     let native = root.join("native.watched");
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -343,7 +347,7 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
         }
     })
     .await??;
-    first.app.editor.file_watcher.reload(&Config {
+    first.app.editor.file_watcher.reload(&WatchConfig {
         enable: false,
         ..Default::default()
     });

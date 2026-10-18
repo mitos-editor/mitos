@@ -175,7 +175,7 @@ mod tests {
     use theme::Theme;
     use tui::{buffer::Buffer, layout::Rect};
     use view::{
-        annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
+        config::{DiagnosticFilter, InlineDiagnosticsConfig},
         Document,
     };
 

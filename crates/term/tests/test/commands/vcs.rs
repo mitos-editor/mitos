@@ -147,7 +147,7 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
 #[tokio::test(flavor = "multi_thread")]
 async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::Result<()> {
     use editor_core::diagnostic::{Diagnostic, DiagnosticProvider, Severity};
-    use view::{annotations::diagnostics::DiagnosticFilter, editor::Action};
+    use view::{config::DiagnosticFilter, editor::Action};
 
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("file.txt");
