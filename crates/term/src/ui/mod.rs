@@ -1,4 +1,5 @@
 pub mod blame;
+pub mod change_review;
 mod completion;
 mod document;
 pub(crate) mod editor;

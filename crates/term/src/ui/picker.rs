@@ -58,6 +58,36 @@ pub(crate) use updates::UpdateContext;
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
 
+/// A native preview surface independent of file loading and repository providers.
+/// Implementations own their background work and cancel it when hidden or dropped.
+pub trait PickerPreview<T> {
+    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Surface, cx: &mut Context);
+    fn cancel(&mut self);
+    fn open_on_accept(&self, _item: &T) -> bool {
+        false
+    }
+    fn action(
+        &mut self,
+        _item: Option<&T>,
+        _action: PreviewAction,
+        _cx: &mut Context,
+    ) -> EventResult {
+        EventResult::Consumed(None)
+    }
+    fn invalidate(&mut self) {
+        self.cancel();
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PreviewAction {
+    ScrollUp,
+    ScrollDown,
+    Previous,
+    Next,
+    Open,
+}
+
 pub const ID: &str = "picker";
 
 pub const MIN_AREA_WIDTH_FOR_PREVIEW: u16 = 72;
@@ -229,6 +259,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     pub truncate_start: bool,
     preview: FilePreview,
+    custom_preview: Option<Box<dyn PickerPreview<T>>>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
@@ -416,6 +447,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             completion_height: 0,
             widths,
             preview: FilePreview::default(),
+            custom_preview: None,
             file_fn: None,
             quicklist_fn: None,
             dynamic_query_handler: None,
@@ -456,6 +488,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // assumption: if we have a preview we are matching paths... If this is ever
         // not true this could be a separate builder function
         self.matcher.update_config(Config::DEFAULT.match_paths());
+        self
+    }
+
+    pub fn with_custom_preview(mut self, preview: impl PickerPreview<T> + 'static) -> Self {
+        self.custom_preview = Some(Box::new(preview));
         self
     }
 
@@ -614,6 +651,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         self.widths = visible_column_widths(&self.columns);
         self.preview.clear();
+        if let Some(preview) = &mut self.custom_preview {
+            preview.invalidate();
+        }
 
         let injector = self.matcher.injector();
         for item in options {
@@ -1006,6 +1046,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         if inner.is_empty() {
             self.preview.cancel_loads(None);
+            if let Some(preview) = &mut self.custom_preview {
+                preview.cancel();
+            }
+            return;
+        }
+        if let Some(preview) = &mut self.custom_preview {
+            let item = self
+                .matcher
+                .snapshot()
+                .get_matched_item(self.cursor)
+                .map(|item| item.data);
+            preview.render(item, inner, surface, cx);
             return;
         }
         let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
@@ -1032,6 +1084,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 updates.stop();
             }
             picker.preview.cancel_loads(None);
+            if let Some(preview) = &mut picker.custom_preview {
+                preview.cancel();
+            }
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
@@ -1072,6 +1127,31 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 )
             {
                 return EventResult::Consumed(None);
+            }
+            if matches!(
+                action,
+                PickerAction::Accept
+                    | PickerAction::AcceptKeepOpen
+                    | PickerAction::AcceptHorizontalSplit
+                    | PickerAction::AcceptVerticalSplit
+            ) {
+                let opens_preview = self
+                    .custom_preview
+                    .as_ref()
+                    .zip(self.selection())
+                    .is_some_and(|(preview, item)| preview.open_on_accept(item));
+                if opens_preview {
+                    let item = self
+                        .matcher
+                        .snapshot()
+                        .get_matched_item(self.cursor)
+                        .map(|item| item.data);
+                    return self.custom_preview.as_mut().unwrap().action(
+                        item,
+                        PreviewAction::Open,
+                        ctx,
+                    );
+                }
             }
             match action {
                 PickerAction::MoveUp => {
@@ -1174,6 +1254,27 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         return close_fn(self, callback);
                     }
                 }
+                PickerAction::PreviewScrollUp
+                | PickerAction::PreviewScrollDown
+                | PickerAction::PreviewPrevious
+                | PickerAction::PreviewNext
+                | PickerAction::OpenPreview => {
+                    if let Some(preview) = &mut self.custom_preview {
+                        let action = match action {
+                            PickerAction::PreviewScrollUp => PreviewAction::ScrollUp,
+                            PickerAction::PreviewScrollDown => PreviewAction::ScrollDown,
+                            PickerAction::PreviewPrevious => PreviewAction::Previous,
+                            PickerAction::PreviewNext => PreviewAction::Next,
+                            _ => PreviewAction::Open,
+                        };
+                        let item = self
+                            .matcher
+                            .snapshot()
+                            .get_matched_item(self.cursor)
+                            .map(|item| item.data);
+                        return preview.action(item, action, ctx);
+                    }
+                }
                 PickerAction::TogglePreview => {
                     self.toggle_preview();
                 }
@@ -1208,8 +1309,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         // |         | |         |
         // +---------+ +---------+
 
-        let render_preview =
-            self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
+        let render_preview = self.show_preview
+            && (self.file_fn.is_some() || self.custom_preview.is_some())
+            && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
 
         let poll = &cx.editor.config().files.reload.poll;
         if (render_preview || self.file_updates.is_some() || self.query_updates.is_some())
@@ -1245,6 +1347,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             self.render_preview(preview_area, surface, cx);
         } else {
             self.preview.cancel_loads(None);
+            if let Some(preview) = &mut self.custom_preview {
+                preview.cancel();
+            }
         }
     }
 
@@ -1290,8 +1395,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
-        let render_preview =
-            self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
+        let render_preview = self.show_preview
+            && (self.file_fn.is_some() || self.custom_preview.is_some())
+            && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);
         let area = panel::bordered(&editor.theme)
             .inner(picker_area)

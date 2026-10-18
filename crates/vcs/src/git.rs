@@ -19,7 +19,7 @@ use gix::status::{
 };
 use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 
-use crate::{ChangedFileScope, FileChange};
+use crate::{ChangedFileScope, FileChange, FileStatus};
 
 #[cfg(test)]
 pub(super) mod test;
@@ -87,10 +87,21 @@ pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwa
     Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
 }
 
+#[cfg(test)]
 pub fn for_each_changed_file(
     scope: &ChangedFileScope,
     trust_full: bool,
     f: impl Fn(&Path, Result<FileChange>) -> bool,
+) -> Result<()> {
+    for_each_file_status(scope, trust_full, |root, status| {
+        f(root, status.map(|status| status.change().clone()))
+    })
+}
+
+pub fn for_each_file_status(
+    scope: &ChangedFileScope,
+    trust_full: bool,
+    f: impl Fn(&Path, Result<FileStatus>) -> bool,
 ) -> Result<()> {
     status(
         &open_repo(scope.path(), trust_full)?.to_thread_local(),
@@ -170,7 +181,7 @@ pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepos
 fn status(
     repo: &Repository,
     scope: &ChangedFileScope,
-    f: impl Fn(&Path, Result<FileChange>) -> bool,
+    f: impl Fn(&Path, Result<FileStatus>) -> bool,
 ) -> Result<()> {
     let work_dir = repo
         .workdir()
@@ -197,14 +208,8 @@ fn status(
     let patterns = status_patterns(&work_dir, scope)?;
 
     let status_iter = status_platform.into_iter(patterns)?;
-    // The two comparisons arrive in arbitrary order. Collect them per path so
-    // partially staged files appear once with a deterministic status.
-    #[derive(Default)]
-    struct FileChanges {
-        staged: Option<FileChange>,
-        worktree: Option<FileChange>,
-    }
-    let mut changes: BTreeMap<PathBuf, FileChanges> = BTreeMap::new();
+    // Keep both comparisons: collapsing them loses partially staged changes.
+    let mut changes: BTreeMap<PathBuf, FileStatus> = BTreeMap::new();
 
     for item in status_iter {
         let item = match item {
@@ -225,9 +230,11 @@ fn status(
                 match status {
                     EntryStatus::Conflict { .. } => FileChange::Conflict { path },
                     EntryStatus::Change(Change::Removed) => FileChange::Deleted { path },
-                    EntryStatus::Change(Change::Modification { .. }) => {
-                        FileChange::Modified { path }
-                    }
+                    EntryStatus::Change(
+                        Change::Modification { .. }
+                        | Change::Type { .. }
+                        | Change::SubmoduleModification(_),
+                    ) => FileChange::Modified { path },
                     // Files marked with `git add --intent-to-add`. Such files
                     // still show up as new in `git status`, so it's appropriate
                     // to show them the same way as untracked files in the
@@ -274,26 +281,41 @@ fn status(
             },
             _ => continue,
         };
-        let entry = changes.entry(change.path().to_path_buf()).or_default();
+        let entry = changes
+            .entry(change.path().to_path_buf())
+            .or_insert_with(|| FileStatus {
+                staged: None,
+                unstaged: None,
+            });
         if staged {
             entry.staged = Some(change);
         } else {
-            entry.worktree = Some(change);
+            entry.unstaged = Some(change);
         }
     }
 
-    for changes in changes.into_values() {
-        let change = match (changes.staged, changes.worktree) {
-            // An unstaged edit doesn't erase a staged addition or rename.
-            (
-                Some(staged @ (FileChange::Added { .. } | FileChange::Renamed { .. })),
-                Some(FileChange::Modified { .. }),
-            ) => staged,
-            (_, Some(worktree)) => worktree,
-            (Some(staged), None) => staged,
-            (None, None) => continue,
-        };
-        if !f(&work_dir, Ok(change)) {
+    // Join a working-tree rename to its staged source instead of showing two rows.
+    let renames: Vec<_> = changes
+        .iter()
+        .filter_map(|(path, status)| match &status.unstaged {
+            Some(FileChange::Renamed { from_path, .. }) => Some((path.clone(), from_path.clone())),
+            _ => None,
+        })
+        .collect();
+    for (destination, source) in renames {
+        if changes
+            .get(&destination)
+            .is_some_and(|status| status.staged.is_none())
+            && changes
+                .get(&source)
+                .is_some_and(|status| status.unstaged.is_none())
+            && let Some(source_status) = changes.remove(&source)
+        {
+            changes.get_mut(&destination).unwrap().staged = source_status.staged;
+        }
+    }
+    for status in changes.into_values() {
+        if !f(&work_dir, Ok(status)) {
             break;
         }
     }

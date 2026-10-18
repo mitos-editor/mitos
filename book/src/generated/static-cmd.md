@@ -111,6 +111,7 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
+| `show_change` | Show the current change against HEAD | normal: `` <space>i ``, select: `` <space>i `` |
 | `blame_line` | Show commit details for the current line |  |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
