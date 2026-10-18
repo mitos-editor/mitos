@@ -400,6 +400,13 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
         .iter()
         .any(|path| path.ends_with(".git/refs/heads/main")));
     assert!(paths.iter().any(|path| path.ends_with(".git/packed-refs")));
+    assert!(paths.iter().any(|path| path.ends_with(".git/config")));
+    assert!(paths
+        .iter()
+        .any(|path| path.ends_with(".git/config.worktree")));
+    assert!(paths
+        .iter()
+        .any(|path| path.ends_with(".git/info/attributes")));
     exec_git_cmd(&["worktree", "add", "-b", "feature", "linked"], repo.path());
     let paths = git::get_watched_paths(&repo.path().join("linked"), false).unwrap();
     assert!(paths
@@ -412,4 +419,11 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
         .iter()
         .any(|path| path.ends_with(".git/refs/heads/feature")));
     assert!(paths.iter().any(|path| path.ends_with(".git/packed-refs")));
+    assert!(paths.iter().any(|path| path.ends_with(".git/config")));
+    assert!(paths
+        .iter()
+        .any(|path| path.ends_with(".git/worktrees/linked/config.worktree")));
+    assert!(paths
+        .iter()
+        .any(|path| path.ends_with(".git/info/attributes")));
 }
