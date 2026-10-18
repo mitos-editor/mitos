@@ -331,3 +331,37 @@ async fn terminated_adapters_do_not_finish_pending_initialization() -> anyhow::R
     assert!(f.editor.debugger().is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn initialization_order_preserves_selection_and_termination_targets_one_startup(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (running, _) = paused_adapter(&mut f).await?;
+    let mut first = Adapter::new().await?;
+    let first_id = f.editor.connect_debugger(Some(first.socket), config());
+    wait_for_connection(&mut f, first_id).await?;
+    let initialize = message(&mut first.wire).await?;
+    let second = Adapter::new().await?;
+    let second_id = f.editor.connect_debugger(Some(second.socket), config());
+    f.editor.debugger_mut().select_session(running)?;
+    first.reply(&initialize, true, json!({}))?;
+    wait_for_startup(&mut f, first_id).await?;
+    f.editor
+        .handle_debugger_message(first_id, debugger_event("initialized", json!({})))
+        .await;
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        running
+    );
+    f.editor.debugger_mut().select_session(second_id)?;
+    f.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    assert!(f.editor.debugger().get_session(second_id).is_none());
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        running
+    );
+    assert!(f.editor.debugger().get_session(first_id).is_some());
+    assert!(f.editor.debugger().get_client(running).is_some());
+    Ok(())
+}

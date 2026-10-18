@@ -145,10 +145,11 @@ impl Editor {
     ) -> DebugAdapterId {
         let name = config.name.clone();
         let terminal_support = self.debugger.terminal_launcher.is_some();
-        let id = self
-            .debugger
-            .sessions
-            .insert_with_key(super::DebugSession::new);
+        let parent = match origin {
+            StartupOrigin::Child { parent, .. } => Some(parent),
+            _ => None,
+        };
+        let id = self.debugger.insert_session(name.clone(), parent);
         let connect = dap::Client::connect(socket, config, id);
         let mut startup = Startup {
             cancel: TaskController::new(),

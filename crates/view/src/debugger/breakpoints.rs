@@ -252,7 +252,6 @@ impl Editor {
             configuring: true,
             ..Default::default()
         });
-        self.debugger.active_session = Some(id);
         let paths: Vec<_> = self.debugger.breakpoints.keys().cloned().collect();
         for path in paths {
             if let Err(error) = self.sync_debugger_breakpoints(id, path) {

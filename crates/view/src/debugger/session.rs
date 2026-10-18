@@ -13,6 +13,8 @@ pub type ThreadStates = HashMap<ThreadId, String>;
 /// One adapter lifetime. Frontends inspect execution state; the editor owns its transitions.
 pub struct DebugSession {
     id: DebugAdapterId,
+    pub(super) name: String,
+    pub(super) parent: Option<DebugAdapterId>,
     pub(super) client: Option<Client>,
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
@@ -26,9 +28,11 @@ pub struct DebugSession {
 }
 
 impl DebugSession {
-    pub(super) fn new(id: DebugAdapterId) -> Self {
+    fn new(id: DebugAdapterId, name: String, parent: Option<DebugAdapterId>) -> Self {
         Self {
             id,
+            name,
+            parent,
             client: None,
             startup: None,
             breakpoints: None,
@@ -44,6 +48,15 @@ impl DebugSession {
 
     pub fn id(&self) -> DebugAdapterId {
         self.id
+    }
+
+    /// Adapter and launch-template label, available before the adapter connects.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn parent(&self) -> Option<DebugAdapterId> {
+        self.parent
     }
 
     pub fn selected_thread(&self) -> Option<ThreadId> {
@@ -88,7 +101,7 @@ impl DebuggerState {
     }
 
     pub fn get_active_session(&self) -> Option<&DebugSession> {
-        self.get_session(self.active_session?)
+        self.get_session(*self.selection_order.last()?)
     }
 
     pub fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
@@ -100,15 +113,56 @@ impl DebuggerState {
     }
 
     pub fn get_active_client(&self) -> Option<&Client> {
-        self.get_client(self.active_session?)
+        let client = self.get_client(*self.selection_order.last()?)?;
+        client.caps.as_ref()?;
+        Some(client)
     }
 
     pub fn get_active_client_mut(&mut self) -> Option<&mut Client> {
-        self.get_client_mut(self.active_session?)
+        let id = *self.selection_order.last()?;
+        let client = self.get_client_mut(id)?;
+        client.caps.as_ref()?;
+        Some(client)
     }
 
     pub fn current_stack_frame(&self) -> Option<&StackFrame> {
         self.get_active_session()?.current_stack_frame()
+    }
+
+    /// Sessions in most recently selected order, including pending connections.
+    pub fn sessions(&self) -> impl ExactSizeIterator<Item = &DebugSession> {
+        self.selection_order
+            .iter()
+            .rev()
+            .map(|id| &self.sessions[*id])
+    }
+
+    /// Select an existing session. Stale IDs cannot select a replacement session.
+    pub fn select_session(&mut self, id: DebugAdapterId) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.sessions.contains_key(id),
+            "Debugging session has ended"
+        );
+        self.selection_order.retain(|session| *session != id);
+        self.selection_order.push(id);
+        Ok(())
+    }
+
+    pub(super) fn insert_session(
+        &mut self,
+        name: String,
+        parent: Option<DebugAdapterId>,
+    ) -> DebugAdapterId {
+        let id = self
+            .sessions
+            .insert_with_key(|id| DebugSession::new(id, name, parent));
+        if parent.is_some() {
+            // Adapter-created child sessions do not take selection from the user.
+            self.selection_order.insert(0, id);
+        } else {
+            self.selection_order.push(id);
+        }
+        id
     }
 
     /// Includes pending connections, even before a client can be selected.
@@ -143,8 +197,43 @@ impl DebuggerState {
         }
         self.cancel_startup_requests(id);
         self.sessions.remove(id);
-        if self.active_session == Some(id) {
-            self.active_session = None;
-        }
+        self.selection_order.retain(|session| *session != id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removing_sessions_restores_selection_history_and_rejects_stale_ids() {
+        let mut state = DebuggerState::default();
+        let first = state.insert_session("first".into(), None);
+        let second = state.insert_session("second".into(), None);
+        let third = state.insert_session("third".into(), None);
+        state.select_session(first).unwrap();
+        state.remove_session(second);
+        assert_eq!(state.get_active_session().unwrap().id(), first);
+        state.remove_session(first);
+        assert_eq!(state.get_active_session().unwrap().id(), third);
+        let replacement = state.insert_session("replacement".into(), None);
+        assert!(state.select_session(first).is_err());
+        assert_eq!(state.get_active_session().unwrap().id(), replacement);
+        state.remove_session(replacement);
+        state.remove_session(third);
+        assert!(state.get_active_session().is_none());
+        assert_eq!(state.sessions().len(), 0);
+    }
+
+    #[test]
+    fn child_sessions_preserve_selection_and_remain_selectable() {
+        let mut state = DebuggerState::default();
+        let parent = state.insert_session("parent".into(), None);
+        let child = state.insert_session("child".into(), Some(parent));
+        assert_eq!(state.get_active_session().unwrap().id(), parent);
+        assert_eq!(state.get_session(child).unwrap().parent(), Some(parent));
+        state.select_session(child).unwrap();
+        state.remove_session(child);
+        assert_eq!(state.get_active_session().unwrap().id(), parent);
     }
 }

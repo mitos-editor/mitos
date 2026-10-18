@@ -61,12 +61,15 @@ impl Editor {
         };
         args.insert("cwd", to_value(stdx::env::current_working_dir())?);
         let args = to_value(args)?;
-        Ok(self.begin_debugger_startup(
+        let label = format!("{}: {}", config.name, template.name);
+        let id = self.begin_debugger_startup(
             socket,
             config,
             Some((connection, args)),
             StartupOrigin::Document(document),
-        ))
+        );
+        self.debugger.sessions[id].name = label;
+        Ok(id)
     }
 }
 

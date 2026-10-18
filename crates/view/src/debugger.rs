@@ -90,7 +90,8 @@ pub trait TerminalLauncher: Send + Sync {
 #[derive(Default)]
 pub struct DebuggerState {
     sessions: SlotMap<DebugAdapterId, DebugSession>,
-    active_session: Option<DebugAdapterId>,
+    // Least recently selected first; the last session is active, including during startup.
+    selection_order: Vec<DebugAdapterId>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::Payload)>>,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
@@ -186,8 +187,9 @@ impl DebuggerState {
             .position(|breakpoint| breakpoint.identity == identity)
             .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
         let capabilities = self
-            .active_session
-            .and_then(|id| self.sessions.get(id))
+            .selection_order
+            .last()
+            .and_then(|id| self.sessions.get(*id))
             .and_then(|session| session.client.as_ref()?.caps.as_ref());
         breakpoints[position].set_property(property, value, capabilities)?;
         Ok(())

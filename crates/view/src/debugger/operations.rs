@@ -150,6 +150,13 @@ impl Editor {
             .debugger
             .get_active_session()
             .context("Debugger is not running")?;
+        anyhow::ensure!(
+            session
+                .client
+                .as_ref()
+                .is_some_and(|client| client.caps.is_some()),
+            "Debugger is initializing"
+        );
         let (id, thread, frame, sender) = (
             session.id(),
             session.thread_id,
@@ -340,20 +347,10 @@ impl Editor {
     /// Queue a control request against the active session. Replies cannot mutate a replacement.
     pub fn debugger_command(&mut self, command: DebuggerCommand) -> Result<()> {
         if matches!(command, DebuggerCommand::Terminate)
-            && self.debugger.get_active_session().is_none()
+            && let Some(session) = self.debugger.get_active_session()
+            && self.debugger.cancel_startup(session.id())
         {
-            let startups: Vec<_> = self
-                .debugger
-                .sessions
-                .iter()
-                .filter_map(|(id, session)| session.startup.is_some().then_some(id))
-                .collect();
-            if !startups.is_empty() {
-                for id in startups {
-                    self.debugger.remove_session(id);
-                }
-                return Ok(());
-            }
+            return Ok(());
         }
         let client = self
             .debugger
