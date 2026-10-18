@@ -1,5 +1,7 @@
 //! Document symbols state, request coordination, and lifecycle hooks.
 
+mod picker;
+pub use picker::{DocumentSymbol, DocumentSymbolsTask, DocumentSymbolsUpdate};
 mod requests;
 mod state;
 

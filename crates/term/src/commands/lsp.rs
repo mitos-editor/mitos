@@ -5,15 +5,14 @@ use crate::{
     job::Callback,
     ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
-use editor_core::{Selection, Uri};
-use futures_util::{stream::FuturesUnordered, FutureExt};
+use editor_core::Selection;
+use futures_util::FutureExt;
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
-use std::{collections::HashSet, path::Path};
+use std::path::Path;
 use stdx::path;
 use theme::icons::ICONS;
 use theme::Theme;
-use tokio_stream::StreamExt;
 use tui::{
     text::{Line, Span},
     widgets::{Cell, Row},
@@ -279,10 +278,7 @@ fn symbol_path_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerD
 
 fn nested_symbol_to_flat(
     list: &mut Vec<SymbolInformationItem>,
-    file: &lsp::TextDocumentIdentifier,
-    uri: &Uri,
-    symbol: lsp::DocumentSymbol,
-    offset_encoding: OffsetEncoding,
+    symbol: view::features::document_symbols::DocumentSymbol,
     ancestor_prefix: &str,
     is_last_child: Option<bool>,
 ) {
@@ -296,23 +292,11 @@ fn nested_symbol_to_flat(
         Some(false) => format!("{ancestor_prefix}│  "),
         None => ancestor_prefix.to_owned(),
     };
-    let children = symbol.children.unwrap_or_default();
+    let children = symbol.children;
 
-    #[allow(deprecated)]
     list.push(SymbolInformationItem {
-        symbol: lsp::SymbolInformation {
-            name: symbol.name,
-            kind: symbol.kind,
-            tags: symbol.tags,
-            deprecated: symbol.deprecated,
-            location: lsp::Location::new(file.uri.clone(), symbol.selection_range),
-            container_name: None,
-        },
-        location: Location {
-            uri: uri.clone(),
-            range: symbol.selection_range,
-            offset_encoding,
-        },
+        symbol: symbol.symbol,
+        location: symbol.location,
         tree_prefix,
     });
 
@@ -320,10 +304,7 @@ fn nested_symbol_to_flat(
     for (index, child) in children.into_iter().enumerate() {
         nested_symbol_to_flat(
             list,
-            file,
-            uri,
             child,
-            offset_encoding,
             &child_ancestor_prefix,
             Some(index == last_child),
         );
@@ -333,6 +314,7 @@ fn nested_symbol_to_flat(
 #[cfg(test)]
 mod symbol_picker_tests {
     use super::*;
+    use editor_core::Uri;
     use theme::DEFAULT_THEME;
 
     fn symbol_information_item() -> SymbolInformationItem {
@@ -359,19 +341,14 @@ mod symbol_picker_tests {
 
     fn document_symbol(
         name: &str,
-        children: impl IntoIterator<Item = lsp::DocumentSymbol>,
-    ) -> lsp::DocumentSymbol {
-        let children = children.into_iter().collect::<Vec<_>>();
-        #[allow(deprecated)]
-        lsp::DocumentSymbol {
-            name: name.into(),
-            detail: None,
-            kind: lsp::SymbolKind::FUNCTION,
-            tags: None,
-            deprecated: None,
-            range: lsp::Range::default(),
-            selection_range: lsp::Range::default(),
-            children: (!children.is_empty()).then_some(children),
+        children: impl IntoIterator<Item = view::features::document_symbols::DocumentSymbol>,
+    ) -> view::features::document_symbols::DocumentSymbol {
+        let mut item = symbol_information_item();
+        item.symbol.name = name.into();
+        view::features::document_symbols::DocumentSymbol {
+            symbol: item.symbol,
+            location: item.location,
+            children: children.into_iter().collect(),
         }
     }
 
@@ -408,8 +385,6 @@ mod symbol_picker_tests {
 
     #[test]
     fn nested_symbols_are_fully_expanded_with_tree_prefixes() {
-        let uri = lsp::Url::parse("file:///tmp/main.rs").unwrap();
-        let file = lsp::TextDocumentIdentifier::new(uri.clone());
         let root = document_symbol(
             "root",
             [
@@ -419,15 +394,7 @@ mod symbol_picker_tests {
         );
         let mut symbols = Vec::new();
 
-        nested_symbol_to_flat(
-            &mut symbols,
-            &file,
-            &Uri::try_from(&uri).unwrap(),
-            root,
-            OffsetEncoding::Utf16,
-            "",
-            None,
-        );
+        nested_symbol_to_flat(&mut symbols, root, "", None);
 
         assert_eq!(
             symbols
@@ -449,77 +416,24 @@ pub fn symbol_picker(cx: &mut Context) {
         show_icons: cx.editor.config().icons,
         theme: cx.editor.theme.clone(),
     };
-    let doc = doc!(cx.editor);
-
-    let mut seen_language_servers = HashSet::new();
-
-    let mut futures: FuturesUnordered<_> = doc
-        .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
-        .map(|language_server| {
-            let request = language_server.document_symbols(doc.identifier()).unwrap();
-            let offset_encoding = language_server.offset_encoding();
-            let doc_id = doc.identifier();
-            let doc_uri = doc
-                .uri()
-                .expect("docs with active language servers must be backed by paths");
-
-            async move {
-                let symbols = match request.await? {
-                    Some(symbols) => symbols,
-                    None => return anyhow::Ok(vec![]),
-                };
-                // lsp has two ways to represent symbols (flat/nested)
-                // convert the nested variant to flat, so that we have a homogeneous list
-                let symbols = match symbols {
-                    lsp::DocumentSymbolResponse::Flat(symbols) => symbols
-                        .into_iter()
-                        .map(|symbol| SymbolInformationItem {
-                            location: Location {
-                                uri: doc_uri.clone(),
-                                range: symbol.location.range,
-                                offset_encoding,
-                            },
-                            symbol,
-                            tree_prefix: String::new(),
-                        })
-                        .collect(),
-                    lsp::DocumentSymbolResponse::Nested(symbols) => {
-                        let mut flat_symbols = Vec::new();
-                        for symbol in symbols {
-                            nested_symbol_to_flat(
-                                &mut flat_symbols,
-                                &doc_id,
-                                &doc_uri,
-                                symbol,
-                                offset_encoding,
-                                "",
-                                None,
-                            )
-                        }
-                        flat_symbols
-                    }
-                };
-                Ok(symbols)
-            }
-        })
-        .collect();
-
-    if futures.is_empty() {
-        cx.editor
-            .set_error(|| "No configured language server supports document symbols");
-        return;
-    }
-
-    cx.jobs.callback(async move {
-        let mut symbols = Vec::new();
-        while let Some(response) = futures.next().await {
-            match response {
-                Ok(mut items) => symbols.append(&mut items),
-                Err(err) => log::error!("Error requesting document symbols: {err}"),
-            }
+    let (view, doc) = current_ref!(cx.editor);
+    let task = match cx.editor.document_symbols(doc.id(), view.id) {
+        Ok(task) => task,
+        Err(error) => {
+            cx.editor.set_error(|| error.to_string());
+            return;
         }
+    };
+    cx.jobs.callback(async move {
+        let update = task.run().await;
         let call = move |editor: &mut Editor, compositor: &mut Compositor| {
+            let Some(symbols) = update.and_then(|update| update.into_symbols(editor)) else {
+                return;
+            };
+            let mut items = Vec::new();
+            for symbol in symbols {
+                nested_symbol_to_flat(&mut items, symbol, "", None);
+            }
             let columns = [
                 ui::PickerColumn::new("kind", symbol_kind_cell),
                 // Nested document symbols include their fully expanded tree guide in
@@ -532,7 +446,7 @@ pub fn symbol_picker(cx: &mut Context) {
                 editor.redraw().clone(),
                 columns,
                 1, // name column
-                symbols,
+                items,
                 picker_data,
                 move |cx, item, action| {
                     jump_to_location(cx.editor, &item.location, action);

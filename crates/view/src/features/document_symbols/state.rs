@@ -1,4 +1,4 @@
-//! Symbol trees, per-view breadcrumbs, and their shared request lifetime.
+//! Symbol trees, per-view breadcrumbs, and document-owned request lifetimes.
 
 use event::TaskController;
 use lsp_client::{
@@ -15,6 +15,7 @@ pub(crate) struct DocumentSymbols {
     cache: Option<DocumentSymbolCache>,
     breadcrumbs: HashMap<ViewId, Breadcrumbs>,
     pub(super) request: TaskController,
+    pub(super) picker: TaskController,
     pub(super) handler: Option<DocumentSymbolsHandler>,
 }
 
@@ -23,13 +24,14 @@ impl DocumentSymbols {
         self.handler = Some(handler);
     }
 
-    /// Invalidate both the request and every derived breadcrumb.
+    /// Cancel symbol requests and invalidate every derived breadcrumb.
     pub(crate) fn clear(&mut self) {
         self.request.cancel();
+        self.picker.cancel();
         self.clear_cache();
     }
 
-    fn clear_cache(&mut self) {
+    pub(super) fn clear_cache(&mut self) {
         self.cache = None;
         self.breadcrumbs.clear();
     }

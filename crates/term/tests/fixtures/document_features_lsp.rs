@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
     let file_operations = args.first().is_some_and(|arg| arg == "--file-operations");
     let rename = args.first().is_some_and(|arg| arg == "--rename");
     let workspace_symbols = args.first().is_some_and(|arg| arg == "--workspace-symbols");
+    let document_symbols = args.first().is_some_and(|arg| arg == "--document-symbols");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
@@ -601,6 +602,25 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "textDocument/documentSymbol" && document_symbols {
+            if args.iter().any(|arg| arg == "--fail-symbols") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32603,"message":"provider failed"}}),
+                )?;
+                continue;
+            }
+            let result = if args.iter().any(|arg| arg == "--flat-symbols") {
+                json!([{"name":args[1], "kind":12, "location":{"uri":format!("{uri}.other"), "range":range(0, 1)}}])
+            } else {
+                json!([{"name":args[1], "kind":12, "range":range(0, end), "selectionRange":range(0, 1), "children":[{"name":"child", "kind":12,"range":range(1, 2), "selectionRange":range(1, 2)}]}])
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id, "result":result}),
+            )?;
+            continue;
+        }
         let result = match method {
             "initialize" if file_operations => json!({"capabilities": {
                 "textDocumentSync": 1, "workspace": {"fileOperations": {
@@ -619,6 +639,9 @@ fn main() -> anyhow::Result<()> {
             "initialize" if workspace_symbols => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": true
             }}),
+            "initialize" if document_symbols => {
+                json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})
+            }
             "initialize" if formatting => json!({"capabilities": {
                 "textDocumentSync": 1, "documentRangeFormattingProvider": true
             }}),

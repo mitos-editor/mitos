@@ -27,6 +27,9 @@ impl DocumentSymbolsHandler {
 }
 
 fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
+    if !editor.config().lsp.enable {
+        return;
+    }
     let callbacks = editor.handlers.document_symbols.callbacks.clone();
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
@@ -96,6 +99,7 @@ pub(crate) fn register_hooks() {
         if !event.ghost_transaction {
             // Cancel the ongoing request, if present.
             event.doc.document_symbols.request.cancel();
+            event.doc.document_symbols.picker.cancel();
             let view_id = event.view;
             let doc_id = event.doc.id();
             // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
@@ -136,6 +140,12 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        if !event.new.lsp.enable {
+            for doc in event.editor.documents_mut() {
+                doc.document_symbols.clear();
+            }
+            return Ok(());
+        }
         if !event.old.breadcrumb.enable && event.new.breadcrumb.enable {
             let view_id = event.editor.tree.focus;
             if let Some(view) = event.editor.tree.try_get(view_id) {
@@ -150,7 +160,8 @@ pub(crate) fn register_hooks() {
 
         if event.old.breadcrumb.enable && !event.new.breadcrumb.enable {
             for doc in event.editor.documents_mut() {
-                doc.document_symbols.clear();
+                doc.document_symbols.request.cancel();
+                doc.document_symbols.clear_cache();
             }
         }
 
