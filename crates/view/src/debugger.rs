@@ -2,6 +2,7 @@
 
 mod breakpoints;
 pub use breakpoints::{BreakpointBinding, BreakpointLocation};
+mod events;
 mod launch;
 mod operations;
 pub use operations::{
@@ -90,6 +91,7 @@ pub struct DebuggerState {
     next_breakpoint_id: u64,
     breakpoint_sessions: HashMap<DebugAdapterId, breakpoints::BreakpointSession>,
     requests: HashMap<DebugAdapterId, operations::SessionRequests>,
+    events: HashMap<DebugAdapterId, events::SessionEvents>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 

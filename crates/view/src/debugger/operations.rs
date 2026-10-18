@@ -36,8 +36,13 @@ impl Default for SessionRequests {
 }
 
 impl DebuggerState {
+    pub(super) fn execution_handle(&mut self, id: DebugAdapterId) -> TaskHandle {
+        self.requests.entry(id).or_default().current.clone()
+    }
+
     pub(crate) fn remove_client(&mut self, id: DebugAdapterId) {
         self.requests.remove(&id);
+        self.events.remove(&id);
         self.breakpoint_sessions.remove(&id);
         self.adapters.remove_client(id);
     }
@@ -66,6 +71,7 @@ impl DebuggerContext {
         !self.lifetime.is_canceled()
             && !self.request.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
+            && !editor.debugger.is_terminating(self.id)
             && editor.debugger.get_active_client().is_some_and(|client| {
                 client.id() == self.id
                     && client.thread_id == self.thread
@@ -155,6 +161,10 @@ impl Editor {
             client.thread_id,
             client.current_stack_frame().map(|frame| frame.id),
             client.request_sender(),
+        );
+        anyhow::ensure!(
+            !self.debugger.is_terminating(id),
+            "Debugger session is disconnecting"
         );
         let owner = self.callback_sender().clone();
         let state = self.debugger.requests.entry(id).or_default();

@@ -49,7 +49,14 @@ impl TerminalLauncher for Launcher {
 async fn adapter(
     f: &mut Fixture,
 ) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
-    let (socket, receiver) = adapter_server(false).await?;
+    adapter_with_options(f, AdapterOptions::default()).await
+}
+
+async fn adapter_with_options(
+    f: &mut Fixture,
+    options: AdapterOptions,
+) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
+    let (socket, receiver) = adapter_server_with_options(options).await?;
     let config = dap::DebugAdapterConfig {
         name: "fixture".into(),
         transport: "tcp".into(),
@@ -69,6 +76,26 @@ async fn adapter(
 async fn adapter_server(
     fail_launch: bool,
 ) -> anyhow::Result<(std::net::SocketAddr, mpsc::UnboundedReceiver<Value>)> {
+    adapter_server_with_options(AdapterOptions {
+        fail_launch,
+        ..Default::default()
+    })
+    .await
+}
+
+#[derive(Default)]
+struct AdapterOptions {
+    fail_launch: bool,
+    held_commands: Vec<&'static str>,
+    empty_stack: bool,
+    empty_threads: bool,
+    fail_stack: bool,
+    stack_source: Option<std::path::PathBuf>,
+}
+
+async fn adapter_server_with_options(
+    mut options: AdapterOptions,
+) -> anyhow::Result<(std::net::SocketAddr, mpsc::UnboundedReceiver<Value>)> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let socket = listener.local_addr()?;
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -77,6 +104,7 @@ async fn adapter_server(
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
         let mut delayed = None;
+        let mut held_event = None;
         let mut held_breakpoint = None;
         let mut hold_breakpoints = true;
         loop {
@@ -111,17 +139,28 @@ async fn adapter_server(
                     held_breakpoint = Some(message);
                     continue;
                 }
+                if let Some(index) = options
+                    .held_commands
+                    .iter()
+                    .position(|command| message["command"] == *command)
+                {
+                    options.held_commands.remove(index);
+                    held_event = Some(message);
+                    continue;
+                }
                 let body = match message["command"].as_str().unwrap() {
                     "initialize" => {
                         json!({"supportsRestartRequest":true,"supportsTerminateRequest":true,"supportsConfigurationDoneRequest":true})
                     }
                     "setBreakpoints" => breakpoint_response(&message),
+                    "threads" if options.empty_threads => json!({"threads":[]}),
                     "threads" => {
                         json!({"threads":[{"id":1,"name":"main"},{"id":2,"name":"worker"}]})
                     }
+                    "stackTrace" if options.empty_stack => json!({"stackFrames":[]}),
                     "stackTrace" => {
                         let thread = message["arguments"]["threadId"].as_u64().unwrap();
-                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
+                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
                     }
                     "scopes" => {
                         json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false}]})
@@ -136,11 +175,25 @@ async fn adapter_server(
                     _ => json!({}),
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
-                    "request_seq":message["seq"], "command":message["command"], "success":!(fail_launch && message["command"] == "launch"), "body":body}))?;
+                    "request_seq":message["seq"], "command":message["command"], "success":!((options.fail_launch && message["command"] == "launch") || (options.fail_stack && message["command"] == "stackTrace")), "body":body}))?;
                 write
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
                 write.write_all(&response).await?;
+                if let Some(held) = held_event.take() {
+                    let body = if held["command"] == "stackTrace" {
+                        json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))}]})
+                    } else {
+                        json!({})
+                    };
+                    let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
+                        "request_seq":held["seq"], "command":held["command"],
+                        "success":!((options.fail_launch && held["command"] == "launch") || (options.fail_stack && held["command"] == "stackTrace")), "body":body}))?;
+                    write
+                        .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
+                        .await?;
+                    write.write_all(&response).await?;
+                }
                 if let Some(held) = held_breakpoint.take() {
                     let response = serde_json::to_vec(
                         &json!({"type":"response", "seq":2, "request_seq":held["seq"], "command":"setBreakpoints", "success":true, "body":breakpoint_response(&held)}),
@@ -354,6 +407,7 @@ async fn terminal_results_from_removed_adapters_do_not_change_editor_state() -> 
     let terminated = serde_json::from_value(json!({"type":"event","seq":94,"event":"terminated"}))?;
     f.editor.handle_debugger_message(id, terminated).await;
     assert_eq!(message(&mut wire).await?["command"], "disconnect");
+    wait_for_adapter_removal(&mut f, id).await?;
     assert!(f.editor.debugger().get_client(id).is_none());
     f.editor.set_status("session is closed");
     gate.notify_one();
@@ -536,6 +590,7 @@ async fn breakpoint_replies_from_removed_sessions_are_discarded() -> anyhow::Res
             .unwrap()
             .verified
     );
+    wait_for_adapter_removal(&mut f, id).await?;
     assert!(f.editor.debugger().get_client(id).is_none());
     Ok(())
 }
@@ -588,14 +643,13 @@ async fn inactive_adapter_breakpoint_replies_preserve_the_active_session() -> an
 async fn paused_adapter(
     f: &mut Fixture,
 ) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
-    let (id, wire) = adapter(f).await?;
+    let (id, mut wire) = adapter(f).await?;
     f.editor
         .handle_debugger_message(id, debugger_event("initialized", json!({})))
         .await;
+    command(&mut wire, "configurationDone").await?;
+    debugger_callback(f).await?;
     stop_adapter(f, id).await;
-    while let Ok(callback) = f.callbacks.try_recv() {
-        callback(&mut f.editor);
-    }
     Ok((id, wire))
 }
 
@@ -606,6 +660,20 @@ async fn stop_adapter(f: &mut Fixture, id: DebugAdapterId) {
             debugger_event("stopped", json!({"reason":"breakpoint", "threadId":1})),
         )
         .await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f
+            .editor
+            .debugger()
+            .get_client(id)
+            .unwrap()
+            .current_stack_frame()
+            .is_none()
+        {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await
+    .expect("stopped stack frames did not arrive");
 }
 
 async fn command(
@@ -821,7 +889,12 @@ async fn inactive_adapter_events_preserve_the_active_session() -> anyhow::Result
     f.editor
         .handle_debugger_message(inactive, debugger_event("terminated", Value::Null))
         .await;
-    assert!(f.editor.debugger().get_client(inactive).is_none());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().get_client(inactive).is_some() {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await?;
     assert_eq!(
         f.editor.debugger().get_active_client().unwrap().id(),
         active
@@ -984,5 +1057,592 @@ async fn source_breakpoint_edits_reach_every_configured_adapter() -> anyhow::Res
         second
     );
     assert!(f.editor.debugger().get_client(first).is_some());
+    Ok(())
+}
+
+async fn wait_for_adapter_removal(f: &mut Fixture, id: DebugAdapterId) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().get_client(id).is_some() {
+            debugger_callback(f).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await?
+}
+
+async fn debugger_callback(f: &mut Fixture) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .context("missing debugger callback")?(&mut f.editor);
+    Ok(())
+}
+
+async fn release_adapter_request(f: &Fixture, id: DebugAdapterId) -> anyhow::Result<()> {
+    f.editor
+        .debugger()
+        .get_client(id)
+        .unwrap()
+        .request_sender()
+        .request::<dap::requests::Threads>(Some(dap::requests::ThreadsArguments {}))
+        .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stopped_stack_requests_keep_the_editor_available_and_cancel_on_continue(
+) -> anyhow::Result<()> {
+    for fail_stack in [false, true] {
+        let mut f = Fixture::new("")?;
+        let (id, mut wire) = adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                held_commands: vec!["stackTrace"],
+                fail_stack,
+                ..Default::default()
+            },
+        )
+        .await?;
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        command(&mut wire, "configurationDone").await?;
+        debugger_callback(&mut f).await?;
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            f.editor.handle_debugger_message(
+                id,
+                debugger_event("stopped", json!({"reason":"breakpoint","threadId":1})),
+            ),
+        )
+        .await?;
+        command(&mut wire, "stackTrace").await?;
+        assert_eq!(
+            f.editor.debugger().get_client(id).unwrap().thread_id,
+            Some(serde_json::from_value(json!(1))?)
+        );
+        f.editor
+            .handle_debugger_message(id, debugger_event("continued", json!({"threadId":1})))
+            .await;
+        f.editor.set_status("editor remains available");
+        release_adapter_request(&f, id).await?;
+        // Another request flushes the held reply through the transport without
+        // relying on a sleep or requiring a callback from canceled work.
+        release_adapter_request(&f, id).await?;
+        while let Ok(callback) = f.callbacks.try_recv() {
+            callback(&mut f.editor);
+        }
+        let client = f.editor.debugger().get_client(id).unwrap();
+        assert!(client.thread_id.is_none());
+        assert!(client.stack_frames.is_empty());
+        assert_eq!(f.editor.get_status().unwrap().0, "editor remains available");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_stopped_frames_do_not_replace_a_new_execution() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("stopped", json!({"reason":"step","threadId":1})),
+        )
+        .await;
+    command(&mut wire, "stackTrace").await?;
+    let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .unwrap();
+    f.editor
+        .handle_debugger_message(id, debugger_event("continued", json!({"threadId":1})))
+        .await;
+    f.editor.set_status("new execution");
+    old(&mut f.editor);
+    assert!(f
+        .editor
+        .debugger()
+        .get_client(id)
+        .unwrap()
+        .current_stack_frame()
+        .is_none());
+    assert_eq!(f.editor.get_status().unwrap().0, "new execution");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stopped_thread_selection_handles_missing_threads_and_empty_or_failed_stacks(
+) -> anyhow::Result<()> {
+    for (thread, all_stopped, empty_stack, fail_stack) in [
+        (Value::Null, true, false, false),
+        (json!(999), true, false, false),
+        (json!(1), true, true, false),
+        (json!(1), true, false, true),
+        (Value::Null, false, false, false),
+    ] {
+        let mut f = Fixture::new("")?;
+        let (id, mut wire) = adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                empty_stack,
+                fail_stack,
+                ..Default::default()
+            },
+        )
+        .await?;
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        command(&mut wire, "configurationDone").await?;
+        debugger_callback(&mut f).await?;
+        f.editor
+            .handle_debugger_message(
+                id,
+                debugger_event(
+                    "stopped",
+                    json!({"reason":"breakpoint","threadId":thread,"allThreadsStopped":all_stopped}),
+                ),
+            )
+            .await;
+        let trace = command(&mut wire, "stackTrace").await?;
+        assert_eq!(trace["arguments"]["threadId"], 1);
+        debugger_callback(&mut f).await?;
+        let client = f.editor.debugger().get_client(id).unwrap();
+        assert_eq!(client.thread_id, Some(serde_json::from_value(json!(1))?));
+        assert_eq!(
+            client
+                .thread_states
+                .get(&serde_json::from_value(json!(1))?)
+                .map(String::as_str),
+            Some("breakpoint")
+        );
+        assert_eq!(
+            client
+                .thread_states
+                .get(&serde_json::from_value(json!(2))?)
+                .map(String::as_str),
+            all_stopped.then_some("breakpoint")
+        );
+        assert_eq!(
+            client.current_stack_frame().is_some(),
+            !(empty_stack || fail_stack)
+        );
+        assert_eq!(client.active_frame.is_some(), !(empty_stack || fail_stack));
+        release_adapter_request(&f, id).await?;
+        while let Ok(request) = wire.try_recv() {
+            assert_ne!(
+                request["command"], "stackTrace",
+                "stop must fetch only one selected stack"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn thread_events_and_partial_continues_preserve_other_stopped_threads() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("")?;
+    let (id, _) = paused_adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("thread", json!({"reason":"started","threadId":2})),
+        )
+        .await;
+    assert_eq!(
+        f.editor.debugger().get_client(id).unwrap().thread_id,
+        Some(serde_json::from_value(json!(1))?)
+    );
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("stopped", json!({"reason":"pause","threadId":2})),
+        )
+        .await;
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_client(id)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        101
+    );
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event(
+                "continued",
+                json!({"threadId":2,"allThreadsContinued":false}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_client(id)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        101
+    );
+    f.editor
+        .handle_debugger_message(id, debugger_event("continued", json!({"threadId":2})))
+        .await;
+    let client = f.editor.debugger().get_client(id).unwrap();
+    assert!(client.thread_id.is_none());
+    assert!(client.stack_frames.is_empty());
+    assert!(client
+        .thread_states
+        .values()
+        .all(|state| state == "running"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn termination_disconnects_and_relaunches_without_blocking_the_editor() -> anyhow::Result<()>
+{
+    for (attach, restart_data) in [
+        (false, json!(true)),
+        (true, json!(true)),
+        (false, json!({"session":"next"})),
+        (true, json!({"session":"next"})),
+    ] {
+        let mut f = Fixture::new("")?;
+        let (id, mut wire) = adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                held_commands: vec!["disconnect", if attach { "attach" } else { "launch" }],
+                fail_launch: !attach,
+                ..Default::default()
+            },
+        )
+        .await?;
+        let initial = json!({"program":"initial", "cwd":"/workspace", "env":{"EXAMPLE":"value"}});
+        let client = f.editor.debugger_mut().get_client_mut(id).unwrap();
+        // Record how the session began without waiting on the deliberately held launch.
+        if attach {
+            drop(client.attach(initial.clone()));
+        } else {
+            drop(client.launch(initial.clone()));
+        }
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        command(&mut wire, "configurationDone").await?;
+        debugger_callback(&mut f).await?;
+        let mut expected_arguments = initial;
+        expected_arguments["__restart"] = restart_data.clone();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            f.editor.handle_debugger_message(
+                id,
+                debugger_event("terminated", json!({"restart":restart_data})),
+            ),
+        )
+        .await?;
+        let disconnect = command(&mut wire, "disconnect").await?;
+        assert_eq!(disconnect["arguments"]["restart"], true);
+        f.editor.set_status("disconnect is pending");
+        release_adapter_request(&f, id).await?;
+        debugger_callback(&mut f).await?;
+        let restart = command(&mut wire, if attach { "attach" } else { "launch" }).await?;
+        assert_eq!(restart["arguments"], expected_arguments);
+        assert_eq!(
+            f.editor
+                .debugger()
+                .get_client(id)
+                .unwrap()
+                .connection_type(),
+            Some(if attach {
+                dap::ConnectionType::Attach
+            } else {
+                dap::ConnectionType::Launch
+            })
+        );
+        f.editor.set_status("restart is pending");
+        // Initialized is commonly sent before the launch request completes.
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        // A new execution makes even a failed restart response obsolete.
+        stop_adapter(&mut f, id).await;
+        release_adapter_request(&f, id).await?;
+        while let Ok(callback) = f.callbacks.try_recv() {
+            callback(&mut f.editor);
+        }
+        assert_eq!(
+            f.editor
+                .debugger()
+                .get_client(id)
+                .unwrap()
+                .current_stack_frame()
+                .unwrap()
+                .id,
+            101
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn terminated_disconnect_results_cannot_remove_a_new_execution() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", Value::Null))
+        .await;
+    command(&mut wire, "disconnect").await?;
+    let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .unwrap();
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    stop_adapter(&mut f, id).await;
+    old(&mut f.editor);
+    assert!(f
+        .editor
+        .debugger()
+        .get_client(id)
+        .unwrap()
+        .current_stack_frame()
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn thread_exit_during_disconnect_does_not_cancel_session_cleanup() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            held_commands: vec!["disconnect"],
+            ..Default::default()
+        },
+    )
+    .await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "configurationDone").await?;
+    debugger_callback(&mut f).await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", Value::Null))
+        .await;
+    command(&mut wire, "disconnect").await?;
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("thread", json!({"reason":"exited","threadId":1})),
+        )
+        .await;
+    assert!(f.editor.debugger_threads().is_err());
+    // A stale stopped event from the ending execution cannot revive it.
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("stopped", json!({"reason":"pause","threadId":1})),
+        )
+        .await;
+    assert!(f
+        .editor
+        .debugger()
+        .get_client(id)
+        .unwrap()
+        .thread_id
+        .is_none());
+    release_adapter_request(&f, id).await?;
+    debugger_callback(&mut f).await?;
+    assert!(f.editor.debugger().get_client(id).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_target_without_threads_has_no_selected_frame() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            empty_threads: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "configurationDone").await?;
+    debugger_callback(&mut f).await?;
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event(
+                "stopped",
+                json!({"reason":"pause","allThreadsStopped":true}),
+            ),
+        )
+        .await;
+    debugger_callback(&mut f).await?;
+    let client = f.editor.debugger().get_client(id).unwrap();
+    assert!(client.thread_id.is_none());
+    assert!(client.active_frame.is_none());
+    assert!(client.stack_frames.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn events_from_removed_adapters_preserve_the_active_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (removed, _) = paused_adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(removed, debugger_event("terminated", Value::Null))
+        .await;
+    wait_for_adapter_removal(&mut f, removed).await?;
+    let (active, mut wire) = adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(active, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "configurationDone").await?;
+    debugger_callback(&mut f).await?;
+    stop_adapter(&mut f, active).await;
+    f.editor.set_status("active session is paused");
+    for (name, body) in [
+        ("initialized", json!({})),
+        ("stopped", json!({"reason":"breakpoint","threadId":1})),
+        ("output", json!({"output":"late output"})),
+        ("exited", json!({"exitCode":1})),
+    ] {
+        assert!(
+            !f.editor
+                .handle_debugger_message(removed, debugger_event(name, body))
+                .await
+        );
+        assert_eq!(f.editor.get_status().unwrap().0, "active session is paused");
+        assert_eq!(
+            f.editor.debugger().get_active_client().unwrap().id(),
+            active
+        );
+        assert_eq!(
+            f.editor
+                .debugger()
+                .get_client(active)
+                .unwrap()
+                .current_stack_frame()
+                .unwrap()
+                .id,
+            101
+        );
+        assert!(f.editor.debugger().get_client(removed).is_none());
+        assert!(f.callbacks.try_recv().is_err());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
+) -> anyhow::Result<()> {
+    use editor_core::Selection;
+    use view::{current, current_ref, document::Mode, editor::Action};
+
+    for interaction in ["unchanged", "document", "view", "selection", "edit", "mode"] {
+        let mut f = Fixture::new("original\n")?;
+        let source = current_ref!(f.editor)
+            .1
+            .path()
+            .unwrap()
+            .with_file_name("frame.words");
+        std::fs::write(&source, "stack frame\n")?;
+        let (id, mut wire) = adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                held_commands: vec!["stackTrace"],
+                stack_source: Some(source.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        command(&mut wire, "configurationDone").await?;
+        debugger_callback(&mut f).await?;
+        f.editor
+            .handle_debugger_message(
+                id,
+                debugger_event("stopped", json!({"reason":"breakpoint","threadId":1})),
+            )
+            .await;
+        command(&mut wire, "stackTrace").await?;
+        match interaction {
+            "document" => {
+                f.editor.new_file(Action::Replace);
+            }
+            "view" => {
+                let document = current_ref!(f.editor).1.id();
+                f.editor.switch(document, Action::VerticalSplit);
+            }
+            "selection" => {
+                let (view, doc) = current!(f.editor);
+                doc.set_selection(view.id, Selection::point(3));
+            }
+            "edit" => f.replace("changed\n"),
+            "mode" => f.editor.set_mode(Mode::Insert),
+            _ => {}
+        }
+        let (view, doc) = current_ref!(f.editor);
+        let expected = (
+            view.id,
+            doc.id(),
+            doc.selection(view.id).clone(),
+            doc.text().to_string(),
+            f.editor.mode(),
+        );
+        release_adapter_request(&f, id).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while f
+                .editor
+                .debugger()
+                .get_client(id)
+                .unwrap()
+                .current_stack_frame()
+                .is_none()
+            {
+                debugger_callback(&mut f).await?;
+            }
+            anyhow::Ok(())
+        })
+        .await??;
+        // Every result updates the debugger model, even when auto-navigation is stale.
+        assert_eq!(
+            f.editor
+                .debugger()
+                .get_client(id)
+                .unwrap()
+                .current_stack_frame()
+                .unwrap()
+                .id,
+            901
+        );
+        let (view, doc) = current_ref!(f.editor);
+        if interaction == "unchanged" {
+            assert_eq!(doc.path(), Some(source.as_path()));
+            assert_eq!(doc.selection(view.id), &Selection::single(0, 1));
+        } else {
+            assert_eq!(
+                (
+                    view.id,
+                    doc.id(),
+                    doc.selection(view.id).clone(),
+                    doc.text().to_string(),
+                    f.editor.mode()
+                ),
+                expected,
+                "{interaction}"
+            );
+        }
+    }
     Ok(())
 }
