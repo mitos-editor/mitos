@@ -209,10 +209,16 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         change_cell(entry.status.unstaged.as_ref(), data)
     }
 
-    fn staged_prefix<'a>(entry: &'a ChangedFileEntry, data: &'a FileChangeData) -> Option<Span<'a>> {
+    fn staged_prefix<'a>(
+        entry: &'a ChangedFileEntry,
+        data: &'a FileChangeData,
+    ) -> Option<Span<'a>> {
         change_prefix(entry.status.staged.as_ref(), data)
     }
-    fn unstaged_prefix<'a>(entry: &'a ChangedFileEntry, data: &'a FileChangeData) -> Option<Span<'a>> {
+    fn unstaged_prefix<'a>(
+        entry: &'a ChangedFileEntry,
+        data: &'a FileChangeData,
+    ) -> Option<Span<'a>> {
         change_prefix(entry.status.unstaged.as_ref(), data)
     }
 

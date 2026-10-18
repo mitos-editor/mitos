@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use editor_core::Rope;
+use stdx::rope::{RopeExt as _, LINE_TYPE};
 
 use crate::{Hunk, LineDiff};
 
@@ -54,7 +55,7 @@ impl Review {
     /// Review all hunks, or only the hunk containing the given current line.
     pub fn new(base: Rope, current: Rope, line: Option<usize>) -> Self {
         if line_count(&base).max(line_count(&current)) > MAX_REVIEW_LINES
-            || base.len_bytes().max(current.len_bytes()) > MAX_REVIEW_BYTES
+            || base.len().max(current.len()) > MAX_REVIEW_BYTES
         {
             let mut review = Self::default();
             review.push(
@@ -186,8 +187,8 @@ impl Review {
         if line >= line_count(rope) {
             return;
         }
-        let text = rope.line(line);
-        if text.len_bytes() > MAX_ROW_BYTES.saturating_sub(self.bytes) {
+        let text = rope.line(line, LINE_TYPE);
+        if text.len() > MAX_ROW_BYTES.saturating_sub(self.bytes) {
             self.truncated = true;
             return;
         }
@@ -245,7 +246,8 @@ impl Review {
 }
 
 fn line_count(rope: &Rope) -> usize {
-    rope.len_lines() - usize::from(rope.len_chars() == 0 || rope.char(rope.len_chars() - 1) == '\n')
+    rope.len_lines(LINE_TYPE)
+        - usize::from(rope.len_chars() == 0 || rope.char_at(rope.len_chars() - 1) == '\n')
 }
 
 fn range_label(range: &Range<usize>) -> String {
@@ -349,10 +351,16 @@ mod tests {
             .any(|line| line.kind == ReviewLineKind::Added && line.text == "changed"));
         for line in review.lines {
             if let Some(index) = line.before {
-                assert_eq!(line.text, before.line(index).to_string().trim_end());
+                assert_eq!(
+                    line.text,
+                    before.line(index, LINE_TYPE).to_string().trim_end()
+                );
             }
             if let Some(index) = line.after {
-                assert_eq!(line.text, after.line(index).to_string().trim_end());
+                assert_eq!(
+                    line.text,
+                    after.line(index, LINE_TYPE).to_string().trim_end()
+                );
             }
         }
     }

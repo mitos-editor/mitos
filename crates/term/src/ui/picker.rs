@@ -1084,9 +1084,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         if let Some(preview) = &mut self.custom_preview {
             let item = self
+                .results
                 .matcher
                 .snapshot()
-                .get_matched_item(self.cursor)
+                .get_matched_item(self.results.cursor)
                 .map(|item| item.data);
             preview.render(item, inner, surface, cx);
             return;
@@ -1187,9 +1188,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     .is_some_and(|(preview, item)| preview.open_on_accept(item));
                 if opens_preview {
                     let item = self
+                        .results
                         .matcher
                         .snapshot()
-                        .get_matched_item(self.cursor)
+                        .get_matched_item(self.results.cursor)
                         .map(|item| item.data);
                     return self.custom_preview.as_mut().unwrap().action(
                         item,
@@ -1325,9 +1327,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             _ => PreviewAction::Open,
                         };
                         let item = self
+                            .results
                             .matcher
                             .snapshot()
-                            .get_matched_item(self.cursor)
+                            .get_matched_item(self.results.cursor)
                             .map(|item| item.data);
                         return preview.action(item, action, ctx);
                     }
