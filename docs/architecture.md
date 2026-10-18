@@ -631,6 +631,11 @@ and register replacement. The terminal adapter owns prompts, repeat recording,
 mode transitions, and scrolling; prompted replacement and repeat use the same
 editor operation.
 
+Paste and register replacement transactions live in `core::transform`. Callers
+supply values, counts, positions, and line endings. `view::editing` applies them
+with mode-specific selection and undo grouping; terminal commands own clipboard
+access, register selection, status messages, and scrolling.
+
 `view::save` owns save options, whitespace/newline normalization, history
 checkpoints, modified-document selection, save-all error policy, and the complete
 pre-save sequence. `prepare` returns a request for one document; `submit` advances

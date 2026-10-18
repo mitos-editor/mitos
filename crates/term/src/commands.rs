@@ -62,8 +62,7 @@ pub use mappable::MappableCommand;
 pub use movement::scroll;
 pub use palette::command_palette;
 pub(crate) use registers::{
-    paste, paste_bracketed_value, replace_selections_with_register,
-    yank_main_selection_to_register, Paste,
+    paste, paste_bracketed_value, replace_selections_with_register, yank_main_selection_to_register,
 };
 pub use syntax::{
     extend_parent_node_end, extend_parent_node_start, move_parent_node_end, move_parent_node_start,

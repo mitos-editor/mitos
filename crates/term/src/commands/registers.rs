@@ -1,12 +1,9 @@
 //! Register and clipboard commands: yanking, pasting, replacement, and register selection.
 
 use super::{context::Context, mode::exit_select_mode};
-use editor_core::{
-    line_ending::{get_line_ending_of_str, normalize_line_endings},
-    Range, Selection, SmallVec, Tendril, Transaction,
-};
+use editor_core::transform::PastePosition;
 use std::borrow::Cow;
-use view::{document::Mode, info::Info, Document, Editor, View};
+use view::{document::Mode, info::Info, Editor};
 
 pub(super) fn yank(cx: &mut Context) {
     yank_impl(
@@ -117,125 +114,35 @@ pub(super) fn yank_main_selection_to_primary_clipboard(cx: &mut Context) {
     exit_select_mode(cx);
 }
 
-#[derive(Copy, Clone)]
-pub(crate) enum Paste {
-    Before,
-    After,
-    Cursor,
-}
-
-fn paste_impl(
-    values: &[String],
-    doc: &mut Document,
-    view: &mut View,
-    action: Paste,
-    count: usize,
-    mode: Mode,
-) {
-    if values.is_empty() {
-        return;
-    }
-
-    if mode == Mode::Insert {
-        view::editing::commit(doc, view);
-    }
-
-    // if any of values ends with a line ending, it's linewise paste
-    let linewise = values
-        .iter()
-        .any(|value| get_line_ending_of_str(value).is_some());
-
-    let map_value = |value| {
-        let value = normalize_line_endings(value, doc.line_ending);
-        let mut out = Tendril::from(value.as_ref());
-        for _ in 1..count {
-            out.push_str(&value);
-        }
-        out
-    };
-
-    let repeat = std::iter::repeat(
-        // `values` is asserted to have at least one entry above.
-        map_value(values.last().unwrap()),
-    );
-
-    let mut values = values.iter().map(|value| map_value(value)).chain(repeat);
-
-    let text = doc.text();
-    let selection = doc.selection(view.id);
-
-    let mut offset = 0;
-    let mut ranges = SmallVec::with_capacity(selection.len());
-
-    let mut transaction = Transaction::change_by_selection(text, selection, |range| {
-        let pos = match (action, linewise) {
-            // paste linewise before
-            (Paste::Before, true) => text.line_to_char(text.char_to_line(range.from())),
-            // paste linewise after
-            (Paste::After, true) => {
-                let line = range.line_range(text.slice(..)).1;
-                text.line_to_char((line + 1).min(text.len_lines()))
-            }
-            // paste insert
-            (Paste::Before, false) => range.from(),
-            // paste append
-            (Paste::After, false) => range.to(),
-            // paste at cursor
-            (Paste::Cursor, _) => range.cursor(text.slice(..)),
-        };
-
-        let value = values.next();
-
-        let value_len = value
-            .as_ref()
-            .map(|content| content.chars().count())
-            .unwrap_or_default();
-        let anchor = offset + pos;
-
-        let new_range = Range::new(anchor, anchor + value_len).with_direction(range.direction());
-        ranges.push(new_range);
-        offset += value_len;
-
-        (pos, pos, value)
-    });
-
-    if mode == Mode::Normal {
-        transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
-    }
-
-    view::editing::apply(doc, &transaction, view.id);
-    view::editing::commit(doc, view);
-}
-
 pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
     let count = cx.count();
     let paste = match cx.editor.mode() {
-        Mode::Insert | Mode::Select => Paste::Cursor,
-        Mode::Normal => Paste::Before,
+        Mode::Insert | Mode::Select => PastePosition::Cursor,
+        Mode::Normal => PastePosition::Before,
     };
     let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
-    paste_impl(&[contents], doc, view, paste, count, mode);
+    view::editing::paste(doc, view, &[contents], paste, count, mode);
     exit_select_mode(cx);
 }
 
 pub(super) fn paste_clipboard_after(cx: &mut Context) {
-    paste(cx.editor, '+', Paste::After, cx.count());
+    paste(cx.editor, '+', PastePosition::After, cx.count());
     exit_select_mode(cx);
 }
 
 pub(super) fn paste_clipboard_before(cx: &mut Context) {
-    paste(cx.editor, '+', Paste::Before, cx.count());
+    paste(cx.editor, '+', PastePosition::Before, cx.count());
     exit_select_mode(cx);
 }
 
 pub(super) fn paste_primary_clipboard_after(cx: &mut Context) {
-    paste(cx.editor, '*', Paste::After, cx.count());
+    paste(cx.editor, '*', PastePosition::After, cx.count());
     exit_select_mode(cx);
 }
 
 pub(super) fn paste_primary_clipboard_before(cx: &mut Context) {
-    paste(cx.editor, '*', Paste::Before, cx.count());
+    paste(cx.editor, '*', PastePosition::Before, cx.count());
     exit_select_mode(cx);
 }
 
@@ -258,37 +165,9 @@ pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: ch
         return;
     };
     let scrolloff = editor.config().scroll.padding;
-    let (view, doc) = current_ref!(editor);
-
-    let map_value = |value: &Cow<str>| {
-        let value = normalize_line_endings(value, doc.line_ending);
-        let mut out = Tendril::from(value.as_ref());
-        for _ in 1..count {
-            out.push_str(&value);
-        }
-        out
-    };
-    let mut values_rev = values.rev().peekable();
-    // `values` is asserted to have at least one entry above.
-    let last = values_rev.peek().unwrap();
-    let repeat = std::iter::repeat(map_value(last));
-    let mut values = values_rev
-        .rev()
-        .map(|value| map_value(&value))
-        .chain(repeat);
-    let selection = doc.selection(view.id);
-    let transaction = Transaction::change_by_selection(doc.text(), selection, |range| {
-        if !range.is_empty() {
-            (range.from(), range.to(), Some(values.next().unwrap()))
-        } else {
-            (range.from(), range.to(), None)
-        }
-    });
-    drop(values);
-
+    let values: Vec<_> = values.map(Cow::into_owned).collect();
     let (view, doc) = current!(editor);
-    view::editing::apply(doc, &transaction, view.id);
-    view::editing::commit(doc, view);
+    view::editing::replace_selection_contents(doc, view, &values, count);
     view.ensure_cursor_in_view(doc, scrolloff);
 }
 
@@ -302,7 +181,7 @@ pub(super) fn replace_selections_with_primary_clipboard(cx: &mut Context) {
     exit_select_mode(cx);
 }
 
-pub(crate) fn paste(editor: &mut Editor, register: char, pos: Paste, count: usize) {
+pub(crate) fn paste(editor: &mut Editor, register: char, pos: PastePosition, count: usize) {
     let Some(values) = editor.registers.read(register, editor) else {
         return;
     };
@@ -310,7 +189,7 @@ pub(crate) fn paste(editor: &mut Editor, register: char, pos: Paste, count: usiz
 
     let mode = editor.mode();
     let (view, doc) = current!(editor);
-    paste_impl(&values, doc, view, pos, count, mode);
+    view::editing::paste(doc, view, &values, pos, count, mode);
 }
 
 pub(super) fn paste_after(cx: &mut Context) {
@@ -318,7 +197,7 @@ pub(super) fn paste_after(cx: &mut Context) {
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
-        Paste::After,
+        PastePosition::After,
         cx.count(),
     );
     exit_select_mode(cx);
@@ -329,7 +208,7 @@ pub(super) fn paste_before(cx: &mut Context) {
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
-        Paste::Before,
+        PastePosition::Before,
         cx.count(),
     );
     exit_select_mode(cx);
@@ -364,7 +243,7 @@ pub(super) fn insert_register(cx: &mut Context) {
                 cx.editor,
                 cx.register
                     .unwrap_or(cx.editor.config().clipboard.default_yank_register),
-                Paste::Cursor,
+                PastePosition::Cursor,
                 count,
             );
         }
@@ -419,13 +298,14 @@ pub(super) mod typed {
     use crate::{
         commands::registers::{
             paste, replace_selections_with_register, yank_joined_impl,
-            yank_main_selection_to_register, Paste,
+            yank_main_selection_to_register,
         },
         compositor,
         ui::PromptEvent,
     };
     use ::command_line::Args;
     use anyhow::ensure;
+    use editor_core::transform::PastePosition;
     use std::borrow::Cow;
 
     #[cold]
@@ -521,7 +401,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        paste(cx.editor, '+', Paste::After, 1);
+        paste(cx.editor, '+', PastePosition::After, 1);
         Ok(())
     }
 
@@ -535,7 +415,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        paste(cx.editor, '+', Paste::Before, 1);
+        paste(cx.editor, '+', PastePosition::Before, 1);
         Ok(())
     }
 
@@ -549,7 +429,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        paste(cx.editor, '*', Paste::After, 1);
+        paste(cx.editor, '*', PastePosition::After, 1);
         Ok(())
     }
 
@@ -563,7 +443,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        paste(cx.editor, '*', Paste::Before, 1);
+        paste(cx.editor, '*', PastePosition::Before, 1);
         Ok(())
     }
 

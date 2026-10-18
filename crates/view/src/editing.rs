@@ -170,6 +170,56 @@ pub fn replace_selections(doc: &mut Document, view: &mut View, replacement: &str
     crate::editing::commit(doc, view);
 }
 
+/// Paste register or clipboard contents as one undo group. In insert mode,
+/// commit preceding typing first; normal mode selects the inserted text.
+pub fn paste<T: AsRef<str>>(
+    doc: &mut Document,
+    view: &mut View,
+    values: &[T],
+    position: editor_core::transform::PastePosition,
+    count: usize,
+    mode: crate::document::Mode,
+) {
+    let Some((mut transaction, inserted)) = editor_core::transform::paste(
+        doc.text(),
+        doc.selection(view.id),
+        values,
+        position,
+        count,
+        doc.line_ending,
+    ) else {
+        return;
+    };
+    if mode == crate::document::Mode::Insert {
+        commit(doc, view);
+    }
+    if mode == crate::document::Mode::Normal {
+        transaction = transaction.with_selection(inserted);
+    }
+    apply(doc, &transaction, view.id);
+    commit(doc, view);
+}
+
+/// Replace nonempty selections with register contents and commit one undo group.
+pub fn replace_selection_contents<T: AsRef<str>>(
+    doc: &mut Document,
+    view: &mut View,
+    values: &[T],
+    count: usize,
+) {
+    let Some(transaction) = editor_core::transform::replace_selection_contents(
+        doc.text(),
+        doc.selection(view.id),
+        values,
+        count,
+        doc.line_ending,
+    ) else {
+        return;
+    };
+    apply(doc, &transaction, view.id);
+    commit(doc, view);
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -180,6 +230,29 @@ mod tests {
 
     use super::*;
     use editor_config::Config;
+
+    #[tokio::test]
+    async fn insert_mode_paste_is_separate_from_preceding_typing() {
+        let (mut doc, mut view) = document_and_view("#[|]#\n");
+        doc.line_ending = LineEnding::LF;
+        insert::insert_char(&mut doc, view.id, 'a', &syntax::Loader::default(), None);
+        paste(
+            &mut doc,
+            &mut view,
+            &["界"],
+            editor_core::transform::PastePosition::Cursor,
+            1,
+            crate::document::Mode::Insert,
+        );
+        assert_eq!(doc.text(), "a界\n");
+        assert!(undo(&mut doc, &mut view));
+        assert_eq!(doc.text(), "a\n");
+        assert!(undo(&mut doc, &mut view));
+        assert_eq!(doc.text(), "\n");
+        assert!(redo(&mut doc, &mut view));
+        assert!(redo(&mut doc, &mut view));
+        assert_eq!(doc.text(), "a界\n");
+    }
 
     #[tokio::test]
     async fn text_edits_and_history_work_without_any_view() {

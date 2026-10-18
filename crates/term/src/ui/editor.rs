@@ -1838,7 +1838,7 @@ impl EditorView {
                     commands::paste(
                         cxt.editor,
                         config.mouse.yank_register,
-                        commands::Paste::Before,
+                        editor_core::transform::PastePosition::Before,
                         cxt.count(),
                     );
 

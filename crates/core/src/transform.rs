@@ -1,5 +1,8 @@
 //! Text transformations expressed as transactions over explicit selections.
 
+mod paste;
+pub use paste::{paste, replace_selection_contents, PastePosition};
+
 use crate::{indent::IndentStyle, Rope, RopeSlice, Selection, Tendril, Transaction};
 use std::char::{ToLowercase, ToUppercase};
 use stdx::rope::RopeSliceExt;
