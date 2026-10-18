@@ -1260,26 +1260,27 @@ impl Application {
 
         #[cfg(not(feature = "integration"))]
         {
-            self.image_picker = Some(
-                ratatui_image::picker::Picker::from_query_stdio().unwrap_or_else(|err| {
+            self.image_picker = ratatui_image::picker::Picker::from_query_stdio()
+                .map_err(|err| {
                     log::warn!(
-                        "failed to detect terminal image capabilities, using halfblocks: {err}"
+                        "failed to detect terminal image capabilities, disabling image previews: {err}"
                     );
-                    ratatui_image::picker::Picker::halfblocks()
-                }),
-            );
+                })
+                .ok()
+                .filter(|picker| {
+                    picker.protocol_type() != ratatui_image::picker::ProtocolType::Halfblocks
+                });
             log::debug!(
                 "terminal image protocol: {:?}",
                 self.image_picker
                     .as_ref()
-                    .expect("image picker was just initialized")
-                    .protocol_type()
+                    .map(|picker| picker.protocol_type())
             );
         }
 
         #[cfg(feature = "integration")]
         {
-            self.image_picker = Some(ratatui_image::picker::Picker::halfblocks());
+            self.image_picker = None;
         }
 
         self.event_loop(input_stream).await;

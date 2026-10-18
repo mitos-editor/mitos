@@ -18,9 +18,9 @@ in its preview pane before you open it.
 
 ## Terminal rendering
 
-Mitos detects the terminal's image capabilities automatically. When detection
-fails, it falls back to rendering with half-block characters. The appearance
-and resolution therefore depend on your terminal.
+Mitos detects the terminal's image capabilities automatically and uses Kitty
+graphics, Sixel, or iTerm2 inline images. If no supported protocol is detected,
+the editor and picker show a binary-file placeholder instead of an image.
 
 Images resize to fit when the pane size changes. GIF and WebP previews show
 a still image; animation playback is not supported.
