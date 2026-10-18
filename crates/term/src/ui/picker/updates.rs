@@ -5,6 +5,7 @@ use std::{collections::HashMap, hash::Hash, sync::Arc};
 use nucleo::{Config, Nucleo, Snapshot};
 
 use super::{inject_nucleo_item, visible_column_widths, Picker};
+use view::Editor;
 
 pub(super) type SelectionResolver<T> = Box<dyn Fn(&Snapshot<T>, &Snapshot<T>, u32) -> Option<u32>>;
 
@@ -13,7 +14,62 @@ pub(super) struct PendingOptions<T: Send + Sync + 'static, D> {
     data: Arc<D>,
 }
 
+/// Feature-owned state is sampled on redraw without rebuilding unchanged rows.
+pub(crate) struct UpdateContext<'a, T> {
+    pub editor: &'a mut Editor,
+    pub selected: Option<&'a T>,
+}
+
+type EditorRefresh<T> = Box<dyn FnMut(UpdateContext<'_, T>) -> Option<Vec<T>>>;
+
+pub(super) struct EditorUpdates<T> {
+    refresh: EditorRefresh<T>,
+    same: fn(&T, &T) -> bool,
+}
+
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
+    pub(crate) fn with_editor_updates(
+        mut self,
+        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Vec<T>> + 'static,
+    ) -> Self
+    where
+        T: PartialEq,
+    {
+        self.editor_updates = Some(EditorUpdates {
+            refresh: Box::new(refresh),
+            same: T::eq,
+        });
+        self
+    }
+
+    pub(super) fn refresh_from_editor(&mut self, editor: &mut Editor) {
+        if self.pending_options.is_some() || self.matcher.active_injectors() > 0 {
+            return;
+        }
+        if self.matcher.tick(0).running {
+            return;
+        }
+        let Some(mut updates) = self.editor_updates.take() else {
+            return;
+        };
+        if let Some(options) = (updates.refresh)(UpdateContext {
+            editor,
+            selected: self.selection(),
+        }) {
+            let snapshot = self.matcher.snapshot();
+            let unchanged = snapshot.item_count() as usize == options.len()
+                && options.iter().enumerate().all(|(index, item)| {
+                    snapshot
+                        .get_item(index as u32)
+                        .is_some_and(|old| (updates.same)(old.data, item))
+                });
+            if !unchanged {
+                self.refresh_options(options, self.editor_data.clone());
+            }
+        }
+        self.editor_updates = Some(updates);
+    }
+
     /// Identify rows independently of their displayed metadata. If the selected row
     /// disappears, prefer its next surviving neighbour, then its previous one.
     pub(crate) fn with_item_key<K: Eq + Hash + 'static>(

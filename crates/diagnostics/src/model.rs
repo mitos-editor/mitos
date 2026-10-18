@@ -49,7 +49,7 @@ pub struct Diagnostic {
 /// The source of a diagnostic.
 ///
 /// This type is cheap to clone: all data is either `Copy` or wrapped in an `Arc`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DiagnosticProvider {
     Lsp {
         /// The ID of the language server which sent the diagnostic.

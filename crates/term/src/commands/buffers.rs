@@ -8,6 +8,7 @@ use crate::{
 use std::{borrow::Cow, path::Path};
 use view::{DocumentId, Editor};
 
+#[derive(PartialEq)]
 struct BufferMeta {
     id: DocumentId,
     path: Option<Cow<'static, Path>>,
@@ -68,7 +69,11 @@ fn close_selected_buffer(
 }
 
 pub(super) fn buffer_picker(cx: &mut Context) {
-    let items = buffer_items(cx.editor);
+    cx.push_layer(Box::new(overlaid(buffer_picker_for_editor(cx.editor))));
+}
+
+fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConfig> {
+    let items = buffer_items(editor);
 
     let columns = [
         PickerColumn::new("id", |meta: &BufferMeta, _| meta.id.to_string().into()),
@@ -87,29 +92,25 @@ pub(super) fn buffer_picker(cx: &mut Context) {
         }),
     ];
 
-    let initial_cursor = if cx
-        .editor
-        .config()
-        .buffer_picker
-        .start_position
-        .is_previous()
-        && !items.is_empty()
-    {
-        1
-    } else {
-        0
-    };
+    let initial_cursor =
+        if editor.config().buffer_picker.start_position.is_previous() && !items.is_empty() {
+            1
+        } else {
+            0
+        };
 
-    let picker = Picker::new(
-        cx.editor.redraw().clone(),
+    Picker::new(
+        editor.redraw().clone(),
         columns,
         2,
         items,
-        PathStyleConfig::new(cx.editor),
+        PathStyleConfig::new(editor),
         |cx, meta, action| {
             cx.editor.switch(meta.id, action);
         },
     )
+    .with_item_key(|meta| meta.id)
+    .with_editor_updates(|cx| Some(buffer_items(cx.editor)))
     .with_item_actions(|maps| &maps.buffer_picker, close_selected_buffer)
     .with_initial_cursor(initial_cursor)
     .with_preview(|editor, meta| {
@@ -119,8 +120,45 @@ pub(super) fn buffer_picker(cx: &mut Context) {
             (cursor_line, cursor_line)
         });
         Some((meta.id.into(), lines))
-    });
-    cx.push_layer(Box::new(overlaid(picker)));
+    })
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use super::*;
+    use crate::ui::picker::test::{application, items, until};
+    use view::editor::Action;
+
+    #[tokio::test]
+    async fn buffer_picker_tracks_lifecycle_without_changing_selection() -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        let dir = tempfile::tempdir()?;
+        std::fs::write(dir.path().join("first.txt"), "first")?;
+        std::fs::write(dir.path().join("second.txt"), "second")?;
+        let first = app
+            .editor
+            .open(&dir.path().join("first.txt"), Action::Replace)?;
+        let mut picker = buffer_picker_for_editor(&app.editor);
+        until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+        let selected = picker.selection().unwrap().id;
+        let second = app
+            .editor
+            .open(&dir.path().join("second.txt"), Action::Replace)?;
+        let count = app.editor.documents().count();
+        until(&mut picker, &mut app, |picker| {
+            items(picker).count() == count
+        })
+        .await?;
+        assert_eq!(picker.selection().unwrap().id, selected);
+        assert!(app.editor.close_document(second, false).is_ok());
+        until(&mut picker, &mut app, |picker| {
+            items(picker).all(|item| item.id != second)
+        })
+        .await?;
+        assert_eq!(picker.selection().unwrap().id, selected);
+        assert!(app.editor.document(first).is_some());
+        Ok(())
+    }
 }
 
 pub(super) mod typed {

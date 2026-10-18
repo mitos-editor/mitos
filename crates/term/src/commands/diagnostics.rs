@@ -8,7 +8,7 @@ use ::diagnostics::{DiagnosticProvider, NumberOrString, Severity};
 use editor_core::{Selection, Uri};
 use lsp_client::{lsp, OffsetEncoding};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 use stdx::path;
@@ -111,6 +111,7 @@ struct DiagnosticStyles {
 }
 
 /// Where a picker diagnostic lives, so it can be previewed and jumped to regardless of source.
+#[derive(Clone, PartialEq)]
 enum DiagnosticLocation {
     /// A diagnostic on an open document, in the document's char offsets. Every provider's
     /// diagnostics take this form once they are on the document (LSP included), and it covers
@@ -129,12 +130,42 @@ enum DiagnosticLocation {
     },
 }
 
+#[derive(Clone, PartialEq)]
 struct PickerDiagnostic {
     location: DiagnosticLocation,
     severity: Option<Severity>,
     code: Option<NumberOrString>,
     source: Option<Box<str>>,
     message: Box<str>,
+    provider: DiagnosticProvider,
+    ordinal: usize,
+    resolved: bool,
+}
+
+type DiagnosticKey = (
+    Result<PathBuf, DocumentId>,
+    DiagnosticProvider,
+    Option<NumberOrString>,
+    Option<Box<str>>,
+    Box<str>,
+    usize,
+);
+
+impl PickerDiagnostic {
+    fn key(&self) -> DiagnosticKey {
+        let target = match &self.location {
+            DiagnosticLocation::Document { doc_id, path, .. } => path.clone().ok_or(*doc_id),
+            DiagnosticLocation::File { uri, .. } => Ok(uri.as_path().unwrap().to_owned()),
+        };
+        (
+            target,
+            self.provider.clone(),
+            self.code.clone(),
+            self.source.clone(),
+            self.message.clone(),
+            self.ordinal,
+        )
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -160,6 +191,9 @@ fn open_document_diagnostics(doc: &Document) -> impl Iterator<Item = PickerDiagn
         code: diag.code.clone(),
         source: diag.source.clone(),
         message: diag.message.clone(),
+        provider: diag.provider.clone(),
+        ordinal: 0,
+        resolved: false,
     })
 }
 
@@ -195,6 +229,9 @@ fn store_diagnostic(
         code,
         source: diagnostic.source.clone().map(Into::into),
         message: diagnostic.message.clone().into(),
+        provider: provider.clone(),
+        ordinal: 0,
+        resolved: false,
     })
 }
 
@@ -278,19 +315,18 @@ fn diagnostic_quicklist_entry(editor: &Editor, item: &PickerDiagnostic) -> Optio
 }
 
 fn diag_picker(
-    cx: &Context,
-    mut diagnostics: Vec<PickerDiagnostic>,
+    editor: &Editor,
+    document: Option<DocumentId>,
     format: DiagnosticsFormat,
 ) -> DiagnosticsPicker {
-    // Sort by severity, most severe first; diagnostics with no severity sort last.
-    diagnostics.sort_by_key(|diagnostic| std::cmp::Reverse(diagnostic.severity));
+    let diagnostics = diagnostic_items(editor, document);
 
     let styles = DiagnosticStyles {
-        icons: cx.editor.config().icons,
-        hint: cx.editor.theme.get("hint"),
-        info: cx.editor.theme.get("info"),
-        warning: cx.editor.theme.get("warning"),
-        error: cx.editor.theme.get("error"),
+        icons: editor.config().icons,
+        hint: editor.theme.get("hint"),
+        info: editor.theme.get("info"),
+        warning: editor.theme.get("warning"),
+        error: editor.theme.get("error"),
     };
 
     let mut columns = vec![
@@ -347,7 +383,11 @@ fn diag_picker(
             }
         }),
         ui::PickerColumn::new("message", |item: &PickerDiagnostic, _| {
-            (&*item.message).into()
+            if item.resolved {
+                format!("{} (resolved)", item.message).into()
+            } else {
+                (&*item.message).into()
+            }
         }),
     ];
     let mut primary_column = 3; // message
@@ -377,7 +417,7 @@ fn diag_picker(
     }
 
     Picker::new(
-        cx.editor.redraw().clone(),
+        editor.redraw().clone(),
         columns,
         primary_column,
         diagnostics,
@@ -389,38 +429,167 @@ fn diag_picker(
                 .immediately_show_diagnostic(doc, view.id);
         },
     )
+    .with_item_key(PickerDiagnostic::key)
+    .with_editor_updates(move |cx| {
+        let mut items = diagnostic_items(cx.editor, document);
+        // Retain the inspected context until the user moves away. The message
+        // makes clear that it is no longer an active diagnostic.
+        if let Some(selected) = cx.selected
+            && !items.iter().any(|item| item.key() == selected.key())
+        {
+            let mut selected = selected.clone();
+            let valid = match &mut selected.location {
+                DiagnosticLocation::Document { doc_id, range, .. } => {
+                    cx.editor.document(*doc_id).is_some_and(|doc| {
+                        range.start = range.start.min(doc.text().len_chars());
+                        range.end = range.end.min(doc.text().len_chars());
+                        true
+                    })
+                }
+                DiagnosticLocation::File { .. } => true,
+            };
+            if valid {
+                selected.resolved = true;
+                items.push(selected);
+            }
+        }
+        Some(items)
+    })
     .with_preview(diagnostic_file_location)
     .with_quicklist(diagnostic_quicklist_entry)
     .truncate_start(false)
 }
 
 pub fn diagnostics_picker(cx: &mut Context) {
-    let doc = doc!(cx.editor);
-    let diagnostics: Vec<_> = open_document_diagnostics(doc).collect();
-    let picker = diag_picker(cx, diagnostics, DiagnosticsFormat::HideSourcePath);
+    let picker = diag_picker(
+        cx.editor,
+        Some(doc!(cx.editor).id()),
+        DiagnosticsFormat::HideSourcePath,
+    );
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
 pub fn workspace_diagnostics_picker(cx: &mut Context) {
-    let mut diagnostics = Vec::new();
-    // Open documents carry diagnostics from every provider, edit-mapped, scratch buffers included.
-    for doc in cx.editor.documents() {
-        diagnostics.extend(open_document_diagnostics(doc));
-    }
-    // The store additionally holds LSP diagnostics for files which are not currently open.
-    let open_paths: HashSet<&Path> = cx.editor.documents().filter_map(|doc| doc.path()).collect();
-    for (uri, diags) in cx.editor.diagnostics() {
-        if uri.as_path().is_some_and(|path| open_paths.contains(path)) {
-            continue;
-        }
-        diagnostics.extend(
-            diags
-                .iter()
-                .filter_map(|(diag, provider)| store_diagnostic(cx.editor, uri, diag, provider)),
-        );
-    }
-    let picker = diag_picker(cx, diagnostics, DiagnosticsFormat::ShowSourcePath);
+    let picker = diag_picker(cx.editor, None, DiagnosticsFormat::ShowSourcePath);
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn diagnostic_items(editor: &Editor, document: Option<DocumentId>) -> Vec<PickerDiagnostic> {
+    let mut diagnostics = Vec::new();
+    if let Some(document) = document {
+        if let Some(doc) = editor.document(document) {
+            diagnostics.extend(open_document_diagnostics(doc));
+        }
+    } else {
+        // Open documents carry diagnostics from every provider, edit-mapped, scratch buffers included.
+        for doc in editor.documents() {
+            diagnostics.extend(open_document_diagnostics(doc));
+        }
+        // The store additionally holds LSP diagnostics for files which are not currently open.
+        let open_paths: HashSet<&Path> = editor.documents().filter_map(|doc| doc.path()).collect();
+        for (uri, diags) in editor.diagnostics() {
+            if uri.as_path().is_some_and(|path| open_paths.contains(path)) {
+                continue;
+            }
+            diagnostics.extend(
+                diags
+                    .iter()
+                    .filter_map(|(diag, provider)| store_diagnostic(editor, uri, diag, provider)),
+            );
+        }
+    }
+    diagnostics.sort_by_key(|diagnostic| std::cmp::Reverse(diagnostic.severity));
+    let mut ordinals = HashMap::new();
+    for diagnostic in &mut diagnostics {
+        let ordinal = ordinals.entry(diagnostic.key()).or_insert(0);
+        diagnostic.ordinal = *ordinal;
+        *ordinal += 1;
+    }
+    diagnostics
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use super::*;
+    use crate::ui::picker::test::{application, items, until};
+
+    fn diagnostic(start: usize, message: &str) -> diagnostics::Diagnostic {
+        diagnostics::Diagnostic {
+            range: diagnostics::Range {
+                start,
+                end: start + 1,
+            },
+            ends_at_word: false,
+            starts_at_word: false,
+            zero_width: false,
+            line: 0,
+            message: message.into(),
+            severity: Some(Severity::Warning),
+            code: None,
+            provider: DiagnosticProvider::Spelling,
+            tags: Vec::new(),
+            source: None,
+            data: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn diagnostics_follow_updates_and_retain_inspected_context() -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "first second third\n")?;
+        let document = app.editor.open(&path, Action::Replace)?;
+        app.editor
+            .document_mut(document)
+            .unwrap()
+            .replace_diagnostics([diagnostic(0, "first"), diagnostic(6, "second")], &[], None);
+        let mut picker = diag_picker(&app.editor, None, DiagnosticsFormat::ShowSourcePath);
+        until(&mut picker, &mut app, |picker| items(picker).count() == 2).await?;
+        let selected = picker.selection().unwrap().key();
+        // Moving the same finding must update its location, rather than retain an old row.
+        app.editor
+            .document_mut(document)
+            .unwrap()
+            .replace_diagnostics(
+                [
+                    diagnostic(1, "first"),
+                    diagnostic(7, "second"),
+                    diagnostic(13, "third"),
+                ],
+                &[],
+                None,
+            );
+        until(&mut picker, &mut app, |picker| items(picker).count() == 3).await?;
+        assert_eq!(picker.selection().unwrap().key(), selected);
+        assert!(matches!(
+            picker.selection().unwrap().location,
+            DiagnosticLocation::Document {
+                range: diagnostics::Range { start: 1, .. },
+                ..
+            }
+        ));
+        app.editor
+            .document_mut(document)
+            .unwrap()
+            .replace_diagnostics(
+                [diagnostic(7, "second"), diagnostic(13, "third")],
+                &[],
+                None,
+            );
+        until(&mut picker, &mut app, |picker| {
+            picker.selection().is_some_and(|item| item.resolved)
+        })
+        .await?;
+        assert_eq!(picker.selection().unwrap().key(), selected);
+        picker.move_by(1, editor_core::movement::Direction::Backward);
+        until(&mut picker, &mut app, |picker| {
+            items(picker).all(|item| !item.resolved)
+        })
+        .await?;
+        assert_ne!(picker.selection().unwrap().key(), selected);
+        Ok(())
+    }
 }
 
 pub(super) mod typed {

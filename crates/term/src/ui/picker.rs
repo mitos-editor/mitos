@@ -4,6 +4,8 @@ mod file_updates;
 mod handlers;
 mod preview;
 mod query;
+#[cfg(all(test, feature = "integration"))]
+pub(crate) mod test;
 mod updates;
 
 use crate::{
@@ -235,6 +237,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_updates: Option<file_updates::FileUpdates<T, D>>,
     pending_options: Option<updates::PendingOptions<T, D>>,
     selection_resolver: Option<updates::SelectionResolver<T>>,
+    editor_updates: Option<updates::EditorUpdates<T>>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.
@@ -415,6 +418,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_updates: None,
             pending_options: None,
             selection_resolver: None,
+            editor_updates: None,
         }
     }
 
@@ -1192,6 +1196,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         }
 
         self.refresh_files(cx.editor);
+        self.refresh_from_editor(cx.editor);
 
         let (picker_area, preview_area) = split_picker_area(area, render_preview);
         self.render_picker(picker_area, surface, cx);
