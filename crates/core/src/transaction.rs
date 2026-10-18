@@ -77,6 +77,35 @@ pub struct ChangeSet {
     len_after: usize,
 }
 
+/// Builds canonical changes while tracking consumed and produced character lengths.
+/// Unlike an identity changeset, a builder starts with no retained document text.
+pub struct ChangeSetBuilder(ChangeSet);
+
+impl ChangeSetBuilder {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(ChangeSet::with_capacity(capacity))
+    }
+
+    /// Keep the next `count` characters from the original text.
+    pub fn retain(&mut self, count: usize) {
+        self.0.retain(count);
+    }
+
+    /// Remove the next `count` characters from the original text.
+    pub fn delete(&mut self, count: usize) {
+        self.0.delete(count);
+    }
+
+    /// Insert text at the current position without consuming original characters.
+    pub fn insert(&mut self, text: Tendril) {
+        self.0.insert(text);
+    }
+
+    pub fn finish(self) -> ChangeSet {
+        self.0
+    }
+}
+
 impl ChangeSet {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {

@@ -9,6 +9,8 @@ Fuzzy scoring and reusable matcher buffers belong to `fuzzy`.
 Language definitions, syntax trees, queries, and structural editing belong to
 `language`. Highlight IDs and visual overlay traversal remain in `core::highlight`.
 
+Text comparison belongs to `text-diff`.
+
 History belongs to `buffer`; display layout belongs to `text-layout`. Completion
 items and provider identities belong to `view::features::completion`.
 

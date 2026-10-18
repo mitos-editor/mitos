@@ -12,14 +12,14 @@
 //! A transmute is used to change the lifetime of the slice to static to circumvent that project.
 use std::mem::transmute;
 
+use editor_core::{Rope, RopeSlice};
 use imara_diff::{InternedInput, Interner};
-use ropey::{Rope, RopeSlice};
 
 use super::{MAX_DIFF_BYTES, MAX_DIFF_LINES};
 
 /// A cache that stores the `lines` of a rope as a vector.
 /// It allows safely reusing the allocation of the vec when updating the rope
-pub(crate) struct InternedRopeLines {
+pub(super) struct InternedRopeLines {
     diff_base: Box<Rope>,
     doc: Box<Rope>,
     num_tokens_diff_base: u32,

@@ -20,7 +20,7 @@ parking_lot.workspace = true
 arc-swap.workspace = true
 
 gix = { workspace = true, features = ["attributes", "status", "blame", "parallel", "max-performance", "sha1"], optional = true }
-imara-diff.workspace = true
+text-diff.workspace = true
 anyhow.workspace = true
 
 log.workspace = true

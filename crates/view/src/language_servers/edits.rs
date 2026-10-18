@@ -147,7 +147,7 @@ pub fn generate_transaction_from_edits(
         }) == Some(0..doc.len_chars());
         if is_document_replacement {
             let new_text = Rope::from(edits.pop().unwrap().new_text);
-            return editor_core::diff::compare_ropes(doc, &new_text);
+            return text_diff::compare_ropes(doc, &new_text);
         }
     }
 

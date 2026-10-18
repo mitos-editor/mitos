@@ -22,6 +22,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `clipboard` | Clipboard provider settings and native backends |
 | `search` | Workspace traversal and text matches over files or unsaved snapshots |
 | `fuzzy` | Reusable fuzzy scoring, matching profiles, and highlight indices |
+| `text-diff` | Text-to-transaction comparison and reusable line differencing |
 | `text-io` | Streaming text decoding, encoding detection, BOM handling, and encoded writes |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |

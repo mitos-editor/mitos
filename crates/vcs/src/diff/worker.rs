@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
-use imara_diff::{IndentHeuristic, IndentLevel, InternedInput};
 use parking_lot::RwLock;
-use ropey::{Rope, RopeSlice};
+use ropey::Rope;
+use text_diff::LineDiff;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Notify;
 use tokio::time::{timeout, timeout_at, Duration};
 
 use crate::diff::{
-    DiffInner, Event, RenderLock, ALGORITHM, DIFF_DEBOUNCE_TIME_ASYNC, DIFF_DEBOUNCE_TIME_SYNC,
+    DiffInner, Event, RenderLock, DIFF_DEBOUNCE_TIME_ASYNC, DIFF_DEBOUNCE_TIME_SYNC,
 };
-
-use super::line_cache::InternedRopeLines;
 
 #[cfg(test)]
 mod test;
@@ -20,7 +18,6 @@ pub(super) struct DiffWorker {
     pub channel: UnboundedReceiver<Event>,
     pub diff: Arc<RwLock<DiffInner>>,
     pub diff_finished_notify: Arc<Notify>,
-    pub diff_alloc: imara_diff::Diff,
     pub redraw: event::Redraw,
 }
 
@@ -39,25 +36,12 @@ impl DiffWorker {
     }
 
     pub async fn run(mut self, diff_base: Rope, doc: Rope) {
-        let mut interner = InternedRopeLines::new(diff_base, doc);
-        if let Some(lines) = interner.interned_lines() {
-            self.perform_diff(lines);
-        }
-        self.apply_hunks(interner.diff_base(), interner.doc());
+        let mut diff = LineDiff::new(diff_base, doc);
+        self.apply_hunks(&diff);
         while let Some(event) = self.channel.recv().await {
             let (doc, diff_base) = self.accumulate_events(event).await;
 
-            let process_accumulated_events = || {
-                if let Some(new_base) = diff_base {
-                    interner.update_diff_base(new_base, doc)
-                } else {
-                    interner.update_doc(doc.unwrap())
-                }
-
-                if let Some(lines) = interner.interned_lines() {
-                    self.perform_diff(lines)
-                }
-            };
+            let process_accumulated_events = || diff.update(diff_base, doc);
 
             // Calculating diffs is computationally expensive and should
             // not run inside an async function to avoid blocking other futures.
@@ -67,37 +51,19 @@ impl DiffWorker {
             #[cfg(not(test))]
             tokio::task::block_in_place(process_accumulated_events);
 
-            self.apply_hunks(interner.diff_base(), interner.doc());
+            self.apply_hunks(&diff);
         }
     }
 
-    /// update the hunks (used by the gutter) by replacing it with `self.new_hunks`.
-    /// `self.new_hunks` is always empty after this function runs.
-    /// To improve performance this function tries to reuse the allocation of the old diff previously stored in `self.line_diffs`
-    fn apply_hunks(&mut self, diff_base: Rope, doc: Rope) {
+    /// Publish the computed snapshots and hunks under one write lock.
+    fn apply_hunks(&mut self, computed: &LineDiff) {
         let mut diff = self.diff.write();
-        diff.diff_base = diff_base;
-        diff.doc = doc;
+        diff.diff_base = computed.base();
+        diff.doc = computed.document();
         diff.hunks.clear();
-        diff.hunks.extend(self.diff_alloc.hunks());
+        diff.hunks.extend(computed.hunks());
         drop(diff);
         self.diff_finished_notify.notify_waiters();
-    }
-
-    fn perform_diff(&mut self, input: &InternedInput<RopeSlice>) {
-        self.diff_alloc.compute_with(
-            ALGORITHM,
-            &input.before,
-            &input.after,
-            input.interner.num_tokens(),
-        );
-        self.diff_alloc.postprocess_with(
-            &input.before,
-            &input.after,
-            IndentHeuristic::new(|token| {
-                IndentLevel::for_ascii_line(input.interner[token].bytes(), 4)
-            }),
-        );
     }
 }
 

@@ -417,7 +417,6 @@ name = "core"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
- "imara-diff",
  "jiff",
  "log",
  "quickcheck",
@@ -4250,6 +4249,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "text-diff"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "imara-diff",
+ "log",
+ "quickcheck",
+]
+
+[[package]]
 name = "text-io"
 version = "0.1.0"
 dependencies = [
@@ -4663,12 +4672,12 @@ dependencies = [
  "arc-swap",
  "event",
  "gix",
- "imara-diff",
  "log",
  "parking_lot",
  "ropey",
  "stdx",
  "tempfile",
+ "text-diff",
  "tokio",
 ]
 
@@ -4714,6 +4723,7 @@ dependencies = [
  "spelling",
  "stdx",
  "tempfile",
+ "text-diff",
  "text-io",
  "text-layout",
  "theme",

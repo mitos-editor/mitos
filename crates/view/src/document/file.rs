@@ -498,7 +498,7 @@ impl Document {
         // Calculate the difference between the buffer and source text, and apply it.
         // This is not considered a modification of the contents of the file regardless
         // of the encoding.
-        let transaction = editor_core::diff::compare_ropes(self.text(), &rope);
+        let transaction = text_diff::compare_ropes(self.text(), &rope);
         self.apply(transaction.changes())?;
         self.commit_changes();
         self.file.binary = binary;

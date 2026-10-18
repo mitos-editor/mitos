@@ -1,13 +1,13 @@
 use std::ops::Range;
 use std::time::Instant;
 
+use editor_core::{ropey, RopeSlice};
 use imara_diff::{Algorithm, Diff, Hunk, IndentHeuristic, IndentLevel, InternedInput};
-use ropey::RopeSlice;
 
-use crate::{ChangeSet, Rope, Tendril, Transaction};
+use editor_core::{ChangeSet, ChangeSetBuilder as ChangesBuilder, Rope, Tendril, Transaction};
 
 struct ChangeSetBuilder<'a> {
-    res: ChangeSet,
+    res: ChangesBuilder,
     after: RopeSlice<'a>,
     file: &'a InternedInput<RopeSlice<'a>>,
     current_hunk: InternedInput<char>,
@@ -116,7 +116,7 @@ impl ChangeSetBuilder<'_> {
             .sum();
 
         self.res.retain(len);
-        self.res
+        self.res.finish()
     }
 }
 
@@ -140,7 +140,7 @@ impl<'a> imara_diff::TokenSource for RopeLines<'a> {
 /// the steps required to get from `old` to `new`.
 pub fn compare_ropes(before: &Rope, after: &Rope) -> Transaction {
     let start = Instant::now();
-    let res = ChangeSet::with_capacity(32);
+    let res = ChangesBuilder::with_capacity(32);
     let after = after.slice(..);
     let file = InternedInput::new(RopeLines(before.slice(..)), RopeLines(after));
     let mut builder = ChangeSetBuilder {

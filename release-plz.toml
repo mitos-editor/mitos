@@ -19,7 +19,7 @@ changelog_include = [
   "grammar-build", "language", "language-config", "loader", "lsp", "lsp-types", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
-  "text-layout", "editor-config", "fuzzy",
+  "text-layout", "editor-config", "fuzzy", "text-diff",
 ]
 git_release_name = "Mitos {{ version }}"
 git_release_enable = true
@@ -82,4 +82,8 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "diagnostics"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "text-diff"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"

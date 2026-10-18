@@ -124,7 +124,7 @@ impl Document {
                 let str = std::str::from_utf8(&output.stdout)
                     .map_err(|_| FormatterError::InvalidUtf8Output)?;
 
-                Ok(editor_core::diff::compare_ropes(&text, &Rope::from(str)))
+                Ok(text_diff::compare_ropes(&text, &Rope::from(str)))
             };
             return Some(formatting_future.boxed());
         };

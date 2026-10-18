@@ -4,8 +4,9 @@
 //! later used for lexical completion.
 
 use std::{borrow::Cow, iter, sync::Arc, time::Duration};
+use text_diff::compare_ropes;
 
-use editor_core::{chars::char_is_word, diff::compare_ropes, ChangeSet, Rope, RopeSlice};
+use editor_core::{chars::char_is_word, ChangeSet, Rope, RopeSlice};
 use event::{register_hook, TaskController, TaskHandle};
 use foldhash::HashMap;
 use parking_lot::{Mutex, RwLock};

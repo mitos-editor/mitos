@@ -37,7 +37,6 @@ regex.workspace = true
 log.workspace = true
 serde.workspace = true
 
-imara-diff.workspace = true
 encoding_rs.workspace = true
 
 jiff.workspace = true

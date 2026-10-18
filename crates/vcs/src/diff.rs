@@ -2,7 +2,6 @@ use std::iter::Peekable;
 use std::sync::Arc;
 
 use event::RenderLockGuard;
-use imara_diff::Algorithm;
 use parking_lot::{RwLock, RwLockReadGuard};
 use ropey::Rope;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -11,9 +10,8 @@ use tokio::time::Instant;
 
 use crate::diff::worker::DiffWorker;
 
-pub use imara_diff::Hunk;
+pub use text_diff::Hunk;
 
-mod line_cache;
 mod worker;
 
 /// A rendering lock passed to the differ the prevents redraws from occurring
@@ -60,7 +58,6 @@ impl DiffHandle {
             channel: receiver,
             diff: diff.clone(),
             diff_finished_notify: Arc::default(),
-            diff_alloc: imara_diff::Diff::default(),
             redraw: redraw.clone(),
         };
         let handle = tokio::spawn(worker.run(diff_base, doc));
@@ -132,10 +129,6 @@ const DIFF_DEBOUNCE_TIME_SYNC: u64 = 1;
 /// maximum time that rendering should be blocked until the diff finishes
 const SYNC_DIFF_TIMEOUT: u64 = 12;
 const DIFF_DEBOUNCE_TIME_ASYNC: u64 = 96;
-const ALGORITHM: Algorithm = Algorithm::Histogram;
-const MAX_DIFF_LINES: usize = 64 * u16::MAX as usize;
-// cap average line length to 128 for files with MAX_DIFF_LINES
-const MAX_DIFF_BYTES: usize = MAX_DIFF_LINES * 128;
 
 /// A list of changes in a file sorted in ascending
 /// non-overlapping order
