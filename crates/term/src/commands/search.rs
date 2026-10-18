@@ -573,7 +573,8 @@ pub(super) fn global_search(cx: &mut Context) {
     .with_dynamic_query(query_global_search, Some(275), cx.jobs)
     .with_file_updates(cx.editor, |config| &config.root, refresh_global_search)
     .with_item_key(|item| (item.path.clone(), item.line_start, item.match_start_col))
-    .refresh_on_content_changes();
+    .refresh_on_content_changes()
+    .refresh_on_document_changes();
 
     cx.push_layer(Box::new(overlaid(picker)));
 }

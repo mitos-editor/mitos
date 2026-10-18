@@ -1242,7 +1242,7 @@ pub enum FailureHandlingKind {
 }
 
 /// A symbol kind.
-#[derive(Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SymbolKind(i32);
 lsp_enum! {

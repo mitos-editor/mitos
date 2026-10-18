@@ -106,8 +106,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                 );
                 return;
             }
-            picker.matcher.restart(false);
-            let injector = picker.injector();
+            let injector = if std::mem::take(&mut picker.query_refresh) {
+                picker.refresh_injector()
+            } else {
+                picker.pending_options = None;
+                picker.refreshing = false;
+                picker.matcher.restart(false);
+                picker.injector()
+            };
             let get_options = (callback)(&query, editor, picker.editor_data.clone(), &injector);
             let cancel = picker.dynamic_query_request.restart();
             tokio::spawn(async move {

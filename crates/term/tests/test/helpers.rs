@@ -459,6 +459,17 @@ pub async fn run_event_loop_until_idle(app: &mut Application) {
     app.event_loop_until_idle(&mut rx_stream).await;
 }
 
+/// Send input and settle callbacks while keeping the application open for the
+/// next edit or provider update in a lifecycle test.
+pub async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
+    for key in parse_macro(keys)? {
+        app.handle_terminal_events(Ok(Event::Key(key.into()))).await;
+    }
+    app.editor.reset_idle_timer();
+    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
+    Ok(())
+}
+
 pub fn assert_file_has_content(file: &mut NamedTempFile, content: &str) -> anyhow::Result<()> {
     reload_file(file)?;
 

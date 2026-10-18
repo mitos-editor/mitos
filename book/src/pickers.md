@@ -84,9 +84,17 @@ to unignore a path:
 ## Refreshing results
 
 File, explorer, global-search, and changed-file results update as files change,
-keeping your query and selected item where possible. Previews update too and
-show open buffers in preference to files on disk. Reopening a picker refreshes
-its results.
+keeping your query, selected item, and scroll position where possible. You can
+keep navigating while updates load. Previews show current content, preferring
+open buffers to files on disk. Global search also follows unsaved buffer edits.
+
+Buffer and diagnostic pickers follow editor updates. A resolved diagnostic stays
+visible while selected, marked as resolved, until you move away. Symbol pickers
+refresh when their source documents or providers change. Reopening a picker
+checks its current source again.
+
+Quicklist and jump-history entries remain stored collections; filesystem changes
+do not regenerate their contents.
 
 If results do not update, check [file watching](./configuration.md#editorfileswatch)
 and [periodic checks](./configuration.md#editorfilesreload).

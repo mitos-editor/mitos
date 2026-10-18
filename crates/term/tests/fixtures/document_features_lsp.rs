@@ -218,7 +218,17 @@ fn main() -> anyhow::Result<()> {
                 .keys()
                 .next()
                 .expect("document opened before symbol query");
-            let result = json!([{"name": format!("{}:{}", args[1], params["query"].as_str().unwrap()),
+            let name = if args.iter().any(|arg| arg == "--symbols-from-text") {
+                format!(
+                    "{}:{}:{}",
+                    args[1],
+                    documents[uri].trim(),
+                    params["query"].as_str().unwrap()
+                )
+            } else {
+                format!("{}:{}", args[1], params["query"].as_str().unwrap())
+            };
+            let result = json!([{"name": name,
                 "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}]);
             respond(
                 &mut output,
@@ -610,10 +620,15 @@ fn main() -> anyhow::Result<()> {
                 )?;
                 continue;
             }
+            let name = if args.iter().any(|arg| arg == "--symbols-from-text") {
+                format!("symbol:{text}")
+            } else {
+                args[1].clone()
+            };
             let result = if args.iter().any(|arg| arg == "--flat-symbols") {
                 json!([{"name":args[1], "kind":12, "location":{"uri":format!("{uri}.other"), "range":range(0, 1)}}])
             } else {
-                json!([{"name":args[1], "kind":12, "range":range(0, end), "selectionRange":range(0, 1), "children":[{"name":"child", "kind":12,"range":range(1, 2), "selectionRange":range(1, 2)}]}])
+                json!([{"name":name, "kind":12, "range":range(0, end), "selectionRange":range(0, 1), "children":[{"name":"child", "kind":12,"range":range(1, 2), "selectionRange":range(1, 2)}]}])
             };
             respond(
                 &mut output,

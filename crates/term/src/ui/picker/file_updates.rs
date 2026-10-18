@@ -10,7 +10,7 @@ use tokio::{
 };
 use view::{
     file_watcher::{EventType, Events},
-    Editor,
+    DocumentId, Editor,
 };
 
 use super::{preview::is_ignore_file, Picker};
@@ -29,6 +29,21 @@ pub(super) struct FileUpdates<T, D> {
     pending: Option<Pending<T, D>>,
     include_modified: bool,
     include_vcs: bool,
+    include_documents: bool,
+    documents: Vec<(DocumentId, i32, std::path::PathBuf)>,
+}
+
+fn document_versions(editor: &Editor, root: &Path) -> Vec<(DocumentId, i32, std::path::PathBuf)> {
+    let mut versions: Vec<_> = editor
+        .documents()
+        .filter_map(|doc| {
+            let path = stdx::path::canonicalize_existing(doc.path()?);
+            path.starts_with(root)
+                .then(|| (doc.id(), doc.version(), path))
+        })
+        .collect();
+    versions.sort_unstable_by_key(|(id, _, _)| *id);
+    versions
 }
 
 struct Pending<T, D> {
@@ -72,6 +87,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             pending: None,
             include_modified: false,
             include_vcs: false,
+            include_documents: false,
+            documents: document_versions(
+                editor,
+                &stdx::path::canonicalize_existing(root(&self.editor_data)),
+            ),
         });
         self
     }
@@ -80,6 +100,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub(crate) fn refresh_on_content_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
             updates.include_modified = true;
+        }
+        self
+    }
+
+    /// Text search also depends on unsaved editor buffers, independently of disk events.
+    pub(crate) fn refresh_on_document_changes(mut self) -> Self {
+        if let Some(updates) = &mut self.file_updates {
+            updates.include_documents = true;
         }
         self
     }
@@ -100,6 +128,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             return;
         };
         let root = stdx::path::canonicalize_existing((updates.root)(&self.editor_data));
+        if updates.include_documents {
+            let documents = document_versions(editor, &root);
+            if documents != updates.documents {
+                updates.dirty = true;
+                updates.documents = documents;
+            }
+        }
         loop {
             match updates.events.try_recv() {
                 Ok(events) => {

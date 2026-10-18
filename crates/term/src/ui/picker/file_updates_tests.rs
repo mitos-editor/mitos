@@ -104,6 +104,97 @@ async fn refresh_preserves_identity_and_uses_surviving_neighbours() -> anyhow::R
 }
 
 #[tokio::test]
+async fn query_edits_during_refresh_filter_the_new_rows_and_reset_selection() -> anyhow::Result<()>
+{
+    let mut app = application(false)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("name", |item: &(u32, &str), _: &()| {
+            item.1.into()
+        })],
+        0,
+        [(1, "same"), (2, "same"), (3, "other")],
+        (),
+        |_, _, _| {},
+    )
+    .with_item_key(|item| item.1);
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 3
+    })
+    .await?;
+    picker.cursor = 1;
+    picker.refresh_options(
+        vec![(0, "new"), (1, "same"), (2, "same"), (3, "other")],
+        picker.editor_data.clone(),
+    );
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 4
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&(2, "same")));
+    picker.refresh_options(
+        vec![(1, "same"), (2, "same"), (4, "other-new")],
+        picker.editor_data.clone(),
+    );
+    picker.prompt.set_line("other".into(), &app.editor);
+    picker.handle_prompt_change(false);
+    until(&mut picker, &mut app, |picker| {
+        picker.selection() == Some(&(4, "other-new"))
+    })
+    .await?;
+    assert_eq!(picker.cursor, 0);
+    assert_eq!(picker.matcher.snapshot().matched_item_count(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
+) -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "old")?;
+    let document = app.editor.open(&path, view::editor::Action::Replace)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("length", |length: &usize, _: &PathBuf| {
+            length.to_string().into()
+        })],
+        0,
+        [3],
+        dir.path().to_owned(),
+        |_, _, _| {},
+    )
+    .with_file_updates(
+        &app.editor,
+        |root| root,
+        |_, editor, root, _| {
+            let length = editor
+                .document_by_path(root.join("file.txt"))
+                .unwrap()
+                .text()
+                .len_chars();
+            Box::pin(async move { Ok(vec![length]) })
+        },
+    )
+    .refresh_on_document_changes();
+    until(&mut picker, &mut app, |picker| {
+        picker.selection() == Some(&3)
+    })
+    .await?;
+    let (view, doc) = view::current!(app.editor);
+    let edit = editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "new".into());
+    assert!(view::editing::apply(doc, &edit, view.id));
+    until(&mut picker, &mut app, |picker| {
+        picker.selection() == Some(&6)
+    })
+    .await?;
+    assert!(app.editor.document(document).unwrap().is_modified());
+    assert_eq!(std::fs::read_to_string(&path)?, "old");
+    Ok(())
+}
+
+#[tokio::test]
 async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
     type Scan = tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>;
     struct Data {

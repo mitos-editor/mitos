@@ -27,6 +27,7 @@ use view::{
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
+mod symbol_updates;
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
 /// If there is no configured language server that supports the feature, this displays a status message.
@@ -112,6 +113,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
     });
 }
 
+#[derive(PartialEq)]
 struct SymbolInformationItem {
     location: Location,
     symbol: lsp::SymbolInformation,
@@ -417,7 +419,8 @@ pub fn symbol_picker(cx: &mut Context) {
         theme: cx.editor.theme.clone(),
     };
     let (view, doc) = current_ref!(cx.editor);
-    let task = match cx.editor.document_symbols(doc.id(), view.id) {
+    let (document, view) = (doc.id(), view.id);
+    let task = match cx.editor.document_symbols(document, view) {
         Ok(task) => task,
         Err(error) => {
             cx.editor.set_error(|| error.to_string());
@@ -452,6 +455,8 @@ pub fn symbol_picker(cx: &mut Context) {
                     jump_to_location(cx.editor, &item.location, action);
                 },
             )
+            .with_item_key(symbol_updates::symbol_key)
+            .with_editor_updates(symbol_updates::document_updates(editor, document, view))
             .with_preview(move |_editor, item| location_to_file_location(&item.location))
             .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.location))
             .truncate_start(false);
@@ -465,7 +470,9 @@ pub fn symbol_picker(cx: &mut Context) {
 
 struct WorkspaceSymbolPickerData {
     style: SymbolPickerData,
-    symbols: std::sync::Arc<view::features::workspace_symbols::WorkspaceSymbolsSession>,
+    symbols: std::sync::Arc<
+        arc_swap::ArcSwap<view::features::workspace_symbols::WorkspaceSymbolsSession>,
+    >,
 }
 
 pub fn workspace_symbol_picker(cx: &mut Context) {
@@ -483,7 +490,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
                        editor: &mut Editor,
                        data: std::sync::Arc<WorkspaceSymbolPickerData>,
                        injector: &Injector<_, _>| {
-        let request = data.symbols.query(editor, pattern.to_owned());
+        let request = data.symbols.load().query(editor, pattern.to_owned());
         let injector = injector.clone();
         async move {
             let mut task = request?;
@@ -505,7 +512,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
         }
         .boxed()
     };
-    let session = std::sync::Arc::new(session);
+    let session = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(session));
     let columns = [
         ui::PickerColumn::new("kind", |item, data: &WorkspaceSymbolPickerData| {
             symbol_kind_cell(item, &data.style)
@@ -537,7 +544,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
         [],
         picker_data,
         move |cx, item, action| {
-            if !session.is_current(cx.editor) {
+            if !session.load().is_current(cx.editor) {
                 return;
             }
             jump_to_location(cx.editor, &item.location, action);
@@ -546,6 +553,8 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     .with_preview(|_editor, item| location_to_file_location(&item.location))
     .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.location))
     .with_dynamic_query(get_symbols, None, cx.jobs)
+    .with_item_key(symbol_updates::symbol_key)
+    .with_query_updates(symbol_updates::workspace_updates(cx.editor, document))
     .truncate_start(false);
 
     cx.push_layer(Box::new(overlaid(picker)));

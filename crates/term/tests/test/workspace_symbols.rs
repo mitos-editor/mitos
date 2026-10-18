@@ -105,6 +105,32 @@ async fn closing_the_symbol_picker_cancels_pending_queries() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn workspace_symbol_picker_refreshes_edited_buffers_and_keeps_its_query() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut app = fixture(dir.path(), &["--symbols-from-text"]).await?;
+    super::helpers::keys(&mut app, "<space>Sfoo").await?;
+    let (view, doc) = view::current!(app.editor);
+    let edit = editor_core::Transaction::change(
+        doc.text(),
+        [(0, doc.text().len_chars(), Some("new\n".into()))].into_iter(),
+    );
+    assert!(view::editing::apply(doc, &edit, view.id));
+    super::helpers::keys(&mut app, "").await?;
+    let screen: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("symbols:new:foo"), "{screen}");
+    super::helpers::keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn revisiting_a_picker_query_restarts_its_canceled_request() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut app = fixture(dir.path(), &["--hold-symbols"]).await?;
