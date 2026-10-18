@@ -248,21 +248,16 @@ impl Completion {
                     // save an undo checkpoint before the completion
                     view::editing::commit(doc, view);
 
+                    let before = doc.snapshot();
+                    let mut unresolved = None;
                     // item always present here
                     let (transaction, additional_edits, snippet) = match item.clone() {
-                        CompletionItem::Lsp(mut item) => {
+                        CompletionItem::Lsp(item) => {
                             let language_server = language_server!(item);
 
-                            // resolve item if not yet resolved
-                            if !item.resolved
-                                && let Some(resolved_item) =
-                                    view::features::completion::resolve_item(
-                                        language_server,
-                                        item.item.clone(),
-                                    )
-                            {
-                                item.item = resolved_item;
-                            };
+                            if !item.resolved {
+                                unresolved = Some(item.clone());
+                            }
 
                             let encoding = language_server.offset_encoding();
                             let (transaction, snippet) = lsp_item_to_transaction(
@@ -306,13 +301,30 @@ impl Completion {
                     if let Some((additional_edits, offset_encoding)) = additional_edits
                         && !additional_edits.is_empty()
                     {
-                        let transaction =
-                            view::language_servers::edits::generate_transaction_from_edits(
+                        if let Some(additional) =
+                            view::features::completion::additional_edits_transaction(
+                                before.text(),
                                 doc.text(),
+                                transaction.changes(),
                                 additional_edits,
-                                offset_encoding, // TODO: should probably transcode in Client
-                            );
-                        view::editing::apply(doc, &transaction, view.id);
+                                offset_encoding,
+                            )
+                        {
+                            view::editing::apply(doc, &additional, view.id);
+                        } else {
+                            log::error!("Completion contains conflicting additional edits");
+                        }
+                    }
+                    let document = doc.id();
+                    if let Some(item) = unresolved {
+                        editor.resolve_accepted_completion(
+                            view::features::completion::AcceptedCompletion {
+                                document,
+                                item,
+                                before,
+                                savepoint: savepoint.unwrap(),
+                            },
+                        );
                     }
                     // we could have just inserted a trigger char (like a `crate::` completion for rust
                     // so we want to retrigger immediately when accepting a completion.

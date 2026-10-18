@@ -191,29 +191,3 @@ impl ResolveRequest {
         .await;
     }
 }
-
-/// Synchronously resolve the given completion item. This is used when
-/// accepting a completion.
-pub fn resolve_item(
-    language_server: &lsp_client::Client,
-    completion_item: lsp::CompletionItem,
-) -> Option<lsp::CompletionItem> {
-    if !matches!(
-        language_server.capabilities().completion_provider,
-        Some(lsp::CompletionOptions {
-            resolve_provider: Some(true),
-            ..
-        })
-    ) {
-        return None;
-    }
-    let future = language_server.resolve_completion_item(&completion_item);
-    let response = lsp_client::block_on(future);
-    match response {
-        Ok(item) => Some(item),
-        Err(err) => {
-            log::error!("Failed to resolve completion item: {}", err);
-            None
-        }
-    }
-}

@@ -55,11 +55,17 @@ impl Fixture {
         for name in names {
             let response_gate = dir.join(format!("{name}-ready"));
             std::fs::write(&response_gate, "ready")?;
+            let resolve_gate = dir.join(format!("{name}-resolve-ready"));
+            std::fs::write(&resolve_gate, "ready")?;
             servers.push_str(
                 &ServerConfig::feature(name, "--completion", dir)
                     .initialize_gate(&gate)
                     .arg("--response-gate")
                     .arg(&response_gate)
+                    .arg("--resolve-gate")
+                    .arg(&resolve_gate)
+                    .arg("--resolve-log")
+                    .arg(dir.join(format!("{name}-resolves.jsonl")))
                     .toml(),
             );
         }
@@ -170,11 +176,18 @@ impl Fixture {
 
     async fn show(&mut self) -> anyhow::Result<()> {
         self.trigger();
-        let update = self.update().await?;
-        self.app
-            .handle_editor_event(EditorEvent::Completion(update))
-            .await;
-        assert!(self.app.editor.last_completion.is_some());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let update = self.update().await?;
+                self.app
+                    .handle_editor_event(EditorEvent::Completion(update))
+                    .await;
+                if self.app.editor.last_completion.is_some() {
+                    return anyhow::Ok(());
+                }
+            }
+        })
+        .await??;
         Ok(())
     }
 }
@@ -317,6 +330,86 @@ async fn terminal_preview_abort_accept_and_undo_keep_savepoints() -> anyhow::Res
     f.key("<esc>").await?;
     f.key("u").await?;
     assert_eq!(f.text(), "😀 ap\n");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accepted_completions_resolve_imports_without_blocking_typing_or_resurrecting_undo(
+) -> anyhow::Result<()> {
+    for action in ["typing", "undo", "close", "preview", "reload"] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::new(dir.path(), "imports 😀 ap\n", &["alpha"]).await?;
+        std::fs::remove_file(dir.path().join("alpha-resolve-ready"))?;
+        f.show().await?;
+        f.key("<C-n>").await?;
+        f.key("<ret>").await?;
+        assert_eq!(f.text(), "imports 😀 apricot\n");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !dir.path().join("alpha-resolves.jsonl").exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        if action == "typing" {
+            f.key("x").await?;
+            assert_eq!(f.text(), "imports 😀 apricotx\n");
+        }
+        std::fs::write(dir.path().join("alpha-resolve-ready"), "ready")?;
+        let callback = f.response().await?;
+        if action == "preview" {
+            f.key(" ").await?;
+            f.show().await?;
+            f.key("<C-n>").await?;
+            assert_ne!(f.text(), "imports 😀 apricot \n");
+        }
+        if action == "undo" {
+            f.key("<esc>").await?;
+            f.key("u").await?;
+            assert_eq!(f.text(), "imports 😀 ap\n");
+        }
+        if action == "reload" {
+            let document = current_ref!(f.app.editor).1.id();
+            f.app.editor.reload_document(document)?;
+        }
+        if action == "close" {
+            let doc = current_ref!(f.app.editor).1.id();
+            f.app.editor.new_file(Action::Replace);
+            assert!(f.app.editor.close_document(doc, true).is_ok());
+        }
+        callback(&mut f.app.editor);
+        match action {
+            "typing" => {
+                assert_eq!(f.text(), "use fruit;\nimports 😀 apricotx\n");
+                f.key("<esc>").await?;
+                f.key("u").await?;
+                assert_eq!(f.text(), "imports 😀 ap\n");
+            }
+            "preview" => assert_eq!(f.text(), "use fruit;\nimports 😀 apricot \n"),
+            "undo" | "reload" => assert_eq!(f.text(), "imports 😀 ap\n"),
+            "close" => assert!(!f.text().contains("use fruit")),
+            _ => unreachable!(),
+        }
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolved_imports_preserve_edited_snippet_placeholders() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "imports snippet ap\n", &["alpha"]).await?;
+    std::fs::remove_file(dir.path().join("alpha-resolve-ready"))?;
+    f.show().await?;
+    f.key("<C-n>").await?;
+    f.key("<ret>").await?;
+    assert_eq!(f.text(), "imports snippet apricot(value)\n");
+    f.key("x").await?;
+    assert_eq!(f.text(), "imports snippet apricot(x)\n");
+    std::fs::write(dir.path().join("alpha-resolve-ready"), "ready")?;
+    f.response().await?(&mut f.app.editor);
+    assert_eq!(f.text(), "use fruit;\nimports snippet apricot(x)\n");
+    assert!(current_ref!(f.app.editor).1.active_snippet.is_some());
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

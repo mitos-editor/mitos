@@ -11,6 +11,7 @@ impl Document {
         self.navigation.clear();
         self.inlay_hints.clear();
         self.inline_completions.clear();
+        self.accepted_completions.cancel();
         self.document_colors.invalidate();
         self.document_links.invalidate();
         self.code_lenses.clear();

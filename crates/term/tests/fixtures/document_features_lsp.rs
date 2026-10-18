@@ -387,11 +387,22 @@ fn main() -> anyhow::Result<()> {
             } else {
                 ("apple", "apricot")
             };
+            let snippet = text.contains("snippet");
+            let first_text = if snippet {
+                format!("{first}(${{1:value}})$0")
+            } else {
+                first.to_owned()
+            };
+            let second_text = if snippet {
+                format!("{second}(${{1:value}})$0")
+            } else {
+                second.to_owned()
+            };
             let result = json!({"isIncomplete": text.contains("incomplete"), "items": [
                 {"label": first, "sortText": "2", "detail": args[1],
-                    "textEdit": {"range": edit_range, "newText": first}},
+                    "textEdit": {"range": edit_range, "newText": first_text}, "insertTextFormat": if snippet { 2 } else { 1 }},
                 {"label": second, "sortText": "1", "detail": args[1],
-                    "textEdit": {"range": edit_range, "newText": second}}
+                    "textEdit": {"range": edit_range, "newText": second_text}, "insertTextFormat": if snippet { 2 } else { 1 }}
             ]});
             respond(
                 &mut output,
@@ -400,8 +411,24 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         if method == "completionItem/resolve" && (completion || inline_completion) {
+            if let Some(index) = args.iter().position(|arg| arg == "--resolve-log") {
+                let mut log = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&args[index + 1])?;
+                writeln!(log, "{params}")?;
+            }
+            if let Some(index) = args.iter().position(|arg| arg == "--resolve-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
             let mut item = params.clone();
             item["documentation"] = json!("resolved documentation");
+            if documents.values().any(|text| text.starts_with("imports")) {
+                item["additionalTextEdits"] =
+                    json!([{"range":range(0, 0), "newText":"use fruit;\n"}]);
+            }
             respond(
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": item}),

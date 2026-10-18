@@ -491,6 +491,7 @@ impl Document {
         let DecodedFile {
             text: rope, binary, ..
         } = read_file(&mut file, Some(encoding))?;
+        self.accepted_completions.cancel();
         // Reload may change the content type. Allow this replacement, then restore
         // the binary write guard before returning to the editor.
         let was_binary = std::mem::replace(&mut self.file.binary, false);

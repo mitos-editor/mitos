@@ -24,14 +24,17 @@ use std::{
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, task::JoinSet};
 
+pub(crate) use acceptance::AcceptedCompletions;
+pub use acceptance::{additional_edits_transaction, AcceptedCompletion};
 use item::CompletionItems;
 pub use item::{
     CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, TextCompletion,
 };
 pub use request::request_incomplete_completion_list;
 use request::{Debounce, Trigger, TriggerKind};
-pub use resolve::{resolve_item, ResolveHandler};
+pub use resolve::ResolveHandler;
 
+mod acceptance;
 mod item;
 mod path;
 mod request;

@@ -56,6 +56,8 @@ impl Document {
                 // An observer may have edited or committed after the previous step.
                 break;
             };
+            // Accepted completion edits belong to the history being replayed.
+            self.accepted_completions.cancel();
             self.publish_change(&change, selection.as_ref(), origin, true);
             applied = true;
         }

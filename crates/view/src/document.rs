@@ -154,6 +154,13 @@ pub struct SavePoint {
     revert: Mutex<Transaction>,
 }
 
+impl SavePoint {
+    /// Forward changes from this savepoint to the current document text.
+    pub(crate) fn changes_since(&self, current: &editor_core::Rope) -> editor_core::ChangeSet {
+        self.revert.lock().changes().invert(current)
+    }
+}
+
 pub struct Document {
     redraw: event::Redraw,
     status: Option<event::status::StatusSender>,
@@ -168,6 +175,7 @@ pub struct Document {
     pub(crate) navigation: NavigationState,
     pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: InlineCompletions,
+    pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
     pub(crate) document_links: DocumentLinks,
@@ -279,6 +287,7 @@ impl Document {
             hover: Default::default(),
             navigation: Default::default(),
             inline_completions: Default::default(),
+            accepted_completions: Default::default(),
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
             spelling_languages: Vec::new(),
