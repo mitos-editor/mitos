@@ -456,6 +456,11 @@ publication also checks the view, document snapshot, and server attachment.
 Spelling findings provide hints even without an LSP server. Statusline and gutter
 indicators and the picker remain in `term`; `view::save` owns save sequencing.
 
+`view::features::code_actions` gathers interactive LSP and spelling actions,
+filters disabled actions, and orders them by priority. Requests belong to the
+originating document/view and selection. Frontends validate the returned update
+before presenting a menu; input changes and replacement requests cancel gathering.
+
 `view::action::Action` executes local actions synchronously. LSP actions retain
 an `LspActionContext` from the document snapshot used to request them, including
 server instance identity. Resolution runs asynchronously and returns through the

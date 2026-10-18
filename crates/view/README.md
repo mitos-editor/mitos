@@ -47,3 +47,8 @@ and diagnostic/spelling refresh without requiring the document to be focused.
 Symbol rename preparation and submission are asynchronous editor operations.
 They retain the originating document, text snapshot, position, and server;
 frontends collect the new name and present validated preparation results.
+
+`view::features::code_actions` gathers interactive LSP and spelling actions,
+filters disabled actions, and orders them by priority. Requests belong to the
+originating document/view and selection. Frontends validate the returned update
+before presenting a menu; input changes and replacement requests cancel gathering.

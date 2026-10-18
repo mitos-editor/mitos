@@ -527,3 +527,53 @@ async fn save_actions_discard_stale_requests_and_resolutions_before_writing_curr
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interactive_actions_filter_disabled_items_and_rank_providers() -> anyhow::Result<()> {
+    let mut f = Fixture::with_save_actions(true, &["source.first"], false).await?;
+    let task = f.editor.request_code_actions();
+    let update = tokio::time::timeout(Duration::from_secs(5), task.run())
+        .await?
+        .context("actions canceled")?;
+    let actions = update.into_actions(&f.editor).context("actions invalid")?;
+    assert!(!actions.is_empty());
+    assert!(!actions.iter().any(|action| action.title() == "disabled"));
+    assert!(actions
+        .windows(2)
+        .all(|pair| pair[0].priority >= pair[1].priority));
+    assert!(f.messages().iter().any(|message| {
+        message["method"] == "textDocument/codeAction"
+            && message["params"]["context"]["triggerKind"] == 1
+    }));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interactive_actions_reject_queued_results_after_selection_changes() -> anyhow::Result<()> {
+    let mut f = Fixture::new().await?;
+    let update = f
+        .editor
+        .request_code_actions()
+        .run()
+        .await
+        .context("actions canceled")?;
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(view.id, editor_core::Selection::point(1));
+    assert!(update.into_actions(&f.editor).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_action_requests_cancel_previous_gathering() -> anyhow::Result<()> {
+    let mut f = Fixture::new().await?;
+    let previous = f.editor.request_code_actions();
+    let current = f.editor.request_code_actions();
+    assert!(previous.run().await.is_none());
+    assert!(current
+        .run()
+        .await
+        .context("actions canceled")?
+        .into_actions(&f.editor)
+        .is_some());
+    Ok(())
+}

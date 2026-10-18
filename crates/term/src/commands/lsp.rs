@@ -8,11 +8,7 @@ use crate::{
 use editor_core::{Selection, Uri};
 use futures_util::{stream::FuturesUnordered, FutureExt};
 use language_config::LanguageServerFeature;
-use lsp_client::{
-    lsp::{self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind},
-    util::lsp_range_to_range,
-    OffsetEncoding,
-};
+use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 use std::{collections::HashSet, path::Path};
 use stdx::path;
 use theme::icons::ICONS;
@@ -23,7 +19,7 @@ use tui::{
     widgets::{Cell, Row},
 };
 use view::{
-    action::{code_actions_for_range, Action as CodeActionItem, LspActionContext},
+    action::Action as CodeActionItem,
     align_view,
     editor::Action,
     features::code_lenses::{self, CodeLensCommand},
@@ -672,95 +668,32 @@ impl ui::menu::Item for CodeActionItem {
 }
 
 pub fn code_action(cx: &mut Context) {
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-
-    let doc_id = doc.id();
-    let view_id = view.id;
-    let version = doc.version();
-    let selection = doc.selection(view_id).clone();
-
-    let action_context = LspActionContext::new(doc);
-    let mut futures: FuturesUnordered<_> = code_actions_for_range(
-        doc,
-        selection.primary(),
-        None,
-        CodeActionTriggerKind::INVOKED,
-    )
-    .into_iter()
-    .map(|(request, ls_id)| {
-        let action_context = action_context.clone();
-        async move {
-            let Some(mut actions) = request.await? else {
-                return anyhow::Ok(Vec::new());
-            };
-
-            // remove disabled code actions
-            actions.retain(|action| {
-                matches!(
-                    action,
-                    CodeActionOrCommand::Command(_)
-                        | CodeActionOrCommand::CodeAction(CodeAction { disabled: None, .. })
-                )
-            });
-
-            Ok(actions
-                .into_iter()
-                .map(|lsp_item| CodeActionItem::lsp(action_context.clone(), ls_id, lsp_item))
-                .collect())
-        }
-        .boxed()
-    })
-    .collect();
-
-    futures.push(cx.editor.spelling_actions().boxed());
-
+    let task = cx.editor.request_code_actions();
     cx.jobs.callback(async move {
-        let mut actions = Vec::new();
-
-        while let Some(output) = futures.next().await {
-            match output {
-                Ok(mut items) => actions.append(&mut items),
-                Err(err) => log::error!("while gathering code actions: {err}"),
-            }
-        }
-
-        // Sort the gathered actions into a useful order, highest priority first. See
-        // `lsp_code_action_priority` for how LSP actions are ranked.
-        actions.sort_by_key(|action| std::cmp::Reverse(action.priority));
-
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let (view, doc) = current_ref!(editor);
-            // Input may have changed the target while the providers were computing actions.
-            if view.id != view_id
-                || doc.id() != doc_id
-                || doc.version() != version
-                || editor.mode() != mode
-                || doc.selection(view_id) != &selection
-            {
-                return;
-            }
-            if actions.is_empty() {
-                editor.set_error(|| "No code actions available");
-                return;
-            }
-            let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
-                if event != PromptEvent::Validate {
+        let update = task.run().await;
+        Ok(Callback::EditorCompositor(Box::new(
+            move |editor, compositor| {
+                let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
+                    return;
+                };
+                if actions.is_empty() {
+                    editor.set_error(|| "No code actions available");
                     return;
                 }
-                // Always present on validate.
-                action.unwrap().execute(editor);
-            });
-            picker.move_down(); // pre-select the first item
-
-            let popup = Popup::new("code-action", picker)
-                .with_scrollbar(false)
-                .auto_close(true);
-
-            compositor.replace_or_push("code-action", popup);
-        };
-
-        Ok(Callback::EditorCompositor(Box::new(call)))
+                let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
+                    if event == PromptEvent::Validate
+                        && let Some(action) = action
+                    {
+                        action.execute(editor);
+                    }
+                });
+                picker.move_down();
+                let popup = Popup::new("code-action", picker)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-action", popup);
+            },
+        )))
     });
 }
 

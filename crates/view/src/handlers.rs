@@ -2,7 +2,7 @@ use crate::{
     callbacks::EditorCallbackSender,
     events::ConfigDidChange,
     features::{
-        auto_reload, auto_save, blame, code_action_hint, code_lenses,
+        auto_reload, auto_save, blame, code_action_hint, code_actions, code_lenses,
         completion::{self, CompletionEvent, CompletionHandler},
         diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
         inlay_hints, inline_completion, navigation, rename,
@@ -215,6 +215,7 @@ fn register_hooks() {
         navigation::register_hooks();
         crate::features::shell::register_hooks();
         rename::register_hooks();
+        code_actions::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
         word_index::register_hooks();

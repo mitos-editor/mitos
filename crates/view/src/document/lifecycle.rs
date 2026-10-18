@@ -10,6 +10,7 @@ impl Document {
         self.hover.clear();
         self.navigation.clear();
         self.rename.cancel();
+        self.code_actions.clear();
         self.inlay_hints.clear();
         self.inline_completions.clear();
         self.accepted_completions.cancel();

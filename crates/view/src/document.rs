@@ -183,6 +183,7 @@ pub struct Document {
     pub(crate) document_links: DocumentLinks,
     pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: CodeActionHints,
+    pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
     pub(crate) document_symbols: DocumentSymbols,
 
     file: file::FileState,
@@ -321,6 +322,7 @@ impl Document {
             focused_at: std::time::Instant::now(),
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
+            code_actions: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),
             code_lenses: Default::default(),
@@ -511,6 +513,7 @@ impl Document {
         self.view_states.remove(&view_id);
         self.inlay_hints.remove_view(view_id);
         self.hover.remove_view(view_id);
+        self.code_actions.remove_view(view_id);
         self.navigation.remove_view(view_id);
         self.shell_filters.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);

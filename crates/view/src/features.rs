@@ -7,6 +7,7 @@ pub mod auto_reload;
 pub mod auto_save;
 pub mod blame;
 pub mod code_action_hint;
+pub mod code_actions;
 pub mod code_lenses;
 pub mod completion;
 pub(crate) mod debounce;
