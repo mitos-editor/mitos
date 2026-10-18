@@ -179,7 +179,7 @@ mod tests {
         let doc = view::Document::from(
             Rope::from_str(""),
             None,
-            Arc::new(ArcSwap::from_pointee(view::config::Config::default())),
+            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         );
         let theme =

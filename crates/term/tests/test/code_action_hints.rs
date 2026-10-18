@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use editor_config::StatusLineElement;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
     Selection, Transaction,
@@ -15,7 +16,6 @@ use tokio::sync::mpsc;
 use view::{
     action::code_actions_for_range,
     callbacks::EditorCallback,
-    config::StatusLineElement,
     current, current_ref,
     editor::{Action, ConfigEvent},
     features::code_action_hint::CodeActionHintHandler,

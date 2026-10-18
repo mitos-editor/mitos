@@ -4,12 +4,10 @@ use std::{borrow::Cow, fmt::Write, ops};
 
 use ::command_line::{self, Args, Flag, Signature, Token, TokenKind};
 use anyhow::anyhow;
+use editor_config::{CustomCommand, CustomCommands};
 use editor_core::fuzzy::fuzzy_match;
 use tui::text::Span;
-use view::{
-    config::{CustomCommand, CustomCommands},
-    expansion, Editor,
-};
+use view::{expansion, Editor};
 
 use super::{
     catalog::{CommandCompleter, TypableCommand, TYPABLE_COMMAND_LIST, TYPABLE_COMMAND_MAP},

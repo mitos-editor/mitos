@@ -60,18 +60,7 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::SystemTime;
 
-use editor_core::{
-    editor_config::EditorConfig,
-    encoding,
-    indent::{auto_detect_indent_style, IndentStyle},
-    line_ending::auto_detect_line_ending,
-    ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
-};
-use language::{syntax, Syntax};
-use language_config::LanguageConfiguration;
-
 use crate::{
-    config::Config,
     events::SelectionDidChange,
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
@@ -82,6 +71,16 @@ use crate::{
     view::ViewPosition,
     DocumentId, Editor, View, ViewId,
 };
+use editor_config::Config;
+use editor_core::{
+    editor_config::EditorConfig,
+    encoding,
+    indent::{auto_detect_indent_style, IndentStyle},
+    line_ending::auto_detect_line_ending,
+    ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
+};
+use language::{syntax, Syntax};
+use language_config::LanguageConfiguration;
 use theme::Theme;
 
 const DEFAULT_INDENT: IndentStyle = IndentStyle::Tabs;
@@ -101,7 +100,7 @@ pub enum Mode {
 impl Mode {
     pub fn cursor_shape(
         self,
-        shapes: &crate::config::CursorShapeConfig,
+        shapes: &editor_config::CursorShapeConfig,
     ) -> crate::graphics::CursorKind {
         match self {
             Self::Normal => shapes.normal,
@@ -1251,7 +1250,7 @@ impl Document {
             }
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
-        if self.config.load().inline_blame.show != crate::config::InlineBlameShow::Never
+        if self.config.load().inline_blame.show != editor_config::InlineBlameShow::Never
             && let Some(handler) = self.blame.handler().cloned()
         {
             handler.schedule_refresh(self.id());

@@ -1,9 +1,7 @@
+use editor_config::{InlineBlameConfig, InlineBlameShow};
 use editor_core::Position;
 use theme::Style;
-use view::{
-    config::{InlineBlameConfig, InlineBlameShow},
-    Document, ViewId,
-};
+use view::{Document, ViewId};
 
 use crate::ui::document::{LinePos, TextRenderer};
 use crate::ui::text_decorations::Decoration;
@@ -86,12 +84,12 @@ mod tests {
     use std::{process::Command, sync::Arc};
 
     use arc_swap::ArcSwap;
+    use editor_config::Config;
     use editor_core::Selection;
     use language::syntax;
     use theme;
     use tui::buffer::Buffer;
     use view::{
-        config::Config,
         graphics::{Rect, RectExt},
         view::ViewPosition,
     };

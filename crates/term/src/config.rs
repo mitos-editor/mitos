@@ -5,6 +5,7 @@ use crate::keymap::component::{
 };
 use crate::keymap::KeyTrie;
 pub use crate::terminal_launcher::TerminalLauncherConfig;
+use editor_config::{CustomCommand, CustomCommands};
 use loader::config::migration;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -14,7 +15,6 @@ use std::io::Error as IOError;
 use tokio::sync::mpsc::UnboundedSender;
 use toml::de::Error as TomlError;
 use ui_core::{keymap::Keymap, terminal::KittyKeyboardProtocolConfig};
-use view::config::{CustomCommand, CustomCommands};
 use view::document::Mode;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +22,7 @@ pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
     pub component_keys: ComponentKeymaps,
-    pub editor: view::config::Config,
+    pub editor: editor_config::Config,
     pub terminal: TerminalConfig,
 }
 
@@ -60,13 +60,13 @@ pub struct KeyboardConfig {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EditorSettings {
     #[serde(flatten)]
-    pub editor: view::config::Config,
+    pub editor: editor_config::Config,
     pub terminal: TerminalConfig,
 }
 
 impl Default for EditorSettings {
     fn default() -> Self {
-        let mut editor = view::config::Config::default();
+        let mut editor = editor_config::Config::default();
         editor.clipboard.provider = crate::clipboard::default_provider();
         Self {
             editor,
@@ -97,7 +97,7 @@ impl<'de> Deserialize<'de> for EditorSettings {
                 .entry("provider".to_owned())
                 .or_insert_with(|| serde_json::json!(crate::clipboard::default_provider()));
         }
-        let editor: view::config::Config =
+        let editor: editor_config::Config =
             serde_json::from_value(editor.into()).map_err(serde::de::Error::custom)?;
         Ok(Self { editor, terminal })
     }
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn inline_blame_settings_round_trip_with_grouped_editor_settings() {
-        use view::config::InlineBlameShow;
+        use editor_config::InlineBlameShow;
 
         let config = Config::load_test(
             "[editor.inline-blame]\nshow = 'all-lines'\nformat = '{title}'\n[editor.scroll]\npadding = 7",
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[test]
     fn breadcrumbs_are_disabled_by_default_and_configurable() {
-        use view::config::BreadcrumbPathOptions;
+        use editor_config::BreadcrumbPathOptions;
 
         let default = Config::load_test("").editor.breadcrumb;
         assert!(!default.enable);

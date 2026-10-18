@@ -8,6 +8,8 @@ Features live with the state they change; frontends adapt input and present resu
 | `core` | Ropes, selections, transactions, history, text layout, and text editing algorithms |
 | `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
+| `editor-config` | Editor settings, defaults, custom command definitions, and serialization |
+| `language-config` | Language definitions and server feature configuration |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `theme` | Theme interpretation, palette resolution, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
@@ -114,7 +116,7 @@ query-based indentation live beside syntax analysis.
 protocol, editor, or frontend dependency. Structural editing lives in `language`;
 plain word/paragraph motion, bracket scanning, and indentation normalization stay
 in `core`. Configuration loading uses `language::loader`, schema definitions use
-`language::config`, and query compilation uses `language::queries`.
+`language-config`, and query compilation uses `language::queries`.
 
 ## View
 
@@ -132,14 +134,14 @@ headless callers use the same transition operation.
 
 ### Configuration application
 
-`view::config` defines editor configuration types, defaults, and serialization.
+`editor-config` defines editor configuration types, defaults, and serialization.
 `term::config` loads and merges configuration files, while `view::editor` owns
 editor state and applies configuration updates. Import shared settings from
-`view::config`, their owning module.
+`editor-config`, their owning module.
 
 Terminal capabilities, keyboard protocol, and external launcher settings live
 in `term::config::TerminalConfig` under `[terminal]`. The terminal application
-composes them with `view::config::Config` through an `EditorSettings` representation
+composes them with `editor_config::Config` through an `EditorSettings` representation
 that exposes editor-relative paths and `terminal.*` paths to the `:get`, `:set`,
 and `:toggle` commands. Frontend command contexts receive a configuration snapshot and an update sender; the application applies
 updates and reconfigures its backend. Shared editor events continue to carry
@@ -349,7 +351,8 @@ use an editor-owned callback destination; weak ownership prevents closed or
 replaced handlers from retaining or mutating an editor. Focus events call the
 shared check for unwatched files.
 
-`view::file_watcher` owns native watcher configuration, lifecycle, workspace and
+`editor-config` owns watcher settings and diagnostic filters; rendering and watcher
+behavior stay in `view`. `view::file_watcher` owns native watcher lifecycle, workspace and
 LSP roots, coverage checks, and VCS metadata polling. Its `filter` module owns
 ignore rules, hidden-path filtering, and depth limits. Native callbacks target
 only their owning editor. One forwarding task preserves batch order and waits

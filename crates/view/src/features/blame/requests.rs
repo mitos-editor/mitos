@@ -4,14 +4,13 @@ use event::{register_hook, send_blocking};
 use tokio::sync::mpsc::Sender;
 
 use crate::features::debounce::debounce_documents;
-
 use crate::{
     callbacks::EditorCallbackSender,
-    config::InlineBlameShow,
     document::LineBlameError,
     events::{ConfigDidChange, DocumentDidOpen, DocumentFocusLost},
     Document, DocumentId, Editor,
 };
+use editor_config::InlineBlameShow;
 
 #[derive(Clone)]
 pub struct BlameHandler {

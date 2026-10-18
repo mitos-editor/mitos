@@ -119,7 +119,7 @@ impl Application {
         config: Config,
         lang_loader: syntax::Loader,
         workspace_trust: workspace::trust::WorkspaceTrust,
-        setup: impl FnOnce(&mut view::handlers::Handlers, &view::config::Config),
+        setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
     ) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
         setup_integration_logging();

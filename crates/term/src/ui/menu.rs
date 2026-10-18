@@ -8,8 +8,9 @@ use ui_core::keymap::{KeymapState, Lookup};
 
 pub use tui::widgets::{Cell, Row};
 
+use editor_config::SmartTabConfig;
 use tui::layout::Constraint;
-use view::{config::SmartTabConfig, graphics::Rect, Editor};
+use view::{graphics::Rect, Editor};
 
 pub trait Item: Sync + Send + 'static {
     /// Additional editor state that is used for label calculation.

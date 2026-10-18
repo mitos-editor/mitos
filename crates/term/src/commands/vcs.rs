@@ -19,7 +19,7 @@ pub(super) fn blame_line(cx: &mut Context) {
 
 pub(super) fn toggle_inline_blame(cx: &mut Context) {
     use crate::config::ConfigEvent;
-    use view::config::InlineBlameShow;
+    use editor_config::InlineBlameShow;
 
     let mut settings = cx.config.current.editor_settings();
     settings.editor.inline_blame.show = match settings.editor.inline_blame.show {

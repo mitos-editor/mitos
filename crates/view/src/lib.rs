@@ -17,7 +17,6 @@ pub mod action;
 pub mod annotations;
 pub mod callbacks;
 pub mod clipboard;
-pub mod config;
 pub mod debugger;
 pub mod document;
 pub mod editing;

@@ -165,6 +165,7 @@ mod tests {
         text_decorations::{DecorationManager, InlineDiagnostics},
     };
     use arc_swap::ArcSwap;
+    use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
     use editor_core::{
         diagnostic::{DiagnosticProvider, Severity},
         Diagnostic,
@@ -174,13 +175,10 @@ mod tests {
     use std::sync::Arc;
     use theme::Theme;
     use tui::{buffer::Buffer, layout::Rect};
-    use view::{
-        config::{DiagnosticFilter, InlineDiagnosticsConfig},
-        Document,
-    };
+    use view::Document;
 
     fn document(text: &str, soft_wrap: bool) -> Document {
-        let mut config = view::config::Config::default();
+        let mut config = editor_config::Config::default();
         config.soft_wrap.enable = Some(soft_wrap);
         Document::from(
             Rope::from_str(text),

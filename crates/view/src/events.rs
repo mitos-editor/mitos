@@ -1,8 +1,8 @@
+use crate::{document::Mode, Document, DocumentId, Editor, ViewId};
+use editor_config::Config;
 use editor_core::{ChangeSet, Rope};
 use event::events;
 use lsp_client::LanguageServerId;
-
-use crate::{config::Config, document::Mode, Document, DocumentId, Editor, ViewId};
 
 events! {
     // Required session invalidation has finished; observers see the final mode.

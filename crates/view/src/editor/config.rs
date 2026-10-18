@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
+use crate::{events::ConfigDidChange, Editor};
+use editor_config::Config;
 use language::{loader::LanguageLoaderError, syntax};
-
-use crate::{config::Config, events::ConfigDidChange, Editor};
 use theme::Theme;
 
 impl Editor {

@@ -3,10 +3,10 @@ use std::sync::{
     Arc,
 };
 
+use editor_config::ImplicitTrustLevelConfig;
 use serde_json::json;
 use theme::Theme;
 use view::{
-    config::ImplicitTrustLevelConfig,
     current_ref,
     editor::{Action, ConfigEvent},
     events::ConfigDidChange,

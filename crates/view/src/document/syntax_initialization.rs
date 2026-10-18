@@ -156,10 +156,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::Config,
         events::{DocumentDidChange, SelectionDidChange},
         ViewId,
     };
+    use editor_config::Config;
 
     fn loader() -> Arc<syntax::Loader> {
         Arc::new(

@@ -1,0 +1,26 @@
+[package]
+name = "editor-config"
+description = "Editor settings and custom command definitions for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+unicode-lines = ["core/unicode-lines"]
+
+[dependencies]
+core.workspace = true
+language-config.workspace = true
+clipboard.workspace = true
+ui-core.workspace = true
+workspace.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

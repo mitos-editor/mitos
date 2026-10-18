@@ -1,5 +1,13 @@
 //! Editor-owned completion requests and provider results. Frontends own their menus.
 
+use crate::{
+    callbacks::EditorCallbackSender,
+    document::{Mode, SavePoint},
+    editor::CompleteAction,
+    events::{ConfigDidChange, DocumentDidClose, DocumentFocusLost, LanguageServerExited},
+    DocumentId, Editor, ViewId,
+};
+use editor_config::Config;
 use editor_core::{chars::char_is_word, completion::CompletionProvider, Uri};
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
 use language_config::LanguageServerFeature;
@@ -15,15 +23,6 @@ use std::{
 };
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, task::JoinSet};
-
-use crate::{
-    callbacks::EditorCallbackSender,
-    config::Config,
-    document::{Mode, SavePoint},
-    editor::CompleteAction,
-    events::{ConfigDidChange, DocumentDidClose, DocumentFocusLost, LanguageServerExited},
-    DocumentId, Editor, ViewId,
-};
 
 pub use item::{CompletionItem, CompletionItems, CompletionResponse, LspCompletionItem};
 pub use request::request_incomplete_completion_list;

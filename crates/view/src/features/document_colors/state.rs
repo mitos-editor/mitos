@@ -62,7 +62,7 @@ mod tests {
             editor_core::Rope::from("sample text"),
             None,
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                crate::config::Config::default(),
+                editor_config::Config::default(),
             )),
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 language::syntax::Loader::default(),

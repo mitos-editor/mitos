@@ -2,12 +2,12 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use editor_config::Config;
 use editor_core::{Selection, Transaction};
 use language::syntax;
 use tokio::sync::mpsc;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
-    config::Config,
     current, current_ref,
     editor::Action,
     graphics::Rect,

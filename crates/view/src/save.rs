@@ -12,10 +12,10 @@ pub(crate) use queue::WriteQueue;
 
 use std::path::PathBuf;
 
+use crate::{Document, DocumentId, Editor, ViewId};
+use editor_config::Config;
 use editor_core::{line_ending, Selection, Transaction};
 use stdx::rope::RopeSliceExt;
-
-use crate::{config::Config, Document, DocumentId, Editor, ViewId};
 
 /// Options for an explicit single-document save.
 #[derive(Debug, Clone, Copy)]

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
 use editor_core::diagnostic::Severity;
 use editor_core::graphemes::Grapheme;
 use editor_core::{Diagnostic, Position};
@@ -8,7 +9,6 @@ use text_layout::text_annotations::TextAnnotations;
 use view::annotations::diagnostics::{
     diagnostic_text_format, max_diagnostic_start, InlineDiagnosticAccumulator,
 };
-use view::config::{DiagnosticFilter, InlineDiagnosticsConfig};
 
 use theme::Style;
 use theme::Theme;

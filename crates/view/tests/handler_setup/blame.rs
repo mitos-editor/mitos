@@ -1,10 +1,9 @@
 use std::{path::Path, process::Command, time::Duration};
 
 use anyhow::Context as _;
+use editor_config::InlineBlameShow;
 use editor_core::{Selection, Transaction};
-use view::{
-    config::InlineBlameShow, current, current_ref, document::LineBlameError, editor::Action,
-};
+use view::{current, current_ref, document::LineBlameError, editor::Action};
 
 use super::Fixture;
 

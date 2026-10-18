@@ -1,8 +1,7 @@
-//! Editor configuration types, defaults, and serialization.
+//! Editor settings, defaults, custom command definitions, and serialization.
 //!
-//! This module defines the editor settings independently of configuration file
-//! discovery and merging, which live in `term::config`. Applying settings to a
-//! running editor lives in `editor/config.rs` on [`crate::editor::Editor`].
+//! File discovery and merging belong to the application. Applying settings to
+//! a running editor belongs to the editor runtime.
 
 use ::clipboard::ClipboardProvider;
 

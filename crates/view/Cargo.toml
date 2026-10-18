@@ -18,11 +18,12 @@ bench = false
 [features]
 default = []
 git = ["vcs/git"]
-unicode-lines = []
+unicode-lines = ["editor-config/unicode-lines"]
 # Exposes internals. Should not be enabled except for benchmarking.
 bench = []
 
 [dependencies]
+editor-config.workspace = true
 language-config.workspace = true
 buffer.workspace = true
 text-io.workspace = true

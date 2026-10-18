@@ -12,13 +12,11 @@ use std::{
 };
 
 use crate::file_watcher::{EventType, Events};
+use crate::{callbacks::EditorCallbackSender, events::ConfigDidChange, DocumentId, Editor};
+use editor_config::Config;
 use event::{register_hook, send_blocking, AsyncHook};
 use stdx::path::canonicalize_existing;
 use tokio::{sync::mpsc::Sender, time::Instant};
-
-use crate::{
-    callbacks::EditorCallbackSender, config::Config, events::ConfigDidChange, DocumentId, Editor,
-};
 
 #[derive(Debug)]
 enum PollEvent {

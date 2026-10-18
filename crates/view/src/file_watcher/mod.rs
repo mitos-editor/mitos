@@ -14,8 +14,8 @@ use filesentry::{Filter, ShutdownOnDrop};
 mod filter;
 use filter::WatchFilter;
 
-use crate::config::WatchConfig;
 use crate::{callbacks::EditorCallbackSender, Editor};
+use editor_config::WatchConfig;
 use stdx::path::canonicalize_existing;
 use tokio::sync::mpsc;
 

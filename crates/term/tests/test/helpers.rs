@@ -10,12 +10,13 @@ use std::{
 };
 
 use anyhow::bail;
+use editor_config::ImplicitTrustLevelConfig;
 use editor_core::{diagnostic::Severity, test, Selection, Transaction};
 use tempfile::NamedTempFile;
 use term::{application::Application, args::Args, config::Config, keymap::merge_keys};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
-use view::{config::ImplicitTrustLevelConfig, current_ref, doc, Editor};
+use view::{current_ref, doc, Editor};
 use workspace::trust::WorkspaceTrust;
 
 #[cfg(windows)]
@@ -313,8 +314,8 @@ pub fn test_config() -> Config {
     }
 }
 
-pub fn test_editor_config() -> view::config::Config {
-    let mut config = view::config::Config::default();
+pub fn test_editor_config() -> editor_config::Config {
+    let mut config = editor_config::Config::default();
     // Watcher and word-completion tests opt in; unrelated tests avoid background work.
     config.files.watch.enable = false;
     config.files.watch.watch_vcs = false;
@@ -352,7 +353,7 @@ pub fn new_readonly_tempfile_in_dir(
     Ok(file)
 }
 
-type HandlerSetup = Box<dyn FnOnce(&mut view::handlers::Handlers, &view::config::Config)>;
+type HandlerSetup = Box<dyn FnOnce(&mut view::handlers::Handlers, &editor_config::Config)>;
 
 pub struct AppBuilder {
     args: Args,
@@ -412,7 +413,7 @@ impl AppBuilder {
 
     pub fn with_handler_setup(
         mut self,
-        setup: impl FnOnce(&mut view::handlers::Handlers, &view::config::Config) + 'static,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config) + 'static,
     ) -> Self {
         self.handler_setup = Box::new(setup);
         self

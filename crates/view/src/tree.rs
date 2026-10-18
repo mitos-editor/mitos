@@ -727,8 +727,8 @@ impl DoubleEndedIterator for Traverse<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::config::GutterConfig;
     use crate::DocumentId;
+    use editor_config::GutterConfig;
 
     #[test]
     fn find_split_in_direction() {

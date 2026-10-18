@@ -824,6 +824,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78e4f79b296fbaab6ce2e22d52cb4c7f010fe0ebe7a32e34fa25885fd797bd02"
 
 [[package]]
+name = "editor-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clipboard",
+ "core",
+ "language-config",
+ "serde",
+ "toml",
+ "ui-core",
+ "workspace",
+]
+
+[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4073,6 +4087,7 @@ dependencies = [
  "crossterm",
  "dap",
  "dashmap",
+ "editor-config",
  "event",
  "futures-util",
  "grammar-build",
@@ -4658,6 +4673,7 @@ dependencies = [
  "core",
  "criterion",
  "dap",
+ "editor-config",
  "event",
  "filesentry",
  "foldhash 0.2.0",

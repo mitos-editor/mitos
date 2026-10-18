@@ -8,9 +8,7 @@ pub use document_store::Documents;
 mod filesystem;
 mod language_servers;
 mod mode;
-
 use crate::{
-    config::Config,
     document::{DocumentSavedEventResult, Mode, SavePoint},
     events::DocumentFocusLost,
     graphics::{CursorKind, Rect},
@@ -23,6 +21,7 @@ use crate::{
     tree::{self, Tree},
     Document, DocumentId, View, ViewId,
 };
+use editor_config::Config;
 use event::dispatch;
 use theme::Theme;
 use vcs::DiffProviderRegistry;
@@ -111,7 +110,7 @@ pub struct Editor {
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
     /// Most recent visible inline blame mode, restored when toggling it back on.
-    pub last_inline_blame_show: Option<crate::config::InlineBlameShow>,
+    pub last_inline_blame_show: Option<editor_config::InlineBlameShow>,
     pub last_cwd: Option<PathBuf>,
     pub dir_stack: VecDeque<PathBuf>,
 

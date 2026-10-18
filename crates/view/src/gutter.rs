@@ -1,13 +1,12 @@
 use std::fmt::Write;
 
-use language_config::LanguageServerFeature;
-
 use crate::{
-    config::GutterType,
     graphics::{Style, UnderlineStyle},
     icons::ICONS,
     Document, Editor, View,
 };
+use editor_config::GutterType;
+use language_config::LanguageServerFeature;
 use theme::Theme;
 
 fn count_digits(n: usize) -> usize {
@@ -221,7 +220,8 @@ pub fn line_numbers<'doc>(
                 write!(out, "{:>1$}", '~', width).unwrap();
                 Some(linenr)
             } else {
-                use crate::{config::LineNumber, document::Mode};
+                use crate::document::Mode;
+                use editor_config::LineNumber;
 
                 let relative = line_number == LineNumber::Relative
                     && mode != Mode::Insert
@@ -405,11 +405,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::config::{Config, GutterConfig, GutterLineNumbersConfig};
     use crate::document::Document;
     use crate::graphics::Rect;
     use crate::DocumentId;
     use arc_swap::ArcSwap;
+    use editor_config::{Config, GutterConfig, GutterLineNumbersConfig};
     use editor_core::Rope;
     use language::syntax;
 

@@ -15,11 +15,11 @@ use view::{
 use crate::ui::ProgressSpinners;
 use std::{collections::HashSet, path::Path};
 
+use editor_config::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
 use tui::layout::{Constraint, Layout};
 use tui::text::{Line, Span};
 use tui::widgets::Widget;
-use view::config::StatusLineElement as StatusLineElementID;
 
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,

@@ -1,4 +1,4 @@
-use crate::config::{DiagnosticFilter, InlineDiagnosticsConfig};
+use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
 use editor_core::{Diagnostic, Position};
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::softwrapped_dimensions;

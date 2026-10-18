@@ -1,8 +1,8 @@
 use std::{path::Path, time::Duration};
 
+use editor_config::WatchConfig;
 use lsp_client::{jsonrpc::ErrorCode, lsp};
 use serde_json::{json, Value};
-use view::config::WatchConfig;
 use view::current;
 
 use super::helpers::lsp::Fixture;

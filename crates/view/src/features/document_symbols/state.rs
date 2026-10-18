@@ -228,8 +228,8 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use arc_swap::ArcSwap;
+    use editor_config::Config;
     use editor_core::{Rope, Selection};
     use language::syntax;
     use std::path::Path;
@@ -332,7 +332,7 @@ mod tests {
             editor_core::Rope::from("sample text"),
             None,
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                crate::config::Config::default(),
+                editor_config::Config::default(),
             )),
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 language::syntax::Loader::default(),

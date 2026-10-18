@@ -1,5 +1,5 @@
 //! Ignore rules and native-watch coverage filtering.
-use crate::config::WatchConfig;
+use editor_config::WatchConfig;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{
     borrow::Borrow,

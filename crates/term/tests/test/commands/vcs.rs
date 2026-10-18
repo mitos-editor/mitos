@@ -1,6 +1,6 @@
+use editor_config::InlineBlameShow;
 use std::{path::Path, process::Command, sync::Arc, time::Duration};
-
-use view::{config::InlineBlameShow, current, current_ref};
+use view::{current, current_ref};
 
 use term::application::Application;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -146,8 +146,9 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::Result<()> {
+    use editor_config::DiagnosticFilter;
     use editor_core::diagnostic::{Diagnostic, DiagnosticProvider, Severity};
-    use view::{config::DiagnosticFilter, editor::Action};
+    use view::editor::Action;
 
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("file.txt");

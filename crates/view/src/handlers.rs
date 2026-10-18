@@ -1,8 +1,5 @@
-use event::register_hook;
-
 use crate::{
     callbacks::EditorCallbackSender,
-    config::Config,
     events::ConfigDidChange,
     features::{
         auto_reload, auto_save, blame, code_action_hint, code_lenses,
@@ -15,6 +12,8 @@ use crate::{
     },
     DocumentId, Editor, ViewId,
 };
+use editor_config::Config;
+use event::register_hook;
 
 // Feature implementations live in `features`; this module composes their services
 // and retains protocol bridges and registry setup.

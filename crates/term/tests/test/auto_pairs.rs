@@ -142,7 +142,7 @@ async fn insert_configured_multi_byte_chars() -> anyhow::Result<()> {
     let pairs = hashmap!('„' => '“', '‚' => '‘', '「' => '」');
 
     let config = Config {
-        editor: view::config::Config {
+        editor: editor_config::Config {
             auto_pairs: AutoPairConfig {
                 pairs: Some(pairs.clone()),
                 ..AutoPairConfig::default()
@@ -289,7 +289,7 @@ async fn insert_auto_pairs_disabled() -> anyhow::Result<()> {
     for pair in DEFAULT_PAIRS {
         test_with_config(
             AppBuilder::new().with_config(Config {
-                editor: view::config::Config {
+                editor: editor_config::Config {
                     auto_pairs: AutoPairConfig {
                         enable: false,
                         ..AutoPairConfig::default()
@@ -848,7 +848,7 @@ async fn delete_configured_multi_byte_chars() -> anyhow::Result<()> {
     let pairs = hashmap!('„' => '“', '‚' => '‘', '「' => '」');
 
     let config = Config {
-        editor: view::config::Config {
+        editor: editor_config::Config {
             auto_pairs: AutoPairConfig {
                 pairs: Some(pairs.clone()),
                 ..AutoPairConfig::default()
@@ -1075,7 +1075,7 @@ async fn delete_auto_pairs_disabled() -> anyhow::Result<()> {
     for pair in DEFAULT_PAIRS {
         test_with_config(
             AppBuilder::new().with_config(Config {
-                editor: view::config::Config {
+                editor: editor_config::Config {
                     auto_pairs: AutoPairConfig {
                         enable: false,
                         ..AutoPairConfig::default()

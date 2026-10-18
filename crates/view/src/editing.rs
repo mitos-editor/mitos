@@ -179,7 +179,7 @@ mod tests {
     use language::syntax;
 
     use super::*;
-    use crate::config::Config;
+    use editor_config::Config;
 
     #[tokio::test]
     async fn text_edits_and_history_work_without_any_view() {

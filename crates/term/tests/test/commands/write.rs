@@ -638,7 +638,7 @@ async fn test_write_trim_trailing_whitespace() -> anyhow::Result<()> {
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
             editor: {
-                let mut config: view::config::Config = helpers::test_editor_config();
+                let mut config: editor_config::Config = helpers::test_editor_config();
                 config.files.save.trim_trailing_whitespace = true;
                 config
             },
@@ -661,7 +661,7 @@ async fn test_write_trim_final_newlines() -> anyhow::Result<()> {
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
             editor: {
-                let mut config: view::config::Config = helpers::test_editor_config();
+                let mut config: editor_config::Config = helpers::test_editor_config();
                 config.files.save.trim_final_newlines = true;
                 config
             },
@@ -735,7 +735,7 @@ async fn test_write_insert_final_newline_unchanged_if_missing_and_false() -> any
     let mut app = helpers::AppBuilder::new()
         .with_config(Config {
             editor: {
-                let mut config: view::config::Config = helpers::test_editor_config();
+                let mut config: editor_config::Config = helpers::test_editor_config();
                 config.files.save.insert_final_newline = false;
                 config
             },
@@ -970,7 +970,7 @@ async fn edit_file_with_content(file_content: &[u8]) -> anyhow::Result<()> {
         &mut helpers::AppBuilder::new()
             .with_config(Config {
                 editor: {
-                    let mut config: view::config::Config = helpers::test_editor_config();
+                    let mut config: editor_config::Config = helpers::test_editor_config();
                     config.files.save.insert_final_newline = false;
                     config
                 },
@@ -1087,7 +1087,7 @@ async fn test_shared_auto_save_prepares_hidden_files_without_formatting() -> any
     let mut app = AppBuilder::new()
         .with_config(Config {
             editor: {
-                let mut config: view::config::Config = helpers::test_editor_config();
+                let mut config: editor_config::Config = helpers::test_editor_config();
                 config.files.save.trim_trailing_whitespace = true;
                 config.files.save.trim_final_newlines = true;
                 config.format.on_save = true;
@@ -1187,7 +1187,7 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
     let mut app = AppBuilder::new()
         .with_config(Config {
             editor: {
-                let mut config: view::config::Config = helpers::test_editor_config();
+                let mut config: editor_config::Config = helpers::test_editor_config();
                 config.files.save.trim_trailing_whitespace = true;
                 config
             },

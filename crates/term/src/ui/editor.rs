@@ -14,6 +14,7 @@ use crate::{
     },
 };
 
+use editor_config::{BufferLine, CursorShapeConfig, DiagnosticFilter};
 use editor_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
@@ -35,8 +36,6 @@ use ui_core::{
     keyboard::{KeyCode, KeyModifiers},
 };
 use view::{
-    config::DiagnosticFilter,
-    config::{BufferLine, CursorShapeConfig},
     document::{Mode, SCRATCH_BUFFER_NAME},
     editor::CompleteAction,
     features::completion::CompletionItem,
@@ -435,7 +434,7 @@ impl EditorView {
             document_config.diagnostics.end_of_line.severity,
             document_config.icons,
         ));
-        if config.inline_blame.show != view::config::InlineBlameShow::Never {
+        if config.inline_blame.show != editor_config::InlineBlameShow::Never {
             decorations.add_decoration(text_decorations::blame::InlineBlame::new(
                 doc,
                 view.id,
@@ -1013,7 +1012,7 @@ impl EditorView {
         viewport: Rect,
         surface: &mut Surface,
     ) {
-        use view::config::BreadcrumbPathOptions::{File, Full};
+        use editor_config::BreadcrumbPathOptions::{File, Full};
 
         #[inline]
         #[must_use]

@@ -1,5 +1,6 @@
 use std::cmp::min;
 
+use editor_config::{WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::Grapheme;
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::str_utils::char_to_byte_idx;
@@ -14,7 +15,6 @@ use text_layout::visual_offset_from_block;
 use theme::Style;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;
-use view::config::{WhitespaceConfig, WhitespaceRenderValue};
 use view::graphics::Rect;
 use view::view::ViewPosition;
 use view::Document;

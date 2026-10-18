@@ -8,10 +8,11 @@ use super::{
 };
 use crate::{events::PostInsertChar, key};
 use arc_swap::access::DynAccess;
+use editor_config::SmartTabConfig;
 use insert::LineBoundary;
 pub use insert::{CommentContinuation, Open};
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
-use view::{config::SmartTabConfig, document::Mode, editing::insert};
+use view::{document::Mode, editing::insert};
 
 pub fn insert_char(cx: &mut Context, c: char) {
     let loader = cx.editor.syn_loader.load();

@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
+use editor_config::Config;
 use editor_core::Transaction;
 use lsp_client::{lsp, LanguageServerId};
 use serde_json::{json, Value};
@@ -11,7 +12,6 @@ use tokio_stream::StreamExt;
 use view::{
     action::{Action, LspActionContext},
     callbacks::EditorCallback,
-    config::Config,
     current, current_ref,
     editor::Action as OpenAction,
     features::{document_links::DocumentLinksHandler, syntax::SyntaxHandler},
