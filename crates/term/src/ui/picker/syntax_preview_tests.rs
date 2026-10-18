@@ -72,7 +72,9 @@ impl Fixture {
 
     fn preview(&mut self, name: &str) -> Arc<Path> {
         let path: Arc<Path> = self.dir.path().join(name).into();
-        std::fs::write(&path, "{}\n").unwrap();
+        if !path.exists() {
+            std::fs::write(&path, "{}\n").unwrap();
+        }
         let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
         picker.content.preview.get::<(), ()>(
             &self.app.editor,
@@ -85,10 +87,23 @@ impl Fixture {
     }
 
     fn document(&mut self, path: &Path) -> &Document {
-        let CachedPreview::Document(doc) = &self.picker().preview.preview_cache[path] else {
+        let CachedPreview::Document(doc) = &self.picker().preview.preview_cache[path].preview
+        else {
             panic!("expected a document preview");
         };
         doc
+    }
+
+    fn read_preview(&mut self, path: &Path) -> Option<String> {
+        let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
+        let (preview, _) = picker.content.preview.get::<(), ()>(
+            &self.app.editor,
+            (PathOrId::Path(path), None),
+            &self.jobs,
+            None,
+            Size::new(30, 20),
+        )?;
+        preview.document().map(|doc| doc.text().to_string())
     }
 
     async fn completion(&mut self) -> Callback {
@@ -124,6 +139,92 @@ impl Fixture {
             )
             .is_none());
     }
+}
+
+#[tokio::test]
+async fn previews_follow_unwatched_rewrites_deletion_and_recreation() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("file.txt");
+    std::fs::write(&path, "before\n")?;
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("before\n"));
+    std::fs::write(&path, "after rewrite\n")?;
+    assert_eq!(
+        fixture.read_preview(&path).as_deref(),
+        Some("after rewrite\n")
+    );
+    std::fs::remove_file(&path)?;
+    assert!(fixture.read_preview(&path).is_none());
+    std::fs::write(&path, "recreated\n")?;
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("recreated\n"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_batches_invalidate_same_stamp_previews_and_lagged_subscribers() -> anyhow::Result<()>
+{
+    use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
+
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("file.txt");
+    std::fs::write(&path, "before\n")?;
+    let modified = path.metadata()?.modified()?;
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("before\n"));
+    std::fs::write(&path, "after!\n")?;
+    std::fs::File::options()
+        .write(true)
+        .open(&path)?
+        .set_modified(modified)?;
+    let events = Events::from(vec![Event {
+        path: CanonicalPathBuf::assert_canonicalized(&path.canonicalize()?),
+        ty: EventType::Modified,
+    }]);
+    fixture.app.editor.handle_file_events(&events);
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("after!\n"));
+
+    std::fs::write(&path, "latest\n")?;
+    std::fs::File::options()
+        .write(true)
+        .open(&path)?
+        .set_modified(modified)?;
+    for _ in 0..100 {
+        fixture.app.editor.handle_file_events(&events);
+    }
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("latest\n"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_previews_follow_unwatched_membership_changes() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().to_owned();
+    fixture.read_preview(&path);
+    let child = path.join("new.txt");
+    std::fs::write(&child, "new\n")?;
+    fixture.read_preview(&path);
+    let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*path].preview
+    else {
+        panic!("expected directory preview");
+    };
+    assert!(entries.iter().any(|(path, _)| path == &child));
+    std::fs::remove_file(&child)?;
+    fixture.read_preview(&path);
+    let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*path].preview
+    else {
+        panic!("expected directory preview");
+    };
+    assert!(!entries.iter().any(|(path, _)| path == &child));
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_keeps_the_open_buffer_authoritative() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("buffer.txt");
+    std::fs::write(&path, "buffer\n")?;
+    fixture.app.editor.open(&path, Action::Load)?;
+    std::fs::write(&path, "external change\n")?;
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("buffer\n"));
+    Ok(())
 }
 
 #[tokio::test]

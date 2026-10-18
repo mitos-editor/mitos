@@ -26,7 +26,7 @@ static IMAGE_PREVIEW_WORKER: tokio::sync::Semaphore = tokio::sync::Semaphore::co
 const IMAGE_CACHE_CAPACITY: usize = 16;
 
 event::runtime_local! {
-    static IMAGE_CACHE: Mutex<ImageCache> = Mutex::new(ImageCache { entries: VecDeque::new() });
+    static IMAGE_CACHE: Mutex<ImageCache> = Mutex::new(ImageCache { entries: VecDeque::new(), revision: 0 });
 }
 
 #[derive(Clone, PartialEq)]
@@ -41,7 +41,7 @@ struct ImageKey {
 
 impl ImageKey {
     fn new(path: &Path, picker: &ImagePicker, size: Size) -> Option<Self> {
-        let path = stdx::path::canonicalize(path);
+        let path = path.canonicalize().ok()?;
         let metadata = std::fs::metadata(&path).ok()?;
         Some(Self {
             path,
@@ -67,6 +67,7 @@ impl PreparedImage {
 }
 
 struct ImageCache {
+    revision: u64,
     // Least recently used first. Only encoded previews are retained, never source pixels.
     entries: VecDeque<Arc<PreparedImage>>,
 }
@@ -102,6 +103,13 @@ pub(super) fn cached_image(
     IMAGE_CACHE.lock().unwrap().get(&key)
 }
 
+pub(super) fn invalidate_cached_image(path: &Path) {
+    let path = stdx::path::canonicalize_existing(path);
+    let mut cache = IMAGE_CACHE.lock().unwrap();
+    cache.revision = cache.revision.wrapping_add(1);
+    cache.entries.retain(|image| image.key.path != path);
+}
+
 type ImageResult = Result<Arc<PreparedImage>, String>;
 
 pub(super) async fn load_image(path: Arc<Path>, picker: ImagePicker, size: Size) -> ImageResult {
@@ -111,9 +119,13 @@ pub(super) async fn load_image(path: Arc<Path>, picker: ImagePicker, size: Size)
         let _permit = permit;
         let key = ImageKey::new(&path, &picker, size).ok_or("Image file is unavailable")?;
         // Another request may have completed while we waited for the worker.
-        if let Some(image) = cache.lock().unwrap().get(&key) {
-            return Ok(image);
-        }
+        let revision = {
+            let mut cache = cache.lock().unwrap();
+            if let Some(image) = cache.get(&key) {
+                return Ok(image);
+            }
+            cache.revision
+        };
         let (protocol, details) = decode_image_preview(&path, &picker, size)?;
         let image = Arc::new(PreparedImage {
             key,
@@ -121,7 +133,10 @@ pub(super) async fn load_image(path: Arc<Path>, picker: ImagePicker, size: Size)
             details,
         });
         if image.is_current(&path, &picker, size) {
-            cache.lock().unwrap().insert(image.clone());
+            let mut cache = cache.lock().unwrap();
+            if cache.revision == revision {
+                cache.insert(image.clone());
+            }
         }
         Ok(image)
     })
@@ -360,6 +375,9 @@ mod tests {
             &updated,
             &cached_image(&path, &picker, size).unwrap()
         ));
+        // Native events also invalidate replacements that preserve the metadata key.
+        invalidate_cached_image(&path);
+        assert!(cached_image(&path, &picker, size).is_none());
     }
 
     #[test]
@@ -383,6 +401,7 @@ mod tests {
         };
         let mut cache = ImageCache {
             entries: VecDeque::new(),
+            revision: 0,
         };
         for index in 0..IMAGE_CACHE_CAPACITY {
             cache.insert(entry(index));

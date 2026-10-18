@@ -227,6 +227,19 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    poll: Option<PollTask>,
+}
+
+/// A closed or dropped picker must not keep waking its frontend.
+struct PollTask {
+    task: tokio::task::JoinHandle<()>,
+    interval: std::time::Duration,
+}
+
+impl Drop for PollTask {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -389,6 +402,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             quicklist_fn: None,
             dynamic_query_handler: None,
+            poll: None,
         }
     }
 
@@ -928,6 +942,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            picker.poll = None;
             picker.preview.cancel_loads(None);
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
@@ -1101,6 +1116,27 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
         let render_preview =
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
+
+        let poll = &cx.editor.config().files.reload.poll;
+        if render_preview && poll.enable {
+            let interval = std::time::Duration::from_millis(poll.interval.max(100));
+            if self
+                .poll
+                .as_ref()
+                .is_none_or(|poll| poll.interval != interval)
+            {
+                let redraw = self.redraw.clone();
+                let task = tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(interval).await;
+                        redraw.request();
+                    }
+                });
+                self.poll = Some(PollTask { task, interval });
+            }
+        } else {
+            self.poll = None;
+        }
 
         let (picker_area, preview_area) = split_picker_area(area, render_preview);
         self.render_picker(picker_area, surface, cx);

@@ -6,7 +6,7 @@ use crate::{
     job,
     ui::{
         document::{render_document, LinePos, TextRenderer},
-        image::{cached_image, load_image, render_image, PreparedImage},
+        image::{cached_image, invalidate_cached_image, load_image, render_image, PreparedImage},
         overlay::Overlay,
         text_decorations::DecorationManager,
         EditorView,
@@ -19,7 +19,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use text_layout::char_idx_at_visual_offset;
 use text_layout::text_annotations::TextAnnotations;
@@ -29,6 +29,12 @@ use view::{graphics::Rect, view::ViewPosition, Document, DocumentId, Editor};
 
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
+
+pub(super) fn is_ignore_file(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == ".gitignore" || name == ".ignore" || name == "filesentryignore")
+        || path.ends_with(".mitos/ignore")
+}
 
 #[cfg(all(test, feature = "integration"))]
 #[path = "syntax_preview_tests.rs"]
@@ -137,10 +143,36 @@ impl Preview<'_, '_> {
 }
 
 pub(super) struct FilePreview {
-    preview_cache: HashMap<Arc<Path>, CachedPreview>,
+    preview_cache: HashMap<Arc<Path>, CacheEntry>,
     read_buffer: Vec<u8>,
     image_task: Option<ImagePreviewTask>,
     syntax_path: Option<Arc<Path>>,
+    events: Option<tokio::sync::broadcast::Receiver<view::file_watcher::Events>>,
+}
+
+struct CacheEntry {
+    stamp: Option<FileStamp>,
+    preview: CachedPreview,
+}
+
+#[derive(PartialEq, Eq)]
+struct FileStamp {
+    modified: Option<SystemTime>,
+    created: Option<SystemTime>,
+    len: u64,
+    is_dir: bool,
+}
+
+impl FileStamp {
+    fn read(path: &Path) -> Option<Self> {
+        let metadata = path.metadata().ok()?;
+        Some(Self {
+            modified: metadata.modified().ok(),
+            created: metadata.created().ok(),
+            len: metadata.len(),
+            is_dir: metadata.is_dir(),
+        })
+    }
 }
 
 impl Default for FilePreview {
@@ -150,6 +182,7 @@ impl Default for FilePreview {
             read_buffer: Vec::with_capacity(1024),
             image_task: None,
             syntax_path: None,
+            events: None,
         }
     }
 }
@@ -162,7 +195,7 @@ impl FilePreview {
             .is_some_and(|task| location != Some((task.path.as_ref(), task.size)))
         {
             let task = self.image_task.take().unwrap();
-            if matches!(self.preview_cache.get(&task.path), Some(CachedPreview::Image(image))
+            if matches!(self.preview_cache.get(&task.path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))
                 if matches!(image.as_ref(), ImagePreview::Loading { .. }))
             {
                 self.preview_cache.remove(&task.path);
@@ -175,7 +208,10 @@ impl FilePreview {
             return;
         }
         if let Some(path) = self.syntax_path.take()
-            && let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path)
+            && let Some(CachedPreview::Document(doc)) = self
+                .preview_cache
+                .get_mut(&path)
+                .map(|entry| &mut entry.preview)
         {
             doc.cancel_syntax_request();
         }
@@ -191,7 +227,11 @@ impl FilePreview {
         path: Arc<Path>,
         jobs: &crate::job::Jobs,
     ) {
-        let Some(CachedPreview::Document(doc)) = self.preview_cache.get_mut(&path) else {
+        let Some(CachedPreview::Document(doc)) = self
+            .preview_cache
+            .get_mut(&path)
+            .map(|entry| &mut entry.preview)
+        else {
             return;
         };
         if let Some(request) = doc.syntax_request() {
@@ -206,6 +246,64 @@ impl FilePreview {
         self.read_buffer.clear();
     }
 
+    fn remove(&mut self, path: &Path) {
+        invalidate_cached_image(path);
+        if self.syntax_path.as_deref() == Some(path)
+            || self
+                .image_task
+                .as_ref()
+                .is_some_and(|task| task.path.as_ref() == path)
+        {
+            self.cancel_loads(None);
+        }
+        self.preview_cache.remove(path);
+    }
+
+    fn receive_changes(&mut self, editor: &Editor) {
+        use tokio::sync::broadcast::error::TryRecvError;
+        if self.events.is_none() {
+            self.events = Some(editor.file_watcher.subscribe());
+        }
+        loop {
+            match self.events.as_mut().unwrap().try_recv() {
+                Ok(events) => {
+                    let paths: Vec<_> = self
+                        .preview_cache
+                        .keys()
+                        .filter(|path| {
+                            let path = stdx::path::canonicalize_existing(path);
+                            events.iter().any(|event| {
+                                if event.ty == view::file_watcher::EventType::Tempfile {
+                                    return false;
+                                }
+                                let changed = event.path.as_std_path();
+                                path.starts_with(changed)
+                                    || changed.parent() == Some(path.as_path())
+                                    || is_ignore_file(changed)
+                            })
+                        })
+                        .cloned()
+                        .collect();
+                    for path in paths {
+                        self.remove(&path);
+                    }
+                }
+                Err(TryRecvError::Lagged(_)) => {
+                    for path in self.preview_cache.keys() {
+                        invalidate_cached_image(path);
+                    }
+                    self.clear();
+                }
+                Err(TryRecvError::Closed) => {
+                    self.clear();
+                    self.events = Some(editor.file_watcher.subscribe());
+                    break;
+                }
+                Err(TryRecvError::Empty) => break,
+            }
+        }
+    }
+
     pub(super) fn get<'preview, 'editor, T: 'static + Send + Sync, D: 'static + Send + Sync>(
         &'preview mut self,
         editor: &'editor Editor,
@@ -214,6 +312,7 @@ impl FilePreview {
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
+        self.receive_changes(editor);
         let path_or_id = match path_or_id {
             PathOrId::Id(id) => {
                 let Some(doc) = editor.documents.get(&id) else {
@@ -239,18 +338,26 @@ impl FilePreview {
                     return Some((Preview::EditorDocument(doc), range));
                 }
 
-                if matches!(self.preview_cache.get(path), Some(CachedPreview::Image(image))
+                let stamp = FileStamp::read(path);
+                if self
+                    .preview_cache
+                    .get(path)
+                    .is_some_and(|entry| entry.stamp != stamp)
+                {
+                    self.remove(path);
+                }
+                if matches!(self.preview_cache.get(path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))
                     if image.size() != image_size || matches!(image.as_ref(), ImagePreview::Ready { image, .. }
                         if image_picker.is_some_and(|picker| !image.is_current(path, picker, image_size))))
                 {
-                    self.preview_cache.remove(path);
+                    self.remove(path);
                 }
                 if self.preview_cache.contains_key(path) {
                     let (path, _) = self.preview_cache.get_key_value(path).unwrap();
                     let path = Arc::clone(path);
                     self.highlight::<T, D>(path.clone(), jobs);
                     let preview = self.preview_cache.get_mut(&path).unwrap();
-                    return Some((Preview::Cached(preview), range));
+                    return Some((Preview::Cached(&mut preview.preview), range));
                 }
 
                 let path: Arc<Path> = path.into();
@@ -259,16 +366,19 @@ impl FilePreview {
                 {
                     // Other images remain available in the shared, bounded cache.
                     self.preview_cache
-                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
+                        .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                     self.preview_cache.insert(
                         path.clone(),
-                        CachedPreview::Image(Box::new(ImagePreview::Ready {
-                            size: image_size,
-                            image,
-                        })),
+                        CacheEntry {
+                            stamp,
+                            preview: CachedPreview::Image(Box::new(ImagePreview::Ready {
+                                size: image_size,
+                                image,
+                            })),
+                        },
                     );
                     return Some((
-                        Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
+                        Preview::Cached(&mut self.preview_cache.get_mut(&path).unwrap().preview),
                         range,
                     ));
                 }
@@ -332,9 +442,10 @@ impl FilePreview {
                     // files on disk. Keep only the active image preview while retaining the
                     // existing cache behavior for text documents and directories.
                     self.preview_cache
-                        .retain(|_, preview| !matches!(preview, CachedPreview::Image(_)));
+                        .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                 }
-                self.preview_cache.insert(path.clone(), preview);
+                self.preview_cache
+                    .insert(path.clone(), CacheEntry { stamp, preview });
                 self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
@@ -346,7 +457,7 @@ impl FilePreview {
                     ));
                 }
                 Some((
-                    Preview::Cached(self.preview_cache.get_mut(&path).unwrap()),
+                    Preview::Cached(&mut self.preview_cache.get_mut(&path).unwrap().preview),
                     range,
                 ))
             }
@@ -462,6 +573,9 @@ pub(super) fn render_preview_content(
 
     let mut offset = ViewPosition::default();
     if let Some((start_line, end_line)) = range {
+        let last_line = doc.text().len_lines().saturating_sub(1);
+        let start_line = start_line.min(last_line);
+        let end_line = end_line.max(start_line).min(last_line);
         let height = end_line - start_line;
         let text = doc.text().slice(..);
         let start = text.line_to_char(start_line);
@@ -590,9 +704,10 @@ fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
             else {
                 return;
             };
-            let Some(preview) = picker.preview.preview_cache.get_mut(&path) else {
+            let Some(entry) = picker.preview.preview_cache.get_mut(&path) else {
                 return;
             };
+            let preview = &mut entry.preview;
             // A previous selection of the same path must not replace its newer request.
             if !matches!(preview, CachedPreview::Image(image)
                 if matches!(image.as_ref(), ImagePreview::Loading { request: current, .. }
@@ -645,8 +760,11 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
                     else {
                         return;
                     };
-                    let Some(CachedPreview::Document(doc)) =
-                        picker.preview.preview_cache.get_mut(&path)
+                    let Some(CachedPreview::Document(doc)) = picker
+                        .preview
+                        .preview_cache
+                        .get_mut(&path)
+                        .map(|entry| &mut entry.preview)
                     else {
                         return;
                     };

@@ -17,7 +17,7 @@ use filter::WatchFilter;
 use crate::{callbacks::EditorCallbackSender, Editor};
 use editor_config::WatchConfig;
 use stdx::path::canonicalize_existing;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 impl Editor {
     /// Deliver one filesystem batch to this editor's protocol clients and features.
@@ -36,11 +36,14 @@ impl Editor {
                 Some((event.path.as_std_path().to_owned(), ty))
             }));
         crate::features::auto_reload::handle_file_events(self, events);
+        let _ = self.file_watcher.events.send(events.clone());
+        self.redraw().request();
     }
 }
 
 /// Recursive native watches, with coverage information for the polling fallback.
 pub struct Watcher {
+    events: broadcast::Sender<Events>,
     callbacks: EditorCallbackSender,
     delivery: event::TaskController,
     generation: Arc<()>,
@@ -57,6 +60,7 @@ impl Watcher {
     pub fn new(config: &WatchConfig, callbacks: EditorCallbackSender) -> Self {
         let (workspace, _) = workspace::find_workspace();
         let mut watcher = Self {
+            events: broadcast::channel(64).0,
             callbacks,
             delivery: event::TaskController::new(),
             generation: Arc::new(()),
@@ -70,6 +74,12 @@ impl Watcher {
         };
         watcher.reload(config);
         watcher
+    }
+
+    /// Observe batches delivered to this editor, including while native watches reload.
+    /// A lagging consumer must discard its cached filesystem state and read it again.
+    pub fn subscribe(&self) -> broadcast::Receiver<Events> {
+        self.events.subscribe()
     }
 
     /// Rebuild watches when configuration or the working directory changes.
