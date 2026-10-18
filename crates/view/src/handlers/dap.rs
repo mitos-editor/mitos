@@ -55,6 +55,39 @@ pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
 }
 
 impl Editor {
+    /// Consume protocol messages and transport closure through the same session owner.
+    pub async fn handle_debugger_event(
+        &mut self,
+        id: DebugAdapterId,
+        event: dap::ClientEvent,
+    ) -> bool {
+        match event {
+            dap::ClientEvent::Message(payload) => self.handle_debugger_message(id, payload).await,
+            dap::ClientEvent::Closed { error } => {
+                let Some(session) = self.debugger.get_session(id) else {
+                    return false;
+                };
+                let name = session.name().to_owned();
+                let active = self
+                    .debugger
+                    .get_active_session()
+                    .is_some_and(|session| session.id() == id);
+                self.debugger.remove_session(id);
+                if active {
+                    match error {
+                        Some(error) => {
+                            self.set_error(|| format!("Debugger {name} disconnected: {error}"))
+                        }
+                        None => self.set_status(format!("Debugging session ended: {name}")),
+                    }
+                } else if let Some(error) = error {
+                    log::warn!("Debugger {name} disconnected: {error}");
+                }
+                true
+            }
+        }
+    }
+
     pub async fn handle_debugger_message(
         &mut self,
         id: DebugAdapterId,

@@ -153,7 +153,7 @@ pub enum EditorEvent {
     Navigation(crate::features::navigation::NavigationUpdate),
     Completion(crate::features::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
-    DebuggerEvent((DebugAdapterId, dap::Payload)),
+    DebuggerEvent((DebugAdapterId, dap::ClientEvent)),
     IdleTimer,
     Redraw,
 }

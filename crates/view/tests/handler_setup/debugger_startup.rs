@@ -80,7 +80,7 @@ async fn incoming(f: &mut Fixture) -> anyhow::Result<DebugAdapterId> {
             if let view::editor::EditorEvent::DebuggerEvent((id, payload)) =
                 f.editor.wait_event().await
             {
-                f.editor.handle_debugger_message(id, payload).await;
+                f.editor.handle_debugger_event(id, payload).await;
                 return id;
             }
         }
@@ -386,6 +386,32 @@ async fn background_initialization_failures_preserve_the_selected_session() -> a
     assert_eq!(
         f.editor.get_status().unwrap().0.as_ref(),
         "selected session"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn adapter_eof_removes_its_session_and_restores_the_previous_selection() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("")?;
+    let (previous, _) = paused_adapter(&mut f).await?;
+    let mut adapter = Adapter::new().await?;
+    let id = f.editor.connect_debugger(Some(adapter.socket), config());
+    wait_for_connection(&mut f, id).await?;
+    let initialize = message(&mut adapter.wire).await?;
+    adapter.reply(&initialize, true, json!({}))?;
+    wait_for_startup(&mut f, id).await?;
+    drop(adapter);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().get_session(id).is_some() {
+            incoming(&mut f).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        previous
     );
     Ok(())
 }

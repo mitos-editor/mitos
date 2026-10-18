@@ -3,13 +3,12 @@ use anyhow::Context;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{
         mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
-        Mutex,
+        oneshot, Mutex,
     },
 };
 
@@ -60,6 +59,76 @@ enum Outgoing {
     Forget(u64),
 }
 
+/// Messages and lifecycle notifications for the owner of an adapter session.
+#[derive(Debug)]
+pub enum ClientEvent {
+    Message(Payload),
+    /// No further messages or requests can be exchanged on this transport.
+    Closed {
+        error: Option<String>,
+    },
+}
+
+/// Owns the transport tasks. Dropping it closes both directions, even when request
+/// senders remain alive. Request senders cannot extend a session's lifetime.
+#[derive(Debug)]
+pub struct Transport {
+    _shutdown: oneshot::Sender<()>,
+}
+
+impl Transport {
+    /// Start one cancellable task owning adapter input, output, and stderr.
+    pub fn start(
+        server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
+        server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
+        server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
+        id: DebugAdapterId,
+    ) -> (
+        Transport,
+        UnboundedReceiver<(DebugAdapterId, ClientEvent)>,
+        TransportSender,
+    ) {
+        let (client_tx, rx) = unbounded_channel();
+        let (tx, client_rx) = unbounded_channel();
+        let (shutdown, cancel) = oneshot::channel();
+        tokio::spawn(async move {
+            let state = TransportState {
+                id,
+                pending_requests: Mutex::new(HashMap::new()),
+            };
+            let result = tokio::select! {
+                biased;
+                _ = cancel => Ok(()),
+                _ = client_tx.closed() => Ok(()),
+                result = state.recv(server_stdout, &client_tx) => result,
+                result = state.send(server_stdin, client_rx) => result,
+                _ = async {
+                    if let Some(stderr) = server_stderr { TransportState::err(stderr).await; }
+                    // Stderr can close independently of the protocol connection.
+                    std::future::pending::<()>().await;
+                } => unreachable!(),
+            };
+            // Both IO futures have been dropped. New requests are rejected and all
+            // outstanding waits complete before the owner sees the closure event.
+            for (_, sender) in state.pending_requests.lock().await.drain() {
+                let _ = sender.try_send(Err(Error::StreamClosed));
+            }
+            let error = match result {
+                Ok(()) | Err(Error::StreamClosed) => None,
+                Err(error) => Some(error.to_string()),
+            };
+            let _ = client_tx.send((id, ClientEvent::Closed { error }));
+        });
+        (
+            Transport {
+                _shutdown: shutdown,
+            },
+            rx,
+            TransportSender(tx),
+        )
+    }
+}
+
 /// Sends protocol messages while keeping local request cleanup off the wire.
 #[derive(Clone, Debug)]
 pub struct TransportSender(UnboundedSender<Outgoing>);
@@ -68,7 +137,7 @@ impl TransportSender {
     pub fn send(&self, payload: Payload) -> Result<()> {
         self.0
             .send(Outgoing::Message(payload))
-            .map_err(|error| Error::Other(error.into()))
+            .map_err(|_| Error::StreamClosed)
     }
 
     pub(crate) fn forget(&self, sequence: u64) {
@@ -76,50 +145,12 @@ impl TransportSender {
     }
 }
 
-#[derive(Debug)]
-/// Content-Length framed DAP transport over asynchronous byte streams.
-///
-/// Responses to outgoing requests are delivered to their private response
-/// channels. Events and reverse requests are forwarded
-/// on the receiver returned by [`Self::start`]. Late responses to canceled
-/// requests are discarded.
-pub struct Transport {
-    #[allow(unused)]
+struct TransportState {
     id: DebugAdapterId,
     pending_requests: Mutex<HashMap<u64, Sender<Result<Response>>>>,
 }
 
-impl Transport {
-    /// Starts background receive, send, and optional stderr-forwarding tasks.
-    ///
-    /// The returned tuple is `(incoming, outgoing)`. Dropping the outgoing
-    /// sender eventually stops the send task; dropping the incoming receiver
-    /// means forwarded adapter messages can no longer be consumed.
-    pub fn start(
-        server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
-        server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
-        id: DebugAdapterId,
-    ) -> (UnboundedReceiver<Payload>, TransportSender) {
-        let (client_tx, rx) = unbounded_channel();
-        let (tx, client_rx) = unbounded_channel();
-
-        let transport = Self {
-            id,
-            pending_requests: Mutex::new(HashMap::default()),
-        };
-
-        let transport = Arc::new(transport);
-
-        tokio::spawn(Self::recv(id, transport.clone(), server_stdout, client_tx));
-        tokio::spawn(Self::send(transport, server_stdin, client_rx));
-        if let Some(stderr) = server_stderr {
-            tokio::spawn(Self::err(stderr));
-        }
-
-        (rx, TransportSender(tx))
-    }
-
+impl TransportState {
     async fn recv_server_message(
         id: DebugAdapterId,
         reader: &mut Box<dyn AsyncBufRead + Unpin + Send>,
@@ -240,7 +271,7 @@ impl Transport {
 
     async fn process_server_message(
         &self,
-        client_tx: &UnboundedSender<Payload>,
+        client_tx: &UnboundedSender<(DebugAdapterId, ClientEvent)>,
         msg: Payload,
     ) -> Result<()> {
         match msg {
@@ -275,93 +306,55 @@ impl Transport {
                 ..
             }) => {
                 info!("[{}] <- DAP request {} #{}", self.id, command, seq);
-                client_tx.send(msg).map_err(|_| Error::StreamClosed)
+                client_tx
+                    .send((self.id, ClientEvent::Message(msg)))
+                    .map_err(|_| Error::StreamClosed)
             }
             Payload::Event(ref event) => {
                 info!("[{}] <- DAP event {:?}", self.id, event);
-                client_tx.send(msg).map_err(|_| Error::StreamClosed)
+                client_tx
+                    .send((self.id, ClientEvent::Message(msg)))
+                    .map_err(|_| Error::StreamClosed)
             }
         }
     }
 
     async fn recv(
-        id: DebugAdapterId,
-        transport: Arc<Self>,
+        &self,
         mut server_stdout: Box<dyn AsyncBufRead + Unpin + Send>,
-        client_tx: UnboundedSender<Payload>,
-    ) {
+        client_tx: &UnboundedSender<(DebugAdapterId, ClientEvent)>,
+    ) -> Result<()> {
         let mut recv_buffer = String::new();
         let mut content_buffer = Vec::new();
         loop {
-            match Self::recv_server_message(
-                id,
+            let message = Self::recv_server_message(
+                self.id,
                 &mut server_stdout,
                 &mut recv_buffer,
                 &mut content_buffer,
             )
-            .await
-            {
-                Ok(msg) => match transport.process_server_message(&client_tx, msg).await {
-                    Ok(_) => (),
-                    Err(err) => {
-                        if !matches!(err, Error::StreamClosed) {
-                            error!(" [{id}] err: <- {err:?}");
-                        }
-                        break;
-                    }
-                },
-                Err(err) => {
-                    if !matches!(err, Error::StreamClosed) {
-                        error!("Exiting after unexpected error: {err:?}");
-                    }
-
-                    // Close any outstanding requests.
-                    let pending_requests: Vec<_> = {
-                        let mut pending_requests = transport.pending_requests.lock().await;
-                        pending_requests.drain().collect()
-                    };
-                    for (id, tx) in pending_requests {
-                        match tx.send(Err(Error::StreamClosed)).await {
-                            Ok(_) => (),
-                            Err(_) => {
-                                error!("Could not close request on a closed channel (id={id})");
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
+            .await?;
+            self.process_server_message(client_tx, message).await?;
         }
     }
 
-    async fn send_inner(
-        transport: Arc<Self>,
+    async fn send(
+        &self,
         mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         mut client_rx: UnboundedReceiver<Outgoing>,
     ) -> Result<()> {
         while let Some(command) = client_rx.recv().await {
             match command {
                 Outgoing::Message(payload) => {
-                    transport
-                        .send_payload_to_server(&mut server_stdin, payload)
+                    self.send_payload_to_server(&mut server_stdin, payload)
                         .await?
                 }
                 Outgoing::Forget(sequence) => {
-                    transport.pending_requests.lock().await.remove(&sequence);
+                    self.pending_requests.lock().await.remove(&sequence);
                 }
             }
         }
         Ok(())
-    }
-
-    async fn send(
-        transport: Arc<Self>,
-        server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        client_rx: UnboundedReceiver<Outgoing>,
-    ) {
-        if let Err(err) = Self::send_inner(transport, server_stdin, client_rx).await {
-            error!("err: <- {:?}", err);
-        }
     }
 
     async fn err(mut server_stderr: Box<dyn AsyncBufRead + Unpin + Send>) {
@@ -370,7 +363,9 @@ impl Transport {
             match Self::recv_server_error(&mut server_stderr, &mut recv_buffer).await {
                 Ok(_) => {}
                 Err(err) => {
-                    error!("err: <- {:?}", err);
+                    if !matches!(err, Error::StreamClosed) {
+                        log::debug!("Adapter stderr closed: {err}");
+                    }
                     break;
                 }
             }
@@ -381,36 +376,56 @@ impl Transport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    struct BrokenWriter;
+    impl AsyncWrite for BrokenWriter {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
 
     #[tokio::test]
-    async fn adapter_reads_end_when_the_client_receiver_closes() {
-        for payload in [
-            json!({"type":"event", "event":"initialized"}),
-            json!({"type":"request", "seq":1, "command":"runInTerminal"}),
-        ] {
-            let id = DebugAdapterId::default();
-            let transport = Arc::new(Transport {
-                id,
-                pending_requests: Mutex::new(HashMap::new()),
-            });
-            let (client_tx, client_rx) = unbounded_channel();
-            drop(client_rx);
-            let (read, mut write) = tokio::io::duplex(4096);
-            let body = serde_json::to_vec(&payload).unwrap();
-            write
-                .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+    async fn write_failure_closes_the_transport_and_completes_the_request() {
+        let (read, _adapter) = tokio::io::duplex(4096);
+        let (_owner, mut incoming, sender) = Transport::start(
+            Box::new(tokio::io::BufReader::new(read)),
+            Box::new(BrokenWriter),
+            None,
+            DebugAdapterId::default(),
+        );
+        let (reply, mut response) = tokio::sync::mpsc::channel(1);
+        sender
+            .send(Payload::Request(Request {
+                back_ch: Some(reply),
+                seq: 1,
+                command: "threads".into(),
+                arguments: None,
+            }))
+            .unwrap();
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), incoming.recv())
                 .await
-                .unwrap();
-            write.write_all(&body).await.unwrap();
-            drop(write);
-            Transport::recv(
-                id,
-                transport,
-                Box::new(tokio::io::BufReader::new(read)),
-                client_tx,
-            )
-            .await;
-        }
+                .unwrap(),
+            Some((_, ClientEvent::Closed { error: Some(_) }))
+        ));
+        assert!(matches!(
+            response.recv().await,
+            Some(Err(Error::StreamClosed))
+        ));
+        assert!(incoming.recv().await.is_none());
     }
 }

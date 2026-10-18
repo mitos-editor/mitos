@@ -724,7 +724,7 @@ impl Application {
                 self.editor.redraw().request();
             }
             EditorEvent::DebuggerEvent((id, payload)) => {
-                let needs_render = self.editor.handle_debugger_message(id, payload).await;
+                let needs_render = self.editor.handle_debugger_event(id, payload).await;
                 if needs_render {
                     self.render().await;
                 }

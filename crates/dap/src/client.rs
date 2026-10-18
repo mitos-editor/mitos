@@ -1,6 +1,6 @@
 use crate::{
     requests::{DisconnectArguments, TerminateArguments},
-    transport::{Payload, Request, Response, Transport, TransportSender},
+    transport::{ClientEvent, Payload, Request, Response, Transport, TransportSender},
     DebugAdapterId, Error, Result,
 };
 use dap_types::*;
@@ -22,7 +22,7 @@ use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
     process::{Child, Command},
-    sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{channel, UnboundedReceiver},
     time,
 };
 
@@ -35,6 +35,7 @@ use tokio::{
 pub struct Client {
     id: DebugAdapterId,
     _process: Option<Child>,
+    _transport: Transport,
     server_tx: TransportSender,
     request_counter: Arc<AtomicU64>,
     connection_type: Option<ConnectionType>,
@@ -53,7 +54,7 @@ impl Client {
         socket: Option<SocketAddr>,
         config: DebugAdapterConfig,
         id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         let (mut client, incoming) = match socket {
             Some(socket) => Self::tcp(socket, id).await?,
             None => {
@@ -83,7 +84,7 @@ impl Client {
         args: Vec<&str>,
         port_arg: Option<&str>,
         id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         if command.is_empty() {
             return Result::Err(Error::Other(anyhow!("Command not provided")));
         }
@@ -105,13 +106,13 @@ impl Client {
         err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         id: DebugAdapterId,
         process: Option<Child>,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
-        let (server_rx, server_tx) = Transport::start(rx, tx, err, id);
-        let (client_tx, client_rx) = unbounded_channel();
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
+        let (transport, incoming, server_tx) = Transport::start(rx, tx, err, id);
 
         let client = Self {
             id,
             _process: process,
+            _transport: transport,
             server_tx,
             request_counter: Arc::new(AtomicU64::new(0)),
             caps: None,
@@ -122,16 +123,14 @@ impl Client {
             config: None,
         };
 
-        tokio::spawn(Self::recv(id, server_rx, client_tx));
-
-        Ok((client, client_rx))
+        Ok((client, incoming))
     }
 
     /// Connects to an already-running TCP debug adapter.
     pub async fn tcp(
         addr: std::net::SocketAddr,
         id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         let stream = TcpStream::connect(addr).await?;
         let (rx, tx) = stream.into_split();
         let (mut client, incoming) =
@@ -145,7 +144,7 @@ impl Client {
         cmd: &str,
         args: Vec<&str>,
         id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         // Resolve path to the binary
         let cmd = stdx::env::which(cmd)?;
 
@@ -205,7 +204,7 @@ impl Client {
         args: Vec<&str>,
         port_format: &str,
         id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
+    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         let port = Self::get_port()
             .await
             .ok_or_else(|| anyhow!("Could not allocate a debug adapter port"))?;
@@ -241,23 +240,6 @@ impl Client {
         }
 
         result
-    }
-
-    async fn recv(
-        id: DebugAdapterId,
-        mut server_rx: UnboundedReceiver<Payload>,
-        client_tx: UnboundedSender<(DebugAdapterId, Payload)>,
-    ) {
-        while let Some(msg) = server_rx.recv().await {
-            match msg {
-                Payload::Response(_) => unreachable!(),
-                msg @ (Payload::Event(_) | Payload::Request(_)) => {
-                    if client_tx.send((id, msg)).is_err() {
-                        break;
-                    }
-                }
-            }
-        }
     }
 
     /// Returns this client's registry identifier.
@@ -643,22 +625,101 @@ impl Drop for PendingRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn connection() -> (
+        Client,
+        UnboundedReceiver<(DebugAdapterId, ClientEvent)>,
+        tokio::io::DuplexStream,
+    ) {
+        let (client, adapter) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(client);
+        let (client, incoming) = Client::streams(
+            Box::new(BufReader::new(read)),
+            Box::new(write),
+            None,
+            DebugAdapterId::default(),
+            None,
+        )
+        .unwrap();
+        (client, incoming, adapter)
+    }
 
     #[tokio::test]
-    async fn adapter_delivery_ends_when_the_session_receiver_closes() {
-        for payload in [
-            json!({"type":"event", "event":"initialized"}),
-            json!({"type":"request", "seq":1, "command":"runInTerminal"}),
-        ] {
-            let (server_tx, server_rx) = unbounded_channel();
-            let (client_tx, client_rx) = unbounded_channel();
-            drop(client_rx);
-            server_tx
-                .send(serde_json::from_value(payload).unwrap())
-                .unwrap();
-            drop(server_tx);
-            Client::recv(DebugAdapterId::default(), server_rx, client_tx).await;
+    async fn eof_finishes_pending_requests_and_rejects_new_requests() {
+        let (client, mut incoming, mut adapter) = connection();
+        let sender = client.request_sender();
+        let request =
+            tokio::spawn(sender.call::<requests::Threads>(Some(requests::ThreadsArguments {})));
+        let mut bytes = [0; 4096];
+        assert!(adapter.read(&mut bytes).await.unwrap() > 0);
+        drop(adapter);
+        assert!(matches!(
+            time::timeout(time::Duration::from_secs(5), incoming.recv())
+                .await
+                .unwrap(),
+            Some((_, ClientEvent::Closed { error: None }))
+        ));
+        assert!(matches!(
+            time::timeout(time::Duration::from_secs(5), request)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(Error::StreamClosed)
+        ));
+        assert!(matches!(
+            sender.call::<requests::Threads>(None).await,
+            Err(Error::StreamClosed)
+        ));
+        assert!(incoming.recv().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_the_owner_or_receiver_closes_io_despite_retained_request_senders() {
+        for drop_owner in [true, false] {
+            let (client, incoming, mut adapter) = connection();
+            let sender = client.request_sender();
+            let (mut client, mut incoming) = (Some(client), Some(incoming));
+            if drop_owner {
+                client.take();
+            } else {
+                incoming.take();
+            }
+            let mut byte = [0];
+            assert_eq!(
+                time::timeout(time::Duration::from_secs(5), adapter.read(&mut byte))
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+            assert!(matches!(
+                sender.call::<requests::Threads>(None).await,
+                Err(Error::StreamClosed)
+            ));
         }
+    }
+
+    #[tokio::test]
+    async fn stderr_eof_does_not_close_the_protocol_connection() {
+        let (client, mut adapter) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(client);
+        let (_client, mut incoming) = Client::streams(
+            Box::new(BufReader::new(read)),
+            Box::new(write),
+            Some(Box::new(tokio::io::empty())),
+            DebugAdapterId::default(),
+            None,
+        )
+        .unwrap();
+        let body = r#"{"type":"event","event":"initialized"}"#;
+        adapter
+            .write_all(format!("Content-Length: {}\r\n\r\n{body}", body.len()).as_bytes())
+            .await
+            .unwrap();
+        assert!(matches!(
+            incoming.recv().await,
+            Some((_, ClientEvent::Message(Payload::Event(_))))
+        ));
     }
 }

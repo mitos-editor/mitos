@@ -95,7 +95,7 @@ pub struct DebuggerState {
     selection_order: Vec<DebugAdapterId>,
     selection: event::TaskController,
     current_selection: Option<event::TaskHandle>,
-    pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::Payload)>>,
+    pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::ClientEvent)>>,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,

@@ -19,7 +19,7 @@ mod transport;
 pub use client::{Client, RequestSender};
 pub use dap_types::*;
 pub use registry::DebugAdapterId;
-pub use transport::{Payload, Response, Transport, TransportSender};
+pub use transport::{ClientEvent, Payload, Response, Transport, TransportSender};
 
 use serde::de::DeserializeOwned;
 use thiserror::Error;
