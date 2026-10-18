@@ -1,13 +1,11 @@
 mod requests;
 
-use crate::debugger::Breakpoint;
 use crate::editor::Action;
 use crate::{align_view, Align, Editor};
 use dap::requests::DisconnectArguments;
 use dap::requests::ThreadsArguments;
 use dap::{self as dap, registry::DebugAdapterId, Client, ConnectionType, Payload, ThreadId};
 use editor_core::Selection;
-use log::warn;
 use serde_json::Value;
 use std::fmt::Write;
 
@@ -205,84 +203,7 @@ impl Editor {
                         // set the stack frame for the thread
                     }
                     Event::Breakpoint(events::BreakpointBody { reason, breakpoint }) => {
-                        match &reason[..] {
-                            "new" => {
-                                if let Some(source) = breakpoint.source {
-                                    let Some(path) = source.path else {
-                                        warn!("DAP breakpoint event missing source path");
-                                        return false;
-                                    };
-                                    let Some(line) = breakpoint.line else {
-                                        warn!("DAP breakpoint event missing line");
-                                        return false;
-                                    };
-                                    self.debugger.insert_breakpoint(
-                                        path,
-                                        Breakpoint {
-                                            id: breakpoint.id,
-                                            verified: breakpoint.verified,
-                                            message: breakpoint.message.clone(),
-                                            line: line.saturating_sub(1),
-                                            column: breakpoint.column,
-                                            ..Default::default()
-                                        },
-                                    );
-                                    if let Some(message) = &breakpoint.message {
-                                        self.set_status(format!("Breakpoint: {}", message));
-                                    }
-                                }
-                            }
-                            "changed" => {
-                                let Some(id) = breakpoint.id else {
-                                    warn!("DAP breakpoint event missing id");
-                                    return false;
-                                };
-                                if let Some(source) = &breakpoint.source
-                                    && source.path.is_none()
-                                {
-                                    warn!("DAP breakpoint event missing source path");
-                                }
-                                if breakpoint.line.is_none() {
-                                    warn!("DAP breakpoint event missing line");
-                                }
-                                for breakpoints in self.debugger.breakpoints.values_mut() {
-                                    if let Some(i) =
-                                        breakpoints.iter().position(|b| b.id == Some(id))
-                                    {
-                                        breakpoints[i].verified = breakpoint.verified;
-                                        breakpoints[i].message = breakpoint
-                                            .message
-                                            .clone()
-                                            .or_else(|| breakpoints[i].message.take());
-                                        breakpoints[i].line =
-                                            breakpoint.line.map_or(breakpoints[i].line, |line| {
-                                                line.saturating_sub(1)
-                                            });
-                                        breakpoints[i].column =
-                                            breakpoint.column.or(breakpoints[i].column);
-                                    }
-                                }
-                                if let Some(message) = &breakpoint.message {
-                                    self.set_status(format!("Breakpoint: {}", message));
-                                }
-                            }
-                            "removed" => {
-                                let Some(id) = breakpoint.id else {
-                                    warn!("DAP breakpoint event missing id");
-                                    return false;
-                                };
-                                for breakpoints in self.debugger.breakpoints.values_mut() {
-                                    if let Some(i) =
-                                        breakpoints.iter().position(|b| b.id == Some(id))
-                                    {
-                                        breakpoints.remove(i);
-                                    }
-                                }
-                            }
-                            reason => {
-                                warn!("Unknown breakpoint event: {}", reason);
-                            }
-                        }
+                        self.handle_breakpoint_event(id, &reason, breakpoint);
                     }
                     Event::Output(events::OutputBody {
                         category, output, ..
@@ -384,14 +305,6 @@ impl Editor {
                                 self.set_status(
                                     "Terminated debugging session and disconnected debugger.",
                                 );
-
-                                // Go through all breakpoints and set verfified to false
-                                // this should update the UI to show the breakpoints are no longer connected
-                                for breakpoints in self.debugger.breakpoints.values_mut() {
-                                    for breakpoint in breakpoints.iter_mut() {
-                                        breakpoint.verified = false;
-                                    }
-                                }
                             }
                             Some(val) => {
                                 log::info!("Attempting to restart debug session.");

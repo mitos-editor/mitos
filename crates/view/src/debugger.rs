@@ -1,6 +1,7 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
 mod breakpoints;
+pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod launch;
 mod operations;
 pub use operations::{
@@ -27,10 +28,6 @@ pub struct BreakpointId(u64);
 #[derive(Debug, Clone, Default)]
 pub struct Breakpoint {
     pub(crate) identity: BreakpointId,
-    pub id: Option<usize>,
-    pub verified: bool,
-    pub message: Option<String>,
-
     pub line: usize,
     pub column: Option<usize>,
     pub condition: Option<String>,
@@ -167,21 +164,24 @@ impl DebuggerState {
     pub fn breakpoint_at_line(&self, path: &Path, line: usize) -> Option<&Breakpoint> {
         self.breakpoints(path)
             .iter()
-            .find(|breakpoint| breakpoint.line == line)
+            .find(|breakpoint| self.breakpoint_line(breakpoint) == line)
     }
 
     /// Toggle each distinct source line once in the stored breakpoint model.
     pub(crate) fn toggle_breakpoints(&mut self, path: PathBuf, lines: &[usize]) {
-        let breakpoints = self.breakpoints.entry(path).or_default();
         let mut lines = lines.to_vec();
         lines.sort_unstable();
         lines.dedup();
         for line in lines {
-            if let Some(pos) = breakpoints
-                .iter()
-                .position(|breakpoint| breakpoint.line == line)
-            {
-                breakpoints.remove(pos);
+            let existing = self
+                .breakpoint_at_line(&path, line)
+                .map(Breakpoint::identity);
+            let breakpoints = self.breakpoints.entry(path.clone()).or_default();
+            if let Some(identity) = existing {
+                breakpoints.retain(|breakpoint| breakpoint.identity != identity);
+                for session in self.breakpoint_sessions.values_mut() {
+                    session.remove_binding(identity);
+                }
             } else {
                 let identity = allocate_identity(&mut self.next_breakpoint_id);
                 breakpoints.push(Breakpoint {
@@ -191,11 +191,6 @@ impl DebuggerState {
                 });
             }
         }
-    }
-
-    pub(crate) fn insert_breakpoint(&mut self, path: PathBuf, mut breakpoint: Breakpoint) {
-        breakpoint.identity = allocate_identity(&mut self.next_breakpoint_id);
-        self.breakpoints.entry(path).or_default().push(breakpoint);
     }
 
     /// Edit the original breakpoint, even if its adapter ID or source line changed.
@@ -322,44 +317,6 @@ mod tests {
         let replacement = state.breakpoint_at_line(&path, 2).unwrap();
         assert_ne!(replacement.identity(), identity);
         assert!(replacement.condition.is_none());
-    }
-
-    #[test]
-    fn breakpoint_identity_survives_adapter_line_and_id_changes() {
-        let mut state = DebuggerState::default();
-        let path = PathBuf::from("main.rs");
-        state.toggle_breakpoints(path.clone(), &[2, 4]);
-        let identity = state.breakpoint_at_line(&path, 2).unwrap().identity();
-        // Adapter verification may relocate a breakpoint and replace its session ID.
-        let breakpoint = state
-            .breakpoints
-            .get_mut(&path)
-            .unwrap()
-            .first_mut()
-            .unwrap();
-        breakpoint.line = 8;
-        breakpoint.id = Some(42);
-        state
-            .set_breakpoint_property(
-                &path,
-                identity,
-                BreakpointProperty::Condition,
-                Some("ready".into()),
-            )
-            .unwrap();
-        assert_eq!(
-            state
-                .breakpoint_at_line(&path, 8)
-                .unwrap()
-                .condition
-                .as_deref(),
-            Some("ready")
-        );
-        assert!(state
-            .breakpoint_at_line(&path, 4)
-            .unwrap()
-            .condition
-            .is_none());
     }
 
     #[test]

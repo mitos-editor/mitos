@@ -288,7 +288,12 @@ pub fn breakpoints<'doc>(
     let info = theme.get("info");
     let breakpoint_style = theme.get("ui.debug.breakpoint");
 
-    let breakpoints = doc.path().map(|path| editor.debugger().breakpoints(path));
+    let breakpoints = doc.path().map(|path| {
+        editor
+            .debugger()
+            .breakpoint_locations(path)
+            .collect::<Vec<_>>()
+    });
 
     let Some(breakpoints) = breakpoints else {
         return Box::new(move |_, _, _, _| None);
@@ -303,14 +308,17 @@ pub fn breakpoints<'doc>(
                 .iter()
                 .find(|breakpoint| breakpoint.line == line)?;
 
-            let style = if breakpoint.condition.is_some() && breakpoint.log_message.is_some() {
-                error.underline_style(UnderlineStyle::Line)
-            } else if breakpoint.condition.is_some() {
-                error
-            } else if breakpoint.log_message.is_some() {
-                info
-            } else {
-                breakpoint_style
+            let conditional = breakpoint
+                .definition
+                .is_some_and(|definition| definition.condition.is_some());
+            let logpoint = breakpoint
+                .definition
+                .is_some_and(|definition| definition.log_message.is_some());
+            let style = match (conditional, logpoint) {
+                (true, true) => error.underline_style(UnderlineStyle::Line),
+                (true, false) => error,
+                (false, true) => info,
+                (false, false) => breakpoint_style,
             };
 
             let sym = if breakpoint.verified { "●" } else { "◯" };

@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result};
 use dap::{registry::DebugAdapterId, requests, SourceBreakpoint};
 use event::{TaskController, TaskHandle};
 
-use super::{validate_capabilities, Breakpoint, BreakpointId, BreakpointProperty};
+use super::{validate_capabilities, Breakpoint, BreakpointId, BreakpointProperty, DebuggerState};
 use crate::Editor;
 
 #[derive(Default)]
@@ -23,6 +23,8 @@ pub(super) struct BreakpointSession {
     current: TaskHandle,
     sources: HashMap<PathBuf, SourceSync>,
     configuring: bool,
+    bindings: HashMap<BreakpointId, BreakpointBinding>,
+    discovered: HashMap<usize, BreakpointBinding>,
 }
 
 impl Default for BreakpointSession {
@@ -34,6 +36,8 @@ impl Default for BreakpointSession {
             current,
             sources: HashMap::new(),
             configuring: false,
+            bindings: HashMap::new(),
+            discovered: HashMap::new(),
         }
     }
 }
@@ -64,37 +68,167 @@ fn source_breakpoints(
         .collect()
 }
 
-fn apply_response(
-    breakpoints: &mut [Breakpoint],
-    identities: &[BreakpointId],
-    response: Vec<dap::Breakpoint>,
-) {
-    let mut by_identity: HashMap<_, _> = breakpoints
-        .iter_mut()
-        .map(|breakpoint| (breakpoint.identity, breakpoint))
-        .collect();
-    for (identity, response) in identities.iter().zip(response) {
-        let Some(breakpoint) = by_identity.get_mut(identity) else {
-            continue;
-        };
-        breakpoint.id = response.id;
-        breakpoint.verified = response.verified;
-        breakpoint.message = response.message;
-        // Adapters may omit relocation; retain the requested source line in that case.
-        if let Some(line) = response.line {
-            breakpoint.line = line.saturating_sub(1);
+/// Adapter-specific verification and location. Requested source definitions are unchanged.
+#[derive(Debug, Clone)]
+pub struct BreakpointBinding {
+    pub id: Option<usize>,
+    pub verified: bool,
+    pub message: Option<String>,
+    pub path: PathBuf,
+    pub line: usize,
+    pub column: Option<usize>,
+}
+
+impl BreakpointBinding {
+    fn new(path: PathBuf, line: usize, column: Option<usize>, response: dap::Breakpoint) -> Self {
+        Self {
+            id: response.id,
+            verified: response.verified,
+            message: response.message,
+            path,
+            line: response.line.map_or(line, |line| line.saturating_sub(1)),
+            column: response.column.or(column),
         }
-        breakpoint.column = response.column;
+    }
+
+    fn update(&mut self, response: dap::Breakpoint) {
+        self.verified = response.verified;
+        self.message = response.message;
+        if let Some(line) = response.line {
+            self.line = line.saturating_sub(1);
+        }
+        if let Some(column) = response.column {
+            self.column = Some(column);
+        }
+    }
+}
+
+/// A source marker projected through the active adapter's bindings, or its requested location.
+pub struct BreakpointLocation<'a> {
+    pub definition: Option<&'a Breakpoint>,
+    pub line: usize,
+    pub verified: bool,
+}
+
+impl BreakpointSession {
+    pub(super) fn remove_binding(&mut self, identity: BreakpointId) {
+        self.bindings.remove(&identity);
+    }
+
+    fn apply_response(
+        &mut self,
+        path: &Path,
+        definitions: &[Breakpoint],
+        response: Vec<dap::Breakpoint>,
+    ) {
+        self.bindings.retain(|_, binding| binding.path != path);
+        for (definition, response) in definitions.iter().zip(response) {
+            if let Some(id) = response.id {
+                self.discovered.remove(&id);
+            }
+            self.bindings.insert(
+                definition.identity,
+                BreakpointBinding::new(
+                    path.to_owned(),
+                    definition.line,
+                    definition.column,
+                    response,
+                ),
+            );
+        }
+    }
+
+    fn handle_event(&mut self, reason: &str, response: dap::Breakpoint) {
+        let Some(id) = response.id else {
+            log::warn!("DAP breakpoint event missing id");
+            return;
+        };
+        if reason == "removed" {
+            self.bindings.retain(|_, binding| binding.id != Some(id));
+            self.discovered.remove(&id);
+            return;
+        }
+        if reason != "new" && reason != "changed" {
+            log::warn!("Unknown breakpoint event: {reason}");
+            return;
+        }
+        if let Some(binding) = self
+            .bindings
+            .values_mut()
+            .find(|binding| binding.id == Some(id))
+            .or_else(|| self.discovered.get_mut(&id))
+        {
+            binding.update(response);
+            return;
+        }
+        // Breakpoints created by the adapter belong only to this session.
+        if reason == "new"
+            && let Some(path) = response
+                .source
+                .as_ref()
+                .and_then(|source| source.path.clone())
+            && let Some(line) = response.line
+        {
+            self.discovered.insert(
+                id,
+                BreakpointBinding::new(path, line.saturating_sub(1), None, response),
+            );
+        }
+    }
+}
+
+impl DebuggerState {
+    /// Verification and resolved location in the currently selected adapter.
+    pub fn breakpoint_binding(&self, identity: BreakpointId) -> Option<&BreakpointBinding> {
+        let session = self
+            .breakpoint_sessions
+            .get(&self.get_active_client()?.id())?;
+        session.bindings.get(&identity)
+    }
+
+    pub(super) fn breakpoint_line(&self, definition: &Breakpoint) -> usize {
+        self.breakpoint_binding(definition.identity)
+            .map_or(definition.line, |binding| binding.line)
+    }
+
+    /// Markers for a source file, including breakpoints discovered by the active adapter.
+    pub fn breakpoint_locations<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl Iterator<Item = BreakpointLocation<'a>> {
+        let session = self
+            .get_active_client()
+            .and_then(|client| self.breakpoint_sessions.get(&client.id()));
+        self.breakpoints(path)
+            .iter()
+            .map(move |definition| {
+                let binding =
+                    session.and_then(|session| session.bindings.get(&definition.identity));
+                BreakpointLocation {
+                    definition: Some(definition),
+                    line: binding.map_or(definition.line, |binding| binding.line),
+                    verified: binding.is_some_and(|binding| binding.verified),
+                }
+            })
+            .chain(
+                session
+                    .into_iter()
+                    .flat_map(|session| session.discovered.values())
+                    .filter(move |binding| binding.path == path)
+                    .map(|binding| BreakpointLocation {
+                        definition: None,
+                        line: binding.line,
+                        verified: binding.verified,
+                    }),
+            )
     }
 }
 
 impl Editor {
-    /// Update the stored model immediately and synchronize the active adapter asynchronously.
+    /// Update source definitions and synchronize each configured adapter asynchronously.
     pub fn toggle_breakpoints(&mut self, path: PathBuf, lines: &[usize]) -> Result<()> {
         self.debugger.toggle_breakpoints(path.clone(), lines);
-        if let Some(client) = self.debugger.get_active_client() {
-            self.sync_debugger_breakpoints(client.id(), path)?;
-        }
+        self.sync_all_debugger_breakpoints(&path)?;
         Ok(())
     }
 
@@ -107,9 +241,7 @@ impl Editor {
     ) -> Result<()> {
         self.debugger
             .set_breakpoint_property(path, identity, property, value)?;
-        if let Some(client) = self.debugger.get_active_client() {
-            self.sync_debugger_breakpoints(client.id(), path.to_owned())?;
-        }
+        self.sync_all_debugger_breakpoints(path)?;
         Ok(())
     }
 
@@ -118,12 +250,6 @@ impl Editor {
         self.debugger
             .get_client(id)
             .context("Debugger has stopped")?;
-        // Adapter IDs and verification belong to the newly selected session.
-        for breakpoint in self.debugger.breakpoints.values_mut().flatten() {
-            breakpoint.id = None;
-            breakpoint.verified = false;
-            breakpoint.message = None;
-        }
         self.debugger.breakpoint_sessions.insert(
             id,
             BreakpointSession {
@@ -141,6 +267,38 @@ impl Editor {
         }
         self.finish_breakpoint_configuration(id);
         Ok(())
+    }
+
+    fn sync_all_debugger_breakpoints(&mut self, path: &Path) -> Result<()> {
+        let sessions: Vec<_> = self.debugger.breakpoint_sessions.keys().copied().collect();
+        let mut first_error = None;
+        for id in sessions {
+            if let Err(error) = self.sync_debugger_breakpoints(id, path.to_owned()) {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    pub(crate) fn handle_breakpoint_event(
+        &mut self,
+        id: DebugAdapterId,
+        reason: &str,
+        response: dap::Breakpoint,
+    ) {
+        let Some(session) = self.debugger.breakpoint_sessions.get_mut(&id) else {
+            return;
+        };
+        let message = response.message.clone();
+        session.handle_event(reason, response);
+        if self
+            .debugger
+            .get_active_client()
+            .is_some_and(|client| client.id() == id)
+            && let Some(message) = message
+        {
+            self.set_status(format!("Breakpoint: {message}"));
+        }
     }
 
     fn sync_debugger_breakpoints(&mut self, id: DebugAdapterId, path: PathBuf) -> Result<()> {
@@ -175,7 +333,7 @@ impl Editor {
             breakpoints: Some(source_breakpoints(breakpoints, client.caps.as_ref())?),
             source_modified: Some(false),
         };
-        let identities: Vec<_> = breakpoints.iter().map(Breakpoint::identity).collect();
+        let definitions = breakpoints.to_vec();
         let request = source.request.restart();
         let lifetime = session.current.clone();
         let sender = client.request_sender();
@@ -209,22 +367,23 @@ impl Editor {
                         if let Err(error) = editor.sync_debugger_breakpoints(id, path) {
                             editor.set_error(|| error.to_string());
                         }
-                    } else if editor
-                        .debugger
-                        .get_active_client()
-                        .is_some_and(|client| client.id() == id)
-                    {
+                    } else {
                         match result {
                             Ok(response) => {
-                                if let (Some(breakpoints), Some(response)) = (
-                                    editor.debugger.breakpoints.get_mut(&path),
-                                    response.breakpoints,
-                                ) {
-                                    apply_response(breakpoints, &identities, response);
+                                if let Some(response) = response.breakpoints {
+                                    session.apply_response(&path, &definitions, response);
                                 }
                             }
                             Err(error) => {
-                                editor.set_error(|| format!("Failed to set breakpoints: {error}"))
+                                if editor
+                                    .debugger
+                                    .get_active_client()
+                                    .is_some_and(|client| client.id() == id)
+                                {
+                                    editor.set_error(|| {
+                                        format!("Failed to set breakpoints: {error}")
+                                    });
+                                }
                             }
                         }
                     }
@@ -309,24 +468,30 @@ impl Editor {
 mod tests {
     use super::*;
 
+    fn response(id: usize, line: Option<usize>) -> dap::Breakpoint {
+        serde_json::from_value(serde_json::json!({"id":id,"verified":true,"line":line})).unwrap()
+    }
+
     #[test]
-    fn adapter_replies_follow_breakpoint_identity_and_preserve_unspecified_lines() {
-        let mut breakpoints = [Breakpoint {
-            identity: BreakpointId(2),
+    fn adapter_locations_do_not_change_requested_source_definitions() {
+        let definitions = [Breakpoint {
+            identity: BreakpointId(1),
             line: 7,
             ..Default::default()
         }];
-        let response = serde_json::from_value(serde_json::json!([
-            {"id":100,"verified":true,"line":42}, {"id":200,"verified":true}
-        ]))
-        .unwrap();
-        apply_response(
-            &mut breakpoints,
-            &[BreakpointId(1), BreakpointId(2)],
-            response,
+        let mut session = BreakpointSession::default();
+        session.apply_response(
+            Path::new("main.rs"),
+            &definitions,
+            vec![response(100, Some(42))],
         );
-        assert_eq!(breakpoints[0].id, Some(200));
-        assert_eq!(breakpoints[0].line, 7);
-        assert!(breakpoints[0].verified);
+        assert_eq!(definitions[0].line, 7);
+        assert_eq!(session.bindings[&BreakpointId(1)].line, 41);
+        session.apply_response(
+            Path::new("main.rs"),
+            &definitions,
+            vec![response(200, None)],
+        );
+        assert_eq!(session.bindings[&BreakpointId(1)].line, 7);
     }
 }

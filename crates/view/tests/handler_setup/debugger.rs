@@ -479,7 +479,14 @@ async fn breakpoint_configuration_coalesces_changes_before_finishing_startup() -
         .into_result(&f.editor)
         .unwrap()?;
     tokio::time::timeout(Duration::from_secs(5), async {
-        while !f.editor.debugger().breakpoints(&path)[0].verified {
+        while !f
+            .editor
+            .debugger()
+            .breakpoint_locations(&path)
+            .next()
+            .unwrap()
+            .verified
+        {
             f.callbacks
                 .recv()
                 .await
@@ -491,7 +498,13 @@ async fn breakpoint_configuration_coalesces_changes_before_finishing_startup() -
     let latest = command(&mut wire, "setBreakpoints").await?;
     assert_eq!(latest["arguments"]["breakpoints"], json!([{"line":5}]));
     assert_eq!(f.editor.debugger().breakpoints(&path)[0].line, 4);
-    assert_eq!(f.editor.debugger().breakpoints(&path)[0].id, Some(1005));
+    assert_eq!(
+        f.editor
+            .debugger()
+            .breakpoint_binding(f.editor.debugger().breakpoints(&path)[0].identity())
+            .and_then(|binding| binding.id),
+        Some(1005)
+    );
     command(&mut wire, "configurationDone").await?;
     Ok(())
 }
@@ -515,7 +528,14 @@ async fn breakpoint_replies_from_removed_sessions_are_discarded() -> anyhow::Res
         .handle_debugger_message(id, debugger_event("terminated", json!({})))
         .await;
     callback(&mut f.editor);
-    assert!(!f.editor.debugger().breakpoints(&path)[0].verified);
+    assert!(
+        !f.editor
+            .debugger()
+            .breakpoint_locations(&path)
+            .next()
+            .unwrap()
+            .verified
+    );
     assert!(f.editor.debugger().get_client(id).is_none());
     Ok(())
 }
@@ -547,8 +567,21 @@ async fn inactive_adapter_breakpoint_replies_preserve_the_active_session() -> an
         f.editor.debugger().get_active_client().unwrap().id(),
         active
     );
-    assert!(!f.editor.debugger().breakpoints(&path)[0].verified);
-    assert_eq!(f.editor.debugger().breakpoints(&path)[0].id, None);
+    assert!(
+        !f.editor
+            .debugger()
+            .breakpoint_locations(&path)
+            .next()
+            .unwrap()
+            .verified
+    );
+    assert_eq!(
+        f.editor
+            .debugger()
+            .breakpoint_binding(f.editor.debugger().breakpoints(&path)[0].identity())
+            .and_then(|binding| binding.id),
+        None
+    );
     Ok(())
 }
 
@@ -793,5 +826,163 @@ async fn inactive_adapter_events_preserve_the_active_session() -> anyhow::Result
         f.editor.debugger().get_active_client().unwrap().id(),
         active
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn breakpoint_events_are_scoped_to_their_adapter() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("main.rs");
+    f.editor.toggle_breakpoints(path.clone(), &[2])?;
+    let identity = f.editor.debugger().breakpoints(&path)[0].identity();
+    let (first, mut first_wire) = adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(first, debugger_event("initialized", json!({})))
+        .await;
+    wait_for_breakpoint(&mut f, identity).await?;
+    command(&mut first_wire, "configurationDone").await?;
+    let (second, mut second_wire) = adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(second, debugger_event("initialized", json!({})))
+        .await;
+    wait_for_breakpoint(&mut f, identity).await?;
+    command(&mut second_wire, "configurationDone").await?;
+    // Both adapters assigned 1003. Neither an inactive event nor termination
+    // can change the second adapter's binding or the requested source line.
+    f.editor
+        .handle_debugger_message(
+            first,
+            debugger_event(
+                "breakpoint",
+                json!({"reason":"changed", "breakpoint":{"id":1003,"verified":false,"line":42}}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        f.editor
+            .debugger()
+            .breakpoint_binding(identity)
+            .unwrap()
+            .line,
+        2
+    );
+    assert!(
+        f.editor
+            .debugger()
+            .breakpoint_binding(identity)
+            .unwrap()
+            .verified
+    );
+    f.editor
+        .handle_debugger_message(
+            first,
+            debugger_event(
+                "breakpoint",
+                json!({"reason":"removed", "breakpoint":{"id":1003,"verified":false}}),
+            ),
+        )
+        .await;
+    f.editor
+        .handle_debugger_message(first, debugger_event("terminated", Value::Null))
+        .await;
+    assert!(
+        f.editor
+            .debugger()
+            .breakpoint_binding(identity)
+            .unwrap()
+            .verified
+    );
+    f.editor
+        .handle_debugger_message(
+            second,
+            debugger_event(
+                "breakpoint",
+                json!({"reason":"changed", "breakpoint":{"id":1003,"verified":true,"line":10}}),
+            ),
+        )
+        .await;
+    assert_eq!(f.editor.debugger().breakpoints(&path)[0].line, 2);
+    assert_eq!(
+        f.editor
+            .debugger()
+            .breakpoint_at_line(&path, 9)
+            .unwrap()
+            .identity(),
+        identity
+    );
+    f.editor.toggle_breakpoints(path.clone(), &[9])?;
+    assert!(f.editor.debugger().breakpoints(&path).is_empty());
+    let sent = command(&mut second_wire, "setBreakpoints").await?;
+    assert_eq!(sent["arguments"]["breakpoints"], json!([]));
+    Ok(())
+}
+
+async fn wait_for_breakpoint(
+    f: &mut Fixture,
+    identity: view::debugger::BreakpointId,
+) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !f
+            .editor
+            .debugger()
+            .breakpoint_binding(identity)
+            .is_some_and(|binding| binding.verified)
+        {
+            f.callbacks
+                .recv()
+                .await
+                .context("missing breakpoint callback")?(&mut f.editor);
+        }
+        anyhow::Ok(())
+    })
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn adapter_created_breakpoints_end_with_the_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("main.rs");
+    let (id, _) = paused_adapter(&mut f).await?;
+    f.editor.handle_debugger_message(id, debugger_event("breakpoint", json!({"reason":"new", "breakpoint":{"id":7,"verified":true,"line":8,"source":{"path":path}}}))).await;
+    assert!(f.editor.debugger().breakpoints(&path).is_empty());
+    assert_eq!(
+        f.editor
+            .debugger()
+            .breakpoint_locations(&path)
+            .next()
+            .unwrap()
+            .line,
+        7
+    );
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", Value::Null))
+        .await;
+    assert!(f
+        .editor
+        .debugger()
+        .breakpoint_locations(&path)
+        .next()
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn source_breakpoint_edits_reach_every_configured_adapter() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("main.rs");
+    let (first, mut first_wire) = paused_adapter(&mut f).await?;
+    let (second, mut second_wire) = paused_adapter(&mut f).await?;
+    f.editor.toggle_breakpoints(path.clone(), &[2])?;
+    for wire in [&mut first_wire, &mut second_wire] {
+        let sent = command(wire, "setBreakpoints").await?;
+        assert_eq!(sent["arguments"]["breakpoints"], json!([{"line":3}]));
+    }
+    let identity = f.editor.debugger().breakpoints(&path)[0].identity();
+    wait_for_breakpoint(&mut f, identity).await?;
+    assert_eq!(
+        f.editor.debugger().get_active_client().unwrap().id(),
+        second
+    );
+    assert!(f.editor.debugger().get_client(first).is_some());
     Ok(())
 }
