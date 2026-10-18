@@ -123,27 +123,25 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 Ok(result) => {
                     updates.pending = None;
                     updates.checked = Instant::now();
-                    // A new batch arrived during the scan. Keep the old rows until its replacement finishes.
-                    if !updates.dirty {
-                        match result {
-                            Ok(options) => {
-                                self.matcher.tick(0);
-                                let snapshot = self.matcher.snapshot();
-                                let same = snapshot.item_count() as usize == options.len()
-                                    && options.iter().enumerate().all(|(index, item)| {
-                                        snapshot
-                                            .get_item(index as u32)
-                                            .is_some_and(|old| (updates.same)(old.data, item))
-                                    });
-                                if !same {
-                                    self.restore_selection =
-                                        self.selection().map(updates.clone_item);
-                                    self.refreshing = true;
-                                    self.reset_options_shared(options, self.editor_data.clone());
-                                }
+                    // Publish this valid scan even when more changes arrived.
+                    // Keep dirty set so another scan follows without starving results.
+                    match result {
+                        Ok(options) => {
+                            self.matcher.tick(0);
+                            let snapshot = self.matcher.snapshot();
+                            let same = snapshot.item_count() as usize == options.len()
+                                && options.iter().enumerate().all(|(index, item)| {
+                                    snapshot
+                                        .get_item(index as u32)
+                                        .is_some_and(|old| (updates.same)(old.data, item))
+                                });
+                            if !same {
+                                self.restore_selection = self.selection().map(updates.clone_item);
+                                self.refreshing = true;
+                                self.reset_options_shared(options, self.editor_data.clone());
                             }
-                            Err(error) => editor.status_sender().report_blocking(error),
                         }
+                        Err(error) => editor.status_sender().report_blocking(error),
                     }
                 }
                 Err(ResultError::Closed) => updates.pending = None,

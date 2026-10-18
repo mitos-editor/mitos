@@ -74,6 +74,67 @@ fn changed(editor: &mut Editor, path: &Path, ty: EventType) {
 }
 
 #[tokio::test]
+async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
+    type Scan = tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>;
+    struct Data {
+        root: PathBuf,
+        started: tokio::sync::mpsc::UnboundedSender<Scan>,
+    }
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let (started, mut scans) = tokio::sync::mpsc::unbounded_channel();
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("path", |path: &PathBuf, _: &Data| {
+            path.to_string_lossy().into_owned().into()
+        })],
+        0,
+        [dir.path().join("old.txt")],
+        Data {
+            root: dir.path().to_owned(),
+            started,
+        },
+        |_, _, _| {},
+    )
+    .with_file_updates(
+        &app.editor,
+        |data| &data.root,
+        |_, _, data, _| {
+            Box::pin(async move {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                data.started.send(tx).unwrap();
+                rx.await?
+            })
+        },
+        |path| path,
+    );
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 1
+    })
+    .await?;
+    changed(
+        &mut app.editor,
+        &dir.path().join("new.txt"),
+        EventType::Create,
+    );
+    draw(&mut picker, &mut app);
+    for index in 0..3 {
+        let complete = tokio::time::timeout(Duration::from_secs(5), scans.recv())
+            .await?
+            .unwrap();
+        let latest = dir.path().join(format!("latest-{index}.txt"));
+        changed(&mut app.editor, &latest, EventType::Create);
+        complete.send(Ok(vec![latest.clone()])).unwrap();
+        until(&mut picker, &mut app, |picker| {
+            picker.selection() == Some(&latest)
+                && picker.file_updates.as_ref().unwrap().pending.is_some()
+        })
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_refresh_keeps_the_query_and_selected_path() -> anyhow::Result<()> {
     let mut app = application(false)?;
     let dir = tempfile::tempdir()?;
