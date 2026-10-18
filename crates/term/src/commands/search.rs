@@ -12,7 +12,11 @@ use editor_core::{
     regex, LineEnding, Range, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    ops::ControlFlow,
+    sync::Arc,
+};
 use stdx::rope::{self, RopeSliceExt};
 use view::{
     align_view,
@@ -345,37 +349,109 @@ struct GlobalSearchConfig {
     style: PathStyleConfig,
 }
 
+/// One query's compiled pattern and open-buffer snapshots, shared by both result paths.
+struct GlobalSearchRequest {
+    search: ::search::Search,
+    documents: HashMap<std::path::PathBuf, editor_core::Rope>,
+    config: Arc<GlobalSearchConfig>,
+}
+
+impl GlobalSearchRequest {
+    fn new(
+        query: &str,
+        editor: &Editor,
+        config: Arc<GlobalSearchConfig>,
+    ) -> anyhow::Result<Option<Self>> {
+        if query.is_empty() {
+            return Ok(None);
+        }
+        anyhow::ensure!(
+            config.root.exists(),
+            "Current working directory does not exist"
+        );
+        let search = ::search::Search::new(query, config.smart_case).map_err(|err| {
+            log::info!("Failed to compile search pattern in global search: {}", err);
+            anyhow::anyhow!("Failed to compile regex")
+        })?;
+        let documents = editor
+            .documents()
+            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
+            .collect();
+        Ok(Some(Self {
+            search,
+            documents,
+            config,
+        }))
+    }
+
+    /// Traverse synchronously on a blocking worker; the caller selects the result sink.
+    fn run(
+        self,
+        cancelled: impl Fn() -> bool + Sync,
+        emit: impl Fn(::search::Match) -> ControlFlow<()> + Sync,
+    ) {
+        self.search.run(
+            &self.config.root,
+            &self.config.options,
+            &self.documents,
+            cancelled,
+            |mut matched| {
+                matched.path = stdx::path::get_relative_path(matched.path).into_owned();
+                emit(matched)
+            },
+        );
+    }
+}
+
+fn query_global_search(
+    query: &str,
+    editor: &mut Editor,
+    config: Arc<GlobalSearchConfig>,
+    injector: &ui::picker::Injector<::search::Match, GlobalSearchConfig>,
+) -> futures_util::future::BoxFuture<'static, anyhow::Result<()>> {
+    let request = GlobalSearchRequest::new(query, editor, config);
+    if matches!(request, Ok(Some(_))) {
+        // Clear any "Failed to compile regex" errors out of the statusline.
+        editor.clear_status();
+    }
+    let injector = injector.clone();
+    async move {
+        let Some(request) = request? else {
+            return Ok(());
+        };
+        tokio::task::spawn_blocking(move || {
+            request.run(
+                || injector.is_shutdown(),
+                |matched| match injector.push(matched) {
+                    Ok(()) => ControlFlow::Continue(()),
+                    Err(_) => ControlFlow::Break(()),
+                },
+            );
+        })
+        .await?;
+        Ok(())
+    }
+    .boxed()
+}
+
 fn refresh_global_search(
     query: &str,
     editor: &Editor,
-    config: std::sync::Arc<GlobalSearchConfig>,
+    config: Arc<GlobalSearchConfig>,
     cancel: event::TaskHandle,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<::search::Match>>> {
-    let search = if query.is_empty() {
-        None
-    } else {
-        Some(::search::Search::new(query, config.smart_case))
-    };
-    let documents = editor
-        .documents()
-        .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
-        .collect();
-    Box::pin(async move {
-        let Some(search) = search else {
+    let request = GlobalSearchRequest::new(query, editor, config);
+    async move {
+        let Some(request) = request? else {
             return Ok(Vec::new());
         };
-        let search = search?;
         Ok(tokio::task::spawn_blocking(move || {
             let results = std::sync::Mutex::new(Vec::new());
-            search.run(
-                &config.root,
-                &config.options,
-                &documents,
+            request.run(
                 || cancel.is_canceled(),
-                |mut matched| {
-                    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
+                |matched| {
                     results.lock().unwrap().push(matched);
-                    std::ops::ControlFlow::Continue(())
+                    ControlFlow::Continue(())
                 },
             );
             let mut results = results.into_inner().unwrap();
@@ -389,7 +465,8 @@ fn refresh_global_search(
             results
         })
         .await?)
-    })
+    }
+    .boxed()
 }
 
 pub(super) fn global_search(cx: &mut Context) {
@@ -422,57 +499,6 @@ pub(super) fn global_search(cx: &mut Context) {
         }),
         PickerColumn::hidden("contents"),
     ];
-
-    let get_files = |query: &str,
-                     editor: &mut Editor,
-                     config: std::sync::Arc<GlobalSearchConfig>,
-                     injector: &ui::picker::Injector<_, _>| {
-        if query.is_empty() {
-            return async { Ok(()) }.boxed();
-        }
-
-        let search_root = config.root.clone();
-        if !search_root.exists() {
-            return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
-                .boxed();
-        }
-
-        let documents = editor
-            .documents()
-            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
-            .collect();
-
-        let search = match ::search::Search::new(query, config.smart_case) {
-            Ok(search) => {
-                // Clear any "Failed to compile regex" errors out of the statusline.
-                editor.clear_status();
-                search
-            }
-            Err(err) => {
-                log::info!("Failed to compile search pattern in global search: {}", err);
-                return async { Err(anyhow::anyhow!("Failed to compile regex")) }.boxed();
-            }
-        };
-
-        let injector = injector.clone();
-        async move {
-            search.run(
-                &search_root,
-                &config.options,
-                &documents,
-                || injector.is_shutdown(),
-                |mut matched| {
-                    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
-                    match injector.push(matched) {
-                        Ok(()) => std::ops::ControlFlow::Continue(()),
-                        Err(_) => std::ops::ControlFlow::Break(()),
-                    }
-                },
-            );
-            Ok(())
-        }
-        .boxed()
-    };
 
     let reg = cx.register.unwrap_or('/');
     cx.editor.registers.last_search_register = reg;
@@ -544,7 +570,7 @@ pub(super) fn global_search(cx: &mut Context) {
         })
     })
     .with_history_register(Some(reg))
-    .with_dynamic_query(get_files, Some(275), cx.jobs)
+    .with_dynamic_query(query_global_search, Some(275), cx.jobs)
     .with_file_updates(
         cx.editor,
         |config| &config.root,
@@ -595,8 +621,7 @@ mod tests {
 
     #[cfg(feature = "integration")]
     #[tokio::test]
-    async fn refreshed_search_reads_external_changes_and_keeps_open_buffers_authoritative(
-    ) -> anyhow::Result<()> {
+    async fn search_queries_and_refreshes_keep_open_buffers_authoritative() -> anyhow::Result<()> {
         use crate::{application::Application, config::Config};
         use std::sync::Arc;
 
@@ -629,7 +654,7 @@ mod tests {
         let results =
             refresh_global_search("needle", &app.editor, config.clone(), task.restart()).await?;
         assert_eq!(results.len(), 2);
-        std::fs::write(&path, "other\n")?;
+        std::fs::write(&path, "héllo other\n")?;
         assert!(
             refresh_global_search("needle", &app.editor, config.clone(), task.restart())
                 .await?
@@ -641,6 +666,38 @@ mod tests {
             refresh_global_search("other", &app.editor, config.clone(), task.restart()).await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].line_start, 0);
+        assert_eq!(results[0].match_start_col, 6);
+        let (mut matcher, injector) = Picker::stream(
+            app.editor.redraw().clone(),
+            [PickerColumn::new(
+                "path",
+                |item: &::search::Match, _: &GlobalSearchConfig| {
+                    item.path.to_string_lossy().into_owned().into()
+                },
+            )],
+            GlobalSearchConfig {
+                root: config.root.clone(),
+                smart_case: config.smart_case,
+                options: config.options.clone(),
+                style: PathStyleConfig::new(&app.editor),
+            },
+        );
+        query_global_search("other", &mut app.editor, config.clone(), &injector).await?;
+        query_global_search("", &mut app.editor, config.clone(), &injector).await?;
+        assert!(
+            query_global_search("[", &mut app.editor, config.clone(), &injector)
+                .await
+                .is_err()
+        );
+        drop(injector);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while matcher.tick(10).running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        assert_eq!(matcher.snapshot().item_count(), 1);
+        assert_eq!(matcher.snapshot().get_item(0).unwrap().data, &results[0]);
         assert!(
             refresh_global_search("needle", &app.editor, config.clone(), task.restart())
                 .await?
@@ -650,6 +707,11 @@ mod tests {
             refresh_global_search("", &app.editor, config.clone(), task.restart())
                 .await?
                 .is_empty()
+        );
+        assert!(
+            refresh_global_search("[", &app.editor, config.clone(), task.restart())
+                .await
+                .is_err()
         );
         let cancel = task.restart();
         task.cancel();
