@@ -1,6 +1,6 @@
 use crate::{registry::DebugAdapterId, Error, Result};
 use anyhow::Context;
-use log::{error, info, warn};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -55,11 +55,34 @@ pub enum Payload {
 }
 
 #[derive(Debug)]
+enum Outgoing {
+    Message(Payload),
+    Forget(u64),
+}
+
+/// Sends protocol messages while keeping local request cleanup off the wire.
+#[derive(Clone, Debug)]
+pub struct TransportSender(UnboundedSender<Outgoing>);
+
+impl TransportSender {
+    pub fn send(&self, payload: Payload) -> Result<()> {
+        self.0
+            .send(Outgoing::Message(payload))
+            .map_err(|error| Error::Other(error.into()))
+    }
+
+    pub(crate) fn forget(&self, sequence: u64) {
+        let _ = self.0.send(Outgoing::Forget(sequence));
+    }
+}
+
+#[derive(Debug)]
 /// Content-Length framed DAP transport over asynchronous byte streams.
 ///
 /// Responses to outgoing requests are delivered to their private response
-/// channels. Events, reverse requests, and unmatched responses are forwarded
-/// on the receiver returned by [`Self::start`].
+/// channels. Events and reverse requests are forwarded
+/// on the receiver returned by [`Self::start`]. Late responses to canceled
+/// requests are discarded.
 pub struct Transport {
     #[allow(unused)]
     id: DebugAdapterId,
@@ -77,7 +100,7 @@ impl Transport {
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         server_stderr: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         id: DebugAdapterId,
-    ) -> (UnboundedReceiver<Payload>, UnboundedSender<Payload>) {
+    ) -> (UnboundedReceiver<Payload>, TransportSender) {
         let (client_tx, rx) = unbounded_channel();
         let (tx, client_rx) = unbounded_channel();
 
@@ -94,7 +117,7 @@ impl Transport {
             tokio::spawn(Self::err(stderr));
         }
 
-        (rx, tx)
+        (rx, TransportSender(tx))
     }
 
     async fn recv_server_message(
@@ -226,16 +249,21 @@ impl Transport {
                 let tx = self.pending_requests.lock().await.remove(&request_seq);
 
                 match tx {
-                    Some(tx) => match tx.send(self.process_response(res)).await {
-                        Ok(_) => (),
-                        Err(_) => error!(
-                            "Tried sending response into a closed channel (id={:?}), original request likely timed out",
-                            request_seq
-                        ),
+                    Some(tx) if !tx.is_closed() => {
+                        match tx.send(self.process_response(res)).await {
+                            Ok(_) => (),
+                            Err(_) => {
+                                log::debug!(
+                                    "Discarding response to canceled request #{request_seq}"
+                                )
+                            }
+                        }
                     }
-                    None => {
-                        warn!("Response to nonexistent request #{}", res.request_seq);
-                        client_tx.send(Payload::Response(res)).expect("Failed to send");
+                    Some(_) | None => {
+                        log::debug!(
+                            "Discarding response to completed or canceled request #{}",
+                            res.request_seq
+                        );
                     }
                 }
 
@@ -309,12 +337,19 @@ impl Transport {
     async fn send_inner(
         transport: Arc<Self>,
         mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        mut client_rx: UnboundedReceiver<Payload>,
+        mut client_rx: UnboundedReceiver<Outgoing>,
     ) -> Result<()> {
-        while let Some(payload) = client_rx.recv().await {
-            transport
-                .send_payload_to_server(&mut server_stdin, payload)
-                .await?;
+        while let Some(command) = client_rx.recv().await {
+            match command {
+                Outgoing::Message(payload) => {
+                    transport
+                        .send_payload_to_server(&mut server_stdin, payload)
+                        .await?
+                }
+                Outgoing::Forget(sequence) => {
+                    transport.pending_requests.lock().await.remove(&sequence);
+                }
+            }
         }
         Ok(())
     }
@@ -322,7 +357,7 @@ impl Transport {
     async fn send(
         transport: Arc<Self>,
         server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
-        client_rx: UnboundedReceiver<Payload>,
+        client_rx: UnboundedReceiver<Outgoing>,
     ) {
         if let Err(err) = Self::send_inner(transport, server_stdin, client_rx).await {
             error!("err: <- {:?}", err);

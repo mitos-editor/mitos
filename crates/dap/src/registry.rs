@@ -79,6 +79,9 @@ impl Registry {
     /// Removes a client if its identifier is still valid.
     pub fn remove_client(&mut self, id: DebugAdapterId) {
         self.inner.remove(id);
+        if self.current_client_id == Some(id) {
+            self.current_client_id = None;
+        }
     }
 
     /// Returns a client by its generational identifier.

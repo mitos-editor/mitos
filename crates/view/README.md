@@ -27,6 +27,11 @@ and edit mapping. `features/diagnostics` owns LSP conversion and publication for
 push and pull providers. Frontends receive immutable diagnostic views; text
 mutations map diagnostic anchors before notifying observers.
 
+Debugger controls, evaluation, thread/frame selection, and variables use owned
+asynchronous requests. Queued replies and picker actions validate their editor,
+adapter, and execution context; canceled waits release transport bookkeeping.
+Terminal commands retain presentation and input collection.
+
 Debugger launch preparation is an editor operation by document ID. Templates,
 request kinds, arguments, and workspace trust are checked before adapter startup;
 terminal prompts retain the originating document across focus changes.

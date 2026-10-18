@@ -17,9 +17,9 @@ mod client;
 pub mod registry;
 mod transport;
 
-pub use client::Client;
+pub use client::{Client, RequestSender};
 pub use dap_types::*;
-pub use transport::{Payload, Response, Transport};
+pub use transport::{Payload, Response, Transport, TransportSender};
 
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;

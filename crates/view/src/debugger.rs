@@ -1,6 +1,10 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
 mod launch;
+mod operations;
+pub use operations::{
+    DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerScope, DebuggerTask, DebuggerUpdate,
+};
 
 use std::{
     collections::HashMap,
@@ -87,6 +91,7 @@ pub struct DebuggerState {
     pub(crate) adapters: Registry,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
+    requests: HashMap<DebugAdapterId, operations::SessionRequests>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 

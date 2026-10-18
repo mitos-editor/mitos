@@ -85,7 +85,7 @@ impl Editor {
                         return;
                     }
                     if let Err(error) = result {
-                        editor.debugger.adapters.remove_client(id);
+                        editor.debugger.remove_client(id);
                         editor.set_error(|| format!("Failed to start debugging: {error}"));
                     }
                 })

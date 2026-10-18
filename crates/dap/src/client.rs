@@ -1,7 +1,7 @@
 use crate::{
     registry::DebugAdapterId,
     requests::{DisconnectArguments, TerminateArguments},
-    transport::{Payload, Request, Response, Transport},
+    transport::{Payload, Request, Response, Transport, TransportSender},
     Error, ProgressMap, ProgressState, Result,
 };
 use dap_types::*;
@@ -15,7 +15,10 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     process::Stdio,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
@@ -34,8 +37,8 @@ use tokio::{
 pub struct Client {
     id: DebugAdapterId,
     _process: Option<Child>,
-    server_tx: UnboundedSender<Payload>,
-    request_counter: AtomicU64,
+    server_tx: TransportSender,
+    request_counter: Arc<AtomicU64>,
     connection_type: Option<ConnectionType>,
     starting_request_args: Option<Value>,
     /// The socket address of the debugger, if using TCP transport.
@@ -95,7 +98,7 @@ impl Client {
             id,
             _process: process,
             server_tx,
-            request_counter: AtomicU64::new(0),
+            request_counter: Arc::new(AtomicU64::new(0)),
             caps: None,
             connection_type: None,
             starting_request_args: None,
@@ -256,14 +259,6 @@ impl Client {
         self.connection_type
     }
 
-    fn next_request_id(&self) -> u64 {
-        // > The `seq` for the first message sent by a client or debug adapter
-        // > is 1, and for each subsequent message is 1 greater than the
-        // > previous message sent by that actor
-        // <https://microsoft.github.io/debug-adapter-protocol/specification#Base_Protocol_ProtocolMessage>
-        self.request_counter.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
     /// Clears stack-frame state after execution resumes.
     ///
     /// Command handlers should call this after a successful continue or step so
@@ -277,10 +272,15 @@ impl Client {
         self.thread_id = None;
     }
 
-    /// Executes a typed request and returns its untyped JSON body.
-    ///
-    /// Requests use monotonically increasing DAP sequence numbers and time out
-    /// after 20 seconds. Prefer [`Self::request`] when the typed result is known.
+    /// An owned transport handle for requests that must outlive a borrow of editor state.
+    pub fn request_sender(&self) -> RequestSender {
+        RequestSender {
+            server_tx: self.server_tx.clone(),
+            request_counter: self.request_counter.clone(),
+        }
+    }
+
+    /// Execute a typed request and return its JSON body.
     pub fn call<R: dap_types::Request>(
         &self,
         arguments: R::Arguments,
@@ -288,55 +288,14 @@ impl Client {
     where
         R::Arguments: serde::Serialize,
     {
-        let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
-
-        async move {
-            use std::time::Duration;
-            use tokio::time::timeout;
-
-            let arguments = Some(serde_json::to_value(arguments)?);
-
-            let (callback_tx, mut callback_rx) = channel(1);
-
-            let req = Request {
-                back_ch: Some(callback_tx),
-                seq: id,
-                command: R::COMMAND.to_string(),
-                arguments,
-            };
-
-            server_tx
-                .send(Payload::Request(req))
-                .map_err(|e| Error::Other(e.into()))?;
-
-            // TODO: specifiable timeout, delay other calls until initialize success
-            let response = timeout(Duration::from_secs(20), callback_rx.recv())
-                .await
-                .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)??;
-
-            if !response.success {
-                let message = response
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| "DAP request failed".to_string());
-                return Err(Error::Other(anyhow!(message)));
-            }
-
-            Ok(response.body.unwrap_or_default())
-        }
+        self.request_sender().call::<R>(arguments)
     }
 
-    /// Executes a typed request and deserializes its declared result type.
-    pub async fn request<R: dap_types::Request>(&self, params: R::Arguments) -> Result<R::Result>
+    pub async fn request<R: dap_types::Request>(&self, arguments: R::Arguments) -> Result<R::Result>
     where
         R::Arguments: serde::Serialize,
     {
-        // a future that resolves into the response
-        let json = self.call::<R>(params).await?;
-        let response = serde_json::from_value(json)?;
-        Ok(response)
+        self.request_sender().request::<R>(arguments).await
     }
 
     /// Queues a reply to a reverse request initiated by the debug adapter.
@@ -362,9 +321,7 @@ impl Client {
                 body: None,
             },
         };
-        self.server_tx
-            .send(Payload::Response(response))
-            .map_err(|error| Error::Other(error.into()))
+        self.server_tx.send(Payload::Response(response))
     }
 
     /// Returns the negotiated capabilities.
@@ -614,5 +571,97 @@ impl Client {
         self.stack_frames
             .get(&self.thread_id?)?
             .get(self.active_frame?)
+    }
+}
+
+/// Cloneable request transport. It carries no selected thread, frame, or editor state.
+#[derive(Clone, Debug)]
+pub struct RequestSender {
+    server_tx: TransportSender,
+    request_counter: Arc<AtomicU64>,
+}
+
+impl RequestSender {
+    fn next_request_id(&self) -> u64 {
+        // > The `seq` for the first message sent by a client or debug adapter
+        // > is 1, and for each subsequent message is 1 greater than the
+        // > previous message sent by that actor
+        // <https://microsoft.github.io/debug-adapter-protocol/specification#Base_Protocol_ProtocolMessage>
+        self.request_counter.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Executes a typed request and returns its untyped JSON body.
+    ///
+    /// Requests use monotonically increasing DAP sequence numbers and time out
+    /// after 20 seconds. Prefer [`Self::request`] when the typed result is known.
+    pub fn call<R: dap_types::Request>(
+        &self,
+        arguments: R::Arguments,
+    ) -> impl Future<Output = Result<Value>> + use<R>
+    where
+        R::Arguments: serde::Serialize,
+    {
+        let server_tx = self.server_tx.clone();
+        let id = self.next_request_id();
+
+        async move {
+            use std::time::Duration;
+            use tokio::time::timeout;
+
+            let arguments = Some(serde_json::to_value(arguments)?);
+
+            let (callback_tx, mut callback_rx) = channel(1);
+
+            let req = Request {
+                back_ch: Some(callback_tx),
+                seq: id,
+                command: R::COMMAND.to_string(),
+                arguments,
+            };
+
+            server_tx.send(Payload::Request(req))?;
+
+            // Dropping the wait releases transport bookkeeping, including on cancellation.
+            let _pending = PendingRequest {
+                sender: server_tx,
+                sequence: id,
+            };
+            let response = timeout(Duration::from_secs(20), callback_rx.recv())
+                .await
+                .map_err(|_| Error::Timeout(id))? // return Timeout
+                .ok_or(Error::StreamClosed)??;
+
+            if !response.success {
+                let message = response
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| "DAP request failed".to_string());
+                return Err(Error::Other(anyhow!(message)));
+            }
+
+            Ok(response.body.unwrap_or_default())
+        }
+    }
+
+    /// Executes a typed request and deserializes its declared result type.
+    pub async fn request<R: dap_types::Request>(&self, params: R::Arguments) -> Result<R::Result>
+    where
+        R::Arguments: serde::Serialize,
+    {
+        // a future that resolves into the response
+        let json = self.call::<R>(params).await?;
+        let response = serde_json::from_value(json)?;
+        Ok(response)
+    }
+}
+
+struct PendingRequest {
+    sender: TransportSender,
+    sequence: u64,
+}
+
+impl Drop for PendingRequest {
+    fn drop(&mut self) {
+        self.sender.forget(self.sequence);
     }
 }

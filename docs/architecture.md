@@ -232,6 +232,13 @@ change paths through `Editor::set_doc_path`.
 
 ### Debugger state
 
+Debugger commands and inspection run through `view::debugger` editor operations.
+An owned `dap::RequestSender` performs protocol work without borrowing editor state.
+`DebuggerTask` waits off the mutation path, and `DebuggerUpdate` validates its
+origin when delivered. Session changes, execution transitions, newer requests,
+and thread/frame changes invalidate results and picker actions. Transport cleanup
+for canceled requests stays local; late replies are discarded.
+
 `view::debugger::DebuggerState` owns debug-adapter sessions and source breakpoints.
 `Editor::debugger` exposes read access; mutations use session and breakpoint
 operations through `Editor::debugger_mut`. Terminal commands collect input and

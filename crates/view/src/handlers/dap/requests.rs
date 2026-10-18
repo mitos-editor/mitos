@@ -90,7 +90,7 @@ impl Editor {
             ConnectionType::Attach => client.attach(arguments.configuration).await,
         };
         if let Err(error) = result {
-            self.debugger.adapters.remove_client(child);
+            self.debugger.remove_client(child);
             return Err(error);
         }
         Ok(json!({ "success": true }))

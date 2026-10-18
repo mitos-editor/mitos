@@ -76,6 +76,7 @@ async fn adapter_server(
         let (socket, _) = listener.accept().await?;
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
+        let mut delayed = None;
         loop {
             let mut line = String::new();
             if read.read_line(&mut line).await? == 0 {
@@ -93,10 +94,33 @@ async fn adapter_server(
             let message: Value = serde_json::from_slice(&bytes)?;
             sender.send(message.clone()).ok();
             if message["type"] == "request" {
-                let body = if message["command"] == "threads" {
-                    json!({"threads":[]})
-                } else {
-                    json!({})
+                if message["command"] == "evaluate" && message["arguments"]["expression"] == "wait"
+                {
+                    delayed = Some(message);
+                    continue;
+                }
+                let body = match message["command"].as_str().unwrap() {
+                    "initialize" => {
+                        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true})
+                    }
+                    "threads" => {
+                        json!({"threads":[{"id":1,"name":"main"},{"id":2,"name":"worker"}]})
+                    }
+                    "stackTrace" => {
+                        let thread = message["arguments"]["threadId"].as_u64().unwrap();
+                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
+                    }
+                    "scopes" => {
+                        json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false}]})
+                    }
+                    "variables" => {
+                        json!({"variables":[{"name":"answer","value":"42","type":"int","variablesReference":0}]})
+                    }
+                    "evaluate" => {
+                        json!({"result":message["arguments"]["expression"],"variablesReference":0})
+                    }
+                    "continue" => json!({"allThreadsContinued":true}),
+                    _ => json!({}),
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
                     "request_seq":message["seq"], "command":message["command"], "success":!(fail_launch && message["command"] == "launch"), "body":body}))?;
@@ -104,6 +128,15 @@ async fn adapter_server(
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
                 write.write_all(&response).await?;
+                if let Some(delayed) = delayed.take() {
+                    let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
+                        "request_seq":delayed["seq"], "command":"evaluate", "success":true,
+                        "body":{"result":"late", "variablesReference":0}}))?;
+                    write
+                        .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
+                        .await?;
+                    write.write_all(&response).await?;
+                }
             }
         }
     });
@@ -374,5 +407,253 @@ async fn failed_debugger_launch_removes_its_adapter_and_reports_the_error() -> a
     })
     .await?;
     assert!(f.editor.is_err());
+    Ok(())
+}
+
+fn debugger_event(name: &str, body: Value) -> dap::Payload {
+    serde_json::from_value(json!({"type":"event", "seq":1, "event":name, "body":body})).unwrap()
+}
+
+async fn paused_adapter(
+    f: &mut Fixture,
+) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
+    let (id, wire) = adapter(f).await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    stop_adapter(f, id).await;
+    while let Ok(callback) = f.callbacks.try_recv() {
+        callback(&mut f.editor);
+    }
+    Ok((id, wire))
+}
+
+async fn stop_adapter(f: &mut Fixture, id: DebugAdapterId) {
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event("stopped", json!({"reason":"breakpoint", "threadId":1})),
+        )
+        .await;
+}
+
+async fn command(
+    wire: &mut mpsc::UnboundedReceiver<Value>,
+    expected: &str,
+) -> anyhow::Result<Value> {
+    loop {
+        let message = message(wire).await?;
+        if message["command"] == expected {
+            return Ok(message);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn debugger_inspection_returns_typed_results_and_rejects_other_editors() -> anyhow::Result<()>
+{
+    let mut first = Fixture::new("")?;
+    let mut second = Fixture::new("")?;
+    let (id, _) = paused_adapter(&mut first).await?;
+    let (other, _) = paused_adapter(&mut second).await?;
+    assert_eq!(id, other);
+    let variables = first.editor.debugger_variables()?;
+    let evaluation = first.editor.debugger_evaluate("expression".into())?;
+    first.editor.set_status("editor is available");
+    let (variables, evaluation) = tokio::join!(variables.run(), evaluation.run());
+    let variables = variables.unwrap();
+    assert!(!variables.context().is_current(&second.editor));
+    let scopes = variables.into_result(&first.editor).unwrap()?;
+    assert_eq!(scopes[0].name, "locals");
+    assert_eq!(scopes[0].variables[0].value, "42");
+    assert!(evaluation.unwrap().into_result(&second.editor).is_none());
+    let old = first.editor.debugger_variables()?.run().await.unwrap();
+    first
+        .editor
+        .handle_debugger_message(id, debugger_event("continued", json!({"threadId":1})))
+        .await;
+    stop_adapter(&mut first, id).await;
+    assert!(old.into_result(&first.editor).is_none());
+    assert_eq!(
+        first
+            .editor
+            .debugger()
+            .get_active_client()
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        101
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn superseded_debugger_requests_cancel_waits_and_discard_late_replies() -> anyhow::Result<()>
+{
+    use futures_util::FutureExt as _;
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter(&mut f).await?;
+    let old = f.editor.debugger_evaluate("wait".into())?;
+    let waiting = tokio::spawn(old.run());
+    command(&mut wire, "evaluate").await?;
+    let next = f.editor.debugger_evaluate("fresh".into())?;
+    assert!(tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await??
+        .is_none());
+    let update = next.run().await.unwrap();
+    assert_eq!(update.into_result(&f.editor).unwrap()?.result, "fresh");
+    // A subsequent response flushes the server's preceding late reply through the transport.
+    let sender = f.editor.debugger().get_client(id).unwrap().request_sender();
+    sender
+        .request::<dap::requests::Threads>(Some(dap::requests::ThreadsArguments {}))
+        .await?;
+    if let Some(event) = f.editor.wait_event().now_or_never() {
+        assert!(!matches!(
+            event,
+            view::editor::EditorEvent::DebuggerEvent(_)
+        ));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_debugger_controls_preserve_new_stops_and_replacement_sessions() -> anyhow::Result<()>
+{
+    use view::debugger::DebuggerCommand;
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter(&mut f).await?;
+    let stopped_thread = f.editor.debugger().get_client(id).unwrap().thread_id;
+    f.editor.debugger_command(DebuggerCommand::Continue)?;
+    command(&mut wire, "continue").await?;
+    let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .unwrap();
+    stop_adapter(&mut f, id).await;
+    old(&mut f.editor);
+    assert_eq!(
+        f.editor.debugger().get_client(id).unwrap().thread_id,
+        stopped_thread
+    );
+    f.editor.debugger_command(DebuggerCommand::Continue)?;
+    command(&mut wire, "continue").await?;
+    let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .unwrap();
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", Value::Null))
+        .await;
+    let (replacement, mut wire) = paused_adapter(&mut f).await?;
+    assert_ne!(id, replacement);
+    old(&mut f.editor);
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_client(replacement)
+            .unwrap()
+            .thread_id,
+        stopped_thread
+    );
+    f.editor.debugger_command(DebuggerCommand::Continue)?;
+    command(&mut wire, "continue").await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f
+            .editor
+            .debugger()
+            .get_client(replacement)
+            .unwrap()
+            .thread_id
+            .is_some()
+        {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn debugger_picker_contexts_preserve_new_thread_and_frame_selections() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter(&mut f).await?;
+    let threads = f.editor.debugger_threads()?.run().await.unwrap();
+    let context = threads.context();
+    let listed = threads.into_result(&f.editor).unwrap()?;
+    assert_eq!(listed.len(), 2);
+    let (main, worker) = (listed[0].id, listed[1].id);
+    f.editor.select_debugger_thread(&context, worker)?;
+    command(&mut wire, "stackTrace").await?;
+    let old = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .unwrap();
+    let frames = f.editor.debugger_stack_frames()?;
+    f.editor.select_debugger_frame(&frames.context, 1)?;
+    old(&mut f.editor);
+    f.editor.select_debugger_frame(&context, 0)?;
+    let client = f.editor.debugger().get_client(id).unwrap();
+    assert_eq!(client.thread_id, Some(main));
+    assert_eq!(client.current_stack_frame().unwrap().id, 102);
+    let threads = f.editor.debugger_threads()?.run().await.unwrap();
+    f.editor
+        .select_debugger_thread(&threads.context(), worker)?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().get_client(id).unwrap().thread_id != Some(worker) {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await?;
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_client(id)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        201
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inactive_adapter_events_preserve_the_active_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (inactive, _) = paused_adapter(&mut f).await?;
+    let (active, _) = paused_adapter(&mut f).await?;
+    f.editor
+        .debugger_command(view::debugger::DebuggerCommand::Continue)?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f
+            .editor
+            .debugger()
+            .get_client(active)
+            .unwrap()
+            .thread_id
+            .is_some()
+        {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await?;
+    stop_adapter(&mut f, inactive).await;
+    assert_eq!(
+        f.editor.debugger().get_active_client().unwrap().id(),
+        active
+    );
+    assert!(f
+        .editor
+        .debugger()
+        .get_client(active)
+        .unwrap()
+        .thread_id
+        .is_none());
+    f.editor
+        .handle_debugger_message(inactive, debugger_event("terminated", Value::Null))
+        .await;
+    assert!(f.editor.debugger().get_client(inactive).is_none());
+    assert_eq!(
+        f.editor.debugger().get_active_client().unwrap().id(),
+        active
+    );
     Ok(())
 }

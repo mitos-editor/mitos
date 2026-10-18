@@ -30,8 +30,15 @@ pub fn dap_pos_to_pos(doc: &editor_core::Rope, line: usize, column: usize) -> Op
     Some(pos)
 }
 
-pub async fn select_thread_id(editor: &mut Editor, thread_id: ThreadId, force: bool) {
-    let debugger = debugger!(editor);
+async fn select_thread_id(
+    editor: &mut Editor,
+    id: DebugAdapterId,
+    thread_id: ThreadId,
+    force: bool,
+) {
+    let Some(debugger) = editor.debugger.get_client_mut(id) else {
+        return;
+    };
 
     if !force && debugger.thread_id.is_some() {
         return;
@@ -41,7 +48,12 @@ pub async fn select_thread_id(editor: &mut Editor, thread_id: ThreadId, force: b
     fetch_stack_trace(debugger, thread_id).await;
 
     let frame = debugger.stack_frames[&thread_id].first().cloned();
-    if let Some(frame) = &frame {
+    if editor
+        .debugger
+        .get_active_client()
+        .is_some_and(|client| client.id() == id)
+        && let Some(frame) = &frame
+    {
         jump_to_stack_frame(editor, frame);
     }
 }
@@ -106,6 +118,16 @@ impl Editor {
                         return false;
                     }
                 };
+                if matches!(
+                    &event,
+                    Event::Stopped(_)
+                        | Event::Continued(_)
+                        | Event::Thread(_)
+                        | Event::Terminated(_)
+                        | Event::Initialized(_)
+                ) {
+                    self.debugger.invalidate_requests(id);
+                }
                 match event {
                     Event::Stopped(events::StoppedBody {
                         thread_id,
@@ -130,14 +152,15 @@ impl Editor {
                                 for thread in response.threads {
                                     fetch_stack_trace(debugger, thread.id).await;
                                 }
-                                select_thread_id(self, thread_id.unwrap_or_default(), false).await;
+                                select_thread_id(self, id, thread_id.unwrap_or_default(), false)
+                                    .await;
                             }
                         } else if let Some(thread_id) = thread_id {
                             debugger.thread_states.insert(thread_id, reason.clone()); // TODO: dap uses "type" || "reason" here
 
                             fetch_stack_trace(debugger, thread_id).await;
                             // whichever thread stops is made "current" (if no previously selected thread).
-                            select_thread_id(self, thread_id, false).await;
+                            select_thread_id(self, id, thread_id, false).await;
                         }
 
                         let scope = match thread_id {
@@ -378,8 +401,7 @@ impl Editor {
 
                         match restart_arg {
                             Some(Value::Bool(false)) | None => {
-                                self.debugger.adapters.remove_client(id);
-                                self.debugger.adapters.unset_active_client();
+                                self.debugger.remove_client(id);
                                 self.set_status(
                                     "Terminated debugging session and disconnected debugger.",
                                 );
