@@ -32,7 +32,6 @@ pub mod chars;
 pub mod comment;
 pub mod diagnostic;
 pub mod diff;
-pub mod fuzzy;
 pub mod graphemes;
 pub mod highlight;
 pub mod increment;

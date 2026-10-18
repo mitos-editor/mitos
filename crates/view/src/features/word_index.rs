@@ -5,12 +5,10 @@
 
 use std::{borrow::Cow, iter, sync::Arc, time::Duration};
 
-use editor_core::{
-    chars::char_is_word, diff::compare_ropes, fuzzy::fuzzy_match, ChangeSet, Rope, RopeSlice,
-};
+use editor_core::{chars::char_is_word, diff::compare_ropes, ChangeSet, Rope, RopeSlice};
 use event::{register_hook, TaskController, TaskHandle};
 use foldhash::HashMap;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use stdx::rope::RopeSliceExt as _;
 use tokio::{sync::mpsc, time::Instant};
 
@@ -267,12 +265,13 @@ impl WordIndexInner {
 #[derive(Debug, Default, Clone)]
 pub struct WordIndex {
     inner: Arc<RwLock<WordIndexInner>>,
+    matcher: Arc<Mutex<fuzzy::Matcher>>,
 }
 
 impl WordIndex {
     pub fn matches(&self, pattern: &str) -> Vec<String> {
         let inner = self.inner.read();
-        let mut matches = fuzzy_match(pattern, inner.words(), false);
+        let mut matches = self.matcher.lock().match_list(pattern, inner.words());
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()

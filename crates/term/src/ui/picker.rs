@@ -34,9 +34,7 @@ use std::{
 };
 
 use crate::ui::{Prompt, PromptEvent};
-use editor_core::{
-    fuzzy::MATCHER, movement::Direction, unicode::segmentation::UnicodeSegmentation,
-};
+use editor_core::{movement::Direction, unicode::segmentation::UnicodeSegmentation};
 use view::{
     editor::Action,
     graphics::{Modifier, Rect},
@@ -203,6 +201,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     editor_data: Arc<D>,
     version: Arc<AtomicUsize>,
     matcher: Nucleo<T>,
+    highlight_matcher: fuzzy::Matcher,
     redraw: event::Redraw,
 
     /// Current height of the completions box
@@ -369,6 +368,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             columns,
             primary_column: default_column,
             matcher,
+            highlight_matcher: fuzzy::Matcher::default(),
             redraw,
             editor_data,
             version,
@@ -780,11 +780,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .saturating_add(rows)
             .min(snapshot.matched_item_count());
         let mut indices = Vec::new();
-        let mut matcher = MATCHER.lock();
-        matcher.config = Config::DEFAULT;
-        if self.file_fn.is_some() {
-            matcher.config.set_match_paths()
-        }
+        self.highlight_matcher.set_kind(if self.file_fn.is_some() {
+            fuzzy::MatchKind::Path
+        } else {
+            fuzzy::MatchKind::Text
+        });
+        let matcher = &mut self.highlight_matcher;
 
         let options = snapshot.matched_items(offset..end).map(|item| {
             let mut widths = self.widths.iter_mut();
@@ -800,9 +801,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 };
                 let mut cell = column.format(item.data, &self.editor_data);
                 let width = if column.filter {
-                    snapshot.pattern().column_pattern(matcher_index).indices(
+                    matcher.indices(
+                        snapshot.pattern().column_pattern(matcher_index),
                         item.matcher_columns[matcher_index].slice(..),
-                        &mut matcher,
                         &mut indices,
                     );
                     indices.sort_unstable();

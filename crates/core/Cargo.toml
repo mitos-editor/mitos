@@ -46,8 +46,6 @@ jiff.workspace = true
 
 textwrap.workspace = true
 
-nucleo.workspace = true
-parking_lot.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

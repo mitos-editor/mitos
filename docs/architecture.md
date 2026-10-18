@@ -20,6 +20,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `grammar-build` | Grammar source fetching and native compilation |
 | `clipboard` | Clipboard provider settings and native backends |
 | `search` | Workspace traversal and text matches over files or unsaved snapshots |
+| `fuzzy` | Reusable fuzzy scoring, matching profiles, and highlight indices |
 | `text-io` | Streaming text decoding, encoding detection, BOM handling, and encoded writes |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
@@ -881,6 +882,13 @@ ignore paths, traversal settings, cancellation, and a result sink. The terminal
 owns the search prompt, picker, quicklist conversion, and navigation. Picker
 invalidation stops traversal even when a query produces no matches. Buffer text
 search and selection transformations remain in `core` and editor commands.
+
+## Fuzzy matching
+
+`fuzzy` owns text/path/completion scoring profiles and reusable matcher buffers.
+Completion sessions, picker highlights, and word indexes own their matchers;
+small-list helpers reuse a thread-local matcher. Provider ranking and asynchronous
+picker scheduling remain with their consumers.
 
 ## Text I/O
 

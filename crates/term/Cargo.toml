@@ -68,6 +68,7 @@ tempfile.workspace = true
 core.workspace = true
 buffer.workspace = true
 event.workspace = true
+fuzzy.workspace = true
 view.workspace = true
 lsp.workspace = true
 snippets.workspace = true

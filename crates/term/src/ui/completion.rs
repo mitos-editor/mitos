@@ -1,11 +1,8 @@
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::ui::{icon_span, menu, panel, Markdown, Menu, Popup, PromptEvent};
-use editor_core::{chars, fuzzy::MATCHER, Change, Transaction};
+use editor_core::{chars, Change, Transaction};
+use fuzzy::{MatchKind, Matcher};
 use lsp_client::{lsp, util, OffsetEncoding};
-use nucleo::{
-    pattern::{Atom, AtomKind, CaseMatching, Normalization},
-    Config, Utf32Str,
-};
 use snippets::{ActiveSnippet, RenderedSnippet, Snippet};
 use theme::icons::ICONS;
 use theme::{Color, Modifier, Style};
@@ -137,6 +134,7 @@ pub struct Completion {
     #[allow(dead_code)]
     trigger_offset: usize,
     filter: String,
+    matcher: Matcher,
     // TODO: move to view/central handler struct in the future
     resolve_handler: ResolveHandler,
 }
@@ -352,6 +350,7 @@ impl Completion {
             // TODO: expand nucleo api to allow moving straight to a Utf32String here
             // and avoid allocation during matching
             filter: String::from(fragment),
+            matcher: Matcher::new(MatchKind::Completion),
             resolve_handler: ResolveHandler::new(),
         };
 
@@ -363,24 +362,13 @@ impl Completion {
 
     fn score(&mut self, incremental: bool) {
         let pattern = &self.filter;
-        let mut matcher = MATCHER.lock();
-        matcher.config = Config::DEFAULT;
-        // slight preference towards prefix matches
-        matcher.config.prefer_prefix = true;
-        let pattern = Atom::new(
-            pattern,
-            CaseMatching::Ignore,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-            false,
-        );
-        let mut buf = Vec::new();
+        let pattern = self.matcher.query(pattern);
         let (matches, options) = self.popup.contents_mut().update_options();
         if incremental {
             matches.retain_mut(|(index, score)| {
                 let option = &options[*index as usize];
                 let text = option.filter_text();
-                let new_score = pattern.score(Utf32Str::new(text, &mut buf), &mut matcher);
+                let new_score = self.matcher.score(&pattern, text);
                 match new_score {
                     Some(new_score) => {
                         *score = new_score as u32 / 2;
@@ -393,8 +381,8 @@ impl Completion {
             matches.clear();
             matches.extend(options.iter().enumerate().filter_map(|(i, option)| {
                 let text = option.filter_text();
-                pattern
-                    .score(Utf32Str::new(text, &mut buf), &mut matcher)
+                self.matcher
+                    .score(&pattern, text)
                     .map(|score| (i as u32, score as u32 / 3))
             }));
         }
@@ -407,7 +395,7 @@ impl Completion {
         //
         // The score computation is a heuristic derived from Nucleo internal constants that may
         // move upstream in the future. I want to test this out here to settle on a good number.
-        let min_score = (7 + pattern.needle_text().len() as u32 * 14) / 3;
+        let min_score = (7 + pattern.needle_len() as u32 * 14) / 3;
         matches.sort_unstable_by_key(|&(i, score)| {
             let option = &options[i as usize];
             (

@@ -471,7 +471,7 @@ pub mod completers {
     use crate::config::EditorSettings;
     use crate::ui::prompt::Completion;
     use command_line::{self, Tokenizer};
-    use editor_core::fuzzy::fuzzy_match;
+    use fuzzy::{fuzzy_match, MatchKind};
     use language_config::LanguageServerFeature;
     use std::borrow::Cow;
     use std::collections::BTreeSet;
@@ -493,7 +493,7 @@ pub mod completers {
                 .unwrap_or_else(|| Cow::from(SCRATCH_BUFFER_NAME))
         });
 
-        fuzzy_match(input, names, true)
+        fuzzy_match(input, names, MatchKind::Path)
             .into_iter()
             .map(|(name, _)| ((0..), name.into()))
             .collect()
@@ -502,7 +502,7 @@ pub mod completers {
     pub fn theme(editor: &Editor, input: &str) -> Vec<Completion> {
         let names = editor.theme_loader.resources().names();
 
-        fuzzy_match(input, names, false)
+        fuzzy_match(input, names, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.into()))
             .collect()
@@ -528,7 +528,7 @@ pub mod completers {
     pub fn active_language_servers(editor: &Editor, input: &str) -> Vec<Completion> {
         let language_servers = doc!(editor).language_servers().map(|ls| ls.name());
 
-        fuzzy_match(input, language_servers, false)
+        fuzzy_match(input, language_servers, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), Span::raw(name.to_string())))
             .collect()
@@ -543,7 +543,7 @@ pub mod completers {
             .flat_map(|config| &config.language_servers)
             .map(|ls| ls.name.as_str());
 
-        fuzzy_match(input, language_servers, false)
+        fuzzy_match(input, language_servers, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), Span::raw(name.to_string())))
             .collect()
@@ -557,7 +557,7 @@ pub mod completers {
             keys
         });
 
-        fuzzy_match(input, &*KEYS, false)
+        fuzzy_match(input, &*KEYS, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), Span::raw(name)))
             .collect()
@@ -590,7 +590,7 @@ pub mod completers {
             .map(|config| &config.language_id)
             .chain(std::iter::once(&text));
 
-        fuzzy_match(input, language_ids, false)
+        fuzzy_match(input, language_ids, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.to_owned().into()))
             .collect()
@@ -621,7 +621,7 @@ pub mod completers {
             .iter()
             .map(String::as_str)
             .chain(std::iter::once("off"));
-        fuzzy_match(input, candidates, false)
+        fuzzy_match(input, candidates, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.to_owned().into()))
             .collect()
@@ -637,7 +637,7 @@ pub mod completers {
                     .flat_map(|options| options.commands.iter())
             });
 
-        fuzzy_match(input, commands, false)
+        fuzzy_match(input, commands, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.to_owned().into()))
             .collect()
@@ -777,7 +777,7 @@ pub mod completers {
         // if empty, return a list of dirs and files in current dir
         if let Some(file_name) = file_name {
             let range = (input.len().saturating_sub(file_name.len()))..;
-            fuzzy_match(&file_name, files, true)
+            fuzzy_match(&file_name, files, MatchKind::Path)
                 .into_iter()
                 .map(|(name, _)| (range.clone(), style_from_file(name)))
                 .collect()
@@ -800,7 +800,7 @@ pub mod completers {
             .filter(|(ch, _)| !matches!(ch, '%' | '#' | '.'))
             .map(|(ch, _)| ch.to_string());
 
-        fuzzy_match(input, iter, false)
+        fuzzy_match(input, iter, MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.into()))
             .collect()
@@ -828,7 +828,7 @@ pub mod completers {
                 .collect()
         });
 
-        fuzzy_match(input, PROGRAMS_IN_PATH.iter(), false)
+        fuzzy_match(input, PROGRAMS_IN_PATH.iter(), MatchKind::Text)
             .into_iter()
             .map(|(name, _)| ((0..), name.clone().into()))
             .collect()

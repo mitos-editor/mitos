@@ -5,7 +5,7 @@ use std::{borrow::Cow, fmt::Write, ops};
 use ::command_line::{self, Args, Flag, Signature, Token, TokenKind};
 use anyhow::anyhow;
 use editor_config::{CustomCommand, CustomCommands};
-use editor_core::fuzzy::fuzzy_match;
+use fuzzy::{fuzzy_match, MatchKind};
 use tui::text::Span;
 use view::{expansion, Editor};
 
@@ -298,7 +298,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
             fuzzy_match(
                 command,
                 TYPABLE_COMMAND_LIST.iter().map(|command| command.name),
-                false,
+                MatchKind::Text,
             )
             .into_iter()
             .map(|(name, _)| (0.., format!("^{}", name).into()))
@@ -314,7 +314,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
                 .iter()
                 .map(|command| Cow::Borrowed(command.name));
 
-            fuzzy_match(command, custom.chain(builtins), false)
+            fuzzy_match(command, custom.chain(builtins), MatchKind::Text)
                 .into_iter()
                 .map(|(name, _)| (0.., name.into()))
                 .collect()
@@ -410,7 +410,7 @@ pub fn complete_command_args(
                 CompletionState::Flag(_) => fuzzy_match(
                     token.content.trim_start_matches('-'),
                     signature.flags.iter().map(|flag| flag.name),
-                    false,
+                    MatchKind::Text,
                 )
                 .into_iter()
                 .map(|(name, _)| ((offset + token.content_start).., format!("--{name}").into()))
@@ -419,7 +419,7 @@ pub fn complete_command_args(
                     &token.content,
                     flag.completions
                         .expect("flags in FlagArgument always have completions"),
-                    false,
+                    MatchKind::Text,
                 )
                 .into_iter()
                 .map(|(value, _)| ((offset + token.content_start).., (*value).into()))
@@ -564,7 +564,7 @@ fn complete_variable_expansion(content: &str, offset: usize) -> Vec<ui::prompt::
     fuzzy_match(
         content,
         Variable::VARIANTS.iter().map(Variable::as_str),
-        false,
+        MatchKind::Text,
     )
     .into_iter()
     .map(|(name, _)| (offset.., (*name).into()))
@@ -581,7 +581,7 @@ fn complete_register_expansion(
         .iter_preview()
         .map(|(ch, _)| ch.to_string())
         .collect();
-    fuzzy_match(content, register_names, false)
+    fuzzy_match(content, register_names, MatchKind::Text)
         .into_iter()
         .map(|(name, _)| (offset.., name.to_string().into()))
         .collect()
@@ -597,7 +597,7 @@ fn complete_expansion_kind(content: &str, offset: usize) -> Vec<ui::prompt::Comp
             .iter()
             .skip(1)
             .map(ExpansionKind::as_str),
-        false,
+        MatchKind::Text,
     )
     .into_iter()
     .map(|(name, _)| (offset.., (*name).into()))

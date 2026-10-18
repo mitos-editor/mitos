@@ -18,6 +18,7 @@ members = [
   "crates/grammar-build",
   "crates/clipboard",
   "crates/search",
+  "crates/fuzzy",
   "crates/text-io",
   "crates/workspace",
   "crates/theme",
@@ -65,6 +66,7 @@ loader = { path = "crates/loader" }
 grammar-build = { path = "crates/grammar-build" }
 clipboard = { path = "crates/clipboard" }
 search = { path = "crates/search" }
+fuzzy = { path = "crates/fuzzy" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }
@@ -126,6 +128,7 @@ grep-searcher = "0.1"
 ignore = "0.4"
 imara-diff = "0.2.0"
 nucleo = "0.5.0"
+nucleo-matcher = "0.3.1"
 percent-encoding = "2.3"
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
