@@ -8,6 +8,7 @@ mod documents;
 use document_store::Documents;
 pub use text_layout::DisplayPosition;
 mod filesystem;
+pub use filesystem::FileOperation;
 mod language_servers;
 mod mode;
 mod registers;
@@ -74,6 +75,7 @@ pub struct Editor {
     pub documents: Documents,
 
     writes: WriteQueue,
+    file_operation: event::TaskController,
 
     pub count: Option<std::num::NonZeroUsize>,
     pub selected_register: Option<char>,
@@ -234,6 +236,7 @@ impl Editor {
             tree: Tree::new(area),
             documents: Documents::new(),
             writes: WriteQueue::default(),
+            file_operation: event::TaskController::default(),
             count: None,
             selected_register: None,
             macro_recording: None,

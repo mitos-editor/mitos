@@ -32,6 +32,7 @@ mod test {
     mod cursor;
     mod debugger_terminal;
     mod document_features;
+    mod file_operations;
     mod formatting;
     mod inline_completion;
     mod language_features;

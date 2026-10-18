@@ -948,7 +948,13 @@ pub(super) mod typed {
             }
         }
 
-        if let Err(err) = cx.editor.move_path(&old_path, new_path.as_ref()) {
+        if let Err(err) = cx
+            .editor
+            .request_file_operation(view::editor::FileOperation::Move {
+                from: old_path,
+                to: new_path,
+            })
+        {
             bail!("Could not move file: {err}");
         }
         Ok(())

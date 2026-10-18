@@ -1,5 +1,8 @@
 //! Filesystem operations and their editor, watcher, and language-server effects.
 
+mod preflight;
+pub use preflight::FileOperation;
+
 use std::{fs, io, path::Path};
 
 use lsp_client::lsp;
@@ -9,37 +12,13 @@ use workspace::trust::TrustQuery;
 use crate::{DocumentId, Editor};
 
 impl Editor {
-    /// moves/renames a path, invoking any event handlers (currently only lsp)
-    /// and calling `set_doc_path` if the file is open in the editor
-    pub fn move_path(&mut self, old_path: &Path, new_path: &Path) -> io::Result<()> {
+    /// Apply a resource change and its notifications without requesting preflight edits.
+    pub(crate) fn move_path(&mut self, old_path: &Path, new_path: &Path) -> io::Result<()> {
         let new_path = canonicalize(new_path);
         // sanity check
         if old_path == new_path {
             return Ok(());
         }
-        let is_dir = old_path.is_dir();
-        let language_servers: Vec<_> = self
-            .language_servers
-            .iter_clients()
-            .filter(|client| client.is_initialized())
-            .cloned()
-            .collect();
-        for language_server in language_servers {
-            let Some(request) = language_server.will_rename(old_path, &new_path, is_dir) else {
-                continue;
-            };
-            let edit = match lsp_client::block_on(request) {
-                Ok(edit) => edit.unwrap_or_default(),
-                Err(err) => {
-                    log::error!("invalid willRename response: {err:?}");
-                    continue;
-                }
-            };
-            if let Err(err) = self.apply_workspace_edit(language_server.offset_encoding(), &edit) {
-                log::error!("failed to apply workspace edit: {err:?}")
-            }
-        }
-
         let old_watched = self.file_watcher.is_watching(old_path);
         let new_watched = self.file_watcher.is_watching(&new_path);
         if old_path.exists() {
@@ -72,30 +51,8 @@ impl Editor {
         Ok(())
     }
 
-    pub fn create_path(&mut self, path: &Path, is_dir: bool) -> io::Result<()> {
+    pub(crate) fn create_path(&mut self, path: &Path, is_dir: bool) -> io::Result<()> {
         let path = canonicalize(path);
-        let language_servers: Vec<_> = self
-            .language_servers
-            .iter_clients()
-            .filter(|client| client.is_initialized())
-            .cloned()
-            .collect();
-        for language_server in language_servers {
-            let Some(request) = language_server.will_create(&path, is_dir) else {
-                continue;
-            };
-            let edit = match lsp_client::block_on(request) {
-                Ok(edit) => edit.unwrap_or_default(),
-                Err(err) => {
-                    log::error!("invalid willCreate response: {err:?}");
-                    continue;
-                }
-            };
-            if let Err(err) = self.apply_workspace_edit(language_server.offset_encoding(), &edit) {
-                log::error!("failed to apply workspace edit: {err:?}")
-            }
-        }
-
         if let Some(dir) = path.parent()
             && !dir.is_dir()
         {
@@ -121,32 +78,10 @@ impl Editor {
         Ok(())
     }
 
-    pub fn delete_path(&mut self, path: &Path, recursive: bool) -> io::Result<()> {
+    pub(crate) fn delete_path(&mut self, path: &Path, recursive: bool) -> io::Result<()> {
         let path = canonicalize(path);
         let watched = self.file_watcher.is_watching(&path);
         let is_dir = path.is_dir();
-        let language_servers: Vec<_> = self
-            .language_servers
-            .iter_clients()
-            .filter(|client| client.is_initialized())
-            .cloned()
-            .collect();
-        for language_server in language_servers {
-            let Some(request) = language_server.will_delete(&path, is_dir) else {
-                continue;
-            };
-            let edit = match lsp_client::block_on(request) {
-                Ok(edit) => edit.unwrap_or_default(),
-                Err(err) => {
-                    log::error!("invalid willDelete response: {err:?}");
-                    continue;
-                }
-            };
-            if let Err(err) = self.apply_workspace_edit(language_server.offset_encoding(), &edit) {
-                log::error!("failed to apply workspace edit: {err:?}")
-            }
-        }
-
         if is_dir {
             if recursive {
                 fs::remove_dir_all(&path)?;

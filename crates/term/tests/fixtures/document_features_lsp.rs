@@ -27,6 +27,7 @@ fn main() -> anyhow::Result<()> {
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
+    let file_operations = args.first().is_some_and(|arg| arg == "--file-operations");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
@@ -40,7 +41,8 @@ fn main() -> anyhow::Result<()> {
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
-    let mut request_log = if formatting
+    let mut request_log = if file_operations
+        || formatting
         || diagnostics
         || code_actions
         || lifecycle
@@ -85,7 +87,13 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if formatting || action_execution || code_lenses || language_features || navigation {
+        if file_operations
+            || formatting
+            || action_execution
+            || code_lenses
+            || language_features
+            || navigation
+        {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
             request_log.as_mut().unwrap().flush()?;
         }
@@ -490,7 +498,42 @@ fn main() -> anyhow::Result<()> {
             }
         }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
+        if file_operations && method.starts_with("workspace/will") {
+            if let Some(index) = args.iter().position(|arg| arg == "--preflight-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            let result = if method == "workspace/willRenameFiles" {
+                let uri = params["files"][0]["oldUri"].as_str().unwrap();
+                if documents
+                    .get(uri)
+                    .is_some_and(|text| text.starts_with("reject"))
+                {
+                    json!({"documentChanges":[{"textDocument":{"uri":uri,"version":-1}, "edits":[{"range":range(0, 0),"newText":"prepared "}]}]})
+                } else {
+                    json!({"changes": {uri: [{"range": range(0, 0), "newText": "prepared "}]}})
+                }
+            } else {
+                Value::Null
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id, "result":result}),
+            )?;
+            continue;
+        }
         let result = match method {
+            "initialize" if file_operations => json!({"capabilities": {
+                "textDocumentSync": 1, "workspace": {"fileOperations": {
+                    "willRename": {"filters": [{"pattern": {"glob": "**"}}]},
+                    "didRename": {"filters": [{"pattern": {"glob": "**"}}]},
+                    "willCreate": {"filters": [{"pattern": {"glob": "**"}}]},
+                    "didCreate": {"filters": [{"pattern": {"glob": "**"}}]},
+                    "willDelete": {"filters": [{"pattern": {"glob": "**"}}]},
+                    "didDelete": {"filters": [{"pattern": {"glob": "**"}}]}
+                }}
+            }}),
             "initialize" if formatting => json!({"capabilities": {
                 "textDocumentSync": 1, "documentRangeFormattingProvider": true
             }}),
