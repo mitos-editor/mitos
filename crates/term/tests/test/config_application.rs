@@ -72,7 +72,7 @@ async fn shared_language_application_updates_scopes_documents_and_diagnostics() 
         assert!(doc.diagnostics().is_empty());
         assert!(doc.is_syntax_pending());
         // Refresh filters the document projection, without discarding the cached reports.
-        assert_eq!(f.app.editor.diagnostics[&doc.uri().unwrap()].len(), 1);
+        assert_eq!(f.app.editor.diagnostics()[&doc.uri().unwrap()].len(), 1);
     }
     assert!(f.app.close().await.is_empty());
     Ok(())

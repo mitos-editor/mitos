@@ -111,7 +111,7 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
     f.app
         .editor
         .handle_publish_diagnostics(id, params(&uri, Some(0), "too early"));
-    assert!(f.app.editor.diagnostics.is_empty());
+    assert!(f.app.editor.diagnostics().is_empty());
     f.initialize().await?;
     f.app
         .editor
@@ -126,12 +126,12 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
             .editor
             .handle_publish_diagnostics(id, params(&uri, Some(stale), "stale"));
         assert_eq!(f.messages(), ["current"]);
-        assert_eq!(f.app.editor.diagnostics[&uri][0].0.message, "current");
+        assert_eq!(f.app.editor.diagnostics()[&uri][0].0.message, "current");
     }
     let mut invalid = params(&uri, None, "invalid URI");
     invalid.uri = "https://example.test/diagnostic".parse()?;
     f.app.editor.handle_publish_diagnostics(id, invalid);
-    assert_eq!(f.app.editor.diagnostics.len(), 1);
+    assert_eq!(f.app.editor.diagnostics().len(), 1);
     f.app
         .editor
         .handle_publish_diagnostics(id, params(&uri, None, "unversioned"));
@@ -145,7 +145,7 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
         .editor
         .handle_publish_diagnostics(id, params(&uri, None, "after exit"));
     f.app.editor.handle_language_server_initialized(id);
-    assert!(f.app.editor.diagnostics.is_empty());
+    assert!(f.app.editor.diagnostics().is_empty());
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -204,7 +204,7 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
             .any(|doc| doc.supports_language_server(alpha)));
         assert!(event
             .editor
-            .diagnostics
+            .diagnostics()
             .values()
             .flatten()
             .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
@@ -221,9 +221,9 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
     assert!(f.app.editor.language_server_by_id(beta).is_some());
     assert_eq!(f.messages(), ["beta", "spelling"]);
-    assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
-    assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
+    assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
+    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
     f.app.editor.handle_language_server_exit(alpha);
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.close().await.is_empty());
@@ -283,7 +283,7 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
             .supports_language_server(alpha));
         assert!(event
             .editor
-            .diagnostics
+            .diagnostics()
             .values()
             .flatten()
             .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
@@ -302,9 +302,9 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
     let other_doc = f.app.editor.document(other_document).unwrap();
     assert_eq!(other_doc.diagnostics().len(), 1);
     assert_eq!(other_doc.diagnostics()[0].message.as_ref(), "beta");
-    assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
-    assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
+    assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
+    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
     // Late notifications from the retired process cannot restore its diagnostics.
     f.app
         .editor
@@ -345,7 +345,7 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
         .stop_language_servers(document, &["unknown"])
         .is_err());
     assert!(f.app.editor.language_server_by_id(alpha).is_some());
-    assert!(f.app.editor.diagnostics.contains_key(&alpha_only));
+    assert!(f.app.editor.diagnostics().contains_key(&alpha_only));
     let exits = Arc::new(AtomicUsize::new(0));
     let seen = exits.clone();
     event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
@@ -358,7 +358,7 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
             .supports_language_server(alpha));
         assert!(event
             .editor
-            .diagnostics
+            .diagnostics()
             .values()
             .flatten()
             .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
@@ -371,9 +371,9 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.editor.language_server_by_id(beta).is_some());
-    assert!(!f.app.editor.diagnostics.contains_key(&alpha_only));
-    assert_eq!(f.app.editor.diagnostics[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics[&shared][0].0.message, "beta");
+    assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
+    assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
+    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
     f.app.editor.refresh_language_servers(document);
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
     assert!(current_ref!(f.app.editor)
@@ -405,7 +405,7 @@ async fn terminal_adapter_delegates_and_keeps_the_exit_status_message() -> anyho
         .handle_language_server_message(notification("exit", Value::Null), id)
         .await;
     assert!(f.app.editor.language_server_by_id(id).is_none());
-    assert!(f.app.editor.diagnostics.is_empty());
+    assert!(f.app.editor.diagnostics().is_empty());
     assert!(f.messages().is_empty());
     assert!(f.app.close().await.is_empty());
     Ok(())

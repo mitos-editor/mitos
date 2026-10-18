@@ -411,7 +411,7 @@ pub fn workspace_diagnostics_picker(cx: &mut Context) {
     }
     // The store additionally holds LSP diagnostics for files which are not currently open.
     let open_paths: HashSet<&Path> = cx.editor.documents().filter_map(|doc| doc.path()).collect();
-    for (uri, diags) in &cx.editor.diagnostics {
+    for (uri, diags) in cx.editor.diagnostics() {
         if uri.as_path().is_some_and(|path| open_paths.contains(path)) {
             continue;
         }

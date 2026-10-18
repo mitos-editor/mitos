@@ -77,7 +77,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     }
 
     pub fn skip_concealed(&mut self, conceal_end_char_idx: usize) -> usize {
-        let diagnostics = &self.doc.diagnostics[self.idx..];
+        let diagnostics = &self.doc.diagnostics()[self.idx..];
         let idx = diagnostics.partition_point(|diag| diag.range.start < conceal_end_char_idx);
         self.idx += idx;
         self.next_anchor(conceal_end_char_idx)
@@ -86,7 +86,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     pub fn next_anchor(&self, current_char_idx: usize) -> usize {
         let next_diag_start = self
             .doc
-            .diagnostics
+            .diagnostics()
             .get(self.idx)
             .map_or(usize::MAX, |diag| diag.range.start);
         if (current_char_idx..next_diag_start).contains(&self.cursor) {
@@ -114,7 +114,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
             self.cursor_line = true;
             if self
                 .doc
-                .diagnostics
+                .diagnostics()
                 .get(self.idx)
                 .is_none_or(|diag| diag.range.start != grapheme.char_idx)
             {
@@ -129,7 +129,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
             return true;
         }
 
-        for diag in &self.doc.diagnostics[self.idx..] {
+        for diag in &self.doc.diagnostics()[self.idx..] {
             if diag.range.start != grapheme.char_idx {
                 break;
             }
@@ -146,7 +146,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         horizontal_off: usize,
     ) -> usize {
         if self.process_anchor_impl(grapheme, width, horizontal_off) {
-            self.idx += self.doc.diagnostics[self.idx..]
+            self.idx += self.doc.diagnostics()[self.idx..]
                 .iter()
                 .take_while(|diag| diag.range.start == grapheme.char_idx)
                 .count();

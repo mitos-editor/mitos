@@ -316,7 +316,10 @@ valid across typing and temporary previews.
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
 have state modules under `view/src/features/`. Each groups its cache, request
 controllers, and attached scheduling handle. Pull diagnostics keeps its handle
-with its diagnostic state. Removing a view cancels its per-view work; dropping a
+with its diagnostic state. Diagnostic collections and edit mapping live in
+`features::diagnostics::state`; raw LSP caching, conversion, push/pull publication,
+and provider cleanup live in its `protocol` module. Frontends read diagnostics
+through immutable accessors. Removing a view cancels its per-view work; dropping a
 document drops its request controllers. Cache-only clearing preserves replacement
 requests for colors, links, highlights, and symbols. Clearing code-action hints
 also invalidates their requests. Each feature makes that distinction explicit.

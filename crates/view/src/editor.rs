@@ -12,6 +12,7 @@ mod mode;
 use crate::{
     document::{DocumentSavedEventResult, Mode, SavePoint},
     events::DocumentFocusLost,
+    features::diagnostics::LspDiagnostics,
     graphics::{CursorKind, Rect},
     handlers::Handlers,
     info::Info,
@@ -34,7 +35,7 @@ use lsp_client::{Call, LanguageServerId};
 use std::{
     borrow::Cow,
     cell::Cell,
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -50,12 +51,8 @@ use anyhow::bail;
 use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
 use editor_core::diagnostic::Severity;
-use editor_core::{
-    auto_pairs::AutoPairs, diagnostic::DiagnosticProvider, movement::Direction, Change, Range,
-    Selection, Uri,
-};
+use editor_core::{auto_pairs::AutoPairs, movement::Direction, Change, Range, Selection};
 use language::syntax;
-use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range};
 
 use arc_swap::{
@@ -66,8 +63,6 @@ use arc_swap::{
 pub const DIR_STACK_CAP: usize = 10;
 
 pub use crate::debugger::Breakpoint;
-
-type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
     /// Current editing mode.
@@ -84,7 +79,7 @@ pub struct Editor {
     pub macro_replaying: Vec<char>,
     pub language_servers: crate::language_servers::Registry,
     initialized_language_servers: HashSet<LanguageServerId>,
-    pub diagnostics: Diagnostics,
+    pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
 
     pub(crate) debugger: crate::debugger::DebuggerState,
@@ -243,7 +238,7 @@ impl Editor {
             theme: theme_loader.default(),
             language_servers,
             initialized_language_servers: HashSet::new(),
-            diagnostics: Diagnostics::new(),
+            diagnostics: LspDiagnostics::new(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
@@ -583,62 +578,6 @@ impl Editor {
         let view = self.tree.get(id);
         let doc = doc_mut!(self, &view.doc);
         view.ensure_cursor_in_view(doc, config.scroll.padding)
-    }
-
-    /// Returns all supported diagnostics for the document
-    pub fn doc_diagnostics<'a>(
-        language_servers: &'a crate::language_servers::Registry,
-        diagnostics: &'a Diagnostics,
-        document: &Document,
-    ) -> impl Iterator<Item = editor_core::Diagnostic> + 'a + use<'a> {
-        Editor::doc_diagnostics_with_filter(language_servers, diagnostics, document, |_, _| true)
-    }
-
-    /// Returns all supported diagnostics for the document
-    /// filtered by `filter` which is invocated with the raw `lsp::Diagnostic` and the language server id it came from
-    pub fn doc_diagnostics_with_filter<'a, F>(
-        language_servers: &'a crate::language_servers::Registry,
-        diagnostics: &'a Diagnostics,
-        document: &Document,
-        filter: F,
-    ) -> impl Iterator<Item = editor_core::Diagnostic> + 'a + use<'a, F>
-    where
-        F: Fn(&lsp::Diagnostic, &DiagnosticProvider) -> bool + 'a,
-    {
-        let text = document.text().clone();
-        let language_config = document.language.clone();
-        document
-            .uri()
-            .and_then(|uri| diagnostics.get(&uri))
-            .map(|diags| {
-                diags.iter().filter_map(move |(diagnostic, provider)| {
-                    let server_id = provider.language_server_id()?;
-                    let ls = language_servers.get_by_id(server_id)?;
-                    language_config
-                        .as_ref()
-                        .and_then(|c| {
-                            c.language_servers.iter().find(|features| {
-                                features.name == ls.name()
-                                    && features.has_feature(LanguageServerFeature::Diagnostics)
-                            })
-                        })
-                        .and_then(|_| {
-                            if filter(diagnostic, provider) {
-                                Document::lsp_diagnostic_to_diagnostic(
-                                    &text,
-                                    language_config.as_deref(),
-                                    diagnostic,
-                                    provider.clone(),
-                                    ls.offset_encoding(),
-                                )
-                            } else {
-                                None
-                            }
-                        })
-                })
-            })
-            .into_iter()
-            .flatten()
     }
 
     /// Gets the primary cursor position in screen coordinates,

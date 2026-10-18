@@ -656,7 +656,7 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
                     if request.complete(doc, result) {
                         let diagnostics = view::Editor::doc_diagnostics(
                             &editor.language_servers,
-                            &editor.diagnostics,
+                            editor.diagnostics(),
                             doc,
                         );
                         doc.replace_diagnostics(diagnostics, &[], None);

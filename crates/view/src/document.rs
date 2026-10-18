@@ -40,11 +40,8 @@ use anyhow::{anyhow, bail, Error};
 use arc_swap::access::DynAccess;
 use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
-use editor_core::chars::char_is_word;
-use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::encoding::Encoding;
 use language_config::LanguageServerFeature;
-use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
 use text_layout::doc_formatter::TextFormat;
 use text_layout::text_annotations::Overlay;
@@ -74,7 +71,7 @@ use editor_core::{
     encoding,
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
-    ChangeSet, Diagnostic, LineEnding, Range, Rope, Selection, Transaction,
+    ChangeSet, LineEnding, Range, Rope, Selection, Transaction,
 };
 use language::{syntax, Syntax};
 use language_config::LanguageConfiguration;
@@ -218,7 +215,7 @@ pub struct Document {
 
     pub(crate) modified_since_accessed: bool,
 
-    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostics: crate::features::diagnostics::DiagnosticStore,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
     opened_language_servers: HashSet<LanguageServerId>,
 
@@ -296,7 +293,7 @@ impl Document {
             spelling_events: None,
             language: None,
             selection_history: Default::default(),
-            diagnostics: Vec::new(),
+            diagnostics: Default::default(),
             savepoints: Vec::new(),
             modified_since_accessed: false,
             language_servers: HashMap::new(),
@@ -863,176 +860,6 @@ impl Document {
             self.selection(view_id).primary().cursor(text.slice(..)),
             offset_encoding,
         )
-    }
-
-    pub fn lsp_diagnostic_to_diagnostic(
-        text: &Rope,
-        language_config: Option<&LanguageConfiguration>,
-        diagnostic: &lsp_client::lsp::Diagnostic,
-        provider: DiagnosticProvider,
-        offset_encoding: lsp_client::OffsetEncoding,
-    ) -> Option<Diagnostic> {
-        use editor_core::diagnostic::{Range, Severity::*};
-
-        // TODO: convert inside server
-        let start =
-            if let Some(start) = lsp_pos_to_pos(text, diagnostic.range.start, offset_encoding) {
-                start
-            } else {
-                log::warn!("lsp position out of bounds - {:?}", diagnostic);
-                return None;
-            };
-
-        let end = if let Some(end) = lsp_pos_to_pos(text, diagnostic.range.end, offset_encoding) {
-            end
-        } else {
-            log::warn!("lsp position out of bounds - {:?}", diagnostic);
-            return None;
-        };
-
-        let severity = diagnostic.severity.and_then(|severity| match severity {
-            lsp::DiagnosticSeverity::ERROR => Some(Error),
-            lsp::DiagnosticSeverity::WARNING => Some(Warning),
-            lsp::DiagnosticSeverity::INFORMATION => Some(Info),
-            lsp::DiagnosticSeverity::HINT => Some(Hint),
-            severity => {
-                log::error!("unrecognized diagnostic severity: {:?}", severity);
-                None
-            }
-        });
-
-        if let Some(lang_conf) = language_config
-            && let Some(severity) = severity
-            && severity < lang_conf.diagnostic_severity
-        {
-            return None;
-        };
-        use editor_core::diagnostic::{DiagnosticTag, NumberOrString};
-
-        let code = match diagnostic.code.clone() {
-            Some(x) => match x {
-                lsp::NumberOrString::Number(x) => Some(NumberOrString::Number(x)),
-                lsp::NumberOrString::String(x) => Some(NumberOrString::String(x.into())),
-            },
-            None => None,
-        };
-
-        let tags = if let Some(tags) = &diagnostic.tags {
-            tags.iter()
-                .filter_map(|tag| match *tag {
-                    lsp::DiagnosticTag::DEPRECATED => Some(DiagnosticTag::Deprecated),
-                    lsp::DiagnosticTag::UNNECESSARY => Some(DiagnosticTag::Unnecessary),
-                    _ => None,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-
-        let ends_at_word =
-            start != end && end != 0 && text.get_char(end - 1).is_some_and(char_is_word);
-        let starts_at_word = start != end && text.get_char(start).is_some_and(char_is_word);
-
-        Some(Diagnostic {
-            range: Range { start, end },
-            ends_at_word,
-            starts_at_word,
-            zero_width: start == end,
-            line: diagnostic.range.start.line as usize,
-            message: diagnostic.message.clone().into(),
-            severity,
-            code,
-            tags,
-            source: diagnostic.source.clone().map(|source| source.into()),
-            data: diagnostic.data.clone(),
-            provider,
-        })
-    }
-
-    #[inline]
-    pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
-    }
-
-    pub fn replace_diagnostics(
-        &mut self,
-        diagnostics: impl IntoIterator<Item = Diagnostic>,
-        unchanged_sources: &[String],
-        provider: Option<&DiagnosticProvider>,
-    ) {
-        if unchanged_sources.is_empty() {
-            if let Some(provider) = provider {
-                self.diagnostics
-                    .retain(|diagnostic| &diagnostic.provider != provider);
-            } else {
-                self.diagnostics.clear();
-            }
-        } else {
-            self.diagnostics.retain(|d| {
-                if provider.is_some_and(|provider| provider != &d.provider) {
-                    return true;
-                }
-
-                d.source
-                    .as_ref()
-                    .is_some_and(|source| unchanged_sources.iter().any(|s| **s == **source))
-            });
-        }
-        self.extend_diagnostics(diagnostics);
-    }
-
-    /// Refresh cached language-server diagnostics without discarding diagnostics
-    /// owned by other providers.
-    pub fn replace_language_server_diagnostics(
-        &mut self,
-        diagnostics: impl IntoIterator<Item = Diagnostic>,
-    ) {
-        self.diagnostics
-            .retain(|diagnostic| !matches!(diagnostic.provider, DiagnosticProvider::Lsp { .. }));
-        self.extend_diagnostics(diagnostics);
-    }
-
-    fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
-        self.diagnostics.extend(diagnostics);
-        self.diagnostics.sort_by_key(|diagnostic| {
-            (
-                diagnostic.range,
-                diagnostic.severity,
-                diagnostic.provider.clone(),
-            )
-        });
-    }
-
-    /// Replaces `provider`'s diagnostics that fall within any of `regions` with `diagnostics`,
-    /// leaving every other diagnostic untouched, including `provider`'s own diagnostics that lie
-    /// outside `regions`.
-    ///
-    /// This is the incremental counterpart to [`Document::replace_diagnostics`]: when only bounded
-    /// regions of the document have been re-examined (e.g. the areas around an edit), the caller
-    /// re-checks those regions and splices the results in, rather than recomputing the whole
-    /// document. Diagnostics outside `regions` keep the positions they were edit-mapped to.
-    ///
-    /// `regions` are half-open char ranges in the current document text; `diagnostics` are expected
-    /// to fall within them. A diagnostic is considered inside a region when their ranges overlap.
-    pub fn splice_diagnostics(
-        &mut self,
-        diagnostics: impl IntoIterator<Item = Diagnostic>,
-        regions: &[std::ops::Range<usize>],
-        provider: &DiagnosticProvider,
-    ) {
-        self.diagnostics.retain(|d| {
-            &d.provider != provider
-                || !regions
-                    .iter()
-                    .any(|region| d.range.start < region.end && region.start < d.range.end)
-        });
-        self.extend_diagnostics(diagnostics);
-    }
-
-    /// clears diagnostics for a given language server id if set, otherwise all diagnostics are cleared
-    pub fn clear_diagnostics_for_language_server(&mut self, id: LanguageServerId) {
-        self.diagnostics
-            .retain(|d| d.provider.language_server_id() != Some(id));
     }
 
     /// Get the document's auto pairs. If the document has a recognized

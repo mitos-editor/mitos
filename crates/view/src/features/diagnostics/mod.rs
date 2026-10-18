@@ -1,6 +1,11 @@
-//! Diagnostic presentation state and shared LSP pull coordination.
+//! Diagnostic storage, edit mapping, protocol publication, and presentation.
 
+mod protocol;
 pub mod pull;
+mod state;
+
+pub use protocol::LspDiagnostics;
+pub(crate) use state::DiagnosticStore;
 
 use std::cell::Cell;
 use std::num::NonZeroUsize;

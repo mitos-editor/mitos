@@ -18,3 +18,7 @@ editor retains live configuration and register fallback behavior.
 Text, versions, pending changes, and undo history are owned by the
 `buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.
+
+`features/diagnostics` owns diagnostic collections, edit mapping, and LSP
+conversion/publication for push and pull providers. Frontends receive immutable
+diagnostic views; text mutations map diagnostic anchors before notifying observers.

@@ -248,7 +248,7 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     // state nor the old URI's cache.
     assert_eq!(f.messages(), after_rename);
     assert_eq!(
-        f.app.editor.diagnostics[&old_uri][0].0.message,
+        f.app.editor.diagnostics()[&old_uri][0].0.message,
         "alpha: 😀 updated"
     );
     // Closing before publication must not insert an entry into the global cache.
@@ -257,7 +257,7 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     let uri = current_ref!(f.app.editor).1.uri().unwrap();
     assert!(f.app.editor.close_document(id, true).is_ok());
     old(&mut f.app.editor);
-    assert!(!f.app.editor.diagnostics.contains_key(&uri));
+    assert!(!f.app.editor.diagnostics().contains_key(&uri));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -324,7 +324,7 @@ async fn exited_servers_cannot_publish_queued_reports() -> anyhow::Result<()> {
     f.app.editor.language_servers.remove_by_id(server_id);
     response(&mut f.app.editor);
     assert!(f.messages().is_empty());
-    assert!(f.app.editor.diagnostics.is_empty());
+    assert!(f.app.editor.diagnostics().is_empty());
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

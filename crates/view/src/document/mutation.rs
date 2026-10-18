@@ -116,7 +116,7 @@ impl Document {
         }
 
         // Map cached anchors as part of the mutation, before protocol synchronization or observers.
-        self.map_diagnostics(changes);
+        self.diagnostics.apply_changes(changes, self.buffer.text());
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);
         self.code_lenses.apply_changes(
