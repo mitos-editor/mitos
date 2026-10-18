@@ -1,32 +1,47 @@
-# Usage
+# Selections
 
-For a full interactive introduction to Mitos, refer to the
-[tutor](https://github.com/mitos-editor/mitos/blob/main/runtime/tutor) which
-can be accessed via the command `ms --tutor` or `:tutor`.
+A cursor is a one-character selection. In normal mode, motions such as `w`
+change the selection; in select mode (`v`), they extend it. Press `Esc` to
+return to normal mode. See [Basics](./basics.md) for your first edits.
 
-> 💡 Currently, not all functionality is fully documented, please refer to the
-> [key mappings](./keymap.md) list.
+## Build multiple selections
 
-## Modes
+The same editing commands apply to one selection or many:
 
-Mitos is a modal editor, meaning it has different modes for different tasks. The main modes are:
+| Key | Action |
+| --- | --- |
+| `s` | Select regex matches within the current selections |
+| `S` | Split selections at regex matches |
+| `Alt-s` | Split selections at newlines |
+| `C` / `Alt-C` | Add a selection on the line below / above |
+| `K` / `Alt-K` | Keep / remove selections matching a regex |
+| `,` | Keep only the primary selection |
+| `Alt-,` | Remove the primary selection |
 
-* [Normal mode](./keymap.md#normal-mode): For navigation and editing commands. This is the default mode.
-* [Insert mode](./keymap.md#insert-mode): For typing text directly into the document. Access by typing `i` in normal mode.
-* [Select/extend mode](./keymap.md#select--extend-mode): For making selections and performing operations on them. Access by typing `v` in normal mode.
+For example, select several lines, press `Alt-s`, then `I` to insert at the
+start of each selected line. Type a prefix and press `Esc` to finish.
+For matching text, see [Search and replacement](./search.md).
 
-## Buffers
+## Adjust selections
 
-Buffers are in-memory representations of files. You can have multiple buffers open at once. Use [pickers](./pickers.md) or commands like `:buffer-next` and `:buffer-previous` to open buffers or switch between them.
+The primary selection is the one used by commands that need a single position,
+such as showing documentation. Use `(` and `)` to change which selection is
+primary.
 
-## Selection-first editing
+Each selection has an anchor and a cursor. Motions in select mode move the
+cursor while leaving the anchor in place. `Alt-;` swaps the two ends, `;`
+collapses each selection to its cursor, and `Alt-:` makes selections forward.
 
-Inspired by [Kakoune](http://kakoune.org/), Mitos follows the `selection → action` model. This means that whatever you are going to act on (a word, a paragraph, a line, etc.) is selected first and the action itself (delete, change, yank, etc.) comes second. A cursor is simply a single width selection.
+Use `x` to select a line, `%` to select the whole buffer, and `miw` to select
+inside a word. [Textobjects](./textobjects.md) and
+[syntax-aware motions](./syntax-aware-motions.md) select larger structures.
 
-## Multiple selections
+## Transform selected text
 
-Also inspired by Kakoune, multiple selections are a core mode of interaction in Mitos. For example, the standard way of replacing multiple instances of a word is to first select all instances (so there is one selection per instance) and then use the change action (`c`) to edit them all at the same time.
+`d`, `c`, `y`, and `Alt-r` operate on every selection. `J` joins selected
+lines, `_` trims whitespace from selections, and `&` aligns selections in
+columns. `Alt-(` and `Alt-)` rotate the selected contents between locations.
 
-## Motions
-
-Motions are commands that move the cursor or modify selections. They're used for navigation and text manipulation. Examples include `w` to move to the next word, or `f` to find a character. See the [Movement](./keymap.md#movement) section of the keymap for more motions.
+See the [selection keymap](./keymap.md#selection-manipulation) for the full list,
+[Registers](./registers.md) for copying text, and
+[Shell commands](./shell.md) for filtering selections through other tools.

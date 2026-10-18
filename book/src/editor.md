@@ -1,639 +1,180 @@
-# Editor
+# Configure Mitos
 
-This chapter explains editor settings in depth. For the complete, canonical
-list of every setting and default, see the [`config.toml` reference](./configuration.md#configtoml-reference).
+Open your user configuration with `:config-open`. The file is
+`~/.config/mitos/config.toml` on Linux and macOS, or
+`%AppData%\mitos\config.toml` on Windows. On Unix, `XDG_CONFIG_HOME` can change
+the configuration directory.
 
-- [`[editor]` Section](#editor-section)
-- [`[editor.breadcrumb]` Section](#editorbreadcrumb-section)
-- [`[editor.clipboard]` Section](#editorclipboard-section)
-- [`[editor.statusline]` Section](#editorstatusline-section)
-- [`[editor.lsp]` Section](#editorlsp-section)
-- [`[terminal.launcher]` Section](#terminallauncher-section)
-- [`[editor.inline-blame]` Section](#editorinline-blame-section)
-- [`[editor.cursor.shape]` Section](#editorcursorshape-section)
-- [`[editor.file-picker]` Section](#editorfile-picker-section)
-- [`[editor.file-explorer]` Section](#editorfile-explorer-section)
-- [`[editor.buffer-picker]` Section](#editorbuffer-picker-section)
-- [`[editor.auto-pairs]` Section](#editorauto-pairs-section)
-- [`[editor.files.auto-save]` Section](#editorfilesauto-save-section)
-- [`[editor.search]` Section](#editorsearch-section)
-- [`[editor.whitespace]` Section](#editorwhitespace-section)
-- [`[editor.indent-guides]` Section](#editorindent-guides-section)
-- [`[editor.gutters]` Section](#editorgutters-section)
-  - [`[editor.gutters.line-numbers]` Section](#editorguttersline-numbers-section)
-  - [`[editor.gutters.diagnostics]` Section](#editorguttersdiagnostics-section)
-  - [`[editor.gutters.diff]` Section](#editorguttersdiff-section)
-  - [`[editor.gutters.spacer]` Section](#editorguttersspacer-section)
-  - [`[editor.gutters.code-action-hint]` Section](#editorgutterscode-action-hint-section)
-- [`[editor.soft-wrap]` Section](#editorsoft-wrap-section)
-- [`[editor.indent.smart-tab]` Section](#editorindentsmart-tab-section)
-- [`[editor.diagnostics.inline]` Section](#editordiagnosticsinline-section)
-- [`[editor.completion.word]` Section](#editorcompletionword-section)
-- [`[editor.spelling]` Section](#editorspelling-section)
-- [`[editor.workspace-trust]` Section](#editorworkspace-trust-section)
+Start with a few preferences:
 
-### `[editor]` Section
+```toml
+theme = "onedark"
 
-| Key | Description | Default |
-|--|--|---------|
-| `scroll.padding` | Number of lines of padding around the edge of the screen when scrolling | `5` |
-| `mouse.enable` | Enable mouse mode | `true` |
-| `mouse.yank-register` | Which register to use for mouse yanks. | `*` |
-| `mouse.middle-click-paste` | Middle click paste support | `true` |
-| `clipboard.default-yank-register` | Default register used for yank/paste | `'"'` |
-| `scroll.wheel-lines` | Number of lines to scroll per scroll wheel step | `3` |
-| `shell` | Shell to use when running external commands | Unix: `["sh", "-c"]`<br/>Windows: `["cmd", "/C"]` |
-| `line-number` | Line number display: `absolute` simply shows each line's number, while `relative` shows the distance from the current line. When unfocused or in insert mode, `relative` will still show absolute line numbers | `"absolute"` |
-| `cursor.highlight-line` | Highlight all lines with a cursor | `false` |
-| `cursor.highlight-column` | Highlight all columns with a cursor | `false` |
-| `continue-comments` | if mitos should automatically add a line comment token if you create a new line inside a comment. | `true` |
-| `gutters` | Gutters to display: Available are `diagnostics` and `diff` and `line-numbers` and `spacer` and `code-action-hint`, note that `diagnostics` also includes other features like breakpoints, 1-width padding will be inserted if gutters is non-empty | `["diagnostics", "spacer", "line-numbers", "spacer", "diff"]` |
-| `completion.auto-trigger` | Enable automatic pop up of auto-completion | `true` |
-| `completion.path.enable` | Enable filepath completion. Show files and directories if an existing path at the cursor was recognized, either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved). Defaults to true. | `true` |
-| `format.on-save` | Enable automatic formatting on save[^3] | `true` |
-| `idle-timeout` | Time in milliseconds since last keypress before idle timers trigger. | `250` |
-| `completion.trigger-delay` | Time in milliseconds after typing a word character before completions are shown, set to 5 for instant.  | `250` |
-| `completion.preview-insert` | Whether to apply completion item instantly when selected | `true` |
-| `completion.trigger-length` | The min-length of word under cursor to trigger autocompletion | `2` |
-| `completion.replace` | Whether to make completions always replace the entire word and not just the part before the cursor | `false` |
-| `auto-info` | Whether to display info boxes | `true` |
-| `icons` | Whether to show icons in the UI. Requires a Nerd Font | `false` |
-| `rulers` | List of column positions at which to display the rulers. Can be overridden by language specific `rulers` in `languages.toml` file | `[]` |
-| `bufferline.show` | Renders a line at the top of the editor displaying open buffers. Can be `always`, `never` or `multiple` (only shown if more than one buffer is in use) | `"never"` |
-| `statusline.mode.color` | Whether to color the mode indicator with different colors depending on the mode itself | `false` |
-| `text-width` | Maximum line length. Used for the `:reflow` command and soft-wrapping if `soft-wrap.wrap-at-text-width` is set | `80` |
-| `lsp.workspace-roots` | Directories relative to the workspace root that are treated as LSP roots. Should only be set in `.mitos/config.toml` | `[]` |
-| `files.default-line-ending` | The line ending to use for new documents. Can be `native`, `lf`, `crlf`, `ff`, `cr` or `nel`. `native` uses the platform's native line ending (`crlf` on Windows, otherwise `lf`). | `"native"` |
-| `files.save.insert-final-newline` | Whether to automatically insert a trailing line-ending on write if missing | `true` |
-| `files.save.atomic` | Whether to use atomic operations to write documents to disk. This prevents data loss if the editor is interrupted while writing the file, but may confuse some file watching/hot reloading programs. | `true` |
-| `files.save.trim-final-newlines` | Whether to automatically remove line-endings after the final one on write | `false` |
-| `files.save.trim-trailing-whitespace` | Whether to automatically remove whitespace preceding line endings on write | `false` |
-| `indent.heuristic` | How the indentation for a newly inserted line is computed: `simple` just copies the indentation level from the previous line, `tree-sitter` computes the indentation based on the syntax tree and `hybrid` combines both approaches. If the chosen heuristic is not available, a different one will be used as a fallback (the fallback order being `hybrid` -> `tree-sitter` -> `simple`). | `"hybrid"` |
-| `jump-label-alphabet` | The characters that are used to generate two character jump labels. Characters at the start of the alphabet are used first. | `"abcdefghijklmnopqrstuvwxyz"` |
-| `diagnostics.end-of-line.severity` | Minimum severity of diagnostics to render at the end of the line. Set to `disable` to disable entirely. Refer to the setting about `diagnostics.inline` for more details | `"hint"` |
-| `clipboard.provider` | Which API to use for clipboard interaction. One of `pasteboard` (MacOS), `wayland`, `x-clip`, `x-sel`, `win32-yank`, `termux`, `tmux`, `windows`, `termcode`, `none`, or a custom command set. | Platform and environment specific. |
-| `files.editor-config` | Whether to read settings from [EditorConfig](https://editorconfig.org) files | `true` |
-| `welcome-screen` | Whether to show the welcome screen when Mitos starts without a file | `true` |
-| `rainbow-brackets.enable` | Whether to render rainbow colors for matching brackets. Requires tree-sitter `rainbows.scm` queries for the language. | `false` |
+[editor]
+line-number = "relative"
 
-[^3]: In most cases, you also need to enable the `auto-format` setting under `languages.toml`. You can find the reasoning [here](https://github.com/helix-editor/helix/discussions/9043#discussioncomment-7811497).
+[editor.cursor.shape]
+insert = "bar"
 
-### `[editor.breadcrumb]` Section
+[keys.normal]
+C-s = ":write"
+```
 
-Allows configuration of the breadcrumb navigation bar.
+Save the file and run `:config-reload`. Unknown editor settings and invalid
+values are reported when the configuration loads. To try another file, start
+with `ms --config path/to/config.toml`.
 
-| Setting  | Description                                      | Default  |
-|----------|--------------------------------------------------|----------|
-| `enable` | Whether to enable the breadcrumb navigation bar  | `false`  |
-| `path`   | How much path information to show                | `"full"` |
+Settings changed with `:set` or `:toggle` apply to the running editor. Add them
+to `config.toml` to keep them for later sessions. For example,
+`:toggle soft-wrap.enable` temporarily toggles line wrapping.
+
+<span id="editor-section"></span>
+
+## Configuration files
+
+| File | Purpose |
+| --- | --- |
+| `config.toml` | Editor preferences, themes, keybindings, and custom commands |
+| `languages.toml` | Language servers, formatters, and language-specific settings |
+| `.editorconfig` | Shared conventions for matching file paths |
+
+A project's `.mitos/config.toml` and `.mitos/languages.toml` override your user
+settings after you [trust the workspace](./workspace-trust.md). Tables merge;
+ordinary arrays replace earlier values. See the
+[configuration reference](./configuration.md#configuration-files-and-precedence)
+for precedence and [EditorConfig](./editorconfig.md) for file conventions.
+
+Older setting names are accepted without rewriting files. See
+[Configuration migration](./configuration-migration.md) to update them.
+
+<span id="editorcursorshape-section"></span>
+
+## Cursor and line numbers
+
+Use `line-number = "relative"` under `[editor]` to show distances from the
+current line. Insert mode and unfocused views still use absolute numbers.
+Choose `block`, `bar`, `underline`, or `hidden` for each mode's cursor:
+
+```toml
+[editor.cursor.shape]
+normal = "block"
+insert = "bar"
+select = "underline"
+```
+
+Only the primary cursor can change shape in a terminal.
+
+<span id="editorstatusline-section"></span>
+
+## Statusline
+
+Each view has its own statusline. To use one statusline for the focused view,
+add `global = true` under `[editor.statusline]`. Use
+`:toggle statusline.global` to try it temporarily.
+
+Choose which elements to show on each side:
+
+```toml
+[editor.statusline]
+left = ["mode", "file-name", "file-modification-indicator"]
+right = ["diagnostics", "position", "file-type"]
+mode.normal = "NORMAL"
+mode.insert = "INSERT"
+mode.select = "SELECT"
+```
+
+The [statusline reference](./configuration.md#editorstatusline) lists all
+available elements and defaults.
+
+<span id="editorbreadcrumb-section"></span>
+
+## Breadcrumbs
+
+Show the file path and enclosing symbols above the text:
 
 ```toml
 [editor.breadcrumb]
 enable = true
-# full: crates > term > src > commands > typed.rs > TypableCommand > name
-# file: typed.rs > TypableCommand > name
-# none: TypableCommand > name
-path = "full" # one of: full, file, none
+path = "full"
 ```
 
-The bar is displayed at the top of the view.
+Use `path = "file"` to show only the filename before the symbols, or
+`path = "none"` to show symbols without a path.
 
-### `[editor.clipboard]` Section
+<span id="editorsoft-wrap-section"></span>
 
-Mitos can be configured either to use a builtin clipboard configuration or to use
-a provided command.
+## Line wrapping
 
-For instance, setting it to use OSC 52 termcodes, the configuration would be:
-```toml
-[editor]
-clipboard.provider = "termcode"
-```
-
-Alternatively, Mitos can be configured to use arbitrary commands for clipboard integration:
-
-```toml
-[editor.clipboard.provider.custom]
-yank = { command = "cat",  args = ["test.txt"] }
-paste = { command = "tee",  args = ["test.txt"] }
-yank-primary = { command = "cat",  args = ["test-primary.txt"] } # optional
-paste-primary = { command = "tee",  args = ["test-primary.txt"] } # optional
-```
-
-For custom commands the contents of the yank/paste is communicated over stdin/stdout.
-
-### `[editor.statusline]` Section
-
-Allows configuring the statusline at the bottom of each view. Set `global = true`
-to show a single statusline at the bottom of the editor for the focused view.
-Use `:toggle statusline.global` to switch between the two layouts at runtime.
-
-The configuration distinguishes between two areas of the status line:
-
-`[ ... ... LEFT ... ... | ... ... RIGHT ... ... ]`
-
-Statusline elements can be defined as follows:
-
-```toml
-[editor.statusline]
-left = ["mode", "spinner"]
-right = ["diagnostics", "selections", "position", "file-encoding", "file-line-ending", "file-type"]
-separator = "│"
-mode.normal = "NORMAL"
-mode.insert = "INSERT"
-mode.select = "SELECT"
-diagnostics = ["warning", "error"]
-workspace-diagnostics = ["warning", "error"]
-```
-The `[editor.statusline]` key takes the following sub-keys:
-
-| Key           | Description | Default |
-| ---           | ---         | ---     |
-| `global`      | Show one statusline for the focused view instead of one per view | `false` |
-| `left`        | A list of elements aligned to the left of the statusline | `["mode", "spinner", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
-| `right`       | A list of elements aligned to the right of the statusline | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
-| `separator`   | The character used to separate elements in the statusline | `"│"` |
-| `mode.normal` | The text shown in the `mode` element for normal mode | `"NOR"` |
-| `mode.insert` | The text shown in the `mode` element for insert mode | `"INS"` |
-| `mode.select` | The text shown in the `mode` element for select mode | `"SEL"` |
-| `diagnostics` | A list of severities which are displayed for the current buffer | `["warning", "error"]` |
-| `workspace-diagnostics` | A list of severities which are displayed for the workspace | `["warning", "error"]` |
-
-The following statusline elements can be configured:
-
-| Key    | Description |
-| ------ | ----------- |
-| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
-| `spinner` | A progress spinner indicating LSP activity |
-| `branch` | The current branch name or detached commit hash of the opened workspace |
-| `file-name` | The path/name of the opened file |
-| `file-absolute-path` | The absolute path/name of the opened file |
-| `file-base-name` | The basename of the opened file |
-| `current-working-directory` | The current working directory  |
-| `file-modification-indicator` | The indicator to show whether the file is modified (a `[+]` appears when there are unsaved changes) |
-| `file-encoding` | The encoding of the opened file if it differs from UTF-8 |
-| `file-line-ending` | The file line endings (CRLF or LF) |
-| `file-indent-style` | The file indentation style |
-| `read-only-indicator` | An indicator that shows `[readonly]` when a file cannot be written |
-| `total-line-numbers` | The total line numbers of the opened file |
-| `file-type` | The type of the opened file |
-| `diagnostics` | The number of warnings and/or errors |
-| `workspace-diagnostics` | The number of warnings and/or errors on workspace |
-| `selections` | The main selection index out of the number of active selections |
-| `primary-selection-length` | The number of characters currently in the main selection |
-| `position` | The cursor position |
-| `position-percentage` | The cursor position as a percentage of the total number of lines |
-| `separator` | The string defined in `editor.statusline.separator` (defaults to `"│"`) |
-| `spacer` | Inserts a space between elements (multiple/contiguous spacers may be specified) |
-| `register` | The current selected register |
-| `code-action-hint` | Indicator for when code actions are available |
-
-### `[editor.lsp]` Section
-
-| Key                   | Description                                                 | Default |
-| ---                   | -----------                                                 | ------- |
-| `enable`              | Enables LSP integration. Setting to false will completely disable language servers regardless of language settings.| `true` |
-| `messages.enable`    | Display LSP `window/showMessage` messages below statusline[^1] | `true` |
-| `progress.enable` | Display LSP progress messages below statusline[^1]    | `false` |
-| `signature-help.auto-trigger` | Enable automatic popup of signature help (parameter hints)  | `true`  |
-| `document-highlight.auto-trigger` | Automatically highlight symbol references at the cursor | `true` |
-| `inlay-hints.enable` | Display inlay hints[^2]                                     | `false` |
-| `inlay-hints.length-limit` | Maximum displayed length (non-zero number) of inlay hints | Unset by default  |
-| `color-swatches.enable` | Show color swatches next to colors | `true` |
-| `signature-help.show-documentation` | Display docs under signature help popup             | `true`  |
-| `completion.snippets`      | Enables snippet completions. Requires a server restart (`:lsp-restart`) to take effect after `:config-reload`/`:set`. | `true`  |
-| `references.include-declaration` | Include declaration in the goto references popup. | `true`  |
-
-[^1]: By default, a progress spinner is shown in the statusline beside the file path.
-
-[^2]: You may also have to activate them in the language server config for them to appear, not just in Mitos. Inlay hints in Mitos are still being improved on and may be a little bit laggy/janky under some circumstances. Please report any bugs you see so we can fix them!
-
-Terminal capability overrides are configured separately under `[terminal]`:
-`true-color`, `undercurl`, and `keyboard.kitty-protocol`. See the
-[terminal configuration reference](./configuration.md#terminal).
-
-### `[terminal.launcher]` Section
-
-Configures the external terminal command used by features such as DAP
-`runInTerminal` requests.
-
-| Key | Description | Default |
-| --- | --- | --- |
-| `command` | External terminal or multiplexer executable | Environment-dependent |
-| `args` | Arguments placed before the command Mitos asks the terminal to run | `[]` |
-
-Mitos automatically uses a tmux split inside tmux, a zellij pane inside zellij,
-a WezTerm split when its Unix socket is available, a Kitty pane when its remote
-control socket is configured, or an Alacritty window when its IPC socket is available.
-On Windows, it uses Windows Terminal when found, or Conhost as the fallback.
-On other terminals this setting is unset unless configured.
-
-### `[editor.inline-blame]` Section
-
-Inline Git blame shows who last changed a line and the associated commit information at the end of the line. It is available for files tracked by Git and is hidden by default.
-
-To show blame for the current line, add this to your `config.toml`:
-
-```toml
-[editor.inline-blame]
-show = "cursor-line"
-```
-
-| Key     | Description                                | Default |
-| ------- | ------------------------------------------ | ------- |
-| `show` | Which lines display inline blame | `"never"` |
-| `format` | Text shown in the blame message | `"{author}, {time-ago} • {title} • {commit}"` |
-
-`show` can be one of the following:
-
-- `"all-lines"`: Display blame on all visible nonempty lines.
-- `"cursor-line"`: Display blame on the primary cursor's line.
-- `"never"`: Hide inline blame.
-
-Press `Space + B` to toggle inline blame off and on. The toggle preserves your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`.
-
-Blank lines and lines with uncommitted changes do not show inline blame.
-
-To inspect the current line's commit, run `:blame` or `blame_line` from the command palette (`Space + ?`). The [blame popup](./version-control.md#blame-details) shows the commit message and provides copy actions.
-
-#### `format`
-
-Use `format` to choose which commit details appear in the blame message. For example:
-
-```toml
-[editor.inline-blame]
-show = "cursor-line"
-format = "{author}: {title}"
-```
-
-The following placeholders are available:
-
-- `{author}`: Commit author name.
-- `{date}`: Commit author date.
-- `{time-ago}`: Relative time since the commit.
-- `{title}`: Commit title.
-- `{body}`: Commit body.
-- `{commit}`: Abbreviated commit hash.
-- `{email}`: Commit author email.
-
-### `[editor.cursor.shape]` Section
-
-Defines the shape of cursor in each mode.
-Valid values for these options are `block`, `bar`, `underline`, or `hidden`.
-
-> 💡 Due to limitations of the terminal environment, only the primary cursor can
-> change shape.
-
-| Key      | Description                                | Default   |
-| ---      | -----------                                | -------   |
-| `normal` | Cursor shape in [normal mode][normal mode] | `"block"` |
-| `insert` | Cursor shape in [insert mode][insert mode] | `"block"` |
-| `select` | Cursor shape in [select mode][select mode] | `"block"` |
-
-[normal mode]: ./keymap.md#normal-mode
-[insert mode]: ./keymap.md#insert-mode
-[select mode]: ./keymap.md#select--extend-mode
-
-### `[editor.file-picker]` Section
-
-Set options for file picker and global search. Ignoring a file means it is
-not visible in the Mitos file picker and global search.
-
-All git related options are only enabled in a git repository.
-
-| Key | Description | Default |
-|--|--|---------|
-|`hidden` | Enables ignoring hidden files | `true`
-|`follow-symlinks` | Follow symlinks instead of ignoring them | `true`
-|`deduplicate-links` | Ignore symlinks that point at files already shown in the picker | `true`
-|`parents` | Enables reading ignore files from parent directories | `true`
-|`ignore` | Enables reading `.ignore` files | `true`
-|`git-ignore` | Enables reading `.gitignore` files | `true`
-|`git-global` | Enables reading global `.gitignore`, whose path is specified in git's config: `core.excludesfile` option | `true`
-|`git-exclude` | Enables reading `.git/info/exclude` files | `true`
-|`max-depth` | Set with an integer value for maximum depth to recurse | Unset by default
-
-Ignore files can be placed locally as `.ignore` or put in your home directory as `~/.ignore`. They support the usual ignore and negative ignore (unignore) rules used in `.gitignore` files.
-
-Additionally, you can use Mitos-specific ignore files by creating a local `.mitos/ignore` file in the current workspace or a global `ignore` file located in your Mitos config directory:
-- Linux and Mac: `~/.config/mitos/ignore`
-- Windows: `%AppData%\mitos\ignore`
-
-Example:
-
-```ini
-# unignore in file picker and global search
-!.github/
-!.gitignore
-!.gitattributes
-```
-
-### `[editor.file-explorer]` Section
-
-In addition to the options for the file picker and global search, a similar set of options is presented to configure the file explorer separately. However, unlike the file picker, the defaults are set to avoid ignoring most files.
-
-Note that the ignore files consulted by the file explorer when `ignore` is set to true are the same ones used by the file picker, including the aforementioned Mitos-specific ignore files.
-
-
-| Key | Description | Default |
-|--|--|---------|
-|`hidden` | Enables ignoring hidden files | `false`
-|`follow-symlinks` | Follow symlinks instead of ignoring them | `false`
-|`parents` | Enables reading ignore files from parent directories | `false`
-|`ignore` | Enables reading `.ignore` files | `false`
-|`git-ignore` | Enables reading `.gitignore` files | `false`
-|`git-global` | Enables reading global `.gitignore`, whose path is specified in git's config: `core.excludesfile` option | `false`
-|`git-exclude` | Enables reading `.git/info/exclude` files | `false`
-
-### `[editor.buffer-picker]` Section
-
-Set options for buffer picker.
-
-| Key | Description | Default |
-|--|--|---------|
-|`start-position` | Controls behavior for which buffer is initially selected | `current` |
-
-Example
-
-```toml
-[editor.buffer-picker]
-start-position = "previous"
-```
-
-### `[editor.auto-pairs]` Section
-
-Automatic delimiter pairing uses an `enable` flag and an optional `pairs` map.
-Omit the map to use the built-in pairs, or provide opening and closing characters:
-
-```toml
-[editor.auto-pairs]
-enable = true
-pairs = { '(' = ')', '[' = ']', '{' = '}', '"' = '"' }
-```
-
-Set `enable = false` to disable pairing. The same table is supported per language.
-See the [configuration reference](./configuration.md#editorauto-pairs) for defaults
-and compatibility shorthands.
-
-### `[editor.files.auto-save]` Section
-
-Control auto save behavior.
-
-| Key | Description | Default |
-|--|--|---------|
-| `focus-lost` | Enable automatic saving on the focus moving away from Mitos. Requires [focus event support](https://github.com/helix-editor/helix/wiki/Terminal-Support) from your terminal | `false` |
-| `after-delay.enable` | Enable automatic saving after `files.auto-save.after-delay.timeout` milliseconds have passed since last edit. | `false` |
-| `after-delay.timeout` | Time in milliseconds since last edit before auto save timer triggers. | `3000` |
-
-### `[editor.search]` Section
-
-Search specific options.
-
-| Key | Description | Default |
-|--|--|---------|
-| `smart-case` | Enable smart case regex searching (case-insensitive unless pattern contains upper case characters) | `true` |
-| `wrap-around`| Whether the search should wrap after depleting the matches | `true` |
-
-### `[editor.whitespace]` Section
-
-Options for rendering whitespace with visible characters. Use `:set whitespace.render all` to temporarily enable visible whitespace.
-
-| Key | Description | Default |
-|-----|-------------|---------|
-| `render` | Whether to render whitespace. May either be `all` or `none`, or a table with sub-keys `space`, `nbsp`, `nnbsp`, `tab`, and `newline` | `"none"` |
-| `characters` | Literal characters to use when rendering whitespace. Sub-keys may be any of `tab`, `space`, `nbsp`, `nnbsp`, `newline` or `tabpad` | See example below |
-
-Example
-
-```toml
-[editor.whitespace]
-render = "all"
-# or control each character
-[editor.whitespace.render]
-space = "all"
-tab = "all"
-nbsp = "none"
-nnbsp = "none"
-newline = "none"
-
-[editor.whitespace.characters]
-space = "·"
-nbsp = "⍽"
-nnbsp = "␣"
-tab = "→"
-newline = "⏎"
-tabpad = "·" # Tabs will look like "→···" (depending on tab width)
-```
-
-### `[editor.indent-guides]` Section
-
-Options for rendering vertical indent guides.
-
-| Key           | Description                                             | Default |
-| ---           | ---                                                     | ---     |
-| `render`      | Whether to render indent guides                         | `false` |
-| `character`   | Literal character to use for rendering the indent guide | `"│"`   |
-| `skip-levels` | Number of indent levels to skip                         | `0`     |
-
-Example:
-
-```toml
-[editor.indent-guides]
-render = true
-character = "╎" # Some characters that work well: "▏", "┆", "┊", "⸽"
-skip-levels = 1
-```
-
-### `[editor.gutters]` Section
-
-For simplicity, `editor.gutters` accepts an array of gutter types, which will
-use default settings for all gutter components.
-
-```toml
-[editor]
-gutters = ["diff", "diagnostics", "line-numbers", "spacer"]
-```
-
-To customize the behavior of gutters, the `[editor.gutters]` section must
-be used. This section contains top level settings, as well as settings for
-specific gutter components as subsections.
-
-| Key      | Description                    | Default                                                       |
-| ---      | ---                            | ---                                                           |
-| `layout` | A vector of gutters to display | `["diagnostics", "spacer", "line-numbers", "spacer", "diff"]` |
-
-Example:
-
-```toml
-[editor.gutters]
-layout = ["diff", "diagnostics", "line-numbers", "spacer"]
-```
-
-#### `[editor.gutters.line-numbers]` Section
-
-Options for the line number gutter
-
-| Key         | Description                             | Default |
-| ---         | ---                                     | ---     |
-| `min-width` | The minimum number of characters to use | `3`     |
-
-Example:
-
-```toml
-[editor.gutters.line-numbers]
-min-width = 1
-```
-
-#### `[editor.gutters.diagnostics]` Section
-
-Currently unused
-
-#### `[editor.gutters.diff]` Section
-
-The `diff` gutter option displays colored bars indicating whether a `git` diff represents that a line was added, removed or changed.
-These colors are controlled by the theme attributes `diff.plus`, `diff.minus` and `diff.delta`.
-
-Other diff providers will eventually be supported by a future plugin system.
-
-There are currently no options for this section.
-
-#### `[editor.gutters.spacer]` Section
-
-Currently unused
-
-#### `[editor.gutters.code-action-hint]` Section
-
-The `code-action-hint` gutter option displays an indicator for whether a code action is available at current selection.
-
-There are currently no options for this section.
-
-### `[editor.soft-wrap]` Section
-
-Options for soft wrapping lines that exceed the view width:
-
-| Key                  | Description                                                  | Default |
-| ---                  | ---                                                          | ---     |
-| `enable`             | Whether soft wrapping is enabled.                            | `false` |
-| `max-wrap`           | Maximum free space left at the end of the line.              | `20`    |
-| `max-indent-retain`  | Maximum indentation to carry over when soft wrapping a line. | `40`    |
-| `wrap-indicator`     | Text inserted before soft wrapped lines, highlighted with `ui.virtual.wrap` | `"↪ "`    |
-| `wrap-at-text-width` | Soft wrap at `text-width` instead of using the full viewport size. | `false` |
-
-Example:
+Soft wrapping displays a long line on several screen lines without changing
+its contents:
 
 ```toml
 [editor.soft-wrap]
 enable = true
-max-wrap = 25 # increase value to reduce forced mid-word wrapping
-max-indent-retain = 0
-wrap-indicator = ""  # set wrap-indicator to "" to hide it
+wrap-indicator = "↪ "
 ```
 
-### `[editor.indent.smart-tab]` Section
+Set `wrap-at-text-width = true` to wrap at `editor.text-width` when that is
+narrower than the view. Use `:reflow` to insert actual line breaks into selected
+prose instead. Languages can override soft wrapping and text width.
 
-Options for navigating and editing using tab key.
+<span id="editorwhitespace-section"></span>
 
-| Key        | Description | Default |
-|------------|-------------|---------|
-| `enable` | If set to true, then when the cursor is in a position with non-whitespace to its left, instead of inserting a tab, it will run `move_parent_node_end`. If there is only whitespace to the left, then it inserts a tab as normal. With the default bindings, to explicitly insert a tab character, press Shift-tab. | `true` |
-| `supersede-menu` | Normally, when a menu is on screen, such as when auto complete is triggered, the tab key is bound to cycling through the items. This means when menus are on screen, one cannot use the tab key to trigger the `indent.smart-tab` command. If this option is set to true, the `indent.smart-tab` command always takes precedence, which means one cannot use the tab key to cycle through menu items. One of the other bindings must be used instead, such as arrow keys or `C-n`/`C-p`. | `false` |
+## Visible whitespace
 
-
-Due to lack of support for S-tab in some terminals, the default keybindings don't fully embrace smart-tab editing experience. If you enjoy smart-tab navigation and a terminal that supports the [Enhanced Keyboard protocol](https://github.com/helix-editor/helix/wiki/Terminal-Support#enhanced-keyboard-protocol), consider setting extra keybindings:
+To show all whitespace characters:
 
 ```toml
-[keys.normal]
-tab = "move_parent_node_end"
-S-tab = "move_parent_node_start"
-
-[keys.insert]
-S-tab = "move_parent_node_start"
-
-[keys.select]
-tab = "extend_parent_node_end"
-S-tab = "extend_parent_node_start"
+[editor.whitespace]
+render = "all"
 ```
 
-### `[editor.diagnostics.inline]` Section
-
-Options for rendering diagnostics inside the text like shown below
-
-```text
-fn main() {
-  let foo = bar;
-            └─ no such value in this scope
-}
-```
-
-| Key        | Description | Default |
-|------------|-------------|---------|
-| `cursor-line` | The minimum severity that a diagnostic must have to be shown inline on the line that contains the primary cursor. Set to `disable` to not show any diagnostics inline. This option does not have any effect when in insert-mode and will only take effect 350ms after moving the cursor to a different line. | `"warning"` |
-| `other-lines` | The minimum severity that a diagnostic must have to be shown inline on a line that does not contain the cursor-line. Set to `disable` to not show any diagnostics inline. | `"disable"` |
-| `min-diagnostic-width` | Minimum width reserved for diagnostic text. Inline diagnostics are hidden when the view cannot provide this width plus the prefix. | `40` |
-| `prefix-len` | How many horizontal bars `─` are rendered before the diagnostic text.  | `1` |
-| `max-wrap` | Equivalent of the `editor.soft-wrap.max-wrap` option for diagnostics.  | `20` |
-| `max-diagnostics` | Maximum number of diagnostics to render inline for a given line  | `10` |
-
-The allowed values for `cursor-line` and `other-lines` are: `error`, `warning`, `info`, `hint`.
-
-The (first) diagnostic with the highest severity that is not shown inline is rendered at the end of the line (as long as its severity is higher than the `diagnostics.end-of-line.severity` config option):
-
-```text
-fn main() {
-  let baz = 1;
-  let foo = bar; a local variable with a similar name exists: baz
-            └─ no such value in this scope
-}
-```
-
-### `[editor.spelling]` Section
-
-Spell checking is opt-in. See the [`editor.spelling` configuration reference](./configuration.md#editorspelling)
-for settings and [Spell checking](./spell-checking.md) for dictionaries, corrections,
-and personal word lists.
-
-### `[editor.completion.word]` Section
-
-Options for controlling completion of words from open buffers.
-
-| Key                  | Description                                                    | Default  |
-| ---                  | ---                                                            | ---      |
-| `enable`             | Whether word completion is enabled                             | `true`   |
-| `trigger-length`     | Number of word characters to type before triggering completion | `7`      |
-
-Example:
+Alternatively, choose which kinds to show:
 
 ```toml
-[editor.completion.word]
-enable = true
-# Set the trigger length lower so that words are completed more often
-trigger-length = 4
+[editor.whitespace.render]
+space = "none"
+tab = "all"
+newline = "all"
+
+[editor.whitespace.characters]
+tab = "→"
+tabpad = "·"
 ```
 
-### `[editor.workspace-trust]` Section
+Use `:set whitespace.render all` to show whitespace temporarily.
 
-Controls implicit workspace trust. See the [workspace
-trust](./workspace-trust.md) chapter for the full feature.
+<span id="editorindent-guides-section"></span>
 
-| Key       | Description                                                              | Default     |
-| ---       | ---                                                                      | ---         |
-| `level`   | The default level of trust for every workspace.                         | `"servers"` |
-| `prompt`  | Whether to show a modal when opening a file in an untrusted workspace.   | `true`      |
-| `trusted` | Glob patterns whose matching workspaces are trusted without a grant.     | `[]`        |
-
-Example:
+## Indentation guides
 
 ```toml
-[editor.workspace-trust]
-# Even if `false`, the statusline `[⚠]` indicator is still shown.
-prompt = false
-
-# "none":     prompt for every workspace.
-# "servers":  trust LSP and DAP launches but still gate local config and git;
-#             .mitos/config.toml, .mitos/languages.toml, etc. need :workspace-trust.
-# "insecure": trust everything (discouraged).
-level = "servers"
-
-# Discouraged: skips .mitos/ change detection and trusts anything that lands
-# under a matching path. `~` and environment variables are expanded.
-trusted = ["~/src/github.com/me/*"]
+[editor.indent-guides]
+render = true
+character = "│"
+skip-levels = 1
 ```
+
+`skip-levels` hides the first indentation levels. See
+[EditorConfig](./editorconfig.md) for shared indentation conventions.
+
+## More preferences
+
+| Feature | Guide |
+| --- | --- |
+| <span id="editorclipboard-section"></span>Clipboard | [Registers and clipboard](./registers.md#system-clipboard) |
+| <span id="editorlsp-section"></span><span id="editordiagnosticsinline-section"></span>Diagnostics and language tools | [Language servers](./lsp.md) |
+| <span id="terminallauncher-section"></span>Debugging terminal | [Debugging](./debugging.md#terminal-for-the-debugged-program) |
+| <span id="editorinline-blame-section"></span><span id="format"></span>Inline Git blame | [Version control](./version-control.md#inline-blame) |
+| <span id="editorfile-picker-section"></span><span id="editorfile-explorer-section"></span>File navigation and ignore rules | [Pickers](./pickers.md#hidden-and-ignored-files) |
+| <span id="editorbuffer-picker-section"></span>Buffer picker | [Initial selection](./configuration.md#editorbuffer-picker) |
+| <span id="editorauto-pairs-section"></span>Delimiter pairing | [Auto-pairs](./configuration.md#editorauto-pairs) |
+| <span id="editorfilesauto-save-section"></span>Saving and reloading | [Files, buffers, and splits](./files.md#changes-made-outside-mitos) |
+| <span id="editorsearch-section"></span>Search | [Search and replacement](./search.md) |
+| <span id="editorgutters-section"></span><span id="editorguttersline-numbers-section"></span><span id="editorguttersdiagnostics-section"></span><span id="editorguttersdiff-section"></span><span id="editorguttersspacer-section"></span><span id="editorgutterscode-action-hint-section"></span>Gutters | [Gutter layout](./configuration.md#editorgutters) |
+| <span id="editorindentsmart-tab-section"></span><span id="editorcompletionword-section"></span>Completion and Tab | [Completion and snippets](./completion.md) |
+| <span id="editorspelling-section"></span>Spelling | [Spell checking](./spell-checking.md) |
+| <span id="editorworkspace-trust-section"></span>Project settings | [Workspace trust](./workspace-trust.md) |
+
+See the [configuration reference](./configuration.md) for all accepted settings,
+[Key remapping](./remapping.md) for bindings, and [Themes](./themes.md) for colors.

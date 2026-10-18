@@ -10,7 +10,7 @@ Custom commands define short command-mode (`:`) commands in `config.toml`. A cus
 ":hints" = ":toggle lsp.inlay-hints.enable"
 ```
 
-Typable commands start with `:`. Static commands, such as `move_char_right`, use their bare names. Key macros start with `@`, for example `@miw`. A macro must be the only item in a custom command because command sequences and macros use different execution models.
+Typable commands start with `:`. Static commands, such as `move_char_right`, use their bare names. Key macros start with `@`, for example `@miw`. A macro must be the only item in a custom command.
 
 The available typable and static commands are listed in the [Commands](./commands.md) and [Keymap](./keymap.md) documentation.
 
@@ -22,24 +22,27 @@ Use `%arg{n}` to pass a positional argument to a mapped typable command. Argumen
 
 ```toml
 [commands]
-":case" = ":pipe xargs ccase --to %arg{0}"
+":line" = ":goto %arg{0}"
 ```
 
-Running `:case snake` executes `:pipe xargs ccase --to snake`. Missing arguments expand to an empty string. See [Command line](./command-line.md#expansions) for the general expansion syntax.
+Running `:line 42` executes `:goto 42`. Missing arguments expand to an empty
+string. See [Command mode syntax](./command-line.md#expansions) for other expansions.
 
 ## Descriptions and completion
 
 Use the detailed form to document accepted arguments and inherit completion from a built-in command:
 
 ```toml
-[commands.":wcd!"]
-commands = [":write! %arg{0}", ":cd %sh{ %arg{0} | path dirname }"]
-desc = "Force save the buffer, then change to its directory"
+[commands.":save-as"]
+commands = [':write "%arg{0}"']
+desc = "Save the current buffer to a path"
 accepts = "<path>"
 completer = ":write"
 ```
 
-The description supports Markdown and is shown in the command prompt. Here `:wcd!` also uses `:write`'s path completion.
+The description supports Markdown and is shown in the command prompt.
+Here `:save-as` uses `:write`'s path completion. For example,
+`:save-as "meeting notes.txt"` saves to a path containing a space.
 
 ## Shadowing built-ins
 

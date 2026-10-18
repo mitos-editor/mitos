@@ -119,12 +119,18 @@ runtime, shell completions, and desktop entry. ARM64 users can use the release
 archive or the installer. If your system's glibc is too old, see
 [building the Debian package](./building-from-source.md#building-the-debian-package).
 
+## Package managers
+
+For package-manager availability, check the Mitos package's source and version.
+The release `.deb` is described above; the hosted installers and release
+archives are the installation methods maintained in this repository.
+
 ## Configuration after upgrading
 
 Mitos loads known legacy settings without rewriting your configuration. Use
 `:config-migrate` or `:config-migrate-workspace` to update a file after confirmation,
 with a backup. Generated and read-only files can be migrated to stdout instead.
-See [configuration migration](./configuration.md#configuration-migration) for details.
+See [configuration migration](./configuration-migration.md) for details.
 `languages.toml` is left unchanged.
 
 ## Verify the installation

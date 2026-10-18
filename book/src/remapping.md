@@ -1,54 +1,33 @@
 # Key remapping
 
-There are three kinds of commands that can be used in keymaps:
+Keybindings can run:
 
-* Static commands: commands like `move_char_right` which are usually bound to
-  keys and used for movement and editing. A list of static commands is
-  available in the [Keymap](./keymap.md) documentation and in the source code
-  in [`crates/term/src/commands.rs`](https://github.com/mitos-editor/mitos/blob/main/crates/term/src/commands.rs)
-  at the invocation of `static_commands!` macro.
-* Typable commands: commands that can be executed from command mode (`:`), for
-  example `:write!`. See the [Commands](./commands.md) documentation for a
-  list of available typeable commands or the `TypableCommandList` declaration in
-  the source code at [`crates/term/src/commands/typed.rs`](https://github.com/mitos-editor/mitos/blob/main/crates/term/src/commands/typed.rs).
-* Macros: sequences of keys that are executed in order. These keybindings
-  start with `@` and then list any number of keys to be executed. For example
-  `@miw` can be used to select the surrounding word. For now, macro keybindings
-  are not allowed in keybinding sequences due to limitations in the way that
-  command sequences are executed. Modifier keys (e.g. Alt+o) can be used
-  like `"<A-o>"`, e.g. `"@miw<A-o>"`
+- **Static commands**, such as `move_char_right`, for movement and editing.
+- **Typable commands**, such as `:write`, which also work from command mode.
+- **Macros**, such as `@miw`, which replay key sequences.
 
-To remap keys, create a `config.toml` file in your `mitos` configuration
-directory (default `~/.config/mitos` on Linux systems) with a structure like
-this:
+See [Commands](./commands.md) for the command lists. In macros, wrap modified
+and special keys in angle brackets, such as `@miw<A-o>`. A macro must be the
+only item in a binding; it cannot be combined with other commands in a list.
 
-> 💡 To set a modifier + key as a keymap, type `A-X = ...` or  `C-X = ...` for Alt + X or Ctrl + X. Combine with Shift using a dash, e.g. `C-S-esc`. 
-> Within macros, wrap them in `<>`, e.g. `<A-X>` and `<C-X>` to distinguish from the `A` or `C` keys.
+Open `config.toml` with `:config-open` and add your bindings. Modifier prefixes
+use `C-` for Ctrl, `A-` for Alt, and `S-` for Shift. For example:
 
 ```toml
-# At most one section each of 'keys.normal', 'keys.insert' and 'keys.select'
 [keys.normal]
-C-s = ":w" # Maps Ctrl-s to the typable command :w which is an alias for :write (save file)
-C-o = ":open ~/.config/mitos/config.toml" # Maps Ctrl-o to opening of the mitos config file
-a = "move_char_left" # Maps the 'a' key to the move_char_left command
-w = "move_line_up" # Maps the 'w' key move_line_up
-"C-S-esc" = "extend_line" # Maps Ctrl-Shift-Escape to extend_line
-g = { a = "code_action" } # Maps `ga` to show possible code actions
-"ret" = ["open_below", "normal_mode"] # Maps the enter key to open_below then re-enter normal mode
-"A-x" = "@x<A-d>" # Maps Alt-x to a macro selecting the whole line and deleting it without yanking it
+C-s = ":write"
+ret = ["open_below", "normal_mode"]
+A-x = "@x<A-d>" # Select a line and delete it without yanking.
 
-# Label a nested menu and its typable commands, macros, or command sequences
+# Replace Space f with a labeled menu.
 [keys.normal.space.f]
 label = "File"
 f = "file_picker"
 s = { label = "Save", command = ":write" }
-c = { label = "Edit Config", command = ":open ~/.config/mitos/config.toml" }
-w = { label = "Delete word", command = "@wd" }
-h = { label = "Split left", command = ["vsplit", "normal_mode", "swap_view_left"] }
+c = { label = "Edit config", command = ":config-open" }
 
 [keys.insert]
-"A-x" = "normal_mode"     # Maps Alt-X to enter normal mode
-j = { k = "normal_mode" } # Maps `jk` to exit insert mode
+j = { k = "normal_mode" } # Press j, then k, to leave insert mode.
 ```
 
 `label` sets the menu title or the description shown for a command binding.
@@ -125,32 +104,26 @@ A-j = "next"
 A-k = "previous"
 ```
 
-Bindings merge over the existing defaults. Trusted workspace configuration
-overrides global configuration, including individual keys in nested maps.
-`:config-reload` applies changes to open components as well.
+Bindings merge with the defaults. Trusted project settings override your
+user settings. `:config-reload` also updates components that are already open.
 
-`no_op` consumes a key without performing an action. `unbound` removes its
-component action and lets the usual fallback handle the key: printable text in
-a prompt, the embedded prompt in a picker, or the next component for menus and
-popups. Nested content has priority over its container: completion menus use
-`keys.menu` before `keys.popup`. To release `C-d` from both layers to an editor
-binding, set `C-d = "unbound"` in both tables.
+Use `no_op` to consume a key without doing anything. Use `unbound` to remove
+its action and let the usual fallback handle it. For example, a key unbound in
+`keys.picker` can edit the picker's query through `keys.prompt`.
 
-Nested maps wait for another key. Escape or an invalid continuation cancels
-the sequence and consumes that key. Prefix state belongs to each component
-instance. Pasting into a prompt cancels its prefix and inserts the pasted text.
-Action lists run in order and stop when an action closes the component, starts
-register selection, or performs an item action. Editor commands and macros belong
-to the editor mode maps and cannot be used as component actions.
+Nested maps wait for another key. `Esc` or an invalid continuation cancels the
+sequence and consumes that key. Pasting into a prompt cancels a pending sequence
+and inserts the pasted text. Action lists run in order and stop when an action
+closes the component or starts another interaction.
 
-Picker actions take priority over prompt actions. Prompt editing bindings apply
-to a picker's query when the picker leaves that key unbound; use picker actions
-to accept or cancel a picker. Smart Tab still supersedes default menu Tab
-navigation when enabled, while explicit `accept` or `no_op` bindings take effect.
-Insert-mode popups normally pass Escape through to the editor; Escape cancels
-pending component sequences first, and an explicit popup `no_op` binding consumes
-it. To remap Escape inside an insert-mode menu or page selector, also set
-`esc = "unbound"` in `keys.popup` so the container passes it to its content.
+Picker actions take priority over prompt actions. Menu actions take priority
+over popup actions. To pass `Ctrl-d` through a completion menu and its popup to
+an editor binding, set `C-d = "unbound"` in both `keys.menu` and `keys.popup`.
+To remap `Esc` inside an insert-mode menu, also set `esc = "unbound"` in
+`keys.popup` so the popup passes it to the menu.
+
+Component bindings accept only the actions below. Editor commands and macros
+belong in `keys.normal`, `keys.insert`, and `keys.select`.
 
 | Table | Actions |
 | --- | --- |
@@ -165,20 +138,13 @@ it. To remap Escape inside an insert-mode menu or page selector, also set
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
-`keys.buffer-picker` inherits `keys.picker` and accepts all shared picker actions
-plus `close_buffer`. Buffer-specific bindings override shared bindings, including
-individual keys in nested maps. A workspace override replaces a global binding
-within the same table; buffer-specific bindings take priority over shared bindings
-from either configuration file.
+`keys.buffer-picker` inherits `keys.picker`. Buffer-specific bindings take
+priority over shared picker bindings, including ones from project configuration.
 
-`close_buffer` operates on the selected row. It waits for pending saves, refuses
-to discard unsaved changes, and reports errors while leaving the picker open.
-On success, it refreshes the buffer list, keeps the query, and selects the nearest
-remaining row. It also ends the current action sequence so subsequent actions
-cannot use a selection that is still being refreshed. The action is available
-only in `keys.buffer-picker`; it has no default binding.
-The picker accepts another row once the refreshed results are ready; query editing
-and cancellation remain available while the matcher runs.
+`close_buffer` closes the selected buffer while keeping the picker open. It
+waits for pending saves and refuses to discard unsaved changes. After closing,
+the query is kept and a nearby row becomes selected. The action stops the
+current action list. It has no default binding.
 
 ## Special keys and modifiers
 

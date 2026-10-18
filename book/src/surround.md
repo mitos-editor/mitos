@@ -1,7 +1,7 @@
 # Surround
 
-Mitos includes built-in functionality similar to [vim-surround](https://github.com/tpope/vim-surround).
-The keymappings have been inspired from [vim-sandwich](https://github.com/machakann/vim-sandwich):
+Add, replace, or remove matching delimiters around selected text, such as
+parentheses, brackets, and quotes.
 
 ![Surround demo](https://user-images.githubusercontent.com/23398472/122865801-97073180-d344-11eb-8142-8f43809982c6.gif)
 
@@ -16,8 +16,8 @@ You can use counts to act on outer pairs.
 Surround can also act on multiple selections. For example, to change every occurrence of `(use)` to `[use]`:
 
 1. `%` to select the whole file
-2. `s` to split the selections on a search term
+2. `s` to select matches of a search term
 3. Input `use` and hit Enter
 4. `mr([` to replace the parentheses with square brackets
 
-Multiple characters are currently not supported, but planned for future release.
+Surround operations accept single delimiter characters.

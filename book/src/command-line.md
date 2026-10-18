@@ -1,11 +1,7 @@
-# Command line
+# Command mode syntax
 
-- [Quoting](#quoting)
-- [Flags](#flags)
-- [Expansions](#expansions)
-- [Exceptions](#exceptions)
-
-The command line is used for executing [typable commands](./commands.md#typable-commands) like `:write` or `:quit`. Press `:` to activate the command line.
+Press `:` inside Mitos to run [typable commands](./commands.md#typable-commands) such as `:write` or `:quit`. For shell invocation and flags, see
+[Starting Mitos](./invocation.md).
 
 Typable commands optionally accept arguments. `:write` for example accepts an optional path to write the file contents. The command line also supports a quoting syntax for arguments, flags to modify command behaviors, and _expansions_ - a way to insert values from the editor. Most commands support these features but some have custom parsing rules (see the [exceptions](#exceptions) below).
 
@@ -15,7 +11,7 @@ By default, command arguments are split on tabs and space characters. `:open REA
 
 Double quotes may be used the same way, but double quotes _expand_ their inner content. `:echo "%{cursor_line}"` for example may print `1` because of the expansion for the `cursor_line` variable. `:echo '%{cursor_line}'` though prints `%{cursor_line}` literally: content within single quotes or backticks is interpreted as-is.
 
-On Unix systems the backslash character may be used to escape certain characters depending on where it is used. Within an argument which isn't surround in quotes, the backslash can be used to escape the space or tab characters: `:open a\ b.txt` is equivalent to `:open 'a b.txt'`. The backslash may also be used to escape quote characters (`'`, `` ` ``, `"`) or the percent token (`%`) when used at the beginning of an argument. `:echo \%sh{foo}` for example prints `%sh{foo}` instead of invoking a `foo` shell command and `:echo \"quote` prints `"quote`. The backslash character is treated literally in any other situation on Unix systems and always on Windows: `:echo \n` always prints `\n`.
+On Unix systems the backslash character may be used to escape certain characters depending on where it is used. Within an argument which isn't surrounded by quotes, the backslash can be used to escape the space or tab characters: `:open a\ b.txt` is equivalent to `:open 'a b.txt'`. The backslash may also be used to escape quote characters (`'`, `` ` ``, `"`) or the percent token (`%`) when used at the beginning of an argument. `:echo \%sh{foo}` for example prints `%sh{foo}` instead of invoking a `foo` shell command and `:echo \"quote` prints `"quote`. The backslash character is treated literally in any other situation on Unix systems and always on Windows: `:echo \n` always prints `\n`.
 
 ## Flags
 
@@ -37,7 +33,7 @@ Expansions take the form `%[<kind>]<open><contents><close>`. In `%sh{echo hi!}`,
 
 To escape a percent character instead of treating it as an expansion, use two percent characters consecutively. To execute a shell command like `date -u +'%Y-%m-%d'`, double the percent characters: `:echo %sh{date -u +'%%Y-%%m-%%d'}`.
 
-When no `<kind>` is provided, Mitos will expand a **variable**. For example `%{cursor_line}` can be used as in argument to insert the line number. `:echo %{cursor_line}` for instance may print `1` to the statusline.
+When no `<kind>` is provided, Mitos will expand a **variable**. For example `%{cursor_line}` can be used as an argument to insert the line number. `:echo %{cursor_line}` for instance may print `1` to the statusline.
 
 The following variables are supported:
 
@@ -58,8 +54,8 @@ The following variables are supported:
 Aside from editor variables, the following expansions may be used:
 
 * Unicode `%u{..}`. The contents may contain up to six hexadecimal numbers corresponding to a Unicode codepoint value. For example `:echo %u{25CF}` prints `●` to the statusline.
-* Shell `%sh{..}`. The contents are passed to the configured shell command. For example `:echo %sh{echo "20 * 5" | bc}` may print `100` on the statusline on when using a shell with `echo` and the `bc` calculator installed. Shell expansions are evaluated recursively. `%sh{echo '%{buffer_name}:%{cursor_line}'}` for example executes a command like `echo 'README.md:1'`: the variables within the `%sh{..}` expansion are evaluated before executing the shell command.
-* Register `%reg{..}`. The contents should be a single character representing the register name. For example, `:set-register a hello world` followed by `echo %reg{a}` prints `hello world` to the statusline.
+* Shell `%sh{..}`. The contents are passed to the configured shell command. For example `:echo %sh{echo "20 * 5" | bc}` may print `100` on the statusline when using a shell with `echo` and the `bc` calculator installed. Shell expansions are evaluated recursively. `%sh{echo '%{buffer_name}:%{cursor_line}'}` for example executes a command like `echo 'README.md:1'`: the variables within the `%sh{..}` expansion are evaluated before executing the shell command.
+* Register `%reg{..}`. The contents should be a single character representing the register name. For example, `:set-register a hello world` followed by `:echo %reg{a}` prints `hello world` to the statusline.
 * Positional argument `%arg{..}`. Within a [custom command](./custom-commands.md), the contents are a zero-based argument index. For example, `%arg{0}` expands to the first argument passed to the custom command. Missing arguments expand to an empty string.
 
 As mentioned above, double quotes can be used to surround arguments containing spaces but also support expansions within the quoted content unlike single quotes or backticks. For example `:echo "circle: %u{25CF}"` prints `circle: ●` to the statusline while `:echo 'circle: %u{25CF}'` prints `circle: %u{25CF}`.
@@ -83,9 +79,9 @@ The `:set-option` and `:toggle-option` commands use regular parsing for the firs
 `:toggle-option`'s behavior depends on the JSON type of the config option supplied as the first argument:
 
 * Booleans: only the config option name should be provided. For example `:toggle-option format.on-save` will flip the `format.on-save` option.
-* Strings: the rest of the command line is parsed with regular quoting rules. For example `:toggle-option indent-heuristic hybrid tree-sitter simple` cycles through "hybrid", "tree-sitter" and "simple" values on each invocation of the command.
+* Strings: the rest of the command line is parsed with regular quoting rules. For example `:toggle-option indent.heuristic hybrid tree-sitter simple` cycles through "hybrid", "tree-sitter" and "simple" values on each invocation of the command.
 * Numbers, arrays and objects: the rest of the command line is parsed as a stream of JSON values. For example `:toggle-option rulers [81] [51, 73]` cycles through `[81]` and `[51, 73]`.
 
-When providing multiple values to `:toggle-option` there should be no duplicates. `:toggle-option indent-heuristic hybrid simple tree-sitter simple` for example would only toggle between "hybrid" and "tree-sitter" values.
+When providing multiple values to `:toggle-option` there should be no duplicates. `:toggle-option indent.heuristic hybrid simple tree-sitter simple` for example would only toggle between "hybrid" and "tree-sitter" values.
 
 `:lsp-workspace-command` works similarly to `:toggle-option`. The first argument (if present) is parsed according to normal rules. The rest of the line is parsed as JSON values. Unlike `:toggle-option`, string arguments for a command must be quoted. For example `:lsp-workspace-command lsp.Command "foo" "bar"`.

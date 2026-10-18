@@ -20,7 +20,7 @@ Capturing entries from another picker replaces its contents; capturing a picker 
 | `[q` | Jump to the previous entry, wrapping at the beginning |
 | `]l` | Jump to the next entry in the current file or unsaved buffer |
 | `[l` | Jump to the previous entry in the current file or unsaved buffer |
-| `Space-q` | Open the quicklist picker |
+| `Space q` | Open the quicklist picker |
 
 The navigation commands accept a count, so `3]q` jumps forward three entries.
 Quicklist jumps are added to the jumplist, allowing `Ctrl-o` to return to the location before the jump.
@@ -34,4 +34,4 @@ Selecting an entry opens it and makes it the current quicklist position.
 2. Filter the picker until it contains the set of locations you want.
 3. Press `Ctrl-q` to copy the current matched items into the quicklist.
 4. Close the picker, then move through all collected locations with `]q` and `[q`.
-5. Use `]l` and `[l` to restrict navigation to the current file, or `Space-q` to browse the complete list.
+5. Use `]l` and `[l` to restrict navigation to the current file, or `Space q` to browse the complete list.

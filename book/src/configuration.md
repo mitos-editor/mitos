@@ -1,8 +1,9 @@
-# Configuration
+# Configuration reference
 
 This page is the complete reference for user configuration. It lists every
 setting accepted by `config.toml` and `languages.toml`; the linked chapters
-explain the larger features and show more examples.
+explain the larger features and show more examples. Start with
+[Configure Mitos](./editor.md) for your first configuration file.
 
 ## Configuration files and precedence
 
@@ -55,49 +56,9 @@ Legacy command paths remain accepted; completions show canonical paths.
 
 ## Configuration migration
 
-Mitos accepts known legacy settings and converts them in memory before merging
-configuration layers. Startup and `:config-reload` leave configuration files
-unchanged, including files managed by Home Manager or other dotfile managers.
-
-To update a file to the current feature sections, run:
-
-- `:config-migrate` for your user `config.toml`, or the file selected with `-c` or
-  `--config` for this session.
-- `:config-migrate-workspace` for the current trusted project's `.mitos/config.toml`.
-
-Each command opens a confirmation dialog naming the file. **Cancel** is selected
-initially; choose **Migrate** to rewrite it. Escape also cancels. User and workspace
-migration are separate actions. Project migration changes the project's working
-tree. Untrusted, stale, or excluded project configuration cannot be migrated.
-
-Migration preserves values, comments, keybindings, and custom commands. All loaded
-configuration layers must validate before any rewrite. Each changed file receives
-an adjacent backup named `config.toml.bak`; existing backups are preserved with
-numbered suffixes such as `config.toml.bak.1`. Replacements are atomic and preserve
-file permissions and symlinks. For symlinks, the target file is updated and the
-backup is placed beside that target. The dialog shows the target, and a status
-message reports the updated file and backup path. Save or discard unsaved edits to
-an open configuration buffer before migrating.
-
-Already migrated files are left unchanged, and missing files are not created.
-Read-only files are not rewritten. If a backup or rewrite fails, the loaded
-settings remain usable through compatibility aliases.
-
-For generated or read-only configuration, export the migrated TOML:
-
-```sh
-ms --migrate-config ~/.config/mitos/config.toml --stdout > /tmp/mitos-config.toml
-```
-
-This command reads only the specified file, prints its migrated contents (or the
-original contents if no migration is needed), and creates no backups. Inspect the
-output and update the source managed by Home Manager or your dotfile manager.
-Export to a different file; redirecting stdout to the input file would truncate it.
-
-An existing explicit workspace trust grant is updated only when the migration and
-its backup explain every change to the trusted configuration fingerprint. Other
-changes still require review and renewed trust; migration never grants trust to
-an untrusted project. `languages.toml` is unchanged.
+Older setting names remain accepted. To update a configuration file, see
+[Configuration migration](./configuration-migration.md). Migration asks for
+confirmation and keeps a backup; normal startup leaves your files unchanged.
 
 ## `config.toml` reference
 
@@ -108,7 +69,7 @@ an untrusted project. `languages.toml` is unchanged.
 | `theme` | string or table | `{ light = "modus_operandi", dark = "modus_vivendi" }` | Theme name, or `{ light = "...", dark = "...", fallback = "..." }`. `fallback` is optional and defaults to `dark`. See [Themes](./themes.md). |
 | `editor` | table | See below | Shared editor behavior and UI settings. |
 | `terminal` | table | See below | Terminal capabilities, keyboard protocol, and external launcher. |
-| `keys` | table | Built-in keymap | Per-mode key bindings under `[keys.normal]`, `[keys.insert]`, and `[keys.select]`. Entries are merged with the built-in keymap. See [Key remapping](./remapping.md). |
+| `keys` | table | Built-in keymap | Editor mode bindings and component bindings for pickers, prompts, menus, and popups. Entries merge with the built-in keymap. See [Key remapping](./remapping.md). |
 | `commands` | table | `{}` | User-defined command-mode commands. See [Custom commands](./custom-commands.md). |
 
 Example:
@@ -135,7 +96,7 @@ C-s = ":write"
 
 ### `[editor]`
 
-For examples and behavioral details, see the [Editor](./editor.md) chapter.
+For common examples, see [Configure Mitos](./editor.md).
 
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
@@ -344,8 +305,35 @@ single statusline at the bottom of the editor for the focused view.
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
 
-Valid elements and their behavior are listed in the
-[statusline section](./editor.md#editorstatusline-section).
+Available statusline elements:
+
+| Key    | Description |
+| ------ | ----------- |
+| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
+| `spinner` | A progress spinner indicating LSP activity |
+| `branch` | The current branch name or detached commit hash of the opened workspace |
+| `file-name` | The path/name of the opened file |
+| `file-absolute-path` | The absolute path/name of the opened file |
+| `file-base-name` | The basename of the opened file |
+| `current-working-directory` | The current working directory  |
+| `file-modification-indicator` | The indicator to show whether the file is modified (a `[+]` appears when there are unsaved changes) |
+| `file-encoding` | The encoding of the opened file if it differs from UTF-8 |
+| `file-line-ending` | The file line endings (CRLF or LF) |
+| `file-indent-style` | The file indentation style |
+| `read-only-indicator` | An indicator that shows `[readonly]` when a file cannot be written |
+| `total-line-numbers` | The total line numbers of the opened file |
+| `file-type` | The type of the opened file |
+| `diagnostics` | The number of warnings and/or errors |
+| `workspace-diagnostics` | The number of warnings and/or errors on workspace |
+| `selections` | The main selection index out of the number of active selections |
+| `primary-selection-length` | The number of characters currently in the main selection |
+| `position` | The cursor position |
+| `position-percentage` | The cursor position as a percentage of the total number of lines |
+| `separator` | The string defined in `editor.statusline.separator` (defaults to `"│"`) |
+| `spacer` | Inserts a space between elements (multiple/contiguous spacers may be specified) |
+| `register` | The current selected register |
+| `code-action-hint` | Indicator for when code actions are available |
+
 
 ### `[editor.lsp]`
 
@@ -361,7 +349,7 @@ Valid elements and their behavior are listed in the
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
-| `code-lenses.enable` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space+l` provide access to the full commands. |
+| `code-lenses.enable` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space l` provide access to the full commands. |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
 | `references.include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
 
@@ -385,6 +373,8 @@ length-limit = 40
 `normal`, `insert`, and `select` each accept `"block"`, `"bar"`,
 `"underline"`, or `"hidden"`; all default to `"block"`. Terminals can change
 only the primary cursor's shape.
+
+<span id="editorauto-reload"></span>
 
 ### `[editor.files.reload]`
 
@@ -498,7 +488,19 @@ enable = true
 pairs = { '(' = ')', '[' = ']', '{' = '}', '"' = '"' }
 ```
 
-Legacy booleans and direct character maps remain accepted.
+Legacy booleans and direct character maps remain accepted in `config.toml`.
+Per-language `auto-pairs` in `languages.toml` accepts a boolean or a direct
+character map, rather than the editor's `enable`/`pairs` table. For example:
+
+```toml
+[[language]]
+name = "markdown"
+auto-pairs = false
+
+[[language]]
+name = "rust"
+auto-pairs = { '(' = ')', '[' = ']', '{' = '}' }
+```
 
 ### `[editor.files.auto-save]`
 
@@ -552,7 +554,8 @@ enable delayed saving.
 | `line-numbers.min-width` | integer | `3` | Minimum width of the line-number gutter. |
 
 `diagnostics`, `diff`, `spacer`, and `code-action-hint` currently have no
-component-specific settings.
+component-specific settings. The diagnostics gutter also displays debugger
+breakpoints; the code-action gutter indicates available actions.
 
 ### `[editor.soft-wrap]`
 
@@ -576,9 +579,9 @@ component-specific settings.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
-| `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./editor.md#format). |
+| `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./version-control.md#format). |
 
-Press `Space + B` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
+Press `Space B` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
 
 ### `[editor.diagnostics.inline]`
 
@@ -643,9 +646,12 @@ ignore-regexes = ["^[A-Z0-9_]+$"]
 | `command` | string | Environment-dependent | External terminal or multiplexer executable. |
 | `args` | array of strings | `[]` | Arguments placed before the command Mitos asks the terminal to run. |
 
-Mitos automatically uses a tmux split inside tmux, a WezTerm split when its
-Unix socket is available, Windows Terminal when found on Windows, or Conhost as
-the Windows fallback. On other terminals this setting is unset unless configured.
+Mitos automatically uses a tmux split inside tmux, a Zellij pane inside Zellij,
+a WezTerm split when its Unix socket is available, a Kitty pane when its remote
+control socket is configured, or an Alacritty window when its IPC socket is
+available. On Windows it uses Zellij when running inside it, Windows Terminal
+when available, or Conhost as the fallback. On other terminals, configure a
+launcher if your debug adapter needs an external terminal.
 
 ### `[editor.workspace-trust]`
 
@@ -664,7 +670,8 @@ the security model and recommended configurations.
 key names and whose values are a static command, a `:typable-command`, a key
 macro beginning with `@`, a sequence of commands, or another table forming a
 minor mode. There is no fixed list of entries: omitted bindings retain their
-built-in value. See [Key remapping](./remapping.md) for key syntax and examples.
+built-in value. See [Key remapping](./remapping.md) for key syntax,
+[component maps](./remapping.md#component-keys), and examples.
 
 ### `[commands]`
 
@@ -778,25 +785,6 @@ When omitted, every configured grammar is fetched and built.
 
 ## Inline completions
 
-Language servers supporting `textDocument/inlineCompletion` can suggest ghost text
-in insert mode. Mitos uses the first configured server with the `inline-completion`
-feature. Suggestions leave the document unchanged until accepted and disappear
-when you edit, move the cursor, leave insert mode, or switch documents. Requests
-pause while the completion popup is previewing an item.
-
-Add bindings to `config.toml` to accept, dismiss, request, or cycle suggestions:
-
-```toml
-[keys.insert]
-C-y = "inline_completion_accept"
-C-e = "inline_completion_dismiss"
-C-g = "inline_completion_trigger"
-A-n = "inline_completion_next"
-A-p = "inline_completion_prev"
-```
-
-There are no default bindings. Set `editor.inline-completion-auto-trigger = false`
-to request suggestions only with `inline_completion_trigger`. Plain text suggestions
-can span multiple lines; snippet suggestions and multiple cursors are not supported.
-Ghost text uses the `ui.virtual.inline-completion` theme scope, falling back to
-`ui.virtual.inlay-hint`.
+See [Completion and snippets](./completion.md#inline-completions) for setup and
+bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
+to `ui.virtual.inlay-hint` when that theme scope is absent.

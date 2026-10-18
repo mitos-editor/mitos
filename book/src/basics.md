@@ -18,6 +18,9 @@ ms .
 
 Mitos starts in **normal mode**. Press `Esc` whenever you want to return to it.
 
+Key combinations such as `Ctrl-x` are pressed together. Sequences such as
+`Space f` are pressed one key after another. Uppercase letters require Shift.
+
 ### Image previews
 
 Open an image file the same way as a text file, for example `ms screenshot.png`.
@@ -60,7 +63,7 @@ where movement extends it, then apply an action:
 | `p` / `P` | Paste after / before the selection |
 | `u` / `U` | Undo / redo |
 
-Press `x` to select the current line. Syntax-aware textobjects, such as `miw`
+Press `x` to select the current line. Textobjects, such as `miw`
 for the word around the cursor, are described in [Textobjects](./textobjects.md).
 
 ## Edit several matches at once
@@ -73,18 +76,9 @@ simple workflow is:
 3. Mitos creates one selection for every match in the line.
 4. Press `Alt-r`, type the replacement, and press `Enter` to replace every selection.
 
-The replacement prompt leaves the document untouched until `Enter`, then replaces
-all selections in one undo step. `Escape` cancels, and submitting empty text deletes
-the selections. Replacement text is literal, including strings such as `$1`.
-The new text stays selected, preserving the primary selection and each selection's
-direction. Press `.` to repeat the committed replacement on the current selections.
-
-Use `c` to change selections interactively in insert mode. `r` still replaces each
-selected grapheme with the next character: selecting `hello` and typing `rx` gives
-`xxxxx`, while `Alt-r`, `x`, `Enter` gives `x`.
-
-Use `,` to keep only the primary selection. The [Usage](./usage.md) and
-[Registers](./registers.md) pages cover more ways to compose edits.
+Use `c` instead to change the matches interactively in insert mode. Press `,`
+to keep only the primary selection. See [Search and replacement](./search.md)
+for more examples and [Selections](./usage.md) for other ways to build selections.
 
 ## Search, save, and quit
 
@@ -96,11 +90,11 @@ Press `:` to enter command mode:
 | `:write` or `:w` | Save the current file |
 | `:quit` or `:q` | Close the current view |
 | `:write-quit` or `:wq` | Save and close |
-| `:quit!` or `:q!` | Close and discard unsaved changes |
+| `:quit-all!` or `:qa!` | Exit without saving unsaved changes |
 
 ## Where to go next
 
-- Read [Usage](./usage.md) for modes, buffers, selections, and motions.
+- Read [Files, buffers, and splits](./files.md) to work with several documents.
 - Keep the [Keymap](./keymap.md) open as a reference while learning.
 - Set up [language servers](./lsp.md) for completion, diagnostics, and code actions.
-- Adjust editor behavior in [Configuration](./configuration.md).
+- Adjust editor behavior in [Configure Mitos](./editor.md).

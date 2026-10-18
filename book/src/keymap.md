@@ -1,26 +1,5 @@
 # Keymap
 
-- [Normal mode](#normal-mode)
-  - [Movement](#movement)
-  - [Changes](#changes)
-    - [Shell](#shell)
-  - [Selection manipulation](#selection-manipulation)
-  - [Search](#search)
-  - [Minor modes](#minor-modes)
-    - [View mode](#view-mode)
-    - [Goto mode](#goto-mode)
-    - [Match mode](#match-mode)
-    - [Window mode](#window-mode)
-    - [Space mode](#space-mode)
-      - [Popup](#popup)
-      - [Completion Menu](#completion-menu)
-      - [Signature-help Popup](#signature-help-popup)
-    - [Unimpaired](#unimpaired)
-- [Insert mode](#insert-mode)
-- [Select / extend mode](#select--extend-mode)
-- [Picker](#picker)
-- [Prompt](#prompt)
-
 > 💡 Mappings marked (**LSP**) require an active language server for the file.
 
 > 💡 Mappings marked (**TS**) require a tree-sitter grammar for the file type.
@@ -183,7 +162,7 @@ These sub-modes are accessible from normal mode and typically switch back to nor
 | `Space`  | Enter [space mode](#space-mode)                    | N/A            |
 
 These modes (except command mode) can be configured by
-[remapping keys](https://docs.helix-editor.com/remapping.html#minor-modes).
+[remapping keys](./remapping.md#minor-modes).
 
 #### View mode
 
@@ -263,7 +242,7 @@ Please refer to the relevant sections for detailed explanations about [surround]
 
 Accessed by typing `Ctrl-w` in [normal mode](#normal-mode).
 
-This layer is similar to Vim keybindings as Kakoune does not support windows.
+Use these keys to manage split views. See [Files, buffers, and splits](./files.md).
 
 | Key                    | Description                                          | Command           |
 | -----                  | -------------                                        | -------           |
@@ -290,11 +269,11 @@ This layer is similar to Vim keybindings as Kakoune does not support windows.
 
 Accessed by typing `Space` in [normal mode](#normal-mode).
 
-This layer is a kludge of mappings, mostly pickers.
+Use these keys to open pickers and access project tools.
 
 | Key     | Description                                                             | Command                                    |
 | -----   | -----------                                                             | -------                                    |
-| `f`     | Open file picker at LSP workspace root                                  | `file_picker`                              |
+| `f`     | Open file picker at workspace root                                      | `file_picker`                              |
 | `F`     | Open file picker at current working directory                           | `file_picker_in_current_directory`         |
 | `e`     | Open file explorer at workspace root                                     | `file_explorer`                            |
 | `E`     | Open file explorer at current buffer's directory                        | `file_explorer_in_current_buffer_directory`|
@@ -306,10 +285,10 @@ This layer is a kludge of mappings, mostly pickers.
 | `k`     | Show documentation for item under cursor in a [popup](#popup) (**LSP**) | `hover`                                    |
 | `s`     | Open document symbol picker (**LSP** or **TS**)                         | `lsp_or_syntax_symbol_picker`              |
 | `S`     | Open workspace symbol picker (**LSP** or **TS**)                        | `lsp_or_syntax_workspace_symbol_picker`    |
-| `d`     | Open document diagnostics picker (**LSP**)                              | `diagnostics_picker`                       |
-| `D`     | Open workspace diagnostics picker (**LSP**)                             | `workspace_diagnostics_picker`             |
+| `d`     | Open document diagnostics picker                              | `diagnostics_picker`                       |
+| `D`     | Open workspace diagnostics picker                             | `workspace_diagnostics_picker`             |
 | `r`     | Rename symbol (**LSP**)                                                 | `rename_symbol`                            |
-| `a`     | Apply code action (**LSP**)                                             | `code_action`                              |
+| `a`     | Apply a code action, including spelling corrections                                             | `code_action`                              |
 | `l`     | Show code lenses on the current line (**LSP**)                          | `show_code_lenses_under_cursor`            |
 | `h`     | Select symbol references (**LSP**)                                      | `select_references_to_symbol_under_cursor` |
 | `'`     | Open last fuzzy picker                                                  | `last_picker`                              |
@@ -326,11 +305,11 @@ This layer is a kludge of mappings, mostly pickers.
 | `?`     | Open command palette                                                    | `command_palette`                          |
 | `B`     | Toggle inline Git blame                                                | `toggle_inline_blame`                    |
 
-> 💡 Global search displays results in a fuzzy picker, use `Space + '` to bring it back up after opening a file.
+> 💡 Global search displays results in a fuzzy picker, use `Space '` to bring it back up after opening a file.
 
 ##### Popup
 
-Displays documentation for item under cursor. Remapping currently not supported.
+Displays documentation for item under cursor. See [Component keys](./remapping.md#component-keys) to remap these actions.
 
 | Key      | Description |
 | ----     | ----------- |
@@ -339,7 +318,7 @@ Displays documentation for item under cursor. Remapping currently not supported.
 
 ##### Completion Menu
 
-Displays documentation for the selected completion item. Remapping currently not supported.
+Displays documentation for the selected completion item. See [Component keys](./remapping.md#component-keys) to remap these actions.
 
 | Key                         | Description                      |
 | ----                        | -----------                      |
@@ -352,7 +331,7 @@ Any other keypresses result in the completion being accepted.
 
 ##### Signature-help Popup
 
-Displays the signature of the selected completion item. Remapping currently not supported.
+Displays the signature of the selected completion item. See [Component keys](./remapping.md#component-keys) to remap these actions.
 
 | Key     | Description        |
 | ----    | -----------        |
@@ -393,8 +372,8 @@ These mappings are in the style of [vim-unimpaired](https://github.com/tpope/vim
 | `[g`     | Go to previous change                        | `goto_prev_change`      |
 | `]G`     | Go to last change                            | `goto_last_change`      |
 | `[G`     | Go to first change                           | `goto_first_change`     |
-| `[x`     | Go to next (X)HTML element                   | `goto_next_xml_element` |
-| `]x`     | Go to previous (X)HTML element               | `goto_prev_xml_element` |
+| `[x`     | Go to previous (X)HTML element               | `goto_prev_xml_element` |
+| `]x`     | Go to next (X)HTML element                   | `goto_next_xml_element` |
 | `]Space` | Add newline below                            | `add_newline_below`     |
 | `[Space` | Add newline above                            | `add_newline_above`     |
 
@@ -402,13 +381,9 @@ These mappings are in the style of [vim-unimpaired](https://github.com/tpope/vim
 
 Accessed by typing `i` in [normal mode](#normal-mode).
 
-Insert mode bindings are minimal by default. Mitos is designed to
-be a modal editor, and this is reflected in the user experience and internal
-mechanics. Changes to the text are only saved for undos when
-escaping from insert mode to normal mode.
-
-> 💡 New users are strongly encouraged to learn the modal editing paradigm
-> to get the smoothest experience.
+Text entered during an insert-mode session normally forms one undo step when
+you return to normal mode. `Ctrl-s` starts another undo step without leaving
+insert mode. See [Macros and undo](./macros.md#undo-and-redo).
 
 | Key                                         | Description                 | Command                  |
 | -----                                       | -----------                 | -------                  |
@@ -426,10 +401,9 @@ escaping from insert mode to normal mode.
 | `Tab`                                       | [Smart tab] (configurable)  | `smart_tab`              |
 | `Shift-Tab`                                 | Insert tab                  | `insert_tab`             |
 
-[Smart tab]: ./editor.md#editorindentsmart-tab-section
+[Smart tab]: ./completion.md#smart-tab
 
-These keys are not recommended, but are included for new users less familiar
-with modal editors.
+You can also navigate while in insert mode:
 
 | Key                                         | Description                 | Command                  |
 | -----                                       | -----------                 | -------                  |
@@ -442,20 +416,8 @@ with modal editors.
 | `Home`                                      | Move to line start          | `goto_line_start`        |
 | `End`                                       | Move to line end            | `goto_line_end_newline`  |
 
-As you become more comfortable with modal editing, you may want to disable some
-insert mode bindings. You can do this by editing your `config.toml` file.
-
-```toml
-[keys.insert]
-up = "no_op"
-down = "no_op"
-left = "no_op"
-right = "no_op"
-pageup = "no_op"
-pagedown = "no_op"
-home = "no_op"
-end = "no_op"
-```
+To disable any of these bindings, map it to `no_op` in `[keys.insert]`.
+See [Key remapping](./remapping.md).
 
 ## Select / extend mode
 
@@ -474,7 +436,7 @@ you to selectively add search terms to your selections.
 
 ## Picker
 
-Keys to use within picker. Remapping currently not supported.
+Keys to use within picker. See [Component keys](./remapping.md#component-keys) to remap these actions.
 See the documentation page on [pickers](./pickers.md) for more info.
 [Prompt](#prompt) keybinds also work in pickers, except where they conflict with picker keybinds.
 
@@ -496,7 +458,7 @@ See the documentation page on [pickers](./pickers.md) for more info.
 
 ## Prompt
 
-Keys to use within prompt, Remapping currently not supported.
+Keys used in prompts. See [Component keys](./remapping.md#component-keys) to remap them.
 
 | Key                                         | Description                                                             |
 | -----                                       | -------------                                                           |
@@ -513,7 +475,7 @@ Keys to use within prompt, Remapping currently not supported.
 | `Ctrl-k`                                    | Delete to end of line                                                   |
 | `Backspace`, `Ctrl-h`, `Shift-Backspace`    | Delete previous char                                                    |
 | `Delete`, `Ctrl-d`                          | Delete next char                                                        |
-| `Ctrl-s`                                    | Insert a word under doc cursor, may be changed to Ctrl-r Ctrl-w later   |
+| `Ctrl-s`                                    | Insert the word under the document cursor                               |
 | `Ctrl-p`, `Up`                              | Select previous history                                                 |
 | `Ctrl-n`, `Down`                            | Select next history                                                     |
 | `Ctrl-r`                                    | Insert the content of the register selected by following input char     |

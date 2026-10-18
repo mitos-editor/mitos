@@ -4,9 +4,8 @@ Mitos can spell-check documents and surface misspellings as diagnostics.
 Corrections and "add to dictionary" are offered as [code
 actions](./commands.md), alongside any from language servers.
 
-Spell checking is opt-in. Mitos will use tree-sitter to check only requested
-regions of a language to avoid noisy diagnostics for keywords. Multiple
-dictionaries may be configured at once. A word is accepted if any configured
+Spell checking is opt-in. For supported languages, it checks prose and comments
+while avoiding code. Multiple dictionaries may be configured at once. A word is accepted if any configured
 dictionary allows it.
 
 ## Enabling
@@ -49,10 +48,8 @@ There are several ways to turn spell checking on:
 
 ## Scope
 
-What gets checked is controlled per language by a tree-sitter `spellcheck.scm`
-query: a node captured `@spell` is checked, and `@nospell` excludes part of one.
-Most languages inject a shared `comment` grammar, so their comments are checked
-with no language-specific query. The bundled queries also cover:
+Most supported languages check comments. Additional prose regions depend on
+the language:
 
 | Language | Checked text | Excluded text |
 | --- | --- | --- |
@@ -68,10 +65,9 @@ Python docstrings are treated as prose; examples and markup inside them are
 not parsed separately. reStructuredText directive bodies are left unchecked
 because their syntax nodes do not distinguish prose from code.
 
-Coverage depends on the queries present in your runtime directories. Strings
-and identifiers are checked only where a language's query opts them in. With
-syntax parsing, text outside `@spell` captures is left unchecked. Plain text
-and files without a syntax tree are checked in full.
+Coverage depends on the language support in your runtime. Ordinary strings and
+identifiers are generally left unchecked. Plain text and files without syntax
+support are checked in full.
 
 See [Adding spellcheck queries](./guides/spellcheck.md) to extend coverage to a
 new language.
@@ -91,7 +87,7 @@ the finding's exact range.
 ## Correcting findings
 
 Move onto a misspelled word (or select it with `]s`, `[s`, or `mis`) and press
-`Space-a` to open code actions. Choose a `Replace ...` action and press `Enter`
+`Space a` to open code actions. Choose a `Replace ...` action and press `Enter`
 to replace the whole word. Press `u` to undo the correction, or `Escape` to
 dismiss the menu without changing the text.
 
@@ -101,7 +97,7 @@ The same menu offers `Add ... to dictionary` to accept a word permanently.
 
 ### Ignoring a word for this session
 
-Choose `Ignore 'word' for this session (language)` from `Space-a` to suppress
+Choose `Ignore 'word' for this session (language)` from `Space a` to suppress
 that word until Mitos exits. Matching is case-insensitive and applies to the
 whole word, including in other open buffers and buffers opened later that use
 the chosen dictionary. Other misspellings continue to be checked.
@@ -114,7 +110,7 @@ your personal dictionary or configuration files.
 
 ### Ignoring a word permanently
 
-Choose `Ignore 'word' forever (language)` from `Space-a` to keep ignoring it
+Choose `Ignore 'word' forever (language)` from `Space a` to keep ignoring it
 after restarting Mitos, across projects using that dictionary. Matching is
 case-insensitive and applies to the whole word, just like a session ignore.
 

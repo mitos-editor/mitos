@@ -4,7 +4,7 @@
 
 In Mitos, textobjects are a way to select, manipulate and operate on a piece of
 text in a structured way. They allow you to refer to blocks of text based on
-their structure or purpose, such as a word, sentence, paragraph, or even a
+their structure or purpose, such as a word, paragraph, or a
 function or block of code.
 
 ![Textobject demo](https://user-images.githubusercontent.com/23398472/124231131-81a4bb00-db2d-11eb-9d10-8e577ca7b177.gif)
@@ -25,20 +25,31 @@ function or block of code.
 | `a`                    | Argument/parameter       |
 | `c`                    | Comment                  |
 | `T`                    | Test                     |
+| `e`                    | Data structure entry     |
 | `g`                    | Change                   |
 | `s`                    | Spelling finding         |
 | `x`                    | (X)HTML element          |
 
-> 💡 `f`, `t`, etc. need a tree-sitter grammar active for the current
-document and a special tree-sitter query file to work properly. [Only
-some grammars](./lang-support.md) currently have the query file implemented.
-Contributions are welcome!
+Function, type, argument, comment, test, entry, and element objects require
+syntax support for the language. Check the textobjects column in
+[Language support](./lang-support.md).
 
 The `s` textobject uses [spell-checking findings](./spell-checking.md). Both
 `mis` and `mas` select the diagnosed word under the cursor; `mIs` and `mAs`
 select every finding fully contained in the current selection. Use `[s` and
 `]s` to navigate to the previous or next finding. These commands also work in
 plain text and scratch buffers when spell checking is enabled.
+
+## Select all objects in a region
+
+Use `mI` for every inside object or `mA` for every around object fully contained
+in the current selections. For example, press `%`, then `mIf` to select the
+inside of every function in the buffer. Apply `y`, `c`, or another action to
+all of them at once.
+
+Select-all supports words, paragraphs, the syntax objects above, Git changes,
+and spelling findings. `mId` and `mAd` select diagnostic ranges. Surround pairs
+are selected individually with `mi` and `ma`.
 
 ## Navigating using tree-sitter textobjects
 

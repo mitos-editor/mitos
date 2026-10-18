@@ -2,3 +2,4 @@ book
 site
 .bin
 .wrangler
+/__pycache__/

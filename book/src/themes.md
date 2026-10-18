@@ -143,14 +143,14 @@ supported by your terminal emulator.
 Extend other themes by setting the `inherits` property to an existing theme.
 
 ```toml
-inherits = "boo_berry"
+inherits = "modus_vivendi"
 
 # Override the theming for "keyword"s:
 "keyword" = { fg = "gold" }
 
 # Override colors in the palette:
 [palette]
-berry = "#2A2A4D"
+gold = "#D4AF37"
 ```
 
 ### Rainbow
@@ -174,7 +174,8 @@ These keys match [tree-sitter scopes](https://tree-sitter.github.io/tree-sitter/
 
 When determining styling for a highlight, the longest matching theme key will be used. For example, if the highlight is `function.builtin.static`, the key `function.builtin` will be used instead of `function`.
 
-This list is also the reference for the capture names used in `highlights.scm` queries (`@function`, `@type`, …) — see [Adding languages](./guides/adding_languages.md). When several captures cover the same text the **last** matching pattern in the file wins; when they sit on nested nodes the **innermost** node wins regardless of order, so capture the leaf you mean (put `@function` on the called identifier, not a node wrapping it). A method call is `@function.method`; a field access with no call is `@variable.other.member`.
+This list also defines capture names for language queries. See
+[Adding highlight queries](./guides/highlights.md) when changing syntax highlighting.
 
 We use a similar set of scopes as
 [Sublime Text](https://www.sublimetext.com/docs/scope_naming.html). See also
@@ -189,7 +190,7 @@ We use a similar set of scopes as
     - `variant` - Enum variants
 - `constructor` - Constructors, struct/record literals, type names in value position
 
-- `constant` (TODO: constant.other.placeholder for `%v`)
+- `constant`
   - `builtin` Special constants provided by the language (`true`, `false`, `nil` etc)
     - `boolean`
   - `character`
@@ -198,7 +199,7 @@ We use a similar set of scopes as
     - `integer`
     - `float`
 
-- `string` (TODO: string.quoted.{single, double}, string.raw/.unquoted)?
+- `string`
   - `regexp` - Regular expressions
   - `special`
     - `path`
@@ -260,7 +261,7 @@ We use a similar set of scopes as
 - `namespace` - Modules and namespaces (e.g. `std::collections`, package names)
 
 - `special` - `derive` in Rust, bolded query-match in pickers (includes file explorer), etc.
-See also [#2380]
+See also [highlighting discussion][#2380]
 
 - `markup`
   - `heading`
@@ -340,7 +341,7 @@ These scopes are used for theming the editor interface:
 | `ui.bufferline`                   | Style for the buffer line                                                                      |
 | `ui.bufferline.active`            | Style for the active buffer in buffer line                                                     |
 | `ui.bufferline.background`        | Style for bufferline background                                                                |
-| `ui.popup`                        | Documentation popups (e.g. Space + k)                                                          |
+| `ui.popup`                        | Documentation popups (e.g. Space k)                                                          |
 | `ui.popup.info`                   | Prompt for multiple key options                                                                |
 | `ui.picker.header`                | Header row area in pickers with multiple columns                                               |
 | `ui.picker.header.column`         | Column names in pickers with multiple columns                                                  |
@@ -393,5 +394,5 @@ These scopes are used for theming the editor interface:
 | `diagnostic.spelling` | Spelling diagnostics in the editing area (falls back to the hint diagnostic style). |
 | `tabstop`                         | Snippet placeholder                                                                            |
 
-[editor-section]: ./editor.md#editor-section
+[editor-section]: ./configuration.md#editor
 [#2380]: https://github.com/helix-editor/helix/issues/2380

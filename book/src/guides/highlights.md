@@ -50,4 +50,4 @@ above it; this catches the precedence mistakes that `query-check` cannot see.
 `cargo xtask highlight-check --dump <language> <file>` prints the winning capture
 per span for an arbitrary file.
 
-[themes page]: https://docs.helix-editor.com/themes.html#scopes
+[themes page]: ../themes.md#scopes

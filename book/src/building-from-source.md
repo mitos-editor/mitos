@@ -1,28 +1,19 @@
 # Building from source
 
-- [Configuring Mitos's runtime files](#configuring-mitoss-runtime-files)
-  - [Linux and macOS](#linux-and-macos)
-  - [Windows](#windows)
-  - [Multiple runtime directories](#multiple-runtime-directories)
-  - [Note to packagers](#note-to-packagers)
-- [Validating the installation](#validating-the-installation)
-- [Configure the desktop shortcut](#configure-the-desktop-shortcut)
-- [Building the Debian package](#building-the-debian-package)
-
 Requirements:
 
 Clone the Mitos GitHub repository into a directory of your choice. The
 examples in this documentation assume installation into either `~/src/` on
 Linux and macOS, or `%userprofile%\src\` on Windows.
 
-- The [Rust toolchain](https://www.rust-lang.org/tools/install)
+- The [Rust toolchain](https://www.rust-lang.org/tools/install), version 1.97.1 or newer
 - The [Git version control system](https://git-scm.com/)
 - A C++14 compatible compiler to build the tree-sitter grammars, for example GCC or Clang
 
 If you are using the `musl-libc` standard library instead of `glibc` the following environment variable must be set during the build to ensure tree-sitter grammars can be loaded correctly:
 
 ```sh
-RUSTFLAGS="-C target-feature=-crt-static"
+export RUSTFLAGS="-C target-feature=-crt-static"
 ```
 
 1. Clone the repository:
@@ -51,7 +42,8 @@ RUSTFLAGS="-C target-feature=-crt-static"
    `ms` in Cargo's binary directory. Both commands construct the tree-sitter
    grammars in the local `runtime` folder. `ms` is short for Mitos.
 
-> 💡 If you do not want to fetch or build grammars, set an environment variable `MITOS_DISABLE_AUTO_GRAMMAR_BUILD`
+To skip downloading and compiling grammars during the build, set
+`MITOS_DISABLE_AUTO_GRAMMAR_BUILD=1`.
 
 > 💡 Tree-sitter grammars can be fetched and compiled if not pre-packaged. Fetch
 > grammars with `ms --grammar fetch` and compile them with
@@ -73,11 +65,15 @@ your `~/.bashrc` or equivalent:
 export MITOS_RUNTIME=~/src/mitos/runtime
 ```
 
-Or, create a symbolic link:
+Or, create a symbolic link if `~/.config/mitos/runtime` does not already exist:
 
 ```sh
-ln -Tsf $PWD/runtime ~/.config/mitos/runtime
+mkdir -p ~/.config/mitos
+ln -s "$PWD/runtime" ~/.config/mitos/runtime
 ```
+
+Run this from the repository root. Review an existing runtime directory before
+replacing it, since it may contain your own queries or dictionaries.
 
 #### Windows
 
@@ -96,7 +92,7 @@ Or, create a symlink in `%appdata%\mitos\` that links to the source code directo
 
 | Method     | Command                                                                                |
 | ---------- | -------------------------------------------------------------------------------------- |
-| PowerShell | `New-Item -ItemType Junction -Target "runtime" -Path "$Env:AppData\mitos\runtime"`     |
+| PowerShell | `New-Item -ItemType Junction -Target "$Env:USERPROFILE\src\mitos\runtime" -Path "$Env:AppData\mitos\runtime"`     |
 | Cmd        | `cd %appdata%\mitos` <br/> `mklink /D runtime "%userprofile%\src\mitos\runtime"`       |
 
 > 💡 On Windows, creating a symbolic link may require running PowerShell or
@@ -194,18 +190,8 @@ use the following command to build the release binary and package it into a `.de
 cargo deb -- --locked
 ```
 
-> 💡 This locks you into the `--release` profile. But you can also build mitos in any way you like.
-> As long as you leave a `target/release/ms` file, it will get packaged with `cargo deb --no-build`
+The default uses the release profile. To package an already built
+`target/release/ms`, run `cargo deb --no-build`.
 
-> 💡 Don't worry about the following:
-> ```text
-> warning: Failed to find dependency specification
-> ```
-> Cargo deb just reports which packaged files it didn't derive dependencies for. But
-> so far the dependency deriving seams very good, even if some of the grammar files are skipped.
-
-You can find the resulted `.deb` in `target/debian/`. It should contain everything it needs, including the
-
-- completions for bash, fish, zsh
-- .desktop file
-- launcher to the binary with the runtime
+The package is written to `target/debian/`. It includes the executable, runtime,
+shell completions, desktop entry, and launcher.

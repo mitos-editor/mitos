@@ -22,16 +22,54 @@ Available features depend on the server.
 | Action | Keys or command |
 | --- | --- |
 | Next / previous error or warning | `]d` / `[d` |
-| File / workspace diagnostics | `Space-d` / `Space-D` |
+| File / workspace diagnostics | `Space d` / `Space D` |
 | Completion | Automatic while typing; `Ctrl-x` opens it manually |
-| Documentation at the cursor | `Space-k` |
+| Documentation at the cursor | `Space k` |
 | Parameter hints | Automatic while typing arguments |
 | Go to definition / declaration / type | `gd` / `gD` / `gy` |
 | Find references / implementations | `gr` / `gi` |
-| Rename a symbol | `Space-r` |
-| Code actions, such as quick fixes | `Space-a` |
-| File / workspace symbols | `Space-s` / `Space-S` |
+| Rename a symbol | `Space r` |
+| Code actions, such as quick fixes | `Space a` |
+| File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
+
+## Diagnostics and code actions
+
+Use `]d` and `[d` to move between diagnostics, then `Space a` to see fixes
+for the current selection. Diagnostics and code actions can also come from
+[built-in spell checking](./spell-checking.md), which needs no server.
+
+Warnings on the cursor line can appear below the code:
+
+```text
+let total = missing;
+            └─ cannot find value `missing`
+```
+
+Use [`editor.diagnostics`](./configuration.md#editordiagnostics) to choose
+which severities appear inline or at the end of a line. The diagnostic
+pickers provide a list even when inline display is disabled.
+
+Code lens labels, such as run or test actions, appear beside code when the
+server provides them. Press `Space l` for the commands on the current line.
+
+## Symbols without a server
+
+`Space s` and `Space S` use language-server symbols when available. Otherwise,
+Mitos can use syntax queries to list file and workspace symbols. Check the
+Code Navigation Tags column in [Language support](./lang-support.md) for available queries.
+Syntax symbols do not require a running language server.
+
+## Formatting
+
+Use `:format` for the whole file or `=` for selected ranges supported by the
+language server. A configured external formatter takes precedence for whole-file
+formatting. Formatting on save requires both `editor.format.on-save` and the
+language's `auto-format` setting to be enabled.
+
+See [Languages](./languages.md#configuring-the-formatter-command) for external
+formatters and [code actions on save](./languages.md#configuring-code-actions-on-save).
+For suggestions while typing, see [Completion and snippets](./completion.md).
 
 ## Change settings
 

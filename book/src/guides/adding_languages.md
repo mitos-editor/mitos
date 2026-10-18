@@ -16,10 +16,8 @@ below.
    configuration, run the command `cargo xtask docgen` to update the
    [Language Support](../lang-support.md) documentation.
 
-> 💡 If you are adding a new Language Server configuration, make sure to update
-> the
-> [Language Server Wiki](https://github.com/helix-editor/helix/wiki/Language-Server-Configurations)
-> with the installation instructions.
+When adding a server, include its setup requirements in the documentation and
+check that `ms --health <language>` reports its availability correctly.
 
 ## Grammar configuration
 
@@ -59,6 +57,7 @@ below.
    | `textobjects.scm` | textobjects and navigation (`mif`, `]f`, …) | [textobject.md](./textobject.md) |
    | `locals.scm` | scope tracking so locals highlight distinctly | [locals.md](./locals.md) |
    | `tags.scm` | document/workspace symbol pickers | [tags.md](./tags.md) |
+   | `spellcheck.scm` | prose regions for spell checking | [spellcheck.md](./spellcheck.md) |
    | `rainbows.scm` | rainbow brackets | [rainbow_bracket_queries.md](./rainbow_bracket_queries.md) |
 
    A query file may reuse another language's with `; inherits: <lang>` on the
@@ -76,4 +75,4 @@ below.
 - If you are attempting to add queries and Mitos is unable to locate them, ensure that the environment variable `MITOS_RUNTIME` is set to the location of the `runtime` folder you're developing in.
 - Validate queries with `cargo xtask query-check [language]` (every query file
   must compile against the grammar). `highlight-check` and `indent-check`
-  additionally run the real highlighter and indenter over the test fixtures catch mistakes.
+  additionally run the real highlighter and indenter over the test fixtures to catch mistakes.

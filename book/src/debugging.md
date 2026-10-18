@@ -91,6 +91,25 @@ These bindings are available in normal and select mode:
 Use `:debug-eval <expression>` to evaluate an expression in the current debug
 context. Supported expressions and debugging capabilities depend on the adapter.
 
+## Terminal for the debugged program
+
+Some adapters ask Mitos to launch the program in another terminal or pane.
+Mitos detects supported tmux, Zellij, WezTerm, Kitty, and Alacritty sessions,
+and uses Windows Terminal or Conhost on Windows when needed. See
+[launcher configuration](./configuration.md#terminallauncher) for detection details.
+
+If your terminal is not detected, configure a command that accepts the program
+and its arguments. For example, to use a new Kitty window:
+
+```toml
+[terminal.launcher]
+command = "kitty"
+args = ["--"]
+```
+
+The launcher is needed only when the adapter requests a terminal; it is
+separate from the debug adapter's own executable and launch template.
+
 ## Troubleshooting
 
 - **No debug adapter available for language:** check the current file's

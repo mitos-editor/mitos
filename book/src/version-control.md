@@ -20,7 +20,33 @@ Copy actions can be remapped under `[keys.blame]` using `copy_commit_id` and `co
 
 Lines with uncommitted changes have no committed blame. Mitos reports "Not committed yet" for these lines.
 
-For inline annotations and their display format, see [inline blame configuration](./editor.md#editorinline-blame-section). `toggle_inline_blame` (`Space-B`) toggles annotations without opening the detail popup.
+## Inline blame
+
+Show who last changed the current line with `Space B`. Press it again to hide
+annotations. To enable annotations by default:
+
+```toml
+[editor.inline-blame]
+show = "cursor-line"
+format = "{author}: {title}"
+```
+
+Use `show = "all-lines"` for all visible lines, or `"never"` to hide them.
+The toggle preserves a configured display mode; turning it on without a
+chosen mode uses `"cursor-line"`. Blank lines and uncommitted changes have
+no inline annotation. The `:blame` popup works whether annotations are on or off.
+
+### Format
+
+The default format is `{author}, {time-ago} • {title} • {commit}`.
+Available placeholders are:
+
+| Placeholder | Value |
+| --- | --- |
+| `{author}` / `{email}` | Author name / email |
+| `{date}` / `{time-ago}` | Commit date / relative age |
+| `{title}` / `{body}` | Commit title / body |
+| `{commit}` | Abbreviated commit ID |
 
 ## Changes
 
@@ -30,7 +56,7 @@ Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 | --- | --- | --- |
 | `goto_next_change` / `goto_prev_change` | `]g` / `[g` | Select the next / previous change |
 | `goto_first_change` / `goto_last_change` | `[G` / `]G` | Select the first / last change |
-| `changed_file_picker` | `Space-g` | Browse changed files within the workspace |
+| `changed_file_picker` | `Space g` | Browse changed files within the workspace |
 | `changed_file_picker_in_repository` | Unbound | Browse changed files throughout the repository |
 | `:restore-change` | Unbound | Restore changes intersecting the selections from `HEAD` |
 

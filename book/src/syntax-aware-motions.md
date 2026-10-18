@@ -2,9 +2,30 @@
 
 ## Moving the selection with syntax-aware motions
 
-`Alt-p`, `Alt-o`, `Alt-i`, and `Alt-n` (or `Alt` and arrow keys) allow you to move the 
-selection according to its location in the syntax tree. For example, many languages have the
-following syntax for function calls:
+Use syntax-aware motions to select expressions and code blocks without
+counting characters:
+
+| Key | Action |
+| --- | --- |
+| `Alt-o` / `Alt-Up` | Expand to the enclosing structure |
+| `Alt-i` / `Alt-Down` | Shrink the selection |
+| `Alt-n` / `Alt-Right` | Select the next sibling |
+| `Alt-p` / `Alt-Left` | Select the previous sibling |
+| `Alt-a` | Select all siblings |
+| `Alt-I` | Select all children |
+
+For example, select `arg1` in `func(arg1, arg2, arg3)`. `Alt-n` selects
+`arg2`; `Alt-o` expands to the argument list. You can then copy, replace, or
+surround the selected structure using the usual editing commands.
+
+These motions need a syntax grammar for the current language. Use
+[textobjects](./textobjects.md) when you want a specific kind of structure,
+such as a function or parameter.
+
+## How structures relate
+
+The syntax tree explains which selections are parents and siblings. For
+example:
 
 ```js
 func(arg1, arg2, arg3);

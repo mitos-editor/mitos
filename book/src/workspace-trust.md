@@ -1,96 +1,44 @@
 # Workspace trust
 
-Mitos has several features that can execute arbitrary code:
+A project can configure programs that Mitos runs. Workspace trust lets you
+review project settings before loading them. The default policy allows language
+servers from your user configuration and debug adapters you launch, but requires
+trust before loading `.mitos/config.toml`, `.mitos/languages.toml`, or
+repository-local Git settings that can run external commands.
 
-- Language servers (LSP)
-- Debug adapters (DAP)
-- Local workspace configuration (`.mitos/config.toml`, `.mitos/languages.toml`)
-- Git integration (filters and other commands in a repository's `.git/config`)
-
-To protect against malicious projects (a checked-out PR, a freshly cloned
-repository, etc.) Mitos gates these behind explicit per-workspace trust.
-By default language servers start automatically (their binaries come from
-`$PATH`, not from the workspace) and debug adapters may be launched, but
-loading `.mitos/config.toml` or `.mitos/languages.toml` and trusting a
-repository's `.git/config` requires opting in. Note that debug adapters
-are never started automatically — you launch them yourself — but the same
-trust level still gates whether they may run. The model is intentionally
-similar to [direnv](https://direnv.net/): you run `:workspace-trust` once
-per workspace and Mitos remembers across sessions.
+Trust is not a sandbox for language servers or debug adapters. Those tools may
+read project files and run programs of their own.
 
 ## Granting trust
 
-When Mitos opens a file inside a workspace it has never seen before, a
-modal trust prompt asks:
+When opening a file whose project settings need trust, Mitos offers:
 
-- **Trust** — allow the workspace permanently.
-- **Never** — exclude the workspace; never prompt again.
+- **Trust** to remember approval for the workspace.
+- **Never** to exclude it and stop future prompts.
+- `Esc` to leave it untrusted for this session. Mitos may ask again next session.
 
-`<Esc>` (or any other dismissal) caches "untrusted for this session" so
-the prompt doesn't re-fire for every file you open in the workspace. The
-next time you start Mitos in that workspace, it'll prompt again.
-
-A small `[⚠]` indicator appears in the bottom-right of the editor (next
-to the macro-recording `[@]`) whenever the workspace is in restricted mode
-*and* running `:workspace-trust` would change observable behavior — i.e.
-when there's a local config to load or an LSP that would start.
-
-You can also run `:workspace-trust` / `:workspace-untrust` /
-`:workspace-exclude` directly from the typed command prompt.
+A `[⚠]` indicator appears in the bottom-right when the workspace is restricted
+and granting trust would enable project settings or a blocked language server.
+Run `:workspace-trust` to approve a workspace after reviewing its settings.
 
 ## Revoking trust
 
-Run `:workspace-untrust` to revoke a workspace's trust grant. The next time
-you open a file in that workspace, you're back to the untrusted hint.
+Use `:workspace-untrust` to remove a grant or exclusion. Use
+`:workspace-exclude` to stop prompts for a workspace without trusting it.
 
 ## Detecting changes after trust was granted
 
-When you trust a workspace, Mitos records a hash of every file under
-`.mitos/`. If those files change afterwards (a malicious checkout, an
-inadvertent rebase, etc.) Mitos detects the mismatch on the next open and
-reports the workspace as *stale*:
+Changes under `.mitos/` invalidate a remembered approval. On the next check,
+Mitos reports that project configuration changed and leaves it unloaded.
+Review the changes, then run `:workspace-trust` again to approve them.
 
-```text
-Workspace `.mitos/` config changed since `:workspace-trust`. Local config
-not loaded. Run `:workspace-trust` to re-allow.
-```
-
-In the stale state, language servers continue to run (they use the
-globally-configured binaries on `$PATH`, which are unchanged), but
-`.mitos/config.toml` and `.mitos/languages.toml` are not loaded. Run
-`:workspace-trust` again to re-pin the new hash.
-
-## Storage
-
-Trust grants live in `data_dir()/workspace_trust/`, one small file per
-workspace. The filename is the SHA-256 of the workspace's absolute path;
-the contents look like:
-
-```text
-path = /home/user/proj1
-hash = sha256:abc123...
-excluded = false
-```
-
-- Linux, macOS: `~/.local/share/mitos/workspace_trust/`
-- Windows: `%AppData%\Roaming\mitos\workspace_trust\`
-
-The one-file-per-workspace shape is safe under multiple concurrent Mitos
-instances — different workspaces never write the same file.
+Servers allowed by your user policy may still run. An approval of changed
+configuration is separate from permission to use your globally configured tools.
 
 ## Configuration
 
-Settings live under `[editor.workspace-trust]`:
-
-| Key       | Values                              | Default     | Effect                                                                       |
-| ---       | ---                                 | ---         | ---                                                                          |
-| `level`   | `"none"`, `"servers"`, `"insecure"` | `"servers"` | What is auto-trusted in every workspace. See below.                          |
-| `prompt`  | `true`, `false`                     | `true`      | Whether to surface the modal popup. The `[⚠]` indicator is shown regardless. |
-| `trusted` | list of glob patterns               | `[]`        | Workspaces matching a pattern are trusted without a grant. Discouraged; see below. |
-
-### Recommended setups
-
-**Default: trust servers, prompt before loading workspace config.**
+Trust policy is read only from your user `config.toml`; project files cannot
+weaken it. The default is:
 
 ```toml
 [editor.workspace-trust]
@@ -98,14 +46,13 @@ level = "servers"
 prompt = true
 ```
 
-Language servers start automatically in every workspace — their binaries
-come from `$PATH` and are not workspace-controlled — and debug adapters
-you launch are allowed to run. The modal only appears when opening a file
-in a workspace whose `.mitos/config.toml` or `.mitos/languages.toml` would
-unlock something. Trust everything else with one keystroke per workspace,
-deny with another.
+| Level | What may run without a workspace grant |
+| --- | --- |
+| `"none"` | No language servers, debug adapters, or gated project settings |
+| `"servers"` | Language servers and manually launched debug adapters |
+| `"insecure"` | All project settings and tools, without approval or change detection |
 
-**Maximum security: never prompt, trust each workspace by hand.**
+To approve each workspace by command instead of answering prompts:
 
 ```toml
 [editor.workspace-trust]
@@ -113,63 +60,31 @@ level = "none"
 prompt = false
 ```
 
-Nothing trusts implicitly: language servers, debug adapters, local
-config, and git `Trust::Full` are all off until you run
-`:workspace-trust`. The popup never appears; the `[⚠]` indicator in the
-bottom-right is your only signal that the current workspace is
-restricted. Suited to users who would rather grant trust as a
-deliberate action than dismiss a dialog.
+The restriction indicator remains visible even when prompts are disabled.
 
-> [!WARNING]
-> `level = "insecure"` is highly discouraged. It implicitly trusts every
-> workspace you open, which defeats the protection entirely: a
-> checked-out PR with a malicious `.mitos/config.toml` would get its
-> configuration loaded and any language server it defines launched, with
-> no prompt and no indicator. Only set this if you accept full
-> responsibility for what's in every project directory you `cd` into.
+### Trusting workspaces by path
 
-### Trusting workspaces by path (discouraged)
-
-If you keep all your repositories under a predictable layout, you can
-trust them in bulk with glob patterns instead of granting each workspace
-individually:
+Use path globs only for directories whose contents you trust:
 
 ```toml
 [editor.workspace-trust]
-trusted = [
-  "~/src/github.com/me/*",
-  "~/work/repos/*",
-]
+trusted = ["~/src/github.com/me/*"]
 ```
 
-A workspace whose path matches a pattern is trusted for everything, just
-as if you had run `:workspace-trust` in it. `~` and environment variables
-are expanded.
-
-> [!WARNING]
-> This is weaker than an explicit grant and is discouraged. It skips the
-> `.mitos/` change detection entirely (a malicious checkout under a
-> matched directory is never flagged as stale), and it trusts *any*
-> repository that later lands under a matching path — including one you
-> clone into `~/src/github.com/me/` from an untrusted source. Prefer
-> granting trust per workspace; reach for this only if the prompts are
-> genuinely disruptive to your workflow. An explicit `:workspace-exclude`
-> still overrides a matching pattern.
+`~` and environment variables are expanded. Matching workspaces are trusted
+without checking later `.mitos/` changes, including repositories added to the
+matching directory in the future. Explicit approval per workspace preserves
+change detection. An explicit `:workspace-exclude` overrides a path pattern.
 
 ## Git trust
 
-Workspace trust also gates how Mitos opens git repositories. Untrusted
-workspaces are opened in [gix](https://github.com/Byron/gitoxide)'s
-`Trust::Reduced` mode; trusted workspaces use `Trust::Full`.
+Git change tracking still works in untrusted workspaces, including built-in
+line-ending conversion. Repository-local settings that could launch external
+filter programs are ignored until you trust the workspace.
 
-Under `Trust::Reduced`, gix still runs the full filter pipeline (so
-built-in conversions like `core.autocrlf` keep working) but ignores
-configuration coming from the untrusted, repository-local `.git/config`.
-That means `filter.*.clean` / `filter.*.smudge` drivers and similar
-keys that would otherwise execute external programs are dropped until you
-trust the workspace.
+## Storage
 
-Mitos forces this trust level explicitly rather than letting gix infer it
-from `.git` directory ownership — a malicious `.git/config` in a directory
-you happen to own is still treated as untrusted until you run
-`:workspace-trust`.
+Remembered decisions live in `~/.local/share/mitos/workspace_trust/` on Linux
+and macOS, or `%AppData%\mitos\workspace_trust\` on Windows. On Unix,
+`XDG_DATA_HOME` can change the data directory. Use the trust commands to manage
+decisions rather than editing these files.

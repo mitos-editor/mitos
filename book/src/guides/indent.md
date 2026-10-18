@@ -1,7 +1,7 @@
 # Adding indent queries
 
 Mitos uses tree-sitter to correctly indent new lines. This requires a
-tree-sitter grammar and an `indent.scm` query file placed in
+tree-sitter grammar and an `indents.scm` query file placed in
 `runtime/queries/{language}/indents.scm`.
 
 The indent level of a line is **the number of `@indent` scopes that contain
@@ -20,7 +20,7 @@ line but rather the expected difference in indentation between the new and an
 already existing line. This difference is then added to the actual indentation
 of the already existing line. Since this makes errors in the indent queries
 harder to find, it is recommended to disable it when testing via
-`:set indent-heuristic tree-sitter`. The rest of this guide assumes that
+`:set indent.heuristic tree-sitter`. The rest of this guide assumes that
 the `tree-sitter` heuristic is used.
 
 ## Indent queries
@@ -180,7 +180,7 @@ For an example of where `@extend` can be useful, consider Python, which is
 whitespace-sensitive.
 
 ```scm
-]
+[
   (parenthesized_expression)
   (function_definition)
   (class_definition)
@@ -221,7 +221,7 @@ the line of the node.
 ```scm
 (parenthesized_expression) @indent
 
-]
+[
   (function_definition)
   (class_definition)
 ] @indent @extend
@@ -271,7 +271,7 @@ class Hero:
     #←────────── where cursor should go on new line
 ```
 
-In Python, the are a few tokens that will always end a scope, such as a return
+In Python, there are a few tokens that will always end a scope, such as a return
 statement. Since the scope ends, so should the indent level. But because the
 function span is extended to every line with a greater indent level, a new line
 would just continue on the same level. And an `@outdent` would not help us here
@@ -284,7 +284,7 @@ To help, we need to signal an end to the extension. We can do this with
 ```scm
 (parenthesized_expression) @indent
 
-]
+[
   (function_definition)
   (class_definition)
 ] @indent @extend
@@ -399,7 +399,7 @@ argument (a string).
 The captures given by the 2 arguments must/must not start on the same line.
 
 - `#one-line?`/`#not-one-line?`:
-The captures given by the fist argument must/must span a total of one line.
+The captures given by the first argument must/must span a total of one line.
 
 ### The `header` scope
 

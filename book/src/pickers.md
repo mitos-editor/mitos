@@ -1,29 +1,92 @@
 # Pickers
 
-## Using pickers
+Pickers let you find files, open buffers, search results, symbols, and diagnostics.
+Type to filter, move through the results, then press `Enter` to open one.
 
-Mitos has a variety of pickers, which are interactive windows used to select various kinds of items. These include a file picker, global search picker, and more. Most pickers are accessed via keybindings in [space mode](./keymap.md#space-mode). Pickers have their own [keymap](./keymap.md#picker) for navigation.
+| Keys | Picker |
+| --- | --- |
+| `Space f` / `Space F` | Files at the workspace root / current working directory |
+| `Space b` | Open buffers |
+| `Space e` / `Space E` | File explorer at the workspace / current file's directory |
+| `Space /` | Project search |
+| `Space s` / `Space S` | File / workspace symbols |
+| `Space d` / `Space D` | File / workspace diagnostics |
+| `Space g` | Changed Git files |
+| `Space '` | Reopen the last picker |
 
-### Filtering Picker Results
+## Open a result
 
-Most pickers perform fuzzy matching using [fzf syntax](https://github.com/junegunn/fzf?tab=readme-ov-file#search-syntax). Two exceptions are the global search picker, which uses regex, and the workspace symbol picker, which passes search terms to the language server. Note that OR operations (`|`) are not currently supported.
+Use `Ctrl-n` and `Ctrl-p` or the arrow keys to move between results. `Enter`
+opens the selected item; `Alt-Enter` opens it in the background while keeping
+the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
+`Ctrl-t` toggles the preview. `Esc` closes the picker.
 
-The file picker, file explorer, global search, and changed-file picker refresh
-when files change, keeping your filter and selected item where possible. File
-previews refresh too; open buffers take precedence over their files on disk.
-Native notifications use `editor.files.watch`. Periodic checks use
-`editor.files.reload.poll` to cover unwatched paths, including hidden and ignored
-files shown by the explorer. Reopening the last picker refreshes its results.
+Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.md)
+for navigation after closing the picker. To customize keys, see
+[Component keys](./remapping.md#component-keys).
 
-If a picker shows multiple columns, you may apply the filter to a specific column by prefixing the column name with `%`. Column names can be shortened to any prefix, so `%p`, `%pa` or `%pat` all mean the same as `%path`. For example, a query of `mitos %p .toml !lang` in the global search picker searches for the term "mitos" within files with paths ending in ".toml" but not including "lang".
+## Filtering results
 
-You can insert the contents of a [register](./registers.md) using `Ctrl-r` followed by a register name. For example, one could insert the currently selected text using `Ctrl-r`-`.`, or the directory of the current file using `Ctrl-r`-`%` followed by `Ctrl-w` to remove the last path section. The global search picker will use the contents of the [search register](./registers.md#default-registers) if you press `Enter` without typing a filter. For example, pressing `*`-`Space-/`-`Enter` will start a global search for the currently selected text.
+Most pickers use fuzzy matching with [fzf search syntax](https://github.com/junegunn/fzf#search-syntax).
+For example, `main rs` matches both terms, `'main` requires an exact substring,
+and `!test` excludes matches. OR operations (`|`) are not supported.
 
-To keep navigating a picker's current matched locations after closing it, press `Ctrl-q` to populate the [quicklist](./quicklist.md).
+Global search uses regular expressions for the text query. Workspace symbol
+queries go to the language server when one supplies workspace symbols; syntax
+symbol search is available as a fallback. See [Language servers](./lsp.md#symbols-without-a-server).
 
-### File explorer
+In pickers with several columns, prefix a column filter with `%`. Column names
+can be shortened: `%p`, `%pa`, and `%path` all select the path column. For
+example, `mitos %p .toml !lang` in global search looks for `mitos`, filtering
+paths by `.toml` and excluding paths matching `lang`. Use `.toml$` to require
+the path to end in `.toml`.
 
-`Space-e` opens an interactive file explorer for browsing and opening files, rooted at the workspace; `Space-.` opens one rooted at the current buffer's directory. Unlike the file picker, the explorer does not ignore most files by default; its ignore behaviour is configured separately in the [`[editor.file-explorer]`](./editor.md#editorfile-explorer-section) section.
+Insert a register into a query with `Ctrl-r`, then its name. `Ctrl-r .`
+inserts the current selections; `Ctrl-r %` inserts the current file's path.
+See [Search and replacement](./search.md) for project-search examples.
 
-Supported images can be displayed in the preview pane. See
-[Image previews](./image-previews.md) for formats and rendering details.
+## File explorer
+
+Press `Space e` to browse the workspace, or `Space E` for the current file's
+directory. Select a directory and press `Enter` to enter it. Select `../` to
+go to its parent. The query filters entries in the directory being displayed.
+
+Supported [images](./image-previews.md) also appear in the preview pane.
+
+## Hidden and ignored files
+
+The file picker and global search omit hidden and ignored files by default.
+The file explorer shows most files, including hidden files, by default.
+Configure them separately under [`editor.file-picker`](./configuration.md#editorfile-picker)
+and [`editor.file-explorer`](./configuration.md#editorfile-explorer).
+
+For example, show hidden files in the file picker:
+
+```toml
+[editor.file-picker]
+hidden = false
+```
+
+Ignore rules can come from `.gitignore`, `.ignore`, parent directories, and
+Git's global excludes file. The reference lists the switches for each source.
+Git-specific rules apply only inside Git repositories.
+
+To add Mitos-specific rules, use `.mitos/ignore` in a workspace or `ignore` in
+your Mitos configuration directory. They use gitignore syntax, including `!`
+to unignore a path:
+
+```gitignore
+!.github/
+!.gitignore
+!.gitattributes
+```
+
+## Refreshing results
+
+File, explorer, global-search, and changed-file results update as files change,
+keeping your query and selected item where possible. Previews update too and
+show open buffers in preference to files on disk. Reopening a picker refreshes
+its results.
+
+If results do not update, check [file watching](./configuration.md#editorfileswatch)
+and [periodic checks](./configuration.md#editorfilesreload).
