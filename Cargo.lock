@@ -641,7 +641,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dap-types",
- "futures-executor",
  "futures-util",
  "log",
  "serde",

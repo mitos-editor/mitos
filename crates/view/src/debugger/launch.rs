@@ -1,7 +1,8 @@
 //! Launch preparation and completion belong to the shared editor.
 
+use super::startup::StartupOrigin;
 use crate::{DocumentId, Editor};
-use anyhow::{anyhow, bail, Context as _, Result};
+use anyhow::{bail, Context as _, Result};
 use dap::{registry::DebugAdapterId, ConnectionType};
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use serde_json::{to_value, Value};
@@ -60,38 +61,12 @@ impl Editor {
         };
         args.insert("cwd", to_value(stdx::env::current_working_dir())?);
         let args = to_value(args)?;
-        let id = self
-            .debugger
-            .start_client(socket, &config)
-            .map_err(|error| anyhow!("Failed to start debug client: {error}"))?;
-        let client = self
-            .debugger
-            .get_client_mut(id)
-            .context("Debug adapter is no longer available")?;
-        let launch: futures_util::future::BoxFuture<'static, dap::Result<Value>> = match connection
-        {
-            ConnectionType::Launch => Box::pin(client.launch(args)),
-            ConnectionType::Attach => Box::pin(client.attach(args)),
-        };
-        let callbacks = self.callback_sender().clone();
-        let owner = callbacks.clone();
-        tokio::spawn(async move {
-            let result = launch.await;
-            callbacks
-                .send(move |editor| {
-                    if !owner.same_destination(editor.callback_sender())
-                        || editor.debugger.get_client(id).is_none()
-                    {
-                        return;
-                    }
-                    if let Err(error) = result {
-                        editor.debugger.remove_client(id);
-                        editor.set_error(|| format!("Failed to start debugging: {error}"));
-                    }
-                })
-                .await;
-        });
-        Ok(id)
+        Ok(self.begin_debugger_startup(
+            socket,
+            config,
+            Some((connection, args)),
+            StartupOrigin::Document(document),
+        ))
     }
 }
 

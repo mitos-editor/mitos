@@ -4,6 +4,8 @@ mod breakpoints;
 pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod events;
 mod launch;
+mod startup;
+pub(crate) use startup::register_hooks;
 mod operations;
 pub use operations::{
     DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerScope, DebuggerTask, DebuggerUpdate,
@@ -11,7 +13,6 @@ pub use operations::{
 
 use std::{
     collections::HashMap,
-    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -20,7 +21,6 @@ use dap::{
     registry::{DebugAdapterId, Registry},
     Client, DebuggerCapabilities, StackFrame,
 };
-use language_config::DebugAdapterConfig;
 
 /// Editor-owned identity, retained across adapter IDs and source-line relocation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -92,6 +92,7 @@ pub struct DebuggerState {
     breakpoint_sessions: HashMap<DebugAdapterId, breakpoints::BreakpointSession>,
     requests: HashMap<DebugAdapterId, operations::SessionRequests>,
     events: HashMap<DebugAdapterId, events::SessionEvents>,
+    startups: HashMap<DebugAdapterId, startup::Startup>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 
@@ -105,7 +106,6 @@ impl DebuggerState {
             self.adapters.is_empty(),
             "Configure terminal launching before starting debug adapters"
         );
-        self.adapters.set_terminal_support(true);
         self.terminal_launcher = Some(Box::new(launcher));
         Ok(())
     }
@@ -139,12 +139,22 @@ impl DebuggerState {
         self.adapters.get_active_client_mut()
     }
 
-    pub fn start_client(
-        &mut self,
-        socket: Option<SocketAddr>,
-        config: &DebugAdapterConfig,
-    ) -> dap::Result<DebugAdapterId> {
-        self.adapters.start_client(socket, config)
+    /// Includes pending connections, even before a client can be selected.
+    pub fn is_empty(&self) -> bool {
+        self.adapters.is_empty()
+    }
+
+    pub fn is_starting(&self, id: DebugAdapterId) -> bool {
+        self.startups.contains_key(&id)
+    }
+
+    /// Cancel connection, initialization, or launch without affecting running sessions.
+    pub fn cancel_startup(&mut self, id: DebugAdapterId) -> bool {
+        if !self.is_starting(id) {
+            return false;
+        }
+        self.remove_client(id);
+        true
     }
 
     pub fn unset_active_client(&mut self) {

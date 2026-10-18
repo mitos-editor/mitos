@@ -1,9 +1,9 @@
 use crate::{Client, Payload, Result, StackFrame};
 use dap_types::DebugAdapterConfig;
-use futures_executor::block_on;
 use futures_util::stream::SelectAll;
 use slotmap::SlotMap;
-use std::fmt;
+use std::{fmt, future::Future};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// Owns debug-adapter clients and merges their incoming message streams.
@@ -12,8 +12,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 /// on at most one active client. Removing a client drops its process handle and
 /// invalidates its generational [`DebugAdapterId`].
 pub struct Registry {
-    inner: SlotMap<DebugAdapterId, Client>,
-    supports_run_in_terminal: bool,
+    inner: SlotMap<DebugAdapterId, Option<Client>>,
     /// The active debugger client
     ///
     /// TODO: You can have multiple active debuggers, so the concept of a single active debugger
@@ -28,52 +27,63 @@ impl Registry {
     pub fn new() -> Self {
         Self {
             inner: SlotMap::with_key(),
-            supports_run_in_terminal: false,
             current_client_id: None,
             incoming: SelectAll::new(),
         }
-    }
-
-    /// Configure frontend terminal support before creating adapter connections.
-    pub fn set_terminal_support(&mut self, supported: bool) {
-        self.supports_run_in_terminal = supported;
     }
 
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
-    /// Starts and initializes a client from configuration.
-    ///
-    /// This method blocks the current thread while async startup and DAP
-    /// initialization complete. It is intended for the editor's synchronous
-    /// command boundary, not an async task.
+    /// Reserve a generational ID and return an owned connection future.
+    /// Removing the ID before registration prevents a late connection from being installed.
     pub fn start_client(
         &mut self,
         socket: Option<std::net::SocketAddr>,
-        config: &DebugAdapterConfig,
-    ) -> Result<DebugAdapterId> {
-        self.inner.try_insert_with_key(|id| {
-            let result = match socket {
-                Some(socket) => block_on(Client::tcp(socket, id)),
-                None => block_on(Client::process(
-                    &config.transport,
-                    &config.command,
-                    config.args.iter().map(|arg| arg.as_str()).collect(),
-                    config.port_arg.as_deref(),
-                    id,
-                )),
+        config: DebugAdapterConfig,
+    ) -> (
+        DebugAdapterId,
+        impl Future<Output = Result<Connection>> + Send + use<>,
+    ) {
+        let id = self.inner.insert(None);
+        let connect = async move {
+            let (mut client, incoming) = match socket {
+                Some(socket) => Client::tcp(socket, id).await?,
+                None => {
+                    Client::process(
+                        &config.transport,
+                        &config.command,
+                        config.args.iter().map(String::as_str).collect(),
+                        config.port_arg.as_deref(),
+                        id,
+                    )
+                    .await?
+                }
             };
-
-            let (mut client, receiver) = result?;
-            self.incoming.push(UnboundedReceiverStream::new(receiver));
-
-            client.config = Some(config.clone());
-            block_on(client.initialize(config.name.clone(), self.supports_run_in_terminal))?;
             client.quirks = config.quirks.clone();
+            client.config = Some(config);
+            Ok(Connection { client, incoming })
+        };
+        (id, connect)
+    }
 
-            Ok(client)
-        })
+    /// Register incoming messages before initialization so reverse requests can be served.
+    /// A removed or already registered connection cannot replace a live client.
+    pub fn register_client(&mut self, connection: Connection) -> Option<&mut Client> {
+        let slot = self.inner.get_mut(connection.client.id())?;
+        if slot.is_some() {
+            return None;
+        }
+        self.incoming
+            .push(UnboundedReceiverStream::new(connection.incoming));
+        *slot = Some(connection.client);
+        slot.as_mut()
+    }
+
+    /// Whether an ID still belongs to a pending or connected adapter.
+    pub fn contains(&self, id: DebugAdapterId) -> bool {
+        self.inner.contains_key(id)
     }
 
     /// Removes a client if its identifier is still valid.
@@ -86,12 +96,12 @@ impl Registry {
 
     /// Returns a client by its generational identifier.
     pub fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
-        self.inner.get(id)
+        self.inner.get(id)?.as_ref()
     }
 
     /// Returns a mutable client by its generational identifier.
     pub fn get_client_mut(&mut self, id: DebugAdapterId) -> Option<&mut Client> {
-        self.inner.get_mut(id)
+        self.inner.get_mut(id)?.as_mut()
     }
 
     /// Returns the client selected for editor commands.
@@ -130,6 +140,13 @@ impl Default for Registry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// An established transport awaiting registration and DAP initialization.
+/// Dropping it also drops the owned adapter process.
+pub struct Connection {
+    client: Client,
+    incoming: UnboundedReceiver<(DebugAdapterId, Payload)>,
 }
 
 slotmap::new_key_type! {

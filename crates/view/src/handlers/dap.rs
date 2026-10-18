@@ -143,13 +143,7 @@ impl Editor {
                             self.set_status(status);
                         }
                     }
-                    Event::Initialized(_) => {
-                        self.reset_debugger_events(id);
-                        self.set_status("Debugger initialized...");
-                        if let Err(error) = self.configure_debugger_breakpoints(id) {
-                            self.set_error(|| format!("Debugger configuration failed: {error}"));
-                        }
-                    }
+                    Event::Initialized(_) => self.debugger_initialized(id),
                     Event::Terminated(event) => {
                         self.debugger_terminated(id, event.and_then(|body| body.restart));
                     }

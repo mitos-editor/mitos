@@ -323,6 +323,7 @@ impl Editor {
     }
 
     pub(crate) fn debugger_terminated(&mut self, id: DebugAdapterId, restart: Option<Value>) {
+        self.debugger.cancel_startup_requests(id);
         self.debugger.invalidate_requests(id);
         let Some(client) = self.debugger.get_client_mut(id) else {
             return;

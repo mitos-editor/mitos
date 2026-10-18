@@ -1,3 +1,6 @@
+#[path = "debugger_startup.rs"]
+mod startup;
+
 use super::Fixture;
 use anyhow::Context as _;
 use dap::{
@@ -66,10 +69,8 @@ async fn adapter_with_options(
         templates: vec![],
         quirks: Default::default(),
     };
-    let id = f
-        .editor
-        .debugger_mut()
-        .start_client(Some(socket), &config)?;
+    let id = f.editor.connect_debugger(Some(socket), config);
+    wait_for_startup(f, id).await?;
     Ok((id, receiver))
 }
 
@@ -461,6 +462,7 @@ async fn debugger_launch_validates_configuration_before_connecting_and_preserves
         Some(socket),
         Some(&["program name".into(), "123".into()]),
     )?;
+    wait_for_startup(&mut f, id).await?;
     assert_eq!(message(&mut wire).await?["command"], "initialize");
     let launch = message(&mut wire).await?;
     assert_eq!(launch["command"], "launch");
@@ -479,6 +481,7 @@ async fn failed_debugger_launch_removes_its_adapter_and_reports_the_error() -> a
     let id = f
         .editor
         .start_debugger(document, Some("run"), Some(socket), None)?;
+    wait_for_startup(&mut f, id).await?;
     assert_eq!(message(&mut wire).await?["command"], "initialize");
     assert_eq!(message(&mut wire).await?["command"], "launch");
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -1645,4 +1648,14 @@ async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
         }
     }
     Ok(())
+}
+
+async fn wait_for_startup(f: &mut Fixture, id: DebugAdapterId) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().is_starting(id) {
+            debugger_callback(f).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await?
 }

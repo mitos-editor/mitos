@@ -219,6 +219,7 @@ fn register_hooks() {
         workspace_symbols::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
+        crate::debugger::register_hooks();
         word_index::register_hooks();
         register_hook!(move |event: &mut ConfigDidChange<'_>| {
             event.editor.file_watcher.reload(&event.new.files.watch);

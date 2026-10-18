@@ -41,6 +41,15 @@ impl DebuggerState {
     }
 
     pub(crate) fn remove_client(&mut self, id: DebugAdapterId) {
+        let children: Vec<_> = self
+            .startups
+            .iter()
+            .filter_map(|(&child, startup)| (startup.parent() == Some(id)).then_some(child))
+            .collect();
+        for child in children {
+            self.remove_client(child);
+        }
+        self.cancel_startup_requests(id);
         self.requests.remove(&id);
         self.events.remove(&id);
         self.breakpoint_sessions.remove(&id);
@@ -341,6 +350,16 @@ impl Editor {
 
     /// Queue a control request against the active session. Replies cannot mutate a replacement.
     pub fn debugger_command(&mut self, command: DebuggerCommand) -> Result<()> {
+        if matches!(command, DebuggerCommand::Terminate)
+            && self.debugger.get_active_client().is_none()
+            && !self.debugger.startups.is_empty()
+        {
+            let startups: Vec<_> = self.debugger.startups.keys().copied().collect();
+            for id in startups {
+                self.debugger.remove_client(id);
+            }
+            return Ok(());
+        }
         let client = self
             .debugger
             .get_active_client()

@@ -124,7 +124,10 @@ impl Client {
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
         let stream = TcpStream::connect(addr).await?;
         let (rx, tx) = stream.into_split();
-        Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None)
+        let (mut client, incoming) =
+            Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None)?;
+        client.socket = Some(addr);
+        Ok((client, incoming))
     }
 
     /// Spawns a debug adapter whose stdin/stdout carry DAP messages.
@@ -193,7 +196,9 @@ impl Client {
         port_format: &str,
         id: DebugAdapterId,
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
-        let port = Self::get_port().await.unwrap();
+        let port = Self::get_port()
+            .await
+            .ok_or_else(|| anyhow!("Could not allocate a debug adapter port"))?;
 
         let process = Command::new(cmd)
             .args(args)
@@ -202,7 +207,8 @@ impl Client {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            // Do not kill debug adapter when leaving, it should exit automatically
+            // Startup cancellation and session removal own the adapter process too.
+            .kill_on_drop(true)
             .spawn()?;
 
         // Wait for adapter to become ready for connection
@@ -328,7 +334,7 @@ impl Client {
     ///
     /// # Panics
     ///
-    /// Panics if [`Self::initialize`] has not completed successfully.
+    /// Panics until the owner installs the capabilities returned by [`Self::initialize`].
     pub fn capabilities(&self) -> &DebuggerCapabilities {
         self.caps.as_ref().expect("debugger not yet initialized!")
     }
@@ -351,11 +357,13 @@ impl Client {
         Some(status.end_status_line(event.message.as_deref()))
     }
 
-    pub async fn initialize(
-        &mut self,
+    /// Return an owned initialization request. The owner installs its capabilities
+    /// while continuing to serve incoming events and reverse requests.
+    pub fn initialize(
+        &self,
         adapter_id: String,
         supports_run_in_terminal: bool,
-    ) -> Result<()> {
+    ) -> impl Future<Output = Result<DebuggerCapabilities>> + use<> {
         let args = requests::InitializeArguments {
             client_id: Some("mitos".to_owned()),
             client_name: Some("mitos".to_owned()),
@@ -372,10 +380,7 @@ impl Client {
             supports_invalidated_event: Some(false),
         };
 
-        let response = self.request::<requests::Initialize>(args).await?;
-        self.caps = Some(response);
-
-        Ok(())
+        self.request_sender().request::<requests::Initialize>(args)
     }
 
     pub fn disconnect(
@@ -643,15 +648,16 @@ impl RequestSender {
         }
     }
 
-    /// Executes a typed request and deserializes its declared result type.
-    pub async fn request<R: dap_types::Request>(&self, params: R::Arguments) -> Result<R::Result>
+    /// Executes a typed request without retaining a borrow of the sender.
+    pub fn request<R: dap_types::Request>(
+        &self,
+        params: R::Arguments,
+    ) -> impl Future<Output = Result<R::Result>> + use<R>
     where
         R::Arguments: serde::Serialize,
     {
-        // a future that resolves into the response
-        let json = self.call::<R>(params).await?;
-        let response = serde_json::from_value(json)?;
-        Ok(response)
+        let response = self.call::<R>(params);
+        async move { Ok(serde_json::from_value(response.await?)?) }
     }
 }
 

@@ -155,7 +155,7 @@ fn start_for_document(
 
 pub fn dap_launch(cx: &mut Context) {
     // TODO: Now that we support multiple Clients, we could run multiple debuggers at once but for now keep this as is
-    if cx.editor.debugger().get_active_client().is_some() {
+    if !cx.editor.debugger().is_empty() {
         cx.editor.set_error(|| "Debugger is already running");
         return;
     }

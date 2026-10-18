@@ -1,9 +1,8 @@
 //! Reverse requests have one result path; errors reach the adapter as well as status UI.
 
 use crate::Editor;
-use anyhow::Context as _;
-use dap::{registry::DebugAdapterId, ConnectionType, Request};
-use serde_json::{json, Value};
+use dap::{registry::DebugAdapterId, Request};
+use serde_json::Value;
 
 impl Editor {
     pub(super) async fn handle_debugger_request(
@@ -30,14 +29,17 @@ impl Editor {
                 return;
             }
             Ok(Request::StartDebugging(arguments)) => {
-                self.start_child_debugger(id, arguments).await
+                match self.start_child_debugger(id, sequence, arguments) {
+                    Ok(()) => return,
+                    Err(error) => Err(error),
+                }
             }
             Err(error) => Err(error),
         };
         self.complete_debugger_request(id, sequence, &command, result);
     }
 
-    fn complete_debugger_request(
+    pub(crate) fn complete_debugger_request(
         &mut self,
         id: DebugAdapterId,
         sequence: u64,
@@ -56,43 +58,5 @@ impl Editor {
         {
             log::warn!("Could not reply to debug adapter: {error}");
         }
-    }
-
-    async fn start_child_debugger(
-        &mut self,
-        id: DebugAdapterId,
-        arguments: dap::requests::StartDebuggingArguments,
-    ) -> dap::Result<Value> {
-        let debugger = self
-            .debugger
-            .adapters
-            .get_client(id)
-            .context("No active debugger found")
-            .map_err(dap::Error::Other)?;
-        let socket = debugger
-            .socket
-            .context("Child debugging requires a TCP adapter connection")
-            .map_err(dap::Error::Other)?;
-        let config = debugger
-            .config
-            .clone()
-            .context("No debugger configuration found")
-            .map_err(dap::Error::Other)?;
-        let child = self.debugger.adapters.start_client(Some(socket), &config)?;
-        let client = self
-            .debugger
-            .adapters
-            .get_client_mut(child)
-            .context("Child debugger is no longer available")
-            .map_err(dap::Error::Other)?;
-        let result = match arguments.request {
-            ConnectionType::Launch => client.launch(arguments.configuration).await,
-            ConnectionType::Attach => client.attach(arguments.configuration).await,
-        };
-        if let Err(error) = result {
-            self.debugger.remove_client(child);
-            return Err(error);
-        }
-        Ok(json!({ "success": true }))
     }
 }
