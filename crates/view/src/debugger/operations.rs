@@ -146,6 +146,23 @@ pub struct DebuggerScope {
     pub variables: Vec<dap::Variable>,
 }
 
+enum ControlEffect {
+    ResumeThread,
+    ResumeAll,
+    Terminate,
+    Unchanged,
+}
+
+fn control_effect(
+    request: impl Future<Output = dap::Result<serde_json::Value>> + Send + 'static,
+    effect: ControlEffect,
+) -> BoxFuture<'static, dap::Result<ControlEffect>> {
+    Box::pin(async move {
+        request.await?;
+        Ok(effect)
+    })
+}
+
 #[derive(Clone, Copy)]
 pub enum DebuggerCommand {
     Continue,
@@ -348,7 +365,7 @@ impl Editor {
         let state = session
             .thread_states
             .get(&thread)
-            .cloned()
+            .map(|state| state.as_str().to_owned())
             .unwrap_or_else(|| "unknown".into());
         Ok(DebuggerFrames {
             context,
@@ -421,24 +438,47 @@ impl Editor {
         self.debugger.invalidate_requests(id);
         let (context, _) = self.debugger_context(RequestKind::Control)?;
         let client = self.debugger.get_client_mut(id).unwrap();
-        let future: BoxFuture<'static, dap::Result<serde_json::Value>> = match command {
-            DebuggerCommand::Continue => Box::pin(client.continue_thread(thread.unwrap())),
-            DebuggerCommand::StepIn => Box::pin(client.step_in(thread.unwrap())),
-            DebuggerCommand::StepOut => Box::pin(client.step_out(thread.unwrap())),
-            DebuggerCommand::Next => Box::pin(client.next(thread.unwrap())),
-            DebuggerCommand::Pause(thread) => Box::pin(client.pause(thread)),
-            DebuggerCommand::Restart => Box::pin(client.restart()),
+        let future: BoxFuture<'static, dap::Result<ControlEffect>> = match command {
+            DebuggerCommand::Continue => {
+                let response = client.continue_thread(thread.unwrap());
+                Box::pin(async move {
+                    Ok(if response.await?.all_threads_continued.unwrap_or(true) {
+                        ControlEffect::ResumeAll
+                    } else {
+                        ControlEffect::ResumeThread
+                    })
+                })
+            }
+            DebuggerCommand::StepIn => {
+                control_effect(client.step_in(thread.unwrap()), ControlEffect::ResumeThread)
+            }
+            DebuggerCommand::StepOut => control_effect(
+                client.step_out(thread.unwrap()),
+                ControlEffect::ResumeThread,
+            ),
+            DebuggerCommand::Next => {
+                control_effect(client.next(thread.unwrap()), ControlEffect::ResumeThread)
+            }
+            DebuggerCommand::Pause(thread) => {
+                control_effect(client.pause(thread), ControlEffect::Unchanged)
+            }
+            DebuggerCommand::Restart => control_effect(client.restart(), ControlEffect::ResumeAll),
             DebuggerCommand::Terminate
                 if client
                     .capabilities()
                     .supports_terminate_request
                     .unwrap_or(false) =>
             {
-                Box::pin(client.terminate(Some(requests::TerminateArguments {
-                    restart: Some(false),
-                })))
+                control_effect(
+                    client.terminate(Some(requests::TerminateArguments {
+                        restart: Some(false),
+                    })),
+                    ControlEffect::Terminate,
+                )
             }
-            DebuggerCommand::Terminate => Box::pin(client.disconnect(None)),
+            DebuggerCommand::Terminate => {
+                control_effect(client.disconnect(None), ControlEffect::Terminate)
+            }
             DebuggerCommand::Exceptions(enabled) => {
                 let filters = if enabled {
                     client
@@ -450,30 +490,32 @@ impl Editor {
                 } else {
                     Vec::new()
                 };
-                Box::pin(client.set_exception_breakpoints(filters))
+                control_effect(
+                    client.set_exception_breakpoints(filters),
+                    ControlEffect::Unchanged,
+                )
             }
         };
-        self.spawn_debugger_task(
-            DebuggerTask::new(context, future),
-            move |editor, _| match command {
-                DebuggerCommand::Continue
-                | DebuggerCommand::StepIn
-                | DebuggerCommand::StepOut
-                | DebuggerCommand::Next
-                | DebuggerCommand::Restart => {
-                    editor
-                        .debugger
-                        .get_session_mut(id)
-                        .unwrap()
-                        .resume_application();
-                    editor.debugger.invalidate_requests(id);
-                }
-                DebuggerCommand::Terminate => {
+        self.spawn_debugger_task(DebuggerTask::new(context, future), move |editor, effect| {
+            match effect {
+                ControlEffect::ResumeThread => editor
+                    .debugger
+                    .get_session_mut(id)
+                    .unwrap()
+                    .resume_thread(thread.unwrap()),
+                ControlEffect::ResumeAll => editor
+                    .debugger
+                    .get_session_mut(id)
+                    .unwrap()
+                    .resume_all_threads(),
+                ControlEffect::Terminate => {
                     editor.debugger.remove_session(id);
+                    return;
                 }
-                _ => {}
-            },
-        );
+                ControlEffect::Unchanged => return,
+            }
+            editor.debugger.invalidate_requests(id);
+        });
         Ok(())
     }
 

@@ -69,7 +69,7 @@ fn thread_picker(
                 ui::PickerColumn::new("state", |item: &Thread, states: &ThreadStates| {
                     states
                         .get(&item.id)
-                        .map(String::as_str)
+                        .map(view::debugger::ThreadState::as_str)
                         .unwrap_or("unknown")
                         .into()
                 }),

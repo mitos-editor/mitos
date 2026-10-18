@@ -8,7 +8,27 @@ use dap::{Client, DebugAdapterId, StackFrame, ThreadId};
 use std::collections::HashMap;
 
 /// Associates debugger thread identifiers with their editor display state.
-pub type ThreadStates = HashMap<ThreadId, String>;
+pub type ThreadStates = HashMap<ThreadId, ThreadState>;
+
+/// Execution state is separate from the adapter's free-form stop reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadState {
+    Running,
+    Stopped(String),
+}
+
+impl ThreadState {
+    pub fn is_stopped(&self) -> bool {
+        matches!(self, Self::Stopped(_))
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Running => "running",
+            Self::Stopped(reason) => reason,
+        }
+    }
+}
 
 /// One adapter lifetime. Frontends inspect execution state; the editor owns its transitions.
 pub struct DebugSession {
@@ -89,7 +109,7 @@ impl DebugSession {
                 .is_some_and(|state| state.is_configuring())
         {
             DebugSessionStatus::Starting
-        } else if self.thread_states.values().any(|state| state != "running") {
+        } else if self.thread_states.values().any(ThreadState::is_stopped) {
             DebugSessionStatus::Stopped
         } else {
             DebugSessionStatus::Running
@@ -123,15 +143,20 @@ impl DebugSession {
             .get(self.active_frame?)
     }
 
-    /// Clears stack-frame state after execution resumes.
-    ///
-    /// Command handlers should call this after a successful continue or step so
-    /// paused-state UI is not rendered from stale frames.
-    pub(super) fn resume_application(&mut self) {
-        if let Some(thread_id) = self.thread_id {
-            self.thread_states.insert(thread_id, "running".to_string());
-            self.stack_frames.remove(&thread_id);
+    pub(super) fn resume_thread(&mut self, thread: ThreadId) {
+        self.thread_states.insert(thread, ThreadState::Running);
+        self.stack_frames.remove(&thread);
+        if self.thread_id == Some(thread) {
+            self.active_frame = None;
+            self.thread_id = None;
         }
+    }
+
+    pub(super) fn resume_all_threads(&mut self) {
+        for state in self.thread_states.values_mut() {
+            *state = ThreadState::Running;
+        }
+        self.stack_frames.clear();
         self.active_frame = None;
         self.thread_id = None;
     }

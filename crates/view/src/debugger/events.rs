@@ -1,5 +1,6 @@
 //! Execution transitions and their asynchronous adapter follow-up requests.
 
+use super::ThreadState;
 use std::future::Future;
 
 use futures_util::future::BoxFuture;
@@ -149,7 +150,7 @@ impl Editor {
         if all_stopped {
             session.stack_frames.clear();
             for state in session.thread_states.values_mut() {
-                *state = event.reason.clone();
+                *state = ThreadState::Stopped(event.reason.clone());
             }
         } else if let Some(thread) = event.thread_id {
             session.stack_frames.remove(&thread);
@@ -158,7 +159,9 @@ impl Editor {
             session.active_frame = None;
         }
         if let Some(thread) = event.thread_id {
-            session.thread_states.insert(thread, event.reason.clone());
+            session
+                .thread_states
+                .insert(thread, ThreadState::Stopped(event.reason.clone()));
         }
         let sender = session.client.as_ref().unwrap().request_sender();
         let context = self.debugger_execution_context(id);
@@ -250,7 +253,9 @@ impl Editor {
                     .retain(|thread, _| state.threads.contains(thread));
             }
             for thread in state.threads {
-                session.thread_states.insert(thread, reason.clone());
+                session
+                    .thread_states
+                    .insert(thread, ThreadState::Stopped(reason.clone()));
             }
             session.thread_id = state.selected;
             match state.frames {
@@ -288,20 +293,9 @@ impl Editor {
             return;
         };
         if event.all_threads_continued.unwrap_or(true) {
-            session.resume_application();
-            session.stack_frames.clear();
-            for state in session.thread_states.values_mut() {
-                *state = "running".to_owned();
-            }
-        } else {
-            session.stack_frames.remove(&event.thread_id);
-            if session.thread_id == Some(event.thread_id) {
-                session.resume_application();
-            }
+            session.resume_all_threads();
         }
-        session
-            .thread_states
-            .insert(event.thread_id, "running".to_owned());
+        session.resume_thread(event.thread_id);
     }
 
     pub(crate) fn debugger_thread_changed(
@@ -319,7 +313,7 @@ impl Editor {
             "started" => {
                 session
                     .thread_states
-                    .insert(event.thread_id, "running".to_owned());
+                    .insert(event.thread_id, ThreadState::Running);
             }
             "exited" => {
                 session.thread_states.remove(&event.thread_id);
@@ -341,8 +335,7 @@ impl Editor {
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
-        session.resume_application();
-        session.stack_frames.clear();
+        session.resume_all_threads();
         session.thread_states.clear();
         let client = session.client.as_mut().unwrap();
         let connection = client.connection_type();

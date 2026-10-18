@@ -427,10 +427,10 @@ impl Client {
     pub fn continue_thread(
         &self,
         thread_id: ThreadId,
-    ) -> impl Future<Output = Result<Value>> + use<> {
+    ) -> impl Future<Output = Result<requests::ContinueResponse>> + use<> {
         let args = requests::ContinueArguments { thread_id };
 
-        self.call::<requests::Continue>(args)
+        self.request_sender().request::<requests::Continue>(args)
     }
 
     pub async fn stack_trace(

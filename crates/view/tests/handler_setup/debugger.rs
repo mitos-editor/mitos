@@ -87,6 +87,7 @@ async fn adapter_server(
 #[derive(Default)]
 struct AdapterOptions {
     fail_launch: bool,
+    continue_all: Option<bool>,
     held_commands: Vec<&'static str>,
     empty_stack: bool,
     empty_threads: bool,
@@ -172,7 +173,10 @@ async fn adapter_server_with_options(
                     "evaluate" => {
                         json!({"result":message["arguments"]["expression"],"variablesReference":0})
                     }
-                    "continue" => json!({"allThreadsContinued":true}),
+                    "continue" => match options.continue_all {
+                        Some(all) => json!({"allThreadsContinued":all}),
+                        None => json!({}),
+                    },
                     _ => json!({}),
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
@@ -1343,14 +1347,14 @@ async fn stopped_thread_selection_handles_missing_threads_and_empty_or_failed_st
             session
                 .thread_states()
                 .get(&serde_json::from_value(json!(1))?)
-                .map(String::as_str),
+                .map(|state| state.as_str()),
             Some("breakpoint")
         );
         assert_eq!(
             session
                 .thread_states()
                 .get(&serde_json::from_value(json!(2))?)
-                .map(String::as_str),
+                .map(|state| state.as_str()),
             all_stopped.then_some("breakpoint")
         );
         assert_eq!(
@@ -1365,6 +1369,55 @@ async fn stopped_thread_selection_handles_missing_threads_and_empty_or_failed_st
                 "stop must fetch only one selected stack"
             );
         }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn continue_responses_update_all_resumed_threads_without_a_continued_event(
+) -> anyhow::Result<()> {
+    for continue_all in [None, Some(true), Some(false)] {
+        let mut f = Fixture::new("")?;
+        let (id, _) = paused_adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                continue_all,
+                ..Default::default()
+            },
+        )
+        .await?;
+        f.editor
+            .handle_debugger_message(
+                id,
+                debugger_event(
+                    "stopped",
+                    json!({"reason":"breakpoint", "threadId":1, "allThreadsStopped":true}),
+                ),
+            )
+            .await;
+        debugger_callback(&mut f).await?;
+        assert_eq!(
+            f.editor
+                .debugger()
+                .get_session(id)
+                .unwrap()
+                .thread_states()
+                .len(),
+            2
+        );
+        f.editor
+            .debugger_command(view::debugger::DebuggerCommand::Continue)?;
+        debugger_callback(&mut f).await?;
+        let session = f.editor.debugger().get_session(id).unwrap();
+        assert!(session.selected_thread().is_none());
+        assert_eq!(
+            session
+                .thread_states()
+                .values()
+                .filter(|state| state.as_str() == "running")
+                .count(),
+            if continue_all == Some(false) { 1 } else { 2 }
+        );
     }
     Ok(())
 }
@@ -1432,7 +1485,7 @@ async fn thread_events_and_partial_continues_preserve_other_stopped_threads() ->
     assert!(session
         .thread_states()
         .values()
-        .all(|state| state == "running"));
+        .all(|state| state.as_str() == "running"));
     Ok(())
 }
 

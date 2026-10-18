@@ -6,7 +6,7 @@ mod events;
 mod progress;
 mod reverse_requests;
 mod session;
-pub use session::{DebugSession, DebugSessionStatus, ThreadStates};
+pub use session::{DebugSession, DebugSessionStatus, ThreadState, ThreadStates};
 mod launch;
 mod startup;
 pub(crate) use startup::register_hooks;
