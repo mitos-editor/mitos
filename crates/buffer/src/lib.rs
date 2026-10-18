@@ -3,6 +3,7 @@
 use std::sync::{Arc, Weak};
 
 pub mod history;
+pub mod projection;
 mod savepoint;
 pub use savepoint::{SavePoint, SavePointError};
 

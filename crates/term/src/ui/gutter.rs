@@ -14,7 +14,7 @@ use view::{
     Editor, View,
 };
 
-type GutterFn<'doc> = Box<dyn FnMut(usize, bool, bool, &mut String) -> Option<Style> + 'doc>;
+type GutterFn<'doc> = Box<dyn FnMut(usize, usize, bool, bool, &mut String) -> Option<Style> + 'doc>;
 pub(super) fn style<'doc>(
     gutter: GutterType,
     editor: &'doc Editor,
@@ -46,7 +46,11 @@ fn diagnostic<'doc>(
     let diagnostics = doc.diagnostics();
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize,
+              _char_idx: usize,
+              _selected: bool,
+              first_visual_line: bool,
+              out: &mut String| {
             if !first_visual_line {
                 return None;
             }
@@ -115,7 +119,7 @@ fn code_lens<'doc>(
 ) -> GutterFn<'doc> {
     let info = theme.get("info");
     let enabled = editor.config().lsp.enable && editor.config().lsp.code_lenses.enable;
-    Box::new(move |line, _, first_visual_line, out| {
+    Box::new(move |line, _, _, first_visual_line, out| {
         if !enabled || !first_visual_line {
             return None;
         }
@@ -145,7 +149,7 @@ fn diff<'doc>(
     let deleted = theme.get("diff.minus.gutter");
     let modified = theme.get("diff.delta.gutter");
     if let Some(review) = doc.source().review() {
-        return Box::new(move |line, _, first, out| {
+        return Box::new(move |line, _, _, first, out| {
             if !first {
                 return None;
             }
@@ -167,7 +171,7 @@ fn diff<'doc>(
             ConflictSide::End,
         ]
         .map(|side| crate::ui::text_decorations::conflicts::side_style(theme, side));
-        return Box::new(move |line, _, _, out| {
+        return Box::new(move |line, _, _, _, out| {
             let side = doc.conflict_presentation().side_at_line(doc.text(), line)?;
             out.push('│');
             Some(styles[side as usize])
@@ -178,7 +182,11 @@ fn diff<'doc>(
         let mut hunk_i = 0;
         let mut hunk = hunks.nth_hunk(hunk_i);
         Box::new(
-            move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+            move |line: usize,
+                  _char_idx: usize,
+                  _selected: bool,
+                  first_visual_line: bool,
+                  out: &mut String| {
                 // truncating the line is fine here because we don't compute diffs
                 // for files with more lines than i32::MAX anyways
                 // we need to special case removals here
@@ -211,7 +219,7 @@ fn diff<'doc>(
             },
         )
     } else {
-        Box::new(move |_, _, _, _| None)
+        Box::new(move |_, _, _, _, _| None)
     }
 }
 
@@ -229,7 +237,7 @@ fn line_numbers<'doc>(
         let digits = review.review().line_number_width();
         let normal = theme.get("ui.linenr");
         let selected_style = theme.get("ui.linenr.selected");
-        return Box::new(move |line, selected, first, out| {
+        return Box::new(move |line, _, selected, first, out| {
             if !first {
                 return None;
             }
@@ -274,7 +282,11 @@ fn line_numbers<'doc>(
     let mode = editor.mode();
 
     Box::new(
-        move |line: usize, selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize,
+              char_idx: usize,
+              selected: bool,
+              first_visual_line: bool,
+              out: &mut String| {
             if doc.conflict_marker_line_number_hidden(view_id, line) {
                 return None;
             }
@@ -295,7 +307,10 @@ fn line_numbers<'doc>(
                 } else if shared_line_numbers {
                     conflicts.line_number(line) + 1
                 } else {
-                    line + 1
+                    doc.source()
+                        .multibuffer_source_line_at(line, char_idx)
+                        .unwrap_or(line)
+                        + 1
                 };
 
                 let style = if selected && is_focused {
@@ -304,7 +319,12 @@ fn line_numbers<'doc>(
                     linenr
                 };
 
-                if first_visual_line {
+                if first_visual_line
+                    || doc
+                        .source()
+                        .multibuffer_segment_starting_at(char_idx)
+                        .is_some()
+                {
                     write!(out, "{:>1$}", display_num, width).unwrap();
                 } else {
                     write!(out, "{:>1$}", wrap_indicator, width).unwrap();
@@ -323,7 +343,13 @@ fn padding<'doc>(
     _theme: &Theme,
     _is_focused: bool,
 ) -> GutterFn<'doc> {
-    Box::new(|_line: usize, _selected: bool, _first_visual_line: bool, _out: &mut String| None)
+    Box::new(
+        |_line: usize,
+         _char_idx: usize,
+         _selected: bool,
+         _first_visual_line: bool,
+         _out: &mut String| None,
+    )
 }
 
 fn breakpoints<'doc>(
@@ -343,7 +369,11 @@ fn breakpoints<'doc>(
         .unwrap_or_default();
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize,
+              _char_idx: usize,
+              _selected: bool,
+              first_visual_line: bool,
+              out: &mut String| {
             if !first_visual_line {
                 return None;
             }
@@ -385,7 +415,11 @@ fn execution_pause_indicator<'doc>(
         .and_then(|frame| view::debugger::source::line_index(frame.line));
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize,
+              _char_idx: usize,
+              _selected: bool,
+              first_visual_line: bool,
+              out: &mut String| {
             if !first_visual_line || !is_focused || line != frame_line? {
                 return None;
             }
@@ -409,12 +443,14 @@ fn diagnostics_or_breakpoints<'doc>(
     let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
     let mut lenses = code_lens(editor, doc, theme);
 
-    Box::new(move |line, selected, first_visual_line: bool, out| {
-        execution_pause_indicator(line, selected, first_visual_line, out)
-            .or_else(|| breakpoints(line, selected, first_visual_line, out))
-            .or_else(|| diagnostics(line, selected, first_visual_line, out))
-            .or_else(|| lenses(line, selected, first_visual_line, out))
-    })
+    Box::new(
+        move |line, char_idx, selected, first_visual_line: bool, out| {
+            execution_pause_indicator(line, char_idx, selected, first_visual_line, out)
+                .or_else(|| breakpoints(line, char_idx, selected, first_visual_line, out))
+                .or_else(|| diagnostics(line, char_idx, selected, first_visual_line, out))
+                .or_else(|| lenses(line, char_idx, selected, first_visual_line, out))
+        },
+    )
 }
 
 fn code_action_hint<'doc>(
@@ -432,7 +468,11 @@ fn code_action_hint<'doc>(
         .block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize,
+              _char_idx: usize,
+              _selected: bool,
+              first_visual_line: bool,
+              out: &mut String| {
             (is_focused && show_hint && current_line == line && first_visual_line).then(|| {
                 write!(out, "⋮").unwrap();
                 style

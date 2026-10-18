@@ -50,6 +50,8 @@ impl Editor {
                     && !doc.is_content_readonly()
                     // If the buffer has no path and is not modified, it is an empty scratch buffer.
                     && doc.path().is_none()
+                    && doc.multibuffer().is_none()
+                    && !self.documents.values().any(|other| other.multibuffer().is_some_and(|m| m.sources.contains_key(&doc.id())))
                     // If the buffer we are changing to is not this buffer
                     && id != doc.id
                     // Ensure the buffer is not displayed in any other splits.

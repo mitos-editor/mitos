@@ -29,6 +29,7 @@
 | `` W `` | Extend to start of next long word | `` extend_next_long_word_start `` |
 | `` B `` | Extend to start of previous long word | `` extend_previous_long_word_start `` |
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
+| `` <S-ret> `` | Expand excerpt around cursor | `` extend_multibuffer_excerpt `` |
 | `` v `` | Enter normal mode | `` normal_mode `` |
 | `` G `` | Go to line | `` goto_line `` |
 | `` g `` | Goto | Prefix |

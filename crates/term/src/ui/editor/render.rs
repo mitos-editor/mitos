@@ -334,6 +334,13 @@ impl PaneRenderer {
         let ranges = layout.visible_byte_ranges();
 
         let mut decorations = DecorationManager::default();
+        text_decorations::multibuffer::add_headers(
+            doc.source(),
+            view,
+            theme,
+            surface,
+            &mut decorations,
+        );
         if !doc.conflict_presentation().markers.is_empty() {
             decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
         }
@@ -793,9 +800,13 @@ impl PaneRenderer {
                     (true, false) => gutter_selected_style_virtual,
                 };
 
-                if let Some(style) =
-                    gutter(pos.doc_line, selected, pos.first_visual_line, &mut text)
-                {
+                if let Some(style) = gutter(
+                    pos.doc_line,
+                    pos.doc_char,
+                    selected,
+                    pos.first_visual_line,
+                    &mut text,
+                ) {
                     renderer.set_stringn(x, y, &text, width, gutter_style.patch(style));
                 } else {
                     renderer.set_style(

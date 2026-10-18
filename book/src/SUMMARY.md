@@ -29,6 +29,7 @@
 # Working with projects
 
 - [Pickers](./pickers.md)
+- [Multi-buffers](./multibuffers.md)
 - [Quicklist](./quicklist.md)
 - [Jumplist](./jumplist.md)
 - [Language servers](./lsp.md)

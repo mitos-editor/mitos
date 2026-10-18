@@ -211,6 +211,7 @@ name = "buffer"
 version = "0.2.1"
 dependencies = [
  "core",
+ "stdx",
  "thiserror 2.0.21",
 ]
 

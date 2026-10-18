@@ -92,7 +92,7 @@ pub fn move_vertically_visual(
     text_fmt: &TextFormat,
     annotations: &mut TextAnnotations,
 ) -> Range {
-    if !text_fmt.soft_wrap {
+    if !text_fmt.soft_wrap && !annotations.has_line_breaks() {
         return move_vertically(slice, range, dir, count, behaviour, text_fmt, annotations);
     }
     annotations.clear_line_annotations();
@@ -153,6 +153,11 @@ pub fn move_vertically(
     text_fmt: &TextFormat,
     annotations: &mut TextAnnotations,
 ) -> Range {
+    if annotations.has_line_breaks() {
+        let mut format = text_fmt.clone();
+        format.soft_wrap = false;
+        return move_vertically_visual(slice, range, dir, count, behaviour, &format, annotations);
+    }
     annotations.clear_line_annotations();
     let pos = range.cursor(slice);
     let line_idx = slice.char_to_line_idx(annotations.checkpoint_anchor(slice, pos));

@@ -55,6 +55,7 @@ mod test {
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
+    mod multibuffer;
     mod navigation;
     mod paste_all;
     mod picker_layout;

@@ -24,6 +24,15 @@ pub fn width<'a>(gutter: GutterType, view: &View, doc: impl Into<PresentedDocume
 /// whether there is content on the last line (the `~` line), and the
 /// `editor.gutters.line-numbers.min-width` settings.
 fn line_numbers_width(view: &View, doc: PresentedDocument<'_>) -> usize {
+    if let Some(multi) = doc.source().multibuffer() {
+        let last = multi
+            .segments()
+            .iter()
+            .filter_map(|s| s.last_source_line(doc.text()))
+            .max()
+            .unwrap_or(0);
+        return count_digits(last + 1).max(view.gutters.line_numbers.min_width);
+    }
     if let Some(review) = doc.source().review() {
         return review.review().line_number_width() * 2 + 1;
     }

@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use crate::{callbacks::EditorCallbackSender, document::FirstSyntax, Document};
 
+// Bound CPU work across ordinary documents and multi-buffer excerpts.
+pub(crate) static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
 /// Scheduling handle shared by documents owned by one editor.
 #[derive(Clone)]
 pub struct SyntaxHandler {

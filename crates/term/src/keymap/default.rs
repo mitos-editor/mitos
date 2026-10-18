@@ -119,6 +119,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "B" => move_previous_long_word_start,
         "E" => move_next_long_word_end,
 
+        "S-ret" => extend_multibuffer_excerpt,
         "v" => select_mode,
         "G" => goto_line,
         "g" => { "Goto"

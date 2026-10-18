@@ -186,6 +186,21 @@ pub trait LineAnnotation {
         usize::MAX
     }
 
+    /// This function is called before a document anchor to insert virtual text
+    /// before the next rendered grapheme.
+    ///
+    /// # Returns
+    ///
+    /// The number of additional virtual lines to reserve
+    fn insert_virtual_lines_before(
+        &mut self,
+        _char_idx: usize,
+        _visual_pos: DisplayPosition,
+        _doc_line: usize,
+    ) -> DisplayPosition {
+        DisplayPosition::new(0, 0)
+    }
+
     /// This function is called at the end of a visual line to insert virtual text
     ///
     /// # Returns
@@ -279,6 +294,7 @@ enum InlineHighlights<'a> {
 /// Also commonly called virtual text.
 #[derive(Default)]
 pub struct TextAnnotations<'a> {
+    line_breaks: Vec<usize>,
     inline_annotations: Vec<Layer<'a, InlineAnnotation, InlineHighlights<'a>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     conceals: &'a [Conceal],
@@ -295,13 +311,47 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    /// Add document positions that start a new visual block without inserting text.
+    pub fn add_line_breaks(&mut self, positions: impl IntoIterator<Item = usize>) {
+        self.line_breaks.extend(positions);
+        self.line_breaks.sort_unstable();
+        self.line_breaks.dedup();
+    }
+
+    pub(crate) fn has_line_breaks(&self) -> bool {
+        !self.line_breaks.is_empty()
+    }
+
+    pub(crate) fn line_break_at(&self, pos: usize) -> bool {
+        self.line_breaks.binary_search(&pos).is_ok()
+    }
+
+    pub(crate) fn previous_line_break(&self, pos: usize) -> Option<usize> {
+        self.line_breaks
+            .get(
+                self.line_breaks
+                    .partition_point(|&p| p <= pos)
+                    .checked_sub(1)?,
+            )
+            .copied()
+    }
+
+    pub(crate) fn next_line_break(&self, pos: usize, end: usize) -> usize {
+        self.line_breaks
+            .get(self.line_breaks.partition_point(|&p| p <= pos))
+            .copied()
+            .unwrap_or(end)
+            .min(end)
+    }
+
     /// Skipping raw text cannot bypass annotations in the discarded tail.
     /// Virtual-line sessions and overlays retain their ordinary traversal.
     pub(crate) fn can_skip_unwrapped_tail(&self, range: Range<usize>) -> bool {
         let next_fold = self
             .conceals
             .partition_point(|c| c.range.end <= range.start);
-        self.conceals
+        self.line_breaks.is_empty()
+            && self.conceals
             .get(next_fold)
             .is_none_or(|c| c.range.start >= range.end)
             && self.line_annotations.is_empty()
@@ -561,6 +611,20 @@ impl<'a> AnnotationCursor<'a> {
         for (_, layer) in &mut self.line_annotations {
             virt_off +=
                 layer.insert_virtual_lines(char_idx, line_end_visual_pos + virt_off, doc_line);
+        }
+        virt_off.row
+    }
+
+    pub(crate) fn virtual_lines_before(
+        &mut self,
+        char_idx: usize,
+        visual_pos: DisplayPosition,
+        doc_line: usize,
+    ) -> usize {
+        let mut virt_off = DisplayPosition::new(0, 0);
+        for (_, layer) in &mut self.line_annotations {
+            virt_off +=
+                layer.insert_virtual_lines_before(char_idx, visual_pos + virt_off, doc_line);
         }
         virt_off.row
     }

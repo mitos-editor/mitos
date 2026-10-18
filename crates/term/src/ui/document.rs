@@ -58,6 +58,11 @@ pub(crate) fn render_document_with_styles(
             ),
         );
     }
+    let visible = layout.visible_byte_range();
+    overlay_highlights.extend(doc.source().multibuffer_highlights(
+        layout.text.byte_to_char_idx(visible.start)..layout.text.byte_to_char_idx(visible.end),
+        doc.source().syntax_loader(),
+    ));
     let config = doc.source().config.load();
     let mut renderer = TextRenderer::new(
         surface,

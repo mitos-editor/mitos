@@ -15,6 +15,7 @@ mod diagnostics;
 mod end_of_line;
 pub mod inline_completion;
 pub mod links;
+pub mod multibuffer;
 
 /// Cursor rendering is done externally so all the cursor decoration
 /// does is save the position of primary cursor

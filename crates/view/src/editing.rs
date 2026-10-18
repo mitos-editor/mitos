@@ -16,6 +16,8 @@ use buffer::HistoryAction;
 /// Rejections leave both document text and pending undo groups untouched.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EditError {
+    #[error("This edit joins parts of one character across excerpts; keep the separating newline")]
+    InvalidExcerptBoundary,
     #[error("This document is read-only")]
     ReadOnlyDocument,
     #[error("Document {0:?} is closed")]

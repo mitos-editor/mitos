@@ -37,6 +37,8 @@ Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.m
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).
 
+Press `Ctrl-o` to edit the current matched file locations together in a [multi-buffer](./multibuffers.md).
+
 ## Layout
 
 By default, pickers fill the available area on terminals narrower than 200
