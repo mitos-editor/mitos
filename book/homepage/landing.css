@@ -157,7 +157,8 @@ h1 {
   padding-block: clamp(5rem, 10vw, 8rem);
 }
 
-.features h2 {
+.features h2,
+.motivation h2 {
   margin: 0;
   font-size: 1.75rem;
   font-weight: 580;
@@ -192,11 +193,21 @@ h1 {
   font-weight: 580;
 }
 
-.feature-description p {
+.feature-description p,
+.motivation p {
   margin: 0;
   color: var(--muted);
   line-height: 1.65;
   text-wrap: pretty;
+}
+
+.motivation {
+  max-width: 44rem;
+  padding-bottom: clamp(5rem, 10vw, 8rem);
+}
+
+.motivation p {
+  margin-top: 1.25rem;
 }
 
 footer {
