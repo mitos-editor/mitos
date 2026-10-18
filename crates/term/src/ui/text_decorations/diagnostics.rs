@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
+use text_layout::DisplayPosition;
 
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
 use editor_core::diagnostic::Severity;
 use editor_core::graphemes::Grapheme;
-use editor_core::{Diagnostic, Position};
+use editor_core::Diagnostic;
 use text_layout::doc_formatter::{DocumentFormatter, FormattedGrapheme};
 use text_layout::text_annotations::TextAnnotations;
 use view::annotations::diagnostics::{
@@ -275,8 +276,8 @@ impl Decoration for InlineDiagnostics<'_> {
         &mut self,
         renderer: &mut TextRenderer,
         pos: LinePos,
-        virt_off: Position,
-    ) -> Position {
+        virt_off: DisplayPosition,
+    ) -> DisplayPosition {
         let mut col_off = 0;
         let filter = self.state.filter();
         let eol_diagnostic = match self.eol_diagnostics {
@@ -321,7 +322,7 @@ impl Decoration for InlineDiagnostics<'_> {
         renderer.draw_multi_diagnostics(&mut self.state.stack);
         renderer.draw_diagnostics(&mut self.state.stack);
         let horizontal_off = renderer.row - renderer.first_row;
-        Position::new(horizontal_off as usize, col_off as usize)
+        DisplayPosition::new(horizontal_off as usize, col_off as usize)
     }
 
     fn reset_pos(&mut self, pos: usize) -> usize {

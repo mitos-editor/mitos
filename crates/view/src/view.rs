@@ -7,9 +7,10 @@ use crate::{
     Align, Document, DocumentId, ViewId,
 };
 use editor_config::{GutterConfig, GutterType};
+use text_layout::DisplayPosition;
 use theme::Theme;
 
-use editor_core::{Position, RopeSlice, Selection, Transaction};
+use editor_core::{RopeSlice, Selection, Transaction};
 use text_layout::{
     char_idx_at_visual_offset, visual_offset_from_anchor, visual_offset_from_block,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
@@ -457,7 +458,7 @@ impl View {
         );
 
         match pos {
-            Ok((Position { row, .. }, _)) => row.saturating_sub(view_offset.vertical_offset),
+            Ok((DisplayPosition { row, .. }, _)) => row.saturating_sub(view_offset.vertical_offset),
             Err(PosAfterMaxRow) => visual_height.saturating_sub(1),
             Err(PosBeforeAnchorRow) => 0,
         }
@@ -471,7 +472,7 @@ impl View {
         doc: &Document,
         text: RopeSlice,
         pos: usize,
-    ) -> Option<Position> {
+    ) -> Option<DisplayPosition> {
         let view_offset = doc.view_offset(self.id);
 
         let viewport = self.inner_area(doc);
@@ -693,7 +694,7 @@ impl View {
         doc: &Document,
         row: u16,
         column: u16,
-    ) -> Option<Position> {
+    ) -> Option<DisplayPosition> {
         let inner = self.inner_area(doc);
         if row < inner.top() || row >= inner.bottom() {
             return None;
@@ -703,7 +704,7 @@ impl View {
             return None;
         }
 
-        Some(Position::new(
+        Some(DisplayPosition::new(
             (row - inner.top()) as usize,
             (column - self.area.left()) as usize,
         ))
@@ -822,7 +823,7 @@ mod tests {
         assert_eq!(view.gutter_coords_at_screen_coords(&doc, 40, 40), None);
         assert_eq!(
             view.gutter_coords_at_screen_coords(&doc, 41, 40),
-            Some(Position::new(0, 0))
+            Some(DisplayPosition::new(0, 0))
         );
     }
 
@@ -892,11 +893,11 @@ mod tests {
         assert_eq!(view.pos_at_screen_coords(&doc, 7, 10, true), Some(13));
         assert_eq!(
             view.gutter_coords_at_screen_coords(&doc, 7, 3),
-            Some(Position::new(2, 0))
+            Some(DisplayPosition::new(2, 0))
         );
         assert_eq!(
             view.screen_coords_at_pos(&doc, doc.text().slice(..), 13),
-            Some(Position::new(2, 0))
+            Some(DisplayPosition::new(2, 0))
         );
 
         for global in [false, true] {

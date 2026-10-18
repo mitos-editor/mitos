@@ -365,7 +365,7 @@ pub(super) mod typed {
                             editor.syn_loader.clone(),
                         );
                         let popup = Popup::new("shell", contents).position(Some(
-                            editor_core::Position::new(
+                            text_layout::DisplayPosition::new(
                                 editor.cursor().0.unwrap_or_default().row,
                                 2,
                             ),

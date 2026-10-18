@@ -3,11 +3,12 @@
 //! For positions within unwrapped document lines, use the text coordinate
 //! helpers in `editor_core` instead.
 
+use crate::DisplayPosition;
 use crate::{
     doc_formatter::{DocumentFormatter, TextFormat},
     text_annotations::TextAnnotations,
 };
-use editor_core::{Position, RopeSlice};
+use editor_core::RopeSlice;
 use std::cmp::Ordering;
 
 /// Returns the visual offset from the start of the first visual line
@@ -27,8 +28,8 @@ pub fn visual_offset_from_block(
     pos: usize,
     text_fmt: &TextFormat,
     annotations: &TextAnnotations,
-) -> (Position, usize) {
-    let mut last_pos = Position::default();
+) -> (DisplayPosition, usize) {
+    let mut last_pos = DisplayPosition::default();
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
     let block_start = formatter.next_char_pos();
@@ -69,12 +70,12 @@ pub fn visual_offset_from_anchor(
     text_fmt: &TextFormat,
     annotations: &TextAnnotations,
     max_rows: usize,
-) -> Result<(Position, usize), VisualOffsetError> {
+) -> Result<(DisplayPosition, usize), VisualOffsetError> {
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
     let mut anchor_line = None;
     let mut found_pos = None;
-    let mut last_pos = Position::default();
+    let mut last_pos = DisplayPosition::default();
 
     let block_start = formatter.next_char_pos();
     if pos < block_start {
@@ -250,23 +251,23 @@ mod test {
         let text_fmt = TextFormat::default();
         assert_eq!(
             visual_offset_from_block(slice, 0, 0, &text_fmt, &annot).0,
-            (0, 0).into()
+            DisplayPosition::new(0, 0)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 5, &text_fmt, &annot).0,
-            (0, 5).into()
+            DisplayPosition::new(0, 5)
         ); // position on \n
         assert_eq!(
             visual_offset_from_block(slice, 0, 6, &text_fmt, &annot).0,
-            (1, 0).into()
+            DisplayPosition::new(1, 0)
         ); // position on w
         assert_eq!(
             visual_offset_from_block(slice, 0, 7, &text_fmt, &annot).0,
-            (1, 1).into()
+            DisplayPosition::new(1, 1)
         ); // position on o
         assert_eq!(
             visual_offset_from_block(slice, 0, 10, &text_fmt, &annot).0,
-            (1, 4).into()
+            DisplayPosition::new(1, 4)
         ); // position on d
 
         // Test with wide characters.
@@ -274,31 +275,31 @@ mod test {
         let slice = text.slice(..);
         assert_eq!(
             visual_offset_from_block(slice, 0, 0, &text_fmt, &annot).0,
-            (0, 0).into()
+            DisplayPosition::new(0, 0)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 1, &text_fmt, &annot).0,
-            (0, 2).into()
+            DisplayPosition::new(0, 2)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 2, &text_fmt, &annot).0,
-            (0, 4).into()
+            DisplayPosition::new(0, 4)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 3, &text_fmt, &annot).0,
-            (0, 6).into()
+            DisplayPosition::new(0, 6)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 4, &text_fmt, &annot).0,
-            (0, 8).into()
+            DisplayPosition::new(0, 8)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 5, &text_fmt, &annot).0,
-            (0, 10).into()
+            DisplayPosition::new(0, 10)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 6, &text_fmt, &annot).0,
-            (1, 0).into()
+            DisplayPosition::new(1, 0)
         );
 
         // Test with grapheme clusters.
@@ -306,23 +307,23 @@ mod test {
         let slice = text.slice(..);
         assert_eq!(
             visual_offset_from_block(slice, 0, 0, &text_fmt, &annot).0,
-            (0, 0).into()
+            DisplayPosition::new(0, 0)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 2, &text_fmt, &annot).0,
-            (0, 1).into()
+            DisplayPosition::new(0, 1)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 4, &text_fmt, &annot).0,
-            (0, 2).into()
+            DisplayPosition::new(0, 2)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 7, &text_fmt, &annot).0,
-            (0, 3).into()
+            DisplayPosition::new(0, 3)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 9, &text_fmt, &annot).0,
-            (1, 0).into()
+            DisplayPosition::new(1, 0)
         );
 
         // Test with wide-character grapheme clusters.
@@ -331,23 +332,23 @@ mod test {
         let slice = text.slice(..);
         assert_eq!(
             visual_offset_from_block(slice, 0, 0, &text_fmt, &annot).0,
-            (0, 0).into()
+            DisplayPosition::new(0, 0)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 2, &text_fmt, &annot).0,
-            (0, 2).into()
+            DisplayPosition::new(0, 2)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 3, &text_fmt, &annot).0,
-            (0, 3).into()
+            DisplayPosition::new(0, 3)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 5, &text_fmt, &annot).0,
-            (0, 5).into()
+            DisplayPosition::new(0, 5)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 6, &text_fmt, &annot).0,
-            (1, 0).into()
+            DisplayPosition::new(1, 0)
         );
 
         // Test with tabs.
@@ -355,15 +356,15 @@ mod test {
         let slice = text.slice(..);
         assert_eq!(
             visual_offset_from_block(slice, 0, 0, &text_fmt, &annot).0,
-            (0, 0).into()
+            DisplayPosition::new(0, 0)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 1, &text_fmt, &annot).0,
-            (0, 4).into()
+            DisplayPosition::new(0, 4)
         );
         assert_eq!(
             visual_offset_from_block(slice, 0, 2, &text_fmt, &annot).0,
-            (0, 5).into()
+            DisplayPosition::new(0, 5)
         );
     }
     #[test]

@@ -1,7 +1,7 @@
 use super::Decoration;
 use crate::ui::document::{LinePos, TextRenderer};
-use editor_core::Position;
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
+use text_layout::DisplayPosition;
 use theme::Style;
 use view::document::{InlineCompletion, InlineCompletionRow};
 
@@ -11,7 +11,7 @@ pub struct InlineCompletionDecoration<'a> {
     style: Style,
     format: TextFormat,
     line_end: usize,
-    anchor: Option<Position>,
+    anchor: Option<DisplayPosition>,
     rows: Vec<InlineCompletionRow>,
     end_row: Option<usize>,
     rendered: bool,
@@ -38,7 +38,7 @@ impl<'a> InlineCompletionDecoration<'a> {
     fn draw(
         renderer: &mut TextRenderer,
         row: Option<&InlineCompletionRow>,
-        pos: Position,
+        pos: DisplayPosition,
         style: Style,
         soft_wrap: bool,
     ) {
@@ -131,25 +131,25 @@ impl Decoration for InlineCompletionDecoration<'_> {
         &mut self,
         renderer: &mut TextRenderer,
         pos: LinePos,
-        off: Position,
-    ) -> Position {
+        off: DisplayPosition,
+    ) -> DisplayPosition {
         let Some(anchor) = self.anchor else {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         };
         if self.rendered {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let row = pos.visual_line as usize;
         let relative = row.saturating_sub(anchor.row);
         Self::draw(
             renderer,
             self.rows.get(relative),
-            Position::new(row, if relative == 0 { anchor.col } else { 0 }),
+            DisplayPosition::new(row, if relative == 0 { anchor.col } else { 0 }),
             self.style,
             self.format.soft_wrap,
         );
         if self.end_row != Some(row) {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         self.rendered = true;
         let existing_rows = relative + 1;
@@ -157,12 +157,12 @@ impl Decoration for InlineCompletionDecoration<'_> {
             Self::draw(
                 renderer,
                 Some(preview),
-                Position::new(row + off.row + i, 0),
+                DisplayPosition::new(row + off.row + i, 0),
                 self.style,
                 self.format.soft_wrap,
             );
         }
-        Position::new(self.rows.len().saturating_sub(existing_rows), 0)
+        DisplayPosition::new(self.rows.len().saturating_sub(existing_rows), 0)
     }
 }
 
@@ -196,20 +196,20 @@ mod tests {
             &mut surface,
             &doc,
             &theme,
-            Position::new(3, 0),
+            DisplayPosition::new(3, 0),
             view::graphics::Rect::new(0, 1, 20, 2),
         );
         InlineCompletionDecoration::draw(
             &mut renderer,
             Some(&row),
-            Position::new(2, 0),
+            DisplayPosition::new(2, 0),
             Style::default(),
             false,
         );
         InlineCompletionDecoration::draw(
             &mut renderer,
             Some(&row),
-            Position::new(5, 0),
+            DisplayPosition::new(5, 0),
             Style::default(),
             false,
         );

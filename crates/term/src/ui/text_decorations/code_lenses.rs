@@ -1,11 +1,12 @@
 //! Clipped code lens labels after the final visual segment of a document line.
 
 use std::ops::Range;
+use text_layout::DisplayPosition;
 
 use editor_core::{
     line_ending::line_end_char_index,
     unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
-    Position, Rope,
+    Rope,
 };
 use text_layout::doc_formatter::FormattedGrapheme;
 use theme::Style;
@@ -77,17 +78,17 @@ impl Decoration for CodeLensDecoration<'_> {
         &mut self,
         renderer: &mut TextRenderer,
         pos: LinePos,
-        off: Position,
-    ) -> Position {
+        off: DisplayPosition,
+    ) -> DisplayPosition {
         let Some((line, indices)) = self.ready.take() else {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         };
         if line != pos.doc_line
             || self.hidden_line == Some(line)
             || (pos.visual_line as usize) < renderer.offset.row
             || pos.visual_line as usize - renderer.offset.row >= renderer.viewport.height as usize
         {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let titles: Vec<_> = self.lenses[indices]
             .iter()
@@ -108,19 +109,19 @@ impl Decoration for CodeLensDecoration<'_> {
             .filter(|title| !title.trim().is_empty())
             .collect();
         if titles.is_empty() {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let labels = format!("▶ {}", titles.join(" · "));
         let start = off.col.saturating_add(1);
         let right = renderer.offset.col + renderer.viewport.width as usize;
         if start >= right {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let col = start.saturating_sub(renderer.offset.col);
         let width = renderer.viewport.width as usize - col;
         // Leave the gutter/menu as the fallback if all that fits is the marker.
         if width < 4 {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let mut logical_col = start;
         let visible: String = labels
@@ -138,7 +139,7 @@ impl Decoration for CodeLensDecoration<'_> {
             })
             .collect();
         if visible.is_empty() {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let ellipsis = visible.width() > width;
         let (end, _) = renderer.set_string_truncated(
@@ -153,7 +154,7 @@ impl Decoration for CodeLensDecoration<'_> {
         let logical_end = end.saturating_sub(renderer.viewport.x) as usize
             + renderer.offset.col
             + usize::from(ellipsis);
-        Position::new(0, logical_end.saturating_sub(off.col))
+        DisplayPosition::new(0, logical_end.saturating_sub(off.col))
     }
 }
 
@@ -208,7 +209,7 @@ mod tests {
         doc: &Document,
         lenses: &[CodeLens],
         width: u16,
-        offset: Position,
+        offset: DisplayPosition,
         hidden: Option<usize>,
     ) -> Buffer {
         let theme = Theme::default();
@@ -268,7 +269,7 @@ mod tests {
         for text in ["abc", "abc\nnext", "abc\r\nnext"] {
             let doc = document(text, false);
             let lenses = [lens(0, "Run"), lens(1, "3 references")];
-            let surface = render(&doc, &lenses, 40, Position::default(), None);
+            let surface = render(&doc, &lenses, 40, DisplayPosition::default(), None);
             assert!(
                 row(&surface, 0).starts_with("abc  ▶ Run · 3 references"),
                 "{}",
@@ -280,15 +281,27 @@ mod tests {
             assert!(!row(&surface, 1).contains("▶"));
         }
         let doc = document("abc", false);
-        let exact = render(&doc, &[lens(0, "Run")], 10, Position::default(), None);
+        let exact = render(
+            &doc,
+            &[lens(0, "Run")],
+            10,
+            DisplayPosition::default(),
+            None,
+        );
         assert_eq!(row(&exact, 0), "abc  ▶ Run");
     }
 
     #[test]
     fn softwrapped_labels_only_use_the_last_segment_and_do_not_reflow_source() {
         let doc = document("foo foo foo foo foo foo foo foo\nnext", true);
-        let baseline = render(&doc, &[], 20, Position::default(), None);
-        let surface = render(&doc, &[lens(0, "Run")], 20, Position::default(), None);
+        let baseline = render(&doc, &[], 20, DisplayPosition::default(), None);
+        let surface = render(
+            &doc,
+            &[lens(0, "Run")],
+            20,
+            DisplayPosition::default(),
+            None,
+        );
         let lens_rows: Vec<_> = (0..10)
             .filter(|row_idx| row(&surface, *row_idx).contains("▶"))
             .collect();
@@ -313,7 +326,7 @@ mod tests {
     fn labels_clip_unicode_and_control_characters_to_the_split() {
         let doc = document("\t界e\u{301}\r\nnext", false);
         let lenses = [lens(0, "界界界界界\nmore\ttext")];
-        let surface = render(&doc, &lenses, 20, Position::default(), None);
+        let surface = render(&doc, &lenses, 20, DisplayPosition::default(), None);
         assert!(row(&surface, 0).contains("▶"));
         assert!(row(&surface, 0).contains('…'));
         assert!(row(&surface, 1).starts_with("next"));
@@ -326,7 +339,7 @@ mod tests {
             &document("abc", false),
             &[lens(0, "Run")],
             7,
-            Position::default(),
+            DisplayPosition::default(),
             None,
         );
         assert!(!row(&narrow, 0).contains("▶"));
@@ -354,11 +367,11 @@ mod tests {
             None,
         );
         let lenses = [lens(0, "Run")];
-        let surface = render(&doc, &lenses, 30, Position::default(), None);
+        let surface = render(&doc, &lenses, 30, DisplayPosition::default(), None);
         let line = row(&surface, 0);
         assert!(line.starts_with("abc  error"));
         assert!(line.find("error").unwrap() < line.find("▶ Run").unwrap());
-        let narrow = render(&doc, &lenses, 12, Position::default(), None);
+        let narrow = render(&doc, &lenses, 12, DisplayPosition::default(), None);
         assert!(row(&narrow, 0).contains("error"));
         assert!(!row(&narrow, 0).contains("▶"));
     }
@@ -367,16 +380,16 @@ mod tests {
     fn horizontal_scrolling_and_completion_suppression_preserve_the_viewport() {
         let doc = document("abcdef", false);
         let lenses = [lens(0, "界 Run")];
-        let surface = render(&doc, &lenses, 15, Position::new(0, 10), None);
+        let surface = render(&doc, &lenses, 15, DisplayPosition::new(0, 10), None);
         assert!(
             row(&surface, 0).starts_with("界  Run"),
             "{}",
             row(&surface, 0)
         );
-        let suppressed = render(&doc, &lenses, 30, Position::default(), Some(0));
+        let suppressed = render(&doc, &lenses, 30, DisplayPosition::default(), Some(0));
         assert!(!row(&suppressed, 0).contains("▶"));
-        let below = render(&doc, &lenses, 30, Position::new(11, 0), None);
-        let baseline = render(&doc, &[], 30, Position::new(11, 0), None);
+        let below = render(&doc, &lenses, 30, DisplayPosition::new(11, 0), None);
+        let baseline = render(&doc, &[], 30, DisplayPosition::new(11, 0), None);
         assert_eq!(below.content, baseline.content);
     }
 }

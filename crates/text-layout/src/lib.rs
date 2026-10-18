@@ -14,3 +14,6 @@ pub use position::{
     char_idx_at_visual_block_offset, char_idx_at_visual_offset, softwrapped_dimensions,
     visual_offset_from_anchor, visual_offset_from_block, VisualOffsetError,
 };
+
+mod display_position;
+pub use display_position::DisplayPosition;

@@ -4,7 +4,8 @@
 mod config;
 mod document_store;
 mod documents;
-pub use document_store::Documents;
+use document_store::Documents;
+pub use text_layout::DisplayPosition;
 mod filesystem;
 mod language_servers;
 mod mode;
@@ -50,8 +51,8 @@ use crate::file_watcher::Watcher;
 use dap::{self as dap, registry::DebugAdapterId};
 use editor_core::diagnostic::Severity;
 use editor_core::{
-    auto_pairs::AutoPairs, diagnostic::DiagnosticProvider, movement::Direction, Change, Position,
-    Range, Selection, Uri,
+    auto_pairs::AutoPairs, diagnostic::DiagnosticProvider, movement::Direction, Change, Range,
+    Selection, Uri,
 };
 use language::syntax;
 use language_config::LanguageServerFeature;
@@ -641,7 +642,7 @@ impl Editor {
 
     /// Gets the primary cursor position in screen coordinates,
     /// or `None` if the primary cursor is not visible on screen.
-    pub fn cursor(&self) -> (Option<Position>, CursorKind) {
+    pub fn cursor(&self) -> (Option<DisplayPosition>, CursorKind) {
         let config = self.config();
         let (view, doc) = current_ref!(self);
         if let Some(mut pos) = self.cursor_cache.get(view, doc) {
@@ -1092,10 +1093,10 @@ impl Editor {
 }
 
 #[derive(Default)]
-pub struct CursorCache(Cell<Option<Option<Position>>>);
+pub struct CursorCache(Cell<Option<Option<DisplayPosition>>>);
 
 impl CursorCache {
-    pub fn get(&self, view: &View, doc: &Document) -> Option<Position> {
+    pub fn get(&self, view: &View, doc: &Document) -> Option<DisplayPosition> {
         if let Some(pos) = self.0.get() {
             return pos;
         }
@@ -1107,7 +1108,7 @@ impl CursorCache {
         res
     }
 
-    pub fn set(&self, cursor_pos: Option<Position>) {
+    pub fn set(&self, cursor_pos: Option<DisplayPosition>) {
         self.0.set(Some(cursor_pos))
     }
 

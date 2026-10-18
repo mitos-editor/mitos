@@ -178,7 +178,7 @@ pub fn raw_regex_prompt(
                                             let size = compositor.size();
                                             let editor_area = size.clip_bottom(2);
                                             let popup = Popup::new("invalid-regex", contents)
-                                                .position(Some(editor_core::Position::new(
+                                                .position(Some(text_layout::DisplayPosition::new(
                                                     editor_area.bottom().saturating_sub(1) as usize,
                                                     0,
                                                 )))

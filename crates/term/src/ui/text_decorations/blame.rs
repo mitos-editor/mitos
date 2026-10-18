@@ -1,5 +1,5 @@
 use editor_config::{InlineBlameConfig, InlineBlameShow};
-use editor_core::Position;
+use text_layout::DisplayPosition;
 use theme::Style;
 use view::{Document, ViewId};
 
@@ -35,14 +35,14 @@ impl Decoration for InlineBlame<'_> {
         &mut self,
         renderer: &mut TextRenderer,
         pos: LinePos,
-        virt_off: Position,
-    ) -> Position {
+        virt_off: DisplayPosition,
+    ) -> DisplayPosition {
         if !pos.is_last_visual_line
             || self.config.show == InlineBlameShow::Never
             || (self.config.show == InlineBlameShow::CursorLine && pos.doc_line != self.cursor_line)
             || !matches!(self.doc.file_blame(), Some(Ok(_)))
         {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let start = virt_off.col.saturating_add(6);
         if !renderer.column_in_bounds(start, 1)
@@ -53,16 +53,16 @@ impl Decoration for InlineBlame<'_> {
                 .chars()
                 .all(char::is_whitespace)
         {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let Ok(blame) = self
             .doc
             .line_blame(pos.doc_line as u32, &self.config.format)
         else {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         };
         if blame.is_empty() {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         let col = (start - renderer.offset.col) as u16;
         let x = renderer.viewport.x + col;
@@ -75,7 +75,7 @@ impl Decoration for InlineBlame<'_> {
             true,
             false,
         );
-        Position::new(0, 6 + end.saturating_sub(x) as usize)
+        DisplayPosition::new(0, 6 + end.saturating_sub(x) as usize)
     }
 }
 

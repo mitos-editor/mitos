@@ -1,10 +1,11 @@
 use std::cmp::min;
+use text_layout::DisplayPosition;
 
 use editor_config::{WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::Grapheme;
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::str_utils::char_to_byte_idx;
-use editor_core::{Position, RopeSlice};
+use editor_core::RopeSlice;
 use language::syntax::Highlighter;
 use stdx::rope::RopeSliceExt;
 use text_layout::doc_formatter::{
@@ -50,7 +51,7 @@ pub fn render_document(
         surface,
         doc,
         theme,
-        Position::new(offset.vertical_offset, offset.horizontal_offset),
+        DisplayPosition::new(offset.vertical_offset, offset.horizontal_offset),
         viewport,
     );
     render_text(
@@ -203,7 +204,7 @@ pub struct TextRenderer<'a> {
     pub starting_indent: usize,
     pub draw_indent_guides: bool,
     pub viewport: Rect,
-    pub offset: Position,
+    pub offset: DisplayPosition,
 }
 
 pub struct GraphemeStyle {
@@ -216,7 +217,7 @@ impl<'a> TextRenderer<'a> {
         surface: &'a mut Surface,
         doc: &Document,
         theme: &Theme,
-        offset: Position,
+        offset: DisplayPosition,
         viewport: Rect,
     ) -> TextRenderer<'a> {
         let editor_config = doc.config.load();
@@ -332,7 +333,7 @@ impl<'a> TextRenderer<'a> {
         is_virtual: bool,
         last_indent_level: &mut usize,
         is_in_indent_area: &mut bool,
-        mut position: Position,
+        mut position: DisplayPosition,
     ) -> usize {
         if position.row < self.offset.row {
             return 0;

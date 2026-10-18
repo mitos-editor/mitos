@@ -5,7 +5,8 @@ Features live with the state they change; frontends adapt input and present resu
 
 | Crate | Responsibility |
 | --- | --- |
-| `core` | Ropes, selections, transactions, history, text layout, and text editing algorithms |
+| `core` | Ropes, selections, transactions, and text editing algorithms |
+| `text-layout` | Display coordinates, wrapping, annotations, and visual movement |
 | `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
 | `editor-config` | Editor settings, defaults, custom command definitions, and serialization |
@@ -104,6 +105,15 @@ Text selections, indentation normalization, comments, and visual annotations use
 text-only APIs. Parser-node conversion and structural editing live in `language`.
 Highlight IDs and overlay traversal live in `core::highlight`; the syntax
 highlighter adapts parser output to those shared IDs without allocation.
+
+## Text layout
+
+`text-layout::DisplayPosition` identifies formatted rows and terminal-cell columns,
+including soft wraps and virtual lines. Formatters, visual coordinate mapping,
+annotations, cursor caches, and text rendering use this type. `core::Position`
+continues to describe document coordinates. Call the layout mapping APIs to cross
+between character offsets and display positions; the types do not implicitly convert.
+View methods explicitly translate layout positions into viewport coordinates.
 
 ## Language
 

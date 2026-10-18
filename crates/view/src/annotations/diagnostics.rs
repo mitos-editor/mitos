@@ -1,8 +1,9 @@
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-use editor_core::{Diagnostic, Position};
+use editor_core::Diagnostic;
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::softwrapped_dimensions;
 use text_layout::text_annotations::LineAnnotation;
+use text_layout::DisplayPosition;
 
 use crate::Document;
 
@@ -223,9 +224,9 @@ impl LineAnnotation for InlineDiagnostics<'_> {
     fn insert_virtual_lines(
         &mut self,
         _line_end_char_idx: usize,
-        _line_end_visual_pos: Position,
+        _line_end_visual_pos: DisplayPosition,
         _doc_line: usize,
-    ) -> Position {
+    ) -> DisplayPosition {
         self.state.compute_line_diagnostics();
         let multi = self.state.has_multi(self.width);
         let diagostic_height: usize = self
@@ -237,6 +238,6 @@ impl LineAnnotation for InlineDiagnostics<'_> {
                 softwrapped_dimensions(diag.message.trim().into(), &text_fmt).0
             })
             .sum();
-        Position::new(multi as usize + diagostic_height, 0)
+        DisplayPosition::new(multi as usize + diagostic_height, 0)
     }
 }

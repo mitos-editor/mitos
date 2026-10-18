@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
+use text_layout::DisplayPosition;
 
-use editor_core::Position;
 use text_layout::doc_formatter::FormattedGrapheme;
 use view::editor::CursorCache;
 
@@ -61,9 +61,9 @@ pub trait Decoration {
         &mut self,
         _renderer: &mut TextRenderer,
         _pos: LinePos,
-        _virt_off: Position,
-    ) -> Position {
-        Position::new(0, 0)
+        _virt_off: DisplayPosition,
+    ) -> DisplayPosition {
+        DisplayPosition::new(0, 0)
     }
 
     fn reset_pos(&mut self, _pos: usize) -> usize {
@@ -142,7 +142,7 @@ impl<'a> DecorationManager<'a> {
         pos: LinePos,
         line_width: usize,
     ) {
-        let mut virt_off = Position::new(1, line_width); // start at 1 so the line is never overwritten
+        let mut virt_off = DisplayPosition::new(1, line_width); // start at 1 so the line is never overwritten
         for (decoration, _) in &mut self.decorations {
             virt_off += decoration.render_virt_lines(renderer, pos, virt_off);
         }

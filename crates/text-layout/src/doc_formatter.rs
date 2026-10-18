@@ -22,9 +22,10 @@ use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 use stdx::rope::{RopeGraphemes, RopeSliceExt};
 
 use crate::text_annotations::TextAnnotations;
+use crate::DisplayPosition;
 use editor_core::graphemes::{Grapheme, GraphemeStr};
 use editor_core::highlight::Highlight;
-use editor_core::{Position, RopeSlice};
+use editor_core::RopeSlice;
 
 #[derive(Debug, Clone, Copy)]
 pub enum GraphemeSource {
@@ -62,7 +63,7 @@ impl GraphemeSource {
 pub struct FormattedGrapheme<'a> {
     pub raw: Grapheme<'a>,
     pub source: GraphemeSource,
-    pub visual_pos: Position,
+    pub visual_pos: DisplayPosition,
     /// Document line at the start of the grapheme
     pub line_idx: usize,
     /// Document char position at the start of the grapheme
@@ -178,7 +179,7 @@ pub struct DocumentFormatter<'t> {
     annotations: &'t TextAnnotations<'t>,
 
     /// The visual position at the end of the last yielded word boundary
-    visual_pos: Position,
+    visual_pos: DisplayPosition,
     graphemes: RopeGraphemes<'t>,
     /// The character pos of the `graphemes` iter used for inserting annotations
     char_pos: usize,
@@ -222,7 +223,7 @@ impl<'t> DocumentFormatter<'t> {
         DocumentFormatter {
             text_fmt,
             annotations,
-            visual_pos: Position { row: 0, col: 0 },
+            visual_pos: DisplayPosition { row: 0, col: 0 },
             graphemes: text.slice(block_char_idx..).graphemes(),
             char_pos: block_char_idx,
             exhausted: false,
@@ -409,7 +410,7 @@ impl<'t> DocumentFormatter<'t> {
         self.char_pos
     }
     /// returns the visual position at the end of the last yielded grapheme
-    pub fn next_visual_pos(&self) -> Position {
+    pub fn next_visual_pos(&self) -> DisplayPosition {
         self.visual_pos
     }
 }

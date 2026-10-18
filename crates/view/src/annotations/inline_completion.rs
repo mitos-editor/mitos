@@ -1,5 +1,5 @@
 use crate::document::InlineCompletion;
-use editor_core::Position;
+use text_layout::DisplayPosition;
 use text_layout::{
     doc_formatter::{FormattedGrapheme, TextFormat},
     text_annotations::LineAnnotation,
@@ -10,7 +10,7 @@ pub struct InlineCompletionLines<'a> {
     completion: &'a InlineCompletion,
     format: TextFormat,
     line_end: usize,
-    anchor: Option<Position>,
+    anchor: Option<DisplayPosition>,
     height: usize,
     at_end: bool,
     reserved: bool,
@@ -59,15 +59,20 @@ impl LineAnnotation for InlineCompletionLines<'_> {
             self.line_end
         }
     }
-    fn insert_virtual_lines(&mut self, _: usize, end: Position, _: usize) -> Position {
+    fn insert_virtual_lines(
+        &mut self,
+        _: usize,
+        end: DisplayPosition,
+        _: usize,
+    ) -> DisplayPosition {
         let Some(anchor) = self.anchor else {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         };
         if !self.at_end || self.reserved {
-            return Position::new(0, 0);
+            return DisplayPosition::new(0, 0);
         }
         self.reserved = true;
         let existing_rows = end.row.saturating_sub(anchor.row) + 1;
-        Position::new(self.height.saturating_sub(existing_rows), 0)
+        DisplayPosition::new(self.height.saturating_sub(existing_rows), 0)
     }
 }

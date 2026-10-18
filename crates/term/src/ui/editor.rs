@@ -13,6 +13,7 @@ use crate::{
         Completion, ProgressSpinners,
     },
 };
+use text_layout::DisplayPosition;
 
 use editor_config::{BufferLine, CursorShapeConfig, DiagnosticFilter};
 use editor_core::{
@@ -21,7 +22,7 @@ use editor_core::{
     highlight::OverlayHighlights,
     movement::Direction,
     unicode::width::UnicodeWidthStr,
-    Change, Position, Range, Selection, Transaction,
+    Change, Range, Selection, Transaction,
 };
 use language::syntax;
 use loader::VERSION_AND_GIT_HASH;
@@ -1297,7 +1298,7 @@ impl EditorView {
             let is_primary = primary == *range;
             let cursor = range.cursor(text);
 
-            let Position { col, .. } =
+            let DisplayPosition { col, .. } =
                 visual_offset_from_block(text, cursor, cursor, &text_format, text_annotations).0;
 
             // if the cursor is horizontally in the view

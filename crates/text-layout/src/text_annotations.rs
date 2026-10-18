@@ -5,8 +5,9 @@ use std::ops::Range;
 use std::ptr::NonNull;
 
 use crate::doc_formatter::FormattedGrapheme;
+use crate::DisplayPosition;
 use editor_core::highlight::{Highlight, OverlayHighlights};
-use editor_core::{Position, Tendril};
+use editor_core::Tendril;
 
 /// An inline annotation is continuous text shown
 /// on the screen before the grapheme that starts at
@@ -168,9 +169,9 @@ pub trait LineAnnotation {
     fn insert_virtual_lines(
         &mut self,
         line_end_char_idx: usize,
-        line_end_visual_pos: Position,
+        line_end_visual_pos: DisplayPosition,
         doc_line: usize,
-    ) -> Position;
+    ) -> DisplayPosition;
 }
 
 #[derive(Debug)]
@@ -408,10 +409,10 @@ impl<'a> TextAnnotations<'a> {
     pub(crate) fn virtual_lines_at(
         &self,
         char_idx: usize,
-        line_end_visual_pos: Position,
+        line_end_visual_pos: DisplayPosition,
         doc_line: usize,
     ) -> usize {
-        let mut virt_off = Position::new(0, 0);
+        let mut virt_off = DisplayPosition::new(0, 0);
         for (_, layer) in &self.line_annotations {
             virt_off += unsafe {
                 layer

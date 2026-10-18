@@ -9,7 +9,7 @@ use tui::buffer::BufferExt as _;
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Widget};
 use ui_core::keymap::{Binding, KeymapState, Lookup};
 
-use editor_core::Position;
+use text_layout::DisplayPosition;
 use ui_core::input::{MouseEvent, MouseEventKind};
 use view::{graphics::Rect, Editor};
 
@@ -36,7 +36,7 @@ enum PopupKind {
 pub struct Popup<T: Component> {
     keys: KeymapState,
     contents: T,
-    position: Option<Position>,
+    position: Option<DisplayPosition>,
     area: Rect,
     position_bias: Open,
     scroll_half_pages: usize,
@@ -68,12 +68,12 @@ impl<T: Component> Popup<T> {
     ///
     /// Note that this is not the position of the top-left corner of the rendered popup itself,
     /// but rather the screen-space position of the information to which the popup refers.
-    pub fn position(mut self, pos: Option<Position>) -> Self {
+    pub fn position(mut self, pos: Option<DisplayPosition>) -> Self {
         self.position = pos;
         self
     }
 
-    pub fn get_position(&self) -> Option<Position> {
+    pub fn get_position(&self) -> Option<DisplayPosition> {
         self.position
     }
 
