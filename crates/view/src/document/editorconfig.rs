@@ -16,32 +16,32 @@ use std::{
     str::FromStr,
 };
 
-use encoding_rs::Encoding;
+use editor_core::encoding::Encoding;
 use globset::{GlobBuilder, GlobMatcher};
 
-use crate::{
+use editor_core::{
     indent::{IndentStyle, MAX_INDENT},
     LineEnding, SpellingLanguage,
 };
 
 /// Configuration declared for a path in `.editorconfig` files.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct EditorConfig {
-    pub indent_style: Option<IndentStyle>,
-    pub tab_width: Option<NonZeroU8>,
-    pub line_ending: Option<LineEnding>,
-    pub encoding: Option<&'static Encoding>,
-    pub spelling_language: Option<SpellingLanguage>,
-    pub trim_trailing_whitespace: Option<bool>,
-    pub insert_final_newline: Option<bool>,
-    pub max_line_length: Option<NonZeroU16>,
+pub(super) struct EditorConfig {
+    pub(super) indent_style: Option<IndentStyle>,
+    pub(super) tab_width: Option<NonZeroU8>,
+    pub(super) line_ending: Option<LineEnding>,
+    pub(super) encoding: Option<&'static Encoding>,
+    pub(super) spelling_language: Option<SpellingLanguage>,
+    pub(super) trim_trailing_whitespace: Option<bool>,
+    pub(super) insert_final_newline: Option<bool>,
+    pub(super) max_line_length: Option<NonZeroU16>,
 }
 
 impl EditorConfig {
     /// Finds any configuration in `.editorconfig` files which applies to the given path.
     ///
     /// If no configuration applies then `EditorConfig::default()` is returned.
-    pub fn find(path: &Path) -> Self {
+    pub(super) fn find(path: &Path) -> Self {
         let mut configs = Vec::new();
         // <https://spec.editorconfig.org/#file-processing>
         for ancestor in path.ancestors() {
@@ -136,12 +136,12 @@ impl EditorConfig {
                 _ => None,
             });
         let encoding = pairs.get("charset").and_then(|value| match value.as_ref() {
-            "latin1" => Some(encoding_rs::WINDOWS_1252),
-            "utf-8" => Some(encoding_rs::UTF_8),
+            "latin1" => Some(editor_core::encoding::WINDOWS_1252),
+            "utf-8" => Some(editor_core::encoding::UTF_8),
             // `utf-8-bom` is intentionally ignored.
             // > `utf-8-bom` is discouraged.
-            "utf-16le" => Some(encoding_rs::UTF_16LE),
-            "utf-16be" => Some(encoding_rs::UTF_16BE),
+            "utf-16le" => Some(editor_core::encoding::UTF_16LE),
+            "utf-16be" => Some(editor_core::encoding::UTF_16BE),
             _ => None,
         });
         let spelling_language = pairs

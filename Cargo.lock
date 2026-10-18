@@ -417,7 +417,6 @@ name = "core"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
- "globset",
  "imara-diff",
  "jiff",
  "log",
@@ -4677,6 +4676,7 @@ dependencies = [
  "filesentry",
  "foldhash 0.2.0",
  "futures-util",
+ "globset",
  "ignore",
  "language",
  "language-config",

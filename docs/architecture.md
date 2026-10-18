@@ -150,6 +150,10 @@ headless callers use the same transition operation.
 
 ### Configuration application
 
+`view::document::editorconfig` discovers and resolves `.editorconfig` files for
+documents. The text primitive crate performs no EditorConfig filesystem discovery;
+`editor-config` continues to define settings independently of file loading.
+
 `editor-config` defines editor configuration types, defaults, and serialization.
 `term::config` loads and merges configuration files, while `view::editor` owns
 editor state and applies configuration updates. Import shared settings from

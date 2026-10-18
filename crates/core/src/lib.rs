@@ -35,7 +35,6 @@ pub mod comment;
 pub mod completion;
 pub mod diagnostic;
 pub mod diff;
-pub mod editor_config;
 pub mod fuzzy;
 pub mod graphemes;
 pub mod highlight;

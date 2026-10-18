@@ -21,7 +21,6 @@ integration = []
 [dependencies]
 stdx.workspace = true
 slotmap.workspace = true
-globset.workspace = true
 
 ropey.workspace = true
 smallvec.workspace = true

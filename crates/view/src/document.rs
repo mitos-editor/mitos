@@ -21,6 +21,9 @@ pub use crate::features::{
     inlay_hints::{DocumentInlayHints, DocumentInlayHintsId},
 };
 
+mod editorconfig;
+use editorconfig::EditorConfig;
+
 mod file_io;
 use ::text_io::{from_reader, to_writer};
 use file_io::{read_file, DecodedFile};
@@ -73,7 +76,6 @@ use crate::{
 };
 use editor_config::Config;
 use editor_core::{
-    editor_config::EditorConfig,
     encoding,
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
