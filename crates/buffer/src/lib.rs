@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 pub mod history;
+pub mod projection;
 
 use editor_core::{ChangeSet, Rope, Transaction};
 use history::{History, HistoryStep};

@@ -19,6 +19,7 @@ mod macros;
 mod mappable;
 mod mode;
 mod movement;
+mod multibuffer;
 mod navigation;
 mod palette;
 mod picker;

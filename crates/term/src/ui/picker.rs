@@ -998,6 +998,35 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             .set_status(format!("Quicklist populated with {count} entries"));
                     }
                 }
+                PickerAction::OpenMultibuffer => {
+                    let Some(preview) = &self.file_fn else {
+                        ctx.editor.set_error(|| "This picker has no file locations");
+                        return EventResult::Consumed(None);
+                    };
+                    let locations: Vec<_> = self
+                        .matcher
+                        .snapshot()
+                        .matched_items(..)
+                        .filter_map(|item| {
+                            let (source, lines) = preview(ctx.editor, item.data)?;
+                            Some(match source {
+                                PathOrId::Id(id) => {
+                                    view::multibuffer::MultiBufferLocation::Document(id, lines)
+                                }
+                                PathOrId::Path(path) => {
+                                    view::multibuffer::MultiBufferLocation::Path(
+                                        path.to_owned(),
+                                        lines,
+                                    )
+                                }
+                            })
+                        })
+                        .collect();
+                    match ctx.editor.open_multibuffer(locations, Action::Replace) {
+                        Ok(_) => return close_fn(self, None),
+                        Err(err) => ctx.editor.set_error(|| err.to_string()),
+                    }
+                }
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
                         let result = (self.callback_fn)(ctx, option, self.default_action);

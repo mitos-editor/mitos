@@ -181,10 +181,19 @@ pub struct DocumentFormatter<'t> {
     /// The visual position at the end of the last yielded word boundary
     visual_pos: DisplayPosition,
     graphemes: RopeGraphemes<'t>,
+    text: RopeSlice<'t>,
+    grapheme_end: usize,
     /// The character pos of the `graphemes` iter used for inserting annotations
     char_pos: usize,
     /// The line pos of the `graphemes` iter used for inserting annotations
     line_pos: usize,
+    /// The document position where `insert_virtual_lines_before` last ran.
+    ///
+    /// The formatter can observe the same `char_pos` multiple times while
+    /// yielding wrapped or annotated graphemes. Virtual lines inserted before a
+    /// document position should only affect the visual position once, otherwise
+    /// repeated observations would keep pushing the rendered text down.
+    virtual_lines_before_inserted_at: usize,
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
@@ -217,16 +226,24 @@ impl<'t> DocumentFormatter<'t> {
     ) -> Self {
         // TODO divide long lines into blocks to avoid bad performance for long lines
         let block_line_idx = text.char_to_line(char_idx.min(text.len_chars()));
-        let block_char_idx = text.line_to_char(block_line_idx);
+        let block_char_idx = text.line_to_char(block_line_idx).max(
+            annotations
+                .previous_line_break(char_idx.min(text.len_chars()))
+                .unwrap_or(0),
+        );
+        let grapheme_end = annotations.next_line_break(block_char_idx, text.len_chars());
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
             text_fmt,
             annotations,
             visual_pos: DisplayPosition { row: 0, col: 0 },
-            graphemes: text.slice(block_char_idx..).graphemes(),
+            graphemes: text.slice(block_char_idx..grapheme_end).graphemes(),
+            text,
+            grapheme_end,
             char_pos: block_char_idx,
             exhausted: false,
+            virtual_lines_before_inserted_at: usize::MAX,
             indent_level: None,
             peeked_grapheme: None,
             word_buf: Vec::with_capacity(64),
@@ -261,11 +278,26 @@ impl<'t> DocumentFormatter<'t> {
         }
     }
 
+    fn next_document_grapheme(&mut self) -> Option<RopeSlice<'t>> {
+        if let Some(grapheme) = self.graphemes.next() {
+            return Some(grapheme);
+        }
+        if self.grapheme_end == self.text.len_chars() {
+            return None;
+        }
+        let start = self.grapheme_end;
+        self.grapheme_end = self
+            .annotations
+            .next_line_break(start, self.text.len_chars());
+        self.graphemes = self.text.slice(start..self.grapheme_end).graphemes();
+        self.graphemes.next()
+    }
+
     fn advance_grapheme(&mut self, col: usize, char_pos: usize) -> Option<GraphemeWithSource<'t>> {
         let (grapheme, source) =
             if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {
                 (grapheme.into(), GraphemeSource::VirtualText { highlight })
-            } else if let Some(grapheme) = self.graphemes.next() {
+            } else if let Some(grapheme) = self.next_document_grapheme() {
                 let codepoints = grapheme.len_chars() as u32;
 
                 let overlay = self.annotations.overlay_at(char_pos);
@@ -354,6 +386,9 @@ impl<'t> DocumentFormatter<'t> {
         loop {
             let mut col = self.visual_pos.col + word_width;
             let char_pos = self.char_pos + word_chars;
+            if word_chars > 0 && self.annotations.line_break_at(char_pos) {
+                return;
+            }
             match col.cmp(&(self.text_fmt.viewport_width as usize)) {
                 // The EOF char and newline chars are always selectable in mitos. That means
                 // that wrapping happens "too-early" if a word fits a line perfectly. This
@@ -419,6 +454,26 @@ impl<'t> Iterator for DocumentFormatter<'t> {
     type Item = FormattedGrapheme<'t>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.virtual_lines_before_inserted_at != self.char_pos {
+            let virtual_lines = self.annotations.virtual_lines_before(
+                self.char_pos,
+                self.visual_pos,
+                self.line_pos,
+            );
+            let boundary = self.annotations.line_break_at(self.char_pos);
+            if boundary || virtual_lines > 0 {
+                if self.visual_pos.col > 0 {
+                    self.visual_pos.row += 1;
+                    self.visual_pos.col = 0;
+                }
+                self.visual_pos.row += virtual_lines;
+                if boundary {
+                    self.indent_level = None;
+                }
+            }
+            self.virtual_lines_before_inserted_at = self.char_pos;
+        }
+
         let grapheme = if self.text_fmt.soft_wrap {
             if self.word_i >= self.word_buf.len() {
                 self.advance_to_next_word();

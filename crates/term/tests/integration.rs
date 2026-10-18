@@ -39,6 +39,7 @@ mod test {
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
+    mod multibuffer;
     mod navigation;
     mod pull_diagnostics;
     mod signature_help;

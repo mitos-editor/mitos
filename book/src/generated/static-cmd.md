@@ -122,6 +122,13 @@
 | `diagnostics_picker` | Open diagnostic picker | normal: `` <space>d ``, select: `` <space>d `` |
 | `workspace_diagnostics_picker` | Open workspace diagnostic picker | normal: `` <space>D ``, select: `` <space>D `` |
 | `last_picker` | Open last picker | normal: `` <space>' ``, select: `` <space>' `` |
+| `extend_multibuffer_excerpt` | Expand excerpt around cursor | normal: `` <S-ret> ``, select: `` <S-ret> `` |
+| `expand_multibuffer_excerpt_up` | Expand excerpt upward |  |
+| `expand_multibuffer_excerpt_down` | Expand excerpt downward |  |
+| `goto_next_multibuffer_excerpt` | Move to next excerpt |  |
+| `goto_previous_multibuffer_excerpt_end` | Move to end of previous excerpt |  |
+| `open_multibuffer_excerpt_vsplit` | Open excerpt source in vertical split |  |
+| `open_selections_in_multibuffer` | Open selections in a multi-buffer |  |
 | `insert_at_line_start` | Insert at start of line | normal: `` I ``, select: `` I `` |
 | `insert_at_line_end` | Insert at end of line | normal: `` A ``, select: `` A `` |
 | `open_below` | Open new line below selection | normal: `` o ``, select: `` o `` |

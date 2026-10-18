@@ -248,9 +248,9 @@ async fn mapped_gutter_positions_follow_newlines_and_resolution_rejects_old_snap
     let doc = fixture.app.editor.document(fixture.doc).unwrap();
     let mut gutter = view::gutter::code_lens(&fixture.app.editor, doc, &fixture.app.editor.theme);
     let mut out = String::new();
-    assert!(gutter(0, false, true, &mut out).is_none());
-    assert!(gutter(1, false, false, &mut out).is_none());
-    assert!(gutter(1, false, true, &mut out).is_some());
+    assert!(gutter(0, 0, false, true, &mut out).is_none());
+    assert!(gutter(1, 0, false, false, &mut out).is_none());
+    assert!(gutter(1, 0, false, true, &mut out).is_some());
     assert_eq!(out, "▶");
     drop(gutter);
     assert!(fixture.app.close().await.is_empty());

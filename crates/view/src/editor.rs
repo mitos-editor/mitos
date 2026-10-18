@@ -482,6 +482,16 @@ impl Editor {
         force: bool,
     ) -> anyhow::Result<()> {
         let path = path.map(|path| path.into());
+        if self
+            .document(doc_id)
+            .is_some_and(|doc| doc.multibuffer().is_some())
+        {
+            anyhow::ensure!(
+                path.is_none(),
+                "Multi-buffer writes use the source filenames"
+            );
+            return self.save_multibuffer(doc_id, force);
+        }
         let doc = doc_mut!(self, &doc_id);
         // the path that will be written: the override, else the document's own path
         let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
@@ -784,6 +794,7 @@ impl Editor {
     /// The shared successful-write completion path, including write-and-quit.
     /// The event describes the written text, not edits made after submission.
     pub fn complete_document_write(&mut self, event: &crate::document::DocumentSavedEvent) {
+        self.complete_multibuffer_write(event);
         if let Some(doc) = self.document_mut(event.doc_id) {
             log::debug!(
                 "document {:?} saved with revision {}",

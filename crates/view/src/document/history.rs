@@ -10,6 +10,9 @@ impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
     pub fn commit_changes(&mut self) -> Option<usize> {
         let revision = self.buffer.commit_changes();
+        if let Some(multi) = &mut self.multibuffer {
+            multi.commit(revision);
+        }
         self.selection_history.commit(revision, |view| {
             self.view_states
                 .get(&view)
@@ -56,6 +59,9 @@ impl Document {
                 // An observer may have edited or committed after the previous step.
                 break;
             };
+            if let Some(multi) = &mut self.multibuffer {
+                multi.restore(&step);
+            }
             self.publish_change(&change, selection.as_ref(), origin, true);
             applied = true;
         }

@@ -16,3 +16,7 @@ editor retains live configuration and register fallback behavior.
 Text, versions, pending changes, and undo history are owned by the
 `buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.
+
+`multibuffer` coordinates editable excerpts, source conflict checks, projection
+history, background syntax, and source writes through the shared save queue.
+Terminal commands, picker actions, and header rendering remain in `term`.

@@ -14,6 +14,8 @@ You can insert the contents of a [register](./registers.md) using `Ctrl-r` follo
 
 To keep navigating a picker's current matched locations after closing it, press `Ctrl-q` to populate the [quicklist](./quicklist.md).
 
+Press `Ctrl-o` to edit a picker's current matched file locations together in a [multi-buffer](./multibuffers.md).
+
 ### File explorer
 
 `Space-e` opens an interactive file explorer for browsing and opening files, rooted at the workspace; `Space-.` opens one rooted at the current buffer's directory. Unlike the file picker, the explorer does not ignore most files by default; its ignore behaviour is configured separately in the [`[editor.file-explorer]`](./editor.md#editorfile-explorer-section) section.

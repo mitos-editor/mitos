@@ -492,6 +492,7 @@ See the documentation page on [pickers](./pickers.md) for more info.
 | `Ctrl-v`                     | Open vertically                                            |
 | `Ctrl-t`                     | Toggle preview                                             |
 | `Ctrl-q`                     | Replace the quicklist with the current matched entries     |
+| `Ctrl-o`                     | Open current matched file locations in a multi-buffer     |
 | `Escape`, `Ctrl-c`           | Close picker                                               |
 
 ## Prompt
