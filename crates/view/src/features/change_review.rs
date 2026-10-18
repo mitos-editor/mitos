@@ -1,7 +1,10 @@
 //! Immutable comparison capture and background work shared by frontends.
 
 use anyhow::{ensure, Result};
-use editor_core::Rope;
+use editor_core::{
+    encoding::{self, Encoding},
+    Rope,
+};
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
 use vcs::{ComparisonKind, FileStatus, MAX_REVIEW_BYTES};
 
@@ -35,6 +38,7 @@ pub struct ReviewRequest {
     trust_full: bool,
     buffer: Option<Rope>,
     document: Option<(DocumentId, i32)>,
+    encoding: Option<&'static Encoding>,
     workspace: std::path::PathBuf,
 }
 
@@ -55,6 +59,7 @@ pub struct ReviewSnapshot {
     comparison: ReviewComparison,
     trust_full: bool,
     document: Option<(DocumentId, i32)>,
+    encoding: Option<&'static Encoding>,
 }
 
 impl ReviewSnapshot {
@@ -88,16 +93,21 @@ impl ReviewRequest {
                 .then(|| document.map(|doc| doc.text().clone()))
                 .flatten(),
             document: document.map(|doc| (doc.id(), doc.version())),
+            encoding: document.map(|doc| doc.encoding()),
             workspace,
         }
     }
 
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.trust_full
+        self.encoding
             == editor
-                .workspace_trust
-                .query(&self.workspace, workspace::trust::TrustQuery::Git)
-                .is_trusted()
+                .document_by_path(self.status.path())
+                .map(|doc| doc.encoding())
+            && self.trust_full
+                == editor
+                    .workspace_trust
+                    .query(&self.workspace, workspace::trust::TrustQuery::Git)
+                    .is_trusted()
             && (self.comparison != ReviewComparison::Buffer
                 || self.document.is_some_and(|(id, version)| {
                     editor.document(id).is_some_and(|doc| {
@@ -108,6 +118,7 @@ impl ReviewRequest {
 
     pub fn same_target(&self, other: &Self) -> bool {
         self.status == other.status
+            && self.encoding == other.encoding
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
             && (self.comparison != ReviewComparison::Buffer || self.document == other.document)
@@ -168,6 +179,7 @@ impl ReviewRequest {
             && previous.status == self.status
             && previous.comparison == self.comparison
             && previous.trust_full == self.trust_full
+            && previous.encoding == self.encoding
             && (self.comparison != ReviewComparison::Buffer || previous.document == self.document)
         {
             return Ok(previous);
@@ -184,6 +196,7 @@ impl ReviewRequest {
             comparison: self.comparison,
             trust_full: self.trust_full,
             document: self.document,
+            encoding: self.encoding,
         }))
     }
 
@@ -205,20 +218,26 @@ impl ReviewRequest {
                 buffer.len_bytes() <= MAX_REVIEW_BYTES,
                 "Buffer too large to review (limit 10 MiB)"
             );
-            (decode(&comparison.before)?, buffer)
+            (decode(&comparison.before, self.encoding)?, buffer)
         } else {
-            (decode(&comparison.before)?, decode(&comparison.after)?)
+            (
+                decode(&comparison.before, self.encoding)?,
+                decode(&comparison.after, self.encoding)?,
+            )
         };
         Ok(Review::new(before, after, None))
     }
 }
 
-fn decode(bytes: &[u8]) -> Result<Rope> {
+fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
+    let explicitly_unicode = encoding
+        .is_some_and(|encoding| encoding == encoding::UTF_16LE || encoding == encoding::UTF_16BE);
     ensure!(
-        !stdx::file::is_binary(bytes),
+        !stdx::file::has_binary_signature(bytes)
+            && (explicitly_unicode || !stdx::file::is_binary(bytes)),
         "Binary file: text diff unavailable"
     );
-    let (text, _, _) = text_io::from_reader(&mut &*bytes, None)?;
+    let (text, _, _) = text_io::from_reader(&mut &*bytes, encoding)?;
     ensure!(
         text.len_bytes() <= MAX_REVIEW_BYTES,
         "Decoded file too large to review (limit 10 MiB)"
@@ -235,6 +254,7 @@ pub struct HunkReviewRequest {
     workspace: std::path::PathBuf,
     trust_full: bool,
     text: Rope,
+    encoding: &'static Encoding,
     line: usize,
 }
 
@@ -267,19 +287,19 @@ impl HunkReviewRequest {
                 .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
                 .is_trusted(),
             text: doc.text().clone(),
+            encoding: doc.encoding(),
             line: doc.cursor_line(view.id),
         })
     }
 
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.target
-            .get(editor)
-            .is_some_and(|(view, _)| editor.tree.focus == view.id)
-            && editor
-                .workspace_trust
-                .query(&self.workspace, workspace::trust::TrustQuery::Git)
-                .is_trusted()
-                == self.trust_full
+        self.target.get(editor).is_some_and(|(view, doc)| {
+            editor.tree.focus == view.id && doc.encoding() == self.encoding
+        }) && editor
+            .workspace_trust
+            .query(&self.workspace, workspace::trust::TrustQuery::Git)
+            .is_trusted()
+            == self.trust_full
     }
 
     /// Serialize blocking hunk work per editor. Cancellation drops queued requests immediately;
@@ -305,7 +325,7 @@ impl HunkReviewRequest {
             self.providers
                 .read_comparison(&status, ComparisonKind::Head, self.trust_full)?;
         Ok(Review::new(
-            decode(&comparison.before)?,
+            decode(&comparison.before, Some(self.encoding))?,
             self.text.clone(),
             Some(self.line),
         ))

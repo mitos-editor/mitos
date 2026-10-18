@@ -79,6 +79,44 @@ async fn repository_review_cache_reuses_unchanged_snapshots_and_follows_staging(
 }
 
 #[tokio::test]
+async fn reviews_honor_explicit_encoding_and_reject_results_after_encoding_changes(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("café\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let bytes: Vec<_> = "café\n".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    std::fs::write(&path, &bytes)?;
+    git(f.dir.path(), &["add", "-A"]);
+    git(f.dir.path(), &["commit", "-qm", "encoded"]);
+    current!(f.editor).1.set_encoding("utf-16le")?;
+    f.replace("caféteria\n");
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path: path.clone() }),
+    };
+    let buffer = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let original = buffer.compute_cached(None)?;
+    let hunk = HunkReviewRequest::capture(&f.editor)?;
+    for review in [original.review.as_ref(), &hunk.compute()?] {
+        assert_eq!((review.additions, review.deletions), (1, 1));
+        assert!(review.lines.iter().any(|line| line.text == "café"));
+        assert!(review.lines.iter().any(|line| line.text == "caféteria"));
+    }
+    let disk = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    assert_eq!(disk.compute()?.additions, 0);
+    // Encoding changes do not increment the text version.
+    current!(f.editor).1.set_encoding("utf-8")?;
+    assert!(!buffer.is_current(&f.editor));
+    assert!(!disk.is_current(&f.editor));
+    assert!(!hunk.is_current(&f.editor));
+    let updated = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    assert!(!updated.same_target(&buffer));
+    assert!(updated.compute_cached(Some(original)).is_err());
+    assert_eq!(std::fs::read(path)?, bytes);
+    Ok(())
+}
+
+#[tokio::test]
 async fn repository_attributes_invalidate_cached_worktree_conversions() -> anyhow::Result<()> {
     let mut f = Fixture::new("committed\nsecond\n")?;
     prepare(&mut f, "initial");
