@@ -146,6 +146,7 @@ impl MappableCommand {
         symbol_picker => super::lsp::symbol_picker, "Open symbol picker",
         syntax_symbol_picker => super::syntax::syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
+        show_change => super::vcs::show_change, "Show the current change against HEAD",
         blame_line => super::vcs::blame_line, "Show commit details for the current line",
         toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline Git blame",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
@@ -1530,6 +1531,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+    },
+    TypableCommand {
+        name: "show-change",
+        aliases: &[],
+        doc: "Inspect the current change against HEAD, including deleted lines and unsaved edits.",
+        fun: super::vcs::typed::show_change,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "restore-change",

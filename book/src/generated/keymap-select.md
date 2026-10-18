@@ -298,6 +298,7 @@
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
 | `` <space>B `` | Toggle inline Git blame | `` toggle_inline_blame `` |
+| `` <space>i `` | Show the current change against HEAD | `` show_change `` |
 
 #### `` <space>G `` — Debug (experimental)
 

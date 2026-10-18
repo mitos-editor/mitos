@@ -1,5 +1,6 @@
 pub mod blame;
 mod bufferline;
+pub mod change_review;
 mod completion;
 pub(crate) mod debugger_stack;
 pub(crate) mod debugger_variables;

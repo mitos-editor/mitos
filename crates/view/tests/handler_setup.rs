@@ -88,3 +88,7 @@ mod panes;
 
 #[path = "handler_setup/user_snippets.rs"]
 mod user_snippets;
+
+#[cfg(feature = "git")]
+#[path = "handler_setup/change_review.rs"]
+mod change_review;

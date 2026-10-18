@@ -7,7 +7,7 @@ use view::{current, current_ref, document::LineBlameError, editor::Action};
 
 use super::Fixture;
 
-fn git(dir: &Path, args: &[&str]) {
+pub(super) fn git(dir: &Path, args: &[&str]) {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -36,7 +36,7 @@ fn commit(f: &Fixture, title: &str) {
     git(f.dir.path(), &["commit", "-m", title]);
 }
 
-fn prepare(f: &mut Fixture, title: &str) {
+pub(super) fn prepare(f: &mut Fixture, title: &str) {
     // These fixtures use LF even when the runner's Git defaults to autocrlf.
     std::fs::write(f.dir.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
     git(f.dir.path(), &["init"]);

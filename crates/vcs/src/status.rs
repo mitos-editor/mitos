@@ -32,3 +32,34 @@ impl FileChange {
         }
     }
 }
+
+/// Independent changes in the staging area and working tree, sharing one row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStatus {
+    pub staged: Option<FileChange>,
+    pub unstaged: Option<FileChange>,
+}
+
+impl FileStatus {
+    /// The destination path, including a working-tree rename after a staged edit.
+    pub fn path(&self) -> &Path {
+        self.unstaged
+            .as_ref()
+            .or(self.staged.as_ref())
+            .expect("nonempty file status")
+            .path()
+    }
+
+    /// Combined classification retained for consumers that don't distinguish layers.
+    pub fn change(&self) -> &FileChange {
+        match (&self.staged, &self.unstaged) {
+            (
+                Some(staged @ (FileChange::Added { .. } | FileChange::Renamed { .. })),
+                Some(FileChange::Modified { .. }),
+            ) => staged,
+            (_, Some(unstaged)) => unstaged,
+            (Some(staged), None) => staged,
+            (None, None) => unreachable!("nonempty file status"),
+        }
+    }
+}

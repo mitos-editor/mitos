@@ -1,7 +1,9 @@
 //! Text comparison independent of repository services and task scheduling.
 
 mod line_cache;
+mod review;
 mod transaction;
+pub use review::{Review, ReviewLine, ReviewLineKind, MAX_REVIEW_BYTES, MAX_REVIEW_LINES};
 
 use editor_core::Rope;
 pub use imara_diff::Hunk;
