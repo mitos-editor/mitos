@@ -135,8 +135,10 @@ the comparison. Parsing and traversal can be canceled; the bounded matching step
 finishes before its result is accepted or discarded.
 
 Toggling an open popup compares the same captured snapshots. Reopen it to pick up
-new file contents or language configuration. Picker previews refresh when their
-language configuration or engine changes.
+new file contents or language configuration. Line and syntax presentations are
+cached together, so switching back does not repeat matching. Picker previews reuse
+their captured text when only the engine changes; file or language changes refresh
+the comparison.
 
 The standard build includes syntax comparison. Builds made without the
 `syntax-diff` Cargo feature retain line review and report that the syntax provider

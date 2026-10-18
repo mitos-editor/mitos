@@ -78,6 +78,7 @@
 | `` <C-x> `` | `` remove_entry `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 

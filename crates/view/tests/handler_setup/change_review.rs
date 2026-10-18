@@ -61,12 +61,50 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
     let syntax = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
     let overridden = syntax.clone().with_engine(Some(DiffEngine::Line));
     assert!(!syntax.same_target(&overridden));
+    assert!(syntax.same_source(&overridden));
     assert!(overridden.is_current(&f.editor));
+    let original = syntax.compute_cached(None)?;
+    let line = overridden.compute_cached(Some(original.clone()))?;
+    assert!(Arc::ptr_eq(&original.source, &line.source));
+    assert_eq!(line.engine(), DiffEngine::Line);
+    let back = syntax.compute_cached(Some(line.clone()))?;
+    assert!(Arc::ptr_eq(&original.source, &back.source));
+    assert!(Arc::ptr_eq(&original.review, &back.review));
+    let line_again = overridden.compute_cached(Some(back))?;
+    assert!(Arc::ptr_eq(&line.review, &line_again.review));
     f.editor.syn_loader.store(Arc::new(language::Loader::new(
         toml::from_str(JSON_LANGUAGE)?,
         loader::syntax::Resources::default(),
     )?));
     assert!(!syntax.is_current(&f.editor));
+    Ok(())
+}
+
+#[cfg(feature = "syntax-diff")]
+#[tokio::test]
+async fn canceled_syntax_comparisons_do_not_poison_cached_presentations() -> anyhow::Result<()> {
+    use editor_config::DiffEngine;
+    let mut f = Fixture::with_languages("{\"value\": 1}\n", JSON_LANGUAGE)?;
+    prepare(&mut f, "initial");
+    f.replace("{\"value\": 2}\n");
+    let (source, line) = HunkReviewRequest::capture(&f.editor)?.compute_review()?;
+    assert!(Arc::ptr_eq(
+        &line,
+        &source.compute(Some(DiffEngine::Line), &|| false)
+    ));
+    // Cancel after exact rows are ready, during the provider comparison.
+    let checks = std::cell::Cell::new(0);
+    source.compute(Some(DiffEngine::Syntax), &|| {
+        checks.set(checks.get() + 1);
+        checks.get() >= 3
+    });
+    let syntax = source.compute(Some(DiffEngine::Syntax), &|| false);
+    assert_eq!(syntax.provider, Some("syntax"));
+    assert!(syntax.fallback.is_none());
+    assert!(Arc::ptr_eq(
+        &syntax,
+        &source.compute(Some(DiffEngine::Auto), &|| false)
+    ));
     Ok(())
 }
 
@@ -208,7 +246,8 @@ async fn reviews_honor_explicit_encoding_and_reject_results_after_encoding_chang
     let buffer = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
     let original = buffer.compute_cached(None)?;
     let hunk = HunkReviewRequest::capture(&f.editor)?;
-    for review in [original.review.as_ref(), &hunk.compute()?] {
+    let inspected = hunk.compute()?;
+    for review in [original.review.as_ref(), inspected.as_ref()] {
         assert_eq!((review.additions, review.deletions), (1, 1));
         assert!(review.lines.iter().any(|line| line.text == "café"));
         assert!(review.lines.iter().any(|line| line.text == "caféteria"));

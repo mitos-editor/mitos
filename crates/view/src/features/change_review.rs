@@ -63,15 +63,14 @@ pub struct ReviewSnapshot {
     pub review: Arc<Review>,
     pub source: Arc<ReviewSource>,
     stamp: RepositoryStamp,
-    status: FileStatus,
-    comparison: ReviewComparison,
-    trust_full: bool,
-    document: Option<(DocumentId, i32)>,
-    encoding: Option<&'static Encoding>,
-    settings: Settings,
+    request: ReviewRequest,
 }
 
 impl ReviewSnapshot {
+    pub fn engine(&self) -> DiffEngine {
+        self.request.engine()
+    }
+
     pub fn affected_by(&self, path: &std::path::Path) -> bool {
         self.stamp
             .iter()
@@ -139,9 +138,14 @@ impl ReviewRequest {
     }
 
     pub fn same_target(&self, other: &Self) -> bool {
+        self.same_source(other) && self.settings.engine == other.settings.engine
+    }
+
+    /// Presentation changes can reuse captured text; document, trust, and language changes cannot.
+    pub fn same_source(&self, other: &Self) -> bool {
         self.status == other.status
             && self.encoding == other.encoding
-            && self.settings.same(&other.settings)
+            && self.settings.current(&other.settings)
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
             && (self.comparison != ReviewComparison::Buffer || self.document == other.document)
@@ -206,20 +210,19 @@ impl ReviewRequest {
     ) -> Result<Arc<ReviewSnapshot>> {
         ensure!(!canceled(), "Diff preview canceled");
         let stamp = self.stamp();
-        if let Some(previous) = previous
+        let source = if let Some(previous) = previous
             && previous.stamp == stamp
-            && previous.status == self.status
-            && previous.comparison == self.comparison
-            && previous.trust_full == self.trust_full
-            && previous.encoding == self.encoding
-            && previous.settings.same(&self.settings)
-            && (self.comparison != ReviewComparison::Buffer || previous.document == self.document)
+            && previous.request.same_source(self)
         {
-            return Ok(previous);
-        }
-        let source = Arc::new(self.source()?);
+            if previous.engine() == self.engine() {
+                return Ok(previous);
+            }
+            previous.source.clone()
+        } else {
+            Arc::new(self.source()?)
+        };
         ensure!(!canceled(), "Diff preview canceled");
-        let review = Arc::new(source.compute(None, canceled));
+        let review = source.compute(Some(self.engine()), canceled);
         ensure!(!canceled(), "Diff preview canceled");
         ensure!(
             stamp == self.stamp(),
@@ -229,16 +232,11 @@ impl ReviewRequest {
             review,
             source,
             stamp,
-            status: self.status.clone(),
-            comparison: self.comparison,
-            trust_full: self.trust_full,
-            document: self.document,
-            encoding: self.encoding,
-            settings: self.settings.clone(),
+            request: self.clone(),
         }))
     }
 
-    pub fn compute(&self) -> Result<Review> {
+    pub fn compute(&self) -> Result<Arc<Review>> {
         Ok(self.source()?.compute(None, &|| false))
     }
 
@@ -267,12 +265,12 @@ impl ReviewRequest {
                 decode(&comparison.after, self.encoding)?,
             )
         };
-        Ok(ReviewSource {
+        Ok(ReviewSource::new(
             before,
             after,
-            line: None,
-            settings: self.settings.clone(),
-        })
+            None,
+            self.settings.clone(),
+        ))
     }
 }
 
@@ -355,17 +353,17 @@ impl HunkReviewRequest {
 
     /// Serialize blocking hunk work per editor. Cancellation drops queued requests immediately;
     /// a running worker retains its permit until its blocking computation actually finishes.
-    pub async fn run(self: Arc<Self>) -> Result<(Arc<ReviewSource>, Review)> {
+    pub async fn run(self: Arc<Self>) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
         let worker = self.worker.clone();
         let cancel = self.target.cancel_handle().clone();
         run_hunk(worker, cancel, move || self.compute_review()).await
     }
 
-    pub fn compute(&self) -> Result<Review> {
+    pub fn compute(&self) -> Result<Arc<Review>> {
         self.compute_review().map(|(_, review)| review)
     }
 
-    pub fn compute_review(&self) -> Result<(Arc<ReviewSource>, Review)> {
+    pub fn compute_review(&self) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
         ensure!(
             !self.target.cancel_handle().is_canceled(),
             "Change inspection cancelled"
@@ -379,12 +377,12 @@ impl HunkReviewRequest {
         let comparison =
             self.providers
                 .read_comparison(&status, ComparisonKind::Head, self.trust_full)?;
-        let source = Arc::new(ReviewSource {
-            before: decode(&comparison.before, Some(self.encoding))?,
-            after: self.text.clone(),
-            line: Some(self.line),
-            settings: self.settings.clone(),
-        });
+        let source = Arc::new(ReviewSource::new(
+            decode(&comparison.before, Some(self.encoding))?,
+            self.text.clone(),
+            Some(self.line),
+            self.settings.clone(),
+        ));
         let review = source.compute(None, &|| self.target.cancel_handle().is_canceled());
         ensure!(
             !self.target.cancel_handle().is_canceled(),
