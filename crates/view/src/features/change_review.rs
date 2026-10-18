@@ -121,11 +121,6 @@ impl ReviewRequest {
             .and_then(|path| path.ancestors().find(|path| path.is_dir()))
             .unwrap_or(&self.workspace);
         let mut paths = self.providers.get_watched_paths(directory, self.trust_full);
-        let configs: Vec<_> = paths
-            .iter()
-            .filter_map(|path| path.parent().map(|parent| parent.join("config")))
-            .collect();
-        paths.extend(configs);
         paths.extend(
             directory
                 .ancestors()
@@ -234,6 +229,7 @@ fn decode(bytes: &[u8]) -> Result<Rope> {
 /// A hunk inspection belongs to the exact selection that requested it.
 pub struct HunkReviewRequest {
     target: super::request::SelectionRequest,
+    worker: Arc<tokio::sync::Semaphore>,
     providers: vcs::DiffProviderRegistry,
     path: std::path::PathBuf,
     workspace: std::path::PathBuf,
@@ -262,6 +258,7 @@ impl HunkReviewRequest {
         let cancel = editor.handlers.change_review.lock().restart();
         Ok(Self {
             target: super::request::SelectionRequest::new(doc, view.id, cancel, Vec::new()),
+            worker: editor.handlers.change_review_worker.clone(),
             providers: editor.diff_providers.clone(),
             path,
             workspace: doc.workspace_root().to_owned(),
@@ -283,6 +280,14 @@ impl HunkReviewRequest {
                 .query(&self.workspace, workspace::trust::TrustQuery::Git)
                 .is_trusted()
                 == self.trust_full
+    }
+
+    /// Serialize blocking hunk work per editor. Cancellation drops queued requests immediately;
+    /// a running worker retains its permit until its blocking computation actually finishes.
+    pub async fn run(self: Arc<Self>) -> Result<Review> {
+        let worker = self.worker.clone();
+        let cancel = self.target.cancel_handle().clone();
+        run_hunk(worker, cancel, move || self.compute()).await
     }
 
     pub fn compute(&self) -> Result<Review> {
@@ -307,10 +312,60 @@ impl HunkReviewRequest {
     }
 }
 
+async fn run_hunk<T: Send + 'static>(
+    worker: Arc<tokio::sync::Semaphore>,
+    cancel: event::TaskHandle,
+    compute: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let work = async {
+        let permit = worker.acquire_owned().await?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            compute()
+        })
+        .await?
+    };
+    event::cancelable_future(work, &cancel)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("Change inspection canceled"))?
+}
+
 pub(crate) fn register_hooks() {
     use crate::events::DocumentFocusLost;
     event::register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         event.editor.handlers.change_review.lock().cancel();
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn canceled_hunk_workers_keep_their_permit_and_queued_work_is_discarded() {
+        let worker = Arc::new(tokio::sync::Semaphore::new(1));
+        let mut task = event::TaskController::new();
+        let (started, running) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let first = tokio::spawn(run_hunk(worker.clone(), task.restart(), move || {
+            let _ = started.send(());
+            blocked
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+            Ok(())
+        }));
+        running.await.unwrap();
+        let queued = tokio::spawn(run_hunk(
+            worker.clone(),
+            task.restart(),
+            || -> Result<()> { panic!("canceled queued work must never start") },
+        ));
+        assert!(first.await.unwrap().is_err());
+        assert_eq!(worker.available_permits(), 0);
+        let current = task.restart();
+        assert!(queued.await.unwrap().is_err());
+        release.send(()).unwrap();
+        assert_eq!(run_hunk(worker, current, || Ok(42)).await.unwrap(), 42);
+    }
 }

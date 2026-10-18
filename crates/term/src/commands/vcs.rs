@@ -27,7 +27,7 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
     };
     let worker = request.clone();
     jobs.callback(async move {
-        let result = tokio::task::spawn_blocking(move || worker.compute()).await?;
+        let result = worker.run().await;
         Ok(crate::job::Callback::EditorCompositor(Box::new(
             move |editor, compositor| {
                 if !request.is_current(editor) {

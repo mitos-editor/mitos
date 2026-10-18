@@ -79,6 +79,31 @@ async fn repository_review_cache_reuses_unchanged_snapshots_and_follows_staging(
 }
 
 #[tokio::test]
+async fn repository_attributes_invalidate_cached_worktree_conversions() -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\nsecond\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "disk edit\nsecond\n")?;
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path }),
+    };
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    let original = request.compute_cached(None)?;
+    assert_eq!(
+        (original.review.additions, original.review.deletions),
+        (1, 1)
+    );
+    let attributes = f.dir.path().join(".git/info/attributes");
+    std::fs::write(&attributes, "* text eol=crlf\n")?;
+    assert!(original.affected_by(&attributes.canonicalize()?));
+    let updated = request.compute_cached(Some(original.clone()))?;
+    assert!(!Arc::ptr_eq(&original, &updated));
+    assert_eq!((updated.review.additions, updated.review.deletions), (2, 2));
+    Ok(())
+}
+
+#[tokio::test]
 async fn buffer_review_uses_the_index_without_saving_and_invalidates_after_edits(
 ) -> anyhow::Result<()> {
     let mut f = Fixture::new("committed\n")?;

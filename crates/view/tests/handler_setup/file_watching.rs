@@ -158,6 +158,33 @@ async fn assert_native_index_changes(linked: bool) -> anyhow::Result<()> {
         .await
         .context("index change was not delivered without polling")??;
     }
+    let attributes = f
+        .editor
+        .diff_providers
+        .get_watched_paths(&worktree, false)
+        .into_iter()
+        .find(|path| path.ends_with("info/attributes"))
+        .unwrap();
+    std::fs::write(&attributes, "* text eol=crlf\n")?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let callback = f
+                .callbacks
+                .recv()
+                .await
+                .context("editor callback queue closed")?;
+            callback(&mut f.editor);
+            if std::iter::from_fn(|| events.try_recv().ok()).any(|batch| {
+                batch
+                    .iter()
+                    .any(|event| event.path.as_std_path() == attributes)
+            }) {
+                return anyhow::Ok(());
+            }
+        }
+    })
+    .await
+    .context("repository attributes change was not delivered without polling")??;
     Ok(())
 }
 

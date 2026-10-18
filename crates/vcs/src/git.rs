@@ -109,7 +109,7 @@ pub fn for_each_file_status(
     )
 }
 
-/// Watch the index, HEAD, current branch ref, and packed refs, including linked worktrees.
+/// Watch comparison inputs, including configuration and linked-worktree metadata.
 pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
     let repo = open_repo(path, trust_full)?.to_thread_local();
     let git_dir = repo.git_dir().canonicalize()?;
@@ -118,6 +118,9 @@ pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> 
         git_dir.join("index"),
         git_dir.join("HEAD"),
         common_dir.join("packed-refs"),
+        common_dir.join("config"),
+        git_dir.join("config.worktree"),
+        common_dir.join("info/attributes"),
     ];
     if let Some(head) = repo.head_name()? {
         paths.push(common_dir.join(head.as_bstr().to_str()?));
