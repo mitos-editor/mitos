@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::Fixture;
-use editor_core::diagnostic::Severity;
+use ::diagnostics::Severity;
 use event::status::{Severity as StatusSeverity, StatusMessage};
 use view::{events::DocumentDidChange, Editor};
 

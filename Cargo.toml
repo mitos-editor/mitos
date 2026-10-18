@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/command-line",
   "crates/core",
+  "crates/diagnostics",
   "crates/text-layout",
   "crates/buffer",
   "crates/ui-core",
@@ -56,6 +57,7 @@ package.term.opt-level = 2
 # Workspace crates
 command-line = { path = "crates/command-line" }
 core = { path = "crates/core" }
+diagnostics = { path = "crates/diagnostics" }
 text-layout = { path = "crates/text-layout" }
 buffer = { path = "crates/buffer" }
 dap = { path = "crates/dap" }

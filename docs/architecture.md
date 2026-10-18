@@ -6,6 +6,7 @@ Features live with the state they change; frontends adapt input and present resu
 | Crate | Responsibility |
 | --- | --- |
 | `core` | Ropes, selections, transactions, and text editing algorithms |
+| `diagnostics` | Diagnostic values, provider identities, and edit-mapped collections |
 | `text-layout` | Display coordinates, wrapping, annotations, and visual movement |
 | `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
@@ -316,8 +317,8 @@ valid across typing and temporary previews.
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
 have state modules under `view/src/features/`. Each groups its cache, request
 controllers, and attached scheduling handle. Pull diagnostics keeps its handle
-with its diagnostic state. Diagnostic collections and edit mapping live in
-`features::diagnostics::state`; raw LSP caching, conversion, push/pull publication,
+with its diagnostic state. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
+raw LSP caching, both conversion directions, push/pull publication,
 and provider cleanup live in its `protocol` module. Frontends read diagnostics
 through immutable accessors. Removing a view cancels its per-view work; dropping a
 document drops its request controllers. Cache-only clearing preserves replacement

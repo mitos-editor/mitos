@@ -1,11 +1,10 @@
 //! Diagnostic storage, edit mapping, protocol publication, and presentation.
 
+mod document;
 mod protocol;
 pub mod pull;
-mod state;
 
-pub use protocol::LspDiagnostics;
-pub(crate) use state::DiagnosticStore;
+pub use protocol::{diagnostic_to_lsp_diagnostic, LspDiagnostics};
 
 use std::cell::Cell;
 use std::num::NonZeroUsize;

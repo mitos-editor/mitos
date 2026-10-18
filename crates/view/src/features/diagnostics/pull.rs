@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use editor_core::{diagnostic::DiagnosticProvider, Uri};
+use ::diagnostics::DiagnosticProvider;
+use editor_core::Uri;
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskController};
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId};

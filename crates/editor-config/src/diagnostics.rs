@@ -1,7 +1,7 @@
-use editor_core::diagnostic::Severity;
+use ::diagnostics::Severity;
 use serde::{Deserialize, Serialize};
 
-/// Describes the severity level of a [`editor_core::Diagnostic`].
+/// Describes the severity level of a [`::diagnostics::Diagnostic`].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum DiagnosticFilter {
     Disable,

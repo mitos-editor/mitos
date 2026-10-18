@@ -2,7 +2,8 @@
 
 use std::{collections::HashSet, time::Duration};
 
-use editor_core::{diagnostic::DiagnosticProvider, Range};
+use ::diagnostics::DiagnosticProvider;
+use editor_core::Range;
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook};
 use futures_util::stream::FuturesUnordered;
 use lsp_client::lsp::{CodeAction, CodeActionOrCommand, CodeActionTriggerKind};

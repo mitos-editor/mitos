@@ -426,8 +426,6 @@ dependencies = [
  "regex",
  "ropey",
  "serde",
- "serde_json",
- "slotmap",
  "smallvec",
  "smartstring",
  "stdx",
@@ -781,6 +779,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "diagnostics"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "serde",
+ "serde_json",
+ "slotmap",
+ "stdx",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -829,6 +838,7 @@ dependencies = [
  "anyhow",
  "clipboard",
  "core",
+ "diagnostics",
  "language-config",
  "serde",
  "toml",
@@ -2440,6 +2450,7 @@ version = "0.1.0"
 dependencies = [
  "core",
  "dap-types",
+ "diagnostics",
  "globset",
  "serde",
  "serde_json",
@@ -2567,6 +2578,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core",
+ "diagnostics",
  "futures-executor",
  "futures-util",
  "globset",
@@ -3946,6 +3958,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core",
+ "diagnostics",
  "language-config",
  "log",
  "regex",
@@ -4084,6 +4097,7 @@ dependencies = [
  "crossterm",
  "dap",
  "dashmap",
+ "diagnostics",
  "editor-config",
  "event",
  "futures-util",
@@ -4670,6 +4684,7 @@ dependencies = [
  "core",
  "criterion",
  "dap",
+ "diagnostics",
  "editor-config",
  "event",
  "filesentry",

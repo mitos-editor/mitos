@@ -1,7 +1,8 @@
 //! Spelling navigation, finding ranges, and language commands.
 
 use crate::commands::{context::Context, navigation::push_jump};
-use editor_core::{diagnostic::DiagnosticProvider, movement::Direction, Range};
+use ::diagnostics::DiagnosticProvider;
+use editor_core::{movement::Direction, Range};
 use view::{document::Mode, Document};
 
 pub(super) fn spelling_ranges(doc: &Document) -> impl DoubleEndedIterator<Item = Range> + '_ {

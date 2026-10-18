@@ -9,9 +9,10 @@ use std::{
     time::Duration,
 };
 
+use ::diagnostics::Severity;
 use anyhow::bail;
 use editor_config::ImplicitTrustLevelConfig;
-use editor_core::{diagnostic::Severity, test, Selection, Transaction};
+use editor_core::{test, Selection, Transaction};
 use tempfile::NamedTempFile;
 use term::{application::Application, args::Args, config::Config, keymap::merge_keys};
 use tokio_stream::wrappers::UnboundedReceiverStream;

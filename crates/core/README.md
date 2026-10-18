@@ -9,3 +9,5 @@ Language definitions, syntax trees, queries, and structural editing belong to
 
 History belongs to `buffer`; display layout belongs to `text-layout`. Completion
 items and provider identities belong to `view::features::completion`.
+
+Diagnostic values and edit-mapped collections belong to `diagnostics`.

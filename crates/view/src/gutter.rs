@@ -62,7 +62,7 @@ pub fn diagnostic<'doc>(
             if !first_visual_line {
                 return None;
             }
-            use editor_core::diagnostic::Severity;
+            use ::diagnostics::Severity;
             let first_diag_idx_maybe_on_line = diagnostics.partition_point(|d| d.line < line);
             let diagnostics_on_line = diagnostics[first_diag_idx_maybe_on_line..]
                 .iter()

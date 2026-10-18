@@ -34,7 +34,7 @@ use thiserror::Error;
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// User-configured name of a language-server definition.
 pub type LanguageServerName = String;
-pub use editor_core::diagnostic::LanguageServerId;
+pub use ::diagnostics::LanguageServerId;
 
 #[derive(Error, Debug)]
 /// Errors raised while starting a server, exchanging JSON-RPC messages, or

@@ -1,4 +1,4 @@
-//! LSP diagnostic utility types.
+//! Diagnostic values and provider identities in document character coordinates.
 use std::{fmt, sync::Arc};
 
 use serde::{Deserialize, Serialize};
@@ -77,11 +77,8 @@ impl DiagnosticProvider {
     }
 }
 
-// while I would prefer having this in lsp that necessitates a bunch of
-// conversions I would rather not add. I think its fine since this just a very
-// trivial newtype wrapper and we would need something similar once we define
-// completions in core
 slotmap::new_key_type! {
+    /// Generational identity shared by protocol clients and diagnostic providers.
     pub struct LanguageServerId;
 }
 

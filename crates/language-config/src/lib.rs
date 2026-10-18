@@ -3,8 +3,9 @@
 mod spelling;
 pub use spelling::{ParseSpellingLanguageError, SpellingConfig, SpellingLanguage};
 
+use ::diagnostics::Severity;
+use editor_core::auto_pairs::AutoPairs;
 use editor_core::comment::BlockCommentToken;
-use editor_core::{auto_pairs::AutoPairs, diagnostic::Severity};
 
 pub use dap_types::{
     AdvancedCompletion, DebugAdapterConfig, DebugConfigCompletion, DebugTemplate, DebuggerQuirks,

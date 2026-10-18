@@ -14,7 +14,7 @@ use lsp_client::{
     LanguageServerId,
 };
 
-use crate::language_servers::edits::diagnostic_to_lsp_diagnostic;
+use crate::features::diagnostics::diagnostic_to_lsp_diagnostic;
 use crate::{Document, DocumentId, Editor};
 
 /// A titled action against the editor, shown in the code action menu.

@@ -15,9 +15,9 @@ use crate::{
 };
 use text_layout::DisplayPosition;
 
+use ::diagnostics::NumberOrString;
 use editor_config::{BufferLine, CursorShapeConfig, DiagnosticFilter};
 use editor_core::{
-    diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
     highlight::OverlayHighlights,
     movement::Direction,
@@ -615,7 +615,7 @@ impl EditorView {
             return;
         }
 
-        use editor_core::diagnostic::{DiagnosticProvider, DiagnosticTag, Range, Severity};
+        use ::diagnostics::{DiagnosticProvider, DiagnosticTag, Range, Severity};
         let get_scope_of = |scope| {
             theme
                 .find_highlight_exact(scope)
@@ -1178,7 +1178,7 @@ impl EditorView {
         surface: &mut Surface,
         theme: &Theme,
     ) {
-        use editor_core::diagnostic::Severity;
+        use ::diagnostics::Severity;
         use tui::{
             layout::Alignment,
             text::Text,
@@ -2142,7 +2142,7 @@ impl Component for EditorView {
 
         // render status msg
         if let Some((status_msg, severity)) = &cx.editor.status_msg {
-            use editor_core::diagnostic::Severity;
+            use ::diagnostics::Severity;
             let style = if *severity == Severity::Error {
                 cx.editor.theme.get("error")
             } else if *severity == Severity::Warning {

@@ -19,6 +19,7 @@ Text, versions, pending changes, and undo history are owned by the
 `buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.
 
-`features/diagnostics` owns diagnostic collections, edit mapping, and LSP
-conversion/publication for push and pull providers. Frontends receive immutable
-diagnostic views; text mutations map diagnostic anchors before notifying observers.
+The `diagnostics` crate owns diagnostic values, provider identities, collections,
+and edit mapping. `features/diagnostics` owns LSP conversion and publication for
+push and pull providers. Frontends receive immutable diagnostic views; text
+mutations map diagnostic anchors before notifying observers.

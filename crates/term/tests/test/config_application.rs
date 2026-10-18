@@ -552,7 +552,7 @@ async fn config_reload_reads_read_only_symlinks_without_writes() -> anyhow::Resu
     app.handle_config_events(ConfigEvent::Refresh);
     let (message, severity) = app.editor.get_status().unwrap();
     assert_eq!(message, "Config refreshed");
-    assert_eq!(*severity, editor_core::diagnostic::Severity::Info);
+    assert_eq!(*severity, ::diagnostics::Severity::Info);
     assert_eq!(app.editor.config().scroll.padding, 9);
     assert_eq!(std::fs::read_to_string(&target)?, source);
     assert_eq!(std::fs::read_dir(&store)?.count(), 1);

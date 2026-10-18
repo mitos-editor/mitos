@@ -3,12 +3,10 @@ use std::{
     time::Duration,
 };
 
+use ::diagnostics::{Diagnostic, DiagnosticProvider};
 use anyhow::Context as _;
 use editor_config::StatusLineElement;
-use editor_core::{
-    diagnostic::{Diagnostic, DiagnosticProvider},
-    Selection, Transaction,
-};
+use editor_core::{Selection, Transaction};
 use lsp_client::lsp::{CodeActionKind, CodeActionTriggerKind};
 use serde_json::Value;
 use term::application::Application;
@@ -127,7 +125,7 @@ impl Fixture {
         let doc_id = doc.id();
         let provider = DiagnosticProvider::Spelling;
         let diagnostics = spelling.then(|| Diagnostic {
-            range: editor_core::diagnostic::Range { start: 2, end: 5 },
+            range: ::diagnostics::Range { start: 2, end: 5 },
             starts_at_word: true,
             ends_at_word: true,
             zero_width: false,

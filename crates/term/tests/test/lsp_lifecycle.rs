@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use editor_core::{diagnostic::DiagnosticProvider, Transaction, Uri};
+use ::diagnostics::DiagnosticProvider;
+use editor_core::{Transaction, Uri};
 use event::register_hook;
 use lsp_client::{lsp, Call, Notification};
 use serde_json::{json, Value};

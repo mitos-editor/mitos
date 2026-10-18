@@ -18,7 +18,7 @@ mod write;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn select_all_diagnostics_inside_selection() -> anyhow::Result<()> {
-    use editor_core::diagnostic::{
+    use ::diagnostics::{
         Diagnostic, DiagnosticProvider, DiagnosticTag, LanguageServerId, Severity,
     };
     use stdx::range::Range as DiagnosticRange;

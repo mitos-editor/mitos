@@ -1,6 +1,7 @@
 use std::{fs, time::Duration};
 
-use editor_core::{diagnostic::DiagnosticProvider, Range, Selection, Transaction};
+use ::diagnostics::DiagnosticProvider;
+use editor_core::{Range, Selection, Transaction};
 use spelling::{Dictionary, IgnoredWordsFile};
 use term::{
     application::Application,
@@ -116,7 +117,7 @@ async fn navigation_app() -> anyhow::Result<Application> {
     // label. Navigation and textobjects should filter by provider, not severity or source text.
     let (_, doc) = current!(app.editor);
     let mut diagnostic = doc.diagnostics()[0].clone();
-    diagnostic.range = editor_core::diagnostic::Range { start: 6, end: 11 };
+    diagnostic.range = ::diagnostics::Range { start: 6, end: 11 };
     let provider = DiagnosticProvider::Lsp {
         server_id: Default::default(),
         identifier: None,

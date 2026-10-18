@@ -3,12 +3,72 @@
 use std::collections::BTreeMap;
 
 use crate::{events::DiagnosticsDidChange, Document, DocumentId, Editor};
-use editor_core::{chars::char_is_word, diagnostic::DiagnosticProvider, Diagnostic, Rope, Uri};
+use ::diagnostics::Diagnostic;
+use ::diagnostics::{DiagnosticProvider, NumberOrString};
+use editor_core::{chars::char_is_word, Range, Rope, Uri};
 use language_config::{LanguageConfiguration, LanguageServerFeature};
-use lsp_client::{lsp, util::lsp_pos_to_pos, LanguageServerId};
+use lsp_client::{
+    lsp,
+    util::{lsp_pos_to_pos, range_to_lsp_range},
+    LanguageServerId, OffsetEncoding,
+};
 
 /// Raw diagnostics retained for open and unopened files, grouped by URI.
 pub type LspDiagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
+
+/// Converts a diagnostic in the document to [`lsp::Diagnostic`].
+///
+/// Panics when [`lsp_client::util::pos_to_lsp_pos`] would for an invalid range on the diagnostic.
+pub fn diagnostic_to_lsp_diagnostic(
+    doc: &Rope,
+    diag: &::diagnostics::Diagnostic,
+    offset_encoding: OffsetEncoding,
+) -> lsp::Diagnostic {
+    use ::diagnostics::Severity::*;
+
+    let range = Range::new(diag.range.start, diag.range.end);
+    let severity = diag.severity.map(|s| match s {
+        Hint => lsp::DiagnosticSeverity::HINT,
+        Info => lsp::DiagnosticSeverity::INFORMATION,
+        Warning => lsp::DiagnosticSeverity::WARNING,
+        Error => lsp::DiagnosticSeverity::ERROR,
+    });
+
+    let code = match diag.code.clone() {
+        Some(x) => match x {
+            NumberOrString::Number(x) => Some(lsp::NumberOrString::Number(x)),
+            NumberOrString::String(x) => Some(lsp::NumberOrString::String(x.into_string())),
+        },
+        None => None,
+    };
+
+    let new_tags: Vec<_> = diag
+        .tags
+        .iter()
+        .map(|tag| match tag {
+            ::diagnostics::DiagnosticTag::Unnecessary => lsp::DiagnosticTag::UNNECESSARY,
+            ::diagnostics::DiagnosticTag::Deprecated => lsp::DiagnosticTag::DEPRECATED,
+        })
+        .collect();
+
+    let tags = if !new_tags.is_empty() {
+        Some(new_tags)
+    } else {
+        None
+    };
+
+    lsp::Diagnostic {
+        range: range_to_lsp_range(doc, range, offset_encoding),
+        severity,
+        code,
+        source: diag.source.clone().map(|source| source.into_string()),
+        message: diag.message.clone().into_string(),
+        related_information: None,
+        tags,
+        data: diag.data.clone(),
+        ..Default::default()
+    }
+}
 
 fn convert_diagnostic(
     text: &Rope,
@@ -17,7 +77,7 @@ fn convert_diagnostic(
     provider: DiagnosticProvider,
     offset_encoding: lsp_client::OffsetEncoding,
 ) -> Option<Diagnostic> {
-    use editor_core::diagnostic::{Range, Severity::*};
+    use ::diagnostics::{Range, Severity::*};
 
     let start = if let Some(start) = lsp_pos_to_pos(text, diagnostic.range.start, offset_encoding) {
         start
@@ -50,7 +110,7 @@ fn convert_diagnostic(
     {
         return None;
     };
-    use editor_core::diagnostic::{DiagnosticTag, NumberOrString};
+    use ::diagnostics::{DiagnosticTag, NumberOrString};
 
     let code = diagnostic.code.clone().map(|code| match code {
         lsp::NumberOrString::Number(value) => NumberOrString::Number(value),
@@ -223,7 +283,7 @@ impl Editor {
         language_servers: &'a crate::language_servers::Registry,
         diagnostics: &'a LspDiagnostics,
         document: &Document,
-    ) -> impl Iterator<Item = editor_core::Diagnostic> + 'a + use<'a> {
+    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a> {
         Editor::doc_diagnostics_with_filter(language_servers, diagnostics, document, |_, _| true)
     }
 
@@ -234,7 +294,7 @@ impl Editor {
         diagnostics: &'a LspDiagnostics,
         document: &Document,
         filter: F,
-    ) -> impl Iterator<Item = editor_core::Diagnostic> + 'a + use<'a, F>
+    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a, F>
     where
         F: Fn(&lsp::Diagnostic, &DiagnosticProvider) -> bool + 'a,
     {
@@ -282,7 +342,7 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use editor_core::diagnostic::{DiagnosticTag, NumberOrString, Range, Severity};
+    use ::diagnostics::{DiagnosticTag, NumberOrString, Range, Severity};
     use lsp_client::OffsetEncoding;
     use slotmap::Key;
 
@@ -322,6 +382,10 @@ mod tests {
             [DiagnosticTag::Deprecated]
         ));
         assert!(converted.starts_at_word && converted.ends_at_word);
+        assert_eq!(
+            diagnostic_to_lsp_diagnostic(&text, &converted, OffsetEncoding::Utf16),
+            diagnostic
+        );
     }
 
     #[test]

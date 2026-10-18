@@ -49,9 +49,10 @@ use tokio::{
 use anyhow::bail;
 
 use crate::file_watcher::Watcher;
+use ::diagnostics::Severity;
 use dap::{self as dap, registry::DebugAdapterId};
-use editor_core::diagnostic::Severity;
 use editor_core::{auto_pairs::AutoPairs, movement::Direction, Change, Range, Selection};
+
 use language::syntax;
 use lsp_client::{lsp, util::lsp_range_to_range};
 

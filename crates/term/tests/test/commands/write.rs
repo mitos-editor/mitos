@@ -3,7 +3,7 @@ use std::{
     ops::RangeInclusive,
 };
 
-use editor_core::diagnostic::Severity;
+use ::diagnostics::Severity;
 use stdx::path;
 use view::doc;
 

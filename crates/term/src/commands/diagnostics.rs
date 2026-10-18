@@ -4,10 +4,8 @@ use crate::{
     commands::{context::Context, lsp::jump_to_position, navigation::push_jump},
     ui::{self, overlay::overlaid, FileLocation, Picker},
 };
-use editor_core::{
-    diagnostic::{DiagnosticProvider, NumberOrString, Severity},
-    Selection, Uri,
-};
+use ::diagnostics::{DiagnosticProvider, NumberOrString, Severity};
+use editor_core::{Selection, Uri};
 use lsp_client::{lsp, OffsetEncoding};
 use std::{
     collections::HashSet,
@@ -121,7 +119,7 @@ enum DiagnosticLocation {
         doc_id: DocumentId,
         /// The document's path, for the picker's path column. `None` for scratch buffers.
         path: Option<PathBuf>,
-        range: editor_core::diagnostic::Range,
+        range: ::diagnostics::Range,
     },
     /// An LSP diagnostic for a file that is not currently open, positioned in the server's encoding.
     File {

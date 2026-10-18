@@ -23,6 +23,7 @@ unicode-lines = ["editor-config/unicode-lines"]
 bench = []
 
 [dependencies]
+diagnostics.workspace = true
 editor-config.workspace = true
 language-config.workspace = true
 buffer.workspace = true

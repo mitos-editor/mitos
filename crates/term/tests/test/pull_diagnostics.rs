@@ -1,7 +1,8 @@
 use std::{path::Path, time::Duration};
 
+use ::diagnostics::DiagnosticProvider;
 use anyhow::Context as _;
-use editor_core::{diagnostic::DiagnosticProvider, Transaction};
+use editor_core::Transaction;
 use lsp_client::LanguageServerId;
 use serde_json::Value;
 use term::application::Application;

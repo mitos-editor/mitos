@@ -1,5 +1,5 @@
+use ::diagnostics::Diagnostic;
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-use editor_core::Diagnostic;
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::softwrapped_dimensions;
 use text_layout::text_annotations::LineAnnotation;

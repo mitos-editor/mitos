@@ -73,6 +73,7 @@ use editor_core::{
     line_ending::auto_detect_line_ending,
     ChangeSet, LineEnding, Range, Rope, Selection, Transaction,
 };
+
 use language::{syntax, Syntax};
 use language_config::LanguageConfiguration;
 use theme::Theme;
@@ -215,7 +216,7 @@ pub struct Document {
 
     pub(crate) modified_since_accessed: bool,
 
-    pub(crate) diagnostics: crate::features::diagnostics::DiagnosticStore,
+    pub(crate) diagnostics: ::diagnostics::DiagnosticStore,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
     opened_language_servers: HashSet<LanguageServerId>,
 

@@ -6,11 +6,8 @@
 use std::{borrow::Cow, collections::HashSet, ops::Range, sync::LazyLock};
 
 use crate::Dictionary;
-use editor_core::{
-    chars::char_is_word,
-    diagnostic::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity},
-    RopeSlice,
-};
+use ::diagnostics::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity};
+use editor_core::{chars::char_is_word, RopeSlice};
 use language_config::SpellingConfig;
 use stdx::rope::{Regex, RopeSliceExt as _};
 

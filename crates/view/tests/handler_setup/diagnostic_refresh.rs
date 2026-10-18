@@ -1,5 +1,5 @@
 use super::Fixture;
-use editor_core::diagnostic::{Diagnostic, DiagnosticProvider, LanguageServerId, Range, Severity};
+use ::diagnostics::{Diagnostic, DiagnosticProvider, LanguageServerId, Range, Severity};
 use slotmap::Key;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

@@ -7,7 +7,8 @@ use ::clipboard::ClipboardProvider;
 
 use std::{collections::HashSet, num::NonZeroU8, path::PathBuf, time::Duration};
 
-use editor_core::{diagnostic::Severity, LineEnding, NATIVE_LINE_ENDING};
+use ::diagnostics::Severity;
+use editor_core::{LineEnding, NATIVE_LINE_ENDING};
 use language_config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use workspace::trust::ImplicitTrustLevel;

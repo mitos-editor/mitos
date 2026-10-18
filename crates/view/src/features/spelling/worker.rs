@@ -16,11 +16,9 @@ use crate::{
     features::spelling::{SpellingEvent, SpellingHandler},
     DocumentId, Editor,
 };
+use ::diagnostics::{Diagnostic, DiagnosticProvider};
 use anyhow::Context as _;
-use editor_core::{
-    diagnostic::{Diagnostic, DiagnosticProvider},
-    ChangeSet, Operation, RopeSlice,
-};
+use editor_core::{ChangeSet, Operation, RopeSlice};
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
 use language::{syntax::Loader, Syntax};
 use language_config::{SpellingConfig, SpellingLanguage};

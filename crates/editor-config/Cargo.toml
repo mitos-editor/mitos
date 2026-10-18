@@ -14,6 +14,7 @@ homepage.workspace = true
 unicode-lines = ["core/unicode-lines"]
 
 [dependencies]
+diagnostics.workspace = true
 core.workspace = true
 language-config.workspace = true
 clipboard.workspace = true

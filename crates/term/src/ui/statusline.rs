@@ -1,6 +1,7 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::{coords_at_pos, encoding, Position};
+
 use lsp_client::lsp::DiagnosticSeverity;
 use theme::icons::ICONS;
 use theme::Style;
@@ -191,7 +192,7 @@ fn render_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    use editor_core::diagnostic::Severity;
+    use ::diagnostics::Severity;
     let (hints, info, warnings, errors) =
         context
             .doc
@@ -278,7 +279,7 @@ fn render_workspace_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    use editor_core::diagnostic::Severity;
+    use ::diagnostics::Severity;
     let editor = context.editor;
     let (mut hints, mut info, mut warnings, mut errors) = (0u32, 0u32, 0u32, 0u32);
 

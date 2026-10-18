@@ -1,68 +1,8 @@
 //! Translate protocol diagnostics, completion payloads, and text edits into editor values.
 
-use editor_core::{
-    chars, diagnostic::NumberOrString, Range, Rope, RopeSlice, Selection, Tendril, Transaction,
-};
-use lsp_client::{
-    lsp,
-    util::{lsp_pos_to_pos, range_to_lsp_range},
-    OffsetEncoding,
-};
+use editor_core::{chars, Rope, RopeSlice, Selection, Tendril, Transaction};
+use lsp_client::{lsp, util::lsp_pos_to_pos, OffsetEncoding};
 use snippets::{RenderedSnippet, Snippet, SnippetRenderCtx};
-
-/// Converts a diagnostic in the document to [`lsp::Diagnostic`].
-///
-/// Panics when [`lsp_client::util::pos_to_lsp_pos`] would for an invalid range on the diagnostic.
-pub fn diagnostic_to_lsp_diagnostic(
-    doc: &Rope,
-    diag: &editor_core::diagnostic::Diagnostic,
-    offset_encoding: OffsetEncoding,
-) -> lsp::Diagnostic {
-    use editor_core::diagnostic::Severity::*;
-
-    let range = Range::new(diag.range.start, diag.range.end);
-    let severity = diag.severity.map(|s| match s {
-        Hint => lsp::DiagnosticSeverity::HINT,
-        Info => lsp::DiagnosticSeverity::INFORMATION,
-        Warning => lsp::DiagnosticSeverity::WARNING,
-        Error => lsp::DiagnosticSeverity::ERROR,
-    });
-
-    let code = match diag.code.clone() {
-        Some(x) => match x {
-            NumberOrString::Number(x) => Some(lsp::NumberOrString::Number(x)),
-            NumberOrString::String(x) => Some(lsp::NumberOrString::String(x.into_string())),
-        },
-        None => None,
-    };
-
-    let new_tags: Vec<_> = diag
-        .tags
-        .iter()
-        .map(|tag| match tag {
-            editor_core::diagnostic::DiagnosticTag::Unnecessary => lsp::DiagnosticTag::UNNECESSARY,
-            editor_core::diagnostic::DiagnosticTag::Deprecated => lsp::DiagnosticTag::DEPRECATED,
-        })
-        .collect();
-
-    let tags = if !new_tags.is_empty() {
-        Some(new_tags)
-    } else {
-        None
-    };
-
-    lsp::Diagnostic {
-        range: range_to_lsp_range(doc, range, offset_encoding),
-        severity,
-        code,
-        source: diag.source.clone().map(|source| source.into_string()),
-        message: diag.message.clone().into_string(),
-        related_information: None,
-        tags,
-        data: diag.data.clone(),
-        ..Default::default()
-    }
-}
 
 /// If the LS did not provide a range for the completion or the range of the
 /// primary cursor can not be used for the secondary cursor, this function

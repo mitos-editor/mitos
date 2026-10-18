@@ -8,6 +8,7 @@ use editor_core::{
     unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
     Rope,
 };
+
 use text_layout::doc_formatter::FormattedGrapheme;
 use theme::Style;
 use view::document::CodeLens;
@@ -167,10 +168,9 @@ mod tests {
     };
     use arc_swap::ArcSwap;
     use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-    use editor_core::{
-        diagnostic::{DiagnosticProvider, Severity},
-        Diagnostic,
-    };
+
+    use ::diagnostics::Diagnostic;
+    use ::diagnostics::{DiagnosticProvider, Severity};
     use language::syntax;
     use lsp_client::{lsp, LanguageServerId};
     use std::sync::Arc;

@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 use text_layout::DisplayPosition;
 
+use ::diagnostics::Diagnostic;
+use ::diagnostics::Severity;
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-use editor_core::diagnostic::Severity;
 use editor_core::graphemes::Grapheme;
-use editor_core::Diagnostic;
 use text_layout::doc_formatter::{DocumentFormatter, FormattedGrapheme};
 use text_layout::text_annotations::TextAnnotations;
 use view::annotations::diagnostics::{
