@@ -1,7 +1,7 @@
 use super::{navigation::push_jump, Context};
 use crate::ui::lsp::symbol_kind_scope;
 use crate::{
-    compositor::{self, Compositor},
+    compositor::Compositor,
     job::Callback,
     ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
@@ -9,10 +9,9 @@ use editor_core::{Selection, Uri};
 use futures_util::{stream::FuturesUnordered, FutureExt};
 use language_config::LanguageServerFeature;
 use lsp_client::{
-    block_on,
     lsp::{self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind},
     util::lsp_range_to_range,
-    LanguageServerId, OffsetEncoding,
+    OffsetEncoding,
 };
 use std::{collections::HashSet, path::Path};
 use stdx::path;
@@ -837,144 +836,49 @@ pub fn hover(cx: &mut Context) {
 }
 
 pub fn rename_symbol(cx: &mut Context) {
-    fn get_prefill_from_word_boundary(editor: &Editor) -> String {
-        let (view, doc) = current_ref!(editor);
-        let text = doc.text().slice(..);
-        let primary_selection = doc.selection(view.id).primary();
-        if primary_selection.len() > 1 {
-            primary_selection
-        } else {
-            use editor_core::textobject::{textobject_word, TextObject};
-            textobject_word(text, primary_selection, TextObject::Inside, 1, false)
+    let (view, doc) = current_ref!(cx.editor);
+    let task = match cx.editor.prepare_rename(doc.id(), view.id) {
+        Ok(task) => task,
+        Err(error) => {
+            cx.editor.set_error(|| error.to_string());
+            return;
         }
-        .fragment(text)
-        .into()
-    }
-
-    fn get_prefill_from_lsp_response(
-        editor: &Editor,
-        offset_encoding: OffsetEncoding,
-        response: Option<lsp::PrepareRenameResponse>,
-    ) -> Result<String, &'static str> {
-        match response {
-            Some(lsp::PrepareRenameResponse::Range(range)) => {
-                let text = doc!(editor).text();
-
-                Ok(lsp_range_to_range(text, range, offset_encoding)
-                    .ok_or("lsp sent invalid selection range for rename")?
-                    .fragment(text.slice(..))
-                    .into())
-            }
-            Some(lsp::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. }) => {
-                Ok(placeholder)
-            }
-            Some(lsp::PrepareRenameResponse::DefaultBehavior { .. }) => {
-                Ok(get_prefill_from_word_boundary(editor))
-            }
-            None => Err("lsp did not respond to prepare rename request"),
-        }
-    }
-
-    fn create_rename_prompt(
-        editor: &Editor,
-        prefill: String,
-        history_register: Option<char>,
-        language_server_id: Option<LanguageServerId>,
-    ) -> Box<ui::Prompt> {
-        let prompt = ui::Prompt::new(
-            "rename-to:".into(),
-            history_register,
-            ui::completers::none,
-            move |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
-                if event != PromptEvent::Validate {
-                    return;
-                }
-                let (view, doc) = current!(cx.editor);
-
-                let Some(language_server) = doc
-                    .language_servers_with_feature(LanguageServerFeature::RenameSymbol)
-                    .find(|ls| language_server_id.is_none_or(|id| id == ls.id()))
-                else {
-                    cx.editor
-                        .set_error(|| "No configured language server supports symbol renaming");
+    };
+    let history_register = cx.register;
+    cx.jobs.callback(async move {
+        let update = task.run().await;
+        Ok(Callback::EditorCompositor(Box::new(
+            move |editor, compositor| {
+                let Some(result) = update.and_then(|update| update.into_result(editor)) else {
                     return;
                 };
-
-                let offset_encoding = language_server.offset_encoding();
-                let pos = doc.position(view.id, offset_encoding);
-                let future = language_server
-                    .rename_symbol(doc.identifier(), pos, input.to_string())
-                    .unwrap();
-
-                match block_on(future) {
-                    Ok(edits) => {
-                        let _ = cx
-                            .editor
-                            .apply_workspace_edit(offset_encoding, &edits.unwrap_or_default());
-                    }
-                    Err(err) => cx.editor.set_error(|| err.to_string()),
-                }
-            },
-        )
-        .with_line(prefill, editor);
-
-        Box::new(prompt)
-    }
-
-    let (view, doc) = current_ref!(cx.editor);
-    let history_register = cx.register;
-
-    if doc
-        .language_servers_with_feature(LanguageServerFeature::RenameSymbol)
-        .next()
-        .is_none()
-    {
-        cx.editor
-            .set_error(|| "No configured language server supports symbol renaming");
-        return;
-    }
-
-    let language_server_with_prepare_rename_support = doc
-        .language_servers_with_feature(LanguageServerFeature::RenameSymbol)
-        .find(|ls| {
-            matches!(
-                ls.capabilities().rename_provider,
-                Some(lsp::OneOf::Right(lsp::RenameOptions {
-                    prepare_provider: Some(true),
-                    ..
-                }))
-            )
-        });
-
-    if let Some(language_server) = language_server_with_prepare_rename_support {
-        let ls_id = language_server.id();
-        let offset_encoding = language_server.offset_encoding();
-        let pos = doc.position(view.id, offset_encoding);
-        let future = language_server
-            .prepare_rename(doc.identifier(), pos)
-            .unwrap();
-        cx.callback(
-            future,
-            move |editor, compositor, response: Option<lsp::PrepareRenameResponse>| {
-                let prefill = match get_prefill_from_lsp_response(editor, offset_encoding, response)
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        editor.set_error(|| e);
+                let session = match result {
+                    Ok(session) => session,
+                    Err(error) => {
+                        editor.set_error(|| error.to_string());
                         return;
                     }
                 };
-
-                let prompt = create_rename_prompt(editor, prefill, history_register, Some(ls_id));
-
-                compositor.push(prompt);
+                let prefill = session.prefill().to_owned();
+                let mut session = Some(session);
+                let prompt = ui::Prompt::new(
+                    "rename-to:".into(),
+                    history_register,
+                    ui::completers::none,
+                    move |cx, input, event| {
+                        if event == PromptEvent::Validate
+                            && let Some(session) = session.take()
+                            && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
+                        {
+                            cx.editor.set_error(|| error.to_string());
+                        }
+                    },
+                )
+                .with_line(prefill, editor);
+                compositor.push(Box::new(prompt));
             },
-        );
-    } else {
-        let prefill = get_prefill_from_word_boundary(cx.editor);
-        let prompt = create_rename_prompt(cx.editor, prefill, history_register, None);
-        cx.push_layer(prompt);
-    }
+        )))
+    });
 }
 
 pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {

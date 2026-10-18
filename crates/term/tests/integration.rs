@@ -42,6 +42,7 @@ mod test {
     mod movement;
     mod navigation;
     mod pull_diagnostics;
+    mod rename;
     mod signature_help;
     mod spelling;
     mod splits;

@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
     let file_operations = args.first().is_some_and(|arg| arg == "--file-operations");
+    let rename = args.first().is_some_and(|arg| arg == "--rename");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
@@ -42,6 +43,7 @@ fn main() -> anyhow::Result<()> {
     let completion = args.first().is_some_and(|arg| arg == "--completion");
     let lifecycle = args.first().is_some_and(|arg| arg == "--lifecycle");
     let mut request_log = if file_operations
+        || rename
         || formatting
         || diagnostics
         || code_actions
@@ -88,6 +90,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         if file_operations
+            || rename
             || formatting
             || action_execution
             || code_lenses
@@ -174,6 +177,35 @@ fn main() -> anyhow::Result<()> {
         };
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
+        if rename && matches!(method, "textDocument/prepareRename" | "textDocument/rename") {
+            let gate_arg = if method == "textDocument/rename" {
+                "--response-gate"
+            } else {
+                "--prepare-gate"
+            };
+            if let Some(index) = args.iter().position(|arg| arg == gate_arg) {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            let result = if method == "textDocument/prepareRename" {
+                if args.iter().any(|arg| arg == "--invalid-range") {
+                    json!({"start": {"line": 100, "character": 0}, "end": {"line": 100, "character": 3}})
+                } else {
+                    range(3, 6)
+                }
+            } else {
+                json!({"documentChanges": [{
+                    "textDocument": {"uri": uri, "version": versions[uri]},
+                    "edits": [{"range": range(3, 6), "newText": params["newName"]}]
+                }]})
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
         if method == "textDocument/diagnostic" && diagnostics {
             let label = &args[1];
             let version = versions.get(uri).copied().unwrap_or_default();
@@ -560,6 +592,10 @@ fn main() -> anyhow::Result<()> {
                     "willDelete": {"filters": [{"pattern": {"glob": "**"}}]},
                     "didDelete": {"filters": [{"pattern": {"glob": "**"}}]}
                 }}
+            }}),
+            "initialize" if rename => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "renameProvider": {"prepareProvider": !args.iter().any(|arg| arg == "--no-prepare")}
             }}),
             "initialize" if formatting => json!({"capabilities": {
                 "textDocumentSync": 1, "documentRangeFormattingProvider": true

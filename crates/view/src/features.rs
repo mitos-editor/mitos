@@ -20,6 +20,7 @@ pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;
 pub mod navigation;
+pub mod rename;
 pub(crate) mod request;
 pub mod shell;
 pub mod signature_help;

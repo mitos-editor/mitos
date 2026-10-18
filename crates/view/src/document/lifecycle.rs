@@ -9,6 +9,7 @@ impl Document {
     pub(super) fn invalidate_language_features(&mut self) {
         self.hover.clear();
         self.navigation.clear();
+        self.rename.cancel();
         self.inlay_hints.clear();
         self.inline_completions.clear();
         self.accepted_completions.cancel();

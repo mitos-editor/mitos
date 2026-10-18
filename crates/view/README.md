@@ -43,3 +43,7 @@ terminal prompts retain the originating document across focus changes.
 Language and dictionary overrides change through editor operations taking a
 document ID. These operations own feature invalidation, language-server reopening,
 and diagnostic/spelling refresh without requiring the document to be focused.
+
+Symbol rename preparation and submission are asynchronous editor operations.
+They retain the originating document, text snapshot, position, and server;
+frontends collect the new name and present validated preparation results.

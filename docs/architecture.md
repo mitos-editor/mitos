@@ -265,6 +265,14 @@ including multiplexer sessions. A private temporary handoff carries process inpu
 only its path appears on the launcher command line. The helper returns the actual
 debuggee process ID, then waits for its exit.
 
+### Symbol rename
+
+`Editor::prepare_rename` captures a document, view, server instance, and text
+snapshot. Its owned task returns a validated `RenameSession` for the frontend's
+prompt. `Editor::rename_symbol` submits the captured position asynchronously and
+rechecks the target before applying edits. Focus changes cannot redirect a rename;
+edits, language changes, and replacement requests invalidate the session.
+
 ### Resources and feature coordination
 
 `grammar-build` fetches grammar sources and compiles native libraries from explicit
