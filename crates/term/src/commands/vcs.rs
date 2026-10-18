@@ -37,7 +37,7 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
                     Ok((source, review))
                         if review.additions != 0 || review.deletions != 0 || review.truncated =>
                     {
-                        let view = crate::ui::change_review::ReviewView::new(
+                        let view = crate::ui::change_review::ReviewView::from_shared(
                             "Current change · HEAD → buffer".into(),
                             review,
                         )

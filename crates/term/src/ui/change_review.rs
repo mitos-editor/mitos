@@ -35,7 +35,7 @@ pub struct ReviewView {
     task: TaskController,
     source: Option<Arc<ReviewSource>>,
     engine: Option<DiffEngine>,
-    mode_pending: Option<oneshot::Receiver<Review>>,
+    mode_pending: Option<oneshot::Receiver<Arc<Review>>>,
     mode_worker: Arc<Semaphore>,
 }
 
@@ -46,7 +46,7 @@ impl ReviewView {
         Self::from_shared(title, Arc::new(review))
     }
 
-    fn from_shared(title: String, review: Arc<Review>) -> Self {
+    pub fn from_shared(title: String, review: Arc<Review>) -> Self {
         Self {
             title,
             review,
@@ -68,7 +68,10 @@ impl ReviewView {
     }
 
     fn from_snapshot(title: String, snapshot: &ReviewSnapshot) -> Self {
-        Self::from_shared(title, snapshot.review.clone()).with_source(snapshot.source.clone())
+        let mut view =
+            Self::from_shared(title, snapshot.review.clone()).with_source(snapshot.source.clone());
+        view.engine = Some(snapshot.engine());
+        view
     }
 
     fn heading_rows(&self) -> usize {
@@ -275,7 +278,10 @@ impl Component for ReviewView {
                         self.source = Some(snapshot.source.clone());
                         recompute = self
                             .engine
-                            .is_some_and(|engine| engine != snapshot.source.engine());
+                            .is_some_and(|engine| engine != snapshot.engine());
+                        if self.engine.is_none() {
+                            self.engine = Some(snapshot.engine());
+                        }
                     }
                     Err(error) => self.review = Arc::new(Review::notice(&error.to_string())),
                 }
@@ -289,7 +295,7 @@ impl Component for ReviewView {
         if let Some(pending) = &mut self.mode_pending {
             match pending.try_recv() {
                 Ok(review) => {
-                    self.review = Arc::new(review);
+                    self.review = review;
                     self.mode_pending = None;
                 }
                 Err(oneshot::error::TryRecvError::Closed) => {
@@ -419,7 +425,9 @@ fn load(
 ) {
     tokio::spawn(async move {
         let work = async {
-            tokio::time::sleep(Duration::from_millis(60)).await;
+            if previous.is_none() {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+            }
             let Ok(permit) = worker.acquire_owned().await else {
                 return;
             };

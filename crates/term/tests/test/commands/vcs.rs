@@ -521,6 +521,13 @@ async fn syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbac
     wait_for_review_screen(&mut app, "line · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
+    // A warm popup inherits the chosen presentation even when its source was captured in line mode.
+    press_keys(&mut app, "<A-o>").await?;
+    wait_for_review_screen(&mut app, "syntax · Diff", "\"value\": 3").await?;
+    press_keys(&mut app, "<A-d>").await?;
+    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 3").await?;
+    press_keys(&mut app, "<A-d><esc>").await?;
+    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-left>").await?;
     wait_for_review_screen(&mut app, "syntax · Staged", "\"value\": 1").await?;
     press_keys(&mut app, "<A-o>").await?;

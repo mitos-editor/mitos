@@ -1,6 +1,9 @@
 //! Review policy and immutable inputs, shared by hunk and repository comparisons.
 
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{Arc, OnceLock},
+};
 
 use editor_core::Rope;
 use language::{Language, Loader};
@@ -38,11 +41,7 @@ impl Settings {
         }
     }
 
-    pub fn same(&self, other: &Self) -> bool {
-        self.current(other) && self.engine == other.engine
-    }
-
-    fn current(&self, other: &Self) -> bool {
+    pub(super) fn current(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.loader, &other.loader)
             && self.language == other.language
             && self.configured == other.configured
@@ -56,39 +55,73 @@ impl Settings {
 /// The exact snapshots behind an open review. Switching its presentation never rereads Git or
 /// changes the document. Language resources and policy belong to the captured editor setup.
 pub struct ReviewSource {
-    pub(super) before: Rope,
-    pub(super) after: Rope,
-    pub(super) line: Option<usize>,
-    pub(super) settings: Settings,
+    before: Rope,
+    after: Rope,
+    line: Option<usize>,
+    settings: Settings,
+    line_review: OnceLock<Arc<Review>>,
+    syntax_review: OnceLock<Arc<Review>>,
 }
 
 impl ReviewSource {
+    pub(super) fn new(before: Rope, after: Rope, line: Option<usize>, settings: Settings) -> Self {
+        Self {
+            before,
+            after,
+            line,
+            settings,
+            line_review: OnceLock::new(),
+            syntax_review: OnceLock::new(),
+        }
+    }
+
     pub fn engine(&self) -> DiffEngine {
         self.settings.engine
     }
 
-    pub fn compute(&self, engine: Option<DiffEngine>, canceled: &dyn Fn() -> bool) -> Review {
-        let engine = engine.unwrap_or(self.engine());
-        if engine == DiffEngine::Line {
-            return Review::new(self.before.clone(), self.after.clone(), self.line);
+    /// Retain at most two bounded models per source. Canceled syntax work never enters the cache.
+    pub fn compute(&self, engine: Option<DiffEngine>, canceled: &dyn Fn() -> bool) -> Arc<Review> {
+        if canceled() {
+            return Arc::new(Review::notice("Comparison canceled"));
         }
-        match self.provider() {
-            Ok(provider) => Review::with_provider(
+        let engine = engine.unwrap_or(self.engine());
+        let line = self.line_review.get_or_init(|| {
+            Arc::new(Review::new(
                 self.before.clone(),
                 self.after.clone(),
                 self.line,
-                provider.as_ref(),
-                canceled,
-            ),
-            Err(reason) => {
-                let mut review = Review::new(self.before.clone(), self.after.clone(), self.line);
-                if engine != DiffEngine::Auto
-                    || !matches!(reason.0, "no language configured" | "grammar unavailable")
-                {
+            ))
+        });
+        if engine == DiffEngine::Line || canceled() {
+            return line.clone();
+        }
+        let syntax = self.syntax_review.get().cloned().unwrap_or_else(|| {
+            let review = Arc::new(match self.provider() {
+                Ok(provider) => line.as_ref().clone().annotated(
+                    &self.before,
+                    &self.after,
+                    provider.as_ref(),
+                    canceled,
+                ),
+                Err(reason) => {
+                    let mut review = line.as_ref().clone();
                     review.fallback = Some(reason);
+                    review
                 }
-                review
+            });
+            if !canceled() {
+                let _ = self.syntax_review.set(review.clone());
             }
+            review
+        });
+        if engine == DiffEngine::Auto
+            && syntax.fallback.is_some_and(|reason| {
+                matches!(reason.0, "no language configured" | "grammar unavailable")
+            })
+        {
+            line.clone()
+        } else {
+            syntax
         }
     }
 

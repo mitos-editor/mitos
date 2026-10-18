@@ -24,7 +24,7 @@ pub enum ReviewLineKind {
     Notice,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ReviewLine {
     pub kind: ReviewLineKind,
     /// Zero-based source lines. Headers and notices have neither.
@@ -36,7 +36,7 @@ pub struct ReviewLine {
 }
 
 /// An immutable review snapshot. Text is literal and never parsed as Markdown.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Review {
     pub lines: Vec<ReviewLine>,
     pub additions: usize,
@@ -152,17 +152,40 @@ impl Review {
         provider: &dyn ReviewProvider,
         canceled: &dyn Fn() -> bool,
     ) -> Self {
-        let mut review = Self::new(base.clone(), current.clone(), line);
+        Self::new(base.clone(), current.clone(), line)
+            .annotated(&base, &current, provider, canceled)
+    }
+
+    /// Annotate an existing exact review of these snapshots without repeating line matching.
+    /// The original review remains available for switching back to line presentation.
+    pub fn annotated(
+        self,
+        base: &Rope,
+        current: &Rope,
+        provider: &dyn ReviewProvider,
+        canceled: &dyn Fn() -> bool,
+    ) -> Self {
+        let mut review = self;
+        review.provider = None;
+        review.fallback = None;
+        review.unchanged_by_provider = false;
+        for line in &mut review.lines {
+            line.changes = None;
+        }
         if review.truncated {
             review.fallback = Some(ReviewUnavailable("review truncated"));
             return review;
         }
-        match provider.compare(&base, &current, canceled) {
+        if review.additions == 0 && review.deletions == 0 {
+            review.provider = Some(provider.name());
+            review.unchanged_by_provider = true;
+            return review;
+        }
+        match provider.compare(base, current, canceled) {
             Ok(changes)
-                if valid_ranges(&base, &changes.before)
-                    && valid_ranges(&current, &changes.after) =>
+                if valid_ranges(base, &changes.before) && valid_ranges(current, &changes.after) =>
             {
-                review.annotate(&base, &current, changes);
+                review.annotate(base, current, changes);
                 review.provider = Some(provider.name());
             }
             Ok(_) => review.fallback = Some(ReviewUnavailable("invalid provider source ranges")),
@@ -351,6 +374,29 @@ mod tests {
                 after: self.0.after.clone(),
             })
         }
+    }
+
+    #[test]
+    fn identical_text_does_not_invoke_a_provider() {
+        struct Unreachable;
+        impl ReviewProvider for Unreachable {
+            fn name(&self) -> &'static str {
+                "custom"
+            }
+            fn compare(
+                &self,
+                _: &Rope,
+                _: &Rope,
+                _: &dyn Fn() -> bool,
+            ) -> Result<ReviewChanges, ReviewUnavailable> {
+                panic!("identical text does not need structural matching")
+            }
+        }
+        let text = Rope::from("same text\n");
+        let review = Review::with_provider(text.clone(), text, None, &Unreachable, &|| false);
+        assert_eq!(review.provider, Some("custom"));
+        assert!(review.unchanged_by_provider);
+        assert_eq!((review.additions, review.deletions), (0, 0));
     }
 
     #[test]

@@ -140,12 +140,20 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
             .as_ref()
             .is_none_or(|old| !old.same_target(&request) || !old.is_current(cx.editor));
         if target_changed {
+            let snapshot = self.snapshot.take().filter(|_| {
+                !self.dirty
+                    && self
+                        .request
+                        .as_ref()
+                        .is_some_and(|old| old.same_source(&request) && old.is_current(cx.editor))
+            });
             self.stop();
-            self.dirty = true;
+            self.dirty |= snapshot.is_none();
+            self.snapshot = snapshot;
         }
         let poll_due =
             poll.enable && self.checked.elapsed() >= Duration::from_millis(poll.interval.max(100));
-        if self.pending.is_none() && (self.dirty || poll_due) {
+        if self.pending.is_none() && (target_changed || self.dirty || poll_due) {
             let previous = if self.dirty {
                 None
             } else {
@@ -284,7 +292,6 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 )
                 .with_engine(self.engine);
                 self.engine = Some(request.engine().toggled());
-                self.stop();
             }
             PreviewAction::ScrollUp => {
                 if let Some(view) = &mut self.ready {
@@ -346,7 +353,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                             && old.same_target(&request)
                             && old.is_current(cx.editor)
                     })
-                    .map(|(_, view)| (view.review.clone(), view.source.clone()));
+                    .and(self.snapshot.clone());
                 let title = format!(
                     "Diff · {} · {}",
                     comparison.label(),
@@ -359,11 +366,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 let worker = self.worker.clone();
                 return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     let view = match ready {
-                        Some((review, source)) => {
-                            let mut view = ReviewView::from_shared(title, review);
-                            view.source = source;
-                            view
-                        }
+                        Some(snapshot) => ReviewView::from_snapshot(title, &snapshot),
                         None => {
                             ReviewView::loading(title, request, worker, cx.editor.redraw().clone())
                         }
