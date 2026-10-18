@@ -2,9 +2,9 @@ use crate::helpers;
 use crate::path;
 use crate::DynError;
 
+use language::queries::QueryFeature;
 use term::commands::MappableCommand;
 use term::commands::TYPABLE_COMMAND_LIST;
-use term::health::TsFeature;
 use view::document::Mode;
 
 use std::collections::HashSet;
@@ -118,7 +118,7 @@ pub fn static_commands() -> Result<String, DynError> {
 
 pub fn lang_features() -> Result<String, DynError> {
     let mut md = String::new();
-    let ts_features = TsFeature::all();
+    let ts_features = QueryFeature::all();
 
     let mut cols = vec!["Language".to_owned()];
     cols.append(

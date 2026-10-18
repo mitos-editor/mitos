@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::path;
-use term::health::TsFeature;
+use language::queries::QueryFeature;
 
 /// Get the list of languages that support a particular tree-sitter
 /// based feature.
-pub fn ts_lang_support(feat: TsFeature) -> Vec<String> {
+pub fn ts_lang_support(feat: QueryFeature) -> Vec<String> {
     let queries_dir = path::ts_queries();
 
     find_files(&queries_dir, feat.runtime_filename())

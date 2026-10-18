@@ -1,9 +1,13 @@
-//! Compile supplied grammars and query sources. No resource lookup or file I/O.
+//! Query feature metadata and compilation from supplied grammars and sources.
+//! No resource lookup or file I/O.
+
+mod features;
 use crate::{
     indent::IndentQuery,
     syntax::{reconfigure_highlights, RainbowQuery, SpellcheckQuery, TagQuery, TextObjectQuery},
 };
 use anyhow::{Context, Result};
+pub use features::QueryFeature;
 use tree_house::tree_sitter::query::{InvalidPredicateError, UserPredicate};
 use tree_house::{
     tree_sitter::{Grammar, Query},

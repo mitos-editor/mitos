@@ -132,7 +132,8 @@ query-based indentation live beside syntax analysis.
 protocol, editor, or frontend dependency. Structural editing lives in `language`;
 plain word/paragraph motion, bracket scanning, and indentation normalization stay
 in `core`. Configuration loading uses `language::loader`, schema definitions use
-`language-config`, and query compilation uses `language::queries`.
+`language-config`, and query compilation uses `language::queries`. Its `QueryFeature` catalog supplies
+query filenames and display labels to health reporting and generated language documentation.
 
 ## View
 

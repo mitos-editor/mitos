@@ -1,5 +1,8 @@
 use crate::config::{Config, ConfigLoadError};
-use language::loader::{default_lang_config, user_lang_config};
+use language::{
+    loader::{default_lang_config, user_lang_config},
+    queries::QueryFeature,
+};
 use loader::grammar::load_runtime_file;
 use std::{
     collections::HashSet,
@@ -9,57 +12,6 @@ use termina::{
     style::{ColorSpec, StyleExt as _, Stylized},
     Terminal as _,
 };
-
-#[derive(Copy, Clone)]
-pub enum TsFeature {
-    Highlight,
-    TextObject,
-    AutoIndent,
-    Tags,
-    RainbowBracket,
-}
-
-impl TsFeature {
-    pub fn all() -> &'static [Self] {
-        &[
-            Self::Highlight,
-            Self::TextObject,
-            Self::AutoIndent,
-            Self::Tags,
-            Self::RainbowBracket,
-        ]
-    }
-
-    pub fn runtime_filename(&self) -> &'static str {
-        match *self {
-            Self::Highlight => "highlights.scm",
-            Self::TextObject => "textobjects.scm",
-            Self::AutoIndent => "indents.scm",
-            Self::Tags => "tags.scm",
-            Self::RainbowBracket => "rainbows.scm",
-        }
-    }
-
-    pub fn long_title(&self) -> &'static str {
-        match *self {
-            Self::Highlight => "Syntax Highlighting",
-            Self::TextObject => "Treesitter Textobjects",
-            Self::AutoIndent => "Auto Indent",
-            Self::Tags => "Code Navigation Tags",
-            Self::RainbowBracket => "Rainbow Brackets",
-        }
-    }
-
-    pub fn short_title(&self) -> &'static str {
-        match *self {
-            Self::Highlight => "Highlight",
-            Self::TextObject => "Textobject",
-            Self::AutoIndent => "Indent",
-            Self::Tags => "Tags",
-            Self::RainbowBracket => "Rainbow",
-        }
-    }
-}
 
 /// Display general diagnostics.
 pub fn general() -> std::io::Result<()> {
@@ -187,7 +139,7 @@ fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
 
     let mut headings = vec!["Language", "Language servers", "Debug adapter", "Formatter"];
 
-    for feat in TsFeature::all() {
+    for feat in QueryFeature::all() {
         headings.push(feat.short_title())
     }
 
@@ -256,7 +208,7 @@ fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
             .map(|formatter| formatter.command.as_str());
         write!(stdout, "{}", check_binary(formatter))?;
 
-        for ts_feat in TsFeature::all() {
+        for ts_feat in QueryFeature::all() {
             match load_runtime_file(&lang.language_id, ts_feat.runtime_filename()).is_ok() {
                 true => write!(stdout, "{}", color(fit("✓"), ColorSpec::BRIGHT_GREEN))?,
                 false => write!(stdout, "{}", color(fit("✘"), ColorSpec::BRIGHT_RED))?,
@@ -355,7 +307,7 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
 
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
 
-    for ts_feat in TsFeature::all() {
+    for ts_feat in QueryFeature::all() {
         probe_treesitter_feature(&lang_str, *ts_feat)?
     }
 
@@ -471,7 +423,7 @@ fn probe_protocol(protocol_name: &str, server_cmd: Option<String>) -> std::io::R
 
 /// Display diagnostics about a feature that requires tree-sitter
 /// query files (highlights, textobjects, etc).
-fn probe_treesitter_feature(lang: &str, feature: TsFeature) -> std::io::Result<()> {
+fn probe_treesitter_feature(lang: &str, feature: QueryFeature) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
