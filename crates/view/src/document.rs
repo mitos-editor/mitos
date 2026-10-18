@@ -155,6 +155,14 @@ pub struct SavePoint {
 }
 
 impl SavePoint {
+    /// Reconstruct saved text and selection without changing the live document.
+    pub(crate) fn saved_state(&self, current: &Rope) -> (Rope, Selection) {
+        let revert = self.revert.lock();
+        let mut text = current.clone();
+        revert.apply(&mut text);
+        (text, revert.selection().unwrap().clone())
+    }
+
     /// Forward changes from this savepoint to the current document text.
     pub(crate) fn changes_since(&self, current: &editor_core::Rope) -> editor_core::ChangeSet {
         self.revert.lock().changes().invert(current)

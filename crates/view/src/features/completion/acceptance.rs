@@ -10,7 +10,7 @@ use super::LspCompletionItem;
 use crate::{document::SavePoint, DocumentId, Editor};
 
 /// The provider snapshot and savepoint captured before inserting the selected text.
-pub struct AcceptedCompletion {
+pub(super) struct AcceptedCompletion {
     pub document: DocumentId,
     pub item: LspCompletionItem,
     pub before: buffer::Snapshot,
@@ -44,7 +44,7 @@ fn overlaps(start: usize, end: usize, other_start: usize, other_end: usize) -> b
 }
 
 /// Map nonoverlapping provider edits through changes made since their snapshot.
-pub fn additional_edits_transaction(
+pub(super) fn additional_edits_transaction(
     before: &Rope,
     current: &Rope,
     changes: &ChangeSet,
@@ -84,7 +84,7 @@ pub fn additional_edits_transaction(
 impl Editor {
     /// The menu can close or start another session while this accepted item's
     /// imports resolve. The document owns cancellation; menu lifetime is separate.
-    pub fn resolve_accepted_completion(&mut self, accepted: AcceptedCompletion) {
+    pub(super) fn resolve_accepted_completion(&mut self, accepted: AcceptedCompletion) {
         if accepted.item.resolved
             || accepted
                 .item
@@ -159,13 +159,12 @@ impl Editor {
                         .tree
                         .try_get(editor.tree.focus)
                         .is_some_and(|view| view.doc == accepted.document)
-                        && let Some(crate::editor::CompleteAction::Selected { savepoint }) =
-                            &editor.last_completion
+                        && matches!(
+                            editor.last_completion,
+                            Some(crate::editor::CompleteAction::Selected { .. })
+                        )
                     {
-                        let savepoint = savepoint.clone();
-                        let (view, doc) = current!(editor);
-                        doc.restore(view, &savepoint, false);
-                        editor.last_completion = None;
+                        editor.restore_completion_preview();
                         editor
                             .handlers
                             .completions

@@ -17,8 +17,8 @@ use tokio::time::{timeout_at, Instant};
 
 use super::{
     dispatch, handle_response, path::path_completion, replace_completions, word, CompletionEvent,
-    CompletionItems, CompletionResponse, CompletionUpdate, Payload, ResponseContext, Session,
-    Shared,
+    CompletionItems, CompletionResponse, CompletionSession, CompletionUpdate, Payload,
+    ResponseContext, Shared,
 };
 use std::sync::Weak;
 
@@ -266,7 +266,7 @@ pub(super) fn request_completions(
         requests.spawn_blocking(word_completion_request);
     }
 
-    let session = Session::new(editor, trigger, epoch);
+    let session = CompletionSession::new(editor, trigger, epoch);
     editor.handlers.completions.session = Some(session.clone());
     let stream_session = session.clone();
     let request_completions = async move {

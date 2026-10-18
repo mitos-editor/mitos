@@ -1516,15 +1516,14 @@ impl EditorView {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn set_completion(
         &mut self,
         editor: &mut Editor,
         items: Vec<CompletionItem>,
-        trigger_offset: usize,
+        session: view::features::completion::CompletionSession,
         size: Rect,
     ) -> Option<Rect> {
-        let mut completion = Completion::new(editor, items, trigger_offset);
+        let mut completion = Completion::new(editor, items, session);
 
         if completion.is_empty() {
             // skip if we got no completion results
@@ -1543,38 +1542,22 @@ impl EditorView {
     pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
         self.completion = None;
         let mut on_next_key: Option<OnKeyCallback> = None;
-        editor.dismiss_completions();
-        if let Some(last_completion) = editor.last_completion.take() {
-            match last_completion {
-                CompleteAction::Triggered => (),
-                CompleteAction::Applied {
-                    trigger_offset,
-                    changes,
-                    placeholder,
-                } => {
-                    self.record_insert_event(InsertEvent::CompletionApply {
-                        trigger_offset,
-                        changes,
-                    });
-                    on_next_key = placeholder.then_some(Box::new(|cx, key| {
-                        if let Some(c) = key.char() {
-                            let (view, doc) = current!(cx.editor);
-                            if let Some(snippet) = &doc.active_snippet {
-                                view::editing::apply(
-                                    doc,
-                                    &snippet.delete_placeholder(doc.text()),
-                                    view.id,
-                                );
-                            }
-                            commands::insert::insert_char(cx, c);
-                        }
-                    }))
+        if let Some(view::features::completion::CompletionApply {
+            trigger_offset,
+            changes,
+            placeholder,
+        }) = editor.finish_completion()
+        {
+            self.record_insert_event(InsertEvent::CompletionApply {
+                trigger_offset,
+                changes,
+            });
+            on_next_key = placeholder.then_some(Box::new(|cx, key| {
+                if let Some(c) = key.char() {
+                    cx.editor.clear_snippet_placeholder();
+                    commands::insert::insert_char(cx, c);
                 }
-                CompleteAction::Selected { savepoint } => {
-                    let (view, doc) = current!(editor);
-                    doc.restore(view, &savepoint, false);
-                }
-            }
+            }))
         }
         on_next_key
     }

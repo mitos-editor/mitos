@@ -73,3 +73,14 @@ async fn document_switch_invalidates_the_previous_documents_snippet() -> anyhow:
         .is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clearing_a_placeholder_preserves_the_rest_of_the_snippet() -> anyhow::Result<()> {
+    let mut f = Fixture::new("\n")?;
+    assert!(!f.editor.clear_snippet_placeholder());
+    insert_snippet(&mut f.editor)?;
+    assert!(f.editor.clear_snippet_placeholder());
+    assert_eq!(current_ref!(f.editor).1.text().to_string(), " two\n");
+    assert!(current_ref!(f.editor).1.active_snippet.is_some());
+    Ok(())
+}

@@ -1,6 +1,6 @@
-//! Snippet range tracking and invalidation during editor operations.
+//! Snippet placeholder edits and invalidation during editor operations.
 
-use crate::events::DocumentFocusLost;
+use crate::{events::DocumentFocusLost, Editor};
 use event::register_hook;
 
 pub(super) fn register_hooks() {
@@ -10,4 +10,15 @@ pub(super) fn register_hooks() {
         }
         Ok(())
     });
+}
+
+impl Editor {
+    /// Remove the active placeholder before inserting replacement input.
+    pub fn clear_snippet_placeholder(&mut self) -> bool {
+        let (view, doc) = current!(self);
+        let Some(snippet) = &doc.active_snippet else {
+            return false;
+        };
+        crate::editing::apply(doc, &snippet.delete_placeholder(doc.text()), view.id)
+    }
 }

@@ -8,7 +8,7 @@ use crate::Editor;
 use event::{send_blocking, AsyncHook, TaskController, TaskHandle};
 
 use super::LspCompletionItem;
-use super::{deliver, CompletionItem, Payload, Session};
+use super::{deliver, CompletionItem, CompletionSession, Payload};
 
 /// A hook for resolving incomplete completion items.
 ///
@@ -117,7 +117,7 @@ impl ResolveHandler {
 struct ResolveRequest {
     item: Arc<LspCompletionItem>,
     ls: Arc<lsp_client::Client>,
-    session: Session,
+    session: CompletionSession,
     cancel: TaskHandle,
 }
 

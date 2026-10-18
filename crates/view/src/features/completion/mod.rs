@@ -1,4 +1,4 @@
-//! Editor-owned completion requests and provider results. Frontends own their menus.
+//! Editor-owned completion requests, previews, and acceptance. Frontends own their menus.
 
 use crate::{
     callbacks::EditorCallbackSender,
@@ -25,7 +25,8 @@ use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, task::JoinSet};
 
 pub(crate) use acceptance::AcceptedCompletions;
-pub use acceptance::{additional_edits_transaction, AcceptedCompletion};
+use acceptance::{additional_edits_transaction, AcceptedCompletion};
+pub use edit::CompletionApply;
 use item::CompletionItems;
 pub use item::{
     CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, TextCompletion,
@@ -35,6 +36,7 @@ use request::{Debounce, Trigger, TriggerKind};
 pub use resolve::ResolveHandler;
 
 mod acceptance;
+mod edit;
 mod item;
 mod path;
 mod request;
@@ -54,7 +56,7 @@ pub struct CompletionHandler {
     pub active_completions: HashMap<CompletionProvider, ResponseContext>,
     request_controller: TaskController,
     session_controller: TaskController,
-    session: Option<Session>,
+    session: Option<CompletionSession>,
     updates: VecDeque<CompletionUpdate>,
 }
 
@@ -164,8 +166,9 @@ fn belongs_to(owner: &Weak<Shared>, editor: &Editor, epoch: u64) -> bool {
 
 /// A completion session deliberately survives typing and ghost previews: its savepoints
 /// map provider edits back to the request snapshot. Explicit cancellation ends that lifetime.
+/// Frontends retain the opaque token delivered with their menu to reject stale input.
 #[derive(Clone)]
-struct Session {
+pub struct CompletionSession {
     owner: Weak<Shared>,
     epoch: u64,
     cancel: TaskHandle,
@@ -173,7 +176,7 @@ struct Session {
     uri: Option<Uri>,
 }
 
-impl Session {
+impl CompletionSession {
     fn new(editor: &mut Editor, trigger: Trigger, epoch: u64) -> Self {
         let uri = editor.document(trigger.doc).and_then(|doc| doc.uri());
         let handler = &mut editor.handlers.completions;
@@ -244,7 +247,7 @@ enum UpdateKind {
         handle: TaskHandle,
     },
     Result {
-        session: Session,
+        session: CompletionSession,
         request: Option<TaskHandle>,
         payload: Payload,
     },
@@ -276,7 +279,7 @@ pub enum CompletionChange {
     Started,
     Show {
         items: Vec<CompletionItem>,
-        trigger_offset: usize,
+        session: CompletionSession,
     },
     Provider {
         response: CompletionResponse,
@@ -352,10 +355,7 @@ impl CompletionUpdate {
                             &mut items,
                         );
                         editor.handlers.completions.active_completions = context;
-                        Some(CompletionChange::Show {
-                            items,
-                            trigger_offset: trigger.pos,
-                        })
+                        Some(CompletionChange::Show { items, session })
                     }
                     Payload::Provider {
                         response,
@@ -410,7 +410,7 @@ fn dispatch(owner: &Weak<Shared>, callback: impl FnOnce(&mut Editor) + Send + 's
     }
 }
 
-async fn deliver(session: Session, request: Option<TaskHandle>, payload: Payload) {
+async fn deliver(session: CompletionSession, request: Option<TaskHandle>, payload: Payload) {
     let Some(shared) = session.owner.upgrade() else {
         return;
     };
@@ -460,7 +460,7 @@ async fn handle_response(
 }
 
 async fn replace_completions(
-    session: Session,
+    session: CompletionSession,
     mut requests: JoinSet<CompletionResponse>,
     is_incomplete: bool,
     request: Option<TaskHandle>,

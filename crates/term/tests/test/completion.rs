@@ -734,3 +734,84 @@ async fn component_keymaps_completion_acceptance_does_not_synthesize_remapped_en
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_snippet_completions_preserve_typing_and_existing_previews() -> anyhow::Result<()> {
+    use lsp_client::lsp as protocol;
+
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.trigger();
+    let Some(CompletionChange::Show { items, session }) =
+        f.update().await?.apply(&mut f.app.editor)
+    else {
+        anyhow::bail!("expected completion session");
+    };
+    let CompletionItem::Lsp(item) = &items[0] else {
+        anyhow::bail!("expected language-server completion");
+    };
+    let mut bad_snippet = item.clone();
+    bad_snippet.item.insert_text_format = Some(protocol::InsertTextFormat::SNIPPET);
+    bad_snippet.item.text_edit = Some(protocol::CompletionTextEdit::Edit(protocol::TextEdit {
+        range: protocol::Range::new(protocol::Position::new(0, 3), protocol::Position::new(0, 5)),
+        new_text: String::new(),
+    }));
+    let item = CompletionItem::Lsp(bad_snippet);
+    f.key("p").await?;
+    assert_eq!(f.text(), "😀 app\n");
+    for preview in [false, true] {
+        if preview {
+            assert!(f.app.editor.preview_completion(&session, &items[0]));
+        }
+        let before = f.text();
+        let version = current_ref!(f.app.editor).1.version();
+        assert!(!f.app.editor.preview_completion(&session, &item));
+        assert!(!f.app.editor.accept_completion(&session, &item));
+        assert_eq!(f.text(), before);
+        assert_eq!(current_ref!(f.app.editor).1.version(), version);
+    }
+    assert!(f.app.editor.finish_completion().is_none());
+    assert_eq!(f.text(), "😀 app\n");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accepting_a_trigger_character_preserves_the_next_completion_request() -> anyhow::Result<()>
+{
+    use lsp_client::lsp as protocol;
+
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.trigger();
+    let Some(CompletionChange::Show { items, session }) =
+        f.update().await?.apply(&mut f.app.editor)
+    else {
+        anyhow::bail!("expected completion session");
+    };
+    let mut item = items[0].clone();
+    let CompletionItem::Lsp(lsp_item) = &mut item else {
+        anyhow::bail!("expected language-server completion");
+    };
+    lsp_item.item.text_edit = Some(protocol::CompletionTextEdit::Edit(protocol::TextEdit {
+        range: protocol::Range::new(protocol::Position::new(0, 3), protocol::Position::new(0, 5)),
+        new_text: "apricot.".into(),
+    }));
+    let mut config = (*f.app.editor.config()).clone();
+    config.completion.auto_trigger = true;
+    f.app
+        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    assert!(f.app.editor.accept_completion(&session, &item));
+    assert!(f.app.editor.finish_completion().is_some());
+    assert_eq!(f.text(), "😀 apricot.\n");
+    assert!(matches!(
+        f.update().await?.apply(&mut f.app.editor),
+        Some(CompletionChange::Show { .. })
+    ));
+    let requests = std::fs::read_to_string(&f.log)?;
+    let request: serde_json::Value = serde_json::from_str(requests.lines().last().unwrap())?;
+    assert_eq!(request["context"]["triggerKind"], 2);
+    assert_eq!(request["context"]["triggerCharacter"], ".");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

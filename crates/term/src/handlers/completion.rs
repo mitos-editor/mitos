@@ -31,11 +31,8 @@ pub(crate) fn apply_update(
         CompletionChange::Hide => {
             ui.clear_completion(editor);
         }
-        CompletionChange::Show {
-            items,
-            trigger_offset,
-        } => {
-            let completion_area = ui.set_completion(editor, items, trigger_offset, size);
+        CompletionChange::Show { items, session } => {
+            let completion_area = ui.set_completion(editor, items, session, size);
             if ui.completion.is_none() {
                 editor.dismiss_completions();
             }

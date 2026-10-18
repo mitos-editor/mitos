@@ -7,6 +7,19 @@ use super::Fixture;
 #[tokio::test(flavor = "multi_thread")]
 async fn headless_setup_runs_completion_through_its_callback_destination() -> anyhow::Result<()> {
     let mut f = Fixture::new("alpha alphabet al\n")?;
+    let (items, _, _) = request_words(&mut f).await?;
+    assert!(items.iter().any(|item| item.filter_text() == "alpha"));
+    assert!(items.iter().any(|item| item.filter_text() == "alphabet"));
+    Ok(())
+}
+
+async fn request_words(
+    f: &mut Fixture,
+) -> anyhow::Result<(
+    Vec<completion::CompletionItem>,
+    completion::CompletionSession,
+    usize,
+)> {
     f.expect_words(&["alpha", "alphabet"]).await?;
     let (view, doc) = current!(f.editor);
     let cursor = doc.text().len_chars() - 1;
@@ -16,21 +29,128 @@ async fn headless_setup_runs_completion_through_its_callback_destination() -> an
     f.editor
         .handlers()
         .trigger_completions(cursor, doc.id(), view.id);
-    let items = tokio::time::timeout(Duration::from_secs(5), async {
+    let (items, session) = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let callback = f.callbacks.recv().await.expect("callback destination open");
             callback(&mut f.editor);
             while let Some(update) = completion::next_update(&mut f.editor) {
-                if let Some(completion::CompletionChange::Show { items, .. }) =
+                if let Some(completion::CompletionChange::Show { items, session }) =
                     update.apply(&mut f.editor)
                 {
-                    return items;
+                    return (items, session);
                 }
             }
         }
     })
     .await?;
-    assert!(items.iter().any(|item| item.filter_text() == "alpha"));
-    assert!(items.iter().any(|item| item.filter_text() == "alphabet"));
+    Ok((items, session, cursor))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("alpha alphabet al\n")?;
+    let (items, session, trigger) = request_words(&mut f).await?;
+    let item = items
+        .iter()
+        .find(|item| item.filter_text() == "alpha")
+        .unwrap();
+    let (view, doc) = current!(f.editor);
+    let typing = editor_core::Transaction::change(
+        doc.text(),
+        [(trigger, trigger, Some("p".into()))].into_iter(),
+    );
+    assert!(view::editing::apply(doc, &typing, view.id));
+    assert!(f.editor.preview_completion(&session, item));
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "alpha alphabet alpha\n"
+    );
+    assert!(f.editor.finish_completion().is_none());
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "alpha alphabet alp\n"
+    );
+    let (view, doc) = current!(f.editor);
+    assert!(view::editing::undo(doc, view));
+    assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyhow::Result<()> {
+    let mut f = Fixture::new("alpha alphabet al\n")?;
+    let (items, session, trigger) = request_words(&mut f).await?;
+    let alpha = items
+        .iter()
+        .find(|item| item.filter_text() == "alpha")
+        .unwrap();
+    let alphabet = items
+        .iter()
+        .find(|item| item.filter_text() == "alphabet")
+        .unwrap();
+    assert!(f.editor.preview_completion(&session, alpha));
+    assert!(f.editor.preview_completion(&session, alphabet));
+    assert!(f.editor.accept_completion(&session, alphabet));
+    assert!(!f.editor.accept_completion(&session, alpha));
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "alpha alphabet alphabet\n"
+    );
+    let accepted = f.editor.finish_completion().unwrap();
+    assert_eq!(accepted.trigger_offset, trigger);
+    assert_eq!(accepted.changes, vec![(15, 17, Some("alphabet".into()))]);
+    assert!(!accepted.placeholder);
+    assert!(f.editor.finish_completion().is_none());
+    let (view, doc) = current!(f.editor);
+    assert!(view::editing::undo(doc, view));
+    assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
+    assert!(view::editing::redo(doc, view));
+    assert_eq!(doc.text().to_string(), "alpha alphabet alphabet\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn expired_completion_items_cannot_preview_or_edit_another_document() -> anyhow::Result<()> {
+    let mut f = Fixture::new("alpha alphabet al\n")?;
+    let (items, session, _) = request_words(&mut f).await?;
+    let item = items
+        .iter()
+        .find(|item| item.filter_text() == "alpha")
+        .unwrap();
+    f.editor.new_file(view::editor::Action::Replace);
+    let before = current_ref!(f.editor).1.text().clone();
+    assert!(!f.editor.preview_completion(&session, item));
+    assert!(!f.editor.accept_completion(&session, item));
+    assert!(f.editor.finish_completion().is_none());
+    assert_eq!(current_ref!(f.editor).1.text(), &before);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replaced_sessions_reject_old_items_from_the_same_provider() -> anyhow::Result<()> {
+    let mut f = Fixture::new("alpha alphabet al\n")?;
+    let (old_items, old_session, _) = request_words(&mut f).await?;
+    let (items, session, _) = request_words(&mut f).await?;
+    let old = old_items
+        .iter()
+        .find(|item| item.filter_text() == "alpha")
+        .unwrap();
+    assert!(!f.editor.preview_completion(&old_session, old));
+    assert!(!f.editor.accept_completion(&old_session, old));
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "alpha alphabet al\n"
+    );
+    let item = items
+        .iter()
+        .find(|item| item.filter_text() == "alphabet")
+        .unwrap();
+    assert!(f.editor.accept_completion(&session, item));
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "alpha alphabet alphabet\n"
+    );
+    assert!(f.editor.finish_completion().is_some());
     Ok(())
 }

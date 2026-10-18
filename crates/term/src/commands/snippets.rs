@@ -35,10 +35,7 @@ fn goto_next_tabstop_impl(cx: &mut Context, direction: Direction) {
     if cx.editor.mode() == Mode::Insert {
         cx.on_next_key_fallback(|cx, key| {
             if let Some(c) = key.char() {
-                let (view, doc) = current!(cx.editor);
-                if let Some(snippet) = &doc.active_snippet {
-                    view::editing::apply(doc, &snippet.delete_placeholder(doc.text()), view.id);
-                }
+                cx.editor.clear_snippet_placeholder();
                 insert_char(cx, c);
             }
         })
