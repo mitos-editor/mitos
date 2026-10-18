@@ -49,6 +49,26 @@ impl TerminalLauncher for Launcher {
 async fn adapter(
     f: &mut Fixture,
 ) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
+    let (socket, receiver) = adapter_server(false).await?;
+    let config = dap::DebugAdapterConfig {
+        name: "fixture".into(),
+        transport: "tcp".into(),
+        command: String::new(),
+        args: vec![],
+        port_arg: None,
+        templates: vec![],
+        quirks: Default::default(),
+    };
+    let id = f
+        .editor
+        .debugger_mut()
+        .start_client(Some(socket), &config)?;
+    Ok((id, receiver))
+}
+
+async fn adapter_server(
+    fail_launch: bool,
+) -> anyhow::Result<(std::net::SocketAddr, mpsc::UnboundedReceiver<Value>)> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let socket = listener.local_addr()?;
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -79,7 +99,7 @@ async fn adapter(
                     json!({})
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
-                    "request_seq":message["seq"], "command":message["command"], "success":true, "body":body}))?;
+                    "request_seq":message["seq"], "command":message["command"], "success":!(fail_launch && message["command"] == "launch"), "body":body}))?;
                 write
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
@@ -87,20 +107,7 @@ async fn adapter(
             }
         }
     });
-    let config = dap::DebugAdapterConfig {
-        name: "fixture".into(),
-        transport: "tcp".into(),
-        command: String::new(),
-        args: vec![],
-        port_arg: None,
-        templates: vec![],
-        quirks: Default::default(),
-    };
-    let id = f
-        .editor
-        .debugger_mut()
-        .start_client(Some(socket), &config)?;
-    Ok((id, receiver))
+    Ok((socket, receiver))
 }
 
 async fn message(receiver: &mut mpsc::UnboundedReceiver<Value>) -> anyhow::Result<Value> {
@@ -297,5 +304,75 @@ async fn terminal_results_from_removed_adapters_do_not_change_editor_state() -> 
         f.editor.get_status().unwrap().0.as_ref(),
         "session is closed"
     );
+    Ok(())
+}
+
+const LAUNCH_LANGUAGES: &str = r#"
+[[language]]
+name = "debug-test"
+scope = "source.debug-test"
+file-types = ["words"]
+roots = []
+[language.debugger]
+name = "fixture"
+transport = "tcp"
+[[language.debugger.templates]]
+name = "run"
+request = "launch"
+args = { program = "{0}", port = "{1}", nested = ["{0}", true] }
+[[language.debugger.templates]]
+name = "unsupported"
+request = "unknown"
+args = {}
+"#;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn debugger_launch_validates_configuration_before_connecting_and_preserves_origin(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
+    let document = view::current_ref!(f.editor).1.id();
+    let (socket, mut wire) = adapter_server(false).await?;
+    for name in ["missing", "unsupported"] {
+        let error = f
+            .editor
+            .start_debugger(document, Some(name), Some(socket), None)
+            .unwrap_err();
+        assert!(!error.to_string().contains("Failed to start debug client"));
+        assert!(wire.try_recv().is_err());
+    }
+    f.editor.new_file(view::editor::Action::Replace);
+    let id = f.editor.start_debugger(
+        document,
+        Some("run"),
+        Some(socket),
+        Some(&["program name".into(), "123".into()]),
+    )?;
+    assert_eq!(message(&mut wire).await?["command"], "initialize");
+    let launch = message(&mut wire).await?;
+    assert_eq!(launch["command"], "launch");
+    assert_eq!(launch["arguments"]["program"], "program name");
+    assert_eq!(launch["arguments"]["port"], 123);
+    assert_eq!(launch["arguments"]["nested"], json!(["program name", true]));
+    assert!(f.editor.debugger().get_client(id).is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_debugger_launch_removes_its_adapter_and_reports_the_error() -> anyhow::Result<()> {
+    let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
+    let document = view::current_ref!(f.editor).1.id();
+    let (socket, mut wire) = adapter_server(true).await?;
+    let id = f
+        .editor
+        .start_debugger(document, Some("run"), Some(socket), None)?;
+    assert_eq!(message(&mut wire).await?["command"], "initialize");
+    assert_eq!(message(&mut wire).await?["command"], "launch");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.editor.debugger().get_client(id).is_some() {
+            f.callbacks.recv().await.unwrap()(&mut f.editor);
+        }
+    })
+    .await?;
+    assert!(f.editor.is_err());
     Ok(())
 }

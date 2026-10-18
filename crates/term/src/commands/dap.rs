@@ -4,13 +4,11 @@ use crate::{
     job::{Callback, Jobs},
     ui::{self, overlay::overlaid, Picker, Popup, Prompt, PromptEvent, Text},
 };
-use anyhow::{anyhow, bail};
 use dap::{self as dap, requests::TerminateArguments, StackFrame, Thread, ThreadStates};
 use editor_core::SmallVec;
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use lsp_client::block_on;
-use serde_json::{to_value, Value};
-use std::{collections::HashMap, future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf};
 use tui::text::Line;
 use view::{
     debugger::{Breakpoint, BreakpointProperty},
@@ -117,128 +115,26 @@ pub fn dap_start_impl(
     socket: Option<std::net::SocketAddr>,
     params: Option<Vec<std::borrow::Cow<str>>>,
 ) -> Result<(), anyhow::Error> {
-    // Refuse to spawn a debug adapter in workspace trust restricted mode.
-    let workspace = doc!(cx.editor).workspace_root().to_path_buf();
-    if !cx
-        .editor
-        .workspace_trust
-        .query(&workspace, workspace::trust::TrustQuery::Dap)
-        .is_trusted()
-    {
-        bail!("Workspace is not trusted. Run `:workspace-trust` to enable the debug adapter.");
-    }
+    let document = doc!(cx.editor).id();
+    start_for_document(cx, document, name, socket, params)
+}
 
-    let doc = doc!(cx.editor);
-    let config = doc
-        .language_config()
-        .and_then(|config| config.debugger.as_ref())
-        .ok_or_else(|| anyhow!("No debug adapter available for language"))?
-        .clone();
-
-    let id = cx
-        .editor
-        .debugger_mut()
-        .start_client(socket, &config)
-        .map_err(|e| anyhow!("Failed to start debug client: {}", e))?;
-
-    // TODO: avoid refetching all of this... pass a config in
-    let template = match name {
-        Some(name) => config.templates.iter().find(|t| t.name == name),
-        None => config.templates.first(),
-    }
-    .ok_or_else(|| anyhow!("No debug config with given name"))?;
-
-    let mut args: HashMap<&str, Value> = if let Some(params) = params.as_ref() {
-        let preprocessed_params = prepare_dap_params(template, params);
-        template
-            .args
-            .iter()
-            .map(|(k, v)| (k.as_str(), map_value(v, &preprocessed_params)))
-            .collect()
-    } else {
-        template
-            .args
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.clone()))
-            .collect()
-    };
-
-    args.insert("cwd", to_value(stdx::env::current_working_dir())?);
-
-    let args = to_value(args).unwrap();
-
-    let callback = |_editor: &mut Editor, _compositor: &mut Compositor, _response: Value| {
-        // if let Err(e) = result {
-        //     editor.set_error(|| format!("Failed {} target: {}", template.request, e));
-        // }
-    };
-
-    let debugger = match cx.editor.debugger_mut().get_client_mut(id) {
-        Some(child) => child,
-        None => {
-            bail!("Failed to get child debugger.");
-        }
-    };
-
-    match &template.request[..] {
-        "launch" => {
-            let call = debugger.launch(args);
-            dap_callback(cx.jobs, call, callback);
-        }
-        "attach" => {
-            let call = debugger.attach(args);
-            dap_callback(cx.jobs, call, callback);
-        }
-        request => bail!("Unsupported request '{}'", request),
-    };
-
-    // TODO: either await "initialized" or buffer commands until event is received
+fn start_for_document(
+    cx: &mut compositor::Context,
+    document: view::DocumentId,
+    name: Option<&str>,
+    socket: Option<std::net::SocketAddr>,
+    params: Option<Vec<std::borrow::Cow<str>>>,
+) -> anyhow::Result<()> {
+    let params = params.map(|params| {
+        params
+            .into_iter()
+            .map(|value| value.into_owned())
+            .collect::<Vec<_>>()
+    });
+    cx.editor
+        .start_debugger(document, name, socket, params.as_deref())?;
     Ok(())
-}
-
-fn prepare_dap_params(template: &DebugTemplate, params: &[std::borrow::Cow<str>]) -> Vec<String> {
-    params
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let mut param = x.to_string();
-            if let Some(DebugConfigCompletion::Advanced(cfg)) = template.completion.get(i)
-                && matches!(cfg.completion.as_deref(), Some("filename" | "directory"))
-            {
-                param = std::fs::canonicalize(x.as_ref())
-                    .ok()
-                    .and_then(|pb| pb.into_os_string().into_string().ok())
-                    .unwrap_or_else(|| x.to_string());
-            }
-            param
-        })
-        .collect()
-}
-
-fn map_value(value: &Value, params: &[String]) -> Value {
-    match value {
-        Value::String(string) => {
-            let mut string = string.clone();
-            for (i, x) in params.iter().enumerate() {
-                let pattern = format!("{{{}}}", i);
-                string = string.replace(&pattern, x);
-            }
-            if let Ok(integer) = string.parse::<usize>() {
-                to_value(integer).unwrap()
-            } else {
-                to_value(string).unwrap()
-            }
-        }
-        Value::Array(array) => Value::Array(array.iter().map(|x| map_value(x, params)).collect()),
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(k, v)| (k.clone(), map_value(v, params)))
-                .collect(),
-        ),
-
-        _ => value.clone(),
-    }
 }
 
 pub fn dap_launch(cx: &mut Context) {
@@ -263,6 +159,7 @@ pub fn dap_launch(cx: &mut Context) {
     };
 
     let templates = config.templates.clone();
+    let document = doc.id();
 
     let columns = [ui::PickerColumn::new(
         "template",
@@ -275,9 +172,10 @@ pub fn dap_launch(cx: &mut Context) {
         0,
         templates,
         (),
-        |cx, template, _action| {
+        move |cx, template, _action| {
             if template.completion.is_empty() {
-                if let Err(err) = dap_start_impl(cx, Some(&template.name), None, None) {
+                if let Err(err) = start_for_document(cx, document, Some(&template.name), None, None)
+                {
                     cx.editor.set_error(|| err.to_string());
                 }
             } else {
@@ -286,7 +184,8 @@ pub fn dap_launch(cx: &mut Context) {
                 let callback = Box::pin(async move {
                     let call: Callback =
                         Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt = debug_parameter_prompt(completions, name, Vec::new());
+                            let prompt =
+                                debug_parameter_prompt(document, completions, name, Vec::new());
                             compositor.push(Box::new(prompt));
                         }));
                     Ok(call)
@@ -328,6 +227,7 @@ pub fn dap_restart(cx: &mut Context) {
 }
 
 fn debug_parameter_prompt(
+    document: view::DocumentId,
     completions: Vec<DebugConfigCompletion>,
     config_name: String,
     mut params: Vec<String>,
@@ -380,15 +280,17 @@ fn debug_parameter_prompt(
                 let callback = Box::pin(async move {
                     let call: Callback =
                         Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt = debug_parameter_prompt(completions, config_name, params);
+                            let prompt =
+                                debug_parameter_prompt(document, completions, config_name, params);
                             compositor.push(Box::new(prompt));
                         }));
                     Ok(call)
                 });
                 cx.jobs.callback(callback);
             } else {
-                if let Err(err) = dap_start_impl(
+                if let Err(err) = start_for_document(
                     cx,
+                    document,
                     Some(&config_name),
                     None,
                     Some(params.iter().map(|x| x.into()).collect()),

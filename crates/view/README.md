@@ -27,6 +27,10 @@ and edit mapping. `features/diagnostics` owns LSP conversion and publication for
 push and pull providers. Frontends receive immutable diagnostic views; text
 mutations map diagnostic anchors before notifying observers.
 
+Debugger launch preparation is an editor operation by document ID. Templates,
+request kinds, arguments, and workspace trust are checked before adapter startup;
+terminal prompts retain the originating document across focus changes.
+
 Language and dictionary overrides change through editor operations taking a
 document ID. These operations own feature invalidation, language-server reopening,
 and diagnostic/spelling refresh without requiring the document to be focused.

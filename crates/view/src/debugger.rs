@@ -1,5 +1,7 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
+mod launch;
+
 use std::{
     collections::HashMap,
     net::SocketAddr,
