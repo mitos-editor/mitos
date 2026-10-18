@@ -94,7 +94,7 @@ fn completion_post_command_hook(
     PostCommand { command, cx }: &mut PostCommand<'_, '_>,
 ) -> anyhow::Result<()> {
     if cx.editor.mode() == Mode::Insert {
-        if cx.editor.last_completion.is_some() {
+        if view::features::completion::is_shown(cx.editor) {
             match command {
                 MappableCommand::Static {
                     name: "delete_word_forward" | "delete_char_forward" | "completion",
@@ -146,7 +146,7 @@ pub(super) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
-        if event.cx.editor.last_completion.is_some() {
+        if view::features::completion::is_shown(event.cx.editor) {
             update_completion_filter(event.cx, Some(event.c))
         } else {
             trigger_auto_completion(event.cx.editor, false);

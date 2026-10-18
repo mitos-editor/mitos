@@ -333,10 +333,7 @@ async fn inline_requests_do_not_use_the_ordinary_completion_popup_preview() -> a
     )
     .await?;
     f.key("<C-n>").await?;
-    assert!(matches!(
-        f.app.editor.last_completion,
-        Some(view::editor::CompleteAction::Selected { .. })
-    ));
+    assert!(view::features::completion::has_preview(&f.app.editor));
     assert!(current_ref!(f.app.editor)
         .1
         .text()

@@ -177,7 +177,7 @@ pub(super) fn request_completions(
 ) -> bool {
     if handle.is_canceled()
         || editor.mode() != Mode::Insert
-        || editor.last_completion.is_some()
+        || super::is_shown(editor)
         || (trigger.kind != TriggerKind::Manual && !editor.config().completion.auto_trigger)
     {
         return false;

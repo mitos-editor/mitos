@@ -13,7 +13,7 @@ mod language_servers;
 mod mode;
 mod registers;
 use crate::{
-    document::{DocumentSavedEventResult, Mode, SavePoint},
+    document::{DocumentSavedEventResult, Mode},
     events::DocumentFocusLost,
     features::diagnostics::LspDiagnostics,
     graphics::{CursorKind, Rect},
@@ -54,7 +54,7 @@ use anyhow::bail;
 use crate::file_watcher::Watcher;
 use ::diagnostics::Severity;
 use dap::{self as dap, registry::DebugAdapterId};
-use editor_core::{auto_pairs::AutoPairs, movement::Direction, Change, Range, Selection};
+use editor_core::{auto_pairs::AutoPairs, movement::Direction, Range, Selection};
 
 use language::syntax;
 use lsp_client::{lsp, util::lsp_range_to_range};
@@ -109,7 +109,6 @@ pub struct Editor {
     pub idle_timer: Pin<Box<Sleep>>,
     redraw_timer: Pin<Box<Sleep>>,
     last_motion: Option<Motion>,
-    pub last_completion: Option<CompleteAction>,
     /// Most recent visible inline blame mode, restored when toggling it back on.
     pub last_inline_blame_show: Option<editor_config::InlineBlameShow>,
     pub last_cwd: Option<PathBuf>,
@@ -169,21 +168,6 @@ pub enum ConfigEvent {
 enum ThemeAction {
     Set,
     Preview,
-}
-
-#[derive(Debug, Clone)]
-pub enum CompleteAction {
-    Triggered,
-    /// A savepoint of the currently selected completion. The savepoint
-    /// MUST be restored before sending any event to the LSP
-    Selected {
-        savepoint: Arc<SavePoint>,
-    },
-    Applied {
-        trigger_offset: usize,
-        changes: Vec<Change>,
-        placeholder: bool,
-    },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -261,7 +245,6 @@ impl Editor {
             idle_timer: Box::pin(sleep(conf.idle_timeout)),
             redraw_timer: Box::pin(sleep(Duration::MAX)),
             last_motion: None,
-            last_completion: None,
             last_inline_blame_show: None,
             last_cwd: None,
             config,

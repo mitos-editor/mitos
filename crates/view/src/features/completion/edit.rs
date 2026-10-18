@@ -10,13 +10,23 @@ use super::{
     additional_edits_transaction, trigger_auto_completion, AcceptedCompletion, CompletionItem,
     CompletionSession, TextCompletion,
 };
-use crate::{document::SavePoint, editor::CompleteAction, Editor};
+use crate::{document::SavePoint, DocumentId, Editor, ViewId};
 
 /// Accepted edit information a frontend can record for insert-mode repetition.
 pub struct CompletionApply {
     pub trigger_offset: usize,
     pub changes: Vec<Change>,
     pub placeholder: bool,
+}
+
+pub(super) enum CompletionEdit {
+    Shown,
+    Preview {
+        savepoint: Arc<SavePoint>,
+        document: DocumentId,
+        view: ViewId,
+    },
+    Applied(CompletionApply),
 }
 
 struct PreparedCompletion {
@@ -27,13 +37,25 @@ struct PreparedCompletion {
 }
 
 impl Editor {
+    /// Mark a valid session as displayed after the frontend filters its items.
+    /// A stale or already displayed session cannot replace preview or repeat state.
+    pub fn begin_completion(&mut self, session: &CompletionSession) -> bool {
+        if !session.is_current(self) || self.handlers.completions.edit.is_some() {
+            return false;
+        }
+        self.handlers.completions.edit = Some(CompletionEdit::Shown);
+        true
+    }
+
     fn prepare_completion(
         &self,
         session: &CompletionSession,
         item: &CompletionItem,
     ) -> Option<PreparedCompletion> {
-        if matches!(self.last_completion, Some(CompleteAction::Applied { .. }))
-            || !session.is_current(self)
+        if matches!(
+            self.handlers.completions.edit,
+            Some(CompletionEdit::Applied(_))
+        ) || !session.is_current(self)
             || !session.supports(self, item.provider())
         {
             return None;
@@ -84,10 +106,13 @@ impl Editor {
         let Some(prepared) = self.prepare_completion(session, item) else {
             return false;
         };
+        let previewing = super::has_preview(self);
         let (view, doc) = current!(self);
-        if !matches!(self.last_completion, Some(CompleteAction::Selected { .. })) {
-            self.last_completion = Some(CompleteAction::Selected {
+        if !previewing {
+            self.handlers.completions.edit = Some(CompletionEdit::Preview {
                 savepoint: doc.savepoint(view),
+                document: doc.id(),
+                view: view.id,
             });
         }
         doc.restore(view, &prepared.savepoint, false);
@@ -125,14 +150,14 @@ impl Editor {
                 None => ActiveSnippet::new(snippet),
             };
         }
-        self.last_completion = Some(CompleteAction::Applied {
+        self.handlers.completions.edit = Some(CompletionEdit::Applied(CompletionApply {
             trigger_offset,
             changes: transaction
                 .changes_iter()
                 .filter(|(start, end, _)| (*start..=*end).contains(&trigger_offset))
                 .collect(),
             placeholder,
-        });
+        }));
 
         if let CompletionItem::Lsp(item) = item
             && let Some(edits) = item
@@ -170,11 +195,23 @@ impl Editor {
     }
 
     pub(super) fn restore_completion_preview(&mut self) {
-        if let Some(CompleteAction::Selected { savepoint }) = &self.last_completion {
-            let savepoint = savepoint.clone();
-            let (view, doc) = current!(self);
-            doc.restore(view, &savepoint, false);
-            self.last_completion = None;
+        let Some(CompletionEdit::Preview {
+            savepoint,
+            document,
+            view,
+        }) = &self.handlers.completions.edit
+        else {
+            return;
+        };
+        let (savepoint, document, view) = (savepoint.clone(), *document, *view);
+        self.handlers.completions.edit = None;
+        if self
+            .tree
+            .try_get(view)
+            .is_some_and(|view| view.doc == document)
+            && let Some(doc) = self.documents.get_mut(&document)
+        {
+            doc.restore(self.tree.get_mut(view), &savepoint, false);
         }
     }
 
@@ -182,17 +219,9 @@ impl Editor {
     /// edit metadata. A newly scheduled completion trigger remains intact.
     pub fn finish_completion(&mut self) -> Option<CompletionApply> {
         self.restore_completion_preview();
-        self.dismiss_completions();
-        match self.last_completion.take() {
-            Some(CompleteAction::Applied {
-                trigger_offset,
-                changes,
-                placeholder,
-            }) => Some(CompletionApply {
-                trigger_offset,
-                changes,
-                placeholder,
-            }),
+        self.handlers.completions.dismiss();
+        match self.handlers.completions.edit.take() {
+            Some(CompletionEdit::Applied(applied)) => Some(applied),
             _ => None,
         }
     }

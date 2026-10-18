@@ -39,7 +39,6 @@ use ui_core::{
 };
 use view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
-    editor::CompleteAction,
     features::completion::CompletionItem,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     Document, Editor, View, ViewId,
@@ -1523,15 +1522,14 @@ impl EditorView {
         session: view::features::completion::CompletionSession,
         size: Rect,
     ) -> Option<Rect> {
-        let mut completion = Completion::new(editor, items, session);
+        let mut completion = Completion::new(editor, items, session.clone());
 
-        if completion.is_empty() {
+        if completion.is_empty() || !editor.begin_completion(&session) {
             // skip if we got no completion results
             return None;
         }
 
         let area = completion.area(size, editor);
-        editor.last_completion = Some(CompleteAction::Triggered);
         self.record_insert_event(InsertEvent::TriggerCompletion);
 
         // TODO : propagate required size on resize to completion too

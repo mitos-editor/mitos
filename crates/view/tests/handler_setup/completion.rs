@@ -81,6 +81,7 @@ async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() ->
 async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyhow::Result<()> {
     let mut f = Fixture::new("alpha alphabet al\n")?;
     let (items, session, trigger) = request_words(&mut f).await?;
+    assert!(f.editor.begin_completion(&session));
     let alpha = items
         .iter()
         .find(|item| item.filter_text() == "alpha")
@@ -91,8 +92,10 @@ async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyho
         .unwrap();
     assert!(f.editor.preview_completion(&session, alpha));
     assert!(f.editor.preview_completion(&session, alphabet));
+    assert!(!f.editor.begin_completion(&session));
     assert!(f.editor.accept_completion(&session, alphabet));
     assert!(!f.editor.accept_completion(&session, alpha));
+    assert!(!f.editor.begin_completion(&session));
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alphabet\n"
@@ -120,6 +123,7 @@ async fn expired_completion_items_cannot_preview_or_edit_another_document() -> a
         .unwrap();
     f.editor.new_file(view::editor::Action::Replace);
     let before = current_ref!(f.editor).1.text().clone();
+    assert!(!f.editor.begin_completion(&session));
     assert!(!f.editor.preview_completion(&session, item));
     assert!(!f.editor.accept_completion(&session, item));
     assert!(f.editor.finish_completion().is_none());

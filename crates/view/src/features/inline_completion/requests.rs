@@ -161,10 +161,7 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
     if editor.mode() != Mode::Insert || !editor.config().lsp.enable {
         return;
     }
-    if matches!(
-        editor.last_completion,
-        Some(crate::editor::CompleteAction::Selected { .. })
-    ) {
+    if crate::features::completion::has_preview(editor) {
         dismiss(editor);
         return;
     }

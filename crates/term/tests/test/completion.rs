@@ -182,7 +182,7 @@ impl Fixture {
                 self.app
                     .handle_editor_event(EditorEvent::Completion(update))
                     .await;
-                if self.app.editor.last_completion.is_some() {
+                if completion::is_shown(&self.app.editor) {
                     return anyhow::Ok(());
                 }
             }
@@ -198,7 +198,12 @@ async fn shared_providers_preserve_protocol_ordering_and_incomplete_refresh() ->
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 incomplete ap\n", &["alpha", "beta"]).await?;
     f.trigger();
-    let items = f.items().await?;
+    let Some(CompletionChange::Show { items, session }) =
+        f.update().await?.apply(&mut f.app.editor)
+    else {
+        panic!("expected completion items");
+    };
+    assert!(f.app.editor.begin_completion(&session));
     assert_eq!(items.len(), 4);
     for (priority, name) in [(0, "alpha"), (-1, "beta")] {
         let items: Vec<_> = items
@@ -212,7 +217,6 @@ async fn shared_providers_preserve_protocol_ordering_and_incomplete_refresh() ->
         assert_eq!(request["position"]["character"], 16);
         assert_eq!(request["context"]["triggerKind"], 1);
     }
-    f.app.editor.last_completion = Some(view::editor::CompleteAction::Triggered);
     completion::request_incomplete_completion_list(&mut f.app.editor);
     for _ in 0..2 {
         assert!(matches!(
@@ -523,8 +527,12 @@ async fn resolved_items_and_incomplete_refreshes_expire_with_the_menu() -> anyho
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 incomplete ap\n", &["alpha"]).await?;
     f.trigger();
-    let mut items = f.items().await?;
-    f.app.editor.last_completion = Some(view::editor::CompleteAction::Triggered);
+    let Some(CompletionChange::Show { mut items, session }) =
+        f.update().await?.apply(&mut f.app.editor)
+    else {
+        panic!("expected completion items");
+    };
+    assert!(f.app.editor.begin_completion(&session));
     let mut resolver = completion::ResolveHandler::new();
     let CompletionItem::Lsp(item) = &mut items[0] else {
         panic!("expected LSP completion")
@@ -660,7 +668,7 @@ async fn replacing_completion_dismisses_presented_menu_and_restores_preview() ->
         .handle_editor_event(EditorEvent::Completion(update))
         .await;
     assert_eq!(f.text(), "😀 ap\n");
-    assert!(f.app.editor.last_completion.is_none());
+    assert!(!completion::is_shown(&f.app.editor));
     // Input after dismissal must not select an item whose provider state was retired.
     f.key("<C-n>").await?;
     f.key("<ret>").await?;
@@ -687,7 +695,7 @@ async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyho
         // Input can arrive before the event loop processes the replacement's Hide update.
         f.key(key).await?;
         assert!(!f.text().contains("apricot"));
-        assert!(f.app.editor.last_completion.is_none());
+        assert!(!completion::is_shown(&f.app.editor));
         f.app
             .handle_editor_event(EditorEvent::Completion(hide))
             .await;

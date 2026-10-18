@@ -159,10 +159,7 @@ impl Editor {
                         .tree
                         .try_get(editor.tree.focus)
                         .is_some_and(|view| view.doc == accepted.document)
-                        && matches!(
-                            editor.last_completion,
-                            Some(crate::editor::CompleteAction::Selected { .. })
-                        )
+                        && crate::features::completion::has_preview(editor)
                     {
                         editor.restore_completion_preview();
                         editor

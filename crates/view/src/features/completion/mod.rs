@@ -3,7 +3,6 @@
 use crate::{
     callbacks::EditorCallbackSender,
     document::{Mode, SavePoint},
-    editor::CompleteAction,
     events::{ConfigDidChange, DocumentDidClose, DocumentFocusLost, LanguageServerExited},
     DocumentId, Editor, ViewId,
 };
@@ -27,6 +26,7 @@ use tokio::{sync::mpsc::Sender, task::JoinSet};
 pub(crate) use acceptance::AcceptedCompletions;
 use acceptance::{additional_edits_transaction, AcceptedCompletion};
 pub use edit::CompletionApply;
+use edit::CompletionEdit;
 use item::CompletionItems;
 pub use item::{
     CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, TextCompletion,
@@ -57,6 +57,7 @@ pub struct CompletionHandler {
     request_controller: TaskController,
     session_controller: TaskController,
     session: Option<CompletionSession>,
+    edit: Option<CompletionEdit>,
     updates: VecDeque<CompletionUpdate>,
 }
 
@@ -76,6 +77,7 @@ impl CompletionHandler {
             request_controller: TaskController::new(),
             session_controller: TaskController::new(),
             session: None,
+            edit: None,
             updates: VecDeque::new(),
         }
     }
@@ -205,11 +207,9 @@ impl CompletionSession {
                     && doc
                         .try_selection(self.trigger.view)
                         .is_some_and(|selection| {
-                            matches!(
-                                editor.last_completion,
-                                Some(CompleteAction::Selected { .. })
-                            ) || selection.primary().cursor(doc.text().slice(..))
-                                >= self.trigger.pos
+                            has_preview(editor)
+                                || selection.primary().cursor(doc.text().slice(..))
+                                    >= self.trigger.pos
                         })
             })
     }
@@ -343,7 +343,7 @@ impl CompletionUpdate {
                         mut context,
                         trigger,
                     } => {
-                        if editor.last_completion.is_some() {
+                        if is_shown(editor) {
                             return None;
                         }
                         items.retain(|item| session.supports(editor, item.provider()));
@@ -361,9 +361,7 @@ impl CompletionUpdate {
                         response,
                         is_incomplete,
                     } => {
-                        if editor.last_completion.is_none()
-                            || !session.supports(editor, response.provider())
-                        {
+                        if !is_shown(editor) || !session.supports(editor, response.provider()) {
                             return None;
                         }
                         editor
@@ -377,9 +375,7 @@ impl CompletionUpdate {
                         })
                     }
                     Payload::Resolved { old, item } => {
-                        if editor.last_completion.is_none()
-                            || !session.supports(editor, item.provider())
-                        {
+                        if !is_shown(editor) || !session.supports(editor, item.provider()) {
                             return None;
                         }
                         Some(CompletionChange::Resolved { old, item })
@@ -388,6 +384,19 @@ impl CompletionUpdate {
             }
         }
     }
+}
+
+/// Whether a completion menu has been opened and has not yet been finished.
+pub fn is_shown(editor: &Editor) -> bool {
+    editor.handlers.completions.edit.is_some()
+}
+
+/// Whether the document currently contains an unaccepted completion preview.
+pub fn has_preview(editor: &Editor) -> bool {
+    matches!(
+        editor.handlers.completions.edit,
+        Some(CompletionEdit::Preview { .. })
+    )
 }
 
 /// Whether the displayed completion session can still be used by the frontend.
@@ -485,17 +494,7 @@ pub(crate) fn invalidate(editor: &mut Editor) {
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
         return;
     }
-    if let Some(session) = &editor.handlers.completions.session
-        && matches!(
-            editor.last_completion,
-            Some(CompleteAction::Selected { .. })
-        )
-        && let Some(CompleteAction::Selected { savepoint }) = editor.last_completion.take()
-        && editor.tree.try_get(session.trigger.view).is_some()
-        && let Some(doc) = editor.documents.get_mut(&session.trigger.doc)
-    {
-        doc.restore(editor.tree.get_mut(session.trigger.view), &savepoint, false);
-    }
+    editor.restore_completion_preview();
     editor.handlers.completions.invalidate();
 }
 
