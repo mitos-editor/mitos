@@ -17,18 +17,21 @@ Serve `book/site/` with any static file server to preview the landing page and
 documentation together. Running `mdbook serve book` remains useful when working
 only on documentation.
 
-After building the full site, check local links, anchors, repository source links,
-and TOML examples with Python 3.11 or newer:
+To check local documentation links during `mdbook build` or the site build,
+install the mdBook backend:
 
 ```sh
-python3 book/check.py
+cargo +stable install mdbook-linkcheck2 --version 0.12.2 --locked
 ```
 
-The Book workflow runs the build and checks for documentation pull requests.
-The check does not contact external sites or validate examples against Mitos's
-configuration schema. Command and language tables under `src/generated/` come
-from `cargo xtask docgen`; edit their Rust metadata or `languages.toml` source
-before regenerating them.
+The checker is optional for local and deployment builds and required by the
+Book workflow. It checks local file links without contacting external sites;
+heading anchors and TOML examples are not checked. With multiple backends,
+plain `mdbook build book` writes HTML under `book/book/html/`; the site script
+keeps it at `site/docs/`.
+
+Command and language tables under `src/generated/` come from `cargo xtask docgen`;
+edit their Rust metadata or `languages.toml` source before regenerating them.
 
 The site build also publishes `/install.sh`, `/install.ps1`, and `/checksums/`.
 Installers download binaries from GitHub Releases. New releases include

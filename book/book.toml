@@ -21,3 +21,8 @@ use-boolean-and = true
 "package-managers.html" = "install.html#package-managers"
 "ecosystem.html" = "other-software.html"
 "language-server-setup.html" = "lsp.html"
+
+[output.linkcheck2]
+optional = true
+follow-web-links = false
+warning-policy = "error"

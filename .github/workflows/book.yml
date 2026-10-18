@@ -20,9 +20,11 @@ jobs:
     name: Build and check documentation
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MDBOOK_OUTPUT__LINKCHECK2__OPTIONAL: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install link checker
+        run: cargo +stable install mdbook-linkcheck2 --version 0.12.2 --locked
       - name: Build site
         run: ./book/cloudflare-build.sh
-      - name: Check links and TOML examples
-        run: python3 book/check.py
