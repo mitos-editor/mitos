@@ -272,12 +272,13 @@ Line lookup uses only a diff of the current document snapshot. Commands and inli
 decorations belong to `term`, where diagnostics take precedence over blame text.
 
 `spelling` owns dictionary loading from explicit file paths, compiled token
-filters, text/syntax scanning, suggestions, personal vocabulary snapshots, and
-persistent ignored-word lists. Its API accepts text, syntax, settings,
+filters, scanning of supplied character ranges, suggestions, personal vocabulary
+snapshots, and persistent ignored-word lists. Its API accepts text, ranges, settings,
 dictionaries, scan budgets, and cancellation checks; it returns character-indexed
-diagnostics without an editor or async runtime. `language::config` owns serialized spelling settings; `core` retains dictionary
-identifiers. Scanning depends on `language` for syntax and on `core` for text and
-diagnostics. Both remain independent of editor coordination.
+diagnostics without a parser, editor, or async runtime. `language-config` owns
+serialized spelling settings; `core` retains dictionary identifiers and text types.
+The background worker in `view::features::spelling` selects prose regions through
+syntax queries and converts byte ranges at that boundary before scanning.
 
 `view::features::spelling` selects dictionary resources, combines effective
 settings, owns per-editor dictionary/ignore state, and coordinates incremental

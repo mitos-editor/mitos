@@ -19,7 +19,7 @@ use crate::{
 use anyhow::Context as _;
 use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider},
-    ChangeSet, Operation, SpellingLanguage,
+    ChangeSet, Operation, RopeSlice, SpellingLanguage,
 };
 use event::{cancelable_future, send_blocking, AsyncHook, TaskHandle};
 use language::{syntax::Loader, Syntax};
@@ -354,15 +354,15 @@ fn check_text(
     tokio::task::spawn_blocking(move || {
         // Dropping a spawn_blocking JoinHandle does not stop its worker. The scanner
         // checks cancellation before and during tokenization to release snapshots promptly.
+        if cancel.is_canceled() {
+            return Vec::new();
+        }
         let dictionaries: Vec<&Dictionary> = dictionaries.iter().map(AsRef::as_ref).collect();
-        ::spelling::check_text(
-            &dictionaries,
-            snapshot.text().slice(..),
-            syntax.as_ref(),
-            &loader,
-            &config,
-            || cancel.is_canceled(),
-        )
+        let text = snapshot.text().slice(..);
+        let regions = spelling_regions(text, syntax.as_ref(), &loader);
+        ::spelling::check_regions(&dictionaries, text, regions, &config, || {
+            cancel.is_canceled()
+        })
     })
 }
 
@@ -378,4 +378,46 @@ fn needs_full_scan(changes: &ChangeSet) -> bool {
         }
     }
     edited_chars > MAX_INCREMENTAL_CHARS || edit_ops > MANY_EDIT_OPS
+}
+
+/// Translate parser byte ranges to the character ranges consumed by the scanner.
+fn spelling_regions(
+    text: RopeSlice,
+    syntax: Option<&Syntax>,
+    loader: &Loader,
+) -> Vec<Range<usize>> {
+    let Some(syntax) = syntax else {
+        return std::iter::once(0..text.len_chars()).collect();
+    };
+    syntax
+        .spell_regions(text, loader, 0..text.len_bytes())
+        .into_iter()
+        .map(|region| text.byte_to_char(region.start)..text.byte_to_char(region.end))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use editor_core::Rope;
+
+    #[test]
+    fn syntax_scoping_checks_comments_not_code() {
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
+        let text = Rope::from("let π = 1; // teh bug\nlet teh_value = 1;\n");
+        let language = loader.language_for_name("rust").unwrap();
+        let syntax = Syntax::new(text.slice(..), language, &loader).unwrap();
+        let dictionary = Dictionary::new("SET UTF-8\n", "1\nbug\n").unwrap();
+        let regions = spelling_regions(text.slice(..), Some(&syntax), &loader);
+        let diagnostics = ::spelling::check_regions(
+            &[&dictionary],
+            text.slice(..),
+            regions,
+            &SpellingConfig::default(),
+            || false,
+        );
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].range.start, 14);
+        assert!(diagnostics[0].message.contains("teh"));
+    }
 }

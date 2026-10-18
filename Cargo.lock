@@ -3946,9 +3946,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core",
- "language",
  "language-config",
- "loader",
  "log",
  "regex",
  "spellbook",

@@ -11,7 +11,6 @@ use editor_core::{
     diagnostic::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity},
     RopeSlice,
 };
-use language::{syntax::Loader, Syntax};
 use language_config::SpellingConfig;
 use stdx::rope::{Regex, RopeSliceExt as _};
 
@@ -58,14 +57,13 @@ impl SpellingFilter {
     }
 }
 
-/// Scan all natural-language regions in a text snapshot, or the entire text when
-/// no syntax is supplied. Cancellation can return partial findings; callers must
+/// Scan caller-selected character ranges in a text snapshot.
+/// Cancellation can return partial findings; callers must
 /// discard results from canceled or superseded snapshots before publishing them.
-pub fn check_text(
+pub fn check_regions(
     dictionaries: &[&Dictionary],
     text: RopeSlice,
-    syntax: Option<&Syntax>,
-    loader: &Loader,
+    regions: impl IntoIterator<Item = Range<usize>>,
     config: &SpellingConfig,
     mut is_canceled: impl FnMut() -> bool,
 ) -> Vec<Diagnostic> {
@@ -74,7 +72,7 @@ pub fn check_text(
     }
     let filter = SpellingFilter::new(config);
     let mut diagnostics = Vec::new();
-    for region in spell_check_regions(syntax, loader, text, 0..text.len_chars()) {
+    for region in regions {
         if is_canceled() {
             break;
         }
@@ -88,30 +86,6 @@ pub fn check_text(
         );
     }
     diagnostics
-}
-
-/// The char ranges within `region` to spell-check. With a syntax tree, checking is restricted to
-/// the natural-language regions selected by each layer's `spellcheck.scm` query (comments, prose,
-/// ...); without a tree (plain text), the whole `region` is checked.
-//
-// `Syntax::spell_regions` works in byte offsets (tree-sitter's native unit) while the spelling
-// diagnostics, like all diagnostics, are in char offsets, so we convert at this boundary. The
-// conversions go away once diagnostics move to byte offsets.
-fn spell_check_regions(
-    syntax: Option<&Syntax>,
-    loader: &Loader,
-    text: RopeSlice,
-    region: Range<usize>,
-) -> Vec<Range<usize>> {
-    let Some(syntax) = syntax else {
-        return vec![region];
-    };
-    let bytes = text.char_to_byte(region.start)..text.char_to_byte(region.end);
-    syntax
-        .spell_regions(text, loader, bytes)
-        .into_iter()
-        .map(|region| text.byte_to_char(region.start)..text.byte_to_char(region.end))
-        .collect()
 }
 
 /// Include whole tokens and URL/email spans at incremental window edges. Very long tokens
@@ -357,34 +331,6 @@ mod tests {
             rope.slice(out[0].range.start..out[0].range.end).to_string(),
             "teh"
         );
-    }
-
-    /// Runs the full-document check path's logic (region selection + tokenization) against a real
-    /// syntax tree, the way `check_text` does off-thread.
-    fn check_scoped(language: &str, text: &str) -> Vec<Diagnostic> {
-        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
-        let rope = Rope::from_str(text);
-        let language = loader.language_for_name(language).unwrap();
-        let syntax = Syntax::new(rope.slice(..), language, &loader).unwrap();
-        let dictionary = en_us();
-        check_text(
-            &[&dictionary],
-            rope.slice(..),
-            Some(&syntax),
-            &loader,
-            &SpellingConfig::default(),
-            || false,
-        )
-    }
-
-    #[test]
-    fn syntax_scoping_checks_comments_not_code() {
-        // `teh` in the comment is a misspelling; the identically misspelled identifier `teh_value`
-        // is code and must not be flagged.
-        let diagnostics = check_scoped("rust", "// teh bug\nlet teh_value = 1;\n");
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert!(diagnostics[0].message.contains("teh"), "{diagnostics:?}");
-        assert_eq!(diagnostics[0].range.start, 3, "the comment occurrence");
     }
 
     #[test]

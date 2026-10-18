@@ -13,7 +13,6 @@ homepage.workspace = true
 
 [dependencies]
 language-config.workspace = true
-language.workspace = true
 core.workspace = true
 stdx.workspace = true
 anyhow.workspace = true
@@ -22,5 +21,4 @@ regex.workspace = true
 spellbook.workspace = true
 
 [dev-dependencies]
-loader.workspace = true
 tempfile.workspace = true

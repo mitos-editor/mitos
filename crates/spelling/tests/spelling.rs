@@ -2,7 +2,7 @@
 
 use editor_core::Rope;
 use language_config::SpellingConfig;
-use spelling::{check_text, expand_check_window, load_dictionary, suggestions, Dictionary};
+use spelling::{check_regions, expand_check_window, load_dictionary, suggestions, Dictionary};
 
 #[test]
 fn dictionary_loading_uses_supplied_affixes_vocabulary_and_personal_file() -> anyhow::Result<()> {
@@ -51,18 +51,16 @@ fn suggestions_preserve_dictionary_order_without_duplicates() {
 
 #[test]
 fn full_scan_respects_settings_unicode_and_cancellation() {
-    let loader = language::loader::default_lang_loader(loader::syntax::Resources::new(vec![]));
     let dictionary = Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap();
     let text = Rope::from_str("🚀 quik projectword https://exampel.org/typo hello");
     let config = SpellingConfig {
         words: vec!["projectword".into()],
         ..Default::default()
     };
-    let diagnostics = check_text(
+    let diagnostics = check_regions(
         &[&dictionary],
         text.slice(..),
-        None,
-        &loader,
+        std::iter::once(0..text.len_chars()),
         &config,
         || false,
     );
@@ -71,11 +69,10 @@ fn full_scan_respects_settings_unicode_and_cancellation() {
         (diagnostics[0].range.start, diagnostics[0].range.end),
         (2, 6)
     );
-    assert!(check_text(
+    assert!(check_regions(
         &[&dictionary],
         text.slice(..),
-        None,
-        &loader,
+        std::iter::once(0..text.len_chars()),
         &config,
         || true
     )
@@ -109,4 +106,24 @@ fn compiled_filters_honor_merged_language_settings() {
         assert!(filter.ignores(word), "{word}");
     }
     assert!(!filter.ignores("teh"));
+}
+
+#[test]
+fn selected_regions_keep_absolute_character_offsets() {
+    let dictionary = Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap();
+    let text = Rope::from("界 quik ignored quik");
+    let diagnostics = check_regions(
+        &[&dictionary],
+        text.slice(..),
+        [2..6, 15..19],
+        &SpellingConfig::default(),
+        || false,
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .map(|d| (d.range.start, d.range.end))
+            .collect::<Vec<_>>(),
+        [(2, 6), (15, 19)]
+    );
 }
