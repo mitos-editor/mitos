@@ -106,7 +106,7 @@ fn search_impl(
 
 fn search_completions(cx: &mut Context, reg: Option<char>) -> Vec<String> {
     let mut items = reg
-        .and_then(|reg| cx.editor.registers.read(reg, cx.editor))
+        .and_then(|reg| cx.editor.read_register(reg))
         .map_or(Vec::new(), |reg| reg.take(200).collect());
     items.sort_unstable();
     items.dedup();
@@ -172,7 +172,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         .unwrap_or(cx.editor.registers.last_search_register);
     let config = cx.editor.config();
     let scrolloff = config.scroll.padding;
-    if let Some(query) = cx.editor.registers.first(register, cx.editor) {
+    if let Some(query) = cx.editor.first_register_value(register) {
         let search_config = &config.search;
         let case_insensitive = if search_config.smart_case {
             !query.chars().any(char::is_uppercase)
@@ -305,7 +305,7 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
     let register = cx
         .register
         .unwrap_or(cx.editor.registers.last_search_register);
-    let regex = match cx.editor.registers.first(register, cx.editor) {
+    let regex = match cx.editor.first_register_value(register) {
         Some(regex) => regex,
         None => return,
     };

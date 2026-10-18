@@ -47,8 +47,7 @@ pub(super) fn replay_macro(cx: &mut Context) {
 
     let keys: Vec<KeyEvent> = if let Some(keys) = cx
         .editor
-        .registers
-        .read(reg, cx.editor)
+        .read_register(reg)
         .filter(|values| values.len() == 1)
         .map(|mut values| values.next().unwrap())
     {

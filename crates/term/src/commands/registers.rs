@@ -158,8 +158,7 @@ pub(super) fn replace_with_yanked(cx: &mut Context) {
 
 pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: char, count: usize) {
     let Some(values) = editor
-        .registers
-        .read(register, editor)
+        .read_register(register)
         .filter(|values| values.len() > 0)
     else {
         return;
@@ -182,7 +181,7 @@ pub(super) fn replace_selections_with_primary_clipboard(cx: &mut Context) {
 }
 
 pub(crate) fn paste(editor: &mut Editor, register: char, pos: PastePosition, count: usize) {
-    let Some(values) = editor.registers.read(register, editor) else {
+    let Some(values) = editor.read_register(register) else {
         return;
     };
     let values: Vec<_> = values.map(|value| value.to_string()).collect();
@@ -262,7 +261,7 @@ pub(super) fn copy_between_registers(cx: &mut Context) {
             return;
         };
 
-        let Some(values) = cx.editor.registers.read(source, cx.editor) else {
+        let Some(values) = cx.editor.read_register(source) else {
             cx.editor
                 .set_error(|| format!("register {source} is empty"));
             return;

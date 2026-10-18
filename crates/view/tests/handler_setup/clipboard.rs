@@ -52,8 +52,7 @@ impl ClipboardBackend for MemoryClipboard {
 
 fn clipboard_values(editor: &Editor, register: char) -> Vec<String> {
     editor
-        .registers
-        .read(register, editor)
+        .read_register(register)
         .unwrap()
         .map(|value| value.into_owned())
         .collect()
@@ -175,5 +174,50 @@ async fn clipboard_registers_preserve_fallback_errors_and_clear_behavior() -> an
     fixture.editor.registers.clear();
     assert!(state.lock().unwrap().contents.iter().all(String::is_empty));
     assert_eq!(clipboard_values(&fixture.editor, '+'), [""]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn contextual_registers_follow_the_focused_selection_and_document() -> anyhow::Result<()> {
+    use editor_core::{smallvec, Range, Selection};
+    use view::{current, current_ref, editor::Action};
+
+    let mut fixture = Fixture::new("one two\n")?;
+    let (view, doc) = current!(fixture.editor);
+    let (first, id) = (view.id, doc.id());
+    doc.set_selection(
+        first,
+        Selection::new(smallvec![Range::new(0, 3), Range::new(4, 7)], 0),
+    );
+    fixture
+        .editor
+        .registers
+        .write('a', vec!["saved one".into(), "saved two".into()])?;
+    fixture.editor.switch(id, Action::VerticalSplit);
+    let (view, doc) = current!(fixture.editor);
+    doc.set_selection(view.id, Selection::single(4, 7));
+    assert_eq!(clipboard_values(&fixture.editor, '.'), ["two"]);
+    fixture.editor.focus(first);
+    assert_eq!(clipboard_values(&fixture.editor, '#'), ["1", "2"]);
+    assert_eq!(clipboard_values(&fixture.editor, '.'), ["one", "two"]);
+    assert_eq!(
+        fixture.editor.first_register_value('.').as_deref(),
+        Some("one")
+    );
+    assert_eq!(
+        fixture.editor.last_register_value('.').as_deref(),
+        Some("two")
+    );
+    assert_eq!(
+        fixture.editor.first_register_value('%').unwrap(),
+        current_ref!(fixture.editor).1.display_name()
+    );
+    fixture.editor.new_file(Action::Replace);
+    assert_eq!(
+        fixture.editor.first_register_value('%').as_deref(),
+        Some("[scratch]")
+    );
+    let saved: Vec<_> = fixture.editor.registers.read('a').unwrap().collect();
+    assert_eq!(saved, ["saved one", "saved two"]);
     Ok(())
 }

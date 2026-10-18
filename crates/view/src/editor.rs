@@ -9,6 +9,7 @@ pub use text_layout::DisplayPosition;
 mod filesystem;
 mod language_servers;
 mod mode;
+mod registers;
 use crate::{
     document::{DocumentSavedEventResult, Mode, SavePoint},
     events::DocumentFocusLost,

@@ -229,7 +229,7 @@ pub fn expand_register<'a>(editor: &Editor, content: Cow<'a, str>) -> Result<Cow
         chars.next().is_none(),
         "Invalid register `{content}`: should only be a single character"
     );
-    match editor.registers.read(r, editor) {
+    match editor.read_register(r) {
         Some(values) => Ok(Cow::Owned(values.collect())),
         None => Ok(Cow::Borrowed("")),
     }

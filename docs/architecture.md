@@ -544,6 +544,11 @@ clipboard/primary selection mapping, and fallback for providers that cannot read
 Each operation takes one settings snapshot, so configuration updates affect the
 next operation without replacing saved registers or the backend.
 
+`Editor::read_register` resolves selection indices, selection contents, and the
+focused document path. `Registers` owns saved values, clipboard synchronization,
+write restrictions, and previews without borrowing an editor. Frontends and
+command expansion use the editor operation for contextual lookup.
+
 The shared `NativeClipboard` backend runs native/custom commands and platform APIs.
 `Editor::new` installs that backend by default. `term::clipboard` owns terminal
 provider selection and OSC 52 output; `Application` installs its backend before

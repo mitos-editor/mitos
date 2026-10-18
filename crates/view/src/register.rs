@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, iter};
 use anyhow::Result;
 use editor_core::NATIVE_LINE_ENDING;
 
-use crate::{clipboard::Clipboard, Editor};
+use crate::clipboard::Clipboard;
 use ::clipboard::{ClipboardBackend, ClipboardError, ClipboardType};
 
 /// A key-value store for saving sets of values.
@@ -13,9 +13,9 @@ use ::clipboard::{ClipboardBackend, ClipboardError, ClipboardType};
 /// behaviors when read or written to:
 ///
 /// * Black hole (`_`): all values read and written are discarded
-/// * Selection indices (`#`): index number of each selection starting at 1
-/// * Selection contents (`.`)
-/// * Document path (`%`): filename of the current buffer
+/// * Selection indices (`#`): resolved by `Editor::read_register`
+/// * Selection contents (`.`): resolved by `Editor::read_register`
+/// * Document path (`%`): resolved by `Editor::read_register`
 /// * System clipboard (`*`)
 /// * Primary clipboard (`+`)
 pub struct Registers {
@@ -42,27 +42,10 @@ impl Registers {
         self.clipboard.set_backend(backend);
     }
 
-    pub fn read<'a>(&'a self, name: char, editor: &'a Editor) -> Option<RegisterValues<'a>> {
+    /// Read saved values or clipboard contents. The editor resolves contextual registers.
+    pub fn read(&self, name: char) -> Option<RegisterValues<'_>> {
         match name {
             '_' => Some(RegisterValues::new(iter::empty())),
-            '#' => {
-                let (view, doc) = current_ref!(editor);
-                let selections = doc.selection(view.id).len();
-                // ExactSizeIterator is implemented for Range<usize> but
-                // not RangeInclusive<usize>.
-                Some(RegisterValues::new(
-                    (0..selections).map(|i| (i + 1).to_string().into()),
-                ))
-            }
-            '.' => {
-                let (view, doc) = current_ref!(editor);
-                let text = doc.text().slice(..);
-                Some(RegisterValues::new(doc.selection(view.id).fragments(text)))
-            }
-            '%' => {
-                let path = doc!(editor).display_name();
-                Some(RegisterValues::new(iter::once(path)))
-            }
             '*' | '+' => Some(read_from_clipboard(
                 &self.clipboard,
                 self.inner.get(&name),
@@ -135,15 +118,6 @@ impl Registers {
                 Ok(())
             }
         }
-    }
-
-    pub fn first<'a>(&'a self, name: char, editor: &'a Editor) -> Option<Cow<'a, str>> {
-        self.read(name, editor).and_then(|mut values| values.next())
-    }
-
-    pub fn last<'a>(&'a self, name: char, editor: &'a Editor) -> Option<Cow<'a, str>> {
-        self.read(name, editor)
-            .and_then(|mut values| values.next_back())
     }
 
     pub fn iter_preview(&self) -> impl Iterator<Item = (char, &str)> {
@@ -282,7 +256,7 @@ pub struct RegisterValues<'a> {
 }
 
 impl<'a> RegisterValues<'a> {
-    fn new(
+    pub(crate) fn new(
         iter: impl DoubleEndedIterator<Item = Cow<'a, str>>
             + ExactSizeIterator<Item = Cow<'a, str>>
             + 'a,

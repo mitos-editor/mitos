@@ -298,7 +298,7 @@ async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
     assert!(screen.contains("**literal**"), "{screen}");
     assert!(screen.contains("Another paragraph."), "{screen}");
     press_keys(&mut app, "y").await?;
-    let id = app.editor.registers.first('+', &app.editor).unwrap();
+    let id = app.editor.first_register_value('+').unwrap();
     assert_eq!(
         id,
         current_ref!(app.editor)
@@ -309,7 +309,7 @@ async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
     );
     assert_eq!(id.len(), 40);
     press_keys(&mut app, "Y<esc>").await?;
-    let message = app.editor.registers.first('+', &app.editor).unwrap();
+    let message = app.editor.first_register_value('+').unwrap();
     assert_eq!(
         message.trim_end(),
         "initial\n\nFull message with **literal** Markdown.\n\nAnother paragraph."

@@ -15,6 +15,9 @@ Theme parsing, palette resolution, icons, and style lookup belong to the `theme`
 Clipboard provider definitions and native backends belong to `clipboard`. The
 editor retains live configuration and register fallback behavior.
 
+Contextual registers resolve through `Editor::read_register`; register storage
+and clipboard synchronization operate independently of editor/view state.
+
 Text, versions, pending changes, and undo history are owned by the
 `buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.
