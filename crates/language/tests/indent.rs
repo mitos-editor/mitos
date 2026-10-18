@@ -2,7 +2,7 @@ use editor_core::indent::{indent_level_for_line, IndentStyle};
 use language::{indent::treesitter_indent_for_pos, syntax::Loader, Syntax};
 use language_config::Configuration;
 use ropey::Rope;
-use std::{ops::Range, path::PathBuf, process::Command};
+use std::{ops::Range, path::PathBuf, process::Command, time::Duration};
 use stdx::rope::RopeSliceExt;
 
 #[test]
@@ -169,7 +169,8 @@ fn test_treesitter_indent(
     let language_config = loader.language(language).config();
     let indent_style = IndentStyle::from_str(&language_config.indent.as_ref().unwrap().unit);
     let text = doc.slice(..);
-    let syntax = Syntax::new(text, language, &loader).unwrap();
+    let syntax =
+        Syntax::new_with_timeout(text, language, &loader, Duration::from_secs(10)).unwrap();
     let indent_query = loader.indent_query(language).unwrap();
 
     for i in 0..doc.len_lines() {

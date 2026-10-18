@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
 use editor_core::Rope;
 use language::{syntax::Loader, Syntax};
@@ -11,7 +11,10 @@ static LOADER: LazyLock<Loader> =
 fn assert_scope(language: &str, text: &str, checked: &[&str], skipped: &[&str]) {
     let source = Rope::from_str(text);
     let language = LOADER.language_for_name(language).unwrap();
-    let syntax = Syntax::new(source.slice(..), language, &LOADER).unwrap();
+    // Query semantics should not depend on the editor's interactive parsing deadline.
+    let syntax =
+        Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+            .unwrap();
     let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
     let prose: Vec<_> = regions.iter().map(|range| &text[range.clone()]).collect();
 

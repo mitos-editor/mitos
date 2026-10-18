@@ -526,11 +526,25 @@ pub struct Syntax {
     inner: tree_house::Syntax,
 }
 
-const PARSE_TIMEOUT: Duration = Duration::from_millis(500); // half a second is pretty generous
+const PARSE_TIMEOUT: Duration = Duration::from_millis(500);
 
 impl Syntax {
+    /// Parse using the editor's interactive time budget.
     pub fn new(source: RopeSlice, language: Language, loader: &Loader) -> Result<Self, Error> {
-        let inner = tree_house::Syntax::new(source, language, PARSE_TIMEOUT, loader)?;
+        Self::new_with_timeout(source, language, loader, PARSE_TIMEOUT)
+    }
+
+    /// Parse with an explicit per-layer time budget.
+    ///
+    /// Batch analysis can allow more time for construction. Subsequent calls to
+    /// [`Self::update`] retain the interactive budget.
+    pub fn new_with_timeout(
+        source: RopeSlice,
+        language: Language,
+        loader: &Loader,
+        timeout: Duration,
+    ) -> Result<Self, Error> {
+        let inner = tree_house::Syntax::new(source, language, timeout, loader)?;
         Ok(Self { inner })
     }
 
@@ -1161,6 +1175,23 @@ mod test {
         LazyLock::new(|| crate::loader::default_lang_loader(loader::syntax::Resources::default()));
 
     #[test]
+    fn syntax_construction_respects_the_supplied_parse_budget() {
+        let source = Rope::from_str(&"fn example() {}\n".repeat(4096));
+        let language = LOADER.language_for_name("rust").unwrap();
+        assert!(matches!(
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::ZERO),
+            Err(Error::Timeout)
+        ));
+        let syntax =
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+                .unwrap();
+        assert_eq!(
+            syntax.tree().root_node().end_byte() as usize,
+            source.len_bytes()
+        );
+    }
+
+    #[test]
     fn test_textobject_queries() {
         let query_str = r#"
         (line_comment)+ @quantified_nodes
@@ -1178,7 +1209,9 @@ mod test {
         let grammar = LOADER.get_config(language).unwrap().grammar;
         let query = Query::new(grammar, query_str, |_, _| Ok(())).unwrap();
         let textobject = TextObjectQuery::new(query);
-        let syntax = Syntax::new(source.slice(..), language, &LOADER).unwrap();
+        let syntax =
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+                .unwrap();
 
         let root = syntax.tree().root_node();
         let test = |capture, range| {
@@ -1249,7 +1282,9 @@ mod test {
         // Prose around an inline code span, plus a link with prose text but a URL destination.
         let source = Rope::from_str("Helo `code` [text](http://example.com)\n");
         let language = LOADER.language_for_name("markdown").unwrap();
-        let syntax = Syntax::new(source.slice(..), language, &LOADER).unwrap();
+        let syntax =
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+                .unwrap();
         let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
 
         let covered = |needle: &str| {
@@ -1271,7 +1306,9 @@ mod test {
         // surrounding code is not.
         let source = Rope::from_str("// helo wrld\nfn main() {}\n");
         let language = LOADER.language_for_name("rust").unwrap();
-        let syntax = Syntax::new(source.slice(..), language, &LOADER).unwrap();
+        let syntax =
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+                .unwrap();
         let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
 
         let covered = |needle: &str| {
@@ -1348,7 +1385,9 @@ mod test {
     ) {
         let source = Rope::from_str(source);
         let language = LOADER.language_for_name(language_name).unwrap();
-        let syntax = Syntax::new(source.slice(..), language, &LOADER).unwrap();
+        let syntax =
+            Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
+                .unwrap();
 
         let root = syntax
             .tree()
