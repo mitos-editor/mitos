@@ -1,0 +1,26 @@
+[package]
+name = "word-index"
+description = "Incremental Unicode word indexing and lexical matching for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+core.workspace = true
+stdx.workspace = true
+fuzzy.workspace = true
+foldhash.workspace = true
+
+[dev-dependencies]
+text-diff.workspace = true
+quickcheck.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "word_index"
+harness = false

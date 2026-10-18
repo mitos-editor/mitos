@@ -18,6 +18,10 @@ editor retains live configuration and register fallback behavior.
 Contextual registers resolve through `Editor::read_register`; register storage
 and clipboard synchronization operate independently of editor/view state.
 
+The `word-index` crate owns Unicode tokenization, word counts, incremental updates,
+and lexical matching. The editor owns document tracking, ordered debounce queues,
+synchronization, and worker cancellation. Benchmarks live with the indexing engine.
+
 Text, versions, pending changes, and undo history are owned by the
 `buffer` crate. Documents retain selection history, file lifecycle, and editor
 services; reading a history revision no longer requires interior mutation.

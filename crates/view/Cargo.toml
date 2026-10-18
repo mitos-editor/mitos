@@ -12,15 +12,12 @@ homepage.workspace = true
 
 [lib]
 # Skip libtest benchmark harness, the benches use criterion.
-# cargo bench -p view --features bench
 bench = false
 
 [features]
 default = []
 git = ["vcs/git"]
 unicode-lines = ["editor-config/unicode-lines"]
-# Exposes internals. Should not be enabled except for benchmarking.
-bench = []
 
 [dependencies]
 diagnostics.workspace = true
@@ -43,6 +40,7 @@ stdx.workspace = true
 core.workspace = true
 event.workspace = true
 fuzzy.workspace = true
+word-index.workspace = true
 loader.workspace = true
 lsp.workspace = true
 snippets.workspace = true
@@ -80,7 +78,3 @@ event = { workspace = true, features = ["integration_test"] }
 criterion.workspace = true
 quickcheck.workspace = true
 
-[[bench]]
-name = "word_index"
-harness = false
-required-features = ["bench"]

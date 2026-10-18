@@ -19,6 +19,7 @@ changelog_include = [
   "grammar-build", "language", "language-config", "loader", "lsp", "lsp-types", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
+  "word-index",
   "text-layout", "editor-config", "fuzzy", "text-diff",
 ]
 git_release_name = "Mitos {{ version }}"
@@ -38,6 +39,10 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "clipboard"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "word-index"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]

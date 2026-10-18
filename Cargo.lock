@@ -4733,6 +4733,7 @@ dependencies = [
  "toml",
  "ui-core",
  "vcs",
+ "word-index",
  "workspace",
 ]
 
@@ -5344,6 +5345,19 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "word-index"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "criterion",
+ "foldhash 0.2.0",
+ "fuzzy",
+ "quickcheck",
+ "stdx",
+ "text-diff",
 ]
 
 [[package]]

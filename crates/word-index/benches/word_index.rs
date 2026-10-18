@@ -4,7 +4,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use editor_core::Rope;
-use view::features::word_index::bench;
+use word_index::{words as extract_words, WordIndex};
 
 /// See `texts/README`. These texts are used in unicode-segmentation's benchmarks.
 const CORPORA: &[(&str, &str)] = &[
@@ -27,7 +27,7 @@ fn words(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(name), &rope, |b, rope| {
             b.iter(|| {
                 let mut count = 0usize;
-                for word in bench::words(black_box(rope.slice(..))) {
+                for word in extract_words(black_box(rope.slice(..))) {
                     black_box(word);
                     count += 1;
                 }
@@ -38,7 +38,7 @@ fn words(c: &mut Criterion) {
     group.finish();
 }
 
-/// End-to-end extraction plus hashing / locking / inserting.
+/// End-to-end extraction plus hashing and inserting.
 fn add_document(c: &mut Criterion) {
     let mut group = c.benchmark_group("add_document");
     for (name, text) in CORPORA {
@@ -46,8 +46,8 @@ fn add_document(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(text.len() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(name), &rope, |b, rope| {
             b.iter(|| {
-                let index = bench::WordIndex::default();
-                bench::add_document(&index, black_box(rope));
+                let mut index = WordIndex::default();
+                index.add_document(black_box(rope), || false);
                 index
             });
         });

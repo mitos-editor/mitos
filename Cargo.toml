@@ -19,6 +19,7 @@ members = [
   "crates/grammar-build",
   "crates/clipboard",
   "crates/search",
+  "crates/word-index",
   "crates/fuzzy",
   "crates/text-diff",
   "crates/text-io",
@@ -68,6 +69,7 @@ event = { path = "crates/event" }
 loader = { path = "crates/loader" }
 grammar-build = { path = "crates/grammar-build" }
 clipboard = { path = "crates/clipboard" }
+word-index = { path = "crates/word-index" }
 search = { path = "crates/search" }
 fuzzy = { path = "crates/fuzzy" }
 text-diff = { path = "crates/text-diff" }

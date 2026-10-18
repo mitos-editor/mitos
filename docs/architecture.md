@@ -20,6 +20,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `loader` | Resource paths and grammar/query/theme sources |
 | `grammar-build` | Grammar source fetching and native compilation |
 | `clipboard` | Clipboard provider settings and native backends |
+| `word-index` | Unicode word counts, incremental updates, and lexical matching |
 | `search` | Workspace traversal and text matches over files or unsaved snapshots |
 | `fuzzy` | Reusable fuzzy scoring, matching profiles, and highlight indices |
 | `text-diff` | Text-to-transaction comparison and reusable line differencing |
