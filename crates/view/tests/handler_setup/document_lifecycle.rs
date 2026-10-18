@@ -171,3 +171,55 @@ async fn closing_a_split_removes_its_selections_from_hidden_documents() -> anyho
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn renaming_between_workspaces_refreshes_all_derived_paths() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("text\n")?;
+    let id = current_ref!(fixture.editor).1.id();
+    for (workspace, name) in [("first", "before.words"), ("second", "after.words")] {
+        let root = fixture.dir.path().join(workspace);
+        std::fs::create_dir_all(root.join(".git"))?;
+        let root = stdx::path::canonicalize(root);
+        let path = root.join(name);
+        fixture.editor.set_doc_path(id, &path);
+        let doc = fixture.editor.document(id).unwrap();
+        assert_eq!(doc.path(), Some(path.as_path()));
+        assert_eq!(doc.workspace_root(), root);
+        assert_eq!(doc.display_path(), Some(std::path::Path::new(name)));
+        assert_eq!(doc.display_name(), name);
+        assert_eq!(
+            doc.relative_path(),
+            Some(stdx::path::get_relative_path(&path).as_ref())
+        );
+        assert_eq!(doc.text(), "text\n");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_writes_keep_their_text_encoding_and_bom() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("unused\n")?;
+    let path = fixture.dir.path().join("encoded.words");
+    let encoded = [b"\xff\xfe".as_slice(), b"a\0\n\0"].concat();
+    std::fs::write(&path, &encoded)?;
+    let id = fixture.editor.open(&path, Action::Replace)?;
+    let pending = fixture
+        .editor
+        .document_mut(id)
+        .unwrap()
+        .save(None::<&std::path::Path>, true)?;
+    fixture.replace("newer\n");
+    fixture
+        .editor
+        .document_mut(id)
+        .unwrap()
+        .set_encoding("utf-8")?;
+    let saved = pending.await?;
+    assert_eq!(std::fs::read(&path)?, encoded);
+    assert_eq!(saved.text, "a\n");
+    let doc = fixture.editor.document(id).unwrap();
+    assert_eq!(doc.text(), "newer\n");
+    assert_eq!(doc.encoding(), editor_core::encoding::UTF_8);
+    assert!(doc.is_modified());
+    Ok(())
+}

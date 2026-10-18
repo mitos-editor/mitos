@@ -24,9 +24,12 @@ pub use crate::features::{
 mod editorconfig;
 use editorconfig::EditorConfig;
 
+mod file;
+pub use file::{
+    DocumentOpenError, DocumentSavedEvent, DocumentSavedEventFuture, DocumentSavedEventResult,
+};
 mod file_io;
-use ::text_io::{from_reader, to_writer};
-use file_io::{read_file, DecodedFile};
+use ::text_io::from_reader;
 
 mod syntax_initialization;
 
@@ -40,28 +43,20 @@ use editor_core::auto_pairs::AutoPairs;
 use editor_core::chars::char_is_word;
 use editor_core::diagnostic::DiagnosticProvider;
 use editor_core::encoding::Encoding;
-use futures_util::future::BoxFuture;
 use language_config::LanguageServerFeature;
 use lsp_client::util::lsp_pos_to_pos;
 use snippets::{ActiveSnippet, SnippetRenderCtx};
-use stdx::faccess::{copy_metadata, readonly};
 use text_layout::doc_formatter::TextFormat;
 use text_layout::text_annotations::Overlay;
-use thiserror;
 use vcs::{DiffHandle, DiffProviderRegistry};
 
 use ::parking_lot::Mutex;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::future::Future;
-use std::io;
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, OnceLock, Weak};
-use std::time::SystemTime;
+use std::sync::{Arc, Weak};
 
 use crate::{
     events::SelectionDidChange,
@@ -72,7 +67,7 @@ use crate::{
         navigation::NavigationState,
     },
     view::ViewPosition,
-    DocumentId, Editor, View, ViewId,
+    DocumentId, View, ViewId,
 };
 use editor_config::Config;
 use editor_core::{
@@ -154,19 +149,6 @@ impl Serialize for Mode {
         serializer.collect_str(self)
     }
 }
-/// A snapshot of the text of a document that we want to write out to disk
-#[derive(Debug, Clone)]
-pub struct DocumentSavedEvent {
-    pub revision: usize,
-    pub save_time: SystemTime,
-    pub doc_id: DocumentId,
-    pub path: PathBuf,
-    pub text: Rope,
-}
-
-pub type DocumentSavedEventResult = Result<DocumentSavedEvent, anyhow::Error>;
-pub type DocumentSavedEventFuture = BoxFuture<'static, DocumentSavedEventResult>;
-
 #[derive(Debug)]
 pub struct SavePoint {
     /// The view this savepoint is associated with
@@ -174,20 +156,11 @@ pub struct SavePoint {
     revert: Mutex<Transaction>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum DocumentOpenError {
-    #[error("path must be a regular file, symlink, or directory")]
-    IrregularFile,
-    #[error(transparent)]
-    IoError(#[from] io::Error),
-}
-
 pub struct Document {
     redraw: event::Redraw,
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
-    binary: bool,
     view_states: HashMap<ViewId, DocumentViewState>,
     pub active_snippet: Option<ActiveSnippet>,
 
@@ -204,16 +177,7 @@ pub struct Document {
     pub(crate) code_action_hints: CodeActionHints,
     pub(crate) document_symbols: DocumentSymbols,
 
-    path: Option<PathBuf>,
-    relative_path: OnceLock<Option<PathBuf>>,
-    display_path: OnceLock<Option<PathBuf>>,
-    /// Lazily-computed workspace root for this document (the ancestor that contains a `.git` /
-    /// `.svn` / `.jj` / `.mitos`). Avoids per-call `find_workspace_in` ancestor walks for hot
-    /// consumers like the statusline trust indicator, LSP launch, and DAP launch. Taken in
-    /// `set_path` so save-as recomputes.
-    workspace_root: OnceLock<PathBuf>,
-    encoding: &'static encoding::Encoding,
-    has_bom: bool,
+    file: file::FileState,
 
     pub restore_cursor: bool,
 
@@ -252,16 +216,6 @@ pub struct Document {
 
     savepoints: Vec<Weak<SavePoint>>,
 
-    // Last time we wrote to the file. This will carry the time the file was last opened if there
-    // were no saves.
-    last_saved_time: SystemTime,
-
-    /// On-disk mtime of the last external change auto-reload already surfaced for
-    /// this document (prompt/warning). Lets it show the conflict once instead of
-    /// re-prompting on every poll/focus check while the buffer stays modified.
-    pub auto_reload_seen_mtime: Option<SystemTime>,
-
-    last_saved_revision: usize,
     pub(crate) modified_since_accessed: bool,
 
     pub(crate) diagnostics: Vec<Diagnostic>,
@@ -274,8 +228,6 @@ pub struct Document {
 
     // when document was used for most-recent-used buffer picker
     pub focused_at: std::time::Instant,
-
-    pub readonly: bool,
 
     pub(crate) pull_diagnostics: crate::features::diagnostics::pull::DocumentDiagnostics,
 
@@ -296,13 +248,10 @@ impl fmt::Debug for Document {
             .field("buffer", &self.buffer)
             .field("views", &self.view_states)
             .field("text_annotations", &self.inlay_hints)
-            .field("path", &self.path)
-            .field("encoding", &self.encoding)
+            .field("file", &self.file)
             .field("restore_cursor", &self.restore_cursor)
             .field("syntax", &self.syntax)
             .field("language", &self.language)
-            .field("last_saved_time", &self.last_saved_time)
-            .field("last_saved_revision", &self.last_saved_revision)
             .field("modified_since_accessed", &self.modified_since_accessed)
             .field("diagnostics", &self.diagnostics)
             // .field("language_server", &self.language_server)
@@ -310,16 +259,7 @@ impl fmt::Debug for Document {
     }
 }
 
-impl Editor {
-    pub(crate) fn clear_doc_relative_paths(&mut self) {
-        for doc in self.documents_mut() {
-            doc.relative_path.take();
-        }
-    }
-}
-
 use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName};
-use stdx::Url;
 
 impl Document {
     pub fn from(
@@ -334,14 +274,8 @@ impl Document {
         Self {
             id: DocumentId::default(),
             active_snippet: None,
-            path: None,
-            relative_path: OnceLock::new(),
-            display_path: OnceLock::new(),
-            workspace_root: OnceLock::new(),
-            encoding,
-            has_bom,
+            file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
-            binary: false,
             view_states: HashMap::default(),
             inlay_hints: Default::default(),
             hover: Default::default(),
@@ -364,9 +298,6 @@ impl Document {
             selection_history: Default::default(),
             diagnostics: Vec::new(),
             savepoints: Vec::new(),
-            last_saved_time: SystemTime::now(),
-            auto_reload_seen_mtime: None,
-            last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             opened_language_servers: HashSet::new(),
@@ -377,7 +308,6 @@ impl Document {
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
-            readonly: false,
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
             document_links: Default::default(),
@@ -405,318 +335,6 @@ impl Document {
         self
     }
 
-    // TODO: async fn?
-    /// Create a new document from `path`. Encoding is auto-detected, but it can be manually
-    /// overwritten with the `encoding` parameter.
-    /// The editor requests syntax initialization after assigning the document an id.
-    pub fn open(
-        path: &Path,
-        mut encoding: Option<&'static Encoding>,
-        detect_language: bool,
-        config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
-    ) -> Result<Self, DocumentOpenError> {
-        // If the path is not a regular file (e.g.: /dev/random) it should not be opened.
-        if path.metadata().is_ok_and(|metadata| !metadata.is_file()) {
-            return Err(DocumentOpenError::IrregularFile);
-        }
-
-        let editor_config = if config.load().files.editor_config {
-            EditorConfig::find(path)
-        } else {
-            EditorConfig::default()
-        };
-        encoding = encoding.or(editor_config.encoding);
-
-        // Open the file if it exists, otherwise assume it is a new file (and thus empty).
-        let DecodedFile {
-            text,
-            encoding,
-            has_bom,
-            binary,
-        } = if path.exists() {
-            let mut file = std::fs::File::open(path)?;
-            read_file(&mut file, encoding)?
-        } else {
-            let line_ending = editor_config
-                .line_ending
-                .unwrap_or_else(|| config.load().files.default_line_ending.into());
-            let encoding = encoding.unwrap_or(encoding::UTF_8);
-            DecodedFile {
-                text: Rope::from(line_ending.as_str()),
-                encoding,
-                has_bom: false,
-                binary: false,
-            }
-        };
-
-        let loader = syn_loader.load();
-        let mut doc = Self::from(text, Some((encoding, has_bom)), config, syn_loader);
-
-        doc.binary = binary;
-        // set the path and try detecting the language
-        doc.set_path(Some(path));
-        if detect_language {
-            // The editor requests syntax after assigning a stable document id.
-            doc.language = doc.detect_language_config(&loader);
-        }
-
-        doc.editor_config = editor_config;
-        doc.detect_indent_and_line_ending();
-
-        Ok(doc)
-    }
-
-    /// Load a text file as an unregistered document without a filesystem identity.
-    pub(crate) fn open_scratch(
-        path: &Path,
-        config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
-    ) -> Result<Self, Error> {
-        if !path.metadata()?.is_file() {
-            return Err(DocumentOpenError::IrregularFile.into());
-        }
-        let mut doc = Self::open(path, None, true, config, syn_loader)?;
-        anyhow::ensure!(
-            !doc.is_binary(),
-            "Cannot open a binary file as scratch text"
-        );
-        doc.set_path(None);
-        doc.editor_config = EditorConfig::default();
-        doc.detect_indent_and_line_ending();
-        Ok(doc)
-    }
-
-    pub fn save<P: Into<PathBuf>>(
-        &mut self,
-        path: Option<P>,
-        force: bool,
-    ) -> Result<
-        impl Future<Output = Result<DocumentSavedEvent, anyhow::Error>> + 'static + Send + use<P>,
-        anyhow::Error,
-    > {
-        let path = path.map(|path| path.into());
-        self.save_impl(path, force)
-
-        // futures_util::future::Ready<_>,
-    }
-
-    /// The `Document`'s text is encoded according to its encoding and written to the file located
-    /// at its `path()`.
-    fn save_impl(
-        &mut self,
-        path: Option<PathBuf>,
-        force: bool,
-    ) -> Result<
-        impl Future<Output = Result<DocumentSavedEvent, anyhow::Error>> + 'static + Send + use<>,
-        anyhow::Error,
-    > {
-        if self.binary {
-            bail!("Binary files are read-only and cannot be saved as text");
-        }
-        log::debug!(
-            "submitting save of doc '{:?}'",
-            self.path().map(|path| path.to_string_lossy())
-        );
-
-        // we clone and move text + path into the future so that we asynchronously save the current
-        // state without blocking any further edits.
-        let snapshot = self.snapshot();
-
-        let path = match path {
-            Some(path) => stdx::path::canonicalize(path),
-            None => {
-                if self.path.is_none() {
-                    bail!("Can't save with no path set!");
-                }
-                self.path.as_ref().unwrap().clone()
-            }
-        };
-
-        let identifier = self.path().map(|_| self.identifier());
-        let language_servers: Vec<_> = self
-            .language_servers
-            .values()
-            .filter(|server| self.opened_language_servers.contains(&server.id()))
-            .cloned()
-            .collect();
-
-        // mark changes up to now as saved
-        let doc_id = self.id();
-        let atomic_save = self.config.load().files.save.atomic;
-
-        let encoding_with_bom_info = (self.encoding, self.has_bom);
-        let last_saved_time = self.last_saved_time;
-
-        // We encode the file according to the `Document`'s encoding.
-        let future = async move {
-            use tokio::fs;
-            let text = snapshot.text();
-            if let Some(parent) = path.parent() {
-                // TODO: display a prompt asking the user if the directories should be created
-                if !parent.exists() {
-                    if force {
-                        std::fs::DirBuilder::new().recursive(true).create(parent)?;
-                    } else {
-                        bail!("can't save file, parent directory does not exist (use :w! to create it)");
-                    }
-                }
-            }
-
-            // Protect against overwriting changes made externally
-            if !force
-                && let Ok(metadata) = fs::metadata(&path).await
-                && let Ok(mtime) = metadata.modified()
-                && last_saved_time < mtime
-            {
-                bail!("file modified by an external process, use :w! to overwrite");
-            }
-            let write_path = tokio::fs::read_link(&path)
-                .await
-                .ok()
-                .and_then(|p| {
-                    if p.is_relative() {
-                        path.parent().map(|parent| parent.join(p))
-                    } else {
-                        Some(p)
-                    }
-                })
-                .unwrap_or_else(|| path.clone());
-
-            if readonly(&write_path) {
-                bail!(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "Path is read only"
-                ));
-            }
-
-            // Assume it is a hardlink to prevent data loss if the metadata cant be read (e.g. on certain Windows configurations)
-            let is_hardlink = stdx::faccess::hardlink_count(&write_path).unwrap_or(2) > 1;
-            let is_symlink = match tokio::fs::symlink_metadata(&write_path).await {
-                Ok(meta) => meta.is_symlink(),
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
-                Err(err) => return Err(err.into()),
-            };
-            let must_copy = is_hardlink || is_symlink;
-            let backup = if path.exists() && atomic_save {
-                let path_ = write_path.clone();
-                // hacks: we use tempfile to handle the complex task of creating
-                // non clobbered temporary path for us we don't want
-                // the whole automatically delete path on drop thing
-                // since the path doesn't exist yet, we just want
-                // the path
-                tokio::task::spawn_blocking(move || -> Option<PathBuf> {
-                    let mut builder = tempfile::Builder::new();
-                    builder.prefix(path_.file_name()?).suffix(".bck");
-
-                    let backup_path = if must_copy {
-                        builder
-                            .make_in(path_.parent()?, |backup| std::fs::copy(&path_, backup))
-                            .ok()?
-                            .into_temp_path()
-                    } else {
-                        builder
-                            .make_in(path_.parent()?, |backup| std::fs::rename(&path_, backup))
-                            .ok()?
-                            .into_temp_path()
-                    };
-
-                    backup_path.keep().ok()
-                })
-                .await
-                .ok()
-                .flatten()
-            } else {
-                None
-            };
-
-            let write_result: anyhow::Result<_> = async {
-                let mut dst = tokio::fs::File::create(&write_path).await?;
-                to_writer(&mut dst, encoding_with_bom_info, text).await?;
-                // Ignore ENOTSUP/EOPNOTSUPP (Operation not supported) errors from sync_all()
-                // This is known to occur on SMB filesystems on macOS where fsync is not supported
-                match dst.sync_all().await {
-                    Ok(_) => (),
-                    Err(err) if err.kind() == io::ErrorKind::Unsupported => (),
-                    // Some extra OS errors are thrown on macOS for example if fsync is not
-                    // available for this filesystem. NOTE: on macOS, ENOTSUP and EOPNOTSUPP are
-                    // not the same code, so we need to suppress the unreachable_patterns lint on
-                    // Unix generally.
-                    #[allow(unreachable_patterns)]
-                    #[cfg(unix)]
-                    Err(err)
-                        if matches!(err.raw_os_error(), Some(libc::ENOTSUP | libc::EOPNOTSUPP)) => {
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-                Ok(())
-            }
-            .await;
-
-            let save_time = match fs::metadata(&write_path).await {
-                Ok(metadata) => metadata.modified().map_or(SystemTime::now(), |mtime| mtime),
-                Err(_) => SystemTime::now(),
-            };
-
-            if let Some(backup) = backup {
-                if must_copy {
-                    let mut delete = true;
-                    if write_result.is_err() {
-                        // Restore backup
-                        let _ = tokio::fs::copy(&backup, &write_path).await.map_err(|e| {
-                            delete = false;
-                            log::error!("Failed to restore backup on write failure: {e}")
-                        });
-                    }
-
-                    if delete {
-                        // Delete backup
-                        let _ = tokio::fs::remove_file(backup)
-                            .await
-                            .map_err(|e| log::error!("Failed to remove backup file on write: {e}"));
-                    }
-                } else if write_result.is_err() {
-                    // restore backup
-                    let _ = tokio::fs::rename(&backup, &write_path)
-                        .await
-                        .map_err(|e| log::error!("Failed to restore backup on write failure: {e}"));
-                } else {
-                    // copy metadata and delete backup
-                    let _ = tokio::task::spawn_blocking(move || {
-                        let _ = copy_metadata(&backup, &write_path)
-                            .map_err(|e| log::error!("Failed to copy metadata on write: {e}"));
-                        let _ = std::fs::remove_file(backup)
-                            .map_err(|e| log::error!("Failed to remove backup file on write: {e}"));
-                    })
-                    .await;
-                }
-            }
-
-            write_result?;
-
-            let event = DocumentSavedEvent {
-                revision: snapshot.revision(),
-                save_time,
-                doc_id,
-                path,
-                text: text.clone(),
-            };
-
-            for language_server in language_servers {
-                if !language_server.is_initialized() {
-                    continue;
-                }
-                if let Some(id) = identifier.clone() {
-                    language_server.text_document_did_save(id, text);
-                }
-            }
-
-            Ok(event)
-        };
-
-        Ok(future)
-    }
-
     /// Detect the language and initialize syntax without delaying file loading.
     pub fn detect_language(&mut self, loader: &Arc<syntax::Loader>) {
         self.hover.clear();
@@ -732,11 +350,11 @@ impl Document {
         &self,
         loader: &syntax::Loader,
     ) -> Option<Arc<language_config::LanguageConfiguration>> {
-        if self.binary {
+        if self.is_binary() {
             return None;
         }
         let language = loader
-            .language_for_filename(self.path.as_ref()?)
+            .language_for_filename(self.path()?)
             .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
 
         Some(loader.language(language).config().clone())
@@ -769,7 +387,7 @@ impl Document {
     /// `:set-spelling-language` override, then the `.editorconfig` `spelling_language`, then the
     /// resolved config (`languages.toml` over `[editor.spelling]`). Re-run when any of these change.
     pub fn detect_spelling_languages(&mut self) {
-        if self.binary {
+        if self.is_binary() {
             self.spelling_languages.clear();
             return;
         }
@@ -800,144 +418,10 @@ impl Document {
 
     pub fn detect_editor_config(&mut self) {
         if self.config.load().files.editor_config
-            && let Some(path) = self.path.as_ref()
+            && let Some(path) = self.path()
         {
             self.editor_config = EditorConfig::find(path);
         }
-    }
-
-    /// Binary files have no editable text; their original bytes remain on disk.
-    pub fn is_binary(&self) -> bool {
-        self.binary
-    }
-
-    /// Filesystem modification time recorded by the last read or successful save.
-    pub fn last_saved_time(&self) -> SystemTime {
-        self.last_saved_time
-    }
-
-    pub fn pickup_last_saved_time(&mut self) {
-        self.auto_reload_seen_mtime = None;
-        self.last_saved_time = match self.path() {
-            Some(path) => match path.metadata() {
-                Ok(metadata) => match metadata.modified() {
-                    Ok(mtime) => mtime,
-                    Err(err) => {
-                        log::debug!("Could not fetch file system's mtime, falling back to current system time: {}", err);
-                        SystemTime::now()
-                    }
-                },
-                Err(err) => {
-                    log::debug!("Could not fetch file system's mtime, falling back to current system time: {}", err);
-                    SystemTime::now()
-                }
-            },
-            None => SystemTime::now(),
-        };
-    }
-
-    // Detect if the file is readonly and change the readonly field if necessary (unix only)
-    pub fn detect_readonly(&mut self) {
-        // Allows setting the flag for files the user cannot modify, like root files
-        self.readonly = self.binary || self.path.as_ref().is_some_and(|p| readonly(p));
-    }
-
-    /// Reload the document from its path.
-    pub fn reload(
-        &mut self,
-        provider_registry: &DiffProviderRegistry,
-        trust_full: bool,
-    ) -> Result<(), Error> {
-        let encoding = self.encoding;
-        let path = match self.path() {
-            None => return Ok(()),
-            Some(path) => match path.exists() {
-                true => path.to_owned(),
-                false => bail!("can't find file to reload from {:?}", self.display_name()),
-            },
-        };
-
-        // Once we have a valid path we check if its readonly status has changed
-        self.detect_readonly();
-
-        let mut file = std::fs::File::open(&path)?;
-        let DecodedFile {
-            text: rope, binary, ..
-        } = read_file(&mut file, Some(encoding))?;
-        // Reload may change the content type. Allow this replacement, then restore
-        // the binary write guard before returning to the editor.
-        let was_binary = std::mem::replace(&mut self.binary, false);
-
-        // Calculate the difference between the buffer and source text, and apply it.
-        // This is not considered a modification of the contents of the file regardless
-        // of the encoding.
-        let transaction = editor_core::diff::compare_ropes(self.text(), &rope);
-        self.apply(transaction.changes())?;
-        self.commit_changes();
-        self.binary = binary;
-        self.detect_readonly();
-        if binary {
-            self.hover.clear();
-            self.navigation.clear();
-            self.document_links.cancel_navigation();
-            self.reset_all_inlay_hints();
-            self.language = None;
-            self.syntax = None;
-            self.pending_syntax = None;
-            self.close_language_server_documents();
-            self.language_servers.clear();
-        } else if was_binary {
-            let loader = self.syn_loader.load_full();
-            self.detect_language(&loader);
-        }
-        self.reset_modified();
-        self.pickup_last_saved_time();
-        self.detect_indent_and_line_ending();
-
-        self.refresh_vcs(provider_registry, trust_full);
-
-        Ok(())
-    }
-
-    /// Sets the [`Document`]'s encoding with the encoding correspondent to `label`.
-    pub fn set_encoding(&mut self, label: &str) -> Result<(), Error> {
-        let encoding =
-            Encoding::for_label(label.as_bytes()).ok_or_else(|| anyhow!("unknown encoding"))?;
-
-        self.encoding = encoding;
-
-        Ok(())
-    }
-
-    /// Returns the [`Document`]'s current encoding.
-    pub fn encoding(&self) -> &'static Encoding {
-        self.encoding
-    }
-
-    /// sets the document path without sending events to various
-    /// observers (like LSP), in most cases `Editor::set_doc_path`
-    /// should be used instead
-    pub(crate) fn set_path(&mut self, path: Option<&Path>) {
-        self.invalidate_blame();
-        self.hover.clear();
-        self.navigation.clear();
-        self.document_links.cancel_navigation();
-        self.reset_all_inlay_hints();
-        let path = path.map(stdx::path::canonicalize);
-
-        // `take` to remove any prior relative path that may have existed.
-        // This will get set in `relative_path()`.
-        self.relative_path.take();
-        self.display_path.take();
-        // Same story: invalidate so the next workspace_root() recomputes against the new path.
-        self.workspace_root.take();
-
-        // if parent doesn't exist we still want to open the document
-        // and error out when document is saved
-        self.path = path;
-
-        self.detect_readonly();
-        self.pickup_last_saved_time();
     }
 
     /// Set the language and load its syntax immediately for an explicit language command.
@@ -1100,42 +584,6 @@ impl Document {
         self.id
     }
 
-    /// If there are unsaved modifications.
-    pub fn is_modified(&self) -> bool {
-        let current_revision = self.buffer.current_revision();
-        log::debug!(
-            "id {} modified - last saved: {}, current: {}",
-            self.id,
-            self.last_saved_revision,
-            current_revision
-        );
-        current_revision != self.last_saved_revision || !self.buffer.changes().is_empty()
-    }
-
-    /// Save modifications to history, and so [`Self::is_modified`] will return false.
-    pub fn reset_modified(&mut self) {
-        let current_revision = self.buffer.current_revision();
-        self.last_saved_revision = current_revision;
-    }
-
-    /// Set the document's latest saved revision to the given one.
-    pub fn set_last_saved_revision(&mut self, rev: usize, save_time: SystemTime) {
-        log::debug!(
-            "doc {} revision updated {} -> {}",
-            self.id,
-            self.last_saved_revision,
-            rev
-        );
-        self.last_saved_revision = rev;
-        self.last_saved_time = save_time;
-        self.auto_reload_seen_mtime = None;
-    }
-
-    /// Get the document's latest saved revision.
-    pub fn get_last_saved_revision(&mut self) -> usize {
-        self.last_saved_revision
-    }
-
     /// Get the current revision number
     pub fn get_current_revision(&self) -> usize {
         self.buffer.current_revision()
@@ -1243,7 +691,7 @@ impl Document {
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
-        if self.binary {
+        if self.is_binary() {
             self.diff_handle = None;
         } else {
             match providers.get_diff_base(&path, trust_full) {
@@ -1261,11 +709,11 @@ impl Document {
 
     /// Initialize or update the differ for this document with a new base.
     pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
-        if self.binary {
+        if self.is_binary() {
             self.diff_handle = None;
             return;
         }
-        match from_reader(&mut diff_base.as_slice(), Some(self.encoding)) {
+        match from_reader(&mut diff_base.as_slice(), Some(self.encoding())) {
             Ok((diff_base, ..)) => {
                 if let Some(differ) = &self.diff_handle {
                     differ.update_diff_base(diff_base);
@@ -1335,25 +783,10 @@ impl Document {
         self.buffer.changes()
     }
 
-    #[inline]
-    /// File path on disk.
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
     /// Whether this file-backed document should display and maintain breadcrumbs.
     #[inline]
     pub fn breadcrumb_enabled(&self) -> bool {
-        self.path.is_some() && self.config.load().breadcrumb.enable
-    }
-
-    /// File path as a URL.
-    pub fn url(&self) -> Option<Url> {
-        Url::from_file_path(self.path()?).ok()
-    }
-
-    pub fn uri(&self) -> Option<editor_core::Uri> {
-        Some(self.path()?.into())
+        self.path().is_some() && self.config.load().breadcrumb.enable
     }
 
     /// Capture immutable text and its identity for saving or background work.
@@ -1403,46 +836,6 @@ impl Document {
 
     pub fn set_view_offset(&mut self, view_id: ViewId, new_offset: ViewPosition) {
         self.view_state_mut(view_id).position = new_offset;
-    }
-
-    pub fn relative_path(&self) -> Option<&Path> {
-        self.relative_path
-            .get_or_init(|| {
-                self.path
-                    .as_ref()
-                    .map(|path| stdx::path::get_relative_path(path).to_path_buf())
-            })
-            .as_deref()
-    }
-
-    /// The workspace root for this document — the nearest ancestor that contains a `.git`, `.svn`,
-    /// `.jj`, or `.mitos`. Falls back to the current working directory's workspace when the
-    /// document has no path (scratch buffers). Lazily memoised on first call.
-    pub fn workspace_root(&self) -> &Path {
-        self.workspace_root
-            .get_or_init(|| match self.path.as_deref() {
-                Some(p) => p
-                    .parent()
-                    .map(|dir| workspace::find_workspace_in(dir).0)
-                    .unwrap_or_else(|| workspace::find_workspace().0),
-                None => workspace::find_workspace().0,
-            })
-    }
-
-    /// A stable path for user-facing output, relative to this document's workspace when possible.
-    pub fn display_path(&self) -> Option<&Path> {
-        self.display_path
-            .get_or_init(|| {
-                self.path.as_deref().map(|path| {
-                    stdx::path::get_relative_path_from(path, self.workspace_root()).into_owned()
-                })
-            })
-            .as_deref()
-    }
-
-    pub fn display_name(&self) -> Cow<'_, str> {
-        self.display_path()
-            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }
 
     // transact(Fn) ?

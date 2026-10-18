@@ -21,7 +21,7 @@ impl Document {
 
     pub(crate) fn validate_changes(&self, changes: &ChangeSet) -> Result<(), EditError> {
         self.buffer.validate_changes(changes)?;
-        if self.binary && !changes.is_empty() {
+        if self.is_binary() && !changes.is_empty() {
             return Err(EditError::BinaryDocument);
         }
         Ok(())

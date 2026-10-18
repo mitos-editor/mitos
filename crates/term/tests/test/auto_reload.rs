@@ -82,11 +82,11 @@ async fn modified_buffers_prompt_once_and_reload_only_when_confirmed() -> anyhow
     }
     changed(&path, "external\n", 2)?;
     notify(&mut app, &path, EventType::Modified).await;
-    let seen = current_ref!(app.editor).1.auto_reload_seen_mtime;
+    let seen = current_ref!(app.editor).1.auto_reload_seen_mtime();
     assert!(seen.is_some());
     assert_eq!(text(&app), "local before\n");
     notify(&mut app, &path, EventType::Modified).await;
-    assert_eq!(current_ref!(app.editor).1.auto_reload_seen_mtime, seen);
+    assert_eq!(current_ref!(app.editor).1.auto_reload_seen_mtime(), seen);
     // One Escape must dismiss the only prompt. A second external edit prompts again.
     #[cfg(not(windows))]
     let escape = termina::event::Event::Key(ui_core::input::parse_macro("<esc>")?[0].into());
@@ -128,7 +128,10 @@ async fn focus_reloads_unwatched_files_and_own_saves_do_not_conflict() -> anyhow
     app.editor.save(id, None::<&Path>, false)?;
     app.editor.flush_writes().await?;
     notify(&mut app, &path, EventType::Modified).await;
-    assert!(current_ref!(app.editor).1.auto_reload_seen_mtime.is_none());
+    assert!(current_ref!(app.editor)
+        .1
+        .auto_reload_seen_mtime()
+        .is_none());
     assert!(!current_ref!(app.editor).1.is_modified());
     Ok(())
 }

@@ -135,7 +135,7 @@ impl ReloadRequest {
                     && doc.version() == self.version
                     && doc.last_saved_time() == self.saved
                     && doc.is_modified()
-                    && doc.auto_reload_seen_mtime == Some(self.modified)
+                    && doc.auto_reload_seen_mtime() == Some(self.modified)
             })
             && self.path.metadata().and_then(|meta| meta.modified()).ok() == Some(self.modified)
     }
@@ -144,11 +144,11 @@ impl ReloadRequest {
         if self.belongs_to(editor)
             && let Some(doc) = editor.documents.get_mut(&self.doc)
             && doc.path() == Some(self.path.as_path())
-            && doc.auto_reload_seen_mtime == Some(self.modified)
+            && doc.auto_reload_seen_mtime() == Some(self.modified)
         {
             // A later check may ask about the current state, rather than leaving
             // this external modification permanently suppressed by a stale prompt.
-            doc.auto_reload_seen_mtime = None;
+            doc.set_auto_reload_seen_mtime(None);
         }
     }
 }
@@ -204,7 +204,7 @@ pub fn check_unwatched(editor: &mut Editor) {
                 && let Some(path) = doc.path()
                 && let Ok(mtime) = path.metadata().and_then(|meta| meta.modified())
                 && mtime != doc.last_saved_time()
-                && doc.auto_reload_seen_mtime != Some(mtime)
+                && doc.auto_reload_seen_mtime() != Some(mtime)
             {
                 editor
                     .language_servers
@@ -230,11 +230,11 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
         // Keep the buffer when its file is deleted; a later recreation can reload it.
         return;
     };
-    if mtime == doc.last_saved_time() || doc.auto_reload_seen_mtime == Some(mtime) {
+    if mtime == doc.last_saved_time() || doc.auto_reload_seen_mtime() == Some(mtime) {
         return;
     }
     if doc.is_modified() {
-        doc.auto_reload_seen_mtime = Some(mtime);
+        doc.set_auto_reload_seen_mtime(Some(mtime));
         let display = doc.display_name().to_string();
         if editor.config().files.reload.prompt_if_modified {
             let doc = &editor.documents[&doc_id];
