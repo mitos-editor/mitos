@@ -2,11 +2,11 @@ use std::fmt::Write;
 
 use crate::{
     graphics::{Style, UnderlineStyle},
-    icons::ICONS,
     Document, Editor, View,
 };
 use editor_config::GutterType;
 use language_config::LanguageServerFeature;
+use theme::icons::ICONS;
 use theme::Theme;
 
 fn count_digits(n: usize) -> usize {

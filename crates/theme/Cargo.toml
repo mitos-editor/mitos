@@ -8,6 +8,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+arrayvec.workspace = true
 core.workspace = true
 ui-core.workspace = true
 loader.workspace = true

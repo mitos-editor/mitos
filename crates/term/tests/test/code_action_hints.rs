@@ -49,7 +49,12 @@ impl Fixture {
         config.editor.lsp.enable = true;
         config.editor.statusline.right = vec![StatusLineElement::CodeActionHint];
         let (tx, callbacks) = mpsc::channel(64);
+        let path = dir.join("document.action-test");
+        std::fs::write(&path, format!("😀 {word}\n"))?;
+        // Open the test document at startup so hint callbacks cannot target a
+        // scratch document that is replaced before the test processes them.
         let mut app = AppBuilder::new()
+            .with_file(path, None)
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
@@ -60,9 +65,6 @@ impl Fixture {
                 );
             })
             .build()?;
-        let path = dir.join("document.action-test");
-        std::fs::write(&path, format!("😀 {word}\n"))?;
-        app.editor.open(&path, Action::Replace)?;
         let (view, doc) = current!(app.editor);
         doc.set_selection(view.id, Selection::single(2, 5));
         Ok(Self {

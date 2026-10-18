@@ -16,6 +16,7 @@ use lsp_client::{
 };
 use std::{collections::HashSet, path::Path};
 use stdx::path;
+use theme::icons::ICONS;
 use theme::Theme;
 use tokio_stream::StreamExt;
 use tui::{
@@ -29,7 +30,6 @@ use view::{
     features::code_lenses::{self, CodeLensCommand},
     features::navigation::{self, Location, NavigationKind},
     features::signature_help::SignatureHelpInvoked,
-    icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };

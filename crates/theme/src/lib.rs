@@ -1,5 +1,7 @@
 //! Theme parsing, palette resolution, and style lookup without editor or protocol state.
 
+pub mod icons;
+
 use std::{collections::HashMap, sync::LazyLock};
 
 use anyhow::Result;

@@ -23,8 +23,9 @@ use std::{
 };
 use text_layout::char_idx_at_visual_offset;
 use text_layout::text_annotations::TextAnnotations;
+use theme::icons::ICONS;
 use tui::{buffer::Buffer as Surface, layout::Size};
-use view::{graphics::Rect, icons::ICONS, view::ViewPosition, Document, DocumentId, Editor};
+use view::{graphics::Rect, view::ViewPosition, Document, DocumentId, Editor};
 
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;

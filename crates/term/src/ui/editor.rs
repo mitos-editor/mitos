@@ -31,6 +31,7 @@ use std::{
 };
 use text_layout::text_annotations::TextAnnotations;
 use text_layout::visual_offset_from_block;
+use theme::icons::ICONS;
 use theme::Theme;
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
@@ -41,7 +42,6 @@ use view::{
     editor::CompleteAction,
     features::completion::CompletionItem,
     graphics::{Color, CursorKind, Modifier, Rect, Style},
-    icons::ICONS,
     Document, Editor, View, ViewId,
 };
 

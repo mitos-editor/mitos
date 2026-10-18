@@ -28,7 +28,6 @@ pub mod file_watcher;
 pub use ui_core::graphics;
 pub mod gutter;
 pub mod handlers;
-pub mod icons;
 pub mod info;
 pub mod language_servers;
 pub mod quicklist;

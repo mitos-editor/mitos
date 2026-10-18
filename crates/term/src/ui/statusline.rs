@@ -2,13 +2,13 @@ use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::{coords_at_pos, encoding, Position};
 use lsp_client::lsp::DiagnosticSeverity;
+use theme::icons::ICONS;
 use theme::Style;
 use view::document::DEFAULT_LANGUAGE_NAME;
 use view::graphics::RectExt as _;
 use view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
     graphics::Rect,
-    icons::ICONS,
     Document, Editor, View,
 };
 

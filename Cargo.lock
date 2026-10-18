@@ -4264,6 +4264,7 @@ name = "theme"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrayvec",
  "core",
  "loader",
  "log",
@@ -4662,7 +4663,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "arrayvec",
  "buffer",
  "clipboard",
  "command-line",

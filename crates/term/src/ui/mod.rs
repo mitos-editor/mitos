@@ -34,10 +34,10 @@ pub use select::Select;
 pub use spinner::{ProgressSpinners, Spinner};
 use stdx::rope;
 pub use text::Text;
+use theme::icons::ICONS;
 use theme::Theme;
 use view::{
     graphics::RectExt as _,
-    icons::ICONS,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Editor,
 };

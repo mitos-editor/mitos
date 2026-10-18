@@ -12,7 +12,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `editor-config` | Editor settings, defaults, custom command definitions, and serialization |
 | `language-config` | Language definitions and server feature configuration |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
-| `theme` | Theme interpretation, palette resolution, and style lookup |
+| `theme` | Theme interpretation, palette resolution, icons, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
 | `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
@@ -524,7 +524,7 @@ editor's resources, and `xtask theme-check` uses the same discovery and loading
 path with bundled-runtime roots. Configuration reloads continue to use the
 editor's selected theme resources.
 
-`view::icons` owns shared icon data, theme lookup, glyph padding, and width
+`theme::icons` owns shared icon data, theme lookup, glyph padding, and width
 calculations used by editor gutters and frontends. `term::ui::icon_span` converts
 that data into Ratatui text for pickers, completion, the bufferline, and statusline.
 `view` has no direct Ratatui dependency; shared geometry and style types still

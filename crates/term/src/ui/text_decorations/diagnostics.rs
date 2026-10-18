@@ -11,9 +11,10 @@ use view::annotations::diagnostics::{
     diagnostic_text_format, max_diagnostic_start, InlineDiagnosticAccumulator,
 };
 
+use theme::icons::ICONS;
 use theme::Style;
 use theme::Theme;
-use view::{icons::ICONS, Document};
+use view::Document;
 
 use crate::ui::document::{LinePos, TextRenderer};
 use crate::ui::text_decorations::Decoration;
