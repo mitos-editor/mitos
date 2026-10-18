@@ -21,6 +21,7 @@ pub mod inlay_hints;
 pub mod inline_completion;
 pub mod navigation;
 pub(crate) mod request;
+pub mod shell;
 pub mod signature_help;
 pub mod spelling;
 pub mod syntax;

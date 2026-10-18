@@ -492,6 +492,7 @@ impl Document {
             text: rope, binary, ..
         } = read_file(&mut file, Some(encoding))?;
         self.accepted_completions.cancel();
+        self.shell_filters.clear();
         // Reload may change the content type. Allow this replacement, then restore
         // the binary write guard before returning to the editor.
         let was_binary = std::mem::replace(&mut self.file.binary, false);
@@ -551,6 +552,7 @@ impl Document {
         self.navigation.clear();
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
+        self.shell_filters.clear();
         self.file.set_path(path);
 
         self.detect_readonly();

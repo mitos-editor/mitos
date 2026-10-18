@@ -388,9 +388,11 @@ impl Application {
                         // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed. Slow file I/O on Windows
                         // (atomic_save's rename/fsync dance over the still-open temp file) makes this race observable.
                         // Initial syntax must also settle before assertions; its completion can
-                        // schedule spelling checks. Both success and failure complete via jobs.
+                        // schedule spelling checks. Selection shell results must also settle before
+                        // command assertions inspect their edits. Completions arrive via jobs.
                         if _idle_handled
                             && !self.editor.has_pending_writes()
+                            && !self.editor.has_pending_shell_filters()
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                         {
                             return true;

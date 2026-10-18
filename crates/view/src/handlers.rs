@@ -213,6 +213,7 @@ fn register_hooks() {
         signature_help::register_hooks();
         hover::register_hooks();
         navigation::register_hooks();
+        crate::features::shell::register_hooks();
         inlay_hints::register_hooks();
         completion::register_hooks();
         word_index::register_hooks();

@@ -58,3 +58,7 @@ mod mode;
 
 #[path = "handler_setup/document_settings.rs"]
 mod document_settings;
+
+#[cfg(unix)]
+#[path = "handler_setup/shell.rs"]
+mod shell;

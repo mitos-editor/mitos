@@ -599,6 +599,19 @@ async fn test_multi_selection_shell_commands() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn typed_shell_commands_preserve_their_editing_behavior() -> anyhow::Result<()> {
+    for (command, expected) in [
+        (":pipe echo out<ret>", "a#[|out]#d\n"),
+        (":pipe-to echo unused<ret>", "a#[|bc]#d\n"),
+        (":insert-output echo out<ret>", "a#[|out]#bcd\n"),
+        (":append-output echo out<ret>", "abc#[|out]#d\n"),
+    ] {
+        test(("a#[|bc]#d\n", command, expected)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_undo_redo() -> anyhow::Result<()> {
     // A jumplist selection is created at a point which is undone.
     //

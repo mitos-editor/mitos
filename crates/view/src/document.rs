@@ -173,6 +173,7 @@ pub struct Document {
     // Dropping the document drops those controllers and cancels in-flight work.
     pub(crate) hover: HoverState,
     pub(crate) navigation: NavigationState,
+    pub(crate) shell_filters: crate::features::shell::ShellFilters,
     pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: InlineCompletions,
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
@@ -286,6 +287,7 @@ impl Document {
             inlay_hints: Default::default(),
             hover: Default::default(),
             navigation: Default::default(),
+            shell_filters: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
             indent_style: DEFAULT_INDENT,
@@ -508,6 +510,7 @@ impl Document {
         self.inlay_hints.remove_view(view_id);
         self.hover.remove_view(view_id);
         self.navigation.remove_view(view_id);
+        self.shell_filters.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
