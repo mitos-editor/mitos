@@ -100,7 +100,7 @@ async fn file_refresh_keeps_the_query_and_selected_path() -> anyhow::Result<()> 
     })
     .await?;
     let version = picker.version.load(atomic::Ordering::Relaxed);
-    picker.file_updates.as_mut().unwrap().checked -= Duration::from_secs(1);
+    changed(&mut app.editor, &root.join("a-keep.txt"), EventType::Create);
     until(&mut picker, &mut app, |picker| {
         picker.file_updates.as_ref().unwrap().pending.is_none()
     })
@@ -180,7 +180,7 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
     .with_file_updates(
         &app.editor,
         |data| &data.root,
-        |_, data, cancel| {
+        |_, _, data, cancel| {
             Box::pin(async move {
                 data.started.send(cancel)?;
                 std::future::pending().await
@@ -210,8 +210,14 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
         .await?
         .unwrap();
     assert!(!changed_root.is_canceled());
-    picker.file_updates.as_mut().unwrap().stop();
+    picker.version.fetch_add(1, atomic::Ordering::Relaxed);
+    draw(&mut picker, &mut app);
     assert!(changed_root.is_canceled());
+    let current_query = tokio::time::timeout(Duration::from_secs(5), workers.recv())
+        .await?
+        .unwrap();
+    picker.file_updates.as_mut().unwrap().stop();
+    assert!(current_query.is_canceled());
     draw(&mut picker, &mut app);
     let resumed = tokio::time::timeout(Duration::from_secs(5), workers.recv())
         .await?
@@ -219,5 +225,52 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
     assert!(!resumed.is_canceled());
     drop(picker);
     assert!(resumed.is_canceled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn content_refresh_preserves_the_selected_location_within_a_file() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("same-file.txt");
+    std::fs::write(&path, "before")?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new(
+            "path",
+            |item: &(PathBuf, usize), _: &PathBuf| item.0.to_string_lossy().into_owned().into(),
+        )],
+        0,
+        [(path.clone(), 0), (path.clone(), 1)],
+        dir.path().to_owned(),
+        |_, _, _| {},
+    )
+    .with_file_updates(
+        &app.editor,
+        |root| root,
+        |_, _, root, _| {
+            Box::pin(async move {
+                Ok(vec![
+                    (root.join("another-file.txt"), 0),
+                    (root.join("same-file.txt"), 0),
+                    (root.join("same-file.txt"), 1),
+                ])
+            })
+        },
+        |item| &item.0,
+    )
+    .refresh_on_content_changes();
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 2
+    })
+    .await?;
+    picker.cursor = 1;
+    changed(&mut app.editor, &path, EventType::Modified);
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 3
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&(path, 1)));
+    assert_eq!(picker.cursor, 2);
     Ok(())
 }

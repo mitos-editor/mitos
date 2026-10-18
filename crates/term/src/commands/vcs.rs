@@ -55,38 +55,70 @@ pub(super) fn changed_file_picker_in_repository(cx: &mut Context) {
     );
 }
 
-fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope) {
-    struct ChangedFileEntry {
-        change: FileChange,
-        display_path: String,
-    }
+#[derive(Clone, PartialEq, Eq)]
+struct ChangedFileEntry {
+    change: FileChange,
+    display_path: String,
+}
 
+fn display_path(change: &FileChange, worktree_root: &Path) -> String {
+    let display_path = |path: &Path| {
+        stdx::path::get_relative_path_from(path, worktree_root)
+            .display()
+            .to_string()
+    };
+
+    match change {
+        FileChange::Untracked { path }
+        | FileChange::Added { path }
+        | FileChange::Modified { path }
+        | FileChange::Conflict { path }
+        | FileChange::Deleted { path } => display_path(path),
+        FileChange::Renamed { from_path, to_path } => {
+            format!("{} -> {}", display_path(from_path), display_path(to_path))
+        }
+    }
+}
+
+fn refresh_changed_files(
+    providers: vcs::DiffProviderRegistry,
+    scope: vcs::ChangedFileScope,
+    trust_full: bool,
+    display_root: Option<std::path::PathBuf>,
+    cancel: event::TaskHandle,
+) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<ChangedFileEntry>>> {
+    Box::pin(async move {
+        let (tx, mut results) = tokio::sync::mpsc::unbounded_channel();
+        providers.for_each_changed_file(scope, trust_full, move |root, change| {
+            if cancel.is_canceled() {
+                return false;
+            }
+            tx.send(change.map(|change| ChangedFileEntry {
+                display_path: display_path(&change, display_root.as_deref().unwrap_or(root)),
+                change,
+            }))
+            .is_ok()
+        });
+        let mut entries = Vec::new();
+        while let Some(entry) = results.recv().await {
+            entries.push(entry?);
+        }
+        entries.sort_by(|left, right| left.change.path().cmp(right.change.path()));
+        Ok(entries)
+    })
+}
+
+fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope) {
     pub struct FileChangeData {
+        scope: vcs::ChangedFileScope,
+        workspace_root: std::path::PathBuf,
+        display_root: Option<std::path::PathBuf>,
         icons: bool,
         style_untracked: Style,
         style_modified: Style,
         style_conflict: Style,
         style_deleted: Style,
         style_renamed: Style,
-    }
-
-    fn display_path(change: &FileChange, worktree_root: &Path) -> String {
-        let display_path = |path: &Path| {
-            stdx::path::get_relative_path_from(path, worktree_root)
-                .display()
-                .to_string()
-        };
-
-        match change {
-            FileChange::Untracked { path }
-            | FileChange::Added { path }
-            | FileChange::Modified { path }
-            | FileChange::Conflict { path }
-            | FileChange::Deleted { path } => display_path(path),
-            FileChange::Renamed { from_path, to_path } => {
-                format!("{} -> {}", display_path(from_path), display_path(to_path))
-            }
-        }
     }
 
     fn change_column<'a>(entry: &'a ChangedFileEntry, data: &FileChangeData) -> Cell<'a> {
@@ -169,6 +201,9 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         1, // path
         [],
         FileChangeData {
+            scope: scope.clone(),
+            workspace_root: workspace_root.clone(),
+            display_root: display_root.clone(),
             icons: cx.editor.config().icons,
             style_untracked: added,
             style_modified: modified,
@@ -189,7 +224,26 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             }
         },
     )
-    .with_preview(|_editor, entry| Some((entry.change.path().into(), None)));
+    .with_preview(|_editor, entry| Some((entry.change.path().into(), None)))
+    .with_file_updates(
+        cx.editor,
+        |data| &data.workspace_root,
+        |_, editor, data, cancel| {
+            let trust_full = editor
+                .workspace_trust
+                .query(&data.workspace_root, workspace::trust::TrustQuery::Git)
+                .is_trusted();
+            refresh_changed_files(
+                editor.diff_providers.clone(),
+                data.scope.clone(),
+                trust_full,
+                data.display_root.clone(),
+                cancel,
+            )
+        },
+        |entry| entry.change.path(),
+    )
+    .refresh_on_content_changes();
     let injector = picker.injector();
 
     let trust_full = cx
@@ -389,6 +443,70 @@ pub(super) mod typed {
             "Restored {changes} change{}",
             if changes == 1 { "" } else { "s" }
         ));
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "git"))]
+mod file_refresh_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn refreshed_status_follows_worktree_and_index_changes() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let git = |args: &[&str]| -> anyhow::Result<()> {
+            let result = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .env_remove("GIT_DIR")
+                .output()?;
+            anyhow::ensure!(
+                result.status.success(),
+                "git failed: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            Ok(())
+        };
+        git(&["init", "-q"])?;
+        let path = dir.path().join("new.txt");
+        std::fs::write(&path, "new\n")?;
+        let scope = vcs::ChangedFileScope::Directory(dir.path().to_owned());
+        let mut task = event::TaskController::new();
+        let entries = refresh_changed_files(
+            vcs::DiffProviderRegistry::default(),
+            scope.clone(),
+            false,
+            None,
+            task.restart(),
+        )
+        .await?;
+        assert_eq!(entries.len(), 1);
+        assert!(
+            matches!(&entries[0].change, FileChange::Untracked { path: found } if found == &path)
+        );
+        git(&["add", "new.txt"])?;
+        let entries = refresh_changed_files(
+            vcs::DiffProviderRegistry::default(),
+            scope.clone(),
+            false,
+            None,
+            task.restart(),
+        )
+        .await?;
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].change, FileChange::Added { path: found } if found == &path));
+        git(&["rm", "--cached", "new.txt"])?;
+        std::fs::remove_file(&path)?;
+        assert!(refresh_changed_files(
+            vcs::DiffProviderRegistry::default(),
+            scope,
+            false,
+            None,
+            task.restart()
+        )
+        .await?
+        .is_empty());
         Ok(())
     }
 }

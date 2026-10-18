@@ -323,7 +323,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     .with_file_updates(
         editor,
         |data| &data.root,
-        |editor, data, cancel| {
+        |_, editor, data, cancel| {
             let config = editor.config().file_picker.clone();
             Box::pin(async move {
                 Ok(tokio::task::spawn_blocking(move || {
@@ -440,7 +440,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
     .with_file_updates(
         editor,
         |data| &data.0,
-        |editor, data, cancel| {
+        |_, editor, data, cancel| {
             let config = editor.config().file_explorer.clone();
             Box::pin(async move {
                 Ok(tokio::task::spawn_blocking(move || {

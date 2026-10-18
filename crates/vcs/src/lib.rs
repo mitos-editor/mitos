@@ -34,6 +34,7 @@ mod status;
 pub use status::FileChange;
 
 /// Selects which changed files a status query should return.
+#[derive(Clone)]
 pub enum ChangedFileScope {
     /// Return only changes beneath this directory.
     Directory(PathBuf),

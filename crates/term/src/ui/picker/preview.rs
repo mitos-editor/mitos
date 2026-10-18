@@ -151,8 +151,21 @@ pub(super) struct FilePreview {
 }
 
 struct CacheEntry {
+    canonical_path: PathBuf,
     stamp: Option<FileStamp>,
     preview: CachedPreview,
+    checked: tokio::time::Instant,
+}
+
+impl CacheEntry {
+    fn new(path: &Path, stamp: Option<FileStamp>, preview: CachedPreview) -> Self {
+        Self {
+            canonical_path: stdx::path::canonicalize_existing(path),
+            stamp,
+            preview,
+            checked: tokio::time::Instant::now(),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -247,7 +260,11 @@ impl FilePreview {
     }
 
     fn remove(&mut self, path: &Path) {
-        invalidate_cached_image(path);
+        let canonical_path = self
+            .preview_cache
+            .get(path)
+            .map_or(path, |entry| entry.canonical_path.as_path());
+        invalidate_cached_image(canonical_path);
         if self.syntax_path.as_deref() == Some(path)
             || self
                 .image_task
@@ -269,9 +286,9 @@ impl FilePreview {
                 Ok(events) => {
                     let paths: Vec<_> = self
                         .preview_cache
-                        .keys()
-                        .filter(|path| {
-                            let path = stdx::path::canonicalize_existing(path);
+                        .iter()
+                        .filter(|(_, entry)| {
+                            let path = &entry.canonical_path;
                             events.iter().any(|event| {
                                 if event.ty == view::file_watcher::EventType::Tempfile {
                                     return false;
@@ -282,15 +299,15 @@ impl FilePreview {
                                     || is_ignore_file(changed)
                             })
                         })
-                        .cloned()
+                        .map(|(path, _)| path.clone())
                         .collect();
                     for path in paths {
                         self.remove(&path);
                     }
                 }
                 Err(TryRecvError::Lagged(_)) => {
-                    for path in self.preview_cache.keys() {
-                        invalidate_cached_image(path);
+                    for entry in self.preview_cache.values() {
+                        invalidate_cached_image(&entry.canonical_path);
                     }
                     self.clear();
                 }
@@ -339,11 +356,14 @@ impl FilePreview {
                 }
 
                 let stamp = FileStamp::read(path);
-                if self
-                    .preview_cache
-                    .get(path)
-                    .is_some_and(|entry| entry.stamp != stamp)
-                {
+                let poll = &editor.config().files.reload.poll;
+                if self.preview_cache.get(path).is_some_and(|entry| {
+                    entry.stamp != stamp
+                        || (matches!(entry.preview, CachedPreview::Directory(_))
+                            && poll.enable
+                            && entry.checked.elapsed()
+                                >= Duration::from_millis(poll.interval.max(100)))
+                }) {
                     self.remove(path);
                 }
                 if matches!(self.preview_cache.get(path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))
@@ -369,13 +389,14 @@ impl FilePreview {
                         .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                     self.preview_cache.insert(
                         path.clone(),
-                        CacheEntry {
+                        CacheEntry::new(
+                            &path,
                             stamp,
-                            preview: CachedPreview::Image(Box::new(ImagePreview::Ready {
+                            CachedPreview::Image(Box::new(ImagePreview::Ready {
                                 size: image_size,
                                 image,
                             })),
-                        },
+                        ),
                     );
                     return Some((
                         Preview::Cached(&mut self.preview_cache.get_mut(&path).unwrap().preview),
@@ -445,7 +466,7 @@ impl FilePreview {
                         .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                 }
                 self.preview_cache
-                    .insert(path.clone(), CacheEntry { stamp, preview });
+                    .insert(path.clone(), CacheEntry::new(&path, stamp, preview));
                 self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(

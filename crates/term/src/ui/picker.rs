@@ -230,7 +230,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
     poll: Option<PollTask>,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
-    restore_selection: Option<std::path::PathBuf>,
+    restore_selection: Option<T>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.

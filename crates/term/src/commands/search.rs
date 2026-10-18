@@ -338,17 +338,66 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
     }
 }
 
+struct GlobalSearchConfig {
+    root: std::path::PathBuf,
+    smart_case: bool,
+    options: ::search::Options,
+    style: PathStyleConfig,
+}
+
+fn refresh_global_search(
+    query: &str,
+    editor: &Editor,
+    config: std::sync::Arc<GlobalSearchConfig>,
+    cancel: event::TaskHandle,
+) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<::search::Match>>> {
+    let search = if query.is_empty() {
+        None
+    } else {
+        Some(::search::Search::new(query, config.smart_case))
+    };
+    let documents = editor
+        .documents()
+        .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
+        .collect();
+    Box::pin(async move {
+        let Some(search) = search else {
+            return Ok(Vec::new());
+        };
+        let search = search?;
+        Ok(tokio::task::spawn_blocking(move || {
+            let results = std::sync::Mutex::new(Vec::new());
+            search.run(
+                &config.root,
+                &config.options,
+                &documents,
+                || cancel.is_canceled(),
+                |mut matched| {
+                    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
+                    results.lock().unwrap().push(matched);
+                    std::ops::ControlFlow::Continue(())
+                },
+            );
+            let mut results = results.into_inner().unwrap();
+            results.sort_by(|left, right| {
+                (&left.path, left.line_start, left.match_start_col).cmp(&(
+                    &right.path,
+                    right.line_start,
+                    right.match_start_col,
+                ))
+            });
+            results
+        })
+        .await?)
+    })
+}
+
 pub(super) fn global_search(cx: &mut Context) {
     use ::search::Match as FileResult;
 
-    struct GlobalSearchConfig {
-        smart_case: bool,
-        options: ::search::Options,
-        style: PathStyleConfig,
-    }
-
     let config = cx.editor.config();
     let config = GlobalSearchConfig {
+        root: stdx::env::current_working_dir(),
         smart_case: config.search.smart_case,
         options: ::search::Options {
             hidden: config.file_picker.hidden,
@@ -382,7 +431,7 @@ pub(super) fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = stdx::env::current_working_dir();
+        let search_root = config.root.clone();
         if !search_root.exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
@@ -495,7 +544,14 @@ pub(super) fn global_search(cx: &mut Context) {
         })
     })
     .with_history_register(Some(reg))
-    .with_dynamic_query(get_files, Some(275), cx.jobs);
+    .with_dynamic_query(get_files, Some(275), cx.jobs)
+    .with_file_updates(
+        cx.editor,
+        |config| &config.root,
+        refresh_global_search,
+        |item| &item.path,
+    )
+    .refresh_on_content_changes();
 
     cx.push_layer(Box::new(overlaid(picker)));
 }
@@ -535,5 +591,71 @@ mod tests {
             selection_for_global_search_match(text.slice(..), 0, start_col, 0, end_col).unwrap();
 
         assert_eq!(selection.primary().fragment(text.slice(..)), "search");
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test]
+    async fn refreshed_search_reads_external_changes_and_keeps_open_buffers_authoritative(
+    ) -> anyhow::Result<()> {
+        use crate::{application::Application, config::Config};
+        use std::sync::Arc;
+
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.enable = false;
+        let mut app = Application::new(
+            Default::default(),
+            config,
+            language::syntax::Loader::new(
+                language_config::Configuration {
+                    language: vec![],
+                    language_server: Default::default(),
+                },
+                Default::default(),
+            )?,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        )?;
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "needle\nneedle\n")?;
+        let config = Arc::new(GlobalSearchConfig {
+            root: dir.path().to_owned(),
+            smart_case: true,
+            options: ::search::Options::default(),
+            style: PathStyleConfig::new(&app.editor),
+        });
+        let mut task = event::TaskController::new();
+        let results =
+            refresh_global_search("needle", &app.editor, config.clone(), task.restart()).await?;
+        assert_eq!(results.len(), 2);
+        std::fs::write(&path, "other\n")?;
+        assert!(
+            refresh_global_search("needle", &app.editor, config.clone(), task.restart())
+                .await?
+                .is_empty()
+        );
+        app.editor.open(&path, view::editor::Action::Load)?;
+        std::fs::write(&path, "needle on disk\n")?;
+        let results =
+            refresh_global_search("other", &app.editor, config.clone(), task.restart()).await?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].line_start, 0);
+        assert!(
+            refresh_global_search("needle", &app.editor, config.clone(), task.restart())
+                .await?
+                .is_empty()
+        );
+        assert!(
+            refresh_global_search("", &app.editor, config.clone(), task.restart())
+                .await?
+                .is_empty()
+        );
+        let cancel = task.restart();
+        task.cancel();
+        assert!(refresh_global_search("other", &app.editor, config, cancel)
+            .await?
+            .is_empty());
+        Ok(())
     }
 }

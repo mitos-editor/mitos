@@ -15,7 +15,8 @@ use view::{
 
 use super::{preview::is_ignore_file, Picker};
 
-type Refresh<T, D> = fn(&Editor, Arc<D>, TaskHandle) -> BoxFuture<'static, anyhow::Result<Vec<T>>>;
+type Refresh<T, D> =
+    fn(&str, &Editor, Arc<D>, TaskHandle) -> BoxFuture<'static, anyhow::Result<Vec<T>>>;
 
 pub(super) struct FileUpdates<T, D> {
     events: broadcast::Receiver<Events>,
@@ -23,20 +24,19 @@ pub(super) struct FileUpdates<T, D> {
     refresh: Refresh<T, D>,
     item_path: fn(&T) -> &Path,
     same: fn(&T, &T) -> bool,
+    clone_item: fn(&T) -> T,
     checked: Instant,
     dirty: bool,
     task: TaskController,
     pending: Option<Pending<T, D>>,
+    include_modified: bool,
 }
 
 struct Pending<T, D> {
+    version: usize,
     data: Arc<D>,
     result: oneshot::Receiver<anyhow::Result<Vec<T>>>,
 }
-
-#[cfg(all(test, feature = "integration"))]
-#[path = "file_updates_tests.rs"]
-mod tests;
 
 impl<T, D> FileUpdates<T, D> {
     pub(super) fn stop(&mut self) {
@@ -55,7 +55,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         item_path: fn(&T) -> &Path,
     ) -> Self
     where
-        T: PartialEq,
+        T: PartialEq + Clone,
     {
         self.file_updates = Some(FileUpdates {
             events: editor.file_watcher.subscribe(),
@@ -63,11 +63,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             refresh,
             item_path,
             same: T::eq,
+            clone_item: T::clone,
             checked: Instant::now(),
             dirty: false,
             task: TaskController::new(),
             pending: None,
+            include_modified: false,
         });
+        self
+    }
+
+    /// Search and VCS rows depend on file contents as well as directory membership.
+    pub(crate) fn refresh_on_content_changes(mut self) -> Self {
+        if let Some(updates) = &mut self.file_updates {
+            updates.include_modified = true;
+        }
         self
     }
 
@@ -86,7 +96,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         let path = event.path.as_std_path();
                         event.ty != EventType::Tempfile
                             && (is_ignore_file(path)
-                                || (event.ty != EventType::Modified
+                                || ((updates.include_modified
+                                    || event.ty != EventType::Modified
+                                    || path.is_dir())
                                     && (path.starts_with(&root) || root.starts_with(path))))
                     })
                 }
@@ -100,11 +112,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
         }
 
-        if updates
-            .pending
-            .as_ref()
-            .is_some_and(|pending| !Arc::ptr_eq(&pending.data, &self.editor_data))
-        {
+        if updates.pending.as_ref().is_some_and(|pending| {
+            !Arc::ptr_eq(&pending.data, &self.editor_data)
+                || pending.version != self.version.load(std::sync::atomic::Ordering::Relaxed)
+        }) {
             updates.stop();
         }
         if let Some(pending) = &mut updates.pending {
@@ -125,9 +136,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                             .is_some_and(|old| (updates.same)(old.data, item))
                                     });
                                 if !same {
-                                    self.restore_selection = self
-                                        .selection()
-                                        .map(|item| (updates.item_path)(item).to_owned());
+                                    self.restore_selection =
+                                        self.selection().map(updates.clone_item);
                                     self.refreshing = true;
                                     self.reset_options_shared(options, self.editor_data.clone());
                                 }
@@ -156,9 +166,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             updates.dirty = false;
             updates.checked = Instant::now();
             let cancel = updates.task.restart();
-            let load = (updates.refresh)(editor, self.editor_data.clone(), cancel.clone());
+            let version = self.version.load(std::sync::atomic::Ordering::Relaxed);
+            let load = (updates.refresh)(
+                &self.primary_query(),
+                editor,
+                self.editor_data.clone(),
+                cancel.clone(),
+            );
             let (tx, result) = oneshot::channel();
             updates.pending = Some(Pending {
+                version,
                 data: self.editor_data.clone(),
                 result,
             });
@@ -177,18 +194,29 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     pub(super) fn restore_file_selection(&mut self) {
-        let Some(path) = self.restore_selection.take() else {
+        let Some(selected) = self.restore_selection.take() else {
             return;
         };
         let Some(updates) = &self.file_updates else {
             return;
         };
         let snapshot = self.matcher.snapshot();
-        if let Some(index) = snapshot
-            .matched_items(0..snapshot.matched_item_count())
-            .position(|item| (updates.item_path)(item.data) == path)
-        {
+        let mut items = snapshot.matched_items(0..snapshot.matched_item_count());
+        let index = items
+            .position(|item| (updates.same)(item.data, &selected))
+            .or_else(|| {
+                snapshot
+                    .matched_items(0..snapshot.matched_item_count())
+                    .position(|item| {
+                        (updates.item_path)(item.data) == (updates.item_path)(&selected)
+                    })
+            });
+        if let Some(index) = index {
             self.cursor = index as u32;
         }
     }
 }
+
+#[cfg(all(test, feature = "integration"))]
+#[path = "file_updates_tests.rs"]
+mod tests;

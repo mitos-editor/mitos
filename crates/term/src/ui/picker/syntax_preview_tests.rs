@@ -22,11 +22,16 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> anyhow::Result<Self> {
+        Self::with_config(|_| {})
+    }
+
+    fn with_config(configure: impl FnOnce(&mut Config)) -> anyhow::Result<Self> {
         let mut config = Config::default();
         config.editor.lsp.enable = false;
         config.editor.files.watch.enable = false;
         config.editor.files.reload.enable = false;
         config.editor.completion.word.enable = false;
+        configure(&mut config);
         let loader = syntax::Loader::new(
             toml::from_str(
                 r#"
@@ -224,6 +229,69 @@ async fn preview_keeps_the_open_buffer_authoritative() -> anyhow::Result<()> {
     fixture.app.editor.open(&path, Action::Load)?;
     std::fs::write(&path, "external change\n")?;
     assert_eq!(fixture.read_preview(&path).as_deref(), Some("buffer\n"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_changes(
+) -> anyhow::Result<()> {
+    let mut fixture = Fixture::with_config(|config| {
+        config.editor.file_explorer.ignore = true;
+        config.editor.files.reload.poll.interval = 100;
+    })?;
+    let root = fixture.dir.path().to_owned();
+    let child = root.join("file.txt");
+    std::fs::write(&child, "file")?;
+    std::fs::write(root.join(".ignore"), "")?;
+    fixture.read_preview(&root);
+    let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*root].preview
+    else {
+        panic!("expected directory");
+    };
+    assert!(entries.iter().any(|(path, _)| path == &child));
+    std::fs::write(root.join(".ignore"), "file.txt\n")?;
+    tokio::time::sleep(Duration::from_millis(110)).await;
+    fixture.read_preview(&root);
+    let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*root].preview
+    else {
+        panic!("expected directory");
+    };
+    assert!(!entries.iter().any(|(path, _)| path == &child));
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.preview("short.json");
+    let mut entry = fixture
+        .picker()
+        .preview
+        .preview_cache
+        .remove(&path)
+        .unwrap();
+    let config = Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut fixture.app.editor,
+        jobs: &mut fixture.jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let area = Rect::new(0, 0, 30, 20);
+    render_preview_content(
+        Preview::Cached(&mut entry.preview),
+        Some((100, 150)),
+        area,
+        area,
+        &mut Surface::empty(area),
+        &cx,
+    );
     Ok(())
 }
 
