@@ -87,7 +87,7 @@ impl Registers {
         }
     }
 
-    pub fn push(&mut self, name: char, mut value: String) -> Result<()> {
+    pub fn push(&mut self, name: char, value: String) -> Result<()> {
         match name {
             '_' => Ok(()),
             '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support pushing")),
@@ -98,18 +98,19 @@ impl Registers {
                     _ => unreachable!(),
                 };
                 let contents = self.clipboard.get_contents(clipboard_type)?;
-                let saved_values = self.inner.entry(name).or_default();
+                let saved_values = self.inner.get(&name).map(Vec::as_slice).unwrap_or_default();
 
                 if !contents_are_saved(saved_values, &contents) {
                     anyhow::bail!("Failed to push to register {name}: clipboard does not match register contents");
                 }
 
-                saved_values.push(value.clone());
+                let mut updated = value.clone();
                 if !contents.is_empty() {
-                    value.push_str(NATIVE_LINE_ENDING.as_str());
+                    updated.push_str(NATIVE_LINE_ENDING.as_str());
                 }
-                value.push_str(&contents);
-                self.clipboard.set_contents(&value, clipboard_type)?;
+                updated.push_str(&contents);
+                self.clipboard.set_contents(&updated, clipboard_type)?;
+                self.inner.entry(name).or_default().push(value);
 
                 Ok(())
             }
@@ -244,7 +245,7 @@ fn contents_are_saved(saved_values: &[String], mut contents: &str) -> bool {
         }
     }
 
-    true
+    contents.is_empty()
 }
 
 // This is a wrapper of an iterator that is both double ended and exact size,

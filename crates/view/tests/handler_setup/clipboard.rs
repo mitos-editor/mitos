@@ -221,3 +221,71 @@ async fn contextual_registers_follow_the_focused_selection_and_document() -> any
     assert_eq!(saved, ["saved one", "saved two"]);
     Ok(())
 }
+
+#[tokio::test]
+async fn external_clipboard_suffixes_are_not_saved_selections() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("")?;
+    let state = Arc::new(std::sync::Mutex::new(ClipboardState::default()));
+    fixture
+        .editor
+        .registers
+        .set_clipboard_backend(Box::new(MemoryClipboard(state.clone())));
+    for (register, slot) in [('+', 0), ('*', 1)] {
+        for values in [vec!["foo".into()], vec!["α".into(), "β".into()]] {
+            fixture.editor.registers.write(register, values.clone())?;
+            let external = {
+                let mut state = state.lock().unwrap();
+                state.contents[slot].push_str("bar");
+                state.contents[slot].clone()
+            };
+            assert_eq!(clipboard_values(&fixture.editor, register), [external]);
+            assert!(fixture
+                .editor
+                .registers
+                .push(register, "new".into())
+                .is_err());
+            state.lock().unwrap().unreadable = true;
+            assert_eq!(clipboard_values(&fixture.editor, register), values);
+            state.lock().unwrap().unreadable = false;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_clipboard_push_preserves_saved_selections() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("")?;
+    let state = Arc::new(std::sync::Mutex::new(ClipboardState::default()));
+    fixture
+        .editor
+        .registers
+        .set_clipboard_backend(Box::new(MemoryClipboard(state.clone())));
+    for (register, slot) in [('+', 0), ('*', 1)] {
+        fixture
+            .editor
+            .registers
+            .write(register, vec!["one".into(), "two".into()])?;
+        let original = state.lock().unwrap().contents[slot].clone();
+        state.lock().unwrap().fail_writes = true;
+        assert!(fixture
+            .editor
+            .registers
+            .push(register, "failed".into())
+            .is_err());
+        assert_eq!(state.lock().unwrap().contents[slot], original);
+        assert_eq!(clipboard_values(&fixture.editor, register), ["one", "two"]);
+        state.lock().unwrap().unreadable = true;
+        assert_eq!(clipboard_values(&fixture.editor, register), ["one", "two"]);
+        {
+            let mut state = state.lock().unwrap();
+            state.fail_writes = false;
+            state.unreadable = false;
+        }
+        fixture.editor.registers.push(register, "zero".into())?;
+        assert_eq!(
+            clipboard_values(&fixture.editor, register),
+            ["zero", "one", "two"]
+        );
+    }
+    Ok(())
+}
