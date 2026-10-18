@@ -695,6 +695,15 @@ impl Application {
                 crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
                 self.render().await;
             }
+            EditorEvent::BlameDetails(update) => {
+                crate::ui::blame::show(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    update,
+                    &self.config.load(),
+                );
+                self.render().await;
+            }
             EditorEvent::SignatureHelp(update) => {
                 crate::handlers::signature_help::show_signature_help(
                     &mut self.editor,

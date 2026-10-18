@@ -12,9 +12,7 @@ use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, icons::ICONS, Editor};
 
 pub(super) fn blame_line(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    cx.editor
-        .blame_line(doc.id(), doc.cursor_line(view.id) as u32);
+    view::features::blame::request_details(cx.editor);
 }
 
 pub(super) fn toggle_inline_blame(cx: &mut Context) {
@@ -322,8 +320,19 @@ pub(super) mod typed {
     use anyhow::bail;
     use editor_core::{Tendril, Transaction};
 
+    pub(in crate::commands) fn blame(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            view::features::blame::request_details(cx.editor);
+        }
+        Ok(())
+    }
+
     #[cold]
-    pub(in crate::commands) fn reset_diff_change(
+    pub(in crate::commands) fn restore_change(
         cx: &mut compositor::Context,
         _args: Args,
         event: PromptEvent,
@@ -369,7 +378,7 @@ pub(super) mod typed {
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
         cx.editor.set_status(format!(
-            "Reset {changes} change{}",
+            "Restored {changes} change{}",
             if changes == 1 { "" } else { "s" }
         ));
         Ok(())

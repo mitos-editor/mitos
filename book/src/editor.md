@@ -253,7 +253,7 @@ Press `Space + B` to toggle inline blame off and on. The toggle preserves your c
 
 Blank lines and lines with uncommitted changes do not show inline blame.
 
-To show the current line's blame in the status area, run `blame_line` from the command palette (`Space + ?`).
+To inspect the current line's commit, run `:blame` or `blame_line` from the command palette (`Space + ?`). The [blame popup](./version-control.md#blame-details) shows the commit message and provides copy actions.
 
 #### `format`
 

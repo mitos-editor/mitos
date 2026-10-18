@@ -1,7 +1,7 @@
 use crate::keymap;
 use crate::keymap::component::{
-    ComponentKeymaps, MenuAction, PageAction, PickerAction, PickerItemAction, PopupAction,
-    PromptAction,
+    BlameAction, ComponentKeymaps, MenuAction, PageAction, PickerAction, PickerItemAction,
+    PopupAction, PromptAction,
 };
 use crate::keymap::KeyTrie;
 pub use crate::terminal_launcher::TerminalLauncherConfig;
@@ -147,6 +147,7 @@ pub struct Keys {
     popup: Keymap<PopupAction>,
     hover: Keymap<PageAction>,
     signature_help: Keymap<PageAction>,
+    blame: Keymap<BlameAction>,
 }
 
 impl Keys {
@@ -175,6 +176,7 @@ impl Keys {
         components.popup.merge(self.popup);
         components.hover.merge(self.hover);
         components.signature_help.merge(self.signature_help);
+        components.blame.merge(self.blame);
         self.buffer_picker.map_actions(|action| action.0)
     }
 }

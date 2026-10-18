@@ -64,8 +64,13 @@ async fn wait_for_blame(f: &mut Fixture) -> anyhow::Result<()> {
 async fn wait_for_diff(f: &Fixture) -> anyhow::Result<()> {
     // Blame and the document diff are computed by independent workers.
     tokio::time::timeout(Duration::from_secs(5), async {
-        while current_ref!(f.editor).1.diff_handle().unwrap().load().doc()
-            != current_ref!(f.editor).1.text()
+        while !current_ref!(f.editor)
+            .1
+            .diff_handle()
+            .unwrap()
+            .load()
+            .doc()
+            .is_instance(current_ref!(f.editor).1.text())
         {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
@@ -527,5 +532,111 @@ async fn configured_visible_blame_fetches_without_a_manual_toggle() -> anyhow::R
         current_ref!(f.editor).1.line_blame(0, "{title}").unwrap(),
         "initial"
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn details_load_with_inline_blame_hidden_and_ignore_the_inline_format() -> anyhow::Result<()>
+{
+    use view::features::blame::{next_update, request_details};
+
+    let mut f = Fixture::new("committed\n")?;
+    prepare(
+        &mut f,
+        "initial\n\nFull message with **literal** Markdown.\n\nAnother paragraph.",
+    );
+    f.configure(|config| config.inline_blame.format.clear());
+    request_details(&mut f.editor);
+    wait_for_blame(&mut f).await?;
+    let details = next_update(&f.editor)
+        .expect("details ready")
+        .resolve(&f.editor)
+        .unwrap()
+        .unwrap();
+    assert_eq!(details.commit_id.len(), 40);
+    assert!(details
+        .commit_id
+        .bytes()
+        .all(|byte| byte.is_ascii_hexdigit()));
+    assert_eq!(details.author_name.as_deref(), Some("Test Author"));
+    assert_eq!(details.author_email.as_deref(), Some("test@example.com"));
+    assert_eq!(details.commit_title.as_deref(), Some("initial"));
+    assert!(details.commit_body.unwrap().contains("Another paragraph."));
+    assert_eq!(f.editor.config().inline_blame.show, InlineBlameShow::Never);
+
+    f.replace("new\ncommitted\n");
+    wait_for_diff(&f).await?;
+    request_details(&mut f.editor);
+    assert_eq!(
+        next_update(&f.editor)
+            .unwrap()
+            .resolve(&f.editor)
+            .unwrap()
+            .unwrap_err(),
+        "Not committed yet"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_details_do_not_survive_edits_or_repository_refreshes() -> anyhow::Result<()> {
+    use view::features::blame::{next_update, request_details};
+
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    request_details(&mut f.editor);
+    wait_for_blame(&mut f).await?;
+    let update = next_update(&f.editor).unwrap();
+    f.replace("changed\n");
+    assert!(update.resolve(&f.editor).is_none());
+    f.replace("committed\n");
+    wait_for_diff(&f).await?;
+    request_details(&mut f.editor);
+    let update = next_update(&f.editor).unwrap();
+    current!(f.editor)
+        .1
+        .refresh_vcs(&f.editor.diff_providers, true);
+    assert!(update.resolve(&f.editor).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn details_are_discarded_after_moving_the_cursor_or_switching_buffers() -> anyhow::Result<()>
+{
+    use view::features::blame::{next_update, request_details};
+
+    let mut f = Fixture::new("first\nsecond\n")?;
+    prepare(&mut f, "initial");
+    request_details(&mut f.editor);
+    wait_for_blame(&mut f).await?;
+    let update = next_update(&f.editor).unwrap();
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(view.id, Selection::point(6));
+    assert!(update.resolve(&f.editor).is_none());
+    request_details(&mut f.editor);
+    let update = next_update(&f.editor).unwrap();
+    let other = f.dir.path().join("other.words");
+    std::fs::write(&other, "other\n")?;
+    f.editor.open(&other, Action::Replace)?;
+    assert!(update.resolve(&f.editor).is_none());
+    assert!(next_update(&f.editor).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn details_recheck_trust_before_presentation() -> anyhow::Result<()> {
+    use view::features::{
+        blame::{next_update, request_details},
+        workspace_trust::{apply_decision, TrustDecision},
+    };
+
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    request_details(&mut f.editor);
+    wait_for_blame(&mut f).await?;
+    let update = next_update(&f.editor).unwrap();
+    let workspace = current_ref!(f.editor).1.workspace_root().to_path_buf();
+    apply_decision(&mut f.editor, &workspace, TrustDecision::Exclude)?;
+    assert!(update.resolve(&f.editor).is_none());
     Ok(())
 }

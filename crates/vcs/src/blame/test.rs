@@ -190,6 +190,7 @@ mod formatting {
 
     fn bob() -> LineBlame {
         LineBlame {
+            commit_id: "f14ab1cf00000000000000000000000000000000".into(),
             commit_hash: Some("f14ab1cf".to_owned()),
             author_name: Some("Bob TheBuilder".to_owned()),
             author_email: Some("bob@bob.com".to_owned()),

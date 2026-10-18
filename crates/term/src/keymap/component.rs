@@ -81,6 +81,13 @@ pub enum PageAction {
     Next,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlameAction {
+    CopyCommitId,
+    CopyMessage,
+}
+
 /// Terminal component maps, resolved from defaults and user configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentKeymaps {
@@ -91,6 +98,7 @@ pub struct ComponentKeymaps {
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
     pub signature_help: Keymap<PageAction>,
+    pub blame: Keymap<BlameAction>,
 }
 
 fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
@@ -202,6 +210,10 @@ impl Default for ComponentKeymaps {
             ]),
             hover: pages.clone(),
             signature_help: pages,
+            blame: bindings(&[
+                ("y", BlameAction::CopyCommitId),
+                ("Y", BlameAction::CopyMessage),
+            ]),
         }
     }
 }

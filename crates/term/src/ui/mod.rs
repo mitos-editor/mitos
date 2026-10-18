@@ -1,3 +1,4 @@
+pub mod blame;
 mod completion;
 mod document;
 pub(crate) mod editor;

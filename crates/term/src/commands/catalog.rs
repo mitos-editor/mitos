@@ -142,7 +142,7 @@ impl MappableCommand {
         symbol_picker => super::lsp::symbol_picker, "Open symbol picker",
         syntax_symbol_picker => super::syntax::syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
-        blame_line => super::vcs::blame_line, "Show blame for the current line",
+        blame_line => super::vcs::blame_line, "Show commit details for the current line",
         toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline Git blame",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
@@ -1463,10 +1463,21 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: SHELL_SIGNATURE,
     },
     TypableCommand {
-        name: "reset-diff-change",
-        aliases: &["diffget", "diffg"],
-        doc: "Reset the diff change at the cursor position.",
-        fun: super::vcs::typed::reset_diff_change,
+        name: "blame",
+        aliases: &[],
+        doc: "Show commit details for the current line, with actions to copy the commit ID or message.",
+        fun: super::vcs::typed::blame,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "restore-change",
+        aliases: &[],
+        doc: "Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index.",
+        fun: super::vcs::typed::restore_change,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),

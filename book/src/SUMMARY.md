@@ -20,6 +20,7 @@
 - [Image previews](./image-previews.md)
 - [Quicklist](./quicklist.md)
 - [Jumplist](./jumplist.md)
+- [Version control](./version-control.md)
 
 # Reference
 

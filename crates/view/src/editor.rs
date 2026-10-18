@@ -150,6 +150,7 @@ pub enum EditorEvent {
     WorkspaceTrust(crate::features::workspace_trust::TrustRequest),
     SignatureHelp(crate::features::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
+    BlameDetails(crate::features::blame::BlameDetailsUpdate),
     Navigation(crate::features::navigation::NavigationUpdate),
     Completion(crate::features::completion::CompletionUpdate),
     LanguageServerMessage((LanguageServerId, Call)),
@@ -688,6 +689,9 @@ impl Editor {
     }
 
     pub async fn wait_event(&mut self) -> EditorEvent {
+        if let Some(update) = crate::features::blame::next_update(self) {
+            return EditorEvent::BlameDetails(update);
+        }
         if let Some(update) = crate::features::completion::next_update(self) {
             return EditorEvent::Completion(update);
         }

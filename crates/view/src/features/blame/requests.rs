@@ -1,6 +1,8 @@
 //! Background Git blame, delivered only to the editor and document that requested it.
 
 use event::{register_hook, send_blocking};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use crate::features::debounce::debounce_documents;
@@ -17,6 +19,7 @@ use crate::{
 pub struct BlameHandler {
     callbacks: EditorCallbackSender,
     refreshes: Sender<DocumentId>,
+    pub(super) details: Arc<Mutex<super::details::DetailsSession>>,
 }
 
 impl BlameHandler {
@@ -25,6 +28,7 @@ impl BlameHandler {
         Self {
             callbacks,
             refreshes,
+            details: Default::default(),
         }
     }
 
@@ -147,6 +151,7 @@ fn request_visible_blame(editor: &mut Editor) {
 }
 
 pub(crate) fn register_hooks() {
+    super::details::register_hooks();
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         if event.editor.config().inline_blame.show != InlineBlameShow::Never {
             // Open hooks run before the caller installs the document in a view.

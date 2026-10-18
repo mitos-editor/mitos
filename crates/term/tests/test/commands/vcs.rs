@@ -14,8 +14,12 @@ use termina::event::{Event, KeyEvent};
 use super::super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
 
 async fn press_space_b(app: &mut Application) -> anyhow::Result<()> {
+    press_keys(app, "<space>B").await
+}
+
+async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-    for key in parse_macro("<space>B")? {
+    for key in parse_macro(keys)? {
         sender.send(Ok(Event::Key(KeyEvent::from(key))))?;
     }
     let mut input = UnboundedReceiverStream::new(receiver);
@@ -216,6 +220,145 @@ async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::
             );
         }
     }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[derive(Default)]
+struct TestClipboard(std::sync::Mutex<String>);
+
+impl clipboard::ClipboardBackend for TestClipboard {
+    fn name(&self, _: &clipboard::ClipboardProvider) -> String {
+        "test".into()
+    }
+    fn get_contents(
+        &self,
+        _: &clipboard::ClipboardProvider,
+        _: clipboard::ClipboardType,
+    ) -> clipboard::Result<String> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn set_contents(
+        &self,
+        _: &clipboard::ClipboardProvider,
+        content: &str,
+        _: clipboard::ClipboardType,
+    ) -> clipboard::Result<()> {
+        *self.0.lock().unwrap() = content.into();
+        Ok(())
+    }
+}
+
+fn committed_file() -> anyhow::Result<(tempfile::TempDir, std::path::PathBuf)> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "committed\n")?;
+    std::fs::write(dir.path().join(".gitattributes"), "* text eol=lf\n")?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["add", "."]);
+    git(
+        dir.path(),
+        &[
+            "commit",
+            "-m",
+            "initial",
+            "-m",
+            "Full message with **literal** Markdown.\n\nAnother paragraph.",
+        ],
+    );
+    Ok((dir, path))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
+) -> anyhow::Result<()> {
+    let (_dir, path) = committed_file()?;
+    let mut app = AppBuilder::new().with_file(path, None).build()?;
+    app.editor
+        .registers
+        .set_clipboard_backend(Box::<TestClipboard>::default());
+    press_keys(&mut app, ":blame<ret>").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .get_status()
+            .is_some_and(|(message, _)| message.starts_with("Blame:"))
+        {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    let buffer = app.terminal_backend().buffer();
+    let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(
+        screen.contains("Test Author <test@example.com>"),
+        "{screen}"
+    );
+    assert!(screen.contains("**literal**"), "{screen}");
+    assert!(screen.contains("Another paragraph."), "{screen}");
+    press_keys(&mut app, "y").await?;
+    let id = app.editor.registers.first('+', &app.editor).unwrap();
+    assert_eq!(
+        id,
+        current_ref!(app.editor)
+            .1
+            .line_blame_details(0)
+            .unwrap()
+            .commit_id
+    );
+    assert_eq!(id.len(), 40);
+    press_keys(&mut app, "Y<esc>").await?;
+    let message = app.editor.registers.first('+', &app.editor).unwrap();
+    assert_eq!(
+        message.trim_end(),
+        "initial\n\nFull message with **literal** Markdown.\n\nAnother paragraph."
+    );
+    press_keys(&mut app, "<space>?blame_line<ret>").await?;
+    press_keys(&mut app, "y<esc>").await?;
+    assert_eq!(
+        app.editor.get_status().unwrap().0.as_ref(),
+        "Copied commit ID"
+    );
+    assert_eq!(
+        app.editor.config().inline_blame.show,
+        InlineBlameShow::Never
+    );
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), "committed\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_change_restores_only_the_buffer_and_is_undoable() -> anyhow::Result<()> {
+    let (_dir, path) = committed_file()?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    run_event_loop_until_idle(&mut app).await;
+    press_keys(&mut app, "Iedited<esc>").await?;
+    // Let the asynchronous differ finish before restoring a hunk.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let doc = current_ref!(app.editor).1;
+            if doc
+                .diff_handle()
+                .and_then(|handle| handle.try_load())
+                .is_some_and(|diff| diff.doc().is_instance(doc.text()) && !diff.is_empty())
+            {
+                break;
+            }
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    press_keys(&mut app, ":restore-change<ret>").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), "committed\n");
+    press_keys(&mut app, "u").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "editedcommitted\n"
+    );
+    press_keys(&mut app, "U").await?;
+    assert_eq!(std::fs::read_to_string(&path)?, "committed\n");
+    git(_dir.path(), &["diff", "--cached", "--exit-code"]);
     assert!(app.close().await.is_empty());
     Ok(())
 }

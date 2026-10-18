@@ -160,6 +160,7 @@ it. To remap Escape inside an insert-mode menu or page selector, also set
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
+| `keys.blame` | `copy_commit_id`, `copy_message` |
 
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.

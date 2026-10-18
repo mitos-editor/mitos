@@ -107,6 +107,7 @@ impl FileBlame {
                 let time = author.and_then(|author| author.time.parse::<gix::date::Time>().ok());
                 let line_blame = LineBlame {
                     commit_hash: commit.short_id().ok().map(|id| id.to_string()),
+                    commit_id: entry.commit_id.to_string(),
                     author_name: author.map(|author| author.name.to_string()),
                     author_email: author.map(|author| author.email.to_string()),
                     commit_date: time
@@ -138,14 +139,16 @@ impl FileBlame {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct LineBlame {
+    /// Full object ID for copying and resolving the commit without ambiguity.
+    pub commit_id: String,
     commit_hash: Option<String>,
-    author_name: Option<String>,
-    author_email: Option<String>,
-    commit_date: Option<String>,
-    commit_title: Option<String>,
-    commit_body: Option<String>,
+    pub author_name: Option<String>,
+    pub author_email: Option<String>,
+    pub commit_date: Option<String>,
+    pub commit_title: Option<String>,
+    pub commit_body: Option<String>,
     /// Used to compute `time-ago`
     timestamp: Option<i64>,
 }

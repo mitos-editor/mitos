@@ -131,6 +131,15 @@ impl Document {
 
     /// Get the line blame for this view
     pub fn line_blame(&self, cursor_line: u32, format: &str) -> Result<String, LineBlameError<'_>> {
+        self.line_blame_details(cursor_line)
+            .map(|blame| blame.parse_format(format))
+    }
+
+    /// Resolve an unchanged buffer line to its committed metadata.
+    pub fn line_blame_details(
+        &self,
+        cursor_line: u32,
+    ) -> Result<&vcs::LineBlame, LineBlameError<'_>> {
         let file_blame = match &self.blame.cache {
             None => return Err(LineBlameError::NotReadyYet),
             Some(result) => match result {
@@ -159,7 +168,7 @@ impl Document {
         let line_blame = file_blame
             .blame_for_line(base_line)
             .ok_or(LineBlameError::NotCommittedYet)?;
-        Ok(line_blame.parse_format(format))
+        Ok(line_blame)
     }
 
     pub fn file_blame(&self) -> Option<&anyhow::Result<Arc<FileBlame>>> {
