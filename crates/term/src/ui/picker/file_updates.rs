@@ -30,6 +30,7 @@ pub(super) struct FileUpdates<T, D> {
     task: TaskController,
     pending: Option<Pending<T, D>>,
     include_modified: bool,
+    include_vcs: bool,
 }
 
 struct Pending<T, D> {
@@ -69,6 +70,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             task: TaskController::new(),
             pending: None,
             include_modified: false,
+            include_vcs: false,
         });
         self
     }
@@ -77,6 +79,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub(crate) fn refresh_on_content_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
             updates.include_modified = true;
+        }
+        self
+    }
+
+    /// Linked-worktree metadata can live outside the picker's worktree root.
+    pub(crate) fn refresh_on_vcs_changes(mut self) -> Self {
+        if let Some(updates) = &mut self.file_updates {
+            updates.include_vcs = true;
         }
         self
     }
@@ -96,6 +106,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         let path = event.path.as_std_path();
                         event.ty != EventType::Tempfile
                             && (is_ignore_file(path)
+                                || (updates.include_vcs && editor.file_watcher.is_vcs_path(path))
                                 || ((updates.include_modified
                                     || event.ty != EventType::Modified
                                     || path.is_dir())

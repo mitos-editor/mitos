@@ -59,7 +59,7 @@ pub struct DiffProviderRegistry {
 }
 
 impl DiffProviderRegistry {
-    /// Git metadata whose changes invalidate branch names and document diff bases.
+    /// Git metadata whose changes invalidate status, branch names, and document diff bases.
     pub fn get_watched_paths(&self, path: &Path, trust_full: bool) -> Vec<PathBuf> {
         self.providers
             .iter()

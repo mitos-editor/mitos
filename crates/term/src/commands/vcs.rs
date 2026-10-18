@@ -243,7 +243,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         },
         |entry| entry.change.path(),
     )
-    .refresh_on_content_changes();
+    .refresh_on_content_changes()
+    .refresh_on_vcs_changes();
     let injector = picker.injector();
 
     let trust_full = cx

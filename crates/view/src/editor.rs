@@ -751,10 +751,16 @@ impl Editor {
         self.debugger.current_stack_frame()
     }
 
-    /// Include repositories for every open document, including linked worktrees.
+    /// Include the workspace and repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
         if self.config().files.watch.watch_vcs {
+            let root = workspace::find_workspace().0;
+            let trusted = self
+                .workspace_trust
+                .query(&root, workspace::trust::TrustQuery::Git)
+                .is_trusted();
+            paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
             for doc in self.documents.values() {
                 let Some(path) = doc.path().and_then(|path| path.parent()) else {
                     continue;

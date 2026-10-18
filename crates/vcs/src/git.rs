@@ -99,12 +99,16 @@ pub fn for_each_changed_file(
     )
 }
 
-/// Watch HEAD, the current branch ref, and packed refs, including linked worktrees.
+/// Watch the index, HEAD, current branch ref, and packed refs, including linked worktrees.
 pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
     let repo = open_repo(path, trust_full)?.to_thread_local();
     let git_dir = repo.git_dir().canonicalize()?;
     let common_dir = repo.common_dir().canonicalize()?;
-    let mut paths = vec![git_dir.join("HEAD"), common_dir.join("packed-refs")];
+    let mut paths = vec![
+        git_dir.join("index"),
+        git_dir.join("HEAD"),
+        common_dir.join("packed-refs"),
+    ];
     if let Some(head) = repo.head_name()? {
         paths.push(common_dir.join(head.as_bstr().to_str()?));
     }

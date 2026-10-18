@@ -335,3 +335,43 @@ async fn content_refresh_preserves_the_selected_location_within_a_file() -> anyh
     assert_eq!(picker.cursor, 2);
     Ok(())
 }
+
+#[tokio::test]
+async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let worktree = tempfile::tempdir()?;
+    let metadata = tempfile::tempdir()?;
+    let index = metadata.path().join("index");
+    std::fs::write(&index, "index")?;
+    app.editor
+        .file_watcher
+        .set_extra_watched_paths(vec![index.clone()]);
+    let latest = worktree.path().join("latest.txt");
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("path", |path: &PathBuf, _: &PathBuf| {
+            path.to_string_lossy().into_owned().into()
+        })],
+        0,
+        [worktree.path().join("old.txt")],
+        worktree.path().to_owned(),
+        |_, _, _| {},
+    )
+    .with_file_updates(
+        &app.editor,
+        |root| root,
+        |_, _, root, _| Box::pin(async move { Ok(vec![root.join("latest.txt")]) }),
+        |path| path,
+    )
+    .refresh_on_vcs_changes();
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 1
+    })
+    .await?;
+    changed(&mut app.editor, &index, EventType::Modified);
+    until(&mut picker, &mut app, |picker| {
+        picker.selection() == Some(&latest)
+    })
+    .await?;
+    Ok(())
+}

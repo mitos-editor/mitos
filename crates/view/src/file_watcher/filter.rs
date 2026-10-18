@@ -160,6 +160,7 @@ impl IgnoreFiles {
 /// files/directories (like the cargo target directory, node_modules or
 /// VCS files) so ignoring a file is a performance optimization.
 pub(super) struct WatchFilter {
+    extra_paths: Vec<PathBuf>,
     filesentry_ignores: Gitignore,
     ignore_files: Vec<IgnoreFiles>,
     global_ignores: Vec<Arc<Gitignore>>,
@@ -185,6 +186,7 @@ impl WatchFilter {
             .map(|root| IgnoreFiles::new(workspace_ignore.clone(), config, root, &global_ignores))
             .collect();
         WatchFilter {
+            extra_paths: Vec::new(),
             filesentry_ignores,
             ignore_files,
             global_ignores,
@@ -194,6 +196,34 @@ impl WatchFilter {
             config: config.clone(),
             workspace_ignore,
             nested_ignores: Default::default(),
+        }
+    }
+
+    pub(super) fn with_extra_paths(mut self, paths: impl Iterator<Item = PathBuf>) -> Self {
+        if self.watch_vcs {
+            self.extra_paths = paths.collect();
+        }
+        self
+    }
+
+    /// Include only explicit metadata and its ancestors, retaining user watch exclusions.
+    fn extra_path(&self, path: &Path, is_dir: Option<bool>) -> Option<bool> {
+        if self.extra_paths.iter().any(|extra| extra.starts_with(path)) {
+            Some(
+                self.filesentry_ignores
+                    .matched_path_or_any_parents(path, is_dir.unwrap_or(false))
+                    .is_ignore(),
+            )
+        } else if self
+            .extra_paths
+            .iter()
+            .filter_map(|extra| extra.parent())
+            .any(|parent| path.starts_with(parent))
+        {
+            // A metadata directory may have an arbitrary name. Never crawl its objects or siblings.
+            Some(true)
+        } else {
+            None
         }
     }
 
@@ -250,6 +280,9 @@ impl WatchFilter {
 
 impl filesentry::Filter for WatchFilter {
     fn ignore_path(&self, path: &Path, is_dir: Option<bool>) -> bool {
+        if let Some(ignored) = self.extra_path(path, is_dir) {
+            return ignored;
+        }
         let (root, ignore_files) = self
             .ignore_files
             .iter()
@@ -276,6 +309,9 @@ impl filesentry::Filter for WatchFilter {
     }
 
     fn ignore_path_rec(&self, mut path: &Path, mut is_dir: Option<bool>) -> bool {
+        if let Some(ignored) = self.extra_path(path, is_dir) {
+            return ignored;
+        }
         let (root, ignore_files) = self
             .ignore_files
             .iter()
@@ -345,13 +381,12 @@ fn file_name(path: &Path) -> Option<&str> {
 }
 
 fn is_vcs_ignore(path: &Path, watch_vcs: bool) -> bool {
-    // ignore .git directory contents except .git/HEAD (and .git itself)
-    // Note: only checks immediate parent; recursive checking is done by ignore_path_rec
-    if watch_vcs
-        && path.parent().is_some_and(|it| it.ends_with(".git"))
-        && !path.ends_with(".git/HEAD")
+    if let Some(git_dir) = path
+        .ancestors()
+        .find(|ancestor| file_name(ancestor) == Some(".git"))
     {
-        return true;
+        return !watch_vcs
+            || (path != git_dir && path != git_dir.join("HEAD") && path != git_dir.join("index"));
     }
     match file_name(path) {
         Some(".jj" | ".svn" | ".hg") => true,
@@ -371,13 +406,41 @@ mod tests {
         assert!(!is_vcs_ignore(Path::new(".git"), true));
         assert!(!is_vcs_ignore(Path::new(".git/HEAD"), true));
         assert!(is_vcs_ignore(Path::new(".git/foo"), true));
-        // Note: .git/foo/bar is NOT caught by is_vcs_ignore (only checks immediate parent)
-        // but it IS caught by ignore_path_rec which checks ancestors recursively
-        assert!(!is_vcs_ignore(Path::new(".git/foo/bar"), true));
+        assert!(!is_vcs_ignore(Path::new(".git/index"), true));
+        assert!(is_vcs_ignore(Path::new(".git/index.lock"), true));
+        assert!(is_vcs_ignore(Path::new(".git/foo/bar"), true));
         assert!(!is_vcs_ignore(Path::new(".foo"), true));
         assert!(is_vcs_ignore(Path::new(".jj"), true));
         assert!(is_vcs_ignore(Path::new(".svn"), true));
         assert!(is_vcs_ignore(Path::new(".hg"), true));
+    }
+
+    #[test]
+    fn explicit_metadata_includes_only_demanded_paths_and_respects_watch_exclusions() {
+        use super::{WatchConfig, WatchFilter};
+        use filesentry::Filter;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let metadata = root.join("external-metadata");
+        let index = metadata.join("worktrees/linked/index");
+        let head = metadata.join("refs/heads/feature");
+        let config = WatchConfig {
+            max_depth: Some(1),
+            ..WatchConfig::default()
+        };
+        let mut filter = WatchFilter::new(&config, &root, std::iter::empty()).with_extra_paths(
+            [index.clone(), head.clone(), metadata.join("packed-refs")].into_iter(),
+        );
+        assert!(!filter.ignore_path_rec(&index, Some(false)));
+        assert!(!filter.ignore_path(&metadata.join("worktrees"), Some(true)));
+        assert!(!filter.ignore_path_rec(&head, Some(false)));
+        assert!(filter.ignore_path(&metadata.join("worktrees/linked/index.lock"), Some(false)));
+        assert!(filter.ignore_path_rec(&metadata.join("refs/heads/other"), Some(false)));
+        assert!(filter.ignore_path(&metadata.join("objects"), Some(true)));
+        let mut ignores = ignore::gitignore::GitignoreBuilder::new(&root);
+        ignores.add_line(None, "external-metadata/").unwrap();
+        filter.filesentry_ignores = ignores.build().unwrap();
+        assert!(filter.ignore_path_rec(&index, Some(false)));
     }
 
     #[test]
@@ -409,6 +472,7 @@ mod tests {
         builder.add_line(None, "target/").unwrap();
         let ignores = builder.build().unwrap();
         let filter = WatchFilter {
+            extra_paths: Vec::new(),
             filesentry_ignores: Gitignore::empty(),
             ignore_files: vec![IgnoreFiles {
                 root: "/repo".into(),

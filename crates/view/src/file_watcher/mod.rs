@@ -96,12 +96,22 @@ impl Watcher {
         self.watcher = None;
         self.active_roots.clear();
         self.workspace = workspace;
-        self.filter = Arc::new(WatchFilter::new(
-            config,
-            &self.workspace,
-            self.roots.iter().map(PathBuf::as_path),
-        ));
-        if !config.enable || (config.require_workspace && no_workspace && self.roots.is_empty()) {
+        self.filter = Arc::new(
+            WatchFilter::new(
+                config,
+                &self.workspace,
+                self.roots.iter().map(PathBuf::as_path),
+            )
+            .with_extra_paths(
+                self.extra_watched_paths
+                    .iter()
+                    .map(|(path, _)| path.clone()),
+            ),
+        );
+        let has_metadata = config.watch_vcs && !self.extra_watched_paths.is_empty();
+        if !config.enable
+            || (config.require_workspace && no_workspace && self.roots.is_empty() && !has_metadata)
+        {
             return;
         }
         let watcher = match filesentry::Watcher::new() {
@@ -125,6 +135,24 @@ impl Watcher {
         }
         for root in self.roots.clone() {
             self.watch_root(&watcher, root);
+        }
+        if config.watch_vcs {
+            for (path, _) in self.extra_watched_paths.clone() {
+                // Watch an existing ancestor so index creation and atomic replacement work too.
+                let Some(root) = path
+                    .parent()
+                    .and_then(|parent| parent.ancestors().find(|path| path.is_dir()))
+                else {
+                    continue;
+                };
+                if !self
+                    .active_roots
+                    .iter()
+                    .any(|(watched, _)| root.starts_with(watched))
+                {
+                    self.watch_root(&watcher, root.to_owned());
+                }
+            }
         }
         let shutdown = watcher.shutdown_guard();
         watcher.start();
@@ -153,11 +181,18 @@ impl Watcher {
 
     /// Invalidate cached ignore files and recrawl affected watch roots.
     pub fn refresh_filter(&mut self) {
-        self.filter = Arc::new(WatchFilter::new(
-            &self.config,
-            &self.workspace,
-            self.roots.iter().map(PathBuf::as_path),
-        ));
+        self.filter = Arc::new(
+            WatchFilter::new(
+                &self.config,
+                &self.workspace,
+                self.roots.iter().map(PathBuf::as_path),
+            )
+            .with_extra_paths(
+                self.extra_watched_paths
+                    .iter()
+                    .map(|(path, _)| path.clone()),
+            ),
+        );
         if let Some((watcher, _)) = &self.watcher {
             watcher.set_filter(self.filter.clone(), true);
         }
@@ -181,11 +216,23 @@ impl Watcher {
         }
     }
 
-    /// Track VCS metadata even when native watching is unavailable or filters exclude it.
+    /// Watch explicit VCS metadata, retaining polling when native watching is unavailable.
     /// Preserve timestamps when the set is refreshed so changes are not swallowed.
     pub fn set_extra_watched_paths(&mut self, mut paths: Vec<PathBuf>) {
+        for path in &mut paths {
+            // Keep the native representation, including verbatim Windows prefixes.
+            *path = canonicalize_existing(path);
+        }
         paths.sort();
         paths.dedup();
+        if self
+            .extra_watched_paths
+            .iter()
+            .map(|(path, _)| path)
+            .eq(paths.iter())
+        {
+            return;
+        }
         let old = std::mem::take(&mut self.extra_watched_paths);
         self.extra_watched_paths = paths
             .into_iter()
@@ -198,6 +245,9 @@ impl Watcher {
                 (path, mtime)
             })
             .collect();
+        // Native roots cannot be removed individually. Rebuild when their demand changes.
+        self.watcher = None;
+        self.reload(&self.config.clone());
     }
 
     pub fn poll_extra_paths(&mut self) -> bool {
@@ -301,9 +351,12 @@ mod tests {
             ),
         );
         watcher.set_extra_watched_paths(vec![path.clone()]);
+        let native_path = dir.path().canonicalize().unwrap().join("HEAD");
+        assert!(watcher.is_vcs_path(&native_path));
         assert!(!watcher.poll_extra_paths());
         std::fs::write(&path, "ref: refs/heads/main\n").unwrap();
         watcher.set_extra_watched_paths(vec![path.clone(), path.clone()]);
+        assert!(watcher.is_vcs_path(&path.canonicalize().unwrap()));
         assert!(watcher.poll_extra_paths());
         assert!(!watcher.poll_extra_paths());
         std::fs::remove_file(path).unwrap();

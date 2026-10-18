@@ -394,6 +394,7 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
     std::fs::write(repo.path().join("file.txt"), "hello\n").unwrap();
     create_commit(repo.path(), true);
     let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    assert!(paths.iter().any(|path| path.ends_with(".git/index")));
     assert!(paths.iter().any(|path| path.ends_with(".git/HEAD")));
     assert!(paths
         .iter()
@@ -401,6 +402,9 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
     assert!(paths.iter().any(|path| path.ends_with(".git/packed-refs")));
     exec_git_cmd(&["worktree", "add", "-b", "feature", "linked"], repo.path());
     let paths = git::get_watched_paths(&repo.path().join("linked"), false).unwrap();
+    assert!(paths
+        .iter()
+        .any(|path| path.ends_with(".git/worktrees/linked/index")));
     assert!(paths
         .iter()
         .any(|path| path.ends_with(".git/worktrees/linked/HEAD")));

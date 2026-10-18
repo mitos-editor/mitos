@@ -62,7 +62,12 @@ pub fn canonicalize_existing(path: &Path) -> PathBuf {
     let path = canonicalize(path);
     for ancestor in path.ancestors() {
         if let Ok(real) = ancestor.canonicalize() {
-            return real.join(path.strip_prefix(ancestor).unwrap());
+            let suffix = path.strip_prefix(ancestor).unwrap();
+            return if suffix.as_os_str().is_empty() {
+                real
+            } else {
+                real.join(suffix)
+            };
         }
     }
     path
@@ -344,6 +349,19 @@ mod tests {
     use ropey::RopeSlice;
 
     use crate::path::{self, compile_path_regex};
+
+    #[test]
+    fn canonicalize_existing_keeps_the_native_path_representation() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("index");
+        std::fs::write(&file, "index").unwrap();
+        for path in [dir.path(), file.as_path()] {
+            assert_eq!(
+                super::canonicalize_existing(path).as_os_str(),
+                path.canonicalize().unwrap().as_os_str()
+            );
+        }
+    }
 
     #[test]
     fn canonicalize_existing_preserves_missing_descendants() {
