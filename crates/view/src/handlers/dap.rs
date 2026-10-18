@@ -1,5 +1,3 @@
-mod requests;
-
 use crate::editor::Action;
 use crate::{align_view, Align, Editor};
 use dap::{self as dap, DebugAdapterId, Payload};
@@ -206,8 +204,7 @@ impl Editor {
             }
             Payload::Response(_) => unreachable!(),
             Payload::Request(request) => {
-                self.handle_debugger_request(id, request.seq, request.command, request.arguments)
-                    .await;
+                self.handle_debugger_request(id, request.seq, request.command, request.arguments);
             }
         }
         true

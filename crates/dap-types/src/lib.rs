@@ -459,6 +459,8 @@ pub mod requests {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub supports_run_in_terminal_request: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        pub supports_start_debugging_request: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub supports_memory_references: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub supports_progress_reporting: Option<bool>,

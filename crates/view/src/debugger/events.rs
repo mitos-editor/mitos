@@ -334,6 +334,8 @@ impl Editor {
     }
 
     pub(crate) fn debugger_terminated(&mut self, id: DebugAdapterId, restart: Option<Value>) {
+        self.debugger.cancel_child_startups(id);
+        self.cancel_debugger_reverse_requests(id);
         self.debugger.cancel_startup_requests(id);
         self.debugger.invalidate_requests(id);
         let Some(session) = self.debugger.get_session_mut(id) else {

@@ -70,7 +70,9 @@ running TCP debug adapter, use
 
 You can run several debugging sessions at once, including targets started with
 `Space G l`, `:debug-start`, or `:debug-remote`. Each launch selects its new session
-immediately. Adapter-created child sessions stay in the background.
+immediately. Adapter-created child sessions stay in the background. Child
+sessions work with both stdio and TCP adapters; stdio children use their own
+adapter process.
 
 Use `Space G s s` to select a session. The picker shows its number, name, state,
 and parent, with `*` marking the selected session. Selecting a stopped session

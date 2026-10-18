@@ -309,7 +309,9 @@ async fn unavailable_and_invalid_debugger_requests_receive_error_replies() -> an
         f.editor
             .handle_debugger_message(id, request(command, seq, arguments.clone()))
             .await;
-        if command == "runInTerminal" && arguments.get("args").is_some() {
+        if (command == "runInTerminal" && arguments.get("args").is_some())
+            || command == "startDebugging"
+        {
             tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
                 .await?
                 .context("terminal result callback missing")?(&mut f.editor);
@@ -354,6 +356,98 @@ async fn requests_from_unknown_adapters_do_not_launch_terminals() -> anyhow::Res
             .await
     );
     assert!(calls.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reverse_requests_stop_terminal_work_when_the_session_ends() -> anyhow::Result<()> {
+    struct PendingLauncher {
+        started: Arc<tokio::sync::Notify>,
+        dropped: Arc<tokio::sync::Notify>,
+    }
+    struct DropSignal(Arc<tokio::sync::Notify>);
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
+    impl TerminalLauncher for PendingLauncher {
+        fn launch(
+            &self,
+            _: RunInTerminalArguments,
+        ) -> BoxFuture<'static, dap::Result<RunInTerminalResponse>> {
+            let started = self.started.clone();
+            let guard = DropSignal(self.dropped.clone());
+            Box::pin(async move {
+                let _guard = guard;
+                started.notify_one();
+                std::future::pending().await
+            })
+        }
+    }
+    for terminate in [true, false] {
+        let mut f = Fixture::new("")?;
+        let started = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(tokio::sync::Notify::new());
+        f.editor
+            .debugger_mut()
+            .set_terminal_launcher(PendingLauncher {
+                started: started.clone(),
+                dropped: dropped.clone(),
+            })?;
+        let (id, _) = adapter(&mut f).await?;
+        f.editor
+            .handle_debugger_message(
+                id,
+                request("runInTerminal", 71, json!({"cwd":"","args":["program"]})),
+            )
+            .await;
+        tokio::time::timeout(Duration::from_secs(5), started.notified()).await?;
+        if terminate {
+            f.editor
+                .handle_debugger_message(id, debugger_event("terminated", Value::Null))
+                .await;
+        } else {
+            f.editor
+                .handle_debugger_event(id, dap::ClientEvent::Closed { error: None })
+                .await;
+        }
+        tokio::time::timeout(Duration::from_secs(5), dropped.notified()).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reverse_request_failures_reply_to_background_adapters_without_overwriting_status(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    f.editor.debugger_mut().set_terminal_launcher(Launcher {
+        calls: Default::default(),
+        fail: true,
+        gate: None,
+    })?;
+    let (background, mut wire) = adapter(&mut f).await?;
+    command(&mut wire, "initialize").await?;
+    let (selected, _) = paused_adapter(&mut f).await?;
+    f.editor.set_status("selected session");
+    f.editor
+        .handle_debugger_message(
+            background,
+            request("runInTerminal", 72, json!({"cwd":"","args":["program"]})),
+        )
+        .await;
+    debugger_callback(&mut f).await?;
+    let reply = message(&mut wire).await?;
+    assert_eq!(reply["request_seq"], 72);
+    assert_eq!(reply["success"], false);
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "selected session"
+    );
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        selected
+    );
     Ok(())
 }
 
@@ -405,16 +499,20 @@ async fn terminal_results_from_removed_adapters_do_not_change_editor_state() -> 
             request("runInTerminal", 93, json!({"cwd":"","args":["program"]})),
         )
         .await;
+    gate.notify_one();
+    let result = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .context("terminal result callback missing")?;
     let terminated = serde_json::from_value(json!({"type":"event","seq":94,"event":"terminated"}))?;
     f.editor.handle_debugger_message(id, terminated).await;
+    let canceled = message(&mut wire).await?;
+    assert_eq!(canceled["request_seq"], 93);
+    assert_eq!(canceled["success"], false);
     assert_eq!(message(&mut wire).await?["command"], "disconnect");
     wait_for_adapter_removal(&mut f, id).await?;
     assert!(f.editor.debugger().get_client(id).is_none());
     f.editor.set_status("session is closed");
-    gate.notify_one();
-    tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
-        .await?
-        .context("terminal result callback missing")?(&mut f.editor);
+    result(&mut f.editor);
     assert_eq!(
         f.editor.get_status().unwrap().0.as_ref(),
         "session is closed"

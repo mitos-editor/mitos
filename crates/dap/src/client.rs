@@ -319,6 +319,7 @@ impl Client {
         &self,
         adapter_id: String,
         supports_run_in_terminal: bool,
+        supports_start_debugging: bool,
     ) -> impl Future<Output = Result<DebuggerCapabilities>> + use<> {
         let args = requests::InitializeArguments {
             client_id: Some("mitos".to_owned()),
@@ -331,6 +332,7 @@ impl Client {
             supports_variable_type: Some(true),
             supports_variable_paging: Some(false),
             supports_run_in_terminal_request: Some(supports_run_in_terminal),
+            supports_start_debugging_request: Some(supports_start_debugging),
             supports_memory_references: Some(false),
             supports_progress_reporting: Some(true),
             supports_invalidated_event: Some(false),

@@ -47,6 +47,11 @@ path = "tests/fixtures/document_features_lsp.rs"
 required-features = ["integration"]
 
 [[bin]]
+name = "mitos-test-dap"
+path = "tests/fixtures/debug_adapter.rs"
+required-features = ["integration"]
+
+[[bin]]
 name = "mitos-test-debuggee"
 path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]

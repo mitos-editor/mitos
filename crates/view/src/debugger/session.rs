@@ -2,7 +2,7 @@
 
 use super::{
     breakpoints::BreakpointSession, events::SessionEvents, operations::SessionRequests,
-    progress::ProgressState, startup::Startup, DebuggerState,
+    progress::ProgressState, reverse_requests::ReverseRequests, startup::Startup, DebuggerState,
 };
 use dap::{Client, DebugAdapterId, StackFrame, ThreadId};
 use std::collections::HashMap;
@@ -20,6 +20,7 @@ pub struct DebugSession {
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
     pub(super) requests: SessionRequests,
+    pub(super) reverse_requests: ReverseRequests,
     pub(super) events: SessionEvents,
     pub(super) stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
     pub(super) thread_states: ThreadStates,
@@ -59,6 +60,7 @@ impl DebugSession {
             startup: None,
             breakpoints: None,
             requests: SessionRequests::default(),
+            reverse_requests: ReverseRequests::default(),
             events: SessionEvents::default(),
             stack_frames: HashMap::new(),
             thread_states: HashMap::new(),
@@ -238,7 +240,7 @@ impl DebuggerState {
         true
     }
 
-    pub(crate) fn remove_session(&mut self, id: DebugAdapterId) {
+    pub(super) fn cancel_child_startups(&mut self, id: DebugAdapterId) {
         let children: Vec<_> = self
             .sessions
             .iter()
@@ -249,6 +251,10 @@ impl DebuggerState {
         for child in children {
             self.remove_session(child);
         }
+    }
+
+    pub(crate) fn remove_session(&mut self, id: DebugAdapterId) {
+        self.cancel_child_startups(id);
         self.cancel_startup_requests(id);
         self.sessions.remove(id);
         if self.selection_order.last() == Some(&id) {

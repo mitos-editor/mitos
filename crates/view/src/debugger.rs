@@ -4,6 +4,7 @@ mod breakpoints;
 pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod events;
 mod progress;
+mod reverse_requests;
 mod session;
 pub use session::{DebugSession, DebugSessionStatus, ThreadStates};
 mod launch;

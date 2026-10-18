@@ -172,7 +172,7 @@ impl Editor {
         };
         self.debugger.sessions[id].startup = Some(startup);
         context.spawn(connect, move |editor, context, (client, incoming)| {
-            let initialize = client.initialize(name, terminal_support);
+            let initialize = client.initialize(name, terminal_support, true);
             editor.debugger.sessions[id].client = Some(client);
             editor
                 .debugger
@@ -253,15 +253,14 @@ impl Editor {
             .debugger
             .get_client(parent)
             .context("No active debugger found")?;
-        let socket = client
-            .socket
-            .context("Child debugging requires a TCP adapter connection")?;
+        // Reconnect TCP adapters to their server; stdio children get their own process.
+        let socket = client.socket;
         let config = client
             .config
             .clone()
             .context("No debugger configuration found")?;
         self.begin_debugger_startup(
-            Some(socket),
+            socket,
             config,
             Some((arguments.request, arguments.configuration)),
             StartupOrigin::Child { parent, sequence },

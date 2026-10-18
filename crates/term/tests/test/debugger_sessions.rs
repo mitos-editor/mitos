@@ -130,3 +130,74 @@ async fn launch_menu_allows_existing_sessions_and_picker_rejects_ended_ones() ->
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stdio_adapters_can_start_child_sessions_without_changing_selection() -> anyhow::Result<()>
+{
+    let mut app = AppBuilder::new().build()?;
+    let parent = app.editor.connect_debugger(
+        None,
+        DebugAdapterConfig {
+            name: "stdio fixture".into(),
+            transport: "stdio".into(),
+            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
+            args: vec![],
+            port_arg: None,
+            templates: vec![],
+            quirks: Default::default(),
+        },
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().is_starting(parent) {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    let launch = app
+        .editor
+        .debugger_mut()
+        .get_client_mut(parent)
+        .unwrap()
+        .launch(serde_json::json!({"spawnChild":true}));
+    let launched = tokio::spawn(launch);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut app).await;
+            if app
+                .editor
+                .get_status()
+                .is_some_and(|status| status.0.contains("stdio child started"))
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    launched.await??;
+    let child = app
+        .editor
+        .debugger()
+        .sessions()
+        .find(|session| session.parent() == Some(parent))
+        .unwrap()
+        .id();
+    assert!(!app.editor.debugger().is_starting(child));
+    assert_eq!(app.editor.debugger().sessions().len(), 2);
+    assert_eq!(
+        app.editor.debugger().get_active_session().unwrap().id(),
+        parent
+    );
+    for id in [child, parent] {
+        app.editor.select_debugger_session(id)?;
+        app.editor
+            .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while app.editor.debugger().get_session(id).is_some() {
+                run_event_loop_until_idle(&mut app).await;
+            }
+        })
+        .await?;
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
