@@ -393,13 +393,22 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
     run_event_loop_until_idle(&mut app).await;
     for keys in ["<space>g", "<space>?changed_file_picker_in_repository<ret>"] {
         press_keys(&mut app, keys).await?;
-        let screen: String = app
-            .terminal_backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
+        let screen = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let screen: String = app
+                    .terminal_backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                if !screen.contains("(running)") {
+                    break screen;
+                }
+                run_event_loop_until_idle(&mut app).await;
+            }
+        })
+        .await?;
         for text in [
             "existing.txt",
             "staged-only.txt",
