@@ -22,9 +22,7 @@ pub(super) struct FileUpdates<T, D> {
     events: broadcast::Receiver<Events>,
     root: fn(&D) -> &Path,
     refresh: Refresh<T, D>,
-    item_path: fn(&T) -> &Path,
     same: fn(&T, &T) -> bool,
-    clone_item: fn(&T) -> T,
     checked: Instant,
     dirty: bool,
     task: TaskController,
@@ -53,18 +51,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         editor: &Editor,
         root: fn(&D) -> &Path,
         refresh: Refresh<T, D>,
-        item_path: fn(&T) -> &Path,
     ) -> Self
     where
-        T: PartialEq + Clone,
+        T: PartialEq,
     {
+        self.selection_resolver = Some(Box::new(|old, new, cursor| {
+            let selected = old.get_matched_item(cursor)?;
+            new.matched_items(0..new.matched_item_count())
+                .position(|item| item.data == selected.data)
+                .map(|index| index as u32)
+        }));
         self.file_updates = Some(FileUpdates {
             events: editor.file_watcher.subscribe(),
             root,
             refresh,
-            item_path,
             same: T::eq,
-            clone_item: T::clone,
             checked: Instant::now(),
             dirty: false,
             task: TaskController::new(),
@@ -147,9 +148,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                         .is_some_and(|old| (updates.same)(old.data, item))
                                 });
                             if !same {
-                                self.restore_selection = self.selection().map(updates.clone_item);
-                                self.refreshing = true;
-                                self.reset_options_shared(options, self.editor_data.clone());
+                                self.refresh_options(options, self.editor_data.clone());
                             }
                         }
                         Err(error) => editor.status_sender().report_blocking(error),
@@ -191,7 +190,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             let redraw = self.redraw.clone();
             tokio::spawn(async move {
                 let work = async {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
                     let result = load.await;
                     let _ = tx.send(result);
                     redraw.request();
@@ -200,29 +198,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             });
         }
         self.file_updates = Some(updates);
-    }
-
-    pub(super) fn restore_file_selection(&mut self) {
-        let Some(selected) = self.restore_selection.take() else {
-            return;
-        };
-        let Some(updates) = &self.file_updates else {
-            return;
-        };
-        let snapshot = self.matcher.snapshot();
-        let mut items = snapshot.matched_items(0..snapshot.matched_item_count());
-        let index = items
-            .position(|item| (updates.same)(item.data, &selected))
-            .or_else(|| {
-                snapshot
-                    .matched_items(0..snapshot.matched_item_count())
-                    .position(|item| {
-                        (updates.item_path)(item.data) == (updates.item_path)(&selected)
-                    })
-            });
-        if let Some(index) = index {
-            self.cursor = index as u32;
-        }
     }
 }
 

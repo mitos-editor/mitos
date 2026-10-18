@@ -241,8 +241,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 cancel,
             )
         },
-        |entry| entry.change.path(),
     )
+    .with_item_key(|entry| entry.change.path().to_path_buf())
     .refresh_on_content_changes()
     .refresh_on_vcs_changes();
     let injector = picker.injector();

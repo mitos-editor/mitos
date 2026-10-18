@@ -74,6 +74,95 @@ fn changed(editor: &mut Editor, path: &Path, ty: EventType) {
 }
 
 #[tokio::test]
+async fn refresh_keeps_navigation_and_viewport_until_publication() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let paths: Vec<_> = (0..40)
+        .map(|index| dir.path().join(format!("{index:02}.txt")))
+        .collect();
+    for path in &paths {
+        std::fs::write(path, "preview")?;
+    }
+    let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 40
+    })
+    .await?;
+    picker.cursor = 20;
+    draw(&mut picker, &mut app);
+    let selected = picker.selection().unwrap().clone();
+    let old_offset = picker.offset;
+    let mut next = paths.clone();
+    next.insert(0, dir.path().join("00-new.txt"));
+    picker.refresh_options(next, picker.editor_data.clone());
+    assert_eq!(picker.selection(), Some(&selected));
+    // Moving while the new matcher runs must not be undone by publication.
+    picker.move_by(1, Direction::Forward);
+    let selected = picker.selection().unwrap().clone();
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 41
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&selected));
+    assert_eq!(picker.cursor, 22);
+    assert_eq!(picker.offset, old_offset + 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn refresh_preserves_identity_and_uses_surviving_neighbours() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("name", |item: &(u32, &str), _: &()| {
+            item.1.into()
+        })],
+        0,
+        [(1, "one"), (2, "two"), (3, "three"), (4, "four")],
+        (),
+        |_, _, _| {},
+    )
+    .with_item_key(|item| item.0);
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 4
+    })
+    .await?;
+    picker.cursor = 1;
+    picker.refresh_options(
+        vec![
+            (0, "zero"),
+            (1, "one"),
+            (2, "changed"),
+            (3, "three"),
+            (4, "four"),
+        ],
+        picker.editor_data.clone(),
+    );
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 5
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&(2, "changed")));
+    // Two removed neighbours and an insertion must not select the new row or restart at one.
+    picker.refresh_options(
+        vec![(0, "zero"), (1, "one"), (9, "new"), (4, "four")],
+        picker.editor_data.clone(),
+    );
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 4
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&(4, "four")));
+    picker.refresh_options(vec![(0, "zero"), (1, "one")], picker.editor_data.clone());
+    until(&mut picker, &mut app, |picker| {
+        picker.matcher.snapshot().item_count() == 2
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&(1, "one")));
+    Ok(())
+}
+
+#[tokio::test]
 async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
     type Scan = tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>;
     struct Data {
@@ -106,7 +195,6 @@ async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> an
                 rx.await?
             })
         },
-        |path| path,
     );
     until(&mut picker, &mut app, |picker| {
         picker.matcher.snapshot().item_count() == 1
@@ -247,7 +335,6 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
                 std::future::pending().await
             })
         },
-        |path| path,
     );
     changed(&mut app.editor, &dir.path().join("new"), EventType::Create);
     until(&mut picker, &mut app, |picker| {
@@ -318,7 +405,6 @@ async fn content_refresh_preserves_the_selected_location_within_a_file() -> anyh
                 ])
             })
         },
-        |item| &item.0,
     )
     .refresh_on_content_changes();
     until(&mut picker, &mut app, |picker| {
@@ -361,7 +447,6 @@ async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow
         &app.editor,
         |root| root,
         |_, _, root, _| Box::pin(async move { Ok(vec![root.join("latest.txt")]) }),
-        |path| path,
     )
     .refresh_on_vcs_changes();
     until(&mut picker, &mut app, |picker| {

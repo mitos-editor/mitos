@@ -334,8 +334,8 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
                 .await?)
             })
         },
-        |path| path,
-    );
+    )
+    .with_item_key(|path| path.clone());
     let injector = picker.injector();
     tokio::task::spawn_blocking(move || {
         for file in files {
@@ -449,8 +449,8 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
                 .await??)
             })
         },
-        |(path, _)| path,
-    );
+    )
+    .with_item_key(|(path, _)| path.clone());
 
     Ok(picker)
 }

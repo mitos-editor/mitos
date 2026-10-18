@@ -4,6 +4,7 @@ mod file_updates;
 mod handlers;
 mod preview;
 mod query;
+mod updates;
 
 use crate::{
     compositor::{self, Component, Compositor, Context, Cursor, Event, EventResult},
@@ -209,6 +210,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     completion_height: u16,
 
     cursor: u32,
+    offset: u32,
     refreshing: bool,
     prompt: Prompt,
     query: PickerQuery,
@@ -231,7 +233,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dynamic_query_request: event::TaskController,
     poll: Option<PollTask>,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
-    restore_selection: Option<T>,
+    pending_options: Option<updates::PendingOptions<T, D>>,
+    selection_resolver: Option<updates::SelectionResolver<T>>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.
@@ -390,6 +393,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_data,
             version,
             cursor: 0,
+            offset: 0,
             refreshing: false,
             keys: KeymapState::default(),
             keymap: |maps| &maps.picker,
@@ -409,7 +413,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             dynamic_query_request: event::TaskController::new(),
             poll: None,
             file_updates: None,
-            restore_selection: None,
+            pending_options: None,
+            selection_resolver: None,
         }
     }
 
@@ -565,8 +570,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 options,
                 editor_data,
             } => {
-                self.refreshing = true;
-                self.reset_options(options, editor_data);
+                self.refresh_options(options, Arc::new(editor_data));
                 PickerClose::KeepOpen
             }
         }
@@ -574,6 +578,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
         self.cursor = 0;
+        self.offset = 0;
         self.refreshing = false;
         self.prompt.clear(editor);
         self.handle_prompt_change(false);
@@ -584,7 +589,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some(updates) = &mut self.file_updates {
             updates.stop();
         }
-        self.restore_selection = None;
+        self.pending_options = None;
         self.reset_options_shared(options, Arc::new(editor_data));
     }
 
@@ -679,6 +684,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
         self.cursor = 0;
+        self.offset = 0;
+        // A changed query supersedes an in-flight background replacement.
+        if self.pending_options.is_some()
+            && let Some(updates) = &mut self.file_updates
+        {
+            updates.stop();
+        }
+        self.pending_options = None;
+        self.refreshing = false;
         // Have nucleo reparse each changed column.
         for (i, column) in self
             .columns
@@ -749,14 +763,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        self.publish_options();
         let status = self.matcher.tick(10);
-        let was_refreshing = self.refreshing;
-        self.refreshing &= status.running;
-        if was_refreshing && !self.refreshing {
-            self.restore_file_selection();
-        }
         let snapshot = self.matcher.snapshot();
-        if !self.refreshing && (status.changed || was_refreshing) {
+        if status.changed {
             self.cursor = self
                 .cursor
                 .min(snapshot.matched_item_count().saturating_sub(1))
@@ -814,7 +824,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         panel::top_border(sep_style).render(separator_area, surface);
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
-        let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
+        let rows = rows.max(1);
+        self.offset = self.offset.min(self.cursor);
+        if self.cursor >= self.offset.saturating_add(rows) {
+            self.offset = self.cursor + 1 - rows;
+        }
+        let offset = self.offset;
         let cursor = self.cursor.saturating_sub(offset);
         let end = offset
             .saturating_add(rows)
@@ -968,6 +983,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            picker.pending_options = None;
+            picker.refreshing = false;
             picker.dynamic_query_request.cancel();
             picker.poll = None;
             if let Some(updates) = &mut picker.file_updates {
@@ -1002,10 +1019,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
 
         for &action in actions {
-            // A refreshed row is usable only after matching and cursor clamping.
-            // Query editing and cancellation remain available while matching runs.
+            // Keep navigation available, but do not act twice on a row that an
+            // accepted callback may have removed from the replacement list.
             if self.refreshing
-                && !matches!(action, PickerAction::Cancel | PickerAction::TogglePreview)
+                && matches!(
+                    action,
+                    PickerAction::Accept
+                        | PickerAction::AcceptKeepOpen
+                        | PickerAction::AcceptHorizontalSplit
+                        | PickerAction::AcceptVerticalSplit
+                )
             {
                 return EventResult::Consumed(None);
             }
