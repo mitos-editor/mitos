@@ -1,5 +1,6 @@
 use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction};
 use ui_core::keymap::{Keymap, KeymapState, Lookup};
+mod file_updates;
 mod handlers;
 mod preview;
 mod query;
@@ -228,6 +229,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     quicklist_fn: Option<QuicklistCallback<T>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
     poll: Option<PollTask>,
+    file_updates: Option<file_updates::FileUpdates<T, D>>,
+    restore_selection: Option<std::path::PathBuf>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.
@@ -403,6 +406,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             quicklist_fn: None,
             dynamic_query_handler: None,
             poll: None,
+            file_updates: None,
+            restore_selection: None,
         }
     }
 
@@ -574,10 +579,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn reset_options(&mut self, options: Vec<T>, editor_data: D) {
+        if let Some(updates) = &mut self.file_updates {
+            updates.stop();
+        }
+        self.restore_selection = None;
+        self.reset_options_shared(options, Arc::new(editor_data));
+    }
+
+    fn reset_options_shared(&mut self, options: Vec<T>, editor_data: Arc<D>) {
         // Cancel existing injectors before replacing the matcher contents.
         self.version.fetch_add(1, atomic::Ordering::Relaxed);
         self.matcher.restart(true);
-        self.editor_data = Arc::new(editor_data);
+        self.editor_data = editor_data;
 
         self.widths = visible_column_widths(&self.columns);
         self.preview.clear();
@@ -727,9 +740,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
-        let snapshot = self.matcher.snapshot();
         let was_refreshing = self.refreshing;
         self.refreshing &= status.running;
+        if was_refreshing && !self.refreshing {
+            self.restore_file_selection();
+        }
+        let snapshot = self.matcher.snapshot();
         if !self.refreshing && (status.changed || was_refreshing) {
             self.cursor = self
                 .cursor
@@ -943,6 +959,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
             picker.poll = None;
+            if let Some(updates) = &mut picker.file_updates {
+                updates.stop();
+            }
             picker.preview.cancel_loads(None);
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
@@ -1118,7 +1137,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
 
         let poll = &cx.editor.config().files.reload.poll;
-        if render_preview && poll.enable {
+        if (render_preview || self.file_updates.is_some()) && poll.enable {
             let interval = std::time::Duration::from_millis(poll.interval.max(100));
             if self
                 .poll
@@ -1137,6 +1156,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         } else {
             self.poll = None;
         }
+
+        self.refresh_files(cx.editor);
 
         let (picker_area, preview_area) = split_picker_area(area, render_preview);
         self.render_picker(picker_area, surface, cx);

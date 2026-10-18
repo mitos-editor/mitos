@@ -229,34 +229,26 @@ pub struct FilePickerData {
 }
 type FilePicker = Picker<PathBuf, FilePickerData>;
 
-pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
+fn file_picker_paths(
+    root: &Path,
+    config: &editor_config::FilePickerConfig,
+) -> impl Iterator<Item = PathBuf> + use<> {
     use ignore::WalkBuilder;
-    use std::time::Instant;
+    let dedup_symlinks = config.deduplicate_links;
+    let absolute_root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
 
-    let config = editor.config();
-    let data = FilePickerData {
-        root: root.clone(),
-        theme: Arc::new(editor.theme.clone()),
-        icons: config.icons,
-    };
+    let mut walk_builder = WalkBuilder::new(root);
 
-    let now = Instant::now();
-
-    let dedup_symlinks = config.file_picker.deduplicate_links;
-    let absolute_root = root.canonicalize().unwrap_or_else(|_| root.clone());
-
-    let mut walk_builder = WalkBuilder::new(&root);
-
-    let files = walk_builder
-        .hidden(config.file_picker.hidden)
-        .parents(config.file_picker.parents)
-        .ignore(config.file_picker.ignore)
-        .follow_links(config.file_picker.follow_symlinks)
-        .git_ignore(config.file_picker.git_ignore)
-        .git_global(config.file_picker.git_global)
-        .git_exclude(config.file_picker.git_exclude)
+    walk_builder
+        .hidden(config.hidden)
+        .parents(config.parents)
+        .ignore(config.ignore)
+        .follow_links(config.follow_symlinks)
+        .git_ignore(config.git_ignore)
+        .git_global(config.git_global)
+        .git_exclude(config.git_exclude)
         .sort_by_file_name(|name1, name2| name1.cmp(name2))
-        .max_depth(config.file_picker.max_depth)
+        .max_depth(config.max_depth)
         .filter_entry(move |entry| ::search::include_entry(entry, &absolute_root, dedup_symlinks))
         .add_custom_ignore_filename(loader::config_dir().join("ignore"))
         .add_custom_ignore_filename(".mitos/ignore")
@@ -268,8 +260,17 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
                 return None;
             }
             Some(entry.into_path())
-        });
-    log::debug!("file_picker init {:?}", Instant::now().duration_since(now));
+        })
+}
+
+pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
+    let config = editor.config();
+    let data = FilePickerData {
+        root: root.clone(),
+        theme: Arc::new(editor.theme.clone()),
+        icons: config.icons,
+    };
+    let files = file_picker_paths(&root, &config.file_picker);
 
     let columns = [PickerColumn::new(
         "path",
@@ -318,7 +319,23 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
             }
         },
     )
-    .with_preview(|_editor, path| Some((path.as_path().into(), None)));
+    .with_preview(|_editor, path| Some((path.as_path().into(), None)))
+    .with_file_updates(
+        editor,
+        |data| &data.root,
+        |editor, data, cancel| {
+            let config = editor.config().file_picker.clone();
+            Box::pin(async move {
+                Ok(tokio::task::spawn_blocking(move || {
+                    file_picker_paths(&data.root, &config)
+                        .take_while(|_| !cancel.is_canceled())
+                        .collect()
+                })
+                .await?)
+            })
+        },
+        |path| path,
+    );
     let injector = picker.injector();
     tokio::task::spawn_blocking(move || {
         for file in files {
@@ -419,7 +436,21 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
             target: QuicklistTarget::Path(path.clone()),
             position: QuicklistPosition::None,
         })
-    });
+    })
+    .with_file_updates(
+        editor,
+        |data| &data.0,
+        |editor, data, cancel| {
+            let config = editor.config().file_explorer.clone();
+            Box::pin(async move {
+                Ok(tokio::task::spawn_blocking(move || {
+                    directory_content_cancellable(&data.0, &config, || cancel.is_canceled())
+                })
+                .await??)
+            })
+        },
+        |(path, _)| path,
+    );
 
     Ok(picker)
 }
@@ -428,8 +459,18 @@ fn directory_content(
     root: &Path,
     config: &editor_config::FileExplorerConfig,
 ) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
+    directory_content_cancellable(root, config, || false)
+}
+
+fn directory_content_cancellable(
+    root: &Path,
+    config: &editor_config::FileExplorerConfig,
+    cancelled: impl Fn() -> bool,
+) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
     use ignore::WalkBuilder;
 
+    // Keep the previous listing when its directory disappears or becomes unreadable.
+    std::fs::read_dir(root)?;
     let mut walk_builder = WalkBuilder::new(root);
 
     let mut content: Vec<(PathBuf, bool)> = walk_builder
@@ -445,6 +486,7 @@ fn directory_content(
         .add_custom_ignore_filename(".mitos/ignore")
         .types(get_excluded_types())
         .build()
+        .take_while(|_| !cancelled())
         .filter_map(|entry| {
             entry
                 .map(|entry| {
