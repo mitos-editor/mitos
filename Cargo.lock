@@ -5395,6 +5395,7 @@ dependencies = [
  "theme",
  "toml",
  "toml_edit",
+ "ui-core",
  "view",
 ]
 

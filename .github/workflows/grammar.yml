@@ -72,7 +72,7 @@ jobs:
       - name: Check uncommitted documentation changes
         if: always()
         run: |
-          git diff
-          git diff-files --quiet \
+          git diff -- book/src/generated
+          test -z "$(git status --porcelain --untracked-files=all -- book/src/generated)" \
             || (echo "Run 'cargo xtask docgen', commit the changes and push again" \
             && exit 1)

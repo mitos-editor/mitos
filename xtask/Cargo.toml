@@ -19,6 +19,7 @@ loader.workspace = true
 term.workspace = true
 core.workspace = true
 view.workspace = true
+ui-core.workspace = true
 stdx.workspace = true
 ropey.workspace = true
 toml.workspace = true

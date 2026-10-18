@@ -1,9 +1,9 @@
 //! Actions and defaults owned by the terminal components that execute them.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ui_core::keymap::{Binding, Keymap};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptAction {
     Cancel,
@@ -29,7 +29,7 @@ pub enum PromptAction {
     InsertRegister,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PickerAction {
     MoveUp,
@@ -55,7 +55,7 @@ pub enum PickerItemAction {
     CloseBuffer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuAction {
     Cancel,
@@ -66,7 +66,7 @@ pub enum MenuAction {
     PageDown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PopupAction {
     Cancel,
@@ -74,14 +74,14 @@ pub enum PopupAction {
     ScrollDown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PageAction {
     Previous,
     Next,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlameAction {
     CopyCommitId,

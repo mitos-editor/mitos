@@ -23,6 +23,10 @@ pub mod tasks {
         write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands()?);
         write(STATIC_COMMANDS_MD_OUTPUT, &static_commands()?);
         write(LANG_SUPPORT_MD_OUTPUT, &lang_features()?);
+        for (filename, contents) in keymaps() {
+            write(&filename, &contents);
+        }
+        write("keymap-components.md", &component_keymaps()?);
         Ok(())
     }
 
