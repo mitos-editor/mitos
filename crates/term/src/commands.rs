@@ -46,8 +46,8 @@ pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub use dap::{
     dap_continue, dap_disable_exceptions, dap_edit_condition, dap_edit_log, dap_enable_exceptions,
     dap_launch, dap_next, dap_pause, dap_restart, dap_start_impl, dap_step_in, dap_step_out,
-    dap_switch_stack_frame, dap_switch_thread, dap_terminate, dap_toggle_breakpoints,
-    dap_toggle_breakpoints_impl, dap_variables,
+    dap_switch_session, dap_switch_stack_frame, dap_switch_thread, dap_terminate,
+    dap_toggle_breakpoints, dap_toggle_breakpoints_impl, dap_variables,
 };
 pub use diagnostics::{diagnostics_picker, workspace_diagnostics_picker};
 pub(crate) use editing::replace_selections;

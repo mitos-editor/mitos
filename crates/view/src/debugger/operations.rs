@@ -382,6 +382,13 @@ impl Editor {
         {
             return Ok(());
         }
+        anyhow::ensure!(
+            !self
+                .debugger
+                .get_active_session()
+                .is_some_and(|session| self.debugger.is_starting(session.id())),
+            "Selected debugging session is still starting"
+        );
         let client = self
             .debugger
             .get_active_client()

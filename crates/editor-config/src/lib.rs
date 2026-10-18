@@ -641,6 +641,7 @@ impl Default for StatusLineConfig {
             left: vec![
                 E::Mode,
                 E::Spinner,
+                E::DebugSession,
                 E::Branch,
                 E::FileName,
                 E::ReadOnlyIndicator,
@@ -755,6 +756,9 @@ pub enum StatusLineElement {
 
     /// Indicator for when code actions are available
     CodeActionHint,
+
+    /// Selected debugging session, its state, and the total session count
+    DebugSession,
 }
 
 /// Cursor shapes for each editor mode.

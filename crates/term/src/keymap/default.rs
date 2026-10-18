@@ -261,6 +261,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "C-c" => dap_edit_condition,
                 "C-l" => dap_edit_log,
                 "s" => { "Switch"
+                    "s" => dap_switch_session,
                     "t" => dap_switch_thread,
                     "f" => dap_switch_stack_frame,
                     // sl, sb

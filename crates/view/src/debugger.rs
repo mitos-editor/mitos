@@ -5,7 +5,7 @@ pub use breakpoints::{BreakpointBinding, BreakpointLocation};
 mod events;
 mod progress;
 mod session;
-pub use session::{DebugSession, ThreadStates};
+pub use session::{DebugSession, DebugSessionStatus, ThreadStates};
 mod launch;
 mod startup;
 pub(crate) use startup::register_hooks;
@@ -90,6 +90,7 @@ pub trait TerminalLauncher: Send + Sync {
 #[derive(Default)]
 pub struct DebuggerState {
     sessions: SlotMap<DebugAdapterId, DebugSession>,
+    next_session_number: u64,
     // Least recently selected first; the last session is active, including during startup.
     selection_order: Vec<DebugAdapterId>,
     selection: event::TaskController,

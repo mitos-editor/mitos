@@ -19,6 +19,12 @@ pub(super) struct SessionEvents {
     terminating: bool,
 }
 
+impl SessionEvents {
+    pub(super) fn is_terminating(&self) -> bool {
+        self.terminating
+    }
+}
+
 impl Default for SessionEvents {
     fn default() -> Self {
         let mut transition = TaskController::new();
@@ -95,7 +101,7 @@ struct StoppedState {
 impl super::DebuggerState {
     pub(super) fn is_terminating(&self, id: DebugAdapterId) -> bool {
         self.get_session(id)
-            .is_some_and(|session| session.events.terminating)
+            .is_some_and(|session| session.events.is_terminating())
     }
 }
 

@@ -310,6 +310,7 @@
 | `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
 | `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
 | `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
+| `dap_switch_session` | Switch debugging session | normal: `` <space>Gss ``, select: `` <space>Gss `` |
 | `dap_switch_thread` | Switch current thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
 | `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
 | `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |

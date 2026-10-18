@@ -111,6 +111,10 @@ pub struct BreakpointLocation<'a> {
 }
 
 impl BreakpointSession {
+    pub(super) fn is_configuring(&self) -> bool {
+        self.configuring
+    }
+
     pub(super) fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove(&identity);
     }

@@ -136,7 +136,31 @@ where
         StatusLineElementID::Register => render_register,
         StatusLineElementID::CurrentWorkingDirectory => render_cwd,
         StatusLineElementID::CodeActionHint => render_code_action_hint,
+        StatusLineElementID::DebugSession => render_debug_session,
     }
+}
+
+fn render_debug_session<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if !context.is_focused() {
+        return;
+    }
+    let debugger = context.editor.debugger();
+    let Some(session) = debugger.get_active_session() else {
+        return;
+    };
+    let count = debugger.sessions().len();
+    let content = format!(
+        " Debug #{} {} ({}, {} {}) ",
+        session.number(),
+        session.name(),
+        session.status(),
+        count,
+        if count == 1 { "session" } else { "sessions" }
+    );
+    write(context, Span::raw(content));
 }
 
 fn render_mode<'a, F>(context: &mut RenderContext<'a>, write: F)

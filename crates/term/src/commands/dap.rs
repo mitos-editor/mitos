@@ -154,12 +154,6 @@ fn start_for_document(
 }
 
 pub fn dap_launch(cx: &mut Context) {
-    // TODO: Now that we support multiple Clients, we could run multiple debuggers at once but for now keep this as is
-    if !cx.editor.debugger().is_empty() {
-        cx.editor.set_error(|| "Debugger is already running");
-        return;
-    }
-
     let doc = doc!(cx.editor);
 
     let config = match doc
@@ -465,6 +459,65 @@ pub fn dap_edit_log(cx: &mut Context) {
         });
         cx.jobs.callback(callback);
     }
+}
+
+pub fn dap_switch_session(cx: &mut Context) {
+    struct SessionItem {
+        id: dap::DebugAdapterId,
+        label: String,
+        state: String,
+        parent: String,
+    }
+
+    let debugger = cx.editor.debugger();
+    let active = debugger.get_active_session().map(|session| session.id());
+    let sessions: Vec<_> = debugger
+        .sessions()
+        .map(|session| SessionItem {
+            id: session.id(),
+            label: format!(
+                "{} #{} {}",
+                if active == Some(session.id()) {
+                    "*"
+                } else {
+                    " "
+                },
+                session.number(),
+                session.name()
+            ),
+            state: session.status().to_string(),
+            parent: session
+                .parent()
+                .and_then(|id| debugger.get_session(id))
+                .map(|parent| format!("#{} {}", parent.number(), parent.name()))
+                .unwrap_or_default(),
+        })
+        .collect();
+    if sessions.is_empty() {
+        cx.editor.set_status("No debugging sessions");
+        return;
+    }
+    let columns = [
+        ui::PickerColumn::new("session", |item: &SessionItem, _| {
+            item.label.as_str().into()
+        }),
+        ui::PickerColumn::new("state", |item: &SessionItem, _| item.state.as_str().into()),
+        ui::PickerColumn::new("parent", |item: &SessionItem, _| {
+            item.parent.as_str().into()
+        }),
+    ];
+    cx.push_layer(Box::new(overlaid(Picker::new(
+        cx.editor.redraw().clone(),
+        columns,
+        0,
+        sessions,
+        (),
+        |cx, session, _action| {
+            if let Err(error) = cx.editor.select_debugger_session(session.id) {
+                cx.editor.set_error(|| error.to_string());
+            }
+        },
+    ))));
 }
 
 pub fn dap_switch_thread(cx: &mut Context) {

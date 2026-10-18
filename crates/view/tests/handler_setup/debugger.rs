@@ -1911,3 +1911,47 @@ async fn background_adapter_notifications_preserve_the_selected_session_status(
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selecting_stopped_sessions_opens_their_cached_frames() -> anyhow::Result<()> {
+    use view::debugger::DebugSessionStatus;
+    let mut f = Fixture::new("")?;
+    let mut sessions = Vec::new();
+    for name in ["backend.words", "frontend.words"] {
+        let source = f.dir.path().join(name);
+        std::fs::write(&source, "stopped here\n")?;
+        let source = stdx::path::canonicalize_existing(&source);
+        let (id, _) = paused_adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                stack_source: Some(source.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        sessions.push((id, source));
+    }
+    for (id, source) in &sessions {
+        f.editor.select_debugger_session(*id)?;
+        let path = view::current_ref!(f.editor).1.path().unwrap();
+        assert_eq!(path.canonicalize()?, source.canonicalize()?);
+        assert_eq!(f.editor.debugger().get_active_session().unwrap().id(), *id);
+        assert_eq!(
+            f.editor.debugger().get_active_session().unwrap().status(),
+            DebugSessionStatus::Stopped
+        );
+    }
+    assert!(
+        f.editor
+            .debugger()
+            .get_session(sessions[0].0)
+            .unwrap()
+            .number()
+            < f.editor
+                .debugger()
+                .get_session(sessions[1].0)
+                .unwrap()
+                .number()
+    );
+    Ok(())
+}

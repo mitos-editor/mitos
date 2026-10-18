@@ -66,6 +66,23 @@ running TCP debug adapter, use
 `:debug-remote <ip>:<port> <template> [parameters...]`, for example
 `:debug-remote 127.0.0.1:4711 binary target/debug/my-program`.
 
+## Multiple sessions
+
+You can run several debugging sessions at once, including targets started with
+`Space G l`, `:debug-start`, or `:debug-remote`. Each launch selects its new session
+immediately. Adapter-created child sessions stay in the background.
+
+Use `Space G s s` to select a session. The picker shows its number, name, state,
+and parent, with `*` marking the selected session. Selecting a stopped session
+opens its current stack frame. The `debug-session` statusline element shows the
+selected session and total session count; it is included in the default layout.
+
+Continue, pause, stepping, restart, variables, evaluation, and termination apply
+to the selected session. Ending a session restores the previous selection.
+`Space G t` also cancels a selected session that is still starting. Source
+breakpoints are shared across sessions. Background sessions keep their own
+execution state and do not change the selected session when they initialize or stop.
+
 ## Debugging commands
 
 These bindings are available in normal and select mode:
@@ -80,6 +97,7 @@ These bindings are available in normal and select mode:
 | `Space G i` | Step in |
 | `Space G o` | Step out |
 | `Space G v` | List variables |
+| `Space G s s` | Switch session |
 | `Space G s t` | Switch thread |
 | `Space G s f` | Switch stack frame |
 | `Space G r` | Restart the session |

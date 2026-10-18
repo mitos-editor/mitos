@@ -13,6 +13,7 @@ pub type ThreadStates = HashMap<ThreadId, String>;
 /// One adapter lifetime. Frontends inspect execution state; the editor owns its transitions.
 pub struct DebugSession {
     id: DebugAdapterId,
+    number: u64,
     pub(super) name: String,
     pub(super) parent: Option<DebugAdapterId>,
     pub(super) client: Option<Client>,
@@ -27,10 +28,31 @@ pub struct DebugSession {
     pub(super) progress: HashMap<String, ProgressState>,
 }
 
+/// Display state of a session, independent of frontend selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebugSessionStatus {
+    Starting,
+    Running,
+    Stopped,
+    Disconnecting,
+}
+
+impl std::fmt::Display for DebugSessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Stopped => "stopped",
+            Self::Disconnecting => "disconnecting",
+        })
+    }
+}
+
 impl DebugSession {
-    fn new(id: DebugAdapterId, name: String, parent: Option<DebugAdapterId>) -> Self {
+    fn new(id: DebugAdapterId, number: u64, name: String, parent: Option<DebugAdapterId>) -> Self {
         Self {
             id,
+            number,
             name,
             parent,
             client: None,
@@ -48,6 +70,28 @@ impl DebugSession {
 
     pub fn id(&self) -> DebugAdapterId {
         self.id
+    }
+
+    /// A stable display number, unique for this editor lifetime.
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+
+    pub fn status(&self) -> DebugSessionStatus {
+        if self.events.is_terminating() {
+            DebugSessionStatus::Disconnecting
+        } else if self.startup.is_some()
+            || self
+                .breakpoints
+                .as_ref()
+                .is_some_and(|state| state.is_configuring())
+        {
+            DebugSessionStatus::Starting
+        } else if self.thread_states.values().any(|state| state != "running") {
+            DebugSessionStatus::Stopped
+        } else {
+            DebugSessionStatus::Running
+        }
     }
 
     /// Adapter and launch-template label, available before the adapter connects.
@@ -157,9 +201,14 @@ impl DebuggerState {
         name: String,
         parent: Option<DebugAdapterId>,
     ) -> DebugAdapterId {
+        self.next_session_number = self
+            .next_session_number
+            .checked_add(1)
+            .expect("debug session numbers exhausted");
+        let number = self.next_session_number;
         let id = self
             .sessions
-            .insert_with_key(|id| DebugSession::new(id, name, parent));
+            .insert_with_key(|id| DebugSession::new(id, number, name, parent));
         if parent.is_none() || self.selection_order.is_empty() {
             self.selection_order.push(id);
             self.current_selection = Some(self.selection.restart());
@@ -206,6 +255,17 @@ impl DebuggerState {
             self.current_selection = Some(self.selection.restart());
         }
         self.selection_order.retain(|session| *session != id);
+    }
+}
+
+impl crate::Editor {
+    /// Select a session and navigate to its cached stopped frame, if available.
+    pub fn select_debugger_session(&mut self, id: DebugAdapterId) -> anyhow::Result<()> {
+        self.debugger.select_session(id)?;
+        if let Some(frame) = self.debugger.current_stack_frame().cloned() {
+            crate::handlers::dap::jump_to_stack_frame(self, &frame);
+        }
+        Ok(())
     }
 }
 

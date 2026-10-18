@@ -317,6 +317,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` <space>Gss `` | Switch debugging session | `` dap_switch_session `` |
 | `` <space>Gst `` | Switch current thread | `` dap_switch_thread `` |
 | `` <space>Gsf `` | Switch stack frame | `` dap_switch_stack_frame `` |
 

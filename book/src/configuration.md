@@ -295,7 +295,7 @@ single statusline at the bottom of the editor for the focused view.
 | Key | Type | Default |
 | --- | --- | --- |
 | `global` | boolean | `false` |
-| `left` | array of element names | `["mode", "spinner", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
+| `left` | array of element names | `["mode", "spinner", "debug-session", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
 | `right` | array of element names | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
@@ -333,6 +333,7 @@ Available statusline elements:
 | `spacer` | Inserts a space between elements (multiple/contiguous spacers may be specified) |
 | `register` | The current selected register |
 | `code-action-hint` | Indicator for when code actions are available |
+| `debug-session` | Selected debugging session, its state, and total session count; hidden when no session exists |
 
 
 ### `[editor.lsp]`

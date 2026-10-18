@@ -341,6 +341,7 @@ impl MappableCommand {
         dap_terminate => super::dap::dap_terminate, "End debug session",
         dap_edit_condition => super::dap::dap_edit_condition, "Edit breakpoint condition on current line",
         dap_edit_log => super::dap::dap_edit_log, "Edit breakpoint log message on current line",
+        dap_switch_session => super::dap::dap_switch_session, "Switch debugging session",
         dap_switch_thread => super::dap::dap_switch_thread, "Switch current thread",
         dap_switch_stack_frame => super::dap::dap_switch_stack_frame, "Switch stack frame",
         dap_enable_exceptions => super::dap::dap_enable_exceptions, "Enable exception breakpoints",
