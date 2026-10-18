@@ -107,6 +107,10 @@ impl StartupContext {
     }
 
     fn finish(self, editor: &mut Editor, result: dap::Result<Value>) {
+        let active = editor
+            .debugger
+            .get_active_session()
+            .is_some_and(|session| session.id() == self.id);
         editor.debugger.sessions[self.id].startup = None;
         if result.is_err() {
             editor.debugger.remove_session(self.id);
@@ -117,7 +121,11 @@ impl StartupContext {
             }
             _ => {
                 if let Err(error) = result {
-                    editor.set_error(|| format!("Failed to start debugging: {error}"));
+                    if active {
+                        editor.set_error(|| format!("Failed to start debugging: {error}"));
+                    } else {
+                        log::warn!("Failed to start debugging session {}: {error}", self.id);
+                    }
                 }
             }
         }
@@ -219,9 +227,19 @@ impl Editor {
             return;
         }
         self.reset_debugger_events(id);
-        self.set_status("Debugger initialized...");
+        let active = self
+            .debugger
+            .get_active_session()
+            .is_some_and(|session| session.id() == id);
+        if active {
+            self.set_status("Debugger initialized...");
+        }
         if let Err(error) = self.configure_debugger_breakpoints(id) {
-            self.set_error(|| format!("Debugger configuration failed: {error}"));
+            if active {
+                self.set_error(|| format!("Debugger configuration failed: {error}"));
+            } else {
+                log::warn!("Debugger configuration failed for {id}: {error}");
+            }
         }
     }
 

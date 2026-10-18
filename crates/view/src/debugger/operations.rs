@@ -56,6 +56,8 @@ pub struct DebuggerContext {
     owner: EditorCallbackSender,
     lifetime: TaskHandle,
     request: TaskHandle,
+    // Inspection belongs to a particular user selection; controls belong to the session.
+    selection: Option<TaskHandle>,
     thread: Option<ThreadId>,
     frame: Option<usize>,
 }
@@ -66,9 +68,15 @@ impl DebuggerContext {
             && !self.request.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
             && !editor.debugger.is_terminating(self.id)
-            && editor.debugger.get_active_session().is_some_and(|session| {
-                session.id() == self.id
-                    && session.thread_id == self.thread
+            && self.selection.as_ref().is_none_or(|selection| {
+                !selection.is_canceled()
+                    && editor
+                        .debugger
+                        .get_active_session()
+                        .is_some_and(|session| session.id() == self.id)
+            })
+            && editor.debugger.get_session(self.id).is_some_and(|session| {
+                session.thread_id == self.thread
                     && session.current_stack_frame().map(|frame| frame.id) == self.frame
             })
     }
@@ -96,6 +104,12 @@ impl<T: Send + 'static> DebuggerTask<T> {
             biased;
             _ = self.context.lifetime.canceled() => return None,
             _ = self.context.request.canceled() => return None,
+            _ = async {
+                match &self.context.selection {
+                    Some(selection) => selection.canceled().await,
+                    None => std::future::pending().await,
+                }
+            } => return None,
             result = self.future => result,
         };
         Some(DebuggerUpdate {
@@ -178,6 +192,11 @@ impl Editor {
             owner,
             lifetime: state.current.clone(),
             request: state.requests.entry(kind).or_default().restart(),
+            selection: if kind == RequestKind::Control {
+                None
+            } else {
+                self.debugger.current_selection.clone()
+            },
             thread,
             frame,
         };
@@ -195,12 +214,23 @@ impl Editor {
                 return;
             };
             callbacks
-                .send(move |editor| match update.into_result(editor) {
-                    Some(Ok(result)) => apply(editor, result),
-                    Some(Err(error)) => {
-                        editor.set_error(|| format!("Debugger request failed: {error}"))
+                .send(move |editor| {
+                    let id = update.context.id;
+                    match update.into_result(editor) {
+                        Some(Ok(result)) => apply(editor, result),
+                        Some(Err(error)) => {
+                            if editor
+                                .debugger
+                                .get_active_session()
+                                .is_some_and(|session| session.id() == id)
+                            {
+                                editor.set_error(|| format!("Debugger request failed: {error}"));
+                            } else {
+                                log::warn!("Debugger request failed for {}: {error}", id);
+                            }
+                        }
+                        None => {}
                     }
-                    None => {}
                 })
                 .await;
         });

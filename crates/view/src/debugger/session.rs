@@ -143,8 +143,12 @@ impl DebuggerState {
             self.sessions.contains_key(id),
             "Debugging session has ended"
         );
+        if self.selection_order.last() == Some(&id) {
+            return Ok(());
+        }
         self.selection_order.retain(|session| *session != id);
         self.selection_order.push(id);
+        self.current_selection = Some(self.selection.restart());
         Ok(())
     }
 
@@ -156,11 +160,12 @@ impl DebuggerState {
         let id = self
             .sessions
             .insert_with_key(|id| DebugSession::new(id, name, parent));
-        if parent.is_some() {
+        if parent.is_none() || self.selection_order.is_empty() {
+            self.selection_order.push(id);
+            self.current_selection = Some(self.selection.restart());
+        } else {
             // Adapter-created child sessions do not take selection from the user.
             self.selection_order.insert(0, id);
-        } else {
-            self.selection_order.push(id);
         }
         id
     }
@@ -197,6 +202,9 @@ impl DebuggerState {
         }
         self.cancel_startup_requests(id);
         self.sessions.remove(id);
+        if self.selection_order.last() == Some(&id) {
+            self.current_selection = Some(self.selection.restart());
+        }
         self.selection_order.retain(|session| *session != id);
     }
 }

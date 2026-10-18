@@ -646,7 +646,14 @@ async fn inactive_adapter_breakpoint_replies_preserve_the_active_session() -> an
 async fn paused_adapter(
     f: &mut Fixture,
 ) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
-    let (id, mut wire) = adapter(f).await?;
+    paused_adapter_with_options(f, AdapterOptions::default()).await
+}
+
+async fn paused_adapter_with_options(
+    f: &mut Fixture,
+    options: AdapterOptions,
+) -> anyhow::Result<(DebugAdapterId, mpsc::UnboundedReceiver<Value>)> {
+    let (id, mut wire) = adapter_with_options(f, options).await?;
     f.editor
         .handle_debugger_message(id, debugger_event("initialized", json!({})))
         .await;
@@ -1577,7 +1584,15 @@ async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
     use editor_core::Selection;
     use view::{current, current_ref, document::Mode, editor::Action};
 
-    for interaction in ["unchanged", "document", "view", "selection", "edit", "mode"] {
+    for interaction in [
+        "unchanged",
+        "document",
+        "view",
+        "selection",
+        "edit",
+        "mode",
+        "session",
+    ] {
         let mut f = Fixture::new("original\n")?;
         let source = current_ref!(f.editor)
             .1
@@ -1617,6 +1632,11 @@ async fn delayed_stopped_frames_respect_intervening_editor_navigation_and_input(
             "selection" => {
                 let (view, doc) = current!(f.editor);
                 doc.set_selection(view.id, Selection::point(3));
+            }
+            "session" => {
+                let (other, _) = adapter(&mut f).await?;
+                f.editor.debugger_mut().select_session(other)?;
+                f.editor.debugger_mut().select_session(id)?;
             }
             "edit" => f.replace("changed\n"),
             "mode" => f.editor.set_mode(Mode::Insert),
@@ -1708,7 +1728,7 @@ async fn progress_reports_are_isolated_by_session_and_expire_on_removal() -> any
         .await;
     assert_eq!(
         f.editor.get_status().unwrap().0.as_ref(),
-        "Debug: first - compiling (50%)"
+        "Debug: second - compiling (10%)"
     );
     f.editor
         .handle_debugger_message(
@@ -1723,6 +1743,7 @@ async fn progress_reports_are_isolated_by_session_and_expire_on_removal() -> any
         f.editor.get_status().unwrap().0.as_ref(),
         "Debug: second - done"
     );
+    f.editor.debugger_mut().select_session(first)?;
     f.editor
         .handle_debugger_message(
             first,
@@ -1756,6 +1777,137 @@ async fn progress_reports_are_isolated_by_session_and_expire_on_removal() -> any
     assert_eq!(
         f.editor.get_status().unwrap().0.as_ref(),
         "replacement session"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_switches_cancel_inspection_and_invalidate_queued_picker_results(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (first, mut wire) = paused_adapter(&mut f).await?;
+    let threads = f.editor.debugger_threads()?.run().await.unwrap();
+    let context = threads.context();
+    let evaluation = f.editor.debugger_evaluate("wait".into())?;
+    let evaluation = tokio::spawn(evaluation.run());
+    command(&mut wire, "evaluate").await?;
+    let (second, _) = paused_adapter(&mut f).await?;
+    f.editor.debugger_mut().select_session(first)?;
+    assert!(!context.is_current(&f.editor));
+    assert!(threads.into_result(&f.editor).is_none());
+    assert!(tokio::time::timeout(Duration::from_secs(5), evaluation)
+        .await??
+        .is_none());
+    f.editor
+        .select_debugger_thread(&context, serde_json::from_value(json!(2))?)?;
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_session(first)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        101
+    );
+    assert_eq!(
+        f.editor
+            .debugger()
+            .get_session(second)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        101
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn control_replies_update_the_original_session_after_selection_changes() -> anyhow::Result<()>
+{
+    use view::debugger::DebuggerCommand;
+    let mut f = Fixture::new("")?;
+    let (first, mut wire) = paused_adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            held_commands: vec!["continue", "terminate"],
+            ..Default::default()
+        },
+    )
+    .await?;
+    let (second, _) = paused_adapter(&mut f).await?;
+    f.editor.debugger_mut().select_session(first)?;
+    f.editor.debugger_command(DebuggerCommand::Continue)?;
+    command(&mut wire, "continue").await?;
+    f.editor.debugger_mut().select_session(second)?;
+    release_adapter_request(&f, first).await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f
+            .editor
+            .debugger()
+            .get_session(first)
+            .unwrap()
+            .selected_thread()
+            .is_some()
+        {
+            debugger_callback(&mut f).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    f.editor.debugger_mut().select_session(first)?;
+    f.editor.debugger_command(DebuggerCommand::Terminate)?;
+    command(&mut wire, "terminate").await?;
+    f.editor.debugger_mut().select_session(second)?;
+    release_adapter_request(&f, first).await?;
+    wait_for_adapter_removal(&mut f, first).await?;
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        second
+    );
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(second)
+        .unwrap()
+        .current_stack_frame()
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn background_adapter_notifications_preserve_the_selected_session_status(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (background, _) = adapter(&mut f).await?;
+    let (selected, _) = paused_adapter(&mut f).await?;
+    f.editor.set_status("selected session");
+    for (event, body) in [
+        ("initialized", json!({})),
+        ("output", json!({"output":"background output"})),
+        (
+            "progressStart",
+            json!({"progressId":"build","title":"background"}),
+        ),
+        (
+            "progressUpdate",
+            json!({"progressId":"build","percentage":50}),
+        ),
+        ("progressEnd", json!({"progressId":"build"})),
+        ("exited", json!({"exitCode":1})),
+    ] {
+        f.editor
+            .handle_debugger_message(background, debugger_event(event, body))
+            .await;
+        assert_eq!(
+            f.editor.get_status().unwrap().0.as_ref(),
+            "selected session"
+        );
+    }
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        selected
     );
     Ok(())
 }

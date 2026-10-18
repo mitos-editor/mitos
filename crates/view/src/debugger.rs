@@ -92,6 +92,8 @@ pub struct DebuggerState {
     sessions: SlotMap<DebugAdapterId, DebugSession>,
     // Least recently selected first; the last session is active, including during startup.
     selection_order: Vec<DebugAdapterId>,
+    selection: event::TaskController,
+    current_selection: Option<event::TaskHandle>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::Payload)>>,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,

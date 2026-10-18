@@ -67,6 +67,10 @@ impl Editor {
             return false;
         }
 
+        let active = self
+            .debugger
+            .get_active_session()
+            .is_some_and(|session| session.id() == id);
         match payload {
             Payload::Event(event) => {
                 let event = match Event::parse(&event.event, event.body) {
@@ -100,8 +104,10 @@ impl Editor {
                             None => "Debug:".to_owned(),
                         };
 
-                        log::info!("{}", output);
-                        self.set_status(format!("{} {}", prefix, output));
+                        log::info!("Debug session {id}: {output}");
+                        if active {
+                            self.set_status(format!("{} {}", prefix, output));
+                        }
                     }
                     Event::ProgressStart(body) => {
                         let status = {
@@ -113,7 +119,9 @@ impl Editor {
                             debugger.progress_start(body)
                         };
 
-                        self.set_status(status);
+                        if active {
+                            self.set_status(status);
+                        }
                     }
                     Event::ProgressUpdate(body) => {
                         let status = {
@@ -125,7 +133,7 @@ impl Editor {
                             debugger.progress_update(body)
                         };
 
-                        if let Some(status) = status {
+                        if active && let Some(status) = status {
                             self.set_status(status);
                         }
                     }
@@ -139,7 +147,7 @@ impl Editor {
                             debugger.progress_end(body)
                         };
 
-                        if let Some(status) = status {
+                        if active && let Some(status) = status {
                             self.set_status(status);
                         }
                     }
@@ -149,7 +157,7 @@ impl Editor {
                     }
                     Event::Exited(resp) => {
                         let exit_code = resp.exit_code;
-                        if exit_code != 0 {
+                        if exit_code != 0 && active {
                             self.set_error(|| {
                                 format!(
                                 "Debuggee failed to exit successfully (exit code: {exit_code})."

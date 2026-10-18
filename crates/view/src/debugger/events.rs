@@ -173,7 +173,8 @@ impl Editor {
         if !hydrate {
             return;
         }
-        let navigation = if event.preserve_focus_hint.unwrap_or(false) {
+        let selection = self.debugger.current_selection.clone();
+        let navigation = if !context.is_active(self) || event.preserve_focus_hint.unwrap_or(false) {
             None
         } else {
             self.tree.try_get(self.tree.focus).and_then(|view| {
@@ -256,6 +257,9 @@ impl Editor {
                     // Cache frames independently, but do not interrupt input or
                     // navigation that happened while the adapter was responding.
                     if context.is_active(editor)
+                        && selection
+                            .as_ref()
+                            .is_some_and(|selection| !selection.is_canceled())
                         && editor.mode() == mode
                         && navigation.is_some_and(|target| {
                             editor.tree.focus == target.view_id() && target.get(editor).is_some()

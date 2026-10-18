@@ -365,3 +365,27 @@ async fn initialization_order_preserves_selection_and_termination_targets_one_st
     assert!(f.editor.debugger().get_client(running).is_some());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn background_initialization_failures_preserve_the_selected_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (selected, _) = paused_adapter(&mut f).await?;
+    let mut background = Adapter::new().await?;
+    let id = f.editor.connect_debugger(Some(background.socket), config());
+    wait_for_connection(&mut f, id).await?;
+    let initialize = message(&mut background.wire).await?;
+    f.editor.debugger_mut().select_session(selected)?;
+    f.editor.set_status("selected session");
+    background.reply(&initialize, false, Value::Null)?;
+    wait_for_startup(&mut f, id).await?;
+    assert!(f.editor.debugger().get_session(id).is_none());
+    assert_eq!(
+        f.editor.debugger().get_active_session().unwrap().id(),
+        selected
+    );
+    assert_eq!(
+        f.editor.get_status().unwrap().0.as_ref(),
+        "selected session"
+    );
+    Ok(())
+}
