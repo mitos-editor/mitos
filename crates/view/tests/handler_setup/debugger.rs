@@ -77,6 +77,8 @@ async fn adapter_server(
         let (read, mut write) = socket.into_split();
         let mut read = BufReader::new(read);
         let mut delayed = None;
+        let mut held_breakpoint = None;
+        let mut hold_breakpoints = true;
         loop {
             let mut line = String::new();
             if read.read_line(&mut line).await? == 0 {
@@ -99,10 +101,21 @@ async fn adapter_server(
                     delayed = Some(message);
                     continue;
                 }
+                if message["command"] == "setBreakpoints"
+                    && hold_breakpoints
+                    && message["arguments"]["source"]["path"]
+                        .as_str()
+                        .is_some_and(|path| path.ends_with("held.rs"))
+                {
+                    hold_breakpoints = false;
+                    held_breakpoint = Some(message);
+                    continue;
+                }
                 let body = match message["command"].as_str().unwrap() {
                     "initialize" => {
-                        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true})
+                        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true,"supportsConfigurationDoneRequest":true})
                     }
+                    "setBreakpoints" => breakpoint_response(&message),
                     "threads" => {
                         json!({"threads":[{"id":1,"name":"main"},{"id":2,"name":"worker"}]})
                     }
@@ -128,6 +141,15 @@ async fn adapter_server(
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
                 write.write_all(&response).await?;
+                if let Some(held) = held_breakpoint.take() {
+                    let response = serde_json::to_vec(
+                        &json!({"type":"response", "seq":2, "request_seq":held["seq"], "command":"setBreakpoints", "success":true, "body":breakpoint_response(&held)}),
+                    )?;
+                    write
+                        .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
+                        .await?;
+                    write.write_all(&response).await?;
+                }
                 if let Some(delayed) = delayed.take() {
                     let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
                         "request_seq":delayed["seq"], "command":"evaluate", "success":true,
@@ -141,6 +163,11 @@ async fn adapter_server(
         }
     });
     Ok((socket, receiver))
+}
+
+fn breakpoint_response(message: &Value) -> Value {
+    let breakpoints: Vec<_> = message["arguments"]["breakpoints"].as_array().unwrap().iter().map(|breakpoint| json!({"id":1000 + breakpoint["line"].as_u64().unwrap(), "verified":true, "line":breakpoint["line"]})).collect();
+    json!({"breakpoints":breakpoints})
 }
 
 async fn message(receiver: &mut mpsc::UnboundedReceiver<Value>) -> anyhow::Result<Value> {
@@ -412,6 +439,117 @@ async fn failed_debugger_launch_removes_its_adapter_and_reports_the_error() -> a
 
 fn debugger_event(name: &str, body: Value) -> dap::Payload {
     serde_json::from_value(json!({"type":"event", "seq":1, "event":name, "body":body})).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn breakpoint_configuration_coalesces_changes_before_finishing_startup() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("held.rs");
+    f.editor.toggle_breakpoints(path.clone(), &[2])?;
+    let (id, mut wire) = adapter(&mut f).await?;
+    command(&mut wire, "initialize").await?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({}))),
+    )
+    .await?;
+    let first = command(&mut wire, "setBreakpoints").await?;
+    assert_eq!(first["arguments"]["breakpoints"][0]["line"], 3);
+    f.editor.toggle_breakpoints(path.clone(), &[2, 4])?;
+    assert_eq!(f.editor.debugger().breakpoints(&path)[0].line, 4);
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event(
+                "continued",
+                json!({"threadId":1,"allThreadsContinued":true}),
+            ),
+        )
+        .await;
+    // A thread request releases the adapter's deliberately held response. The
+    // editor remains free to process requests while configuration is pending.
+    let _ = f
+        .editor
+        .debugger_threads()?
+        .run()
+        .await
+        .unwrap()
+        .into_result(&f.editor)
+        .unwrap()?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !f.editor.debugger().breakpoints(&path)[0].verified {
+            f.callbacks
+                .recv()
+                .await
+                .context("missing breakpoint callback")?(&mut f.editor);
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    let latest = command(&mut wire, "setBreakpoints").await?;
+    assert_eq!(latest["arguments"]["breakpoints"], json!([{"line":5}]));
+    assert_eq!(f.editor.debugger().breakpoints(&path)[0].line, 4);
+    assert_eq!(f.editor.debugger().breakpoints(&path)[0].id, Some(1005));
+    command(&mut wire, "configurationDone").await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn breakpoint_replies_from_removed_sessions_are_discarded() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("held.rs");
+    f.editor.toggle_breakpoints(path.clone(), &[2])?;
+    let (id, mut wire) = adapter(&mut f).await?;
+    command(&mut wire, "initialize").await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "setBreakpoints").await?;
+    let _ = f.editor.debugger_threads()?.run().await;
+    let callback = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .context("missing breakpoint callback")?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", json!({})))
+        .await;
+    callback(&mut f.editor);
+    assert!(!f.editor.debugger().breakpoints(&path)[0].verified);
+    assert!(f.editor.debugger().get_client(id).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inactive_adapter_breakpoint_replies_preserve_the_active_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let path = f.dir.path().join("held.rs");
+    f.editor.toggle_breakpoints(path.clone(), &[2])?;
+    let (old, mut wire) = adapter(&mut f).await?;
+    command(&mut wire, "initialize").await?;
+    f.editor
+        .handle_debugger_message(old, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "setBreakpoints").await?;
+    let _ = f.editor.debugger_threads()?.run().await;
+    let callback = tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
+        .await?
+        .context("missing breakpoint callback")?;
+    let (active, mut active_wire) = adapter(&mut f).await?;
+    command(&mut active_wire, "initialize").await?;
+    f.editor
+        .handle_debugger_message(active, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut active_wire, "setBreakpoints").await?;
+    callback(&mut f.editor);
+    assert!(f.editor.debugger().get_client(old).is_some());
+    assert_eq!(
+        f.editor.debugger().get_active_client().unwrap().id(),
+        active
+    );
+    assert!(!f.editor.debugger().breakpoints(&path)[0].verified);
+    assert_eq!(f.editor.debugger().breakpoints(&path)[0].id, None);
+    Ok(())
 }
 
 async fn paused_adapter(

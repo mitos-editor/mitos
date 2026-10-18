@@ -1,5 +1,6 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
+mod breakpoints;
 mod launch;
 mod operations;
 pub use operations::{
@@ -18,10 +19,9 @@ use dap::{
     Client, DebuggerCapabilities, StackFrame,
 };
 use language_config::DebugAdapterConfig;
-use lsp_client::block_on;
 
 /// Editor-owned identity, retained across adapter IDs and source-line relocation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct BreakpointId(u64);
 
 #[derive(Debug, Clone, Default)]
@@ -91,6 +91,7 @@ pub struct DebuggerState {
     pub(crate) adapters: Registry,
     pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
     next_breakpoint_id: u64,
+    breakpoint_sessions: HashMap<DebugAdapterId, breakpoints::BreakpointSession>,
     requests: HashMap<DebugAdapterId, operations::SessionRequests>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
@@ -169,9 +170,9 @@ impl DebuggerState {
             .find(|breakpoint| breakpoint.line == line)
     }
 
-    /// Toggle each distinct source line once, then synchronize the active adapter if present.
-    pub fn toggle_breakpoints(&mut self, path: PathBuf, lines: &[usize]) -> anyhow::Result<()> {
-        let breakpoints = self.breakpoints.entry(path.clone()).or_default();
+    /// Toggle each distinct source line once in the stored breakpoint model.
+    pub(crate) fn toggle_breakpoints(&mut self, path: PathBuf, lines: &[usize]) {
+        let breakpoints = self.breakpoints.entry(path).or_default();
         let mut lines = lines.to_vec();
         lines.sort_unstable();
         lines.dedup();
@@ -190,7 +191,6 @@ impl DebuggerState {
                 });
             }
         }
-        self.sync_breakpoints(&path)
     }
 
     pub(crate) fn insert_breakpoint(&mut self, path: PathBuf, mut breakpoint: Breakpoint) {
@@ -200,7 +200,7 @@ impl DebuggerState {
 
     /// Edit the original breakpoint, even if its adapter ID or source line changed.
     /// Removed identities cannot target a replacement breakpoint at the same line.
-    pub fn set_breakpoint_property(
+    pub(crate) fn set_breakpoint_property(
         &mut self,
         path: &Path,
         identity: BreakpointId,
@@ -220,18 +220,7 @@ impl DebuggerState {
             .get_active_client()
             .and_then(|client| client.caps.as_ref());
         breakpoints[position].set_property(property, value, capabilities)?;
-        self.sync_breakpoints(path)
-    }
-
-    fn sync_breakpoints(&mut self, path: &Path) -> anyhow::Result<()> {
-        let Some(client) = self.adapters.get_active_client_mut() else {
-            return Ok(());
-        };
-        let breakpoints = self
-            .breakpoints
-            .get_mut(path)
-            .expect("breakpoint file is initialized before synchronization");
-        sync_source_breakpoints(client, path.to_path_buf(), breakpoints)
+        Ok(())
     }
 }
 
@@ -268,53 +257,6 @@ fn validate_capabilities(
     Ok(())
 }
 
-pub(crate) fn sync_source_breakpoints(
-    debugger: &mut dap::Client,
-    path: PathBuf,
-    breakpoints: &mut [Breakpoint],
-) -> Result<(), anyhow::Error> {
-    if let Some(capabilities) = debugger.caps.as_ref() {
-        for breakpoint in breakpoints.iter() {
-            validate_capabilities(
-                capabilities,
-                breakpoint.condition.is_some(),
-                breakpoint.hit_condition.is_some(),
-                breakpoint.log_message.is_some(),
-            )?;
-        }
-    }
-    let source_breakpoints = breakpoints
-        .iter()
-        .map(|breakpoint| dap::SourceBreakpoint {
-            line: breakpoint.line + 1, // convert from 0-indexing to 1-indexing (TODO: could set debugger to 0-indexing on init)
-            column: breakpoint.column,
-            condition: breakpoint.condition.clone(),
-            hit_condition: breakpoint.hit_condition.clone(),
-            log_message: breakpoint.log_message.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    let request = debugger.set_breakpoints(path, source_breakpoints);
-    match block_on(request) {
-        Ok(Some(dap_breakpoints)) => {
-            for (breakpoint, dap_breakpoint) in breakpoints.iter_mut().zip(dap_breakpoints) {
-                breakpoint.id = dap_breakpoint.id;
-                breakpoint.verified = dap_breakpoint.verified;
-                breakpoint.message = dap_breakpoint.message;
-                // TODO: handle breakpoint.message
-                // TODO: verify source matches
-                breakpoint.line = dap_breakpoint.line.unwrap_or(0).saturating_sub(1); // convert to 0-indexing
-                                                                                      // TODO: no unwrap
-                breakpoint.column = dap_breakpoint.column;
-                // TODO: verify end_linef/col instruction reference, offset
-            }
-        }
-        Err(e) => anyhow::bail!("Failed to set breakpoints: {}", e),
-        _ => {}
-    };
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,7 +265,7 @@ mod tests {
     fn breakpoints_can_be_configured_before_a_debugger_starts() {
         let mut state = DebuggerState::default();
         let path = PathBuf::from("main.rs");
-        state.toggle_breakpoints(path.clone(), &[2, 2, 4]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2, 2, 4]);
         let identity = state.breakpoint_at_line(&path, 4).unwrap().identity();
         state
             .set_breakpoint_property(
@@ -333,7 +275,7 @@ mod tests {
                 Some("ready".into()),
             )
             .unwrap();
-        state.toggle_breakpoints(path.clone(), &[2]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2]);
         assert_eq!(state.breakpoints(&path).len(), 1);
         let breakpoint = state.breakpoint_at_line(&path, 4).unwrap();
         assert_eq!(breakpoint.condition.as_deref(), Some("ready"));
@@ -343,9 +285,9 @@ mod tests {
     fn editing_a_removed_breakpoint_does_not_change_another_line() {
         let mut state = DebuggerState::default();
         let path = PathBuf::from("main.rs");
-        state.toggle_breakpoints(path.clone(), &[2, 4]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2, 4]);
         let identity = state.breakpoint_at_line(&path, 2).unwrap().identity();
-        state.toggle_breakpoints(path.clone(), &[2]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2]);
         assert!(state
             .set_breakpoint_property(
                 &path,
@@ -365,10 +307,10 @@ mod tests {
     fn removed_breakpoint_identity_cannot_edit_a_replacement_at_the_same_line() {
         let mut state = DebuggerState::default();
         let path = PathBuf::from("main.rs");
-        state.toggle_breakpoints(path.clone(), &[2]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2]);
         let identity = state.breakpoint_at_line(&path, 2).unwrap().identity();
-        state.toggle_breakpoints(path.clone(), &[2]).unwrap();
-        state.toggle_breakpoints(path.clone(), &[2]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2]);
+        state.toggle_breakpoints(path.clone(), &[2]);
         assert!(state
             .set_breakpoint_property(
                 &path,
@@ -386,7 +328,7 @@ mod tests {
     fn breakpoint_identity_survives_adapter_line_and_id_changes() {
         let mut state = DebuggerState::default();
         let path = PathBuf::from("main.rs");
-        state.toggle_breakpoints(path.clone(), &[2, 4]).unwrap();
+        state.toggle_breakpoints(path.clone(), &[2, 4]);
         let identity = state.breakpoint_at_line(&path, 2).unwrap().identity();
         // Adapter verification may relocate a breakpoint and replace its session ID.
         let breakpoint = state

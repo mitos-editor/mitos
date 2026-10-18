@@ -38,6 +38,7 @@ impl Default for SessionRequests {
 impl DebuggerState {
     pub(crate) fn remove_client(&mut self, id: DebugAdapterId) {
         self.requests.remove(&id);
+        self.breakpoint_sessions.remove(&id);
         self.adapters.remove_client(id);
     }
 

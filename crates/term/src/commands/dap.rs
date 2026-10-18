@@ -312,7 +312,7 @@ pub fn dap_toggle_breakpoints(cx: &mut Context) {
 }
 
 pub fn dap_toggle_breakpoints_impl(cx: &mut Context, path: PathBuf, lines: &[usize]) {
-    if let Err(error) = cx.editor.debugger_mut().toggle_breakpoints(path, lines) {
+    if let Err(error) = cx.editor.toggle_breakpoints(path, lines) {
         cx.editor
             .set_error(|| format!("Failed to set breakpoints: {error}"));
     }
@@ -405,7 +405,7 @@ pub fn dap_edit_condition(cx: &mut Context) {
                         }
 
                         let value = (!input.is_empty()).then(|| input.to_owned());
-                        if let Err(error) = cx.editor.debugger_mut().set_breakpoint_property(
+                        if let Err(error) = cx.editor.set_breakpoint_property(
                             &path,
                             identity,
                             BreakpointProperty::Condition,
@@ -445,7 +445,7 @@ pub fn dap_edit_log(cx: &mut Context) {
                         }
 
                         let value = (!input.is_empty()).then(|| input.to_owned());
-                        if let Err(error) = cx.editor.debugger_mut().set_breakpoint_property(
+                        if let Err(error) = cx.editor.set_breakpoint_property(
                             &path,
                             identity,
                             BreakpointProperty::LogMessage,

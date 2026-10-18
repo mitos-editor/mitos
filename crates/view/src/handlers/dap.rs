@@ -1,6 +1,6 @@
 mod requests;
 
-use crate::debugger::{sync_source_breakpoints, Breakpoint};
+use crate::debugger::Breakpoint;
 use crate::editor::Action;
 use crate::{align_view, Align, Editor};
 use dap::requests::DisconnectArguments;
@@ -342,30 +342,9 @@ impl Editor {
                     }
                     Event::Initialized(_) => {
                         self.set_status("Debugger initialized...");
-                        let debugger = match self.debugger.adapters.get_client_mut(id) {
-                            Some(debugger) => debugger,
-                            None => return false,
-                        };
-
-                        // send existing breakpoints
-                        for (path, breakpoints) in &mut self.debugger.breakpoints {
-                            // TODO: call futures in parallel, await all
-                            let _ = sync_source_breakpoints(debugger, path.clone(), breakpoints);
+                        if let Err(error) = self.configure_debugger_breakpoints(id) {
+                            self.set_error(|| format!("Debugger configuration failed: {error}"));
                         }
-                        // TODO: fetch breakpoints (in case we're attaching)
-
-                        match debugger.configuration_done().await {
-                            Err(err) => {
-                                self.set_error(|| {
-                                    format!("Debugger configuration failed: {}", err)
-                                });
-                            }
-                            _ => {
-                                self.set_status("Debugged application started");
-                            }
-                        }
-
-                        self.debugger.adapters.set_active_client(id);
                     }
                     Event::Terminated(terminated) => {
                         let debugger = match self.debugger.adapters.get_client_mut(id) {
