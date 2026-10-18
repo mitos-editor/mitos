@@ -1,6 +1,6 @@
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::ui::{icon_span, menu, panel, Markdown, Menu, Popup, PromptEvent};
-use editor_core::{self as core, chars, fuzzy::MATCHER, Change, Transaction};
+use editor_core::{chars, fuzzy::MATCHER, Change, Transaction};
 use lsp_client::{lsp, util, OffsetEncoding};
 use nucleo::{
     pattern::{Atom, AtomKind, CaseMatching, Normalization},
@@ -12,7 +12,7 @@ use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
 use view::features::completion::LspCompletionItem;
 use view::features::completion::{
-    trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler,
+    trigger_auto_completion, CompletionItem, CompletionResponse, ResolveHandler, TextCompletion,
 };
 use view::{
     editor::CompleteAction, features::signature_help::SignatureHelpInvoked, icons::ICONS, ViewId,
@@ -39,12 +39,13 @@ impl menu::Item for CompletionItem {
                         .as_ref()
                         .is_some_and(|tags| tags.contains(&lsp::CompletionItemTag::DEPRECATED))
             }
-            CompletionItem::Other(_) => false,
+            CompletionItem::Path(_) | CompletionItem::Word(_) => false,
         };
 
         let label = match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.label.as_str(),
-            CompletionItem::Other(core::CompletionItem { label, .. }) => label,
+            CompletionItem::Path(TextCompletion { label, .. })
+            | CompletionItem::Word(TextCompletion { label, .. }) => label,
         };
 
         let kind = match self {
@@ -100,7 +101,8 @@ impl menu::Item for CompletionItem {
                 }
                 None => "".into(),
             },
-            CompletionItem::Other(core::CompletionItem { kind, .. }) => kind.as_ref().into(),
+            CompletionItem::Path(TextCompletion { kind, .. })
+            | CompletionItem::Word(TextCompletion { kind, .. }) => kind.as_ref().into(),
         };
 
         let kind_name = kind.spans.first().map_or("", |span| span.content.as_ref());
@@ -229,7 +231,8 @@ impl Completion {
                             );
                             view::editing::apply_temporary(doc, &transaction, view.id)
                         }
-                        CompletionItem::Other(core::CompletionItem { transaction, .. }) => {
+                        CompletionItem::Path(TextCompletion { transaction, .. })
+                        | CompletionItem::Word(TextCompletion { transaction, .. }) => {
                             view::editing::apply_temporary(doc, transaction, view.id)
                         }
                     };
@@ -281,7 +284,8 @@ impl Completion {
                                 snippet,
                             )
                         }
-                        CompletionItem::Other(core::CompletionItem { transaction, .. }) => {
+                        CompletionItem::Path(TextCompletion { transaction, .. })
+                        | CompletionItem::Word(TextCompletion { transaction, .. }) => {
                             (transaction, None, None)
                         }
                     };
@@ -444,7 +448,7 @@ impl Completion {
         let menu = self.popup.contents_mut();
         let (_, options) = menu.update_options();
         if is_incomplete {
-            options.retain(|item| item.provider() != response.provider)
+            options.retain(|item| item.provider() != response.provider())
         }
         response.take_items(options);
         self.score(false);
@@ -544,7 +548,7 @@ impl Component for Completion {
                 }
                 None => return,
             },
-            CompletionItem::Other(option) => {
+            CompletionItem::Path(option) | CompletionItem::Word(option) => {
                 let Some(doc) = option.documentation.as_deref() else {
                     return;
                 };

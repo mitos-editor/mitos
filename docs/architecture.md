@@ -473,6 +473,11 @@ arrive through `EditorEvent::SignatureHelp` and are resolved against the receivi
 editor before display. `term` forwards mode and insertion events and owns popup
 formatting, placement, signature navigation, and completion-menu overlap.
 
+`view::features::completion` owns provider identities, text completions, LSP item
+wrappers, and result batches. Response variants bind LSP items to their server,
+and path/word variants carry text transactions without a second provider field.
+The terminal presents and applies these items; `core` owns only the text edits.
+
 `view::features::completion` owns completion items, LSP/path/word providers,
 request debouncing, batching, incomplete-list refreshes, resolution, and
 cancellation. Editor-owned callbacks publish typed `EditorEvent::Completion`

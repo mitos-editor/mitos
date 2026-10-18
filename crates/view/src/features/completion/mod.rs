@@ -8,7 +8,7 @@ use crate::{
     DocumentId, Editor, ViewId,
 };
 use editor_config::Config;
-use editor_core::{chars::char_is_word, completion::CompletionProvider, Uri};
+use editor_core::{chars::char_is_word, Uri};
 use event::{register_hook, send_blocking, AsyncHook, TaskController, TaskHandle};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
@@ -24,7 +24,10 @@ use std::{
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, task::JoinSet};
 
-pub use item::{CompletionItem, CompletionItems, CompletionResponse, LspCompletionItem};
+use item::CompletionItems;
+pub use item::{
+    CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, TextCompletion,
+};
 pub use request::request_incomplete_completion_list;
 use request::{Debounce, Trigger, TriggerKind};
 pub use resolve::{resolve_item, ResolveHandler};
@@ -356,7 +359,7 @@ impl CompletionUpdate {
                         is_incomplete,
                     } => {
                         if editor.last_completion.is_none()
-                            || !session.supports(editor, response.provider)
+                            || !session.supports(editor, response.provider())
                         {
                             return None;
                         }
@@ -364,7 +367,7 @@ impl CompletionUpdate {
                             .handlers
                             .completions
                             .active_completions
-                            .insert(response.provider, response.context.clone());
+                            .insert(response.provider(), response.context.clone());
                         Some(CompletionChange::Provider {
                             response,
                             is_incomplete,

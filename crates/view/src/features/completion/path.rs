@@ -7,12 +7,12 @@ use std::{
 };
 
 use crate::{document::SavePoint, features::completion::ResponseContext, Document};
-use editor_core::{self as core, completion::CompletionProvider, Selection, Transaction};
+use editor_core::{Selection, Transaction};
 use event::TaskHandle;
 use stdx::path::{self, canonicalize, fold_home_dir, get_path_suffix};
 use stdx::Url;
 
-use super::{CompletionItem, CompletionItems, CompletionResponse};
+use super::{CompletionItems, CompletionResponse, TextCompletion};
 
 pub(crate) fn path_completion(
     selection: Selection,
@@ -73,8 +73,7 @@ pub(crate) fn path_completion(
     let future = move || {
         let Ok(read_dir) = std::fs::read_dir(&dir_path) else {
             return CompletionResponse {
-                items: CompletionItems::Other(Vec::new()),
-                provider: CompletionProvider::Path,
+                items: CompletionItems::Path(Vec::new()),
                 context: ResponseContext {
                     is_incomplete: false,
                     priority: PRIORITY,
@@ -109,18 +108,16 @@ pub(crate) fn path_completion(
                     (cursor - edit_diff, cursor, Some((&file_name).into()))
                 });
 
-                Some(CompletionItem::Other(core::CompletionItem {
+                Some(TextCompletion {
                     kind: Cow::Borrowed(kind),
                     label: file_name.into(),
                     transaction,
                     documentation: Some(documentation),
-                    provider: CompletionProvider::Path,
-                }))
+                })
             })
             .collect();
         CompletionResponse {
-            items: CompletionItems::Other(res),
-            provider: CompletionProvider::Path,
+            items: CompletionItems::Path(res),
             context: ResponseContext {
                 is_incomplete: false,
                 priority: PRIORITY,

@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::CompletionProvider;
 use crate::document::{Mode, SavePoint};
 use crate::{Document, DocumentId, Editor, ViewId};
-use editor_core::completion::CompletionProvider;
 use event::{cancelable_future, TaskController, TaskHandle};
 use futures_util::Future;
 use language_config::LanguageServerFeature;
@@ -277,7 +277,7 @@ pub(super) fn request_completions(
 
         let mut items: Vec<_> = Vec::new();
         response.take_items(&mut items);
-        context.insert(response.provider, response.context);
+        context.insert(response.provider(), response.context);
         let deadline = Instant::now() + Duration::from_millis(100);
         loop {
             let Some(mut response) = timeout_at(deadline, handle_response(&mut requests, false))
@@ -288,7 +288,7 @@ pub(super) fn request_completions(
                 break;
             };
             response.take_items(&mut items);
-            context.insert(response.provider, response.context);
+            context.insert(response.provider(), response.context);
         }
         let initial = session.clone();
         super::deliver(
@@ -350,13 +350,12 @@ fn request_completions_from_language_server(
             sort_text1.cmp(sort_text2)
         });
         CompletionResponse {
-            items: CompletionItems::Lsp(items),
+            items: CompletionItems::Lsp { provider, items },
             context: ResponseContext {
                 is_incomplete,
                 priority,
                 savepoint,
             },
-            provider: CompletionProvider::Lsp(provider),
         }
     }
 }

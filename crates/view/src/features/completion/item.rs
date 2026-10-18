@@ -1,45 +1,78 @@
-use std::mem;
+use std::borrow::Cow;
 
 use super::ResponseContext;
-use editor_core::completion::CompletionProvider;
+use editor_core::Transaction;
 use lsp_client::{lsp, LanguageServerId};
 
+/// Identifies the provider whose requests, settings, and results are tracked together.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum CompletionProvider {
+    Lsp(LanguageServerId),
+    Path,
+    Word,
+}
+
+impl From<LanguageServerId> for CompletionProvider {
+    fn from(id: LanguageServerId) -> Self {
+        Self::Lsp(id)
+    }
+}
+
+/// An editor-generated completion with a prepared text transaction.
+#[derive(Debug, PartialEq, Clone)]
+pub struct TextCompletion {
+    pub transaction: Transaction,
+    pub label: Cow<'static, str>,
+    pub kind: Cow<'static, str>,
+    /// Markdown documentation.
+    pub documentation: Option<String>,
+}
+
 pub struct CompletionResponse {
-    pub items: CompletionItems,
-    pub provider: CompletionProvider,
+    pub(super) items: CompletionItems,
     pub context: ResponseContext,
 }
 
-pub enum CompletionItems {
-    Lsp(Vec<lsp::CompletionItem>),
-    Other(Vec<CompletionItem>),
+/// Raw batches retain provider identity even when empty or drained.
+pub(super) enum CompletionItems {
+    Lsp {
+        provider: LanguageServerId,
+        items: Vec<lsp::CompletionItem>,
+    },
+    Path(Vec<TextCompletion>),
+    Word(Vec<TextCompletion>),
 }
 
 impl CompletionItems {
     pub fn is_empty(&self) -> bool {
         match self {
-            CompletionItems::Lsp(items) => items.is_empty(),
-            CompletionItems::Other(items) => items.is_empty(),
+            Self::Lsp { items, .. } => items.is_empty(),
+            Self::Path(items) | Self::Word(items) => items.is_empty(),
         }
     }
 }
 
 impl CompletionResponse {
+    pub fn provider(&self) -> CompletionProvider {
+        match &self.items {
+            CompletionItems::Lsp { provider, .. } => CompletionProvider::Lsp(*provider),
+            CompletionItems::Path(_) => CompletionProvider::Path,
+            CompletionItems::Word(_) => CompletionProvider::Word,
+        }
+    }
+
     pub fn take_items(&mut self, dst: &mut Vec<CompletionItem>) {
         match &mut self.items {
-            CompletionItems::Lsp(items) => dst.extend(items.drain(..).map(|item| {
+            CompletionItems::Lsp { provider, items } => dst.extend(items.drain(..).map(|item| {
                 CompletionItem::Lsp(LspCompletionItem {
                     item,
-                    provider: match self.provider {
-                        CompletionProvider::Lsp(provider) => provider,
-                        _ => unreachable!(),
-                    },
+                    provider: *provider,
                     resolved: false,
                     provider_priority: self.context.priority,
                 })
             })),
-            CompletionItems::Other(items) if dst.is_empty() => mem::swap(dst, items),
-            CompletionItems::Other(items) => dst.append(items),
+            CompletionItems::Path(items) => dst.extend(items.drain(..).map(CompletionItem::Path)),
+            CompletionItems::Word(items) => dst.extend(items.drain(..).map(CompletionItem::Word)),
         }
     }
 }
@@ -71,7 +104,8 @@ impl LspCompletionItem {
 #[derive(Debug, PartialEq, Clone)]
 pub enum CompletionItem {
     Lsp(LspCompletionItem),
-    Other(editor_core::CompletionItem),
+    Path(TextCompletion),
+    Word(TextCompletion),
 }
 
 impl CompletionItem {
@@ -79,7 +113,7 @@ impl CompletionItem {
     pub fn filter_text(&self) -> &str {
         match self {
             CompletionItem::Lsp(item) => item.filter_text(),
-            CompletionItem::Other(item) => &item.label,
+            CompletionItem::Path(item) | CompletionItem::Word(item) => &item.label,
         }
     }
 }
@@ -93,35 +127,97 @@ impl PartialEq<CompletionItem> for LspCompletionItem {
     }
 }
 
-impl PartialEq<CompletionItem> for editor_core::CompletionItem {
-    fn eq(&self, other: &CompletionItem) -> bool {
-        match other {
-            CompletionItem::Other(other) => self == other,
-            _ => false,
-        }
-    }
-}
-
 impl CompletionItem {
     pub fn provider_priority(&self) -> i8 {
         match self {
             CompletionItem::Lsp(item) => item.provider_priority,
             // sorting path completions after LSP for now
-            CompletionItem::Other(_) => 1,
+            CompletionItem::Path(_) | CompletionItem::Word(_) => 1,
         }
     }
 
     pub fn provider(&self) -> CompletionProvider {
         match self {
             CompletionItem::Lsp(item) => CompletionProvider::Lsp(item.provider),
-            CompletionItem::Other(item) => item.provider,
+            CompletionItem::Path(_) => CompletionProvider::Path,
+            CompletionItem::Word(_) => CompletionProvider::Word,
         }
     }
 
     pub fn preselect(&self) -> bool {
         match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.preselect.unwrap_or(false),
-            CompletionItem::Other(_) => false,
+            CompletionItem::Path(_) | CompletionItem::Word(_) => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use arc_swap::ArcSwap;
+    use editor_core::Rope;
+    use slotmap::SlotMap;
+
+    #[tokio::test]
+    async fn completion_batches_preserve_provider_priority_and_append_order() {
+        let mut doc = crate::Document::from(
+            Rope::new(),
+            None,
+            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
+            Arc::new(ArcSwap::from_pointee(language::syntax::Loader::default())),
+        );
+        let view = crate::View::new(doc.id(), Default::default(), event::Redraw::default());
+        doc.ensure_view_init(view.id);
+        let context = ResponseContext {
+            is_incomplete: false,
+            priority: -2,
+            savepoint: doc.savepoint(&view),
+        };
+        let mut servers = SlotMap::<LanguageServerId, ()>::with_key();
+        let server = servers.insert(());
+        let mut response = CompletionResponse {
+            items: CompletionItems::Lsp {
+                provider: server,
+                items: vec![lsp::CompletionItem::new_simple(
+                    "server".into(),
+                    "detail".into(),
+                )],
+            },
+            context: context.clone(),
+        };
+        let text_item = || TextCompletion {
+            transaction: Transaction::new(doc.text()),
+            label: "text".into(),
+            kind: "word".into(),
+            documentation: None,
+        };
+        let mut items = vec![CompletionItem::Word(text_item())];
+        response.take_items(&mut items);
+        assert!(response.items.is_empty());
+        assert_eq!(response.provider(), CompletionProvider::Lsp(server));
+        assert_eq!(items[1].provider_priority(), -2);
+        response.take_items(&mut items);
+        assert_eq!(items.len(), 2);
+
+        let mut response = CompletionResponse {
+            items: CompletionItems::Path(vec![text_item()]),
+            context,
+        };
+        response.take_items(&mut items);
+        assert_eq!(response.provider(), CompletionProvider::Path);
+        assert_eq!(
+            items
+                .iter()
+                .map(CompletionItem::provider)
+                .collect::<Vec<_>>(),
+            [
+                CompletionProvider::Word,
+                CompletionProvider::Lsp(server),
+                CompletionProvider::Path
+            ]
+        );
     }
 }

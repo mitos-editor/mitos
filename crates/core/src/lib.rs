@@ -32,7 +32,6 @@ pub mod auto_pairs;
 pub mod case_conversion;
 pub mod chars;
 pub mod comment;
-pub mod completion;
 pub mod diagnostic;
 pub mod diff;
 pub mod editor_config;
@@ -85,7 +84,6 @@ pub use position::{
 pub use selection::{Range, Selection};
 pub use smallvec::{smallvec, SmallVec};
 
-pub use completion::CompletionItem;
 pub use diagnostic::Diagnostic;
 
 pub use line_ending::{LineEnding, NATIVE_LINE_ENDING};

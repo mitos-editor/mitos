@@ -1,13 +1,14 @@
 use std::{borrow::Cow, sync::Arc};
 
 use crate::{document::SavePoint, features::completion::ResponseContext, Document, Editor, ViewId};
-use editor_core::{
-    self as core, chars::char_is_word, completion::CompletionProvider, movement, Transaction,
-};
+use editor_core::{chars::char_is_word, movement, Transaction};
 use event::TaskHandle;
 use stdx::rope::RopeSliceExt as _;
 
-use super::{request::TriggerKind, CompletionItem, CompletionItems, CompletionResponse, Trigger};
+use super::{
+    request::TriggerKind, CompletionItem, CompletionItems, CompletionResponse, TextCompletion,
+    Trigger,
+};
 
 const COMPLETION_KIND: &str = "word";
 
@@ -36,7 +37,7 @@ pub(super) fn completion(
     let selection = doc.selection(view.id).clone();
     let pos = selection.primary().cursor(text);
 
-    let cursor = movement::move_prev_word_start(text, core::Range::point(pos), 1);
+    let cursor = movement::move_prev_word_start(text, editor_core::Range::point(pos), 1);
     if cursor.head == pos {
         return None;
     }
@@ -79,19 +80,17 @@ pub(super) fn completion(
                     let cursor = range.cursor(text);
                     (cursor - edit_diff, cursor, Some((&word).into()))
                 });
-                CompletionItem::Other(core::CompletionItem {
+                TextCompletion {
                     transaction,
                     label: word.into(),
                     kind: Cow::Borrowed(COMPLETION_KIND),
                     documentation: None,
-                    provider: CompletionProvider::Word,
-                })
+                }
             })
             .collect();
 
         CompletionResponse {
-            items: CompletionItems::Other(items),
-            provider: CompletionProvider::Word,
+            items: CompletionItems::Word(items),
             context: ResponseContext {
                 is_incomplete: false,
                 priority: 0,
@@ -119,14 +118,6 @@ pub(super) fn retain_valid_completions(
         .get_char(cursor.saturating_sub(1))
         .is_some_and(|ch| ch.is_whitespace())
     {
-        items.retain(|item| {
-            !matches!(
-                item,
-                CompletionItem::Other(core::CompletionItem {
-                    provider: CompletionProvider::Word,
-                    ..
-                })
-            )
-        });
+        items.retain(|item| !matches!(item, CompletionItem::Word(_)));
     }
 }
