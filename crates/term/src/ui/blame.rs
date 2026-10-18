@@ -1,6 +1,11 @@
 //! Commit details and copy actions for the primary cursor's blame.
 
-use tui::buffer::Buffer;
+use theme::Theme;
+use tui::{
+    buffer::Buffer,
+    text::{Line, Span, Text},
+    widgets::Widget,
+};
 use ui_core::keymap::{Binding, Keymap, KeymapState, Lookup};
 use vcs::LineBlame;
 use view::{features::blame::BlameDetailsUpdate, graphics::Rect, Editor};
@@ -8,24 +13,29 @@ use view::{features::blame::BlameDetailsUpdate, graphics::Rect, Editor};
 use crate::{
     compositor::{Component, Compositor, Context, Event, EventResult},
     keymap::component::{BlameAction, PopupAction},
-    ui::{Markdown, Popup},
+    ui::{panel, text, Popup},
 };
 
 pub struct BlameDetails {
     keys: KeymapState,
-    contents: Markdown,
     commit_id: String,
+    author: String,
+    date: String,
+    title: String,
+    body: Option<String>,
     message: String,
 }
 
 impl BlameDetails {
     pub const ID: &'static str = "blame-details";
 
-    fn new(blame: LineBlame, editor: &Editor) -> Self {
-        let mut message = blame.commit_title.unwrap_or_default();
-        if let Some(body) = blame.commit_body.filter(|body| !body.is_empty()) {
+    fn new(blame: LineBlame) -> Self {
+        let title = blame.commit_title.unwrap_or_default();
+        let body = blame.commit_body.filter(|body| !body.is_empty());
+        let mut message = title.clone();
+        if let Some(body) = &body {
             message.push_str("\n\n");
-            message.push_str(&body);
+            message.push_str(body);
         }
         let author = match (blame.author_name, blame.author_email) {
             (Some(name), Some(email)) => format!("{name} <{email}>"),
@@ -33,22 +43,53 @@ impl BlameDetails {
             (None, Some(email)) => email,
             (None, None) => "Unknown author".into(),
         };
-        let text = format!(
-            "Commit: {}\nAuthor: {author}\nDate: {}\n\n{message}",
-            blame.commit_id,
-            blame.commit_date.as_deref().unwrap_or("Unknown date"),
-        );
-        // Commit messages are literal text, including Markdown and code fences.
-        let contents = text
-            .lines()
-            .map(|line| format!("    {line}\n"))
-            .collect::<String>();
         Self {
             keys: KeymapState::default(),
-            contents: Markdown::new(contents, editor.syn_loader.clone()),
             commit_id: blame.commit_id,
+            author,
+            date: blame.commit_date.unwrap_or_else(|| "Unknown date".into()),
+            title,
+            body,
             message,
         }
+    }
+
+    fn text(&self, theme: Option<&Theme>) -> Text<'_> {
+        let style = |scope| {
+            theme
+                .map(|theme| theme.get("ui.text").patch(theme.get(scope)))
+                .unwrap_or_default()
+        };
+        let label = style("keyword");
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Commit: ", label),
+                Span::styled(&self.commit_id, style("constant")),
+            ]),
+            Line::from(vec![
+                Span::styled("Author: ", label),
+                Span::styled(&self.author, style("string")),
+            ]),
+            Line::from(vec![
+                Span::styled("Date: ", label),
+                Span::styled(&self.date, style("constant.numeric")),
+            ]),
+            Line::default(),
+        ];
+        lines.extend(
+            self.title
+                .lines()
+                .map(|line| Line::from(Span::styled(line, style("markup.heading.1")))),
+        );
+        // Commit messages are literal text, including Markdown and code fences.
+        if let Some(body) = &self.body {
+            lines.push(Line::default());
+            lines.extend(
+                body.lines()
+                    .map(|line| Line::from(Span::styled(line, style("ui.text")))),
+            );
+        }
+        Text::from(lines)
     }
 }
 
@@ -86,8 +127,7 @@ pub fn show(
     };
     match result {
         Ok(blame) => {
-            let popup =
-                Popup::new(BlameDetails::ID, BlameDetails::new(blame, editor)).auto_close(true);
+            let popup = Popup::new(BlameDetails::ID, BlameDetails::new(blame)).auto_close(true);
             compositor.replace_or_push(BlameDetails::ID, popup);
             let keys = &config.component_keys;
             editor.set_status(format!(
@@ -133,11 +173,19 @@ impl Component for BlameDetails {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        self.contents.render(area, surface, cx);
+        text::paragraph(self.text(Some(&cx.editor.theme)))
+            .scroll((cx.scroll.unwrap_or_default() as u16, 0))
+            .render(panel::content_area(area), surface);
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        self.contents.required_size(viewport)
+        let contents = text::paragraph(self.text(None));
+        let max_text_width = viewport.0.saturating_sub(panel::HORIZONTAL_INSET).min(120);
+        let (width, height) = text::required_size(&contents, max_text_width);
+        Some((
+            width + panel::HORIZONTAL_INSET,
+            height + panel::VERTICAL_INSET,
+        ))
     }
 }
 
