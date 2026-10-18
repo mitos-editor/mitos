@@ -22,6 +22,7 @@ members = [
   "crates/word-index",
   "crates/fuzzy",
   "crates/text-diff",
+  "crates/syntax-diff",
   "crates/text-io",
   "crates/workspace",
   "crates/theme",
@@ -73,6 +74,7 @@ word-index = { path = "crates/word-index" }
 search = { path = "crates/search" }
 fuzzy = { path = "crates/fuzzy" }
 text-diff = { path = "crates/text-diff" }
+syntax-diff = { path = "crates/syntax-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
 lsp-types = { path = "crates/lsp-types" }

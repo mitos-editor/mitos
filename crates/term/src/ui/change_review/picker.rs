@@ -13,7 +13,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, Semaphore};
 use tui::buffer::Buffer;
 use view::{
-    features::change_review::{ReviewComparison, ReviewRequest, ReviewSnapshot},
+    features::change_review::{DiffEngine, ReviewComparison, ReviewRequest, ReviewSnapshot},
     graphics::Rect,
 };
 
@@ -23,6 +23,7 @@ pub struct ChangeReviewPreview<T> {
     status: fn(&T) -> &vcs::FileStatus,
     workspace: PathBuf,
     comparison: Option<ReviewComparison>,
+    engine: Option<DiffEngine>,
     task: TaskController,
     worker: Arc<Semaphore>,
     pending: Option<Pending>,
@@ -42,6 +43,7 @@ impl<T> ChangeReviewPreview<T> {
             status,
             workspace,
             comparison: None,
+            engine: None,
             task: TaskController::new(),
             worker: Arc::new(Semaphore::new(1)),
             pending: None,
@@ -131,7 +133,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let poll = &cx.editor.config().files.reload.poll;
         self.dirty |= dirty;
-        let request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace);
+        let request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace)
+            .with_engine(self.engine);
         let target_changed = self
             .request
             .as_ref()
@@ -174,7 +177,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                         match result {
                             Ok(snapshot) => {
                                 let offset = self.ready.as_ref().map_or(0, |view| view.offset);
-                                let mut view = ReviewView::from_shared(
+                                let mut view = ReviewView::from_snapshot(
                                     format!(
                                         "{} · {}",
                                         comparison.label(),
@@ -184,7 +187,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                                             .unwrap_or(status.path())
                                             .display()
                                     ),
-                                    snapshot.review.clone(),
+                                    &snapshot,
                                 );
                                 view.offset = offset;
                                 self.ready = Some(view);
@@ -213,12 +216,10 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            view.offset = view.offset.min(
-                view.review
-                    .lines
-                    .len()
-                    .saturating_sub(content.height.saturating_sub(1) as usize),
-            );
+            view.offset =
+                view.offset.min(view.review.lines.len().saturating_sub(
+                    content.height.saturating_sub(view.heading_rows() as u16) as usize,
+                ));
             view.draw(content, surface, cx, view.offset);
         } else {
             surface.set_stringn(
@@ -250,8 +251,9 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     .replace("<A-o>", "A-o")
             };
             let help = format!(
-                "{} open · {}/{} compare · {}/{} scroll",
+                "{} open · {} engine · {}/{} compare · {}/{} scroll",
                 hint(PickerAction::OpenPreview),
+                hint(PickerAction::ToggleDiffEngine),
                 hint(PickerAction::PreviewPrevious),
                 hint(PickerAction::PreviewNext),
                 hint(PickerAction::PreviewScrollUp),
@@ -269,6 +271,21 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
 
     fn action(&mut self, item: Option<&T>, action: PreviewAction, cx: &mut Context) -> EventResult {
         match action {
+            PreviewAction::ToggleEngine => {
+                let Some(item) = item else {
+                    return EventResult::Consumed(None);
+                };
+                let status = (self.status)(item);
+                let request = ReviewRequest::new(
+                    cx.editor,
+                    status,
+                    self.comparison_for(cx.editor, status),
+                    &self.workspace,
+                )
+                .with_engine(self.engine);
+                self.engine = Some(request.engine().toggled());
+                self.stop();
+            }
             PreviewAction::ScrollUp => {
                 if let Some(view) = &mut self.ready {
                     view.offset = view
@@ -317,7 +334,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 };
                 let status = (self.status)(item).clone();
                 let comparison = self.comparison_for(cx.editor, &status);
-                let request = ReviewRequest::new(cx.editor, &status, comparison, &self.workspace);
+                let request = ReviewRequest::new(cx.editor, &status, comparison, &self.workspace)
+                    .with_engine(self.engine);
                 let ready = self
                     .request
                     .as_ref()
@@ -328,7 +346,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                             && old.same_target(&request)
                             && old.is_current(cx.editor)
                     })
-                    .map(|(_, view)| view.review.clone());
+                    .map(|(_, view)| (view.review.clone(), view.source.clone()));
                 let title = format!(
                     "Diff · {} · {}",
                     comparison.label(),
@@ -341,7 +359,11 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 let worker = self.worker.clone();
                 return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     let view = match ready {
-                        Some(review) => ReviewView::from_shared(title, review),
+                        Some((review, source)) => {
+                            let mut view = ReviewView::from_shared(title, review);
+                            view.source = source;
+                            view
+                        }
                         None => {
                             ReviewView::loading(title, request, worker, cx.editor.redraw().clone())
                         }

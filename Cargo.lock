@@ -4067,6 +4067,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syntax-diff"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "imara-diff",
+ "loader",
+ "text-diff",
+ "tree-house",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4719,6 +4730,7 @@ dependencies = [
  "snippets",
  "spelling",
  "stdx",
+ "syntax-diff",
  "tempfile",
  "text-diff",
  "text-io",

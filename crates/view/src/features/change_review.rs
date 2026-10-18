@@ -10,7 +10,12 @@ use vcs::{ComparisonKind, FileStatus, MAX_REVIEW_BYTES};
 
 use crate::{DocumentId, Editor};
 
+pub use language_config::DiffEngine;
 pub use text_diff::{Review, ReviewLineKind};
+
+mod engine;
+pub use engine::ReviewSource;
+use engine::Settings;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReviewComparison {
@@ -31,6 +36,7 @@ impl ReviewComparison {
 }
 
 /// Capture is cheap: materialization, repository reads and differencing run off-thread.
+#[derive(Clone)]
 pub struct ReviewRequest {
     providers: vcs::DiffProviderRegistry,
     status: FileStatus,
@@ -40,6 +46,7 @@ pub struct ReviewRequest {
     document: Option<(DocumentId, i32)>,
     encoding: Option<&'static Encoding>,
     workspace: std::path::PathBuf,
+    settings: Settings,
 }
 
 #[derive(PartialEq, Eq)]
@@ -54,12 +61,14 @@ type RepositoryStamp = Vec<(PathBuf, Option<FileStamp>)>;
 /// A bounded review and the metadata used to avoid repeating unchanged comparisons.
 pub struct ReviewSnapshot {
     pub review: Arc<Review>,
+    pub source: Arc<ReviewSource>,
     stamp: RepositoryStamp,
     status: FileStatus,
     comparison: ReviewComparison,
     trust_full: bool,
     document: Option<(DocumentId, i32)>,
     encoding: Option<&'static Encoding>,
+    settings: Settings,
 }
 
 impl ReviewSnapshot {
@@ -95,14 +104,27 @@ impl ReviewRequest {
             document: document.map(|doc| (doc.id(), doc.version())),
             encoding: document.map(|doc| doc.encoding()),
             workspace,
+            settings: Settings::capture(editor, status.path()),
         }
     }
 
+    pub fn with_engine(mut self, engine: Option<DiffEngine>) -> Self {
+        if let Some(engine) = engine {
+            self.settings.engine = engine;
+        }
+        self
+    }
+
+    pub fn engine(&self) -> DiffEngine {
+        self.settings.engine
+    }
+
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.encoding
-            == editor
-                .document_by_path(self.status.path())
-                .map(|doc| doc.encoding())
+        self.settings.is_current(editor, self.status.path())
+            && self.encoding
+                == editor
+                    .document_by_path(self.status.path())
+                    .map(|doc| doc.encoding())
             && self.trust_full
                 == editor
                     .workspace_trust
@@ -119,6 +141,7 @@ impl ReviewRequest {
     pub fn same_target(&self, other: &Self) -> bool {
         self.status == other.status
             && self.encoding == other.encoding
+            && self.settings.same(&other.settings)
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
             && (self.comparison != ReviewComparison::Buffer || self.document == other.document)
@@ -173,6 +196,15 @@ impl ReviewRequest {
         &self,
         previous: Option<Arc<ReviewSnapshot>>,
     ) -> Result<Arc<ReviewSnapshot>> {
+        self.compute_cached_cancellable(previous, &|| false)
+    }
+
+    pub fn compute_cached_cancellable(
+        &self,
+        previous: Option<Arc<ReviewSnapshot>>,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Arc<ReviewSnapshot>> {
+        ensure!(!canceled(), "Diff preview canceled");
         let stamp = self.stamp();
         if let Some(previous) = previous
             && previous.stamp == stamp
@@ -180,27 +212,37 @@ impl ReviewRequest {
             && previous.comparison == self.comparison
             && previous.trust_full == self.trust_full
             && previous.encoding == self.encoding
+            && previous.settings.same(&self.settings)
             && (self.comparison != ReviewComparison::Buffer || previous.document == self.document)
         {
             return Ok(previous);
         }
-        let review = Arc::new(self.compute()?);
+        let source = Arc::new(self.source()?);
+        ensure!(!canceled(), "Diff preview canceled");
+        let review = Arc::new(source.compute(None, canceled));
+        ensure!(!canceled(), "Diff preview canceled");
         ensure!(
             stamp == self.stamp(),
             "Repository changed while loading the diff; refreshing will retry"
         );
         Ok(Arc::new(ReviewSnapshot {
             review,
+            source,
             stamp,
             status: self.status.clone(),
             comparison: self.comparison,
             trust_full: self.trust_full,
             document: self.document,
             encoding: self.encoding,
+            settings: self.settings.clone(),
         }))
     }
 
     pub fn compute(&self) -> Result<Review> {
+        Ok(self.source()?.compute(None, &|| false))
+    }
+
+    fn source(&self) -> Result<ReviewSource> {
         let kind = match self.comparison {
             ReviewComparison::Staged => ComparisonKind::Staged,
             ReviewComparison::Buffer => ComparisonKind::Index,
@@ -225,7 +267,12 @@ impl ReviewRequest {
                 decode(&comparison.after, self.encoding)?,
             )
         };
-        Ok(Review::new(before, after, None))
+        Ok(ReviewSource {
+            before,
+            after,
+            line: None,
+            settings: self.settings.clone(),
+        })
     }
 }
 
@@ -256,6 +303,7 @@ pub struct HunkReviewRequest {
     text: Rope,
     encoding: &'static Encoding,
     line: usize,
+    settings: Settings,
 }
 
 impl HunkReviewRequest {
@@ -280,7 +328,7 @@ impl HunkReviewRequest {
             target: super::request::SelectionRequest::new(doc, view.id, cancel, Vec::new()),
             worker: editor.handlers.change_review_worker.clone(),
             providers: editor.diff_providers.clone(),
-            path,
+            path: path.clone(),
             workspace: doc.workspace_root().to_owned(),
             trust_full: editor
                 .workspace_trust
@@ -289,28 +337,35 @@ impl HunkReviewRequest {
             text: doc.text().clone(),
             encoding: doc.encoding(),
             line: doc.cursor_line(view.id),
+            settings: Settings::capture(editor, &path),
         })
     }
 
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.target.get(editor).is_some_and(|(view, doc)| {
-            editor.tree.focus == view.id && doc.encoding() == self.encoding
-        }) && editor
-            .workspace_trust
-            .query(&self.workspace, workspace::trust::TrustQuery::Git)
-            .is_trusted()
-            == self.trust_full
+        self.settings.is_current(editor, &self.path)
+            && self.target.get(editor).is_some_and(|(view, doc)| {
+                editor.tree.focus == view.id && doc.encoding() == self.encoding
+            })
+            && editor
+                .workspace_trust
+                .query(&self.workspace, workspace::trust::TrustQuery::Git)
+                .is_trusted()
+                == self.trust_full
     }
 
     /// Serialize blocking hunk work per editor. Cancellation drops queued requests immediately;
     /// a running worker retains its permit until its blocking computation actually finishes.
-    pub async fn run(self: Arc<Self>) -> Result<Review> {
+    pub async fn run(self: Arc<Self>) -> Result<(Arc<ReviewSource>, Review)> {
         let worker = self.worker.clone();
         let cancel = self.target.cancel_handle().clone();
-        run_hunk(worker, cancel, move || self.compute()).await
+        run_hunk(worker, cancel, move || self.compute_review()).await
     }
 
     pub fn compute(&self) -> Result<Review> {
+        self.compute_review().map(|(_, review)| review)
+    }
+
+    pub fn compute_review(&self) -> Result<(Arc<ReviewSource>, Review)> {
         ensure!(
             !self.target.cancel_handle().is_canceled(),
             "Change inspection cancelled"
@@ -324,11 +379,18 @@ impl HunkReviewRequest {
         let comparison =
             self.providers
                 .read_comparison(&status, ComparisonKind::Head, self.trust_full)?;
-        Ok(Review::new(
-            decode(&comparison.before, Some(self.encoding))?,
-            self.text.clone(),
-            Some(self.line),
-        ))
+        let source = Arc::new(ReviewSource {
+            before: decode(&comparison.before, Some(self.encoding))?,
+            after: self.text.clone(),
+            line: Some(self.line),
+            settings: self.settings.clone(),
+        });
+        let review = source.compute(None, &|| self.target.cancel_handle().is_canceled());
+        ensure!(
+            !self.target.cancel_handle().is_canceled(),
+            "Change inspection canceled"
+        );
+        Ok((source, review))
     }
 }
 

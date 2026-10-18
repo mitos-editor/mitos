@@ -259,6 +259,24 @@ async fn picker_routes_prompt_prefixes_before_navigation_and_split_acceptance() 
         tokio::task::yield_now().await;
     }
     assert_eq!(picker.selection().unwrap().0, "one");
+    // The diff toggle keeps the prompt's delete-word behavior in ordinary pickers.
+    for (keys, expected) in [(vec!["t"], "two"), (vec!["C-a", "A-d"], "one")] {
+        for key in keys {
+            consumed(fixture.key(&mut picker, key));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let area = Rect::new(0, 0, 80, 24);
+                picker.render(area, &mut Buffer::empty(area), &mut fixture.context());
+                if picker.selection().is_some_and(|item| item.0 == expected) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await?;
+        assert_eq!(picker.selection().unwrap().0, expected);
+    }
     consumed(fixture.key(&mut picker, "C-x"));
     consumed(fixture.key(&mut picker, "tab"));
     assert_eq!(picker.selection().unwrap().0, "one");
