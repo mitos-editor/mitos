@@ -257,6 +257,7 @@ impl DebuggerState {
         self.cancel_child_startups(id);
         self.cancel_startup_requests(id);
         let selected = self.sessions.active_id() == Some(id);
+        self.clear_sources(id);
         self.sessions.remove(id);
         if selected {
             self.current_selection = Some(self.selection.restart());

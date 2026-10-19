@@ -153,6 +153,10 @@ source, its old document becomes a historical snapshot too. Select a frame again
 to open the current source; historical snapshots no longer accept debugger source
 operations.
 
+Use the usual breakpoint, condition, and log-message commands in a live adapter
+source. These breakpoints belong only to that session and source version; they
+are removed when the source changes or its session ends.
+
 ## Terminal for the debugged program
 
 Some adapters ask Mitos to launch the program in another terminal or pane.

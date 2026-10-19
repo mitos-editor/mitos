@@ -91,6 +91,66 @@ impl CachedSource {
     }
 }
 
+impl super::DebuggerState {
+    /// Intern a source before opening its content or accepting adapter-created markers.
+    pub(super) fn source_key(
+        &mut self,
+        id: dap::DebugAdapterId,
+        source: &dap::Source,
+    ) -> Option<::debugger::BreakpointSource> {
+        if let Some(reference) = source.source_reference.filter(|reference| *reference > 0) {
+            if !self.sessions[id].sources.entries.contains_key(&reference) {
+                let identity = self.source_ids.allocate();
+                self.sessions[id]
+                    .sources
+                    .entries
+                    .insert(reference, CachedSource::new(identity, source.clone()));
+            }
+            Some(::debugger::BreakpointSource::Adapter(
+                self.sessions[id].sources.entries[&reference].id,
+            ))
+        } else {
+            source.path.clone().map(::debugger::BreakpointSource::File)
+        }
+    }
+
+    pub(super) fn adapter_source_descriptor(
+        &self,
+        id: dap::DebugAdapterId,
+        source: ::debugger::SourceId,
+    ) -> Option<dap::Source> {
+        self.get_session(id)?
+            .sources
+            .entries
+            .values()
+            .find(|cached| cached.id == source)
+            .map(|cached| cached.descriptor.clone())
+    }
+
+    fn invalidate_source(&mut self, id: dap::DebugAdapterId, reference: usize) {
+        let Some(session) = self.sessions.get_mut(id) else {
+            return;
+        };
+        if let Some(source) = session.sources.entries.remove(&reference) {
+            let key = ::debugger::BreakpointSource::Adapter(source.id);
+            if let Some(state) = session.breakpoints.as_mut() {
+                state.remove_source(&key);
+            }
+            self.breakpoints.remove_source(&key);
+        }
+    }
+
+    pub(super) fn clear_sources(&mut self, id: dap::DebugAdapterId) {
+        let references: Vec<_> = self
+            .get_session(id)
+            .map(|session| session.sources.entries.keys().copied().collect())
+            .unwrap_or_default();
+        for reference in references {
+            self.invalidate_source(id, reference);
+        }
+    }
+}
+
 impl crate::Editor {
     /// The paused location belongs to the resolved document, never to a coincidental path.
     pub fn debugger_frame_in_document(&self, doc: &crate::Document) -> Option<&StackFrame> {
@@ -117,17 +177,7 @@ impl crate::Editor {
             crate::handlers::dap::jump_to_stack_frame(self, frame);
             return;
         };
-        if !self.debugger.sessions[id]
-            .sources
-            .entries
-            .contains_key(&reference)
-        {
-            let source_id = self.debugger.source_ids.allocate();
-            self.debugger.sessions[id]
-                .sources
-                .entries
-                .insert(reference, CachedSource::new(source_id, source.clone()));
-        }
+        self.debugger.source_key(id, source);
         let cached = self.debugger.sessions[id]
             .sources
             .entries
@@ -237,10 +287,7 @@ impl crate::Editor {
         if matches!(event.reason.as_str(), "changed" | "removed")
             && let Some(reference) = event.source.source_reference
         {
-            self.debugger.sessions[id]
-                .sources
-                .entries
-                .remove(&reference);
+            self.debugger.invalidate_source(id, reference);
         }
     }
 }

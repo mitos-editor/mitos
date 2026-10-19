@@ -288,16 +288,10 @@ pub fn breakpoints<'doc>(
     let info = theme.get("info");
     let breakpoint_style = theme.get("ui.debug.breakpoint");
 
-    let breakpoints = doc.path().map(|path| {
-        editor
-            .debugger()
-            .breakpoint_locations(path)
-            .collect::<Vec<_>>()
-    });
-
-    let Some(breakpoints) = breakpoints else {
-        return Box::new(move |_, _, _, _| None);
-    };
+    let breakpoints = editor
+        .debugger_source(doc.id())
+        .map(|source| editor.debugger_breakpoint_locations(&source))
+        .unwrap_or_default();
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {

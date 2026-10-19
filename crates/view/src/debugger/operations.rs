@@ -142,7 +142,7 @@ impl Editor {
         let restarting = matches!(command, DebuggerCommand::Restart);
         self.spawn_debugger_task(DebuggerTask::new(context, future), move |editor, effect| {
             if restarting {
-                editor.debugger.sessions[id].sources = Default::default();
+                editor.debugger.clear_sources(id);
             }
             match effect {
                 ControlEffect::ResumeThread => editor

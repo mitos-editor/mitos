@@ -1,10 +1,13 @@
 //! Ordered breakpoint synchronization, independent of thread and frame inspection.
 
+mod source;
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
+use ::debugger::BreakpointSource;
 use anyhow::{Context as _, Result};
 use dap::{requests, DebugAdapterId, SourceBreakpoint};
 use event::{TaskController, TaskHandle};
@@ -24,9 +27,9 @@ struct SourceSync {
 pub(super) struct BreakpointSession {
     _lifetime: TaskController,
     current: TaskHandle,
-    sources: HashMap<PathBuf, SourceSync>,
+    sources: HashMap<BreakpointSource, SourceSync>,
     bindings: ::debugger::BreakpointBindings,
-    modified_sources: HashSet<PathBuf>,
+    modified_sources: HashSet<BreakpointSource>,
 }
 
 impl Default for BreakpointSession {
@@ -100,16 +103,27 @@ impl BreakpointSession {
     pub(super) fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove_binding(identity);
     }
+    pub(super) fn remove_source(&mut self, source: &BreakpointSource) {
+        self.sources.remove(source);
+        self.modified_sources.remove(source);
+        self.bindings.remove_source_key(source);
+    }
     fn apply_response(
         &mut self,
-        path: &Path,
+        source: &BreakpointSource,
         definitions: &[Breakpoint],
         response: Vec<dap::Breakpoint>,
     ) {
-        self.bindings.apply_response(path, definitions, response);
+        self.bindings
+            .apply_source_response(source, definitions, response);
     }
-    fn handle_event(&mut self, reason: &str, response: dap::Breakpoint) {
-        self.bindings.handle_event(reason, response);
+    fn handle_event(
+        &mut self,
+        reason: &str,
+        response: dap::Breakpoint,
+        source: Option<BreakpointSource>,
+    ) {
+        self.bindings.handle_source_event(reason, response, source);
     }
 }
 
@@ -166,10 +180,11 @@ impl Editor {
     fn debugger_source_is_tracked(&self, path: &Path) -> bool {
         !self.debugger.breakpoints(path).is_empty()
             || self.debugger.sessions.iter().any(|(_, session)| {
-                session
-                    .breakpoints
-                    .as_ref()
-                    .is_some_and(|state| state.sources.contains_key(path))
+                session.breakpoints.as_ref().is_some_and(|state| {
+                    state
+                        .sources
+                        .contains_key(&BreakpointSource::File(path.to_owned()))
+                })
             })
     }
 
@@ -241,7 +256,13 @@ impl Editor {
     }
 
     pub(super) fn suspend_debugger_breakpoints(&mut self, id: DebugAdapterId) {
-        let paths: Vec<_> = self.debugger.breakpoints.paths().cloned().collect();
+        let paths: Vec<_> = self
+            .debugger
+            .breakpoints
+            .paths()
+            .cloned()
+            .map(BreakpointSource::File)
+            .collect();
         let Some(state) = self.debugger.sessions[id].breakpoints.as_mut() else {
             return;
         };
@@ -262,10 +283,16 @@ impl Editor {
             .sources
             .keys()
             .cloned()
-            .chain(self.debugger.breakpoints.paths().cloned())
+            .chain(
+                self.debugger
+                    .breakpoints
+                    .paths()
+                    .cloned()
+                    .map(BreakpointSource::File),
+            )
             .collect();
         for path in paths {
-            if let Err(error) = self.sync_debugger_breakpoints(id, path, false) {
+            if let Err(error) = self.sync_debugger_source_breakpoints(id, path, false) {
                 log::warn!("Could not resume breakpoint synchronization: {error}");
             }
         }
@@ -316,6 +343,10 @@ impl Editor {
         reason: &str,
         response: dap::Breakpoint,
     ) {
+        let source = response
+            .source
+            .as_ref()
+            .and_then(|source| self.debugger.source_key(id, source));
         let Some(session) = self
             .debugger
             .sessions
@@ -325,7 +356,7 @@ impl Editor {
             return;
         };
         let message = response.message.clone();
-        session.handle_event(reason, response);
+        session.handle_event(reason, response, source);
         if self
             .debugger
             .get_active_client()
@@ -342,16 +373,40 @@ impl Editor {
         path: PathBuf,
         modified: bool,
     ) -> Result<()> {
+        self.sync_debugger_source_breakpoints(id, BreakpointSource::File(path), modified)
+    }
+
+    fn sync_debugger_source_breakpoints(
+        &mut self,
+        id: DebugAdapterId,
+        key: BreakpointSource,
+        modified: bool,
+    ) -> Result<()> {
         if self.debugger.is_terminating(id) {
             return Ok(());
         }
-        let unsaved = self.document_by_path(&path).is_some_and(|doc| {
-            doc.is_modified()
-                && doc
-                    .breakpoint_saved_text
-                    .as_ref()
-                    .is_none_or(|saved| doc.text() != saved)
-        });
+        let (descriptor, unsaved) = match &key {
+            BreakpointSource::File(path) => (
+                dap::Source {
+                    path: Some(path.clone()),
+                    ..Default::default()
+                },
+                self.document_by_path(path).is_some_and(|doc| {
+                    doc.is_modified()
+                        && doc
+                            .breakpoint_saved_text
+                            .as_ref()
+                            .is_none_or(|saved| doc.text() != saved)
+                }),
+            ),
+            BreakpointSource::Adapter(source) => (
+                self.debugger
+                    .adapter_source_descriptor(id, *source)
+                    .context("Debugger source is no longer available")?,
+                false,
+            ),
+        };
+
         let debug_session = self
             .debugger
             .sessions
@@ -365,35 +420,26 @@ impl Editor {
             .breakpoints
             .get_or_insert_with(BreakpointSession::default);
         if modified {
-            session.modified_sources.insert(path.clone());
+            session.modified_sources.insert(key.clone());
         }
         if unsaved {
             // Retain deferred removals too: the source may no longer have definitions.
-            session.sources.entry(path).or_default().dirty = true;
+            session.sources.entry(key).or_default().dirty = true;
             return Ok(());
         }
-        let source = session.sources.entry(path.clone()).or_default();
+        let source = session.sources.entry(key.clone()).or_default();
         if source.request.is_running() {
             source.dirty = true;
             return Ok(());
         }
-        let breakpoints = self.debugger.breakpoints.breakpoints(&path);
+        let breakpoints = self.debugger.breakpoints.breakpoints_for(&key);
         let arguments = requests::SetBreakpointsArguments {
-            source: dap::Source {
-                path: Some(path.clone()),
-                name: None,
-                source_reference: None,
-                presentation_hint: None,
-                origin: None,
-                sources: None,
-                adapter_data: None,
-                checksums: None,
-            },
+            source: descriptor,
             breakpoints: Some(source_breakpoints(
                 &breakpoints,
                 debug_session.capabilities.as_ref(),
             )?),
-            source_modified: Some(session.modified_sources.contains(&path)),
+            source_modified: Some(session.modified_sources.contains(&key)),
         };
         let definitions = breakpoints;
         source.dirty = false;
@@ -427,25 +473,26 @@ impl Editor {
                     };
                     let dirty = session
                         .sources
-                        .remove(&path)
+                        .remove(&key)
                         .is_some_and(|source| source.dirty);
                     if dirty {
                         // A source has at most one request in flight. Send the latest model
                         // only after its predecessor completes, preserving adapter-side order.
-                        if let Err(error) = editor.sync_debugger_breakpoints(id, path, false) {
+                        if let Err(error) = editor.sync_debugger_source_breakpoints(id, key, false)
+                        {
                             editor.set_error(|| error.to_string());
                         }
                     } else {
                         match result {
                             Ok(response) => {
-                                session.modified_sources.remove(&path);
+                                session.modified_sources.remove(&key);
                                 if let Some(response) = response.breakpoints {
-                                    session.apply_response(&path, &definitions, response);
+                                    session.apply_response(&key, &definitions, response);
                                 }
                             }
                             Err(error) => {
                                 // Keep failed clears eligible for a later save or explicit retry.
-                                session.sources.entry(path).or_default().dirty = true;
+                                session.sources.entry(key).or_default().dirty = true;
                                 if editor
                                     .debugger
                                     .get_active_client()

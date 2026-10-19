@@ -258,6 +258,25 @@ async fn adapter_source_navigation_opens_an_immutable_named_document() -> anyhow
         view::current_ref!(app.editor).1.text().to_string(),
         "adapter content\n"
     );
+    keys(&mut app, "<space>Gb<esc>").await?;
+    let source = app
+        .editor
+        .debugger_source(view::current_ref!(app.editor).1.id())
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .debugger_breakpoint_locations(&source)
+            .iter()
+            .any(|marker| marker.verified)
+        {
+            app.editor.reset_idle_timer();
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    keys(&mut app, "<space>Gb<esc>").await?;
+    assert!(app.editor.debugger_breakpoint_locations(&source).is_empty());
     app.editor
         .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
     tokio::time::timeout(Duration::from_secs(10), async {

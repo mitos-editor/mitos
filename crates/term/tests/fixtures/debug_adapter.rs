@@ -70,6 +70,9 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                     .unwrap_or(stack_count as u64) as usize;
                 json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":adapter_source.then(||json!({"name":"generated.rs","sourceReference":7}))})).collect::<Vec<_>>(),"totalFrames":stack_count})
             }
+            "setBreakpoints" => {
+                json!({"breakpoints":message["arguments"]["breakpoints"].as_array().unwrap().iter().map(|breakpoint| json!({"id":1000,"verified":true,"line":breakpoint["line"]})).collect::<Vec<_>>()})
+            }
             "source" => json!({"content":"adapter content\n"}),
             "launch" if message["arguments"]["inspectSource"] == true => {
                 adapter_source = true;

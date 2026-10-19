@@ -113,7 +113,7 @@ fn get_breakpoint_at_current_line(editor: &Editor) -> Option<Breakpoint> {
         .selection(view.id)
         .primary()
         .cursor_line(doc.text().slice(..));
-    editor.debugger().breakpoint_at_line(doc.path()?, line)
+    editor.debugger_breakpoint_at_line(&editor.debugger_source(doc.id())?, line)
 }
 
 // -- DAP
@@ -264,11 +264,11 @@ fn debug_parameter_prompt(
 }
 
 pub fn dap_toggle_breakpoints(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
+    let (view, doc) = current_ref!(cx.editor);
 
-    let Some(path) = doc.path().map(ToOwned::to_owned) else {
+    let Some(source) = cx.editor.debugger_source(doc.id()) else {
         cx.editor
-            .set_error(|| "Can't set breakpoint: document has no path");
+            .set_error(|| "Can't set breakpoint: document has no live debugger source");
         return;
     };
 
@@ -279,7 +279,10 @@ pub fn dap_toggle_breakpoints(cx: &mut Context) {
         .iter()
         .map(|range| range.cursor_line(text))
         .collect();
-    dap_toggle_breakpoints_impl(cx, path, &lines);
+    if let Err(error) = cx.editor.toggle_source_breakpoints(&source, &lines) {
+        cx.editor
+            .set_error(|| format!("Failed to set breakpoints: {error}"));
+    }
 }
 
 pub fn dap_toggle_breakpoints_impl(cx: &mut Context, path: PathBuf, lines: &[usize]) {
@@ -343,7 +346,7 @@ pub fn dap_variables(cx: &mut Context) {
 pub fn dap_edit_condition(cx: &mut Context) {
     if let Some(breakpoint) = get_breakpoint_at_current_line(cx.editor) {
         let identity = breakpoint.identity();
-        let Some(path) = doc!(cx.editor).path().map(ToOwned::to_owned) else {
+        let Some(source) = cx.editor.debugger_source(doc!(cx.editor).id()) else {
             return;
         };
         let callback = Box::pin(async move {
@@ -358,8 +361,8 @@ pub fn dap_edit_condition(cx: &mut Context) {
                         }
 
                         let value = (!input.is_empty()).then(|| input.to_owned());
-                        if let Err(error) = cx.editor.set_breakpoint_property(
-                            &path,
+                        if let Err(error) = cx.editor.set_source_breakpoint_property(
+                            &source,
                             identity,
                             BreakpointProperty::Condition,
                             value,
@@ -383,7 +386,7 @@ pub fn dap_edit_condition(cx: &mut Context) {
 pub fn dap_edit_log(cx: &mut Context) {
     if let Some(breakpoint) = get_breakpoint_at_current_line(cx.editor) {
         let identity = breakpoint.identity();
-        let Some(path) = doc!(cx.editor).path().map(ToOwned::to_owned) else {
+        let Some(source) = cx.editor.debugger_source(doc!(cx.editor).id()) else {
             return;
         };
         let callback = Box::pin(async move {
@@ -398,8 +401,8 @@ pub fn dap_edit_log(cx: &mut Context) {
                         }
 
                         let value = (!input.is_empty()).then(|| input.to_owned());
-                        if let Err(error) = cx.editor.set_breakpoint_property(
-                            &path,
+                        if let Err(error) = cx.editor.set_source_breakpoint_property(
+                            &source,
                             identity,
                             BreakpointProperty::LogMessage,
                             value,

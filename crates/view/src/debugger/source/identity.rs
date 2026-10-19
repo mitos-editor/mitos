@@ -61,6 +61,19 @@ impl DebuggerSource {
         }
     }
 
+    pub(in crate::debugger) fn adapter(&self) -> Option<(DebugAdapterId, ::debugger::SourceId)> {
+        match self.origin {
+            Origin::Adapter { session, id, .. } => Some((session, id)),
+            Origin::File(_) => None,
+        }
+    }
+    pub(in crate::debugger) fn breakpoint_source(&self) -> ::debugger::BreakpointSource {
+        match &self.origin {
+            Origin::File(path) => ::debugger::BreakpointSource::File(path.clone()),
+            Origin::Adapter { id, .. } => ::debugger::BreakpointSource::Adapter(*id),
+        }
+    }
+
     pub(super) fn matches_frame(&self, session: DebugAdapterId, frame: &StackFrame) -> bool {
         match &self.origin {
             Origin::File(path) => local_path(frame) == Some(path),

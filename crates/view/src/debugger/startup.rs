@@ -261,7 +261,7 @@ impl Editor {
             return;
         }
         self.reset_debugger_events(id);
-        self.debugger.sessions[id].sources = Default::default();
+        self.debugger.clear_sources(id);
         let active = self
             .debugger
             .get_active_session()

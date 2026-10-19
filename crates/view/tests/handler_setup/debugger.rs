@@ -2536,3 +2536,6 @@ mod source_resolution;
 
 #[path = "debugger_source_identity.rs"]
 mod source_identity;
+
+#[path = "debugger_adapter_breakpoints.rs"]
+mod adapter_breakpoints;

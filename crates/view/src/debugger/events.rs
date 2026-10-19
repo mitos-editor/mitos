@@ -329,11 +329,12 @@ impl Editor {
         self.cancel_debugger_reverse_requests(id);
         self.debugger.cancel_startup_requests(id);
         self.debugger.invalidate_execution(id);
+        self.debugger.clear_sources(id);
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
         session.execution.clear();
-        session.sources = Default::default();
+
         let launch = session.launch.clone();
         let client = session.client.as_ref().unwrap();
         let restart_allowed = session.lifecycle.adapter_terminated();

@@ -13,7 +13,7 @@ pub use source::{SourceId, SourceIds};
 
 pub use breakpoints::{
     validate_capabilities, Breakpoint, BreakpointBinding, BreakpointBindings, BreakpointId,
-    BreakpointLocation, BreakpointProperty, BreakpointStore, SourceBreakpoints,
+    BreakpointLocation, BreakpointProperty, BreakpointSource, BreakpointStore, SourceBreakpoints,
 };
 pub use execution::{ExecutionState, StackFrames, StopTransition, ThreadState, ThreadStates};
 pub use sessions::Sessions;

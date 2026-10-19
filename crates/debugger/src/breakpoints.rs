@@ -9,6 +9,13 @@ fn line_index(line: usize) -> Option<usize> {
     line.checked_sub(1)
 }
 
+/// Files persist across sessions; adapter source versions are allocated by their editor.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BreakpointSource {
+    File(PathBuf),
+    Adapter(crate::SourceId),
+}
+
 /// Stable identity retained across adapter sessions and source-line relocation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct BreakpointId(u64);
@@ -100,7 +107,7 @@ pub struct BreakpointBinding {
     pub id: Option<usize>,
     pub verified: bool,
     pub message: Option<String>,
-    pub path: PathBuf,
+    pub source: BreakpointSource,
     pub line: usize,
     /// Optional one-based UTF-16 column supplied by the adapter.
     pub column: Option<usize>,
@@ -108,7 +115,7 @@ pub struct BreakpointBinding {
 
 impl BreakpointBinding {
     fn new(
-        path: PathBuf,
+        source: BreakpointSource,
         line: usize,
         column: Option<usize>,
         response: dap_types::Breakpoint,
@@ -119,7 +126,7 @@ impl BreakpointBinding {
             id: response.id,
             verified: response.verified,
             message: response.message,
-            path,
+            source,
             line: response.line.and_then(line_index).unwrap_or(line),
             column: response.column.filter(|column| *column > 0).or(column),
         }
@@ -159,8 +166,12 @@ impl BreakpointBindings {
             .filter(|binding| binding.requested_revision == definition.revision)
     }
     pub fn remove_source(&mut self, path: &Path) {
-        self.bindings.retain(|_, binding| binding.path != path);
-        self.discovered.retain(|_, binding| binding.path != path);
+        self.remove_source_key(&BreakpointSource::File(path.to_owned()));
+    }
+    pub fn remove_source_key(&mut self, source: &BreakpointSource) {
+        self.bindings.retain(|_, binding| &binding.source != source);
+        self.discovered
+            .retain(|_, binding| &binding.source != source);
     }
     pub fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove(&identity);
@@ -172,7 +183,21 @@ impl BreakpointBindings {
         definitions: &[Breakpoint],
         response: Vec<dap_types::Breakpoint>,
     ) {
-        self.bindings.retain(|_, binding| binding.path != path);
+        self.apply_source_response(
+            &BreakpointSource::File(path.to_owned()),
+            definitions,
+            response,
+        );
+    }
+
+    pub fn apply_source_response(
+        &mut self,
+        source: &BreakpointSource,
+        definitions: &[Breakpoint],
+        response: Vec<dap_types::Breakpoint>,
+    ) {
+        self.bindings.retain(|_, binding| &binding.source != source);
+
         for (definition, response) in definitions.iter().zip(response) {
             if let Some(id) = response.id {
                 self.discovered.remove(&id);
@@ -180,7 +205,7 @@ impl BreakpointBindings {
             self.bindings.insert(
                 definition.identity,
                 BreakpointBinding::new(
-                    path.to_owned(),
+                    source.clone(),
                     definition.line,
                     definition.column,
                     response,
@@ -191,6 +216,25 @@ impl BreakpointBindings {
     }
 
     pub fn handle_event(&mut self, reason: &str, response: dap_types::Breakpoint) {
+        let source = response
+            .source
+            .as_ref()
+            .filter(|source| {
+                source
+                    .source_reference
+                    .is_none_or(|reference| reference == 0)
+            })
+            .and_then(|source| source.path.clone())
+            .map(BreakpointSource::File);
+        self.handle_source_event(reason, response, source);
+    }
+
+    pub fn handle_source_event(
+        &mut self,
+        reason: &str,
+        response: dap_types::Breakpoint,
+        source: Option<BreakpointSource>,
+    ) {
         let Some(id) = response.id else {
             log::warn!("DAP breakpoint event missing id");
             return;
@@ -215,14 +259,11 @@ impl BreakpointBindings {
         }
         // Breakpoints created by the adapter belong only to this session.
         if reason == "new"
-            && let Some(path) = response
-                .source
-                .as_ref()
-                .and_then(|source| source.path.clone())
+            && let Some(source) = source
             && let Some(line) = response.line.and_then(line_index)
         {
             self.discovered
-                .insert(id, BreakpointBinding::new(path, line, None, response, 0));
+                .insert(id, BreakpointBinding::new(source, line, None, response, 0));
         }
     }
 }
@@ -256,7 +297,7 @@ impl SourceBreakpoints {
 /// Source definitions persist across adapter sessions; IDs are never reused.
 #[derive(Default)]
 pub struct BreakpointStore {
-    definitions: HashMap<PathBuf, SourceBreakpoints>,
+    definitions: HashMap<BreakpointSource, SourceBreakpoints>,
     next_identity: u64,
 }
 
@@ -266,7 +307,10 @@ impl BreakpointStore {
         let mut paths: Vec<_> = self
             .definitions
             .keys()
-            .filter_map(|path| {
+            .filter_map(|source| {
+                let BreakpointSource::File(path) = source else {
+                    return None;
+                };
                 let suffix = path.strip_prefix(old).ok()?;
                 Some((
                     path.clone(),
@@ -280,7 +324,10 @@ impl BreakpointStore {
             .collect();
         paths.sort();
         for (old, new) in &paths {
-            let source = self.definitions.remove(old).unwrap();
+            let source = self
+                .definitions
+                .remove(&BreakpointSource::File(old.clone()))
+                .unwrap();
             let moved = source.snapshot();
             let destination = self.source(new.clone());
             let mut definitions = destination.0.write();
@@ -298,11 +345,17 @@ impl BreakpointStore {
         paths
     }
     pub fn source(&mut self, path: PathBuf) -> SourceBreakpoints {
-        self.definitions.entry(path).or_default().clone()
+        self.source_for(BreakpointSource::File(path))
+    }
+    pub fn source_for(&mut self, source: BreakpointSource) -> SourceBreakpoints {
+        self.definitions.entry(source).or_default().clone()
     }
     pub fn breakpoints(&self, path: &Path) -> Vec<Breakpoint> {
+        self.breakpoints_for(&BreakpointSource::File(path.to_owned()))
+    }
+    pub fn breakpoints_for(&self, source: &BreakpointSource) -> Vec<Breakpoint> {
         self.definitions
-            .get(path)
+            .get(source)
             .map(SourceBreakpoints::snapshot)
             .unwrap_or_default()
     }
@@ -320,15 +373,21 @@ impl BreakpointStore {
         self.definitions
             .iter()
             .filter(|(_, source)| !source.0.read().is_empty())
-            .map(|(path, _)| path)
+            .filter_map(|(source, _)| match source {
+                BreakpointSource::File(path) => Some(path),
+                BreakpointSource::Adapter(_) => None,
+            })
     }
     pub fn insert(&mut self, path: PathBuf, line: usize) -> BreakpointId {
+        self.insert_for(BreakpointSource::File(path), line)
+    }
+    pub fn insert_for(&mut self, source: BreakpointSource, line: usize) -> BreakpointId {
         self.next_identity = self
             .next_identity
             .checked_add(1)
             .expect("breakpoint identities exhausted");
         let identity = BreakpointId(self.next_identity);
-        self.source(path).0.write().push(Breakpoint {
+        self.source_for(source).0.write().push(Breakpoint {
             identity,
             line,
             ..Default::default()
@@ -336,7 +395,13 @@ impl BreakpointStore {
         identity
     }
     pub fn remove(&mut self, path: &Path, identity: BreakpointId) {
-        if let Some(source) = self.definitions.get(path) {
+        self.remove_for(&BreakpointSource::File(path.to_owned()), identity);
+    }
+    pub fn remove_source(&mut self, source: &BreakpointSource) {
+        self.definitions.remove(source);
+    }
+    pub fn remove_for(&mut self, key: &BreakpointSource, identity: BreakpointId) {
+        if let Some(source) = self.definitions.get(key) {
             source
                 .0
                 .write()
@@ -351,9 +416,25 @@ impl BreakpointStore {
         value: Option<String>,
         capabilities: Option<&DebuggerCapabilities>,
     ) -> anyhow::Result<()> {
+        self.set_property_for(
+            &BreakpointSource::File(path.to_owned()),
+            identity,
+            property,
+            value,
+            capabilities,
+        )
+    }
+    pub fn set_property_for(
+        &mut self,
+        source: &BreakpointSource,
+        identity: BreakpointId,
+        property: BreakpointProperty,
+        value: Option<String>,
+        capabilities: Option<&DebuggerCapabilities>,
+    ) -> anyhow::Result<()> {
         let source = self
             .definitions
-            .get(path)
+            .get(source)
             .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
         let mut definitions = source.0.write();
         definitions
@@ -368,7 +449,14 @@ impl BreakpointStore {
         path: &'a Path,
         session: Option<&'a BreakpointBindings>,
     ) -> impl Iterator<Item = BreakpointLocation> + 'a {
-        self.breakpoints(path)
+        self.locations_for(BreakpointSource::File(path.to_owned()), session)
+    }
+    pub fn locations_for<'a>(
+        &self,
+        source: BreakpointSource,
+        session: Option<&'a BreakpointBindings>,
+    ) -> impl Iterator<Item = BreakpointLocation> + 'a {
+        self.breakpoints_for(&source)
             .into_iter()
             .map(move |definition| {
                 let binding = session.and_then(|session| session.get_for(&definition));
@@ -382,7 +470,7 @@ impl BreakpointStore {
                 session
                     .into_iter()
                     .flat_map(|session| session.discovered.values())
-                    .filter(move |binding| binding.path == path)
+                    .filter(move |binding| binding.source == source)
                     .map(|binding| BreakpointLocation {
                         definition: None,
                         line: binding.line,
@@ -443,5 +531,33 @@ mod rename_tests {
             second
         );
         assert_eq!(store.breakpoints(Path::new("old-name/keep.rs")).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod adapter_source_tests {
+    use super::*;
+
+    #[test]
+    fn source_versions_have_distinct_definitions_and_file_renames_preserve_adapter_sources() {
+        let mut ids = crate::SourceIds::default();
+        let first = BreakpointSource::Adapter(ids.allocate());
+        let second = BreakpointSource::Adapter(ids.allocate());
+        let mut store = BreakpointStore::default();
+        let file = store.insert("old/source.rs".into(), 0);
+        let adapter = store.insert_for(first.clone(), 0);
+        let other = store.insert_for(second.clone(), 0);
+        assert_ne!(file, adapter);
+        assert_ne!(adapter, other);
+        assert_eq!(store.paths().count(), 1);
+        store.rename_sources(Path::new("old"), Path::new("new"));
+        assert_eq!(store.breakpoints_for(&first)[0].identity(), adapter);
+        store.remove_source(&first);
+        assert!(store.definition(adapter).is_none());
+        assert_eq!(store.breakpoints_for(&second)[0].identity(), other);
+        assert_eq!(
+            store.breakpoints(Path::new("new/source.rs"))[0].identity(),
+            file
+        );
     }
 }
