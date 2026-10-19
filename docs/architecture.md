@@ -39,7 +39,7 @@ Features live with the state they change; frontends adapt input and present resu
 terminal crate. `view` coordinates feature and protocol crates. For example,
 `view` → `spelling` → `core` keeps dictionary algorithms independent of editor
 state. `ui-core` supplies UI value types without owning editor services.
-`view` → `debugger` → `dap` separates debugger state from editor effects. The
+`view` → `debugger` → `dap-types` separates debugger state from editor effects. The
 `debugger` crate owns persistent breakpoint definitions and session-specific
 bindings; `view` owns request cancellation, workspace trust, callbacks, and source
 navigation. Debugger widgets and launch prompts belong to `term`.

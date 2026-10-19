@@ -11,7 +11,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-dap.workspace = true
+dap-types.workspace = true
 anyhow.workspace = true
 slotmap.workspace = true
 log.workspace = true

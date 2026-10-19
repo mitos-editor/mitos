@@ -1,5 +1,5 @@
 //! Synchronous thread/frame transitions; callers own request cancellation.
-use dap::{StackFrame, ThreadId};
+use dap_types::{StackFrame, ThreadId};
 use std::collections::HashMap;
 
 /// Execution state indexed by adapter thread identifiers.

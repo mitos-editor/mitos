@@ -712,7 +712,7 @@ name = "debugger"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dap",
+ "dap-types",
  "log",
  "serde_json",
  "slotmap",

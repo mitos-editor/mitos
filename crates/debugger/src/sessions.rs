@@ -1,14 +1,13 @@
 //! Generational session membership and explicit selection history.
-use dap::DebugAdapterId;
-use slotmap::SlotMap;
+use slotmap::{Key, SlotMap};
 
-pub struct Sessions<T> {
-    entries: SlotMap<DebugAdapterId, T>,
-    selection_order: Vec<DebugAdapterId>,
+pub struct Sessions<K: Key, T> {
+    entries: SlotMap<K, T>,
+    selection_order: Vec<K>,
     next_number: u64,
 }
 
-impl<T> Default for Sessions<T> {
+impl<K: Key, T> Default for Sessions<K, T> {
     fn default() -> Self {
         Self {
             entries: SlotMap::with_key(),
@@ -18,12 +17,8 @@ impl<T> Default for Sessions<T> {
     }
 }
 
-impl<T> Sessions<T> {
-    pub fn insert(
-        &mut self,
-        select: bool,
-        create: impl FnOnce(DebugAdapterId, u64) -> T,
-    ) -> DebugAdapterId {
+impl<K: Key, T> Sessions<K, T> {
+    pub fn insert(&mut self, select: bool, create: impl FnOnce(K, u64) -> T) -> K {
         self.next_number = self
             .next_number
             .checked_add(1)
@@ -39,7 +34,7 @@ impl<T> Sessions<T> {
     }
 
     /// Select a live session, returning whether the selection changed.
-    pub fn select(&mut self, id: DebugAdapterId) -> anyhow::Result<bool> {
+    pub fn select(&mut self, id: K) -> anyhow::Result<bool> {
         anyhow::ensure!(self.entries.contains_key(id), "Debugging session has ended");
         if self.active_id() == Some(id) {
             return Ok(false);
@@ -49,31 +44,31 @@ impl<T> Sessions<T> {
         Ok(true)
     }
 
-    pub fn remove(&mut self, id: DebugAdapterId) -> Option<T> {
+    pub fn remove(&mut self, id: K) -> Option<T> {
         let removed = self.entries.remove(id)?;
         self.selection_order.retain(|session| *session != id);
         Some(removed)
     }
 
-    pub fn active_id(&self) -> Option<DebugAdapterId> {
+    pub fn active_id(&self) -> Option<K> {
         self.selection_order.last().copied()
     }
     pub fn active(&self) -> Option<&T> {
         self.get(self.active_id()?)
     }
-    pub fn get(&self, id: DebugAdapterId) -> Option<&T> {
+    pub fn get(&self, id: K) -> Option<&T> {
         self.entries.get(id)
     }
-    pub fn get_mut(&mut self, id: DebugAdapterId) -> Option<&mut T> {
+    pub fn get_mut(&mut self, id: K) -> Option<&mut T> {
         self.entries.get_mut(id)
     }
-    pub fn contains_key(&self, id: DebugAdapterId) -> bool {
+    pub fn contains_key(&self, id: K) -> bool {
         self.entries.contains_key(id)
     }
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-    pub fn iter(&self) -> impl Iterator<Item = (DebugAdapterId, &T)> {
+    pub fn iter(&self) -> impl Iterator<Item = (K, &T)> {
         self.entries.iter()
     }
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
@@ -88,14 +83,14 @@ impl<T> Sessions<T> {
     }
 }
 
-impl<T> std::ops::Index<DebugAdapterId> for Sessions<T> {
+impl<K: Key, T> std::ops::Index<K> for Sessions<K, T> {
     type Output = T;
-    fn index(&self, id: DebugAdapterId) -> &T {
+    fn index(&self, id: K) -> &T {
         &self.entries[id]
     }
 }
-impl<T> std::ops::IndexMut<DebugAdapterId> for Sessions<T> {
-    fn index_mut(&mut self, id: DebugAdapterId) -> &mut T {
+impl<K: Key, T> std::ops::IndexMut<K> for Sessions<K, T> {
+    fn index_mut(&mut self, id: K) -> &mut T {
         &mut self.entries[id]
     }
 }
@@ -105,7 +100,7 @@ mod tests {
     use super::*;
     #[test]
     fn selection_history_rejects_reused_ids_and_preserves_child_selection() {
-        let mut sessions = Sessions::default();
+        let mut sessions = Sessions::<slotmap::DefaultKey, _>::default();
         let parent = sessions.insert(true, |_, number| number);
         let child = sessions.insert(false, |_, number| number);
         assert_eq!(sessions.active_id(), Some(parent));

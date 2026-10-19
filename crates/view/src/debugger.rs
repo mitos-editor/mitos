@@ -40,7 +40,7 @@ pub trait TerminalLauncher: Send + Sync {
 /// Owns debugger sessions and the source breakpoints shared across those sessions.
 #[derive(Default)]
 pub struct DebuggerState {
-    sessions: Sessions<DebugSession>,
+    sessions: Sessions<DebugAdapterId, DebugSession>,
     selection: event::TaskController,
     current_selection: Option<event::TaskHandle>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::ClientEvent)>>,

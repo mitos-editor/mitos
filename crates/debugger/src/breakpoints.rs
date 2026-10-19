@@ -1,6 +1,6 @@
 //! Persistent source definitions and adapter-local bindings.
 use anyhow::bail;
-use dap::DebuggerCapabilities;
+use dap_types::DebuggerCapabilities;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -101,7 +101,12 @@ pub struct BreakpointBinding {
 }
 
 impl BreakpointBinding {
-    fn new(path: PathBuf, line: usize, column: Option<usize>, response: dap::Breakpoint) -> Self {
+    fn new(
+        path: PathBuf,
+        line: usize,
+        column: Option<usize>,
+        response: dap_types::Breakpoint,
+    ) -> Self {
         Self {
             id: response.id,
             verified: response.verified,
@@ -112,7 +117,7 @@ impl BreakpointBinding {
         }
     }
 
-    fn update(&mut self, response: dap::Breakpoint) {
+    fn update(&mut self, response: dap_types::Breakpoint) {
         self.verified = response.verified;
         self.message = response.message;
         if let Some(line) = response.line.and_then(line_index) {
@@ -149,7 +154,7 @@ impl BreakpointBindings {
         &mut self,
         path: &Path,
         definitions: &[Breakpoint],
-        response: Vec<dap::Breakpoint>,
+        response: Vec<dap_types::Breakpoint>,
     ) {
         self.bindings.retain(|_, binding| binding.path != path);
         for (definition, response) in definitions.iter().zip(response) {
@@ -168,7 +173,7 @@ impl BreakpointBindings {
         }
     }
 
-    pub fn handle_event(&mut self, reason: &str, response: dap::Breakpoint) {
+    pub fn handle_event(&mut self, reason: &str, response: dap_types::Breakpoint) {
         let Some(id) = response.id else {
             log::warn!("DAP breakpoint event missing id");
             return;
@@ -294,7 +299,7 @@ impl BreakpointStore {
 mod tests {
     use super::*;
 
-    fn response(id: usize, line: Option<usize>) -> dap::Breakpoint {
+    fn response(id: usize, line: Option<usize>) -> dap_types::Breakpoint {
         serde_json::from_value(serde_json::json!({"id":id,"verified":true,"line":line})).unwrap()
     }
 
