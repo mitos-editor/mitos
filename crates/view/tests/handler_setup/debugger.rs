@@ -1,3 +1,5 @@
+#[path = "debugger_shutdown.rs"]
+mod shutdown;
 #[path = "debugger_startup.rs"]
 mod startup;
 

@@ -303,6 +303,8 @@ impl Editor {
         };
         self.debugger.invalidate_requests(id);
         self.debugger.sessions[id].lifecycle.begin_disconnect();
+        self.debugger.cancel_child_startups(id);
+        self.cancel_debugger_reverse_requests(id);
         let context = self.debugger_lifecycle_context(id);
         context.spawn(future, |editor, context, result| match result {
             Ok(_) => editor.debugger.remove_session(context.id),

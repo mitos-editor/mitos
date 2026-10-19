@@ -287,7 +287,7 @@ async fn initialization_failures_release_the_adapter_and_report_the_error() -> a
 
 #[tokio::test(flavor = "multi_thread")]
 async fn child_startup_replies_after_launch_and_cancels_with_its_parent() -> anyhow::Result<()> {
-    for remove_parent in [false, true] {
+    for removal in [None, Some(false), Some(true)] {
         let mut f = Fixture::new("")?;
         let mut parent_adapter = Adapter::new().await?;
         let parent = f
@@ -314,11 +314,30 @@ async fn child_startup_replies_after_launch_and_cancels_with_its_parent() -> any
         let initialize = message(&mut child.wire).await?;
         assert_eq!(initialize["command"], "initialize");
         assert!(parent_adapter.wire.try_recv().is_err());
-        if remove_parent {
-            f.editor
-                .handle_debugger_message(parent, debugger_event("terminated", Value::Null))
-                .await;
-            let disconnect = message(&mut parent_adapter.wire).await?;
+        if let Some(user_shutdown) = removal {
+            if user_shutdown {
+                f.editor
+                    .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+            } else {
+                f.editor
+                    .handle_debugger_message(parent, debugger_event("terminated", Value::Null))
+                    .await;
+            }
+            let mut disconnect = None;
+            let mut cancellation = None;
+            while disconnect.is_none() || cancellation.is_none() {
+                let message = message(&mut parent_adapter.wire).await?;
+                if message["type"] == "request" {
+                    assert_eq!(message["command"], "disconnect");
+                    disconnect = Some(message);
+                } else {
+                    assert_eq!(message["request_seq"], 77);
+                    assert_eq!(message["success"], false);
+                    cancellation = Some(message);
+                }
+            }
+            let disconnect = disconnect.unwrap();
+
             parent_adapter.reply(&disconnect, true, json!({}))?;
             wait_for_adapter_removal(&mut f, parent).await?;
             assert!(f.editor.debugger().is_empty());

@@ -34,6 +34,18 @@ impl Editor {
         command: String,
         arguments: Option<Value>,
     ) {
+        if self.debugger.is_terminating(id) {
+            if let Some(client) = self.debugger.get_client(id)
+                && let Err(error) = client.reply(
+                    sequence,
+                    &command,
+                    Err(anyhow::anyhow!("Debugging session is shutting down").into()),
+                )
+            {
+                log::warn!("Could not reject debug adapter request during shutdown: {error}");
+            }
+            return;
+        }
         let result = match Request::parse(&command, arguments) {
             Ok(Request::RunInTerminal(arguments)) => {
                 let launch = self.debugger.run_in_terminal(arguments);
