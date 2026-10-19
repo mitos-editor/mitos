@@ -94,6 +94,12 @@ impl Editor {
                     }
                 };
                 match event {
+                    Event::Capabilities(event) => {
+                        self.debugger
+                            .get_session_mut(id)
+                            .unwrap()
+                            .update_capabilities(event.capabilities);
+                    }
                     Event::Stopped(event) => self.debugger_stopped(id, event),
                     Event::Continued(event) => self.debugger_continued(id, event),
                     Event::Thread(event) => self.debugger_thread_changed(id, event),

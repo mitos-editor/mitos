@@ -16,6 +16,7 @@ pub struct DebugSession {
     pub(super) parent: Option<DebugAdapterId>,
     pub(super) client: Option<Client>,
     pub(super) adapter: Option<language_config::DebugAdapterConfig>,
+    pending_capabilities: Option<dap::DebuggerCapabilities>,
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
     pub(super) requests: SessionRequests,
@@ -54,6 +55,7 @@ impl DebugSession {
             parent,
             client: None,
             adapter: None,
+            pending_capabilities: None,
             startup: None,
             breakpoints: None,
             requests: SessionRequests::default(),
@@ -112,6 +114,24 @@ impl DebugSession {
     /// Negotiated capabilities, including subsequent adapter updates.
     pub fn capabilities(&self) -> Option<&dap::DebuggerCapabilities> {
         self.client.as_ref()?.caps.as_ref()
+    }
+
+    pub(crate) fn update_capabilities(&mut self, update: dap::DebuggerCapabilities) {
+        if let Some(capabilities) = self.client.as_mut().and_then(|client| client.caps.as_mut()) {
+            capabilities.apply_update(update);
+            return;
+        }
+        match &mut self.pending_capabilities {
+            Some(capabilities) => capabilities.apply_update(update),
+            None => self.pending_capabilities = Some(update),
+        }
+    }
+
+    pub(super) fn initialize_capabilities(&mut self, mut capabilities: dap::DebuggerCapabilities) {
+        if let Some(update) = self.pending_capabilities.take() {
+            capabilities.apply_update(update);
+        }
+        self.client.as_mut().unwrap().caps = Some(capabilities);
     }
 
     pub fn connection_type(&self) -> Option<dap::ConnectionType> {

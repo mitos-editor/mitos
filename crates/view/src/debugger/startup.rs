@@ -209,8 +209,9 @@ impl Editor {
                         .startup
                         .as_ref()
                         .is_some_and(|startup| startup.initialized);
-                    let client = editor.debugger.get_client_mut(id).unwrap();
-                    client.caps = Some(capabilities);
+                    let session = editor.debugger.get_session_mut(id).unwrap();
+                    session.initialize_capabilities(capabilities);
+                    let client = session.client.as_mut().unwrap();
                     if let Some(launch) = launch {
                         let future: futures_util::future::BoxFuture<'static, dap::Result<Value>> =
                             match launch.request {

@@ -480,3 +480,48 @@ async fn adapter_eof_removes_its_session_and_restores_the_previous_selection() -
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn capability_events_during_initialization_preserve_negotiated_fields() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("")?;
+    let mut adapter = Adapter::new().await?;
+    let id = f
+        .editor
+        .connect_debugger(Some(adapter.socket), config(), None);
+    wait_for_connection(&mut f, id).await?;
+    let initialize = message(&mut adapter.wire).await?;
+    adapter.reply(
+        &initialize,
+        true,
+        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true}),
+    )?;
+    let initialized = callback(&mut f).await?;
+    f.editor
+        .handle_debugger_message(
+            id,
+            debugger_event(
+                "capabilities",
+                json!({"capabilities":{"supportsRestartRequest":false}}),
+            ),
+        )
+        .await;
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(id)
+        .unwrap()
+        .capabilities()
+        .is_none());
+    initialized(&mut f.editor);
+    let capabilities = f
+        .editor
+        .debugger()
+        .get_session(id)
+        .unwrap()
+        .capabilities()
+        .unwrap();
+    assert_eq!(capabilities.supports_restart_request, Some(false));
+    assert_eq!(capabilities.supports_terminate_request, Some(true));
+    Ok(())
+}

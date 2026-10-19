@@ -141,6 +141,126 @@ pub struct DebuggerCapabilities {
     pub supported_checksum_algorithms: Option<Vec<String>>,
 }
 
+impl DebuggerCapabilities {
+    /// Apply a capabilities event, preserving fields omitted by the adapter.
+    pub fn apply_update(&mut self, update: Self) {
+        *self = Self {
+            supports_configuration_done_request: update
+                .supports_configuration_done_request
+                .or(self.supports_configuration_done_request.take()),
+            supports_function_breakpoints: update
+                .supports_function_breakpoints
+                .or(self.supports_function_breakpoints.take()),
+            supports_conditional_breakpoints: update
+                .supports_conditional_breakpoints
+                .or(self.supports_conditional_breakpoints.take()),
+            supports_hit_conditional_breakpoints: update
+                .supports_hit_conditional_breakpoints
+                .or(self.supports_hit_conditional_breakpoints.take()),
+            supports_evaluate_for_hovers: update
+                .supports_evaluate_for_hovers
+                .or(self.supports_evaluate_for_hovers.take()),
+            supports_step_back: update.supports_step_back.or(self.supports_step_back.take()),
+            supports_set_variable: update
+                .supports_set_variable
+                .or(self.supports_set_variable.take()),
+            supports_restart_frame: update
+                .supports_restart_frame
+                .or(self.supports_restart_frame.take()),
+            supports_goto_targets_request: update
+                .supports_goto_targets_request
+                .or(self.supports_goto_targets_request.take()),
+            supports_step_in_targets_request: update
+                .supports_step_in_targets_request
+                .or(self.supports_step_in_targets_request.take()),
+            supports_completions_request: update
+                .supports_completions_request
+                .or(self.supports_completions_request.take()),
+            supports_modules_request: update
+                .supports_modules_request
+                .or(self.supports_modules_request.take()),
+            supports_restart_request: update
+                .supports_restart_request
+                .or(self.supports_restart_request.take()),
+            supports_exception_options: update
+                .supports_exception_options
+                .or(self.supports_exception_options.take()),
+            supports_value_formatting_options: update
+                .supports_value_formatting_options
+                .or(self.supports_value_formatting_options.take()),
+            supports_exception_info_request: update
+                .supports_exception_info_request
+                .or(self.supports_exception_info_request.take()),
+            support_terminate_debuggee: update
+                .support_terminate_debuggee
+                .or(self.support_terminate_debuggee.take()),
+            support_suspend_debuggee: update
+                .support_suspend_debuggee
+                .or(self.support_suspend_debuggee.take()),
+            supports_delayed_stack_trace_loading: update
+                .supports_delayed_stack_trace_loading
+                .or(self.supports_delayed_stack_trace_loading.take()),
+            supports_loaded_sources_request: update
+                .supports_loaded_sources_request
+                .or(self.supports_loaded_sources_request.take()),
+            supports_log_points: update
+                .supports_log_points
+                .or(self.supports_log_points.take()),
+            supports_terminate_threads_request: update
+                .supports_terminate_threads_request
+                .or(self.supports_terminate_threads_request.take()),
+            supports_set_expression: update
+                .supports_set_expression
+                .or(self.supports_set_expression.take()),
+            supports_terminate_request: update
+                .supports_terminate_request
+                .or(self.supports_terminate_request.take()),
+            supports_data_breakpoints: update
+                .supports_data_breakpoints
+                .or(self.supports_data_breakpoints.take()),
+            supports_read_memory_request: update
+                .supports_read_memory_request
+                .or(self.supports_read_memory_request.take()),
+            supports_write_memory_request: update
+                .supports_write_memory_request
+                .or(self.supports_write_memory_request.take()),
+            supports_disassemble_request: update
+                .supports_disassemble_request
+                .or(self.supports_disassemble_request.take()),
+            supports_cancel_request: update
+                .supports_cancel_request
+                .or(self.supports_cancel_request.take()),
+            supports_breakpoint_locations_request: update
+                .supports_breakpoint_locations_request
+                .or(self.supports_breakpoint_locations_request.take()),
+            supports_clipboard_context: update
+                .supports_clipboard_context
+                .or(self.supports_clipboard_context.take()),
+            supports_stepping_granularity: update
+                .supports_stepping_granularity
+                .or(self.supports_stepping_granularity.take()),
+            supports_instruction_breakpoints: update
+                .supports_instruction_breakpoints
+                .or(self.supports_instruction_breakpoints.take()),
+            supports_exception_filter_options: update
+                .supports_exception_filter_options
+                .or(self.supports_exception_filter_options.take()),
+            exception_breakpoint_filters: update
+                .exception_breakpoint_filters
+                .or(self.exception_breakpoint_filters.take()),
+            completion_trigger_characters: update
+                .completion_trigger_characters
+                .or(self.completion_trigger_characters.take()),
+            additional_module_columns: update
+                .additional_module_columns
+                .or(self.additional_module_columns.take()),
+            supported_checksum_algorithms: update
+                .supported_checksum_algorithms
+                .or(self.supported_checksum_algorithms.take()),
+        };
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Checksum {
@@ -1157,4 +1277,24 @@ fn test_deserialize_configuration_done_response() {
     let response: <requests::ConfigurationDone as Request>::Result =
         serde_json::from_str("{}").unwrap();
     assert_eq!(response, Some(requests::ConfigurationDoneResponse {}));
+}
+
+#[test]
+fn capability_updates_preserve_omissions_and_accept_false_and_empty_lists() {
+    let mut capabilities: DebuggerCapabilities = serde_json::from_value(serde_json::json!({
+        "supportsRestartRequest": true,
+        "supportsTerminateRequest": true,
+        "completionTriggerCharacters": ["."]
+    }))
+    .unwrap();
+    capabilities.apply_update(
+        serde_json::from_value(serde_json::json!({
+            "supportsRestartRequest": false,
+            "completionTriggerCharacters": []
+        }))
+        .unwrap(),
+    );
+    assert_eq!(capabilities.supports_restart_request, Some(false));
+    assert_eq!(capabilities.supports_terminate_request, Some(true));
+    assert_eq!(capabilities.completion_trigger_characters, Some(vec![]));
 }

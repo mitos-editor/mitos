@@ -2220,3 +2220,34 @@ async fn stack_navigation_selects_unicode_source_ranges_and_ignores_unknown_line
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn capability_updates_belong_to_their_session_and_preserve_selection() -> anyhow::Result<()> {
+    let mut f = Fixture::new("")?;
+    let (first, _) = adapter(&mut f).await?;
+    let (second, _) = adapter(&mut f).await?;
+    f.editor
+        .handle_debugger_message(
+            first,
+            serde_json::from_value(json!({
+                "type": "event", "seq": 1, "event": "capabilities",
+                "body": {"capabilities": {"supportsRestartRequest": false}}
+            }))?,
+        )
+        .await;
+    let debugger = f.editor.debugger();
+    let updated = debugger.get_session(first).unwrap().capabilities().unwrap();
+    assert_eq!(updated.supports_restart_request, Some(false));
+    assert_eq!(updated.supports_terminate_request, Some(true));
+    assert_eq!(debugger.get_active_session().unwrap().id(), second);
+    assert_eq!(
+        debugger
+            .get_session(second)
+            .unwrap()
+            .capabilities()
+            .unwrap()
+            .supports_restart_request,
+        Some(true)
+    );
+    Ok(())
+}
