@@ -240,6 +240,38 @@ impl Editor {
         Ok(())
     }
 
+    pub(super) fn suspend_debugger_breakpoints(&mut self, id: DebugAdapterId) {
+        let paths: Vec<_> = self.debugger.breakpoints.paths().cloned().collect();
+        let Some(state) = self.debugger.sessions[id].breakpoints.as_mut() else {
+            return;
+        };
+        for path in paths {
+            state.sources.entry(path).or_default();
+        }
+        for source in state.sources.values_mut() {
+            source.request.cancel();
+            source.dirty = true;
+        }
+    }
+
+    pub(super) fn resume_debugger_breakpoints(&mut self, id: DebugAdapterId) {
+        let Some(state) = self.debugger.sessions[id].breakpoints.as_ref() else {
+            return;
+        };
+        let paths: HashSet<_> = state
+            .sources
+            .keys()
+            .cloned()
+            .chain(self.debugger.breakpoints.paths().cloned())
+            .collect();
+        for path in paths {
+            if let Err(error) = self.sync_debugger_breakpoints(id, path, false) {
+                log::warn!("Could not resume breakpoint synchronization: {error}");
+            }
+        }
+        self.finish_breakpoint_configuration(id);
+    }
+
     /// The initialized event starts configuration without awaiting transport on the editor path.
     pub(crate) fn configure_debugger_breakpoints(&mut self, id: DebugAdapterId) -> Result<()> {
         self.debugger
@@ -310,6 +342,9 @@ impl Editor {
         path: PathBuf,
         modified: bool,
     ) -> Result<()> {
+        if self.debugger.is_terminating(id) {
+            return Ok(());
+        }
         let unsaved = self.document_by_path(&path).is_some_and(|doc| {
             doc.is_modified()
                 && doc
@@ -437,7 +472,8 @@ impl Editor {
         let Some(session) = debug_session.breakpoints.as_mut() else {
             return;
         };
-        if !debug_session.lifecycle.needs_configuration_done()
+        if debug_session.lifecycle.is_disconnecting()
+            || !debug_session.lifecycle.needs_configuration_done()
             || session
                 .sources
                 .values()
@@ -483,6 +519,9 @@ impl Editor {
                     editor.debugger.sessions[id]
                         .lifecycle
                         .configuration_finished();
+                    if editor.debugger.is_terminating(id) {
+                        return;
+                    }
                     if editor
                         .debugger
                         .get_active_session()

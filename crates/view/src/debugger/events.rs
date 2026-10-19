@@ -303,6 +303,7 @@ impl Editor {
         };
         self.debugger.invalidate_requests(id);
         self.debugger.sessions[id].lifecycle.begin_disconnect();
+        self.suspend_debugger_breakpoints(id);
         self.debugger.cancel_child_startups(id);
         self.cancel_debugger_reverse_requests(id);
         let context = self.debugger_lifecycle_context(id);
@@ -312,6 +313,7 @@ impl Editor {
                 editor.debugger.sessions[context.id]
                     .lifecycle
                     .connection_retained();
+                editor.resume_debugger_breakpoints(context.id);
                 context.report_error(editor, "Debugger request failed", error);
             }
         });

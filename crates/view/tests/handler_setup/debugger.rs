@@ -2480,3 +2480,6 @@ fn variable_response(message: &Value) -> Value {
 
 #[path = "debugger_inspection.rs"]
 mod inspection;
+
+#[path = "debugger_shutdown_coordination.rs"]
+mod shutdown_coordination;
