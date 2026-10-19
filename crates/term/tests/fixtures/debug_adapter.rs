@@ -15,6 +15,8 @@ fn send(output: &mut impl Write, sequence: &mut u64, mut message: Value) -> anyh
 fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> {
     let mut sequence = 1;
     let mut child_request = None;
+    let mut stack_count = 1;
+    let mut adapter_source = false;
     let mut nested_value = "nested value";
     loop {
         let mut header = String::new();
@@ -54,14 +56,30 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                     message["arguments"]["supportsStartDebuggingRequest"] == true,
                     "child-session support was not advertised"
                 );
-                json!({"supportsConfigurationDoneRequest":true})
+                json!({"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":true})
             }
             "evaluate" => {
                 nested_value = "updated value";
                 json!({"result":"updated","variablesReference":0})
             }
             "threads" => json!({"threads":[{"id":1,"name":"main"}]}),
-            "stackTrace" => json!({"stackFrames":[{"id":1,"name":"main","line":1,"column":1}]}),
+            "stackTrace" => {
+                let start = message["arguments"]["startFrame"].as_u64().unwrap_or(0) as usize;
+                let levels = message["arguments"]["levels"]
+                    .as_u64()
+                    .unwrap_or(stack_count as u64) as usize;
+                json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":adapter_source.then(||json!({"name":"generated.rs","sourceReference":7}))})).collect::<Vec<_>>(),"totalFrames":stack_count})
+            }
+            "source" => json!({"content":"adapter content\n"}),
+            "launch" if message["arguments"]["inspectSource"] == true => {
+                adapter_source = true;
+                json!({})
+            }
+            "launch" if message["arguments"]["inspectStack"] == true => {
+                stack_count = 70;
+                json!({})
+            }
+
             "scopes" => {
                 json!({"scopes":[{"name":"locals","variablesReference":1,"expensive":false},{"name":"globals","variablesReference":2,"expensive":true},{"name":"large","variablesReference":4,"expensive":false}]})
             }
@@ -95,11 +113,17 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 &mut sequence,
                 json!({"type":"event","event":"initialized"}),
             )?,
-            "launch" if message["arguments"]["inspectVariables"] == true => send(
-                &mut output,
-                &mut sequence,
-                json!({"type":"event","event":"stopped","body":{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}}),
-            )?,
+            "launch"
+                if message["arguments"]["inspectVariables"] == true
+                    || message["arguments"]["inspectStack"] == true
+                    || message["arguments"]["inspectSource"] == true =>
+            {
+                send(
+                    &mut output,
+                    &mut sequence,
+                    json!({"type":"event","event":"stopped","body":{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}}),
+                )?
+            }
             "launch" if message["arguments"]["spawnChild"] == true => {
                 child_request = Some(sequence);
                 send(

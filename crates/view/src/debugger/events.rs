@@ -84,7 +84,7 @@ impl EventContext {
 struct StoppedState {
     threads: Vec<ThreadId>,
     selected: Option<ThreadId>,
-    frames: dap::Result<Vec<dap::StackFrame>>,
+    frames: dap::Result<::debugger::StackFrames>,
 }
 
 impl super::DebuggerState {
@@ -132,6 +132,7 @@ impl Editor {
             .begin_stop(event.thread_id, all_stopped, &event.reason);
         let previous = transition.previous_thread;
         let hydrate = transition.needs_frames;
+        let paging = session.stack_paging();
         let sender = session.client.as_ref().unwrap().request_sender();
         let context = self.debugger_execution_context(id);
         if context.is_active(self) {
@@ -184,17 +185,9 @@ impl Editor {
                 previous.or(event.thread_id)
             };
             let frames = if let Some(thread_id) = selected {
-                sender
-                    .request::<requests::StackTrace>(requests::StackTraceArguments {
-                        thread_id,
-                        start_frame: None,
-                        levels: None,
-                        format: None,
-                    })
-                    .await
-                    .map(|response| response.stack_frames)
+                super::stack::request_stack_trace(sender, thread_id, 0, paging).await
             } else {
-                Ok(Vec::new())
+                Ok(::debugger::StackFrames::default())
             };
             let stopped_threads = if all_stopped {
                 threads
@@ -340,6 +333,7 @@ impl Editor {
             return;
         };
         session.execution.clear();
+        session.sources = Default::default();
         let launch = session.launch.clone();
         let client = session.client.as_ref().unwrap();
         let restart_allowed = session.lifecycle.adapter_terminated();

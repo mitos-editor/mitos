@@ -136,3 +136,137 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frame_picker_loads_deep_frames_and_preserves_its_filter() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let id = app.editor.connect_debugger(
+        None,
+        language_config::DebugAdapterConfig {
+            name: "stack fixture".into(),
+            transport: language_config::DebugAdapterTransport::Stdio,
+            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
+            args: vec![],
+            port_arg: None,
+            templates: vec![],
+            quirks: Default::default(),
+        },
+        Some(view::debugger::DebuggerLaunch {
+            request: dap::ConnectionType::Launch,
+            arguments: serde_json::json!({"inspectStack":true}),
+        }),
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            app.editor.reset_idle_timer();
+            run_event_loop_until_idle(&mut app).await;
+            if app
+                .editor
+                .debugger()
+                .get_session(id)
+                .is_some_and(|s| s.current_stack_frame().is_some())
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    keys(&mut app, "<space>Gsf").await?;
+    wait_for_text(&mut app, "Load more").await?;
+    for expected in [64, 70] {
+        keys(
+            &mut app,
+            if expected == 64 {
+                "Load more<ret>"
+            } else {
+                "<ret>"
+            },
+        )
+        .await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                app.editor.reset_idle_timer();
+                run_event_loop_until_idle(&mut app).await;
+                let session = app.editor.debugger().get_session(id).unwrap();
+                if session
+                    .stack_frames()
+                    .get(&session.selected_thread().unwrap())
+                    .unwrap()
+                    .frames()
+                    .len()
+                    == expected
+                {
+                    break;
+                }
+            }
+        })
+        .await?;
+    }
+    keys(&mut app, "<C-w><C-w>frame69").await?;
+    wait_for_text(&mut app, "frame69 (breakpoint)").await?;
+    keys(&mut app, "<ret>").await?;
+    assert_eq!(
+        app.editor
+            .debugger()
+            .get_session(id)
+            .unwrap()
+            .current_stack_frame()
+            .unwrap()
+            .id,
+        70
+    );
+    app.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().get_session(id).is_some() {
+            app.editor.reset_idle_timer();
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn adapter_source_navigation_opens_an_immutable_named_document() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let id = app.editor.connect_debugger(
+        None,
+        language_config::DebugAdapterConfig {
+            name: "source fixture".into(),
+            transport: language_config::DebugAdapterTransport::Stdio,
+            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
+            args: vec![],
+            port_arg: None,
+            templates: vec![],
+            quirks: Default::default(),
+        },
+        Some(view::debugger::DebuggerLaunch {
+            request: dap::ConnectionType::Launch,
+            arguments: serde_json::json!({"inspectSource":true}),
+        }),
+    );
+    wait_for_text(&mut app, "adapter content").await?;
+    wait_for_text(&mut app, "generated.rs").await?;
+    let document = view::current_ref!(app.editor).1;
+    assert!(document.is_readonly());
+    assert!(document.path().is_none());
+    assert!(document.display_name().contains("generated.rs"));
+    keys(&mut app, "ix<esc>").await?;
+    assert_eq!(
+        view::current_ref!(app.editor).1.text().to_string(),
+        "adapter content\n"
+    );
+    app.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().get_session(id).is_some() {
+            app.editor.reset_idle_timer();
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

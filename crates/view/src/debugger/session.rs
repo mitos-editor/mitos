@@ -27,6 +27,7 @@ pub struct DebugSession {
     pub(super) reverse_requests: ReverseRequests,
     pub(super) events: SessionEvents,
     pub(super) execution: ExecutionState,
+    pub(super) sources: super::source::SessionSources,
     pub(super) progress: HashMap<String, ProgressState>,
 }
 
@@ -70,6 +71,7 @@ impl DebugSession {
             reverse_requests: ReverseRequests::default(),
             events: SessionEvents::default(),
             execution: ExecutionState::default(),
+            sources: super::source::SessionSources::default(),
             progress: HashMap::new(),
         }
     }
@@ -145,7 +147,7 @@ impl DebugSession {
         self.execution.selected_thread()
     }
 
-    pub fn stack_frames(&self) -> &HashMap<ThreadId, Vec<StackFrame>> {
+    pub fn stack_frames(&self) -> &HashMap<ThreadId, ::debugger::StackFrames> {
         self.execution.stack_frames()
     }
 
