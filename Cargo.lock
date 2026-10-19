@@ -647,6 +647,7 @@ dependencies = [
  "slotmap",
  "sonic-rs",
  "stdx",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
 ]

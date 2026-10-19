@@ -24,3 +24,6 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "io-
 thiserror.workspace = true
 slotmap.workspace = true
 sonic-rs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

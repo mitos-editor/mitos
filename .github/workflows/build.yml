@@ -57,6 +57,37 @@ jobs:
       matrix:
         os: ${{ fromJSON(github.event_name == 'schedule' && '["ubuntu-latest", "macos-latest", "windows-latest", "ubuntu-24.04-arm", "windows-11-arm"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
 
+  dap-smoke:
+    name: Real DAP adapter
+    runs-on: ubuntu-latest
+    if: github.repository == 'mitos-editor/mitos' || github.event_name != 'schedule'
+    timeout-minutes: 10
+    env:
+      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          toolchain: ${{ env.MSRV }}
+          cache-key: dap-smoke
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.2'
+          cache: false
+
+      - name: Install pinned Delve adapter
+        run: go install github.com/go-delve/delve/cmd/dlv@v1.27.2
+        env:
+          GOBIN: ${{ runner.temp }}/dap-adapter
+
+      - name: Launch, inspect, and shut down a real debug session
+        run: cargo test -p dap --test delve_smoke --locked -- --ignored --nocapture
+        env:
+          MITOS_DLV: ${{ runner.temp }}/dap-adapter/dlv
+
   lints:
     name: Lints
     runs-on: ubuntu-latest
