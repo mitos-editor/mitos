@@ -289,7 +289,7 @@ impl Editor {
     pub(super) fn terminate_debugger_session(&mut self, id: DebugAdapterId) {
         let session = &self.debugger.sessions[id];
         let client = session.client.as_ref().unwrap();
-        let future: BoxFuture<'static, dap::Result<Value>> = if session
+        let future: BoxFuture<'static, dap::Result<()>> = if session
             .capabilities()
             .unwrap()
             .supports_terminate_request
@@ -382,7 +382,7 @@ impl Editor {
             });
             editor.debugger.sessions[id].lifecycle.connection_retained();
             let client = editor.debugger.get_client(id).unwrap();
-            let future: BoxFuture<'static, dap::Result<Value>> = match launch.request {
+            let future: BoxFuture<'static, dap::Result<()>> = match launch.request {
                 ConnectionType::Launch => Box::pin(client.launch(arguments)),
                 ConnectionType::Attach => Box::pin(client.attach(arguments)),
             };

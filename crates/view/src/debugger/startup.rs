@@ -6,7 +6,6 @@ use anyhow::Context as _;
 use dap::{ConnectionType, DebugAdapterId, DebuggerCapabilities};
 use event::{register_hook, TaskController, TaskHandle};
 use language_config::{DebugAdapterConfig, DebugAdapterTransport};
-use serde_json::Value;
 use std::{future::Future, net::SocketAddr};
 
 pub(super) struct Startup {
@@ -108,7 +107,7 @@ impl StartupContext {
         });
     }
 
-    fn finish(self, editor: &mut Editor, result: dap::Result<Value>) {
+    fn finish(self, editor: &mut Editor, result: dap::Result<()>) {
         let active = editor
             .debugger
             .get_active_session()
@@ -122,7 +121,12 @@ impl StartupContext {
         }
         match self.origin {
             StartupOrigin::Child { parent, sequence } => {
-                editor.complete_debugger_request(parent, sequence, "startDebugging", result);
+                editor.complete_debugger_request(
+                    parent,
+                    sequence,
+                    "startDebugging",
+                    result.map(|()| serde_json::json!({})),
+                );
             }
             _ => {
                 if let Err(error) = result {
@@ -217,7 +221,7 @@ impl Editor {
                     session.launch = launch.clone();
                     let client = session.client.as_ref().unwrap();
                     if let Some(launch) = launch {
-                        let future: futures_util::future::BoxFuture<'static, dap::Result<Value>> =
+                        let future: futures_util::future::BoxFuture<'static, dap::Result<()>> =
                             match launch.request {
                                 ConnectionType::Launch => Box::pin(client.launch(launch.arguments)),
                                 ConnectionType::Attach => Box::pin(client.attach(launch.arguments)),
@@ -226,7 +230,7 @@ impl Editor {
                             context.finish(editor, Ok(result))
                         });
                     } else {
-                        context.finish(editor, Ok(serde_json::json!({ "success": true })));
+                        context.finish(editor, Ok(()));
                     }
                     if initialized {
                         editor.debugger_initialized(id);

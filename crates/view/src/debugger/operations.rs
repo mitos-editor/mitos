@@ -152,8 +152,8 @@ enum ControlEffect {
     Unchanged,
 }
 
-fn control_effect(
-    request: impl Future<Output = dap::Result<serde_json::Value>> + Send + 'static,
+fn control_effect<T: Send + 'static>(
+    request: impl Future<Output = dap::Result<T>> + Send + 'static,
     effect: ControlEffect,
 ) -> BoxFuture<'static, dap::Result<ControlEffect>> {
     Box::pin(async move {

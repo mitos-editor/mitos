@@ -232,30 +232,45 @@ impl Client {
         self.request_sender().request::<requests::Initialize>(args)
     }
 
+    /// Validate a standard acknowledgement before discarding its empty body.
+    fn acknowledgement<R: dap_types::Request>(
+        &self,
+        arguments: R::Arguments,
+    ) -> impl Future<Output = Result<()>> + use<R>
+    where
+        R::Arguments: serde::Serialize,
+    {
+        let response = self.request_sender().request::<R>(arguments);
+        async move {
+            response.await?;
+            Ok(())
+        }
+    }
+
     pub fn disconnect(
         &self,
         args: Option<DisconnectArguments>,
-    ) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Disconnect>(args)
+    ) -> impl Future<Output = Result<()>> + use<> {
+        self.acknowledgement::<requests::Disconnect>(args)
     }
 
     pub fn terminate(
         &self,
         args: Option<TerminateArguments>,
-    ) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Terminate>(args)
+    ) -> impl Future<Output = Result<()>> + use<> {
+        self.acknowledgement::<requests::Terminate>(args)
     }
 
-    pub fn launch(&self, args: serde_json::Value) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Launch>(args)
+    pub fn launch(&self, args: serde_json::Value) -> impl Future<Output = Result<()>> + use<> {
+        self.acknowledgement::<requests::Launch>(args)
     }
 
-    pub fn attach(&self, args: serde_json::Value) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Attach>(args)
+    pub fn attach(&self, args: serde_json::Value) -> impl Future<Output = Result<()>> + use<> {
+        self.acknowledgement::<requests::Attach>(args)
     }
 
-    pub fn restart(&self, args: Value) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Restart>(args)
+    pub fn restart(&self, args: Value) -> impl Future<Output = Result<()>> + use<> {
+        self.acknowledgement::<requests::Restart>(args)
     }
 
     pub async fn set_breakpoints(
@@ -314,8 +329,9 @@ impl Client {
         Ok((response.stack_frames, response.total_frames))
     }
 
-    pub fn threads(&self) -> impl Future<Output = Result<Value>> + use<> {
-        self.call::<requests::Threads>(Some(requests::ThreadsArguments {}))
+    pub fn threads(&self) -> impl Future<Output = Result<requests::ThreadsResponse>> + use<> {
+        self.request_sender()
+            .request::<requests::Threads>(Some(requests::ThreadsArguments {}))
     }
 
     pub async fn scopes(&self, frame_id: usize) -> Result<Vec<Scope>> {
@@ -338,38 +354,38 @@ impl Client {
         Ok(response.variables)
     }
 
-    pub fn step_in(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> + use<> {
+    pub fn step_in(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + use<> {
         let args = requests::StepInArguments {
             thread_id,
             target_id: None,
             granularity: None,
         };
 
-        self.call::<requests::StepIn>(args)
+        self.acknowledgement::<requests::StepIn>(args)
     }
 
-    pub fn step_out(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> + use<> {
+    pub fn step_out(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + use<> {
         let args = requests::StepOutArguments {
             thread_id,
             granularity: None,
         };
 
-        self.call::<requests::StepOut>(args)
+        self.acknowledgement::<requests::StepOut>(args)
     }
 
-    pub fn next(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> + use<> {
+    pub fn next(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + use<> {
         let args = requests::NextArguments {
             thread_id,
             granularity: None,
         };
 
-        self.call::<requests::Next>(args)
+        self.acknowledgement::<requests::Next>(args)
     }
 
-    pub fn pause(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> + use<> {
+    pub fn pause(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + use<> {
         let args = requests::PauseArguments { thread_id };
 
-        self.call::<requests::Pause>(args)
+        self.acknowledgement::<requests::Pause>(args)
     }
 
     pub async fn eval(
@@ -390,10 +406,11 @@ impl Client {
     pub fn set_exception_breakpoints(
         &self,
         filters: Vec<String>,
-    ) -> impl Future<Output = Result<Value>> + use<> {
+    ) -> impl Future<Output = Result<requests::SetExceptionBreakpointsResponse>> + use<> {
         let args = requests::SetExceptionBreakpointsArguments { filters };
 
-        self.call::<requests::SetExceptionBreakpoints>(args)
+        self.request_sender()
+            .request::<requests::SetExceptionBreakpoints>(args)
     }
 }
 
@@ -512,6 +529,30 @@ mod tests {
         )
         .unwrap();
         (client, incoming, adapter)
+    }
+
+    #[tokio::test]
+    async fn standard_acknowledgements_validate_successful_response_bodies() {
+        for body in ["null", "{}", "42"] {
+            let (client, _incoming, mut adapter) = connection();
+            let request = tokio::spawn(client.next(ThreadId::default()));
+            let mut bytes = [0; 4096];
+            assert!(adapter.read(&mut bytes).await.unwrap() > 0);
+            let response = format!(
+                r#"{{"seq":1,"type":"response","request_seq":1,"success":true,"command":"next","body":{body}}}"#
+            );
+            adapter
+                .write_all(
+                    format!("Content-Length: {}\r\n\r\n{response}", response.len()).as_bytes(),
+                )
+                .await
+                .unwrap();
+            let result = time::timeout(time::Duration::from_secs(5), request)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(result.is_ok(), body != "42", "{body}: {result:?}");
+        }
     }
 
     #[tokio::test]
