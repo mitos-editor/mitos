@@ -949,6 +949,13 @@ keep assertions about observable behavior; moving code alone does not require a
 new test. Changes to async ownership need coverage for queued callbacks as well
 as in-flight requests.
 
+Debugger integration fixtures share DAP framing, response envelopes, breakpoint
+verification, variable data, and named reply gates from
+`crates/dap/tests/support/adapter.rs`. The headless TCP and terminal stdio drivers
+retain transport setup and scenario-specific launch behavior. Tests advance held
+requests explicitly instead of relying on sleeps. The stdio fixture also supports
+failed variable requests and replies released after execution resumes.
+
 ## Workspace search
 
 `search` owns directory traversal, regex matching, unsaved snapshot precedence,

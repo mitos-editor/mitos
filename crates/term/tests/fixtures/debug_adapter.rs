@@ -1,19 +1,22 @@
 //! Controlled stdio/TCP adapter exercising startup and child-session handshakes.
+#[path = "../../../dap/tests/support/adapter.rs"]
+mod adapter_fixture;
+
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 
-fn send(output: &mut impl Write, sequence: &mut u64, mut message: Value) -> anyhow::Result<()> {
-    message["seq"] = (*sequence).into();
-    *sequence += 1;
-    let body = serde_json::to_vec(&message)?;
-    write!(output, "Content-Length: {}\r\n\r\n", body.len())?;
-    output.write_all(&body)?;
+fn send(output: &mut impl Write, sequence: &mut u64, message: Value) -> anyhow::Result<()> {
+    output.write_all(&adapter_fixture::frame(sequence, message)?)?;
     output.flush()?;
     Ok(())
 }
 
 fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> {
     let mut sequence = 1;
+    let variables = adapter_fixture::VariableFixture::new([1, 2, 3], Some((4, 250)));
+    let mut gate = adapter_fixture::RequestGate::default();
+    let mut hold_variables = false;
+    let mut fail_variables = false;
     let mut child_request = None;
     let mut stack_count = 1;
     let mut adapter_source = false;
@@ -50,6 +53,15 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
         let command = message["command"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing command"))?;
+        if command == "launch" {
+            hold_variables = message["arguments"]["holdVariables"] == true;
+            fail_variables = message["arguments"]["failVariables"] == true;
+        }
+        if hold_variables && command == "variables" {
+            hold_variables = false;
+            gate.hold(message);
+            continue;
+        }
         let body = match command {
             "initialize" => {
                 anyhow::ensure!(
@@ -73,9 +85,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                     .unwrap_or(stack_count as u64) as usize;
                 json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":adapter_source.then(||json!({"name":"generated.rs","sourceReference":7}))})).collect::<Vec<_>>(),"totalFrames":stack_count})
             }
-            "setBreakpoints" => {
-                json!({"breakpoints":message["arguments"]["breakpoints"].as_array().unwrap().iter().map(|breakpoint| json!({"id":1000,"verified":true,"line":breakpoint["line"]})).collect::<Vec<_>>()})
-            }
+            "setBreakpoints" => adapter_fixture::default_response(&message),
             "source" => json!({"content":"adapter content\n"}),
             "launch" if message["arguments"]["inspectSource"] == true => {
                 adapter_source = true;
@@ -86,33 +96,25 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 json!({})
             }
 
-            "scopes" => {
-                json!({"scopes":[{"name":"locals","variablesReference":1,"expensive":false},{"name":"globals","variablesReference":2,"expensive":true},{"name":"large","variablesReference":4,"expensive":false}]})
-            }
-            "variables" => match message["arguments"]["variablesReference"].as_u64() {
-                Some(1) => {
-                    json!({"variables":[{"name":"answer","value":"42","variablesReference":0},{"name":"object","value":"Object","variablesReference":3}]})
-                }
-                Some(2) => {
-                    json!({"variables":[{"name":"global","value":"true","variablesReference":0}]})
-                }
-                Some(3) => {
-                    json!({"variables":[{"name":"child","value":nested_value,"variablesReference":0}]})
-                }
-                Some(4) => {
-                    let start = message["arguments"]["start"].as_u64().unwrap_or(0) as usize;
-                    let count = message["arguments"]["count"].as_u64().unwrap_or(250) as usize;
-                    json!({"variables":(start..250.min(start.saturating_add(count))).map(|i| json!({"name":format!("item{i}"),"value":i.to_string(),"variablesReference":0})).collect::<Vec<_>>()})
-                }
-                reference => anyhow::bail!("unexpected variable reference: {reference:?}"),
-            },
-            _ => json!({}),
+            "scopes" => variables.scopes(),
+            "variables" => variables.variables(&message["arguments"], nested_value)?,
+            _ => adapter_fixture::default_response(&message),
         };
         send(
             &mut output,
             &mut sequence,
-            json!({"type":"response","request_seq":message["seq"],"command":command,"success":true,"body":body}),
+            adapter_fixture::response(&message, !(fail_variables && command == "variables"), body),
         )?;
+        if command == "continue"
+            && let Some(held) = gate.release(Some("variables"))
+        {
+            let body = variables.variables(&held["arguments"], nested_value)?;
+            send(
+                &mut output,
+                &mut sequence,
+                adapter_fixture::response(&held, true, body),
+            )?;
+        }
         match command {
             "initialize" => send(
                 &mut output,

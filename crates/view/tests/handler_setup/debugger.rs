@@ -3,6 +3,9 @@ mod shutdown;
 #[path = "debugger_startup.rs"]
 mod startup;
 
+#[path = "../../../dap/tests/support/adapter.rs"]
+mod adapter_fixture;
+
 use super::Fixture;
 use anyhow::Context as _;
 use dap::{
@@ -159,7 +162,8 @@ async fn adapter_server_with_options(
             }
         });
         let mut delayed = None;
-        let mut held_event = None;
+        let mut held_events = adapter_fixture::RequestGate::default();
+        let mut sequence = 1;
         let mut held_breakpoint = None;
         let mut hold_breakpoints = true;
         loop {
@@ -194,7 +198,7 @@ async fn adapter_server_with_options(
                             || message["arguments"].get("__restart").is_some())
                 }) {
                     options.held_commands.remove(index);
-                    held_event = Some(message);
+                    held_events.hold(message);
                     continue;
                 }
                 let body = match message["command"].as_str().unwrap() {
@@ -225,9 +229,7 @@ async fn adapter_server_with_options(
                         let thread = message["arguments"]["threadId"].as_u64().unwrap();
                         json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":frame_source(&options)},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
                     }
-                    "scopes" => {
-                        json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false},{"name":"globals","variablesReference":8,"expensive":true}]})
-                    }
+                    "scopes" => adapter_fixture::VariableFixture::new([7, 8, 9], None).scopes(),
                     "variables" => variable_response(&message, options.variable_count),
                     "evaluate" if message["arguments"]["expression"] == "object" => {
                         json!({"result":"Object","variablesReference":7,"namedVariables":options.variable_count,"indexedVariables":0})
@@ -241,14 +243,13 @@ async fn adapter_server_with_options(
                     },
                     _ => json!({}),
                 };
-                let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
-                    "request_seq":message["seq"], "command":message["command"], "success":options.succeeds(&message), "body":body}))?;
-                write
-                    .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
-                    .await?;
+                let response = adapter_fixture::frame(
+                    &mut sequence,
+                    adapter_fixture::response(&message, options.succeeds(&message), body),
+                )?;
                 write.write_all(&response).await?;
             }
-            if let Some(held) = held_event.take() {
+            if let Some(held) = held_events.release(None) {
                 let body = if held["command"] == "variables" {
                     variable_response(&held, options.variable_count)
                 } else if held["command"] == "stackTrace" {
@@ -256,30 +257,28 @@ async fn adapter_server_with_options(
                 } else {
                     json!({})
                 };
-                let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
-                        "request_seq":held["seq"], "command":held["command"],
-                        "success":options.succeeds(&held), "body":body}))?;
-                write
-                    .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
-                    .await?;
+                let response = adapter_fixture::frame(
+                    &mut sequence,
+                    adapter_fixture::response(&held, options.succeeds(&held), body),
+                )?;
                 write.write_all(&response).await?;
             }
             if let Some(held) = held_breakpoint.take() {
-                let response = serde_json::to_vec(
-                    &json!({"type":"response", "seq":2, "request_seq":held["seq"], "command":"setBreakpoints", "success":true, "body":breakpoint_response(&held)}),
+                let response = adapter_fixture::frame(
+                    &mut sequence,
+                    adapter_fixture::response(&held, true, breakpoint_response(&held)),
                 )?;
-                write
-                    .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
-                    .await?;
                 write.write_all(&response).await?;
             }
             if let Some(delayed) = delayed.take() {
-                let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
-                        "request_seq":delayed["seq"], "command":"evaluate", "success":true,
-                        "body":{"result":"late", "variablesReference":0}}))?;
-                write
-                    .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
-                    .await?;
+                let response = adapter_fixture::frame(
+                    &mut sequence,
+                    adapter_fixture::response(
+                        &delayed,
+                        true,
+                        json!({"result":"late","variablesReference":0}),
+                    ),
+                )?;
                 write.write_all(&response).await?;
             }
             if let Some(acknowledgment) = acknowledgment {
@@ -297,8 +296,7 @@ async fn adapter_server_with_options(
 }
 
 fn breakpoint_response(message: &Value) -> Value {
-    let breakpoints: Vec<_> = message["arguments"]["breakpoints"].as_array().unwrap().iter().map(|breakpoint| json!({"id":1000 + breakpoint["line"].as_u64().unwrap(), "verified":true, "line":breakpoint["line"]})).collect();
-    json!({"breakpoints":breakpoints})
+    adapter_fixture::default_response(message)
 }
 
 async fn message(receiver: &mut mpsc::UnboundedReceiver<Value>) -> anyhow::Result<Value> {
@@ -2496,24 +2494,11 @@ async fn explicit_shutdown_takes_precedence_over_adapter_restart() -> anyhow::Re
 }
 
 fn variable_response(message: &Value, count: Option<usize>) -> Value {
-    if message["arguments"]["variablesReference"] == 7
-        && let Some(total) = count
-    {
-        let start = message["arguments"]["start"].as_u64().unwrap_or(0) as usize;
-        let count = message["arguments"]["count"]
-            .as_u64()
-            .unwrap_or(total as u64) as usize;
-        return json!({"variables":(start..total.min(start.saturating_add(count))).map(|i| json!({"name":format!("item{i}"),"value":i.to_string(),"variablesReference":9})).collect::<Vec<_>>()});
-    }
-
-    match message["arguments"]["variablesReference"].as_u64().unwrap() {
-        7 => {
-            json!({"variables":[{"name":"answer","value":"42","type":"int","variablesReference":0},{"name":"object","value":"Object","variablesReference":9}]})
-        }
-        8 => json!({"variables":[{"name":"global","value":"true","variablesReference":0}]}),
-        9 => json!({"variables":[{"name":"child","value":"nested value","variablesReference":0}]}),
-        _ => panic!("unexpected variable reference: {message}"),
-    }
+    let mut fixture = adapter_fixture::VariableFixture::new([7, 8, 9], None);
+    fixture.count = count;
+    fixture
+        .variables(&message["arguments"], "nested value")
+        .unwrap()
 }
 
 #[path = "debugger_variable_paging.rs"]

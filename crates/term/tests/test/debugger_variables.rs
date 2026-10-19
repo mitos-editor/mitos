@@ -51,9 +51,9 @@ async fn wait_for_row(app: &mut Application, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
-) -> anyhow::Result<()> {
+async fn start_fixture(
+    arguments: serde_json::Value,
+) -> anyhow::Result<(Application, dap::DebugAdapterId)> {
     let mut app = AppBuilder::new().build()?;
     let id = app.editor.connect_debugger(
         None,
@@ -68,11 +68,12 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
         },
         Some(view::debugger::DebuggerLaunch {
             request: dap::ConnectionType::Launch,
-            arguments: serde_json::json!({"inspectVariables":true}),
+            arguments,
         }),
     );
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
+            app.editor.reset_idle_timer();
             run_event_loop_until_idle(&mut app).await;
             if app
                 .editor
@@ -85,6 +86,13 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
         }
     })
     .await?;
+    Ok((app, id))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
+) -> anyhow::Result<()> {
+    let (mut app, id) = start_fixture(serde_json::json!({"inspectVariables":true})).await?;
     keys(&mut app, "<space>Gv").await?;
     wait_for_text(&mut app, "globals [expensive]").await?;
     assert!(!screen(&app).contains("answer"));
@@ -295,5 +303,66 @@ async fn adapter_source_navigation_opens_an_immutable_named_document() -> anyhow
     })
     .await?;
     assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn variable_request_failures_and_late_stdio_replies_leave_the_browser_and_session_consistent(
+) -> anyhow::Result<()> {
+    for failed in [false, true] {
+        let (mut app, id) = start_fixture(serde_json::json!({"inspectVariables":true,"holdVariables":!failed,"failVariables":failed})).await?;
+        keys(&mut app, "<space>Gv").await?;
+        wait_for_text(&mut app, "globals [expensive]").await?;
+        keys(&mut app, "locals<ret>").await?;
+        if failed {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !app
+                    .editor
+                    .get_status()
+                    .is_some_and(|(message, _)| message.contains("fixture failure"))
+                {
+                    app.editor.reset_idle_timer();
+                    run_event_loop_until_idle(&mut app).await;
+                }
+            })
+            .await?;
+        }
+        assert!(!screen(&app).contains("answer"));
+        assert!(app
+            .editor
+            .debugger()
+            .get_session(id)
+            .unwrap()
+            .current_stack_frame()
+            .is_some());
+        app.editor
+            .debugger_command(view::debugger::DebuggerCommand::Continue)?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while app
+                .editor
+                .debugger()
+                .get_session(id)
+                .unwrap()
+                .current_stack_frame()
+                .is_some()
+            {
+                app.editor.reset_idle_timer();
+                run_event_loop_until_idle(&mut app).await;
+            }
+        })
+        .await?;
+        keys(&mut app, "<esc><esc>").await?;
+        assert!(!screen(&app).contains("answer"));
+        app.editor
+            .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while app.editor.debugger().get_session(id).is_some() {
+                app.editor.reset_idle_timer();
+                run_event_loop_until_idle(&mut app).await;
+            }
+        })
+        .await?;
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }
