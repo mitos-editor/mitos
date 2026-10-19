@@ -148,7 +148,10 @@ If a frame's source is provided by the adapter, Mitos opens it in a named,
 read-only document. The adapter's content takes precedence over a local file
 with the same name. These documents cannot be edited, saved, or renamed; copy
 text to a new buffer to work with it. Open source documents remain available as
-snapshots after the debugging session ends.
+snapshots after the debugging session ends. If the adapter changes or removes a
+source, its old document becomes a historical snapshot too. Select a frame again
+to open the current source; historical snapshots no longer accept debugger source
+operations.
 
 ## Terminal for the debugged program
 

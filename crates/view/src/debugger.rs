@@ -4,6 +4,7 @@ mod breakpoints;
 pub(crate) use breakpoints::map_breakpoint_positions;
 pub mod source;
 pub use ::debugger::{BreakpointBinding, BreakpointLocation};
+pub use source::DebuggerSource;
 mod events;
 mod progress;
 mod reverse_requests;
@@ -57,6 +58,7 @@ pub struct DebuggerState {
     current_selection: Option<event::TaskHandle>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::ClientEvent)>>,
     breakpoints: BreakpointStore,
+    source_ids: ::debugger::SourceIds,
     pub(crate) closed_breakpoint_sources: std::collections::HashMap<PathBuf, editor_core::Rope>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }

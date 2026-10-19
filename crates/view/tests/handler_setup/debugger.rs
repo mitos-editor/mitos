@@ -2533,3 +2533,6 @@ mod stack_paging;
 
 #[path = "debugger_source_resolution.rs"]
 mod source_resolution;
+
+#[path = "debugger_source_identity.rs"]
+mod source_identity;

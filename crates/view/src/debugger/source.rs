@@ -1,5 +1,8 @@
 //! DAP source locations use one-based lines and UTF-16 columns.
 
+mod identity;
+pub use identity::DebuggerSource;
+
 use dap::StackFrame;
 use editor_core::{line_ending::get_line_ending, Rope, Selection};
 
@@ -66,16 +69,20 @@ pub(super) struct SessionSources {
 }
 
 struct CachedSource {
+    id: ::debugger::SourceId,
+    descriptor: dap::Source,
     document: Option<crate::DocumentId>,
     content: std::sync::Arc<tokio::sync::OnceCell<dap::requests::SourceResponse>>,
     _owner: event::TaskController,
     current: event::TaskHandle,
 }
-impl Default for CachedSource {
-    fn default() -> Self {
+impl CachedSource {
+    fn new(id: ::debugger::SourceId, descriptor: dap::Source) -> Self {
         let mut owner = event::TaskController::new();
         let current = owner.restart();
         Self {
+            id,
+            descriptor,
             document: None,
             content: Default::default(),
             _owner: owner,
@@ -89,19 +96,8 @@ impl crate::Editor {
     pub fn debugger_frame_in_document(&self, doc: &crate::Document) -> Option<&StackFrame> {
         let session = self.debugger.get_active_session()?;
         let frame = session.current_stack_frame()?;
-        let source = frame.source.as_ref()?;
-        let matches =
-            if let Some(reference) = source.source_reference.filter(|reference| *reference > 0) {
-                session
-                    .sources
-                    .entries
-                    .get(&reference)
-                    .and_then(|cached| cached.document)
-                    == Some(doc.id())
-            } else {
-                local_path(frame).is_some_and(|path| Some(path) == doc.path())
-            };
-        matches.then_some(frame)
+        let source = self.debugger_source(doc.id())?;
+        source.matches_frame(session.id(), frame).then_some(frame)
     }
 
     pub(crate) fn navigate_debugger_frame(&mut self, id: dap::DebugAdapterId, frame: &StackFrame) {
@@ -121,6 +117,17 @@ impl crate::Editor {
             crate::handlers::dap::jump_to_stack_frame(self, frame);
             return;
         };
+        if !self.debugger.sessions[id]
+            .sources
+            .entries
+            .contains_key(&reference)
+        {
+            let source_id = self.debugger.source_ids.allocate();
+            self.debugger.sessions[id]
+                .sources
+                .entries
+                .insert(reference, CachedSource::new(source_id, source.clone()));
+        }
         let cached = self.debugger.sessions[id]
             .sources
             .entries
@@ -151,11 +158,11 @@ impl crate::Editor {
         let cached = self.debugger.sessions[id]
             .sources
             .entries
-            .entry(reference)
-            .or_default();
+            .get_mut(&reference)
+            .unwrap();
         context.lifetimes.push(cached.current.clone());
         let content = cached.content.clone();
-        let source = source.clone();
+        let source = cached.descriptor.clone();
         let frame = frame.clone();
         let name = source
             .name

@@ -8,6 +8,8 @@ mod breakpoints;
 mod execution;
 mod lifecycle;
 mod sessions;
+mod source;
+pub use source::{SourceId, SourceIds};
 
 pub use breakpoints::{
     validate_capabilities, Breakpoint, BreakpointBinding, BreakpointBindings, BreakpointId,
