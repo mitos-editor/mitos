@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
+    let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
     let mut held_lenses = Vec::<Value>::new();
     let navigation = args.first().is_some_and(|arg| arg == "--navigation");
@@ -58,6 +59,7 @@ fn main() -> anyhow::Result<()> {
         || inline_completion
         || action_execution
         || code_lenses
+        || inline_values
     {
         Some(std::fs::File::create(&args[2])?)
     } else {
@@ -98,6 +100,7 @@ fn main() -> anyhow::Result<()> {
             || formatting
             || action_execution
             || code_lenses
+            || inline_values
             || language_features
             || navigation
         {
@@ -663,6 +666,15 @@ fn main() -> anyhow::Result<()> {
             "textDocument/rangeFormatting" if formatting => json!([{
                 "range": params["range"], "newText": "formatted"
             }]),
+            "initialize" if inline_values => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "inlineValueProvider": {}
+            }}),
+            "textDocument/inlineValue" if inline_values => json!([
+                {"range": range(3, 9), "text": "runtime"},
+                {"range": range(3, 9), "caseSensitiveLookup": true},
+                {"range": range(3, 9), "variableName": "ANSWER", "caseSensitiveLookup": false},
+                {"range": range(3, 9), "expression": "answer + 1"}
+            ]),
             "initialize" if code_lenses => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "codeLensProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},

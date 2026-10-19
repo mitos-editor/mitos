@@ -17,6 +17,7 @@ pub(super) enum RequestKind {
     RefreshStack,
     Source,
     Configuration,
+    InlineValues(crate::ViewId),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -292,6 +293,10 @@ impl Editor {
 }
 
 impl SessionRequests {
+    pub(super) fn remove(&mut self, kind: RequestKind) {
+        self.requests.remove(&kind);
+    }
+
     pub(super) fn cancel(&mut self, kind: RequestKind) {
         if let Some(request) = self.requests.get_mut(&kind) {
             request.cancel();

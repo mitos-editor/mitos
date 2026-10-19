@@ -117,6 +117,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `statusline` | table | See below | Statusline layout and labels. See [`[editor.statusline]`](#editorstatusline). |
 | `search` | table | See below | Search matching and wrap behavior. See [`[editor.search]`](#editorsearch). |
 | `lsp` | table | See below | Global LSP behavior. See [`[editor.lsp]`](#editorlsp). |
+| `debugger` | table | See below | Runtime value display. See [`[editor.debugger]`](#editordebugger). |
 | `rulers` | array of integers | `[]` | Columns at which to draw rulers; a language may override this. |
 | `whitespace` | table | See below | Visible whitespace rendering. See [`[editor.whitespace]`](#editorwhitespace). |
 | `breadcrumb` | table | See below | Breadcrumb navigation bar. See [`[editor.breadcrumb]`](#editorbreadcrumb). |
@@ -335,6 +336,12 @@ Available statusline elements:
 | `code-action-hint` | Indicator for when code actions are available |
 | `debug-session` | Selected debugging session, its state, and total session count; hidden when no session exists |
 
+
+### `[editor.debugger]`
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `inline-values` | boolean | `true` | Show runtime values after source lines in the selected paused frame. See [inline debug values](./debugging.md#inline-debug-values). |
 
 ### `[editor.lsp]`
 

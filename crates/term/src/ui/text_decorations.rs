@@ -10,7 +10,9 @@ pub use diagnostics::InlineDiagnostics;
 
 pub mod blame;
 pub mod code_lenses;
+pub mod debug_values;
 mod diagnostics;
+mod end_of_line;
 pub mod inline_completion;
 
 /// Decorations are the primary mechanism for extending the text rendering.

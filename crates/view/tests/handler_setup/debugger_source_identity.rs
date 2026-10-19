@@ -2,6 +2,30 @@ use super::*;
 use view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn adapter_file_paths_use_the_same_identity_as_opened_documents() -> anyhow::Result<()> {
+    let mut f = Fixture::new("answer")?;
+    let document = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let parent = path.parent().unwrap();
+    std::fs::create_dir(parent.join("alias"))?;
+    let adapter_path = parent
+        .join("alias")
+        .join("..")
+        .join(path.file_name().unwrap());
+    let (_, _) = paused_adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            stack_source: Some(adapter_path),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let doc = f.editor.document(document).unwrap();
+    assert!(f.editor.debugger_frame_in_document(doc).is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn file_source_handles_follow_document_identity_and_editor_ownership() -> anyhow::Result<()> {
     let mut f = Fixture::new("")?;
     let document = current_ref!(f.editor).1.id();

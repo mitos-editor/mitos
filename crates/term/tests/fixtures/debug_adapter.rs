@@ -20,6 +20,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
     let mut child_request = None;
     let mut stack_count = 1;
     let mut adapter_source = false;
+    let mut source_path = Value::Null;
     let mut nested_value = "nested value";
     loop {
         let mut header = String::new();
@@ -56,6 +57,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
         if command == "launch" {
             hold_variables = message["arguments"]["holdVariables"] == true;
             fail_variables = message["arguments"]["failVariables"] == true;
+            source_path = message["arguments"]["sourcePath"].clone();
         }
         if hold_variables && command == "variables" {
             hold_variables = false;
@@ -68,7 +70,11 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                     message["arguments"]["supportsStartDebuggingRequest"] == true,
                     "child-session support was not advertised"
                 );
-                json!({"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":true})
+                json!({"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":true,"supportsEvaluateForHovers":true})
+            }
+            "evaluate" if message["arguments"]["expression"] == "answer + 1" => {
+                anyhow::ensure!(message["arguments"]["context"] == "hover");
+                json!({"result":"43","variablesReference":0})
             }
             "evaluate" if message["arguments"]["expression"] == "object" => {
                 json!({"result":"Object","variablesReference":4,"namedVariables":250,"indexedVariables":0})
@@ -83,7 +89,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 let levels = message["arguments"]["levels"]
                     .as_u64()
                     .unwrap_or(stack_count as u64) as usize;
-                json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":adapter_source.then(||json!({"name":"generated.rs","sourceReference":7}))})).collect::<Vec<_>>(),"totalFrames":stack_count})
+                json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":if adapter_source {json!({"name":"generated.rs","sourceReference":7})} else if !source_path.is_null() {json!({"path":source_path})} else {Value::Null}})).collect::<Vec<_>>(),"totalFrames":stack_count})
             }
             "setBreakpoints" => adapter_fixture::default_response(&message),
             "source" => json!({"content":"adapter content\n"}),

@@ -3,11 +3,7 @@
 use std::ops::Range;
 use text_layout::DisplayPosition;
 
-use editor_core::{
-    line_ending::line_end_char_index,
-    unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
-    Rope,
-};
+use editor_core::{line_ending::line_end_char_index, Rope};
 
 use text_layout::doc_formatter::FormattedGrapheme;
 use theme::Style;
@@ -113,49 +109,7 @@ impl Decoration for CodeLensDecoration<'_> {
             return DisplayPosition::new(0, 0);
         }
         let labels = format!("▶ {}", titles.join(" · "));
-        let start = off.col.saturating_add(1);
-        let right = renderer.offset.col + renderer.viewport.width as usize;
-        if start >= right {
-            return DisplayPosition::new(0, 0);
-        }
-        let col = start.saturating_sub(renderer.offset.col);
-        let width = renderer.viewport.width as usize - col;
-        // Leave the gutter/menu as the fallback if all that fits is the marker.
-        if width < 4 {
-            return DisplayPosition::new(0, 0);
-        }
-        let mut logical_col = start;
-        let visible: String = labels
-            .graphemes(true)
-            .filter_map(|grapheme| {
-                let from = logical_col;
-                logical_col += grapheme.width();
-                if from >= renderer.offset.col {
-                    Some(grapheme.to_owned())
-                } else if logical_col > renderer.offset.col {
-                    Some(" ".repeat(logical_col - renderer.offset.col))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if visible.is_empty() {
-            return DisplayPosition::new(0, 0);
-        }
-        let ellipsis = visible.width() > width;
-        let (end, _) = renderer.set_string_truncated(
-            renderer.viewport.x + col as u16,
-            pos.visual_line,
-            &visible,
-            width,
-            |_| self.style,
-            ellipsis,
-            false,
-        );
-        let logical_end = end.saturating_sub(renderer.viewport.x) as usize
-            + renderer.offset.col
-            + usize::from(ellipsis);
-        DisplayPosition::new(0, logical_end.saturating_sub(off.col))
+        super::end_of_line::draw_label(renderer, pos, off, &labels, self.style)
     }
 }
 

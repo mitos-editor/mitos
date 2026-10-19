@@ -445,13 +445,21 @@ impl EditorView {
                     .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
             ));
         }
+        let hidden_line = if is_focused && editor.mode() == Mode::Insert {
+            doc.inline_completion(view.id)
+                .map(|completion| doc.text().char_to_line(completion.cursor))
+        } else {
+            None
+        };
+        decorations.add_decoration(text_decorations::debug_values::DebugValues::new(
+            doc.text(),
+            editor.debugger_inline_values(view.id),
+            theme
+                .try_get_exact("ui.virtual.debug-value")
+                .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
+            hidden_line,
+        ));
         if document_config.lsp.enable && document_config.lsp.code_lenses.enable {
-            let hidden_line = if is_focused && editor.mode() == Mode::Insert {
-                doc.inline_completion(view.id)
-                    .map(|completion| doc.text().char_to_line(completion.cursor))
-            } else {
-                None
-            };
             decorations.add_decoration(text_decorations::code_lenses::CodeLensDecoration::new(
                 doc.text(),
                 doc.code_lenses(),
@@ -2037,6 +2045,7 @@ impl Component for EditorView {
 
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(layout.editor);
+        cx.editor.refresh_debugger_inline_values();
 
         if let Some(bufferline) = layout.bufferline {
             Self::render_bufferline(cx.editor, bufferline, surface);

@@ -1,6 +1,6 @@
 use super::*;
 
-async fn barrier(f: &mut Fixture, wire: &mut AdapterWire) -> anyhow::Result<Vec<Value>> {
+pub(super) async fn barrier(f: &mut Fixture, wire: &mut AdapterWire) -> anyhow::Result<Vec<Value>> {
     f.editor
         .debugger_threads()?
         .run()

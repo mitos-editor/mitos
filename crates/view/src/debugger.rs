@@ -29,6 +29,8 @@ mod stack;
 pub use stack::DebuggerStackPage;
 mod inspection;
 pub use inspection::{DebuggerEvaluation, DebuggerVariable, DebuggerVariables};
+mod inline_values;
+pub use inline_values::DebuggerInlineValue;
 
 use std::path::{Path, PathBuf};
 
@@ -61,6 +63,7 @@ pub struct DebuggerState {
     source_ids: ::debugger::SourceIds,
     pub(crate) closed_breakpoint_sources: std::collections::HashMap<PathBuf, editor_core::Rope>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
+    inline_values: std::collections::HashMap<crate::ViewId, inline_values::State>,
 }
 
 impl DebuggerState {

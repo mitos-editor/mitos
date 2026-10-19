@@ -100,6 +100,7 @@ pub(crate) fn supports_feature(
             )
         ),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
+        LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
     }
 }
 

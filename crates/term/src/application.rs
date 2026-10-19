@@ -1072,6 +1072,12 @@ impl Application {
                         );
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::InlineValueRefresh) => {
+                        let server_id = language_server!().id();
+                        self.editor
+                            .refresh_debugger_inline_values_for_server(server_id);
+                        Ok(serde_json::Value::Null)
+                    }
                     Ok(MethodCall::ShowMessageRequest(params)) => {
                         if let Some(actions) = params.actions.filter(|a| !a.is_empty()) {
                             let id = id.clone();

@@ -135,6 +135,13 @@ impl Client {
         Some(self.call::<lsp::request::InlayHintRequest>(params))
     }
 
+    pub fn inline_values(
+        &self,
+        params: lsp::InlineValueParams,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::InlineValue>>>> + use<> {
+        self.call::<lsp::request::InlineValueRequest>(params)
+    }
+
     pub fn inline_completion(
         &self,
         text_document: lsp::TextDocumentIdentifier,

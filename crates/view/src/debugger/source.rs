@@ -6,6 +6,19 @@ pub use identity::DebuggerSource;
 use dap::StackFrame;
 use editor_core::{line_ending::get_line_ending, Rope, Selection};
 
+/// Bind file-backed protocol locations using the same path policy as document opening.
+pub(super) fn normalize_path(source: &mut dap::Source) {
+    if source
+        .source_reference
+        .is_some_and(|reference| reference > 0)
+    {
+        return;
+    }
+    if let Some(path) = &mut source.path {
+        *path = stdx::path::canonicalize(&*path);
+    }
+}
+
 /// Convert a DAP source line to an editor line, rejecting the unknown line zero.
 pub fn line_index(line: usize) -> Option<usize> {
     line.checked_sub(1)

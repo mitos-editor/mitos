@@ -139,6 +139,35 @@ Adapter invalidation and expression evaluation refresh values in place, keeping
 the open object, filters, and selection. If an object disappears, the browser
 returns to its nearest surviving parent.
 
+## Inline debug values
+
+When execution pauses, Mitos shows runtime values after source lines in the
+selected frame, for example `answer = 42`. Selecting another frame or resuming
+clears the previous values. Labels use the space left by diagnostics and are
+clipped to the view without wrapping the source.
+
+A language server with `textDocument/inlineValue` support can choose the
+locations, variable names, and expressions to display. Expressions are evaluated
+only when the debug adapter supports hover evaluation. Otherwise, Mitos matches
+local variable names in parsed code inside the current function, up to the
+paused line. It skips comments, strings, object expansion, and expensive scopes.
+Without a function boundary it checks only the paused line; without a parser
+the fallback is unavailable.
+
+Values are limited to visible lines and are hidden while the source buffer has
+unsaved changes. Large values are shortened. These runtime labels are separate
+from LSP inlay hints, which show static types and parameter names.
+
+Inline values are enabled by default. To disable them:
+
+```toml
+[editor.debugger]
+inline-values = false
+```
+
+Use `:toggle debugger.inline-values` to change the setting for the current
+editor session.
+
 ## Stack frames
 
 Use `Space G s f` to select a frame in the stopped thread. With adapters that

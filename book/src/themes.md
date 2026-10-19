@@ -365,6 +365,7 @@ These scopes are used for theming the editor interface:
 | `ui.virtual.inline-completion`    | LSP ghost text; falls back to `ui.virtual.inlay-hint` |
 | `ui.virtual.code-lens`            | End-of-line code lens labels; falls back to `ui.virtual.inlay-hint` |
 | `ui.virtual.inline-blame`         | Inline blame indicator (see the [`editor.inline-blame` config][editor-section])                |
+| `ui.virtual.debug-value`          | Runtime values beside source while debugging; falls back to `ui.virtual.inlay-hint`             |
 | `ui.menu`                         | Code and command completion menus                                                              |
 | `ui.menu.selected`                | Selected autocomplete item                                                                     |
 | `ui.menu.scroll`                  | `fg` sets thumb color, `bg` sets track color of scrollbar                                      |

@@ -108,6 +108,8 @@ async fn adapter_server(fail_launch: bool) -> anyhow::Result<(std::net::SocketAd
 struct AdapterOptions {
     fail_launch: bool,
     variable_count: Option<usize>,
+    scopes: Option<Value>,
+    variable_overrides: std::collections::HashMap<usize, Value>,
     fail_restarts: bool,
     failed_commands: Vec<&'static str>,
     continue_all: Option<bool>,
@@ -118,6 +120,7 @@ struct AdapterOptions {
     empty_threads: bool,
     fail_stack: bool,
     stack_source: Option<std::path::PathBuf>,
+    stack_line: Option<usize>,
     stack_reference: Option<usize>,
     source_content: String,
     launch: Option<view::debugger::DebuggerLaunch>,
@@ -125,6 +128,14 @@ struct AdapterOptions {
 }
 
 impl AdapterOptions {
+    fn variables(&self, message: &Value) -> Value {
+        let reference = message["arguments"]["variablesReference"].as_u64().unwrap() as usize;
+        self.variable_overrides
+            .get(&reference)
+            .cloned()
+            .unwrap_or_else(|| variable_response(message, self.variable_count))
+    }
+
     fn succeeds(&self, message: &Value) -> bool {
         let command = message["command"].as_str().unwrap();
         !(self.failed_commands.contains(&command)
@@ -227,10 +238,12 @@ async fn adapter_server_with_options(
                     }
                     "stackTrace" => {
                         let thread = message["arguments"]["threadId"].as_u64().unwrap();
-                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":frame_source(&options)},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
+                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":options.stack_line.unwrap_or(1),"column":1,"source":frame_source(&options)},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
                     }
-                    "scopes" => adapter_fixture::VariableFixture::new([7, 8, 9], None).scopes(),
-                    "variables" => variable_response(&message, options.variable_count),
+                    "scopes" => options.scopes.clone().unwrap_or_else(|| {
+                        adapter_fixture::VariableFixture::new([7, 8, 9], None).scopes()
+                    }),
+                    "variables" => options.variables(&message),
                     "evaluate" if message["arguments"]["expression"] == "object" => {
                         json!({"result":"Object","variablesReference":7,"namedVariables":options.variable_count,"indexedVariables":0})
                     }
@@ -251,7 +264,11 @@ async fn adapter_server_with_options(
             }
             if let Some(held) = held_events.release(None) {
                 let body = if held["command"] == "variables" {
-                    variable_response(&held, options.variable_count)
+                    options.variables(&held)
+                } else if held["command"] == "scopes" {
+                    options.scopes.clone().unwrap_or_else(|| {
+                        adapter_fixture::VariableFixture::new([7, 8, 9], None).scopes()
+                    })
                 } else if held["command"] == "stackTrace" {
                     json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":frame_source(&options)}]})
                 } else {
@@ -2530,3 +2547,6 @@ mod source_identity;
 
 #[path = "debugger_adapter_breakpoints.rs"]
 mod adapter_breakpoints;
+
+#[path = "debugger_inline_values.rs"]
+mod inline_values;

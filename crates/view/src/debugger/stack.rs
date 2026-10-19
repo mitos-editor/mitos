@@ -20,7 +20,7 @@ pub(super) async fn request_stack_trace(
     start: usize,
     paging: bool,
 ) -> dap::Result<::debugger::StackFrames> {
-    let response = sender
+    let mut response = sender
         .request::<requests::StackTrace>(requests::StackTraceArguments {
             thread_id: thread,
             start_frame: paging.then_some(start),
@@ -28,6 +28,13 @@ pub(super) async fn request_stack_trace(
             format: None,
         })
         .await?;
+    for source in response
+        .stack_frames
+        .iter_mut()
+        .filter_map(|frame| frame.source.as_mut())
+    {
+        super::source::normalize_path(source);
+    }
     Ok(::debugger::StackFrames::new(
         response.stack_frames,
         response.total_frames,

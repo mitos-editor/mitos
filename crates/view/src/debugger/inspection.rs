@@ -11,6 +11,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::OnceCell;
 
 mod evaluation;
+mod inline;
 pub use evaluation::DebuggerEvaluation;
 
 const PAGE_SIZE: usize = 100;
@@ -110,6 +111,7 @@ struct CachedValues {
     lifetime: TaskController,
     current: TaskHandle,
     variables: HashMap<(usize, usize), VariableCell>,
+    scopes: Arc<OnceCell<Arc<[dap::Scope]>>>,
 }
 
 pub(super) struct InspectionCache {
@@ -127,6 +129,7 @@ impl InspectionCache {
                 lifetime,
                 current,
                 variables: HashMap::new(),
+                scopes: Default::default(),
             }),
         }
     }
@@ -135,9 +138,10 @@ impl InspectionCache {
         let mut values = self.values.lock();
         values.current = values.lifetime.restart();
         values.variables.clear();
+        values.scopes = Default::default();
     }
 
-    fn current(&self) -> TaskHandle {
+    pub(super) fn current(&self) -> TaskHandle {
         self.values.lock().current.clone()
     }
 
@@ -147,15 +151,12 @@ impl InspectionCache {
         data: TaskHandle,
     ) -> dap::Result<DebuggerVariables> {
         let frame_id = context.frame.expect("inspection requires a frame");
-        let scopes = self
-            .sender
-            .request::<requests::Scopes>(requests::ScopesArguments { frame_id })
+        let entries = self
+            .scope_data(frame_id)
             .await?
-            .scopes;
-        let entries = scopes
-            .into_iter()
+            .iter()
             .map(|scope| DebuggerVariable {
-                name: scope.name,
+                name: scope.name.clone(),
                 value: None,
                 ty: None,
                 expensive: scope.expensive,
@@ -173,6 +174,24 @@ impl InspectionCache {
             more: false,
             refresh: Refresh::Scopes,
         })
+    }
+
+    async fn scope_data(&self, frame_id: usize) -> dap::Result<Arc<[dap::Scope]>> {
+        let cell = self.values.lock().scopes.clone();
+        let scopes = cell
+            .get_or_try_init(|| async {
+                let mut scopes = self
+                    .sender
+                    .request::<requests::Scopes>(requests::ScopesArguments { frame_id })
+                    .await?
+                    .scopes;
+                for source in scopes.iter_mut().filter_map(|scope| scope.source.as_mut()) {
+                    super::source::normalize_path(source);
+                }
+                Ok::<Arc<[dap::Scope]>, dap::Error>(scopes.into())
+            })
+            .await?;
+        Ok(scopes.clone())
     }
 
     async fn variables(

@@ -24,6 +24,21 @@ pub use watch::WatchConfig;
 
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct DebuggerConfig {
+    /// Show runtime values beside source in the selected paused frame.
+    pub inline_values: bool,
+}
+
+impl Default for DebuggerConfig {
+    fn default() -> Self {
+        Self {
+            inline_values: true,
+        }
+    }
+}
+
 fn deserialize_duration_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -300,6 +315,7 @@ pub struct Config {
     #[serde(default)]
     pub search: SearchConfig,
     pub lsp: LspConfig,
+    pub debugger: DebuggerConfig,
     /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
     pub rulers: Vec<u16>,
     #[serde(default)]
@@ -1095,6 +1111,7 @@ impl Default for Config {
             statusline: StatusLineConfig::default(),
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
+            debugger: DebuggerConfig::default(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
             breadcrumb: BreadcrumbConfig::default(),

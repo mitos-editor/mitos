@@ -152,6 +152,9 @@ impl Client {
                     inlay_hint: Some(lsp::InlayHintWorkspaceClientCapabilities {
                         refresh_support: Some(false),
                     }),
+                    inline_value: Some(lsp::InlineValueWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
                         document_changes: Some(true),
                         resource_operations: Some(vec![
@@ -275,6 +278,9 @@ impl Client {
                         ..Default::default()
                     }),
                     inline_completion: Some(lsp::InlineCompletionClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
+                    inline_value: Some(lsp::InlineValueClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
                     code_lens: Some(lsp::CodeLensClientCapabilities {
