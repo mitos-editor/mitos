@@ -232,6 +232,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     keys: KeymapState,
     keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
     item_action_fn: Option<PickerItemCallback<T, D>>,
+    help: Option<fn(&ComponentKeymaps) -> String>,
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
     editor_data: Arc<D>,
@@ -439,6 +440,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             keys: KeymapState::default(),
             keymap: |maps| &maps.picker,
             item_action_fn: None,
+            help: None,
             prompt,
             query,
             truncate_start: true,
@@ -544,10 +546,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub(crate) fn with_item_actions(
         mut self,
         keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
-        callback: impl Fn(&mut Context, &T, PickerItemAction) -> PickerCallbackResult<T, D> + 'static,
+        callback: impl Fn(&mut Context, Option<&T>, PickerItemAction) -> PickerCallbackResult<T, D>
+            + 'static,
     ) -> Self {
         self.keymap = keymap;
         self.item_action_fn = Some(Box::new(callback));
+        self
+    }
+
+    #[cfg(feature = "git")]
+    pub(crate) fn with_help(mut self, help: fn(&ComponentKeymaps) -> String) -> Self {
+        self.help = Some(help);
         self
     }
 
@@ -609,20 +618,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         match result {
             PickerCallbackResult::Close => PickerClose::Close(None),
             PickerCallbackResult::CloseWithCallback(callback) => PickerClose::Close(Some(callback)),
-            PickerCallbackResult::KeepOpen => PickerClose::KeepOpen,
+            PickerCallbackResult::KeepOpen => PickerClose::KeepOpen(None),
+            #[cfg(feature = "git")]
+            PickerCallbackResult::KeepOpenWithCallback(callback) => {
+                PickerClose::KeepOpen(Some(callback))
+            }
             PickerCallbackResult::Replace {
                 options,
                 editor_data,
             } => {
                 self.replace_options(options, editor_data, editor);
-                PickerClose::KeepOpen
+                PickerClose::KeepOpen(None)
             }
             PickerCallbackResult::Refresh {
                 options,
                 editor_data,
             } => {
                 self.refresh_options(options, Arc::new(editor_data));
-                PickerClose::KeepOpen
+                PickerClose::KeepOpen(None)
             }
         }
     }
@@ -860,6 +873,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let block = panel::bordered(&cx.editor.theme);
         let inner = block.inner(area);
         block.render(area, surface);
+        if let Some(help) = self.help
+            && area.height > 0
+            && area.width > 4
+        {
+            surface.set_stringn(
+                area.x + 2,
+                area.bottom() - 1,
+                help(&cx.config.current.component_keys),
+                area.width.saturating_sub(4) as usize,
+                cx.editor.theme.get("ui.text.inactive"),
+            );
+        }
 
         let [prompt_area, separator_area, inner] = Layout::vertical([
             Constraint::Length(1),
@@ -1125,6 +1150,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         | PickerAction::AcceptKeepOpen
                         | PickerAction::AcceptHorizontalSplit
                         | PickerAction::AcceptVerticalSplit
+                        | PickerAction::Item(_)
                 )
             {
                 return EventResult::Consumed(None);
@@ -1192,7 +1218,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
                         let result = (self.callback_fn)(ctx, option, self.default_action);
-                        if let PickerClose::Close(Some(callback)) =
+                        if let PickerClose::Close(Some(callback))
+                        | PickerClose::KeepOpen(Some(callback)) =
                             self.apply_callback_result(result, ctx.editor)
                         {
                             return EventResult::Consumed(Some(callback));
@@ -1232,10 +1259,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         {
                             ctx.editor.set_error(|| err.to_string());
                         }
-                        if let PickerClose::Close(callback) =
-                            self.apply_callback_result(callback_result, ctx.editor)
-                        {
-                            return close_fn(self, callback);
+                        match self.apply_callback_result(callback_result, ctx.editor) {
+                            PickerClose::Close(callback) => return close_fn(self, callback),
+                            PickerClose::KeepOpen(Some(callback)) => {
+                                return EventResult::Consumed(Some(callback))
+                            }
+                            PickerClose::KeepOpen(None) => {}
                         }
                     }
                 }
@@ -1249,10 +1278,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         .map_or(PickerCallbackResult::Close, |option| {
                             (self.callback_fn)(ctx, option, action)
                         });
-                    if let PickerClose::Close(callback) =
-                        self.apply_callback_result(callback_result, ctx.editor)
-                    {
-                        return close_fn(self, callback);
+                    match self.apply_callback_result(callback_result, ctx.editor) {
+                        PickerClose::Close(callback) => return close_fn(self, callback),
+                        PickerClose::KeepOpen(Some(callback)) => {
+                            return EventResult::Consumed(Some(callback))
+                        }
+                        PickerClose::KeepOpen(None) => {}
                     }
                 }
                 PickerAction::PreviewScrollUp
@@ -1282,14 +1313,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     self.toggle_preview();
                 }
                 PickerAction::Item(action) => {
-                    if let Some(handler) = &self.item_action_fn
-                        && let Some(item) = self.selection()
-                    {
-                        let result = handler(ctx, item, action);
-                        if let PickerClose::Close(callback) =
-                            self.apply_callback_result(result, ctx.editor)
-                        {
-                            return close_fn(self, callback);
+                    if let Some(handler) = &self.item_action_fn {
+                        let result = handler(ctx, self.selection(), action);
+                        match self.apply_callback_result(result, ctx.editor) {
+                            PickerClose::Close(callback) => return close_fn(self, callback),
+                            PickerClose::KeepOpen(callback) => {
+                                return EventResult::Consumed(callback)
+                            }
                         }
                     }
                     // The action may replace the asynchronous matcher contents.
@@ -1432,7 +1462,7 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 }
 
 enum PickerClose {
-    KeepOpen,
+    KeepOpen(Option<compositor::Callback>),
     Close(Option<compositor::Callback>),
 }
 
@@ -1440,6 +1470,8 @@ pub(crate) enum PickerCallbackResult<T, D> {
     Close,
     CloseWithCallback(compositor::Callback),
     KeepOpen,
+    #[cfg(feature = "git")]
+    KeepOpenWithCallback(compositor::Callback),
     Replace {
         options: Vec<T>,
         editor_data: D,
@@ -1453,7 +1485,7 @@ pub(crate) enum PickerCallbackResult<T, D> {
 
 type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D>>;
 type PickerItemCallback<T, D> =
-    Box<dyn Fn(&mut Context, &T, PickerItemAction) -> PickerCallbackResult<T, D>>;
+    Box<dyn Fn(&mut Context, Option<&T>, PickerItemAction) -> PickerCallbackResult<T, D>>;
 
 #[cfg(test)]
 mod tests {

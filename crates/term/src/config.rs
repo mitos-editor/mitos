@@ -133,6 +133,28 @@ impl<'de> Deserialize<'de> for BufferPickerAction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GitPickerAction(PickerAction);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StashPickerAction(PickerAction);
+
+macro_rules! picker_actions {
+    ($schema:ident, {$($name:literal => $action:ident),* $(,)?}) => {
+        impl<'de> Deserialize<'de> for $schema {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                use serde::de::IntoDeserializer;
+                let action = String::deserialize(deserializer)?;
+                Ok(Self(match action.as_str() {
+                    $($name => PickerAction::Item(PickerItemAction::$action),)*
+                    action => PickerAction::deserialize(action.into_deserializer())?,
+                }))
+            }
+        }
+    };
+}
+picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
+picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex, "actions" => Actions });
+
 /// User-facing `[keys]` table keeps editor and component schemas separate.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
@@ -143,6 +165,8 @@ pub struct Keys {
     prompt: Keymap<PromptAction>,
     picker: Keymap<PickerAction>,
     buffer_picker: Keymap<BufferPickerAction>,
+    git_picker: Keymap<GitPickerAction>,
+    stash_picker: Keymap<StashPickerAction>,
     menu: Keymap<MenuAction>,
     popup: Keymap<PopupAction>,
     hover: Keymap<PageAction>,
@@ -156,7 +180,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> Keymap<PickerAction> {
+    ) -> [Keymap<PickerAction>; 3] {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -179,7 +203,11 @@ impl Keys {
         components.signature_help.merge(self.signature_help);
         components.blame.merge(self.blame);
         components.diff.merge(self.diff);
-        self.buffer_picker.map_actions(|action| action.0)
+        [
+            self.buffer_picker.map_actions(|action| action.0),
+            self.git_picker.map_actions(|action| action.0),
+            self.stash_picker.map_actions(|action| action.0),
+        ]
     }
 }
 
@@ -188,14 +216,22 @@ fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
-    let mut buffer_overrides = Keymap::default();
+    let [mut buffer_overrides, mut git_overrides, mut stash_overrides] =
+        std::array::from_fn(|_| Keymap::default());
     for keys in configured {
-        buffer_overrides.merge(keys.apply(&mut editor, &mut components));
+        let [buffer, git, stash] = keys.apply(&mut editor, &mut components);
+        buffer_overrides.merge(buffer);
+        git_overrides.merge(git);
+        stash_overrides.merge(stash);
     }
-    // Resolve inheritance after both configuration layers: buffer-specific
+    // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
     components.buffer_picker = components.picker.clone();
     components.buffer_picker.merge(buffer_overrides);
+    components.git_picker = ComponentKeymaps::git_picker(components.picker.clone());
+    components.git_picker.merge(git_overrides);
+    components.stash_picker = ComponentKeymaps::stash_picker(components.picker.clone());
+    components.stash_picker.merge(stash_overrides);
     (editor, components)
 }
 
@@ -864,6 +900,10 @@ mod tests {
             "[keys.unknown]\nj = 'move_down'",
             "[keys.picker]\nj = 'scroll_down'",
             "[keys.picker]\nC-x = 'close_buffer'",
+            "[keys.picker]\nA-s = 'stage'",
+            "[keys.buffer-picker]\nA-s = 'stage'",
+            "[keys.git-picker]\nA-s = 'apply_stash'",
+            "[keys.stash-picker]\nA-s = 'stage'",
             "[keys.menu]\nC-x = 'close_buffer'",
             "[keys.buffer-picker]\nC-x = 'scroll_down'",
             "[keys.prompt]\nj = 'move_down'",
@@ -879,6 +919,39 @@ mod tests {
         ] {
             assert!(Config::load_test_result(config).is_err(), "{config}");
         }
+    }
+
+    #[test]
+    fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
+        use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+        use ui_core::keymap::{KeymapState, Lookup};
+        let config = Config::load(
+            Ok(&"[keys.git-picker]\nC-j = 'stage'\nA-z = 'unbound'\n[keys.stash-picker]\nC-j = 'apply_stash_with_index'".to_owned()),
+            Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
+        ).unwrap();
+        let maps = &config.component_keys;
+        let mut state = KeymapState::default();
+        assert_eq!(
+            state.lookup(&maps.git_picker, "C-j".parse().unwrap()),
+            Lookup::Actions(&[P::Item(I::Stage)])
+        );
+        assert_eq!(
+            state.lookup(&maps.stash_picker, "C-j".parse().unwrap()),
+            Lookup::Actions(&[P::Item(I::ApplyStashWithIndex)])
+        );
+        assert_eq!(
+            state.lookup(&maps.git_picker, "C-k".parse().unwrap()),
+            Lookup::Actions(&[P::MoveDown])
+        );
+        assert_eq!(
+            state.lookup(&maps.git_picker, "A-z".parse().unwrap()),
+            Lookup::Unbound
+        );
+        assert_eq!(
+            state.lookup(&maps.picker, "C-j".parse().unwrap()),
+            Lookup::Actions(&[P::MoveUp])
+        );
+        assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
     }
 
     #[test]

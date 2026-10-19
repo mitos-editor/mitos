@@ -249,6 +249,9 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         if area.height > 1 {
             use crate::keymap::component::{action_hint, PickerAction};
+            #[cfg(feature = "git")]
+            let keys = &cx.config.current.component_keys.git_picker;
+            #[cfg(not(feature = "git"))]
             let keys = &cx.config.current.component_keys.picker;
             let hint = |action| {
                 action_hint(keys, &action)

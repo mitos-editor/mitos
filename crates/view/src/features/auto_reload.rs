@@ -220,6 +220,13 @@ pub fn check_unwatched(editor: &mut Editor) {
 }
 
 fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
+    if editor
+        .document(doc_id)
+        .and_then(|doc| doc.path())
+        .is_some_and(|path| editor.file_writes_blocked(path))
+    {
+        return;
+    }
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
     };
@@ -268,7 +275,7 @@ fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()
     Ok(())
 }
 
-fn reload_vcs(editor: &mut Editor) {
+pub(crate) fn reload_vcs(editor: &mut Editor) {
     for doc in editor.documents.values_mut() {
         let Some(path) = doc.path().map(ToOwned::to_owned) else {
             continue;

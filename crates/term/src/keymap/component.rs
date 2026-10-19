@@ -52,13 +52,21 @@ pub enum PickerAction {
     ToggleDiffEngine,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
-    #[serde(skip)]
+    #[serde(skip_deserializing, untagged)]
     Item(PickerItemAction),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PickerItemAction {
     CloseBuffer,
+    Stage,
+    Unstage,
+    Stash,
+    Actions,
+    Stashes,
+    ApplyStash,
+    ApplyStashWithIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -108,6 +116,8 @@ pub struct ComponentKeymaps {
     pub prompt: Keymap<PromptAction>,
     pub picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
+    pub git_picker: Keymap<PickerAction>,
+    pub stash_picker: Keymap<PickerAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -127,6 +137,29 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
         );
     }
     keys
+}
+
+impl ComponentKeymaps {
+    pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        use PickerItemAction as I;
+        shared.merge(bindings(&[
+            ("A-a", PickerAction::Item(I::Actions)),
+            ("A-s", PickerAction::Item(I::Stage)),
+            ("A-u", PickerAction::Item(I::Unstage)),
+            ("A-z", PickerAction::Item(I::Stash)),
+            ("A-l", PickerAction::Item(I::Stashes)),
+        ]));
+        shared
+    }
+    pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        use PickerItemAction as I;
+        shared.merge(bindings(&[
+            ("A-a", PickerAction::Item(I::Actions)),
+            ("A-s", PickerAction::Item(I::ApplyStash)),
+            ("A-i", PickerAction::Item(I::ApplyStashWithIndex)),
+        ]));
+        shared
+    }
 }
 
 impl Default for ComponentKeymaps {
@@ -205,6 +238,8 @@ impl Default for ComponentKeymaps {
                 ("C-r", P::InsertRegister),
             ]),
             buffer_picker: picker.clone(),
+            git_picker: Self::git_picker(picker.clone()),
+            stash_picker: Self::stash_picker(picker.clone()),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),

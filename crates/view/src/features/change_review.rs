@@ -275,6 +275,10 @@ impl ReviewRequest {
 }
 
 fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
+    ensure!(
+        bytes.len() <= MAX_REVIEW_BYTES,
+        "File too large to review (limit 10 MiB)"
+    );
     let explicitly_unicode = encoding
         .is_some_and(|encoding| encoding == encoding::UTF_16LE || encoding == encoding::UTF_16BE);
     ensure!(
@@ -288,6 +292,47 @@ fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
         "Decoded file too large to review (limit 10 MiB)"
     );
     Ok(text)
+}
+
+/// Captured presentation policy for an immutable historical comparison.
+#[derive(Clone)]
+pub struct HistoricalReviewRequest {
+    settings: Settings,
+    encoding: Option<&'static Encoding>,
+    worker: Arc<tokio::sync::Semaphore>,
+}
+impl HistoricalReviewRequest {
+    pub fn capture(editor: &Editor, path: &std::path::Path) -> Self {
+        Self {
+            settings: Settings::capture(editor, path),
+            encoding: editor.document_by_path(path).map(|doc| doc.encoding()),
+            worker: editor.handlers.change_review_worker.clone(),
+        }
+    }
+    /// Decode and compute off the editor thread, with the same bounds and language policy as live reviews.
+    pub fn compute(self, comparison: vcs::Comparison) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
+        let source = Arc::new(ReviewSource::new(
+            decode(&comparison.before, self.encoding)?,
+            decode(&comparison.after, self.encoding)?,
+            None,
+            self.settings,
+        ));
+        let review = source.compute(None, &|| false);
+        Ok((source, review))
+    }
+
+    /// Serialize historical reads with hunk reviews. Queued requests retain no file contents.
+    pub async fn run(
+        self,
+        read: impl FnOnce() -> Result<vcs::Comparison> + Send + 'static,
+    ) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
+        let permit = self.worker.clone().acquire_owned().await?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            self.compute(read()?)
+        })
+        .await?
+    }
 }
 
 /// A hunk inspection belongs to the exact selection that requested it.

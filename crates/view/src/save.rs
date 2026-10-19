@@ -8,6 +8,7 @@ mod operation;
 mod queue;
 
 pub use operation::{submit, SaveError, SaveProgress, SaveTask, SaveUpdate};
+pub use queue::FileWriteBlock;
 pub(crate) use queue::WriteQueue;
 
 use std::path::PathBuf;

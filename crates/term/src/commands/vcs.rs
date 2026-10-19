@@ -12,6 +12,21 @@ use theme::Style;
 use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, Editor};
 
+#[cfg(feature = "git")]
+mod actions;
+
+pub(super) fn git_stash_picker(cx: &mut Context) {
+    #[cfg(feature = "git")]
+    {
+        let path = stdx::env::current_working_dir();
+        let workspace = workspace::find_workspace_in(&path).0;
+        actions::request_stashes(cx.editor, cx.jobs, path, workspace);
+    }
+    #[cfg(not(feature = "git"))]
+    cx.editor
+        .set_error(|| "No Git support included in this build");
+}
+
 pub(super) fn show_change(cx: &mut Context) {
     request_change(cx.editor, cx.jobs);
 }
@@ -103,6 +118,8 @@ pub(super) fn changed_file_picker_in_repository(cx: &mut Context) {
 struct ChangedFileEntry {
     status: FileStatus,
     display_path: String,
+    #[cfg(feature = "git")]
+    repository_root: std::path::PathBuf,
 }
 
 fn display_path(change: &FileChange, worktree_root: &Path) -> String {
@@ -142,6 +159,8 @@ fn refresh_changed_files(
                     change.change(),
                     display_root.as_deref().unwrap_or(root),
                 ),
+                #[cfg(feature = "git")]
+                repository_root: root.to_owned(),
                 status: change,
             }))
             .is_ok()
@@ -307,6 +326,27 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
     .with_item_key(|entry| entry.status.path().to_path_buf())
     .refresh_on_content_changes()
     .refresh_on_vcs_changes();
+    #[cfg(feature = "git")]
+    let picker = {
+        let action_scope = scope.clone();
+        let action_workspace = workspace_root.clone();
+        picker
+            .with_help(|maps| actions::help(&maps.git_picker))
+            .with_refresh_generation(cx.editor, actions::generation)
+            .with_item_actions(
+                |maps| &maps.git_picker,
+                move |cx, entry, action| {
+                    actions::file_action(
+                        cx,
+                        entry.map(|entry| &entry.status),
+                        entry.map(|entry| entry.repository_root.as_path()),
+                        action,
+                        &action_scope,
+                        &action_workspace,
+                    )
+                },
+            )
+    };
     let injector = picker.injector();
 
     let trust_full = cx
@@ -325,6 +365,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                         change.change(),
                         display_root.as_deref().unwrap_or(worktree_root),
                     ),
+                    #[cfg(feature = "git")]
+                    repository_root: worktree_root.to_owned(),
                     status: change,
                 })
                 .is_ok(),

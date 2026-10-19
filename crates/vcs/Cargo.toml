@@ -15,18 +15,19 @@ event.workspace = true
 ropey.workspace = true
 stdx.workspace = true
 
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros", "process", "io-util"] }
 parking_lot.workspace = true
 arc-swap.workspace = true
 
 gix = { workspace = true, features = ["attributes", "status", "blame", "parallel", "max-performance", "sha1"], optional = true }
+dunce = { workspace = true, optional = true }
 text-diff.workspace = true
 anyhow.workspace = true
 
 log.workspace = true
 
 [features]
-git = ["gix"]
+git = ["gix", "dep:dunce"]
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -466,6 +466,13 @@ impl Editor {
         force: bool,
     ) -> anyhow::Result<()> {
         let path = path.map(|path| path.into());
+        let target = path
+            .as_deref()
+            .or_else(|| self.document(doc_id).and_then(|doc| doc.path()));
+        anyhow::ensure!(
+            !target.is_some_and(|path| self.file_writes_blocked(path)),
+            "File is being changed by another operation; try saving again when it finishes"
+        );
         let doc = doc_mut!(self, &doc_id);
         // the path that will be written: the override, else the document's own path
         let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
@@ -499,6 +506,17 @@ impl Editor {
     /// Whether accepted writes still await completion in the event loop or a flush.
     pub fn has_pending_writes(&self) -> bool {
         self.writes.has_pending()
+    }
+
+    pub fn block_file_writes(
+        &mut self,
+        paths: Vec<PathBuf>,
+    ) -> anyhow::Result<crate::save::FileWriteBlock> {
+        self.writes.block(paths)
+    }
+
+    pub fn file_writes_blocked(&self, path: &Path) -> bool {
+        self.writes.is_blocked(path)
     }
 
     pub fn resize(&mut self, area: Rect) {
