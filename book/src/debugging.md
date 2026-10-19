@@ -86,7 +86,10 @@ selected session and total session count; it is included in the default layout.
 Continue, pause, stepping, restart, variables, evaluation, and termination apply
 to the selected session. Ending a session restores the previous selection.
 `Space G t` also cancels a selected session that is still starting. Source
-breakpoints are shared across sessions. Background sessions keep their own
+breakpoints are shared across sessions. Markers follow edits and undo/redo locally;
+Mitos sends updated locations after saving or reloading the source. Renaming a
+source preserves identities and clears the old adapter locations. Discarding
+unsaved changes restores markers to the saved source. Background sessions keep their own
 execution state and do not change the selected session when they initialize or stop.
 
 ## Debugging commands

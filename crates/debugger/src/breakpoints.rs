@@ -158,6 +158,10 @@ impl BreakpointBindings {
         self.get(definition.identity())
             .filter(|binding| binding.requested_revision == definition.revision)
     }
+    pub fn remove_source(&mut self, path: &Path) {
+        self.bindings.retain(|_, binding| binding.path != path);
+        self.discovered.retain(|_, binding| binding.path != path);
+    }
     pub fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove(&identity);
     }
@@ -257,6 +261,42 @@ pub struct BreakpointStore {
 }
 
 impl BreakpointStore {
+    /// Move file or directory definitions, including sources that are not open.
+    pub fn rename_sources(&mut self, old: &Path, new: &Path) -> Vec<(PathBuf, PathBuf)> {
+        let mut paths: Vec<_> = self
+            .definitions
+            .keys()
+            .filter_map(|path| {
+                let suffix = path.strip_prefix(old).ok()?;
+                Some((
+                    path.clone(),
+                    if suffix.as_os_str().is_empty() {
+                        new.to_owned()
+                    } else {
+                        new.join(suffix)
+                    },
+                ))
+            })
+            .collect();
+        paths.sort();
+        for (old, new) in &paths {
+            let source = self.definitions.remove(old).unwrap();
+            let moved = source.snapshot();
+            let destination = self.source(new.clone());
+            let mut definitions = destination.0.write();
+            definitions.extend(moved);
+            definitions.sort_unstable_by_key(|definition| definition.identity.0);
+            let mut lines = std::collections::HashSet::new();
+            definitions.retain(|definition| lines.insert(definition.line));
+            for definition in definitions.iter_mut() {
+                definition.revision = definition
+                    .revision
+                    .checked_add(1)
+                    .expect("breakpoint revision exhausted");
+            }
+        }
+        paths
+    }
     pub fn source(&mut self, path: PathBuf) -> SourceBreakpoints {
         self.definitions.entry(path).or_default().clone()
     }
@@ -378,5 +418,30 @@ mod edit_tests {
         assert_eq!(marker.definition.unwrap().identity(), identity);
         assert_eq!(marker.line, 3);
         assert!(!marker.verified);
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn directory_rename_moves_closed_sources_and_preserves_identities() {
+        let mut store = BreakpointStore::default();
+        let first = store.insert("old/first.rs".into(), 1);
+        let second = store.insert("old/second.rs".into(), 2);
+        store.insert("old-name/keep.rs".into(), 3);
+        let moved = store.rename_sources(Path::new("old"), Path::new("new"));
+        assert_eq!(moved.len(), 2);
+        assert!(store.breakpoints(Path::new("old/first.rs")).is_empty());
+        assert_eq!(
+            store.breakpoints(Path::new("new/first.rs"))[0].identity(),
+            first
+        );
+        assert_eq!(
+            store.breakpoints(Path::new("new/second.rs"))[0].identity(),
+            second
+        );
+        assert_eq!(store.breakpoints(Path::new("old-name/keep.rs")).len(), 1);
     }
 }

@@ -566,6 +566,9 @@ async fn terminal_results_from_removed_adapters_do_not_change_editor_state() -> 
     Ok(())
 }
 
+#[path = "debugger_source_sync.rs"]
+mod source_sync;
+
 const LAUNCH_LANGUAGES: &str = r#"
 [[language]]
 name = "debug-test"

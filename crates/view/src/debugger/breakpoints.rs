@@ -1,7 +1,7 @@
 //! Ordered breakpoint synchronization, independent of thread and frame inspection.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -13,7 +13,7 @@ use super::{
     validate_capabilities, Breakpoint, BreakpointBinding, BreakpointId, BreakpointLocation,
     BreakpointProperty, DebuggerState,
 };
-use crate::Editor;
+use crate::{events::DocumentDidClose, Editor};
 
 #[derive(Default)]
 struct SourceSync {
@@ -26,6 +26,7 @@ pub(super) struct BreakpointSession {
     current: TaskHandle,
     sources: HashMap<PathBuf, SourceSync>,
     bindings: ::debugger::BreakpointBindings,
+    modified_sources: HashSet<PathBuf>,
 }
 
 impl Default for BreakpointSession {
@@ -37,6 +38,7 @@ impl Default for BreakpointSession {
             current,
             sources: HashMap::new(),
             bindings: ::debugger::BreakpointBindings::default(),
+            modified_sources: HashSet::new(),
         }
     }
 }
@@ -140,10 +142,88 @@ impl DebuggerState {
 }
 
 impl Editor {
+    pub(crate) fn debugger_closed_source_written(
+        &mut self,
+        event: &crate::document::DocumentSavedEvent,
+    ) {
+        if let Some(old) = self.debugger.closed_breakpoint_sources.get(&event.path) {
+            let changes = text_diff::compare_ropes(old, &event.text);
+            let source = self.debugger.breakpoints.source(event.path.clone());
+            map_breakpoint_positions(&source, changes.changes(), old, &event.text);
+            self.debugger
+                .closed_breakpoint_sources
+                .insert(event.path.clone(), event.text.clone());
+            self.debugger_source_saved(&event.path);
+        }
+    }
+
+    pub(crate) fn debugger_source_saved(&mut self, path: &Path) {
+        if let Err(error) = self.sync_tracked_debugger_source(path, true) {
+            log::warn!("Could not synchronize saved debugger source: {error}");
+        }
+    }
+
+    fn debugger_source_is_tracked(&self, path: &Path) -> bool {
+        !self.debugger.breakpoints(path).is_empty()
+            || self.debugger.sessions.iter().any(|(_, session)| {
+                session
+                    .breakpoints
+                    .as_ref()
+                    .is_some_and(|state| state.sources.contains_key(path))
+            })
+    }
+
+    fn sync_tracked_debugger_source(&mut self, path: &Path, modified: bool) -> Result<()> {
+        if self.debugger_source_is_tracked(path) {
+            self.sync_all_debugger_breakpoints(path, modified)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rename_debugger_sources(
+        &mut self,
+        old: &Path,
+        new: &Path,
+    ) -> Vec<(PathBuf, PathBuf)> {
+        let mut paths = self.debugger.breakpoints.rename_sources(old, new);
+        for (old, new) in &paths {
+            if let Some(text) = self.debugger.closed_breakpoint_sources.remove(old) {
+                self.debugger
+                    .closed_breakpoint_sources
+                    .insert(new.clone(), text);
+            }
+        }
+        for session in self
+            .debugger
+            .sessions
+            .values_mut()
+            .filter_map(|session| session.breakpoints.as_mut())
+        {
+            for (old, _) in &paths {
+                session.bindings.remove_source(old);
+            }
+        }
+        paths.retain(|(old, new)| {
+            self.debugger_source_is_tracked(old) || self.debugger_source_is_tracked(new)
+        });
+        paths
+    }
+
+    pub(crate) fn sync_renamed_debugger_sources(&mut self, paths: Vec<(PathBuf, PathBuf)>) {
+        for (old, new) in paths {
+            if let Err(error) = self
+                .sync_all_debugger_breakpoints(&old, false)
+                .and_then(|_| self.sync_all_debugger_breakpoints(&new, true))
+            {
+                log::warn!("Could not synchronize renamed debugger source: {error}");
+            }
+        }
+    }
+
     /// Update source definitions and synchronize each configured adapter asynchronously.
     pub fn toggle_breakpoints(&mut self, path: PathBuf, lines: &[usize]) -> Result<()> {
         self.debugger.toggle_breakpoints(path.clone(), lines);
-        self.sync_all_debugger_breakpoints(&path)?;
+        self.sync_all_debugger_breakpoints(&path, false)?;
         Ok(())
     }
 
@@ -156,7 +236,7 @@ impl Editor {
     ) -> Result<()> {
         self.debugger
             .set_breakpoint_property(path, identity, property, value)?;
-        self.sync_all_debugger_breakpoints(path)?;
+        self.sync_all_debugger_breakpoints(path, false)?;
         Ok(())
     }
 
@@ -170,7 +250,7 @@ impl Editor {
         session.breakpoints = Some(BreakpointSession::default());
         let paths: Vec<_> = self.debugger.breakpoints.paths().cloned().collect();
         for path in paths {
-            if let Err(error) = self.sync_debugger_breakpoints(id, path) {
+            if let Err(error) = self.sync_debugger_breakpoints(id, path, false) {
                 // Unsupported stored properties must not prevent the adapter from starting.
                 log::error!("Failed to configure breakpoints: {error}");
             }
@@ -179,16 +259,19 @@ impl Editor {
         Ok(())
     }
 
-    fn sync_all_debugger_breakpoints(&mut self, path: &Path) -> Result<()> {
+    fn sync_all_debugger_breakpoints(&mut self, path: &Path, modified: bool) -> Result<()> {
         let sessions: Vec<_> = self
             .debugger
             .sessions
             .iter()
-            .filter_map(|(id, session)| session.breakpoints.is_some().then_some(id))
+            .filter_map(|(id, session)| {
+                (session.breakpoints.is_some() && !session.lifecycle.is_disconnecting())
+                    .then_some(id)
+            })
             .collect();
         let mut first_error = None;
         for id in sessions {
-            if let Err(error) = self.sync_debugger_breakpoints(id, path.to_owned()) {
+            if let Err(error) = self.sync_debugger_breakpoints(id, path.to_owned(), modified) {
                 first_error.get_or_insert(error);
             }
         }
@@ -221,7 +304,19 @@ impl Editor {
         }
     }
 
-    fn sync_debugger_breakpoints(&mut self, id: DebugAdapterId, path: PathBuf) -> Result<()> {
+    fn sync_debugger_breakpoints(
+        &mut self,
+        id: DebugAdapterId,
+        path: PathBuf,
+        modified: bool,
+    ) -> Result<()> {
+        let unsaved = self.document_by_path(&path).is_some_and(|doc| {
+            doc.is_modified()
+                && doc
+                    .breakpoint_saved_text
+                    .as_ref()
+                    .is_none_or(|saved| doc.text() != saved)
+        });
         let debug_session = self
             .debugger
             .sessions
@@ -234,6 +329,14 @@ impl Editor {
         let session = debug_session
             .breakpoints
             .get_or_insert_with(BreakpointSession::default);
+        if modified {
+            session.modified_sources.insert(path.clone());
+        }
+        if unsaved {
+            // Retain deferred removals too: the source may no longer have definitions.
+            session.sources.entry(path).or_default().dirty = true;
+            return Ok(());
+        }
         let source = session.sources.entry(path.clone()).or_default();
         if source.request.is_running() {
             source.dirty = true;
@@ -255,9 +358,10 @@ impl Editor {
                 &breakpoints,
                 debug_session.capabilities.as_ref(),
             )?),
-            source_modified: Some(false),
+            source_modified: Some(session.modified_sources.contains(&path)),
         };
         let definitions = breakpoints;
+        source.dirty = false;
         let request = source.request.restart();
         let lifetime = session.current.clone();
         let sender = client.request_sender();
@@ -293,17 +397,20 @@ impl Editor {
                     if dirty {
                         // A source has at most one request in flight. Send the latest model
                         // only after its predecessor completes, preserving adapter-side order.
-                        if let Err(error) = editor.sync_debugger_breakpoints(id, path) {
+                        if let Err(error) = editor.sync_debugger_breakpoints(id, path, false) {
                             editor.set_error(|| error.to_string());
                         }
                     } else {
                         match result {
                             Ok(response) => {
+                                session.modified_sources.remove(&path);
                                 if let Some(response) = response.breakpoints {
                                     session.apply_response(&path, &definitions, response);
                                 }
                             }
                             Err(error) => {
+                                // Keep failed clears eligible for a later save or explicit retry.
+                                session.sources.entry(path).or_default().dirty = true;
                                 if editor
                                     .debugger
                                     .get_active_client()
@@ -401,4 +508,30 @@ impl Editor {
                 .await;
         });
     }
+}
+
+pub(super) fn register_hooks() {
+    event::register_hook!(move |event: &mut DocumentDidClose<'_>| {
+        if let (Some(saved), Some(path)) = (&event.doc.breakpoint_saved_text, event.doc.path())
+            && !event.editor.debugger.breakpoints(path).is_empty()
+        {
+            event
+                .editor
+                .debugger
+                .closed_breakpoint_sources
+                .insert(path.to_owned(), saved.clone());
+        }
+        if event.doc.is_modified()
+            && let (Some(source), Some(saved), Some(path)) = (
+                &event.doc.breakpoint_source,
+                &event.doc.breakpoint_saved_text,
+                event.doc.path(),
+            )
+        {
+            let changes = text_diff::compare_ropes(event.doc.text(), saved);
+            map_breakpoint_positions(source, changes.changes(), event.doc.text(), saved);
+            event.editor.sync_tracked_debugger_source(path, false)?;
+        }
+        Ok(())
+    });
 }

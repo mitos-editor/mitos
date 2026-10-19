@@ -25,9 +25,27 @@ impl Editor {
             fs::rename(old_path, &new_path)?;
         }
 
-        if let Some(doc) = self.document_by_path(old_path) {
-            self.set_doc_path(doc.id(), &new_path);
+        let breakpoint_paths = self.rename_debugger_sources(old_path, &new_path);
+        let documents: Vec<_> = self
+            .documents()
+            .filter_map(|doc| {
+                let suffix = doc.path()?.strip_prefix(old_path).ok()?;
+                Some((
+                    doc.id(),
+                    if suffix.as_os_str().is_empty() {
+                        new_path.clone()
+                    } else {
+                        new_path.join(suffix)
+                    },
+                    doc.breakpoint_saved_text.clone(),
+                ))
+            })
+            .collect();
+        for (id, path, saved) in documents {
+            self.set_doc_path(id, &path);
+            self.documents.get_mut(&id).unwrap().breakpoint_saved_text = saved;
         }
+        self.sync_renamed_debugger_sources(breakpoint_paths);
         let is_dir = new_path.is_dir();
         for ls in self.language_servers.iter_clients() {
             // A new language server might have been started in `set_doc_path` and won't
@@ -121,6 +139,7 @@ impl Editor {
         doc.language_servers.clear();
         doc.set_path(Some(path));
         doc.breakpoint_source = Some(self.debugger.breakpoint_source(path));
+        doc.breakpoint_saved_text = Some(doc.text().clone());
         let trust_full = self
             .workspace_trust
             .query(doc.workspace_root(), TrustQuery::Git)

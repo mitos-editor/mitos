@@ -12,7 +12,10 @@ pub use session::{DebugSession, DebugSessionStatus};
 mod launch;
 pub use launch::DebuggerLaunch;
 mod startup;
-pub(crate) use startup::register_hooks;
+pub(crate) fn register_hooks() {
+    startup::register_hooks();
+    breakpoints::register_hooks();
+}
 mod operations;
 pub use operations::{
     DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerTask, DebuggerUpdate,
@@ -49,6 +52,7 @@ pub struct DebuggerState {
     current_selection: Option<event::TaskHandle>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::ClientEvent)>>,
     breakpoints: BreakpointStore,
+    pub(crate) closed_breakpoint_sources: std::collections::HashMap<PathBuf, editor_core::Rope>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 

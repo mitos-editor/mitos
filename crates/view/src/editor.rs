@@ -720,6 +720,17 @@ impl Editor {
             );
             doc.set_last_saved_revision(event.revision, event.save_time);
             self.set_doc_path(event.doc_id, &event.path);
+            if let Some(doc) = self.document_mut(event.doc_id) {
+                doc.breakpoint_saved_text = Some(event.text.clone());
+            }
+            if self
+                .document(event.doc_id)
+                .is_some_and(|doc| doc.text() == &event.text)
+            {
+                self.debugger_source_saved(&event.path);
+            }
+        } else {
+            self.debugger_closed_source_written(event);
         }
     }
 

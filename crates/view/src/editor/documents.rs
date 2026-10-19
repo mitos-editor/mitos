@@ -160,6 +160,14 @@ impl Editor {
         let doc = self.documents.get_mut(&id).unwrap();
         self.handlers.attach_document(doc);
         doc.breakpoint_source = doc.path().map(|path| self.debugger.breakpoint_source(path));
+        doc.breakpoint_saved_text = doc.path().map(|_| doc.text().clone());
+        if let Some(path) = doc.path()
+            && let Some(old) = self.debugger.closed_breakpoint_sources.remove(path)
+            && let Some(source) = &doc.breakpoint_source
+        {
+            let changes = text_diff::compare_ropes(&old, doc.text());
+            crate::debugger::map_breakpoint_positions(source, changes.changes(), &old, doc.text());
+        }
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.refresh_vcs_watches();
@@ -292,11 +300,16 @@ impl Editor {
             .query(doc.workspace_root(), TrustQuery::Git)
             .is_trusted();
         doc.reload(&self.diff_providers, trusted)?;
+        doc.breakpoint_saved_text = Some(doc.text().clone());
+        let debugger_path = doc.path().map(|path| path.to_owned());
         for (view, _) in self.tree.views_mut() {
             if view.doc == id {
                 view.sync_changes(doc);
                 view.ensure_cursor_in_view(doc, scrolloff);
             }
+        }
+        if let Some(path) = debugger_path {
+            self.debugger_source_saved(&path);
         }
         Ok(())
     }
