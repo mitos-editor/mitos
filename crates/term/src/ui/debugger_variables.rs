@@ -6,7 +6,7 @@ use crate::{
     job::Callback,
 };
 use event::TaskController;
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, sync::Arc};
 use tui::buffer::Buffer;
 use view::{debugger::DebuggerVariables, graphics::Rect, Editor};
 
@@ -18,6 +18,7 @@ enum Action {
 
 struct Row {
     action: Action,
+    key: Option<String>,
     name: String,
     value: String,
 }
@@ -32,19 +33,17 @@ pub(crate) struct Variables {
     parents: Vec<Page>,
     action: Rc<Cell<Option<Action>>>,
     load: TaskController,
+    refreshing: bool,
+    refresh_failed: bool,
 }
 
 impl Page {
-    fn new(
-        editor: &Editor,
-        data: DebuggerVariables,
-        parent: bool,
-        action: Rc<Cell<Option<Action>>>,
-    ) -> Self {
+    fn rows(data: &DebuggerVariables, parent: bool) -> Vec<Row> {
         let mut rows = Vec::new();
         if parent {
             rows.push(Row {
                 action: Action::Back,
+                key: None,
                 name: ".. (back)".into(),
                 value: String::new(),
             });
@@ -59,10 +58,27 @@ impl Page {
                 .unwrap_or_default();
             Row {
                 action: Action::Expand(index),
+                key: Some(entry.name.clone()),
                 name: format!("{marker}{}{ty}{expensive}", entry.name),
                 value: entry.value.clone().unwrap_or_default(),
             }
         }));
+        rows
+    }
+
+    fn refresh(&mut self, data: DebuggerVariables, parent: bool) {
+        self.picker
+            .refresh_options(Self::rows(&data, parent), Arc::new(()));
+        self.data = data;
+    }
+
+    fn new(
+        editor: &Editor,
+        data: DebuggerVariables,
+        parent: bool,
+        action: Rc<Cell<Option<Action>>>,
+    ) -> Self {
+        let rows = Self::rows(&data, parent);
         let picker = Picker::new_with_callback_result(
             editor.redraw().clone(),
             [
@@ -76,7 +92,8 @@ impl Page {
                 action.set(Some(row.action));
                 PickerCallbackResult::KeepOpen
             },
-        );
+        )
+        .with_item_key(|row| row.key.clone());
         Self { data, picker }
     }
 }
@@ -89,6 +106,8 @@ impl Variables {
             parents: Vec::new(),
             action,
             load: TaskController::new(),
+            refreshing: false,
+            refresh_failed: false,
         }
     }
 
@@ -96,6 +115,65 @@ impl Variables {
         let page = Page::new(editor, data, true, self.action.clone());
         self.parents
             .push(std::mem::replace(&mut self.current, page));
+    }
+
+    fn refresh(&mut self, cx: &mut Context) {
+        if self.refreshing || self.refresh_failed {
+            return;
+        }
+        let task = match cx.editor.debugger_refresh_variables(&self.current.data) {
+            Ok(task) => task,
+            Err(error) => {
+                self.refresh_failed = true;
+                cx.editor.set_error(|| error.to_string());
+                return;
+            }
+        };
+        self.refreshing = true;
+        let load = self.load.restart();
+        cx.jobs.callback(async move {
+            let update = tokio::select! {
+                biased;
+                _ = load.canceled() => return Ok(Callback::Editor(Box::new(|_| {}))),
+                update = task.run() => update,
+            };
+            Ok(Callback::EditorCompositor(Box::new(
+                move |editor, compositor| {
+                    if load.is_canceled() {
+                        return;
+                    }
+                    let Some(browser) = compositor.find_id::<Variables>("dap-variables") else {
+                        return;
+                    };
+                    browser.refreshing = false;
+                    match update.and_then(|update| update.into_result(editor)) {
+                        Some(Ok(mut pages)) => {
+                            let current = pages.pop().expect("refresh always returns scopes");
+                            if pages.len() < browser.parents.len() {
+                                browser.current = browser.parents.remove(pages.len());
+                                browser.parents.truncate(pages.len());
+                            }
+                            for (index, (page, data)) in
+                                browser.parents.iter_mut().zip(pages).enumerate()
+                            {
+                                page.refresh(data, index != 0);
+                            }
+                            browser
+                                .current
+                                .refresh(current, !browser.parents.is_empty());
+                        }
+                        Some(Err(error)) => {
+                            browser.refresh_failed = true;
+                            editor.set_error(|| {
+                                format!("Could not refresh debugger values: {error}")
+                            });
+                        }
+                        None => {} // A newer invalidation will be retried on the next render.
+                    }
+                    editor.redraw().request();
+                },
+            )))
+        });
     }
 
     fn expand(&mut self, cx: &mut Context, index: usize) {
@@ -143,13 +221,19 @@ impl Variables {
 
 impl Component for Variables {
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        if !self.current.data.is_current(cx.editor) {
+        if !self.current.data.can_refresh(cx.editor) {
             self.load.cancel();
             return EventResult::Consumed(Some(Box::new(|compositor, _| {
                 compositor.remove("dap-variables");
             })));
         }
+        if !self.current.data.is_current(cx.editor) {
+            self.refresh_failed = false;
+            self.refresh(cx);
+            return EventResult::Consumed(None);
+        }
         let result = self.current.picker.handle_event(event, cx);
+
         if matches!(&result, EventResult::Consumed(Some(_))) {
             self.load.cancel();
         }
@@ -167,7 +251,10 @@ impl Component for Variables {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        if self.current.data.is_current(cx.editor) {
+        if self.current.data.can_refresh(cx.editor) {
+            if !self.current.data.is_current(cx.editor) {
+                self.refresh(cx);
+            }
             let picker = &mut self.current.picker;
             picker.required_size((area.width, area.height));
             picker.render(area, surface, cx);
@@ -193,7 +280,7 @@ impl Component for Variables {
         self.current.picker.owns_cursor()
     }
     fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
-        if self.current.data.is_current(editor) {
+        if self.current.data.can_refresh(editor) {
             self.current.picker.cursor(area, editor)
         } else {
             Cursor::Hidden

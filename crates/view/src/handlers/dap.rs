@@ -100,6 +100,7 @@ impl Editor {
                             .unwrap()
                             .update_capabilities(event.capabilities);
                     }
+                    Event::Invalidated(event) => self.debugger_invalidated(id, event),
                     Event::Stopped(event) => self.debugger_stopped(id, event),
                     Event::Continued(event) => self.debugger_continued(id, event),
                     Event::Thread(event) => self.debugger_thread_changed(id, event),

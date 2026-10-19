@@ -15,6 +15,7 @@ pub(super) enum RequestKind {
     Variables,
     Evaluate,
     SelectThread,
+    RefreshStack,
     Configuration,
 }
 
@@ -29,7 +30,7 @@ impl RequestKind {
     fn scope(self) -> RequestScope {
         match self {
             Self::Configuration => RequestScope::Session,
-            Self::Control => RequestScope::Execution,
+            Self::Control | Self::RefreshStack => RequestScope::Execution,
             _ => RequestScope::Inspection,
         }
     }
@@ -328,15 +329,18 @@ impl Editor {
         let frame_id = context
             .frame
             .context("Cannot find current stack frame to access variables")?;
+        let cache = self.debugger_inspection_cache(context.id, sender.clone());
         Ok(DebuggerTask::new(context, async move {
-            sender
+            let response = sender
                 .request::<requests::Evaluate>(requests::EvaluateArguments {
                     expression,
                     frame_id: Some(frame_id),
                     context: None,
                     format: None,
                 })
-                .await
+                .await?;
+            cache.invalidate();
+            Ok(response)
         }))
     }
 
@@ -373,6 +377,42 @@ impl Editor {
             }
         });
         Ok(())
+    }
+
+    pub(super) fn refresh_debugger_stack(&mut self, id: DebugAdapterId) {
+        let Ok((mut context, sender)) = self.debugger_context_for(id, RequestKind::RefreshStack)
+        else {
+            return;
+        };
+        let Some(thread) = context.thread else { return };
+        let previous = context.frame;
+        self.debugger.sessions[id]
+            .requests
+            .requests
+            .remove(&RequestKind::SelectThread);
+        context.lifetimes.push(self.debugger.inspection_handle(id));
+        let task = DebuggerTask::new(context, async move {
+            sender
+                .request::<requests::StackTrace>(requests::StackTraceArguments {
+                    thread_id: thread,
+                    start_frame: None,
+                    levels: None,
+                    format: None,
+                })
+                .await
+        });
+        self.spawn_debugger_task(task, move |editor, response| {
+            let session = &mut editor.debugger.sessions[id];
+            // A frame picker holds indices into the previous trace. Revoke it even
+            // when the selected frame survives the refresh.
+            session.requests.requests.remove(&RequestKind::SelectThread);
+            session
+                .execution
+                .refresh_stack_frames(thread, response.stack_frames);
+            if session.current_stack_frame().map(|frame| frame.id) != previous {
+                editor.debugger.invalidate_inspection(id);
+            }
+        });
     }
 
     pub fn debugger_stack_frames(&mut self) -> Result<DebuggerFrames> {

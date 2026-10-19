@@ -128,6 +128,10 @@ Select `.. (back)` to return to the parent, keeping its filter and selection.
 Escape closes the browser. Resuming execution or switching the session, thread,
 or frame invalidates the displayed values. Reopen the browser to refresh them.
 
+Adapter invalidation and expression evaluation refresh values in place, keeping
+the open object, filters, and selection. If an object disappears, the browser
+returns to its nearest surviving parent.
+
 ## Terminal for the debugged program
 
 Some adapters ask Mitos to launch the program in another terminal or pane.

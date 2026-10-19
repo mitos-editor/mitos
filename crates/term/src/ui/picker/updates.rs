@@ -150,7 +150,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         self
     }
 
-    pub(super) fn refresh_options(&mut self, options: Vec<T>, data: Arc<D>) {
+    pub(crate) fn refresh_options(&mut self, options: Vec<T>, data: Arc<D>) {
         let config = if self.file_fn.is_some() {
             Config::DEFAULT.match_paths()
         } else {

@@ -226,7 +226,7 @@ impl Client {
             supports_start_debugging_request: Some(supports_start_debugging),
             supports_memory_references: Some(false),
             supports_progress_reporting: Some(true),
-            supports_invalidated_event: Some(false),
+            supports_invalidated_event: Some(true),
         };
 
         self.request_sender().request::<requests::Initialize>(args)

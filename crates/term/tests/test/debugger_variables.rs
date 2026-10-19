@@ -80,6 +80,18 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     wait_for_text(&mut app, "answer").await?;
     keys(&mut app, "object<ret>").await?;
     wait_for_text(&mut app, "nested value").await?;
+    // A refresh must retain the nested page and its filter, then retain parent filters too.
+    keys(&mut app, "child").await?;
+    app.editor
+        .debugger_evaluate("update".into())?
+        .run()
+        .await
+        .unwrap()
+        .into_result(&app.editor)
+        .unwrap()?;
+    wait_for_text(&mut app, "updated value").await?;
+    assert!(screen(&app).contains("child"));
+    keys(&mut app, "<C-w>").await?;
     keys(&mut app, "back<ret>").await?;
     assert!(screen(&app).contains("object"));
     assert!(!screen(&app).contains("answer")); // The parent's filter is preserved.

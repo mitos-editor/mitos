@@ -1222,13 +1222,21 @@ pub mod events {
         pub capabilities: super::DebuggerCapabilities,
     }
 
-    // #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-    // #[serde(rename_all = "camelCase")]
-    // pub struct InvalidatedBody {
-    // pub areas: Vec<InvalidatedArea>,
-    // pub thread_id: Option<ThreadId>,
-    // pub stack_frame_id: Option<usize>,
-    // }
+    #[derive(Debug)]
+    pub enum Invalidated {}
+
+    impl Event for Invalidated {
+        type Body = InvalidatedBody;
+        const EVENT: &'static str = "invalidated";
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Default, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct InvalidatedBody {
+        pub areas: Option<Vec<String>>,
+        pub thread_id: Option<ThreadId>,
+        pub stack_frame_id: Option<usize>,
+    }
 
     #[derive(Debug)]
     pub enum Memory {}

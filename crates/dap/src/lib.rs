@@ -102,7 +102,7 @@ pub enum Event {
     ProgressStart(<events::ProgressStart as events::Event>::Body),
     ProgressUpdate(<events::ProgressUpdate as events::Event>::Body),
     ProgressEnd(<events::ProgressEnd as events::Event>::Body),
-    // Invalidated(),
+    Invalidated(<events::Invalidated as events::Event>::Body),
     Memory(<events::Memory as events::Event>::Body),
 }
 
@@ -117,6 +117,7 @@ impl Event {
         let body = body.unwrap_or_default();
         let event = match event {
             events::Initialized::EVENT => Self::Initialized(parse_value(body)?),
+            events::Invalidated::EVENT => Self::Invalidated(parse_value(body)?),
             events::Stopped::EVENT => Self::Stopped(parse_value(body)?),
             events::Continued::EVENT => Self::Continued(parse_value(body)?),
             events::Exited::EVENT => Self::Exited(parse_value(body)?),

@@ -15,6 +15,7 @@ fn send(output: &mut impl Write, sequence: &mut u64, mut message: Value) -> anyh
 fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> {
     let mut sequence = 1;
     let mut child_request = None;
+    let mut nested_value = "nested value";
     loop {
         let mut header = String::new();
         if input.read_line(&mut header)? == 0 {
@@ -55,6 +56,10 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 );
                 json!({"supportsConfigurationDoneRequest":true})
             }
+            "evaluate" => {
+                nested_value = "updated value";
+                json!({"result":"updated","variablesReference":0})
+            }
             "threads" => json!({"threads":[{"id":1,"name":"main"}]}),
             "stackTrace" => json!({"stackFrames":[{"id":1,"name":"main","line":1,"column":1}]}),
             "scopes" => {
@@ -68,7 +73,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                     json!({"variables":[{"name":"global","value":"true","variablesReference":0}]})
                 }
                 Some(3) => {
-                    json!({"variables":[{"name":"child","value":"nested value","variablesReference":0}]})
+                    json!({"variables":[{"name":"child","value":nested_value,"variablesReference":0}]})
                 }
                 reference => anyhow::bail!("unexpected variable reference: {reference:?}"),
             },

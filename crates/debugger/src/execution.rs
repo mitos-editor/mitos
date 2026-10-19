@@ -112,6 +112,19 @@ impl ExecutionState {
         self.stack_frames.insert(thread, frames);
     }
 
+    /// Replace a refreshed trace while retaining the selected frame by adapter identity.
+    pub fn refresh_stack_frames(&mut self, thread: ThreadId, frames: Vec<StackFrame>) {
+        let selected = self.current_stack_frame().map(|frame| frame.id);
+        self.select_thread(thread, frames);
+        if let Some(selected) = selected
+            && let Some(index) = self.stack_frames[&thread]
+                .iter()
+                .position(|frame| frame.id == selected)
+        {
+            self.active_frame = Some(index);
+        }
+    }
+
     pub fn select_frame(&mut self, index: usize) -> Option<&StackFrame> {
         let frames = self.stack_frames.get(&self.thread_id?)?;
         let frame = frames.get(index)?;

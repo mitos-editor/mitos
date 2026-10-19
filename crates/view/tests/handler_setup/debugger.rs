@@ -892,7 +892,9 @@ async fn debugger_inspection_returns_typed_results_and_rejects_other_editors() -
     let variables = first.editor.debugger_variables()?;
     let evaluation = first.editor.debugger_evaluate("expression".into())?;
     first.editor.set_status("editor is available");
-    let (variables, evaluation) = tokio::join!(variables.run(), evaluation.run());
+    drop(variables);
+    let evaluation = evaluation.run().await;
+    let variables = first.editor.debugger_variables()?.run().await;
     let variables = variables.unwrap();
     assert!(!variables.context().is_current(&second.editor));
     let scopes = variables.into_result(&first.editor).unwrap()?;
@@ -2486,3 +2488,6 @@ mod shutdown_coordination;
 
 #[path = "debugger_request_lifetimes.rs"]
 mod request_lifetimes;
+
+#[path = "debugger_inspection_refresh.rs"]
+mod inspection_refresh;
