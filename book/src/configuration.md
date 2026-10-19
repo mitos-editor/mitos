@@ -357,7 +357,7 @@ Available statusline elements:
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
-| `code-lenses.enable` | boolean | `true` | Show code lens labels at the end of each line, resolving visible lenses automatically. Labels use space left by diagnostics and are clipped without wrapping. Gutter indicators and `Space l` provide access to the full commands. |
+| `code-lenses.enable` | boolean | `true` | Show code lens labels, such as run or test actions, beside code. Use `Space l` for the commands on the current line. |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
 | `references.include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
 
@@ -748,7 +748,7 @@ applies to `config.toml` for now.
 
 ### `[language.debugger]`
 
-See [Debugging (DAP)](./debugging.md) for setup, launch templates, and debugging commands.
+See [Debugging](./debugging.md) for setup, launch templates, and debugging commands.
 
 | Key | Type / default | Description |
 | --- | --- | --- |
@@ -764,6 +764,12 @@ Each `[[language.debugger.templates]]` has required `name`, `request`, and
 adapter-specific `args` values. Optional `completion` entries are either a
 string or `{ name = "...", completion = "...", default = "..." }`; all three
 fields in that detailed form are optional.
+
+Set `request` to `"launch"` to start a program or `"attach"` to connect to a
+running one. Use `{0}`, `{1}`, and so on in `args` for answers to the
+`completion` prompts. Defaults apply when an answer is omitted or empty.
+A whole placeholder containing an unsigned integer becomes a JSON number,
+for example a process ID or port. Embedded placeholders remain strings.
 
 ### `[language-server.<name>]`
 

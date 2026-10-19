@@ -1,8 +1,7 @@
 # Debugging (DAP)
 
-Mitos has experimental support for the Debug Adapter Protocol (DAP) for setting breakpoints,
-stepping through code, and inspecting variables. Install a debug adapter
-separately and configure it for the language you want to debug.
+Set breakpoints, step through code, and inspect variables with a debug adapter
+installed for your language. Debugging support is experimental.
 
 ## Configure an adapter
 
@@ -30,14 +29,10 @@ completion = [{ name = "binary", completion = "filename" }]
 args = { program = "{0}" }
 ```
 
-Each template defines a `launch` or `attach` request and adapter-specific
-arguments. `completion` defines the input prompts; `{0}`, `{1}`, and so on
-are replaced with the supplied values. Completion defaults apply to omitted or
-empty values, including command-line launches. Missing parameters are reported
-before the adapter starts. A whole placeholder containing an unsigned integer
-becomes a JSON number; embedded substitutions and literal strings remain strings.
-Mitos uses the editor's current working directory for `cwd` unless the template
-sets it explicitly.
+Use `request = "launch"` to start a program or `"attach"` to connect to a
+running one. `completion` defines the prompts; `{0}`, `{1}`, and so on insert
+your answers into `args`. The program starts in Mitos's current working
+directory unless you set `cwd` in the template's `args`.
 
 See the [debugger configuration reference](./configuration.md#languagedebugger)
 for TCP transport, attach templates, and the complete list of fields.
@@ -70,28 +65,6 @@ running TCP debug adapter, use
 `:debug-remote <ip>:<port> <template> [parameters...]`, for example
 `:debug-remote 127.0.0.1:4711 binary target/debug/my-program`.
 
-## Multiple sessions
-
-You can run several debugging sessions at once, including targets started with
-`Space G l`, `:debug-start`, or `:debug-remote`. Each launch selects its new session
-immediately. Adapter-created child sessions stay in the background. Child
-sessions work with both stdio and TCP adapters; stdio children use their own
-adapter process.
-
-Use `Space G s s` to select a session. The picker shows its number, name, state,
-and parent, with `*` marking the selected session. Selecting a stopped session
-opens its current stack frame. The `debug-session` statusline element shows the
-selected session and total session count; it is included in the default layout.
-
-Continue, pause, stepping, restart, variables, evaluation, and termination apply
-to the selected session. Ending a session restores the previous selection.
-`Space G t` also cancels a selected session that is still starting. Source
-breakpoints are shared across sessions. Markers follow edits and undo/redo locally;
-Mitos sends updated locations after saving or reloading the source. Renaming a
-source preserves identities and clears the old adapter locations. Discarding
-unsaved changes restores markers to the saved source. Background sessions keep their own
-execution state and do not change the selected session when they initialize or stop.
-
 ## Debugging commands
 
 These bindings are available in normal and select mode:
@@ -115,80 +88,73 @@ These bindings are available in normal and select mode:
 | `Space G Ctrl-l` | Edit the breakpoint log message on the current line |
 | `Space G e` / `Space G E` | Enable / disable exception breakpoints |
 
-Use `:debug-eval <expression>` to evaluate an expression in the current debug
-context. Expandable results open in the variable browser and use the same paging
-and navigation as scope values. Evaluation results are snapshots: if values
-change or execution resumes, run the command again. Mitos does not automatically
-re-evaluate expressions, which may have side effects. Supported expressions and
-debugging capabilities depend on the adapter.
+Use `:debug-eval <expression>` to evaluate an expression in the selected frame.
+Expandable results open in the variable browser. Run the command again for a new
+result. Supported expressions depend on the debug adapter.
 
 ## Inspecting variables
 
-While stopped, use `Space G v` to browse the current frame's scopes. Select a
-scope and press Enter to load its values. Entries marked `▸` have children;
-press Enter to open them. Expensive scopes are labeled and load only when opened.
+While paused, use `Space G v` to browse the selected frame's variables. Select a
+scope, such as locals or globals, and press `Enter` to see its values.
+Entries marked `▸` have children; press `Enter` to open them.
 
-Large containers load 100 values at a time. Select `Load more…` to append the next
-page while keeping the current filter and selection.
+Type to filter the list. Select `Load more…` to see more entries in large objects
+or arrays. Select `.. (back)` to return to the parent. Your filter and selection
+are kept when you return or when values refresh.
 
-Select `.. (back)` to return to the parent, keeping its filter and selection.
-Escape closes the browser. Resuming execution or switching the session, thread,
-or frame invalidates the displayed values. Reopen the browser to refresh them.
-
-Adapter invalidation and expression evaluation refresh values in place, keeping
-the open object, filters, and selection. If an object disappears, the browser
-returns to its nearest surviving parent.
+Press `Esc` to close the browser. After resuming execution or switching the
+session, thread, or frame, use `Space G v` again to inspect the current values.
 
 ## Inline debug values
 
-When execution pauses, Mitos shows runtime values after source lines in the
-selected frame, for example `answer = 42`. Selecting another frame or resuming
-clears the previous values. Labels use the space left by diagnostics and are
-clipped to the view without wrapping the source.
+While execution is paused, Mitos can show values such as `answer = 42` beside
+the code. The values follow the selected frame and disappear when execution
+resumes. Available values depend on your language and debug adapter.
 
-A language server with `textDocument/inlineValue` support can choose the
-locations, variable names, and expressions to display. Expressions are evaluated
-only when the debug adapter supports hover evaluation. Otherwise, Mitos matches
-local variable names in parsed code inside the current function, up to the
-paused line. It skips comments, strings, object expansion, and expensive scopes.
-Without a function boundary it checks only the paused line; without a parser
-the fallback is unavailable.
+Long values are shortened to fit. Inline values are hidden while the file has
+unsaved changes. Use `Space G v` to browse variables and expand objects.
 
-Values are limited to visible lines and are hidden while the source buffer has
-unsaved changes. Large values are shortened. These runtime labels are separate
-from LSP inlay hints, which show static types and parameter names.
-
-Inline values are enabled by default. To disable them:
+Inline values are on by default. To turn them off in `config.toml`:
 
 ```toml
 [editor.debugger]
 inline-values = false
 ```
 
-Use `:toggle debugger.inline-values` to change the setting for the current
+Use `:toggle debugger.inline-values` to show or hide them for the current
 editor session.
 
 ## Stack frames
 
-Use `Space G s f` to select a frame in the stopped thread. With adapters that
-support delayed stack loading, Mitos loads 32 frames at a time. Select `Load more…`
-to append frames without losing the picker filter or selection. Selecting a frame
-opens its source and makes that frame the context for variables and evaluation.
+Use `Space G s f` to choose a frame in the paused thread. Selecting a frame
+opens its source and updates inline values. Use `Space G v` or `:debug-eval`
+to inspect values in that frame. Select `Load more…` to see more frames in a
+deep call stack.
+
+## Multiple sessions
+
+You can debug several programs at once. Each launch selects the new session;
+use `Space G s s` to switch between them. The picker marks the selected session
+with `*`, and the statusline shows its name, state, and the total session count.
+Child sessions started by an adapter appear in the picker too.
+
+Stepping, continuing, inspecting variables, and ending a session apply to the
+selected session. Use `Space G t` to end it or cancel a launch that is still
+starting.
+
+File breakpoints are shared across sessions. Save file edits to update
+breakpoint locations used by the debugger.
 
 ## Adapter source documents
 
-If a frame's source is provided by the adapter, Mitos opens it in a named,
-read-only document. The adapter's content takes precedence over a local file
-with the same name. These documents cannot be edited, saved, or renamed; copy
-text to a new buffer to work with it. Open source documents remain available as
-snapshots after the debugging session ends. If the adapter changes or removes a
-source, its old document becomes a historical snapshot too. Select a frame again
-to open the current source; historical snapshots no longer accept debugger source
-operations.
+Some adapters provide source code that differs from the file on disk, such as
+generated code. Mitos opens it in a read-only buffer. Copy text to a new buffer
+if you want to edit or save it.
 
-Use the usual breakpoint, condition, and log-message commands in a live adapter
-source. These breakpoints belong only to that session and source version; they
-are removed when the source changes or its session ends.
+You can set breakpoints, conditions, and log messages in the current adapter
+source. These breakpoints last until the source changes or the session ends.
+The buffer stays open for reading afterwards. Select a frame again to open
+updated source.
 
 ## Terminal for the debugged program
 
@@ -205,9 +171,6 @@ and its arguments. For example, to use a new Kitty window:
 command = "kitty"
 args = ["--"]
 ```
-
-The launcher is needed only when the adapter requests a terminal; it is
-separate from the debug adapter's own executable and launch template.
 
 ## Troubleshooting
 

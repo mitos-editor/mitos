@@ -28,9 +28,9 @@ Use `:workspace-untrust` to remove a grant or exclusion. Use
 
 ## Detecting changes after trust was granted
 
-Changes under `.mitos/` invalidate a remembered approval. On the next check,
-Mitos reports that project configuration changed and leaves it unloaded.
-Review the changes, then run `:workspace-trust` again to approve them.
+When files under `.mitos/` change, Mitos leaves the changed project settings
+unloaded until you approve them again. Review the changes, then run
+`:workspace-trust` to approve them.
 
 Servers allowed by your user policy may still run. An approval of changed
 configuration is separate from permission to use your globally configured tools.

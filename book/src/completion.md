@@ -72,7 +72,7 @@ enable = false
 Servers supporting inline completion can show suggestions as faint text after
 the cursor. These suggestions leave the document unchanged until accepted.
 They disappear when you edit, move, leave insert mode, or switch documents.
-Requests pause while the completion menu is previewing an item.
+Inline suggestions pause while you preview an item in the completion menu.
 
 There are no default keys for inline suggestions. Add these to `config.toml`:
 
