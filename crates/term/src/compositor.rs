@@ -52,6 +52,13 @@ pub trait Component: Any + AnyComponent {
         false
     }
 
+    /// Matching work whose results must render before an integration assertion.
+    /// Pending external providers do not prevent the editor from becoming idle.
+    #[cfg(feature = "integration")]
+    fn has_pending_render(&mut self) -> bool {
+        false
+    }
+
     /// Should redraw? Useful for saving redraw cycles if we know component didn't change.
     fn should_update(&self) -> bool {
         true
@@ -109,6 +116,13 @@ pub struct Compositor {
 }
 
 impl Compositor {
+    #[cfg(feature = "integration")]
+    pub(crate) fn has_pending_render(&mut self) -> bool {
+        self.layers
+            .iter_mut()
+            .any(|layer| layer.has_pending_render())
+    }
+
     pub fn new(area: Rect) -> Self {
         Self {
             layers: Vec::new(),

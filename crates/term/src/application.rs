@@ -394,6 +394,7 @@ impl Application {
                             && !self.editor.has_pending_writes()
                             && !self.editor.has_pending_shell_filters()
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
+                            && !self.compositor.has_pending_render()
                         {
                             return true;
                         }

@@ -161,6 +161,25 @@ impl Fixture {
         }
     }
 
+    async fn completion_with_count(
+        &mut self,
+        count: usize,
+    ) -> anyhow::Result<(Vec<CompletionItem>, completion::CompletionSession)> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match self.update().await?.apply(&mut self.app.editor) {
+                    Some(CompletionChange::Show { items, session }) if items.len() == count => {
+                        return Ok((items, session))
+                    }
+                    Some(CompletionChange::Show { .. }) => {}
+                    _ => anyhow::bail!("expected completion items"),
+                }
+            }
+        })
+        .await
+        .context("completion providers did not publish the expected items")?
+    }
+
     async fn key(&mut self, key: &str) -> anyhow::Result<()> {
         #[cfg(not(windows))]
         let event = termina::event::Event::Key(ui_core::input::parse_macro(key)?[0].into());
@@ -198,11 +217,7 @@ async fn shared_providers_preserve_protocol_ordering_and_incomplete_refresh() ->
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 incomplete ap\n", &["alpha", "beta"]).await?;
     f.trigger();
-    let Some(CompletionChange::Show { items, session }) =
-        f.update().await?.apply(&mut f.app.editor)
-    else {
-        panic!("expected completion items");
-    };
+    let (items, session) = f.completion_with_count(4).await?;
     assert!(f.app.editor.begin_completion(&session));
     assert_eq!(items.len(), 4);
     for (priority, name) in [(0, "alpha"), (-1, "beta")] {
@@ -517,7 +532,8 @@ async fn canceled_inflight_requests_and_late_providers_keep_their_session() -> a
         .event(CompletionEvent::Cancel);
     f.trigger();
     std::fs::write(&f.response_gate, "ready")?;
-    assert_eq!(f.items().await?.len(), 4);
+    let (items, _) = f.completion_with_count(4).await?;
+    assert_eq!(items.len(), 4);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

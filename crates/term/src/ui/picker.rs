@@ -1200,6 +1200,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
+    #[cfg(feature = "integration")]
+    fn has_pending_render(&mut self) -> bool {
+        let pending = self.pending_options.as_mut().is_some_and(|pending| {
+            let status = pending.matcher.tick(0);
+            status.running || status.changed || pending.matcher.active_injectors() == 0
+        });
+        let status = self.matcher.tick(0);
+        let pending = pending || status.running || status.changed;
+        if pending {
+            self.redraw.request();
+        }
+        pending
+    }
+
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         // +---------+ +---------+
         // |prompt   | |preview  |
