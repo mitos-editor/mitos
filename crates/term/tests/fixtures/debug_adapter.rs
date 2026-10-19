@@ -58,6 +58,9 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 );
                 json!({"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":true})
             }
+            "evaluate" if message["arguments"]["expression"] == "object" => {
+                json!({"result":"Object","variablesReference":4,"namedVariables":250,"indexedVariables":0})
+            }
             "evaluate" => {
                 nested_value = "updated value";
                 json!({"result":"updated","variablesReference":0})

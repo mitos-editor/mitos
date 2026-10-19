@@ -10,6 +10,9 @@ use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::OnceCell;
 
+mod evaluation;
+pub use evaluation::DebuggerEvaluation;
+
 const PAGE_SIZE: usize = 100;
 
 fn child_count(named: Option<usize>, indexed: Option<usize>) -> Option<usize> {
@@ -43,6 +46,12 @@ struct VariableKey {
     index: usize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Refresh {
+    Scopes,
+    Snapshot,
+}
+
 /// A page of values bound to its original editor, session, stop, and frame selection.
 #[derive(Clone)]
 pub struct DebuggerVariables {
@@ -53,6 +62,7 @@ pub struct DebuggerVariables {
     container: Option<usize>,
     total: Option<usize>,
     more: bool,
+    refresh: Refresh,
 }
 
 impl DebuggerVariables {
@@ -63,6 +73,7 @@ impl DebuggerVariables {
     /// Data invalidation can be refreshed while the original frame is still selected.
     pub fn can_refresh(&self, editor: &Editor) -> bool {
         self.context.is_current(editor)
+            && (self.refresh == Refresh::Scopes || !self.data.is_canceled())
     }
 
     pub fn entries(&self) -> &[DebuggerVariable] {
@@ -160,6 +171,7 @@ impl InspectionCache {
             container: None,
             total: None,
             more: false,
+            refresh: Refresh::Scopes,
         })
     }
 
@@ -235,6 +247,7 @@ impl InspectionCache {
             container: Some(entry.reference),
             total: entry.children,
             more,
+            refresh: page.refresh,
         })
     }
     async fn more(&self, page: &DebuggerVariables) -> dap::Result<DebuggerVariables> {
@@ -352,6 +365,10 @@ impl Editor {
         anyhow::ensure!(
             page.can_refresh(self),
             "Debugger frame is no longer current"
+        );
+        anyhow::ensure!(
+            page.refresh == Refresh::Scopes,
+            "Evaluate the expression again to refresh its result"
         );
         let cache = self.debugger.sessions[page.context.id]
             .requests

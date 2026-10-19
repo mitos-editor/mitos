@@ -229,6 +229,9 @@ async fn adapter_server_with_options(
                         json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false},{"name":"globals","variablesReference":8,"expensive":true}]})
                     }
                     "variables" => variable_response(&message, options.variable_count),
+                    "evaluate" if message["arguments"]["expression"] == "object" => {
+                        json!({"result":"Object","variablesReference":7,"namedVariables":options.variable_count,"indexedVariables":0})
+                    }
                     "evaluate" => {
                         json!({"result":message["arguments"]["expression"],"variablesReference":0})
                     }
@@ -2515,6 +2518,9 @@ fn variable_response(message: &Value, count: Option<usize>) -> Value {
 
 #[path = "debugger_variable_paging.rs"]
 mod variable_paging;
+
+#[path = "debugger_evaluation.rs"]
+mod evaluation;
 
 #[path = "debugger_inspection.rs"]
 mod inspection;

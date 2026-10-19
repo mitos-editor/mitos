@@ -116,7 +116,11 @@ These bindings are available in normal and select mode:
 | `Space G e` / `Space G E` | Enable / disable exception breakpoints |
 
 Use `:debug-eval <expression>` to evaluate an expression in the current debug
-context. Supported expressions and debugging capabilities depend on the adapter.
+context. Expandable results open in the variable browser and use the same paging
+and navigation as scope values. Evaluation results are snapshots: if values
+change or execution resumes, run the command again. Mitos does not automatically
+re-evaluate expressions, which may have side effects. Supported expressions and
+debugging capabilities depend on the adapter.
 
 ## Inspecting variables
 

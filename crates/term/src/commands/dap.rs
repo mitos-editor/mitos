@@ -514,7 +514,20 @@ pub(super) mod typed {
         }
 
         let task = cx.editor.debugger_evaluate(args.join(" "))?;
-        super::debugger_query(cx.jobs, task, |editor, _compositor, _context, response| {
+        super::debugger_query(cx.jobs, task, |editor, compositor, _context, response| {
+            if !response.is_current(editor) {
+                return;
+            }
+            if response.is_expandable() {
+                if let Some(values) = response.into_variables(editor) {
+                    compositor.remove("dap-variables");
+                    compositor.push(Box::new(crate::ui::debugger_variables::Variables::new(
+                        editor, values,
+                    )));
+                }
+                return;
+            }
+
             editor.set_status(response.result);
         });
         Ok(())

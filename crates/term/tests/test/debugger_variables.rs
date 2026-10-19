@@ -125,6 +125,14 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     assert!(!screen(&app).contains("Load more"));
     keys(&mut app, "<esc><esc>").await?;
 
+    keys(&mut app, ":debug-eval object<ret>").await?;
+    wait_for_text(&mut app, "Object").await?;
+    keys(&mut app, "<ret>").await?;
+    wait_for_text(&mut app, "Load more").await?;
+    keys(&mut app, "Load more<ret><C-w><C-w>item199").await?;
+    wait_for_row(&mut app, "item199").await?;
+    app.editor.handle_debugger_message(id, serde_json::from_value(serde_json::json!({"type":"event","seq":0,"event":"invalidated","body":{"areas":["variables"]}}))?).await;
+    keys(&mut app, "<esc>").await?;
     app.editor
         .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
     tokio::time::timeout(Duration::from_secs(10), async {

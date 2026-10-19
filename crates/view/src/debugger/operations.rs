@@ -39,23 +39,24 @@ impl Editor {
     pub fn debugger_evaluate(
         &mut self,
         expression: String,
-    ) -> Result<DebuggerTask<requests::EvaluateResponse>> {
+    ) -> Result<DebuggerTask<super::DebuggerEvaluation>> {
         let (context, sender) = self.debugger_context(RequestKind::Evaluate)?;
         let frame_id = context
             .frame
             .context("Cannot find current stack frame to access variables")?;
         let cache = self.debugger_inspection_cache(context.id, sender.clone());
+        let result_context = context.clone();
         Ok(DebuggerTask::new(context, async move {
             let response = sender
                 .request::<requests::Evaluate>(requests::EvaluateArguments {
-                    expression,
+                    expression: expression.clone(),
                     frame_id: Some(frame_id),
                     context: None,
                     format: None,
                 })
                 .await?;
             cache.invalidate();
-            Ok(response)
+            Ok(cache.evaluation(result_context, expression, response))
         }))
     }
 

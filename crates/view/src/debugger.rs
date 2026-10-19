@@ -28,7 +28,7 @@ pub use requests::{DebuggerContext, DebuggerTask, DebuggerUpdate};
 mod stack;
 pub use stack::DebuggerStackPage;
 mod inspection;
-pub use inspection::{DebuggerVariable, DebuggerVariables};
+pub use inspection::{DebuggerEvaluation, DebuggerVariable, DebuggerVariables};
 
 use std::path::{Path, PathBuf};
 
