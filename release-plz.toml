@@ -15,7 +15,7 @@ git_tag_enable = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
-  "buffer", "clipboard", "command-line", "core", "diagnostics", "dap", "dap-types", "event",
+  "buffer", "clipboard", "command-line", "core", "diagnostics", "dap", "dap-types", "debugger", "event",
   "grammar-build", "language", "language-config", "loader", "lsp", "lsp-types", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
@@ -91,4 +91,8 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "text-diff"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "debugger"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"

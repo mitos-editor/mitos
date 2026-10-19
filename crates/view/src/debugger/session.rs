@@ -4,31 +4,9 @@ use super::{
     breakpoints::BreakpointSession, events::SessionEvents, operations::SessionRequests,
     progress::ProgressState, reverse_requests::ReverseRequests, startup::Startup, DebuggerState,
 };
+use ::debugger::{ExecutionState, ThreadState, ThreadStates};
 use dap::{Client, DebugAdapterId, StackFrame, ThreadId};
 use std::collections::HashMap;
-
-/// Associates debugger thread identifiers with their editor display state.
-pub type ThreadStates = HashMap<ThreadId, ThreadState>;
-
-/// Execution state is separate from the adapter's free-form stop reason.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ThreadState {
-    Running,
-    Stopped(String),
-}
-
-impl ThreadState {
-    pub fn is_stopped(&self) -> bool {
-        matches!(self, Self::Stopped(_))
-    }
-
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Running => "running",
-            Self::Stopped(reason) => reason,
-        }
-    }
-}
 
 /// One adapter lifetime. Frontends inspect execution state; the editor owns its transitions.
 pub struct DebugSession {
@@ -43,10 +21,7 @@ pub struct DebugSession {
     pub(super) requests: SessionRequests,
     pub(super) reverse_requests: ReverseRequests,
     pub(super) events: SessionEvents,
-    pub(super) stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
-    pub(super) thread_states: ThreadStates,
-    pub(super) thread_id: Option<ThreadId>,
-    pub(super) active_frame: Option<usize>,
+    pub(super) execution: ExecutionState,
     pub(super) progress: HashMap<String, ProgressState>,
 }
 
@@ -84,10 +59,7 @@ impl DebugSession {
             requests: SessionRequests::default(),
             reverse_requests: ReverseRequests::default(),
             events: SessionEvents::default(),
-            stack_frames: HashMap::new(),
-            thread_states: HashMap::new(),
-            thread_id: None,
-            active_frame: None,
+            execution: ExecutionState::default(),
             progress: HashMap::new(),
         }
     }
@@ -111,7 +83,12 @@ impl DebugSession {
                 .is_some_and(|state| state.is_configuring())
         {
             DebugSessionStatus::Starting
-        } else if self.thread_states.values().any(ThreadState::is_stopped) {
+        } else if self
+            .execution
+            .thread_states()
+            .values()
+            .any(ThreadState::is_stopped)
+        {
             DebugSessionStatus::Stopped
         } else {
             DebugSessionStatus::Running
@@ -142,39 +119,25 @@ impl DebugSession {
     }
 
     pub fn selected_thread(&self) -> Option<ThreadId> {
-        self.thread_id
+        self.execution.selected_thread()
     }
 
     pub fn stack_frames(&self) -> &HashMap<ThreadId, Vec<StackFrame>> {
-        &self.stack_frames
+        self.execution.stack_frames()
     }
 
     pub fn thread_states(&self) -> &ThreadStates {
-        &self.thread_states
+        self.execution.thread_states()
     }
 
     pub fn current_stack_frame(&self) -> Option<&StackFrame> {
-        self.stack_frames
-            .get(&self.thread_id?)?
-            .get(self.active_frame?)
+        self.execution.current_stack_frame()
     }
-
     pub(super) fn resume_thread(&mut self, thread: ThreadId) {
-        self.thread_states.insert(thread, ThreadState::Running);
-        self.stack_frames.remove(&thread);
-        if self.thread_id == Some(thread) {
-            self.active_frame = None;
-            self.thread_id = None;
-        }
+        self.execution.resume_thread(thread);
     }
-
     pub(super) fn resume_all_threads(&mut self) {
-        for state in self.thread_states.values_mut() {
-            *state = ThreadState::Running;
-        }
-        self.stack_frames.clear();
-        self.active_frame = None;
-        self.thread_id = None;
+        self.execution.resume_all_threads();
     }
 }
 
@@ -188,7 +151,7 @@ impl DebuggerState {
     }
 
     pub fn get_active_session(&self) -> Option<&DebugSession> {
-        self.get_session(*self.selection_order.last()?)
+        self.sessions.active()
     }
 
     pub(crate) fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
@@ -200,7 +163,7 @@ impl DebuggerState {
     }
 
     pub(crate) fn get_active_client(&self) -> Option<&Client> {
-        let client = self.get_client(*self.selection_order.last()?)?;
+        let client = self.get_client(self.sessions.active_id()?)?;
         client.caps.as_ref()?;
         Some(client)
     }
@@ -211,24 +174,14 @@ impl DebuggerState {
 
     /// Sessions in most recently selected order, including pending connections.
     pub fn sessions(&self) -> impl ExactSizeIterator<Item = &DebugSession> {
-        self.selection_order
-            .iter()
-            .rev()
-            .map(|id| &self.sessions[*id])
+        self.sessions.by_selection()
     }
 
     /// Select an existing session. Stale IDs cannot select a replacement session.
     pub fn select_session(&mut self, id: DebugAdapterId) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.sessions.contains_key(id),
-            "Debugging session has ended"
-        );
-        if self.selection_order.last() == Some(&id) {
-            return Ok(());
+        if self.sessions.select(id)? {
+            self.current_selection = Some(self.selection.restart());
         }
-        self.selection_order.retain(|session| *session != id);
-        self.selection_order.push(id);
-        self.current_selection = Some(self.selection.restart());
         Ok(())
     }
 
@@ -237,20 +190,12 @@ impl DebuggerState {
         name: String,
         parent: Option<DebugAdapterId>,
     ) -> DebugAdapterId {
-        self.next_session_number = self
-            .next_session_number
-            .checked_add(1)
-            .expect("debug session numbers exhausted");
-        let number = self.next_session_number;
-        let id = self
-            .sessions
-            .insert_with_key(|id| DebugSession::new(id, number, name, parent));
-        if parent.is_none() || self.selection_order.is_empty() {
-            self.selection_order.push(id);
+        let previous = self.sessions.active_id();
+        let id = self.sessions.insert(parent.is_none(), |id, number| {
+            DebugSession::new(id, number, name, parent)
+        });
+        if previous != self.sessions.active_id() {
             self.current_selection = Some(self.selection.restart());
-        } else {
-            // Adapter-created child sessions do not take selection from the user.
-            self.selection_order.insert(0, id);
         }
         id
     }
@@ -290,11 +235,11 @@ impl DebuggerState {
     pub(crate) fn remove_session(&mut self, id: DebugAdapterId) {
         self.cancel_child_startups(id);
         self.cancel_startup_requests(id);
+        let selected = self.sessions.active_id() == Some(id);
         self.sessions.remove(id);
-        if self.selection_order.last() == Some(&id) {
+        if selected {
             self.current_selection = Some(self.selection.restart());
         }
-        self.selection_order.retain(|session| *session != id);
     }
 }
 

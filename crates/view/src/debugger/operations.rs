@@ -76,7 +76,7 @@ impl DebuggerContext {
                         .is_some_and(|session| session.id() == self.id)
             })
             && editor.debugger.get_session(self.id).is_some_and(|session| {
-                session.thread_id == self.thread
+                session.selected_thread() == self.thread
                     && session.current_stack_frame().map(|frame| frame.id) == self.frame
             })
     }
@@ -190,7 +190,7 @@ impl Editor {
         );
         let (id, thread, frame, sender) = (
             session.id(),
-            session.thread_id,
+            session.selected_thread(),
             session.current_stack_frame().map(|frame| frame.id),
             session
                 .client
@@ -338,9 +338,9 @@ impl Editor {
         });
         self.spawn_debugger_task(task, move |editor, response| {
             let session = editor.debugger.get_session_mut(id).unwrap();
-            session.thread_id = Some(thread);
-            session.stack_frames.insert(thread, response.stack_frames);
-            session.active_frame = Some(0);
+            session
+                .execution
+                .select_thread(thread, response.stack_frames);
             let frame = session.current_stack_frame().cloned();
             editor.debugger.invalidate_requests(id);
             if let Some(frame) = frame {
@@ -353,9 +353,11 @@ impl Editor {
     pub fn debugger_stack_frames(&mut self) -> Result<DebuggerFrames> {
         let (context, _) = self.debugger_context(RequestKind::SelectThread)?;
         let session = self.debugger.get_session(context.id).unwrap();
-        let thread = session.thread_id.context("No thread is currently active")?;
+        let thread = session
+            .selected_thread()
+            .context("No thread is currently active")?;
         let frames = session
-            .stack_frames
+            .stack_frames()
             .get(&thread)
             .context("No stack frames for the active thread")?
             .iter()
@@ -363,7 +365,7 @@ impl Editor {
             .enumerate()
             .collect();
         let state = session
-            .thread_states
+            .thread_states()
             .get(&thread)
             .map(|state| state.as_str().to_owned())
             .unwrap_or_else(|| "unknown".into());
@@ -380,12 +382,10 @@ impl Editor {
         }
         let session = self.debugger.get_session_mut(context.id).unwrap();
         let frame = session
-            .thread_id
-            .and_then(|thread| session.stack_frames.get(&thread))
-            .and_then(|frames| frames.get(index))
+            .execution
+            .select_frame(index)
             .context("Stack frame is no longer available")?
             .clone();
-        session.active_frame = Some(index);
         self.debugger.invalidate_requests(context.id);
         crate::handlers::dap::jump_to_stack_frame(self, &frame);
         Ok(())
@@ -423,7 +423,11 @@ impl Editor {
                 "No arguments found with which to restart the session"
             );
         }
-        let thread = self.debugger.get_active_session().unwrap().thread_id;
+        let thread = self
+            .debugger
+            .get_active_session()
+            .unwrap()
+            .selected_thread();
         if matches!(
             command,
             DebuggerCommand::Continue

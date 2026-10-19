@@ -2,12 +2,12 @@
 
 mod breakpoints;
 pub mod source;
-pub use breakpoints::{BreakpointBinding, BreakpointLocation};
+pub use ::debugger::{BreakpointBinding, BreakpointLocation};
 mod events;
 mod progress;
 mod reverse_requests;
 mod session;
-pub use session::{DebugSession, DebugSessionStatus, ThreadState, ThreadStates};
+pub use session::{DebugSession, DebugSessionStatus};
 mod launch;
 pub use launch::DebuggerLaunch;
 mod startup;
@@ -17,69 +17,16 @@ pub use operations::{
     DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerScope, DebuggerTask, DebuggerUpdate,
 };
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use anyhow::bail;
-use dap::{DebugAdapterId, DebuggerCapabilities};
+use ::debugger::validate_capabilities;
+pub use ::debugger::{Breakpoint, BreakpointId, BreakpointProperty, ThreadState, ThreadStates};
+use ::debugger::{BreakpointStore, Sessions};
+use dap::DebugAdapterId;
+#[cfg(test)]
+use dap::DebuggerCapabilities;
 use futures_util::stream::SelectAll;
-use slotmap::SlotMap;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-
-/// Editor-owned identity, retained across adapter IDs and source-line relocation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct BreakpointId(u64);
-
-#[derive(Debug, Clone, Default)]
-pub struct Breakpoint {
-    pub(crate) identity: BreakpointId,
-    pub line: usize,
-    /// Optional one-based UTF-16 column, matching the DAP source-breakpoint format.
-    pub column: Option<usize>,
-    pub condition: Option<String>,
-    pub hit_condition: Option<String>,
-    pub log_message: Option<String>,
-}
-
-impl Breakpoint {
-    pub fn identity(&self) -> BreakpointId {
-        self.identity
-    }
-
-    fn set_property(
-        &mut self,
-        property: BreakpointProperty,
-        value: Option<String>,
-        capabilities: Option<&DebuggerCapabilities>,
-    ) -> anyhow::Result<()> {
-        if value.is_some()
-            && let Some(capabilities) = capabilities
-        {
-            // Validate newly requested requirements. Clearing a setting must
-            // remain possible even if other stored settings are unsupported.
-            validate_capabilities(
-                capabilities,
-                matches!(property, BreakpointProperty::Condition),
-                false,
-                matches!(property, BreakpointProperty::LogMessage),
-            )?;
-        }
-        match property {
-            BreakpointProperty::Condition => self.condition = value,
-            BreakpointProperty::LogMessage => self.log_message = value,
-        }
-        Ok(())
-    }
-}
-
-/// Editable source-breakpoint properties, independent of the prompt that collected them.
-#[derive(Clone, Copy)]
-pub enum BreakpointProperty {
-    Condition,
-    LogMessage,
-}
 
 /// Frontend-owned launch of a debuggee in a terminal. The shared editor owns
 /// reverse-request completion; implementations honor working directory and environment.
@@ -93,15 +40,11 @@ pub trait TerminalLauncher: Send + Sync {
 /// Owns debugger sessions and the source breakpoints shared across those sessions.
 #[derive(Default)]
 pub struct DebuggerState {
-    sessions: SlotMap<DebugAdapterId, DebugSession>,
-    next_session_number: u64,
-    // Least recently selected first; the last session is active, including during startup.
-    selection_order: Vec<DebugAdapterId>,
+    sessions: Sessions<DebugSession>,
     selection: event::TaskController,
     current_selection: Option<event::TaskHandle>,
     pub(crate) incoming: SelectAll<UnboundedReceiverStream<(DebugAdapterId, dap::ClientEvent)>>,
-    pub(crate) breakpoints: HashMap<PathBuf, Vec<Breakpoint>>,
-    next_breakpoint_id: u64,
+    breakpoints: BreakpointStore,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
 }
 
@@ -134,10 +77,7 @@ impl DebuggerState {
 
     /// Source breakpoints in a file, including breakpoints configured before debugging starts.
     pub fn breakpoints(&self, path: &Path) -> &[Breakpoint] {
-        self.breakpoints
-            .get(path)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+        self.breakpoints.breakpoints(path)
     }
 
     pub fn breakpoint_at_line(&self, path: &Path, line: usize) -> Option<&Breakpoint> {
@@ -155,9 +95,8 @@ impl DebuggerState {
             let existing = self
                 .breakpoint_at_line(&path, line)
                 .map(Breakpoint::identity);
-            let breakpoints = self.breakpoints.entry(path.clone()).or_default();
             if let Some(identity) = existing {
-                breakpoints.retain(|breakpoint| breakpoint.identity != identity);
+                self.breakpoints.remove(&path, identity);
                 for session in self
                     .sessions
                     .values_mut()
@@ -166,12 +105,7 @@ impl DebuggerState {
                     session.remove_binding(identity);
                 }
             } else {
-                let identity = allocate_identity(&mut self.next_breakpoint_id);
-                breakpoints.push(Breakpoint {
-                    identity,
-                    line,
-                    ..Default::default()
-                });
+                self.breakpoints.insert(path.clone(), line);
             }
         }
     }
@@ -185,55 +119,14 @@ impl DebuggerState {
         property: BreakpointProperty,
         value: Option<String>,
     ) -> anyhow::Result<()> {
-        let breakpoints = self
-            .breakpoints
-            .get_mut(path)
-            .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
-        let position = breakpoints
-            .iter()
-            .position(|breakpoint| breakpoint.identity == identity)
-            .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
         let capabilities = self
-            .selection_order
-            .last()
-            .and_then(|id| self.sessions.get(*id))
+            .sessions
+            .active()
             .and_then(|session| session.client.as_ref()?.caps.as_ref());
-        breakpoints[position].set_property(property, value, capabilities)?;
+        self.breakpoints
+            .set_property(path, identity, property, value, capabilities)?;
         Ok(())
     }
-}
-
-fn allocate_identity(next: &mut u64) -> BreakpointId {
-    *next = next
-        .checked_add(1)
-        .expect("breakpoint identities exhausted");
-    BreakpointId(*next)
-}
-
-fn validate_capabilities(
-    capabilities: &DebuggerCapabilities,
-    conditional: bool,
-    hit_conditional: bool,
-    logpoint: bool,
-) -> anyhow::Result<()> {
-    if conditional
-        && !capabilities
-            .supports_conditional_breakpoints
-            .unwrap_or_default()
-    {
-        bail!("Can't edit breakpoint: debugger does not support conditional breakpoints");
-    }
-    if hit_conditional
-        && !capabilities
-            .supports_hit_conditional_breakpoints
-            .unwrap_or_default()
-    {
-        bail!("Can't edit breakpoint: debugger does not support hit conditional breakpoints");
-    }
-    if logpoint && !capabilities.supports_log_points.unwrap_or_default() {
-        bail!("Can't edit breakpoint: debugger does not support logpoints");
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -343,11 +236,9 @@ mod tests {
 
     #[test]
     fn unsupported_properties_can_be_cleared_independently() {
-        let mut breakpoint = Breakpoint {
-            condition: Some("ready".into()),
-            log_message: Some("value".into()),
-            ..Default::default()
-        };
+        let mut breakpoint = Breakpoint::default();
+        breakpoint.condition = Some("ready".into());
+        breakpoint.log_message = Some("value".into());
         let capabilities: DebuggerCapabilities =
             serde_json::from_value(serde_json::json!({})).unwrap();
         breakpoint

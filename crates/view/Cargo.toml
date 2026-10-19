@@ -46,6 +46,7 @@ lsp.workspace = true
 snippets.workspace = true
 spelling.workspace = true
 dap.workspace = true
+debugger.workspace = true
 vcs.workspace = true
 
 foldhash.workspace = true

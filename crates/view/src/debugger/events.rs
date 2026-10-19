@@ -1,6 +1,5 @@
 //! Execution transitions and their asynchronous adapter follow-up requests.
 
-use super::ThreadState;
 use std::future::Future;
 
 use futures_util::future::BoxFuture;
@@ -140,29 +139,11 @@ impl Editor {
             return;
         };
         let all_stopped = event.all_threads_stopped.unwrap_or(false);
-        let previous = session.thread_id;
-        let hydrate = all_stopped
-            || event.thread_id.is_none()
-            || previous == event.thread_id
-            || session.current_stack_frame().is_none();
-        session.thread_id = previous.or(event.thread_id);
-        // Invalidate displayed frames immediately, before any adapter can reply.
-        if all_stopped {
-            session.stack_frames.clear();
-            for state in session.thread_states.values_mut() {
-                *state = ThreadState::Stopped(event.reason.clone());
-            }
-        } else if let Some(thread) = event.thread_id {
-            session.stack_frames.remove(&thread);
-        }
-        if hydrate {
-            session.active_frame = None;
-        }
-        if let Some(thread) = event.thread_id {
-            session
-                .thread_states
-                .insert(thread, ThreadState::Stopped(event.reason.clone()));
-        }
+        let transition = session
+            .execution
+            .begin_stop(event.thread_id, all_stopped, &event.reason);
+        let previous = transition.previous_thread;
+        let hydrate = transition.needs_frames;
         let sender = session.client.as_ref().unwrap().request_sender();
         let context = self.debugger_execution_context(id);
         if context.is_active(self) {
@@ -247,22 +228,16 @@ impl Editor {
                 }
             };
             let session = editor.debugger.get_session_mut(id).unwrap();
-            if all_stopped {
-                session
-                    .thread_states
-                    .retain(|thread, _| state.threads.contains(thread));
-            }
-            for thread in state.threads {
-                session
-                    .thread_states
-                    .insert(thread, ThreadState::Stopped(reason.clone()));
-            }
-            session.thread_id = state.selected;
+            session.execution.apply_stopped_threads(
+                &state.threads,
+                state.selected,
+                &reason,
+                all_stopped,
+            );
             match state.frames {
                 Ok(frames) => {
-                    session.active_frame = (!frames.is_empty()).then_some(0);
                     if let Some(thread) = state.selected {
-                        session.stack_frames.insert(thread, frames);
+                        session.execution.select_thread(thread, frames);
                     }
                     let frame = session.current_stack_frame().cloned();
                     // Cache frames independently, but do not interrupt input or
@@ -311,17 +286,10 @@ impl Editor {
         };
         match event.reason.as_str() {
             "started" => {
-                session
-                    .thread_states
-                    .insert(event.thread_id, ThreadState::Running);
+                session.execution.thread_started(event.thread_id);
             }
             "exited" => {
-                session.thread_states.remove(&event.thread_id);
-                session.stack_frames.remove(&event.thread_id);
-                if session.thread_id == Some(event.thread_id) {
-                    session.thread_id = None;
-                    session.active_frame = None;
-                }
+                session.execution.remove_thread(event.thread_id);
             }
             _ => {}
         }
@@ -335,8 +303,7 @@ impl Editor {
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
-        session.resume_all_threads();
-        session.thread_states.clear();
+        session.execution.clear();
         let client = session.client.as_mut().unwrap();
         let connection = client.connection_type();
         let starting_arguments = client.starting_request_args().cloned();

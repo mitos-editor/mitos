@@ -11,7 +11,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
 | `editor-config` | Editor settings, defaults, custom command definitions, and serialization |
-| `language-config` | Language definitions and server feature configuration |
+| `language-config` | Language definitions, server features, and debug-adapter launch configuration |
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `theme` | Theme interpretation, palette resolution, icons, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
@@ -28,6 +28,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
+| `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
 | `lsp-types`, `dap-types` | Protocol data types |
 | `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
 | `event` | Event registration, cancellation, and debounced task primitives |
@@ -38,6 +39,10 @@ Features live with the state they change; frontends adapt input and present resu
 terminal crate. `view` coordinates feature and protocol crates. For example,
 `view` → `spelling` → `core` keeps dictionary algorithms independent of editor
 state. `ui-core` supplies UI value types without owning editor services.
+`view` → `debugger` → `dap` separates debugger state from editor effects. The
+`debugger` crate owns persistent breakpoint definitions and session-specific
+bindings; `view` owns request cancellation, workspace trust, callbacks, and source
+navigation. Debugger widgets and launch prompts belong to `term`.
 Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
 defaults, configuration composition, and execution belong to `term`. Buffer picker
 item actions call editor lifecycle operations from `term::commands::buffers`.

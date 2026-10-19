@@ -15,6 +15,7 @@ members = [
   "crates/event",
   "crates/dap-types",
   "crates/dap",
+  "crates/debugger",
   "crates/loader",
   "crates/grammar-build",
   "crates/clipboard",
@@ -64,6 +65,7 @@ diagnostics = { path = "crates/diagnostics" }
 text-layout = { path = "crates/text-layout" }
 buffer = { path = "crates/buffer" }
 dap = { path = "crates/dap" }
+debugger = { path = "crates/debugger" }
 dap-types = { path = "crates/dap-types" }
 event = { path = "crates/event" }
 loader = { path = "crates/loader" }
