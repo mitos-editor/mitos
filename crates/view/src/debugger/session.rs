@@ -145,7 +145,7 @@ impl DebugSession {
         self.execution.selected_thread()
     }
 
-    pub fn stack_frames(&self) -> &HashMap<ThreadId, Vec<StackFrame>> {
+    pub fn stack_frames(&self) -> &HashMap<ThreadId, ::debugger::StackFrames> {
         self.execution.stack_frames()
     }
 

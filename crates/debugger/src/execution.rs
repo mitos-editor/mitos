@@ -25,9 +25,45 @@ impl ThreadState {
     }
 }
 
+/// A loaded prefix of a thread's trace. Short replies finish even if the total is stale.
+#[derive(Default)]
+pub struct StackFrames {
+    frames: Vec<StackFrame>,
+    more: bool,
+}
+
+impl StackFrames {
+    pub fn new(
+        frames: Vec<StackFrame>,
+        total: Option<usize>,
+        start: usize,
+        page_size: Option<usize>,
+    ) -> Self {
+        let more = page_size.is_some_and(|size| frames.len() == size)
+            && total.is_none_or(|total| start.saturating_add(frames.len()) < total);
+        Self { frames, more }
+    }
+    pub fn frames(&self) -> &[StackFrame] {
+        &self.frames
+    }
+    /// Extend this prefix once; duplicate or out-of-order pages are rejected.
+    pub fn append(&mut self, start: usize, page: StackFrames) -> bool {
+        if self.frames.len() != start || !self.more {
+            return false;
+        }
+        self.frames.extend(page.frames);
+        self.more = page.more;
+        true
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.more
+    }
+}
+
 #[derive(Default)]
 pub struct ExecutionState {
-    stack_frames: HashMap<ThreadId, Vec<StackFrame>>,
+    stack_frames: HashMap<ThreadId, StackFrames>,
     thread_states: ThreadStates,
     thread_id: Option<ThreadId>,
     active_frame: Option<usize>,
@@ -42,7 +78,7 @@ impl ExecutionState {
     pub fn selected_thread(&self) -> Option<ThreadId> {
         self.thread_id
     }
-    pub fn stack_frames(&self) -> &HashMap<ThreadId, Vec<StackFrame>> {
+    pub fn stack_frames(&self) -> &HashMap<ThreadId, StackFrames> {
         &self.stack_frames
     }
     pub fn thread_states(&self) -> &ThreadStates {
@@ -51,6 +87,7 @@ impl ExecutionState {
     pub fn current_stack_frame(&self) -> Option<&StackFrame> {
         self.stack_frames
             .get(&self.thread_id?)?
+            .frames
             .get(self.active_frame?)
     }
 
@@ -106,18 +143,19 @@ impl ExecutionState {
         self.thread_id = selected;
     }
 
-    pub fn select_thread(&mut self, thread: ThreadId, frames: Vec<StackFrame>) {
+    pub fn select_thread(&mut self, thread: ThreadId, frames: StackFrames) {
         self.thread_id = Some(thread);
-        self.active_frame = (!frames.is_empty()).then_some(0);
+        self.active_frame = (!frames.frames.is_empty()).then_some(0);
         self.stack_frames.insert(thread, frames);
     }
 
     /// Replace a refreshed trace while retaining the selected frame by adapter identity.
-    pub fn refresh_stack_frames(&mut self, thread: ThreadId, frames: Vec<StackFrame>) {
+    pub fn refresh_stack_frames(&mut self, thread: ThreadId, frames: StackFrames) {
         let selected = self.current_stack_frame().map(|frame| frame.id);
         self.select_thread(thread, frames);
         if let Some(selected) = selected
             && let Some(index) = self.stack_frames[&thread]
+                .frames
                 .iter()
                 .position(|frame| frame.id == selected)
         {
@@ -127,9 +165,22 @@ impl ExecutionState {
 
     pub fn select_frame(&mut self, index: usize) -> Option<&StackFrame> {
         let frames = self.stack_frames.get(&self.thread_id?)?;
-        let frame = frames.get(index)?;
+        let frame = frames.frames.get(index)?;
         self.active_frame = Some(index);
         Some(frame)
+    }
+
+    /// Append only to the exact prefix for which the request was issued.
+    pub fn append_stack_frames(
+        &mut self,
+        thread: ThreadId,
+        start: usize,
+        page: StackFrames,
+    ) -> bool {
+        let Some(trace) = self.stack_frames.get_mut(&thread) else {
+            return false;
+        };
+        trace.append(start, page)
     }
 
     pub fn resume_thread(&mut self, thread: ThreadId) {

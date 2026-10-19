@@ -132,6 +132,13 @@ Adapter invalidation and expression evaluation refresh values in place, keeping
 the open object, filters, and selection. If an object disappears, the browser
 returns to its nearest surviving parent.
 
+## Stack frames
+
+Use `Space G s f` to select a frame in the stopped thread. With adapters that
+support delayed stack loading, Mitos loads 32 frames at a time. Select `Load more…`
+to append frames without losing the picker filter or selection. Selecting a frame
+opens its source and makes that frame the context for variables and evaluation.
+
 ## Terminal for the debugged program
 
 Some adapters ask Mitos to launch the program in another terminal or pane.
