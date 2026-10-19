@@ -233,6 +233,12 @@ view binding, and closure. `editor/filesystem.rs` owns path operations and their
 watcher and language-server effects. Both implement the existing `Editor` API;
 callers do not coordinate these steps themselves.
 
+Filesystem destinations use an explicit reject, ignore, or overwrite policy.
+Creates and non-replacing renames enforce that policy at the filesystem call,
+including when a destination appears after validation. Overwrite takes precedence
+over ignore, but replacing an open destination is rejected to preserve document
+identity and unsaved text. Ignored operations emit no change notifications.
+
 `Editor::open_scratch` loads a fresh text copy before attaching it to editor
 services. The copy retains its source language and encoding without acquiring
 a file identity. It cannot overwrite its source through an unnamed save.

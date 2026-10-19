@@ -10,6 +10,7 @@ use crate::language_servers::edits::generate_transaction_from_edits;
 use editor_core::Uri;
 use lsp_client::{lsp, OffsetEncoding};
 
+use crate::editor::ExistingTarget;
 use crate::{editing::EditError, editor::Action, Editor};
 
 /// A failed workspace change and its index in the supplied change sequence.
@@ -177,12 +178,16 @@ impl Editor {
             ResourceOp::Create(op) => {
                 let uri = Uri::try_from(&op.uri)?;
                 let path = uri.as_path().expect("URIs are valid paths");
-                let ignore_if_exists = op.options.as_ref().is_some_and(|options| {
-                    !options.overwrite.unwrap_or(false) && options.ignore_if_exists.unwrap_or(false)
-                });
-                if !ignore_if_exists || !path.exists() {
-                    self.create_path(path, false)?;
-                }
+                let options = op.options.as_ref();
+                let existing = ExistingTarget::from_options(
+                    options
+                        .and_then(|options| options.overwrite)
+                        .unwrap_or(false),
+                    options
+                        .and_then(|options| options.ignore_if_exists)
+                        .unwrap_or(false),
+                );
+                self.create_path(path, false, existing)?;
             }
             ResourceOp::Delete(op) => {
                 let uri = Uri::try_from(&op.uri)?;
@@ -191,27 +196,36 @@ impl Editor {
                     .options
                     .as_ref()
                     .is_some_and(|options| options.ignore_if_not_exists.unwrap_or(false));
-                if ignore_if_not_exists && !path.exists() {
-                    return Ok(());
-                }
                 let recursive = op
                     .options
                     .as_ref()
                     .and_then(|options| options.recursive)
                     .unwrap_or(false);
-                self.delete_path(path, recursive)?;
+                match self.delete_path(path, recursive) {
+                    Err(error)
+                        if ignore_if_not_exists && error.kind() == std::io::ErrorKind::NotFound => {
+                    }
+                    result => result?,
+                }
             }
             ResourceOp::Rename(op) => {
                 let from_uri = Uri::try_from(&op.old_uri)?;
                 let from = from_uri.as_path().expect("URIs are valid paths");
                 let to_uri = Uri::try_from(&op.new_uri)?;
                 let to = to_uri.as_path().expect("URIs are valid paths");
-                let ignore_if_exists = op.options.as_ref().is_some_and(|options| {
-                    !options.overwrite.unwrap_or(false) && options.ignore_if_exists.unwrap_or(false)
-                });
-                if !ignore_if_exists || !to.exists() {
-                    self.move_path(from, to)?;
-                }
+                // Protocol rename requires an existing source; interactive moves
+                // also support documents whose first save has not happened yet.
+                std::fs::symlink_metadata(from)?;
+                let options = op.options.as_ref();
+                let existing = ExistingTarget::from_options(
+                    options
+                        .and_then(|options| options.overwrite)
+                        .unwrap_or(false),
+                    options
+                        .and_then(|options| options.ignore_if_exists)
+                        .unwrap_or(false),
+                );
+                self.move_path(from, to, existing)?;
             }
         }
         Ok(())

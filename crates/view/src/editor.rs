@@ -8,6 +8,7 @@ mod documents;
 use document_store::Documents;
 pub use text_layout::DisplayPosition;
 mod filesystem;
+pub(crate) use filesystem::ExistingTarget;
 pub use filesystem::FileOperation;
 mod language_servers;
 mod mode;

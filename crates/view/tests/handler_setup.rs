@@ -20,6 +20,8 @@ mod snippets;
 mod word_completion;
 #[path = "handler_setup/workspace_edits.rs"]
 mod workspace_edits;
+#[path = "handler_setup/workspace_resources.rs"]
+mod workspace_resources;
 #[path = "handler_setup/workspace_trust.rs"]
 mod workspace_trust;
 

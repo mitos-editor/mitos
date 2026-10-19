@@ -8,6 +8,7 @@ use event::TaskHandle;
 use futures_util::{future::BoxFuture, FutureExt};
 use lsp_client::{lsp, Client};
 
+use super::ExistingTarget;
 use crate::{DocumentId, Editor};
 
 /// An explicit filesystem target, independent of the currently focused document.
@@ -62,8 +63,10 @@ impl FileOperation {
 
     fn apply(self, editor: &mut Editor) -> io::Result<()> {
         match self {
-            Self::Create { path, is_dir } => editor.create_path(&path, is_dir),
-            Self::Move { from, to } => editor.move_path(&from, &to),
+            Self::Create { path, is_dir } => {
+                editor.create_path(&path, is_dir, ExistingTarget::Reject)
+            }
+            Self::Move { from, to } => editor.move_path(&from, &to, ExistingTarget::Reject),
             Self::Delete { path, recursive } => editor.delete_path(&path, recursive),
         }
     }

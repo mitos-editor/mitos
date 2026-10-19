@@ -11,18 +11,64 @@ use workspace::trust::TrustQuery;
 
 use crate::{DocumentId, Editor};
 
+/// How an operation treats an existing destination. Overwrite takes precedence.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExistingTarget {
+    Reject,
+    Ignore,
+    Overwrite,
+}
+
+impl ExistingTarget {
+    pub(crate) fn from_options(overwrite: bool, ignore: bool) -> Self {
+        if overwrite {
+            Self::Overwrite
+        } else if ignore {
+            Self::Ignore
+        } else {
+            Self::Reject
+        }
+    }
+}
+
 impl Editor {
     /// Apply a resource change and its notifications without requesting preflight edits.
-    pub(crate) fn move_path(&mut self, old_path: &Path, new_path: &Path) -> io::Result<()> {
+    pub(crate) fn move_path(
+        &mut self,
+        old_path: &Path,
+        new_path: &Path,
+        existing: ExistingTarget,
+    ) -> io::Result<()> {
         let new_path = canonicalize(new_path);
         // sanity check
         if old_path == new_path {
             return Ok(());
         }
+        if !self.prepare_resource_target(&new_path, existing)? {
+            return Ok(());
+        }
         let old_watched = self.file_watcher.is_watching(old_path);
         let new_watched = self.file_watcher.is_watching(&new_path);
-        if old_path.exists() {
-            fs::rename(old_path, &new_path)?;
+        let source_exists = match fs::symlink_metadata(old_path) {
+            Ok(_) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error),
+        };
+        if source_exists {
+            let result = if existing == ExistingTarget::Overwrite {
+                fs::rename(old_path, &new_path)
+            } else {
+                stdx::file::rename_noreplace(old_path, &new_path)
+            };
+            match result {
+                Err(error)
+                    if existing == ExistingTarget::Ignore
+                        && error.kind() == io::ErrorKind::AlreadyExists =>
+                {
+                    return Ok(())
+                }
+                result => result?,
+            }
         }
 
         let breakpoint_paths = self.rename_debugger_sources(old_path, &new_path);
@@ -69,17 +115,36 @@ impl Editor {
         Ok(())
     }
 
-    pub(crate) fn create_path(&mut self, path: &Path, is_dir: bool) -> io::Result<()> {
+    pub(crate) fn create_path(
+        &mut self,
+        path: &Path,
+        is_dir: bool,
+        existing: ExistingTarget,
+    ) -> io::Result<()> {
         let path = canonicalize(path);
+        if !self.prepare_resource_target(&path, existing)? {
+            return Ok(());
+        }
         if let Some(dir) = path.parent()
             && !dir.is_dir()
         {
             fs::create_dir_all(dir)?;
         }
-        if is_dir {
-            fs::create_dir(&path)?;
+        let result = if is_dir {
+            fs::create_dir(&path)
+        } else if existing == ExistingTarget::Overwrite {
+            fs::write(&path, [])
         } else {
-            fs::write(&path, [])?;
+            fs::File::create_new(&path).map(|_| ())
+        };
+        match result {
+            Err(error)
+                if existing == ExistingTarget::Ignore
+                    && error.kind() == io::ErrorKind::AlreadyExists =>
+            {
+                return Ok(())
+            }
+            result => result?,
         }
 
         for ls in self.language_servers.iter_clients() {
@@ -94,6 +159,35 @@ impl Editor {
                 .file_changed(path, lsp::FileChangeType::CREATED);
         }
         Ok(())
+    }
+
+    fn prepare_resource_target(&self, path: &Path, existing: ExistingTarget) -> io::Result<bool> {
+        match fs::symlink_metadata(path) {
+            Ok(_) => match existing {
+                ExistingTarget::Ignore => return Ok(false),
+                ExistingTarget::Reject => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!("Destination already exists: {}", path.display()),
+                    ))
+                }
+                ExistingTarget::Overwrite => {}
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        // Replacing an open target would create duplicate document identities or
+        // leave its buffer disconnected from the file's new contents.
+        if self.documents().any(|doc| {
+            doc.path()
+                .is_some_and(|doc_path| doc_path.starts_with(path))
+        }) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("Destination is open in the editor: {}", path.display()),
+            ));
+        }
+        Ok(true)
     }
 
     pub(crate) fn delete_path(&mut self, path: &Path, recursive: bool) -> io::Result<()> {
