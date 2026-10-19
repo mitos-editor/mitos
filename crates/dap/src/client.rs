@@ -1,3 +1,5 @@
+mod tcp;
+
 use crate::{
     requests::{DisconnectArguments, TerminateArguments},
     transport::{ClientEvent, Payload, Request, Response, Transport, TransportSender},
@@ -10,7 +12,7 @@ use serde_json::Value;
 use anyhow::anyhow;
 use std::{
     future::Future,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::PathBuf,
     process::Stdio,
     sync::{
@@ -23,7 +25,6 @@ use tokio::{
     net::TcpStream,
     process::{Child, Command},
     sync::mpsc::{channel, UnboundedReceiver},
-    time,
 };
 
 #[derive(Debug)]
@@ -116,50 +117,19 @@ impl Client {
         )
     }
 
-    async fn get_port() -> Option<u16> {
-        Some(
-            tokio::net::TcpListener::bind(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                0,
-            ))
-            .await
-            .ok()?
-            .local_addr()
-            .ok()?
-            .port(),
-        )
-    }
-
     /// Spawns an adapter that listens on an ephemeral loopback TCP port.
     ///
     /// Every `{}` in `port_format` is replaced with the selected port. The
-    /// resulting string is split on spaces and appended to `args`.
+    /// resulting string is split on whitespace and appended to `args`. Startup
+    /// retries connection refusals for up to ten seconds and reports early process
+    /// exit immediately. Dropping startup kills the pending adapter process.
     pub async fn tcp_process(
         cmd: &str,
         args: Vec<&str>,
         port_format: &str,
         id: DebugAdapterId,
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
-        let port = Self::get_port()
-            .await
-            .ok_or_else(|| anyhow!("Could not allocate a debug adapter port"))?;
-
-        let process = Command::new(cmd)
-            .args(args)
-            .args(port_format.replace("{}", &port.to_string()).split(' '))
-            // silence messages
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            // Startup cancellation and session removal own the adapter process too.
-            .kill_on_drop(true)
-            .spawn()?;
-
-        // Wait for adapter to become ready for connection
-        time::sleep(time::Duration::from_millis(500)).await;
-        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-        let stream = TcpStream::connect(socket).await?;
-
+        let (stream, process, socket) = tcp::spawn(cmd, args, port_format).await?;
         let (rx, tx) = stream.into_split();
         let mut result = Self::streams(
             Box::new(BufReader::new(rx)),
@@ -524,6 +494,7 @@ impl Drop for PendingRequest {
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time;
 
     fn connection() -> (
         Client,

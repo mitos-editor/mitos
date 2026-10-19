@@ -1,6 +1,6 @@
-//! Minimal stdio adapter exercising parent/child reverse-request handshakes.
+//! Controlled stdio/TCP adapter exercising startup and child-session handshakes.
 use serde_json::{json, Value};
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, Write};
 
 fn send(output: &mut impl Write, sequence: &mut u64, mut message: Value) -> anyhow::Result<()> {
     message["seq"] = (*sequence).into();
@@ -12,9 +12,7 @@ fn send(output: &mut impl Write, sequence: &mut u64, mut message: Value) -> anyh
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
-    let mut input = io::stdin().lock();
-    let mut output = io::stdout().lock();
+fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> {
     let mut sequence = 1;
     let mut child_request = None;
     loop {
@@ -81,4 +79,40 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
     }
+}
+
+fn main() -> anyhow::Result<()> {
+    let mut args = std::env::args().skip(1);
+    let mut port = None;
+    let mut gate = None;
+    let mut started = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--exit" => std::process::exit(23),
+            "--tcp" => port = Some(args.next().unwrap().parse::<u16>()?),
+            "--gate" => gate = Some(std::path::PathBuf::from(args.next().unwrap())),
+            "--started" => started = Some(std::path::PathBuf::from(args.next().unwrap())),
+            _ => anyhow::bail!("unknown fixture argument: {arg}"),
+        }
+    }
+    let Some(port) = port else {
+        return serve(io::stdin().lock(), io::stdout().lock());
+    };
+    // A probe listener makes process cleanup observable without platform-specific PID APIs.
+    let probe = std::net::TcpListener::bind("127.0.0.1:0")?;
+    if let Some(path) = started {
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, probe.local_addr()?.to_string())?;
+        std::fs::rename(temporary, path)?;
+    }
+    if let Some(gate) = gate {
+        while !gate.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+    let (stream, _) = listener.accept()?;
+    let result = serve(io::BufReader::new(stream.try_clone()?), stream);
+    drop(probe);
+    result
 }

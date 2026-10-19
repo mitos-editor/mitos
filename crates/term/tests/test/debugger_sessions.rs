@@ -194,3 +194,133 @@ async fn stdio_adapters_can_start_child_sessions_without_changing_selection() ->
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+fn managed_tcp(app: &mut Application, args: Vec<String>) -> DebugAdapterId {
+    app.editor.connect_debugger(
+        None,
+        DebugAdapterConfig {
+            name: "TCP fixture".into(),
+            transport: language_config::DebugAdapterTransport::Tcp,
+            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
+            args,
+            port_arg: Some("--tcp {}".into()),
+            templates: vec![],
+            quirks: Default::default(),
+        },
+        None,
+    )
+}
+
+async fn wait_for_probe(path: &std::path::Path) -> anyhow::Result<std::net::SocketAddr> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match std::fs::read_to_string(path) {
+                Ok(address) => return Ok(address.parse()?),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    tokio::time::sleep(Duration::from_millis(10)).await
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn managed_tcp_startup_waits_for_adapter_readiness() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gate = dir.path().join("ready");
+    let started = dir.path().join("started");
+    let mut app = AppBuilder::new().build()?;
+    let id = managed_tcp(
+        &mut app,
+        vec![
+            "--gate".into(),
+            gate.to_string_lossy().into(),
+            "--started".into(),
+            started.to_string_lossy().into(),
+        ],
+    );
+    wait_for_probe(&started).await?;
+    assert!(app.editor.debugger().is_starting(id));
+    std::fs::write(gate, "ready")?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().is_starting(id) {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert!(app
+        .editor
+        .debugger()
+        .get_session(id)
+        .unwrap()
+        .is_connected());
+    app.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().get_session(id).is_some() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn managed_tcp_startup_reports_early_process_exit() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let id = managed_tcp(&mut app, vec!["--exit".into()]);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while app.editor.debugger().get_session(id).is_some() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert!(app
+        .editor
+        .get_status()
+        .unwrap()
+        .0
+        .contains("exited before accepting connections"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn canceling_tcp_startup_releases_the_adapter_process() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let started = dir.path().join("started");
+    let mut app = AppBuilder::new().build()?;
+    let id = managed_tcp(
+        &mut app,
+        vec![
+            "--gate".into(),
+            dir.path().join("never-ready").to_string_lossy().into(),
+            "--started".into(),
+            started.to_string_lossy().into(),
+        ],
+    );
+    let probe = wait_for_probe(&started).await?;
+    assert!(app.editor.debugger_mut().cancel_startup(id));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match TcpListener::bind(probe).await {
+                Ok(listener) => {
+                    drop(listener);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                    tokio::task::yield_now().await
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    })
+    .await??;
+    assert!(app.editor.debugger().get_session(id).is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
