@@ -144,6 +144,49 @@ The standard build includes syntax comparison. Builds made without the
 `syntax-diff` Cargo feature retain line review and report that the syntax provider
 is unavailable when explicitly requested.
 
+## Git picker actions
+
+In the changed-file picker (`Space g`), press **Alt-a** for available Git actions.
+Actions use the selected file's repository; with no selection, they use the picker root.
+
+| Key | Action |
+| --- | --- |
+| `Alt-s` | Stage the selected file as it exists on disk |
+| `Alt-u` | Unstage the selected file, keeping its working copy |
+| `Alt-z` | Stash all repository changes, after confirmation |
+| `Alt-l` | Browse stashes |
+
+Staging does not save unsaved buffer edits. Staging and unstaging affect the entire
+file, including both paths of a rename. Results refresh without losing the query
+or jumping back to the first row.
+
+Stashing saves staged, unstaged, and untracked files throughout the selected
+repository, then restores its working tree to `HEAD`. Ignored files and changes
+inside submodule working trees are excluded. Save or close modified buffers in
+that repository first. Mitos suspends file saves while Git runs, reloads clean
+buffers afterwards, and preserves edits made during the operation. Preserved
+edits may need `:w!` to replace the changed disk version.
+
+**Alt-l**, or the command palette's `git_stash_picker`, lists the newest 500
+stashes. Press **Enter** to browse a stash's saved index, working tree, and
+untracked files, then **Enter** on a file to review its immutable text diff.
+Use **Alt-Enter** to keep a picker open while inspecting. In the stash picker,
+**Alt-a** opens its action menu:
+
+| Key | Action |
+| --- | --- |
+| `Alt-s` | Apply the stash and keep it |
+| `Alt-i` | Apply the stash, restore its staged changes, and keep it |
+
+Application requires confirmation and clean editor buffers. The selected stash
+is identified by its commit, so later additions to the stash list cannot change
+which stash gets applied. Git may leave conflicts to resolve; the stash is always
+retained and Mitos refreshes the resulting files and index even on failure.
+
+Git actions require the `git` executable on `PATH` and workspace Git trust
+(`:workspace-trust`). Review and status browsing retain their existing trust policy.
+Remap these actions in [`keys.git-picker` and `keys.stash-picker`](remapping.md#component-keys).
+
 ## Change navigation and restoration
 
 Diff gutters compare the buffer with `HEAD`, including unsaved edits.

@@ -36,6 +36,9 @@ pub use status::{FileChange, FileStatus};
 mod review;
 pub use review::{Comparison, ComparisonKind, MAX_REVIEW_BYTES};
 
+#[cfg(feature = "git")]
+pub mod operations;
+
 /// Selects which changed files a status query should return.
 #[derive(Clone)]
 pub enum ChangedFileScope {

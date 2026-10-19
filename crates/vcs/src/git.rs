@@ -112,6 +112,10 @@ pub fn for_each_file_status(
 /// Watch comparison inputs, including configuration and linked-worktree metadata.
 pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
     let repo = open_repo(path, trust_full)?.to_thread_local();
+    repository_watched_paths(&repo)
+}
+
+pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>> {
     let git_dir = repo.git_dir().canonicalize()?;
     let common_dir = repo.common_dir().canonicalize()?;
     let mut paths = vec![
@@ -129,6 +133,23 @@ pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> 
 }
 
 pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
+    open_repo_impl(path, trust_full, true)
+}
+
+/// Preflight for mutations uses the selected repository rather than a launching Git process's
+/// temporary object store or environment configuration overrides.
+pub(super) fn open_repo_for_operations(
+    path: &Path,
+    trust_full: bool,
+) -> Result<ThreadSafeRepository> {
+    open_repo_impl(path, trust_full, false)
+}
+
+fn open_repo_impl(
+    path: &Path,
+    trust_full: bool,
+    inherit_environment: bool,
+) -> Result<ThreadSafeRepository> {
     // Discover paths before opening so gix's discovery cannot replace the caller's workspace
     // trust decision with an ownership check. `with(trust)` sets the initial level, but gix can
     // still promote configuration metadata through `safe.directory`. Filter sensitive lookups by
@@ -146,15 +167,19 @@ pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepos
         system: true,
         git: true,
         user: true,
-        env: true,
+        env: inherit_environment,
         includes: true,
         git_binary: cfg!(windows),
     };
 
-    let permissions = gix::open::Permissions {
+    let mut permissions = gix::open::Permissions {
         config,
         ..gix::open::Permissions::default_for_level(trust)
     };
+    if !inherit_environment {
+        permissions.env.objects = gix::sec::Permission::Deny;
+        permissions.env.git_prefix = gix::sec::Permission::Deny;
+    }
 
     let discover_options = gix::discover::upwards::Options {
         dot_git_only: true,

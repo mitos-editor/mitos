@@ -49,31 +49,7 @@ pub(crate) fn read_git_comparison(
     let relative = |path: &Path| -> Result<_> {
         Ok(gix::path::try_into_bstr(path.strip_prefix(root)?)?.into_owned())
     };
-    let read_object = |id: gix::ObjectId, mode: EntryKind, path: &Path| -> Result<Vec<u8>> {
-        if !matches!(
-            mode,
-            EntryKind::Blob | EntryKind::BlobExecutable | EntryKind::Link
-        ) {
-            bail!("Submodule changes cannot be displayed as a text diff");
-        }
-        let header = repo.find_header(id)?;
-        anyhow::ensure!(
-            header.size() <= MAX_REVIEW_BYTES as u64,
-            "File too large to review (limit 10 MiB)"
-        );
-        let object = repo.find_object(id)?;
-        if mode == EntryKind::Link {
-            return Ok(object.data.to_vec());
-        }
-        let (mut pipeline, _) = repo.filter_pipeline(None)?;
-        let relative = relative(path)?;
-        let mut outcome = pipeline.convert_to_worktree(
-            &object.data,
-            relative.as_ref(),
-            gix::filter::plumbing::driver::apply::Delay::Forbid,
-        )?;
-        bounded_read(&mut outcome)
-    };
+    let read_object = |id, mode, path: &Path| read_blob(&repo, id, mode, path.strip_prefix(root)?);
     let read_head = |path: &Path| -> Result<Vec<u8>> {
         if repo.head()?.is_unborn() {
             return Ok(Vec::new());
@@ -148,6 +124,40 @@ pub(crate) fn read_git_comparison(
         }
     };
     Ok(Comparison { before, after })
+}
+
+/// Read a bounded historical blob, applying only the repository's permitted worktree filters.
+#[cfg(feature = "git")]
+pub(crate) fn read_blob(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+    mode: gix::objs::tree::EntryKind,
+    path: &std::path::Path,
+) -> Result<Vec<u8>> {
+    use gix::objs::tree::EntryKind;
+    anyhow::ensure!(
+        matches!(
+            mode,
+            EntryKind::Blob | EntryKind::BlobExecutable | EntryKind::Link
+        ),
+        "Submodule changes cannot be displayed as a text diff"
+    );
+    anyhow::ensure!(
+        repo.find_header(id)?.size() <= MAX_REVIEW_BYTES as u64,
+        "File too large to review (limit 10 MiB)"
+    );
+    let object = repo.find_object(id)?;
+    if mode == EntryKind::Link {
+        return Ok(object.data.to_vec());
+    }
+    let (mut pipeline, _) = repo.filter_pipeline(None)?;
+    let relative = gix::path::try_into_bstr(path)?;
+    let mut outcome = pipeline.convert_to_worktree(
+        &object.data,
+        relative.as_ref(),
+        gix::filter::plumbing::driver::apply::Delay::Forbid,
+    )?;
+    bounded_read(&mut outcome)
 }
 
 #[cfg(feature = "git")]

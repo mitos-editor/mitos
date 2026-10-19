@@ -41,6 +41,8 @@ pub struct Handlers {
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
     pub blame: blame::BlameHandler,
+    #[cfg(feature = "git")]
+    pub git_operations: crate::features::git_operations::GitOperationsHandler,
     pub(crate) change_review: parking_lot::Mutex<event::TaskController>,
     pub(crate) change_review_worker: std::sync::Arc<tokio::sync::Semaphore>,
     pub auto_reload: auto_reload::AutoReloadHandler,
@@ -83,6 +85,8 @@ impl Handlers {
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
             blame: blame::BlameHandler::new(callbacks.clone()),
+            #[cfg(feature = "git")]
+            git_operations: crate::features::git_operations::GitOperationsHandler::default(),
             change_review: parking_lot::Mutex::default(),
             change_review_worker: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             auto_reload: auto_reload::AutoReloadHandler::new(callbacks.clone(), config),

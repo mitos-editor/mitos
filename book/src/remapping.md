@@ -82,6 +82,12 @@ C-n = "unbound" # Release this key to the picker's prompt.
 [keys.buffer-picker]
 C-x = "close_buffer" # Close the selected buffer and keep the picker open.
 
+[keys.git-picker]
+C-x = "actions"
+
+[keys.stash-picker]
+C-x = "apply_stash"
+
 [keys.prompt]
 C-j = "accept"
 C-x = { h = "move_start", l = "move_end" }
@@ -130,6 +136,8 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
 | `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `populate_quicklist`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview`, `toggle_diff_engine` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
+| `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
+| `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
@@ -139,7 +147,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
-`keys.buffer-picker` inherits `keys.picker`. Buffer-specific bindings take
+`keys.buffer-picker`, `keys.git-picker`, and `keys.stash-picker` inherit `keys.picker`. Picker-specific bindings take
 priority over shared picker bindings, including ones from project configuration.
 
 `close_buffer` closes the selected buffer while keeping the picker open. It

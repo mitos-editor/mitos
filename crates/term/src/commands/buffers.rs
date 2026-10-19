@@ -39,11 +39,11 @@ fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
 
 fn close_selected_buffer(
     cx: &mut crate::compositor::Context,
-    meta: &BufferMeta,
+    meta: Option<&BufferMeta>,
     action: PickerItemAction,
 ) -> PickerCallbackResult<BufferMeta, PathStyleConfig> {
-    match action {
-        PickerItemAction::CloseBuffer => {
+    match (action, meta) {
+        (PickerItemAction::CloseBuffer, Some(meta)) => {
             if let Err(err) = cx.block_try_flush_writes() {
                 cx.editor.set_error(|| err.to_string());
                 return PickerCallbackResult::KeepOpen;
@@ -65,6 +65,7 @@ fn close_selected_buffer(
                 editor_data: PathStyleConfig::new(cx.editor),
             }
         }
+        _ => PickerCallbackResult::KeepOpen,
     }
 }
 
