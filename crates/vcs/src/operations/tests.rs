@@ -46,24 +46,30 @@ async fn stage_and_unstage_leave_working_file_untouched() -> Result<()> {
 
 #[tokio::test]
 async fn unborn_head_and_literal_pathspecs() -> Result<()> {
-    let repo = empty_git_repo();
-    let git = GitRepository::discover(repo.path())?;
-    let name = "[literal].txt";
-    std::fs::write(repo.path().join(name), "literal")?;
-    std::fs::write(repo.path().join("l.txt"), "other")?;
-    let status = statuses(repo.path())
+    let directory = tempfile::Builder::new().prefix("mitos git ").tempdir()?;
+    let root = directory.path().join("repository with spaces");
+    std::fs::create_dir(&root)?;
+    exec_git_cmd(&["init"], &root);
+    let root = root.canonicalize()?;
+    let git = GitRepository::discover(&root)?;
+    assert_eq!(git.root(), root);
+    let name = "nested directory/[literal].txt";
+    std::fs::create_dir(root.join("nested directory"))?;
+    std::fs::write(root.join(name), "literal")?;
+    std::fs::write(root.join("nested directory/l.txt"), "other")?;
+    let status = statuses(&root)
         .into_iter()
         .find(|status| status.path().ends_with(name))
         .unwrap();
     git.prepare_file(&status, FileOperation::Stage, true)?
         .execute()
         .await?;
-    let status = statuses(repo.path())
+    let status = statuses(&root)
         .into_iter()
         .find(|status| status.path().ends_with(name))
         .unwrap();
     assert!(status.staged.is_some());
-    assert!(statuses(repo.path())
+    assert!(statuses(&root)
         .iter()
         .find(|status| status.path().ends_with("l.txt"))
         .unwrap()
@@ -72,10 +78,8 @@ async fn unborn_head_and_literal_pathspecs() -> Result<()> {
     git.prepare_file(&status, FileOperation::Unstage, true)?
         .execute()
         .await?;
-    assert!(repo.path().join(name).exists());
-    assert!(statuses(repo.path())
-        .iter()
-        .all(|status| status.staged.is_none()));
+    assert!(root.join(name).exists());
+    assert!(statuses(&root).iter().all(|status| status.staged.is_none()));
     Ok(())
 }
 
