@@ -2,16 +2,6 @@ use crate::editor::Action;
 use crate::{align_view, debugger::source, Align, Editor};
 use dap::{self as dap, DebugAdapterId, Payload};
 
-#[macro_export]
-macro_rules! debugger {
-    ($editor:expr) => {{
-        let Some(debugger) = $editor.debugger_mut().get_active_client_mut() else {
-            return;
-        };
-        debugger
-    }};
-}
-
 pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
     if source::line_index(frame.line).is_none() {
         return;

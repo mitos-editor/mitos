@@ -125,6 +125,20 @@ impl DebugSession {
         self.parent
     }
 
+    /// Whether the adapter transport has connected, including during initialization.
+    pub fn is_connected(&self) -> bool {
+        self.client.is_some()
+    }
+
+    /// Negotiated capabilities, including subsequent adapter updates.
+    pub fn capabilities(&self) -> Option<&dap::DebuggerCapabilities> {
+        self.client.as_ref()?.caps.as_ref()
+    }
+
+    pub fn connection_type(&self) -> Option<dap::ConnectionType> {
+        self.client.as_ref()?.connection_type()
+    }
+
     pub fn selected_thread(&self) -> Option<ThreadId> {
         self.thread_id
     }
@@ -175,23 +189,16 @@ impl DebuggerState {
         self.get_session(*self.selection_order.last()?)
     }
 
-    pub fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
+    pub(crate) fn get_client(&self, id: DebugAdapterId) -> Option<&Client> {
         self.get_session(id)?.client.as_ref()
     }
 
-    pub fn get_client_mut(&mut self, id: DebugAdapterId) -> Option<&mut Client> {
+    pub(crate) fn get_client_mut(&mut self, id: DebugAdapterId) -> Option<&mut Client> {
         self.get_session_mut(id)?.client.as_mut()
     }
 
-    pub fn get_active_client(&self) -> Option<&Client> {
+    pub(crate) fn get_active_client(&self) -> Option<&Client> {
         let client = self.get_client(*self.selection_order.last()?)?;
-        client.caps.as_ref()?;
-        Some(client)
-    }
-
-    pub fn get_active_client_mut(&mut self) -> Option<&mut Client> {
-        let id = *self.selection_order.last()?;
-        let client = self.get_client_mut(id)?;
         client.caps.as_ref()?;
         Some(client)
     }

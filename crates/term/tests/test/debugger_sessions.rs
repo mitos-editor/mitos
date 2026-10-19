@@ -42,6 +42,7 @@ fn connect(app: &mut Application, listener: &TcpListener, name: &str) -> DebugAd
             templates: vec![],
             quirks: Default::default(),
         },
+        None,
     )
 }
 
@@ -146,34 +147,25 @@ async fn stdio_adapters_can_start_child_sessions_without_changing_selection() ->
             templates: vec![],
             quirks: Default::default(),
         },
+        Some((
+            dap::ConnectionType::Launch,
+            serde_json::json!({"spawnChild":true}),
+        )),
     );
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while app.editor.debugger().is_starting(parent) {
-            run_event_loop_until_idle(&mut app).await;
-        }
-    })
-    .await?;
-    let launch = app
-        .editor
-        .debugger_mut()
-        .get_client_mut(parent)
-        .unwrap()
-        .launch(serde_json::json!({"spawnChild":true}));
-    let launched = tokio::spawn(launch);
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(&mut app).await;
-            if app
-                .editor
-                .get_status()
-                .is_some_and(|status| status.0.contains("stdio child started"))
+            if !app.editor.debugger().is_starting(parent)
+                && app.editor.debugger().sessions().any(|session| {
+                    session.parent() == Some(parent)
+                        && !app.editor.debugger().is_starting(session.id())
+                })
             {
                 break;
             }
         }
     })
     .await?;
-    launched.await??;
     let child = app
         .editor
         .debugger()

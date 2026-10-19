@@ -3,18 +3,28 @@ use super::*;
 
 struct Adapter {
     socket: std::net::SocketAddr,
+    listener: Arc<TcpListener>,
     wire: mpsc::UnboundedReceiver<Value>,
     outgoing: mpsc::UnboundedSender<Value>,
 }
 
 impl Adapter {
     async fn new() -> anyhow::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let listener = Arc::new(TcpListener::bind("127.0.0.1:0").await?);
+        Self::on_listener(listener)
+    }
+
+    fn child(&self) -> anyhow::Result<Self> {
+        Self::on_listener(self.listener.clone())
+    }
+
+    fn on_listener(listener: Arc<TcpListener>) -> anyhow::Result<Self> {
         let socket = listener.local_addr()?;
+        let accept = listener.clone();
         let (wire_tx, wire) = mpsc::unbounded_channel();
         let (outgoing, mut outgoing_rx) = mpsc::unbounded_channel::<Value>();
         tokio::spawn(async move {
-            let (stream, _) = listener.accept().await?;
+            let (stream, _) = accept.accept().await?;
             let (read, mut write) = stream.into_split();
             tokio::spawn(async move {
                 let mut read = BufReader::new(read);
@@ -48,6 +58,7 @@ impl Adapter {
         });
         Ok(Self {
             socket,
+            listener,
             wire,
             outgoing,
         })
@@ -91,7 +102,12 @@ async fn incoming(f: &mut Fixture) -> anyhow::Result<DebugAdapterId> {
 
 async fn wait_for_connection(f: &mut Fixture, id: DebugAdapterId) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
-        while f.editor.debugger().get_client(id).is_none() {
+        while f
+            .editor
+            .debugger()
+            .get_session(id)
+            .is_none_or(|session| !session.is_connected())
+        {
             anyhow::ensure!(
                 f.editor.debugger().is_starting(id),
                 "startup failed before connecting"
@@ -119,7 +135,9 @@ async fn initialization_serves_reverse_requests_and_defers_configuration() -> an
         gate: None,
     })?;
     let mut adapter = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(adapter.socket), config());
+    let id = f
+        .editor
+        .connect_debugger(Some(adapter.socket), config(), None);
     assert!(f.editor.debugger().is_starting(id));
     assert!(!f.editor.debugger().is_empty());
     wait_for_connection(&mut f, id).await?;
@@ -129,7 +147,13 @@ async fn initialization_serves_reverse_requests_and_defers_configuration() -> an
         .outgoing
         .send(json!({"type":"event","event":"initialized"}))?;
     assert_eq!(incoming(&mut f).await?, id);
-    assert!(f.editor.debugger().get_active_client().is_none());
+    assert!(f
+        .editor
+        .debugger()
+        .get_active_session()
+        .unwrap()
+        .capabilities()
+        .is_none());
     adapter
         .outgoing
         .send(json!({"type":"request","seq":91,"command":"runInTerminal",
@@ -145,7 +169,7 @@ async fn initialization_serves_reverse_requests_and_defers_configuration() -> an
         json!({"supportsConfigurationDoneRequest":true}),
     )?;
     wait_for_startup(&mut f, id).await?;
-    assert_eq!(f.editor.debugger().get_active_client().unwrap().id(), id);
+    assert_eq!(f.editor.debugger().get_active_session().unwrap().id(), id);
     let configured = message(&mut adapter.wire).await?;
     assert_eq!(configured["command"], "configurationDone");
     adapter.reply(&configured, true, json!({}))?;
@@ -156,16 +180,20 @@ async fn initialization_serves_reverse_requests_and_defers_configuration() -> an
 async fn canceled_connections_cannot_install_queued_transports() -> anyhow::Result<()> {
     let mut f = Fixture::new("")?;
     let mut old = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(old.socket), config());
+    let id = f.editor.connect_debugger(Some(old.socket), config(), None);
     let connected = callback(&mut f).await?;
     assert!(f.editor.debugger_mut().cancel_startup(id));
     let replacement = Adapter::new().await?;
     let new_id = f
         .editor
-        .connect_debugger(Some(replacement.socket), config());
+        .connect_debugger(Some(replacement.socket), config(), None);
     assert_ne!(id, new_id);
     connected(&mut f.editor);
-    assert!(f.editor.debugger().get_client(id).is_none());
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(id)
+        .is_none_or(|session| !session.is_connected()));
     assert!(f.editor.debugger().is_starting(new_id));
     assert!(
         tokio::time::timeout(Duration::from_secs(5), old.wire.recv())
@@ -194,7 +222,11 @@ async fn closing_the_launch_document_rejects_queued_initialization() -> anyhow::
     assert!(f.editor.close_document(document, true).is_ok());
     f.editor.set_status("document closed");
     initialized(&mut f.editor);
-    assert!(f.editor.debugger().get_client(id).is_none());
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(id)
+        .is_none_or(|session| !session.is_connected()));
     assert!(!f.editor.debugger().is_starting(id));
     assert!(
         tokio::time::timeout(Duration::from_secs(5), adapter.wire.recv())
@@ -211,7 +243,9 @@ async fn termination_cancels_initialization_without_waiting_for_the_adapter() ->
 {
     let mut f = Fixture::new("")?;
     let mut adapter = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(adapter.socket), config());
+    let id = f
+        .editor
+        .connect_debugger(Some(adapter.socket), config(), None);
     wait_for_connection(&mut f, id).await?;
     assert_eq!(message(&mut adapter.wire).await?["command"], "initialize");
     f.editor
@@ -230,7 +264,9 @@ async fn termination_cancels_initialization_without_waiting_for_the_adapter() ->
 async fn initialization_failures_release_the_adapter_and_report_the_error() -> anyhow::Result<()> {
     let mut f = Fixture::new("")?;
     let mut adapter = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(adapter.socket), config());
+    let id = f
+        .editor
+        .connect_debugger(Some(adapter.socket), config(), None);
     wait_for_connection(&mut f, id).await?;
     let initialize = message(&mut adapter.wire).await?;
     adapter.reply(&initialize, false, Value::Null)?;
@@ -250,14 +286,15 @@ async fn initialization_failures_release_the_adapter_and_report_the_error() -> a
 async fn child_startup_replies_after_launch_and_cancels_with_its_parent() -> anyhow::Result<()> {
     for remove_parent in [false, true] {
         let mut f = Fixture::new("")?;
-        let (parent, mut parent_wire) = adapter(&mut f).await?;
-        message(&mut parent_wire).await?;
-        let mut child = Adapter::new().await?;
-        f.editor
-            .debugger_mut()
-            .get_client_mut(parent)
-            .unwrap()
-            .socket = Some(child.socket);
+        let mut parent_adapter = Adapter::new().await?;
+        let parent = f
+            .editor
+            .connect_debugger(Some(parent_adapter.socket), config(), None);
+        wait_for_connection(&mut f, parent).await?;
+        let initialize = message(&mut parent_adapter.wire).await?;
+        parent_adapter.reply(&initialize, true, json!({}))?;
+        wait_for_startup(&mut f, parent).await?;
+        let mut child = parent_adapter.child()?;
         tokio::time::timeout(
             Duration::from_secs(5),
             f.editor.handle_debugger_message(
@@ -273,11 +310,13 @@ async fn child_startup_replies_after_launch_and_cancels_with_its_parent() -> any
         debugger_callback(&mut f).await?;
         let initialize = message(&mut child.wire).await?;
         assert_eq!(initialize["command"], "initialize");
-        assert!(parent_wire.try_recv().is_err());
+        assert!(parent_adapter.wire.try_recv().is_err());
         if remove_parent {
             f.editor
                 .handle_debugger_message(parent, debugger_event("terminated", Value::Null))
                 .await;
+            let disconnect = message(&mut parent_adapter.wire).await?;
+            parent_adapter.reply(&disconnect, true, json!({}))?;
             wait_for_adapter_removal(&mut f, parent).await?;
             assert!(f.editor.debugger().is_empty());
             assert!(
@@ -287,20 +326,28 @@ async fn child_startup_replies_after_launch_and_cancels_with_its_parent() -> any
             );
         } else {
             // The parent's transport remains usable while the child's initialization is pending.
-            release_adapter_request(&f, parent).await?;
-            assert_eq!(message(&mut parent_wire).await?["command"], "threads");
+            let threads = tokio::spawn(f.editor.debugger_threads()?.run());
+            let request = message(&mut parent_adapter.wire).await?;
+            assert_eq!(request["command"], "threads");
+            parent_adapter.reply(&request, true, json!({"threads":[]}))?;
+            assert!(threads
+                .await?
+                .unwrap()
+                .into_result(&f.editor)
+                .unwrap()?
+                .is_empty());
             child.reply(&initialize, true, json!({}))?;
             debugger_callback(&mut f).await?;
             let launch = message(&mut child.wire).await?;
             assert_eq!(launch["command"], "launch");
             assert_eq!(launch["arguments"]["program"], "child");
-            assert!(parent_wire.try_recv().is_err());
+            assert!(parent_adapter.wire.try_recv().is_err());
             child.reply(&launch, true, json!({}))?;
             debugger_callback(&mut f).await?;
-            let reply = message(&mut parent_wire).await?;
+            let reply = message(&mut parent_adapter.wire).await?;
             assert_eq!(reply["request_seq"], 77);
             assert_eq!(reply["success"], true);
-            assert!(parent_wire.try_recv().is_err());
+            assert!(parent_adapter.wire.try_recv().is_err());
         }
     }
     Ok(())
@@ -323,7 +370,13 @@ async fn terminated_adapters_do_not_finish_pending_initialization() -> anyhow::R
         .await;
     initialized(&mut f.editor);
     assert!(!f.editor.debugger().is_starting(id));
-    assert!(f.editor.debugger().get_client(id).unwrap().caps.is_none());
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(id)
+        .unwrap()
+        .capabilities()
+        .is_none());
     let disconnect = message(&mut adapter.wire).await?;
     assert_eq!(disconnect["command"], "disconnect");
     adapter.reply(&disconnect, true, json!({}))?;
@@ -338,11 +391,15 @@ async fn initialization_order_preserves_selection_and_termination_targets_one_st
     let mut f = Fixture::new("")?;
     let (running, _) = paused_adapter(&mut f).await?;
     let mut first = Adapter::new().await?;
-    let first_id = f.editor.connect_debugger(Some(first.socket), config());
+    let first_id = f
+        .editor
+        .connect_debugger(Some(first.socket), config(), None);
     wait_for_connection(&mut f, first_id).await?;
     let initialize = message(&mut first.wire).await?;
     let second = Adapter::new().await?;
-    let second_id = f.editor.connect_debugger(Some(second.socket), config());
+    let second_id = f
+        .editor
+        .connect_debugger(Some(second.socket), config(), None);
     f.editor.debugger_mut().select_session(running)?;
     first.reply(&initialize, true, json!({}))?;
     wait_for_startup(&mut f, first_id).await?;
@@ -362,7 +419,11 @@ async fn initialization_order_preserves_selection_and_termination_targets_one_st
         running
     );
     assert!(f.editor.debugger().get_session(first_id).is_some());
-    assert!(f.editor.debugger().get_client(running).is_some());
+    assert!(f
+        .editor
+        .debugger()
+        .get_session(running)
+        .is_some_and(|session| session.is_connected()));
     Ok(())
 }
 
@@ -371,7 +432,9 @@ async fn background_initialization_failures_preserve_the_selected_session() -> a
     let mut f = Fixture::new("")?;
     let (selected, _) = paused_adapter(&mut f).await?;
     let mut background = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(background.socket), config());
+    let id = f
+        .editor
+        .connect_debugger(Some(background.socket), config(), None);
     wait_for_connection(&mut f, id).await?;
     let initialize = message(&mut background.wire).await?;
     f.editor.debugger_mut().select_session(selected)?;
@@ -396,7 +459,9 @@ async fn adapter_eof_removes_its_session_and_restores_the_previous_selection() -
     let mut f = Fixture::new("")?;
     let (previous, _) = paused_adapter(&mut f).await?;
     let mut adapter = Adapter::new().await?;
-    let id = f.editor.connect_debugger(Some(adapter.socket), config());
+    let id = f
+        .editor
+        .connect_debugger(Some(adapter.socket), config(), None);
     wait_for_connection(&mut f, id).await?;
     let initialize = message(&mut adapter.wire).await?;
     adapter.reply(&initialize, true, json!({}))?;

@@ -133,15 +133,16 @@ impl StartupContext {
 }
 
 impl Editor {
-    /// Connect and initialize an adapter from an already authorized configuration.
+    /// Connect, initialize, and optionally launch an already authorized configuration.
     /// Call `start_debugger` to validate a document's trust and launch template.
     /// The returned ID can be canceled before connection or initialization completes.
     pub fn connect_debugger(
         &mut self,
         socket: Option<SocketAddr>,
         config: DebugAdapterConfig,
+        launch: Option<(ConnectionType, Value)>,
     ) -> DebugAdapterId {
-        self.begin_debugger_startup(socket, config, None, StartupOrigin::Connection)
+        self.begin_debugger_startup(socket, config, launch, StartupOrigin::Connection)
     }
 
     pub(super) fn begin_debugger_startup(
