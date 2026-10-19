@@ -13,11 +13,13 @@
 //! The client accepts explicit stream, stdio, or TCP connections.
 
 mod client;
+mod error;
 pub mod registry;
 mod transport;
 
 pub use client::{Client, RequestSender};
 pub use dap_types::*;
+pub use error::RequestError;
 pub use registry::DebugAdapterId;
 pub use transport::{ClientEvent, Payload, Response, Transport, TransportSender};
 
@@ -28,6 +30,8 @@ use thiserror::Error;
 /// Errors raised while starting an adapter, exchanging messages, or decoding
 /// protocol payloads.
 pub enum Error {
+    #[error(transparent)]
+    Request(#[from] RequestError),
     #[error("failed to parse: {0}")]
     Parse(Box<dyn std::error::Error + Send + Sync>),
     #[error("IO Error: {0}")]

@@ -8,6 +8,11 @@ preserving wire order across cloned senders. Dropping a pending wait releases it
 response entry; late replies stay in the transport and are discarded. Editor
 selection and result-publication policy belong to `view`.
 
+Failed requests return `Error::Request` with the command, request sequence, raw
+message, and original body. Display uses the structured error's format and
+variables when available, then the short message, then a fallback. Missing or
+malformed error details still remain request failures.
+
 `Client` owns the transport lifetime. Dropping the client or incoming receiver
 closes its IO tasks, even if request senders remain. EOF and IO failures reject
 new requests, finish outstanding waits, and deliver one `ClientEvent::Closed`

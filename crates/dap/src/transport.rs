@@ -1,4 +1,4 @@
-use crate::{DebugAdapterId, Error, Result};
+use crate::{DebugAdapterId, Error, RequestError, Result};
 use anyhow::Context;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -307,7 +307,13 @@ impl TransportState {
                 self.id, res.message, res.body, res.request_seq, res.command
             );
 
-            Err(Error::Other(anyhow::format_err!("{:?}", res.body)))
+            Err(RequestError {
+                command: res.command,
+                request_seq: res.request_seq,
+                message: res.message,
+                body: res.body,
+            }
+            .into())
         }
     }
 

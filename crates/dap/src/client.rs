@@ -9,7 +9,6 @@ use dap_types::*;
 
 use serde_json::Value;
 
-use anyhow::anyhow;
 use std::{future::Future, net::SocketAddr, path::PathBuf, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
@@ -444,14 +443,6 @@ impl RequestSender {
                 .map_err(|_| Error::Timeout(id))? // return Timeout
                 .ok_or(Error::StreamClosed)??;
 
-            if !response.success {
-                let message = response
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| "DAP request failed".to_string());
-                return Err(Error::Other(anyhow!(message)));
-            }
-
             Ok(response.body.unwrap_or_default())
         }
     }
@@ -594,6 +585,75 @@ mod tests {
         }
         for task in tasks {
             assert!(task.await.unwrap().is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_requests_preserve_adapter_details_and_display_readable_errors() {
+        for (message, body, detail) in [
+            (Some("notStopped"), None, "notStopped"),
+            (
+                None,
+                Some(
+                    json!({"error": {"id": 42, "format": "Cannot read {name}: {reason}", "variables": {"name": "{reason}", "reason": "unavailable"}}}),
+                ),
+                "Cannot read {reason}: unavailable",
+            ),
+            (
+                Some("short error"),
+                Some(json!({"error": {"format": "Unknown {missing}"}})),
+                "Unknown {missing}",
+            ),
+            (
+                Some("fallback"),
+                Some(json!({"error": {"format": 42}})),
+                "fallback",
+            ),
+            (
+                Some("fallback"),
+                Some(json!({"error": {"format": " "}})),
+                "fallback",
+            ),
+            (
+                None,
+                Some(json!({"unexpected": true})),
+                "adapter returned no error details",
+            ),
+            (None, None, "adapter returned no error details"),
+        ] {
+            let (client, _incoming, adapter) = connection();
+            let mut adapter = BufReader::new(adapter);
+            let request = tokio::spawn(client.threads());
+            let envelope = read_message(&mut adapter).await;
+            let response = json!({
+                "type": "response", "request_seq": envelope["seq"],
+                "command": "threads", "success": false, "message": message, "body": body,
+            })
+            .to_string();
+            adapter
+                .get_mut()
+                .write_all(
+                    format!("Content-Length: {}\r\n\r\n{response}", response.len()).as_bytes(),
+                )
+                .await
+                .unwrap();
+            let error = request.await.unwrap().unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("threads request failed: {detail}")
+            );
+            let Error::Request(error) = error else {
+                panic!("expected a structured request failure")
+            };
+            assert_eq!(error.command, "threads");
+            assert_eq!(error.request_seq, envelope["seq"].as_u64().unwrap());
+            assert_eq!(error.message.as_deref(), message);
+            assert_eq!(error.body, body);
+            // Rejection does not close the session or prevent a later successful request.
+            let retry = tokio::spawn(client.threads());
+            let envelope = read_message(&mut adapter).await;
+            reply_to(&mut adapter, &envelope, json!({"threads": []})).await;
+            assert!(retry.await.unwrap().unwrap().threads.is_empty());
         }
     }
 
