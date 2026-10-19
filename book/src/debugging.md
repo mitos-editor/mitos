@@ -32,8 +32,12 @@ args = { program = "{0}" }
 
 Each template defines a `launch` or `attach` request and adapter-specific
 arguments. `completion` defines the input prompts; `{0}`, `{1}`, and so on
-are replaced with the supplied values. Mitos sets the debug target's `cwd`
-to the editor's current working directory.
+are replaced with the supplied values. Completion defaults apply to omitted or
+empty values, including command-line launches. Missing parameters are reported
+before the adapter starts. A whole placeholder containing an unsigned integer
+becomes a JSON number; embedded substitutions and literal strings remain strings.
+Mitos uses the editor's current working directory for `cwd` unless the template
+sets it explicitly.
 
 See the [debugger configuration reference](./configuration.md#languagedebugger)
 for TCP transport, attach templates, and the complete list of fields.

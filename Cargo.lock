@@ -2460,6 +2460,7 @@ dependencies = [
 name = "language-config"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "core",
  "dap-types",
  "diagnostics",

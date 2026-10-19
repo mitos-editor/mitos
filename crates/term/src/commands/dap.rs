@@ -214,20 +214,8 @@ fn debug_parameter_prompt(
     mut params: Vec<String>,
 ) -> Prompt {
     let completion = completions.get(params.len()).unwrap();
-    let field_type = if let DebugConfigCompletion::Advanced(cfg) = completion {
-        cfg.completion.as_deref().unwrap_or("")
-    } else {
-        ""
-    };
-    let name = match completion {
-        DebugConfigCompletion::Advanced(cfg) => cfg.name.as_deref().unwrap_or(field_type),
-        DebugConfigCompletion::Named(name) => name.as_str(),
-    };
-    let default_val = match completion {
-        DebugConfigCompletion::Advanced(cfg) => cfg.default.as_deref().unwrap_or(""),
-        _ => "",
-    }
-    .to_owned();
+    let field_type = completion.kind().unwrap_or("");
+    let name = completion.label();
 
     let completer = match field_type {
         "filename" => |editor: &Editor, input: &str| {
@@ -248,11 +236,7 @@ fn debug_parameter_prompt(
                 return;
             }
 
-            let mut value = input.to_owned();
-            if value.is_empty() {
-                value = default_val.clone();
-            }
-            params.push(value);
+            params.push(input.to_owned());
 
             if params.len() < completions.len() {
                 let completions = completions.clone();

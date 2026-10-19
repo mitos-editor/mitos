@@ -210,9 +210,12 @@ async fn closing_the_launch_document_rejects_queued_initialization() -> anyhow::
     let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
     let document = view::current_ref!(f.editor).1.id();
     let mut adapter = Adapter::new().await?;
-    let id = f
-        .editor
-        .start_debugger(document, Some("run"), Some(adapter.socket), None)?;
+    let id = f.editor.start_debugger(
+        document,
+        Some("run"),
+        Some(adapter.socket),
+        Some(&["program".into(), "123".into()]),
+    )?;
     wait_for_connection(&mut f, id).await?;
     let initialize = message(&mut adapter.wire)
         .await
@@ -358,9 +361,12 @@ async fn terminated_adapters_do_not_finish_pending_initialization() -> anyhow::R
     let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
     let document = view::current_ref!(f.editor).1.id();
     let mut adapter = Adapter::new().await?;
-    let id = f
-        .editor
-        .start_debugger(document, Some("run"), Some(adapter.socket), None)?;
+    let id = f.editor.start_debugger(
+        document,
+        Some("run"),
+        Some(adapter.socket),
+        Some(&["program".into(), "123".into()]),
+    )?;
     wait_for_connection(&mut f, id).await?;
     let initialize = message(&mut adapter.wire).await?;
     adapter.reply(&initialize, true, json!({}))?;

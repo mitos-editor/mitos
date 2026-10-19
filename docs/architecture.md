@@ -249,7 +249,9 @@ for canceled requests stays local; late replies are discarded.
 `view::debugger::DebuggerState` owns debug-adapter sessions and source breakpoints.
 `Editor::debugger` exposes read access; mutations use session and breakpoint
 operations through `Editor::debugger_mut`. Terminal commands collect input and
-present debugger output. Breakpoint toggles, property changes, and adapter
+present debugger output. `language-config` resolves launch templates and defaults;
+`view` validates trust and resolves values before creating a session.
+Breakpoint toggles, property changes, and adapter
 synchronization belong to the shared owner, including before a session starts.
 
 Breakpoint prompts retain an editor-owned `BreakpointId`, independent of the adapter's

@@ -578,6 +578,13 @@ async fn debugger_launch_validates_configuration_before_connecting_and_preserves
         .start_debugger(document, Some("missing"), Some(socket), None)
         .unwrap_err();
     assert!(error.to_string().contains("No debug config"));
+    let error = f
+        .editor
+        .start_debugger(document, Some("run"), Some(socket), None)
+        .unwrap_err();
+    assert!(error.to_string().contains("Missing debug parameter"));
+    assert!(f.editor.debugger().is_empty());
+
     assert!(wire.try_recv().is_err());
     f.editor.new_file(view::editor::Action::Replace);
     let id = f.editor.start_debugger(
@@ -602,13 +609,33 @@ async fn debugger_launch_validates_configuration_before_connecting_and_preserves
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn direct_launch_resolves_template_defaults_before_starting_the_adapter() -> anyhow::Result<()>
+{
+    let languages = LAUNCH_LANGUAGES.replace("name = \"run\"", "name = \"run\"\ncompletion = [{name = \"program\", default = \"example\"}, {name = \"port\", default = \"123\"}]");
+    let mut f = Fixture::with_languages("", &languages)?;
+    let document = view::current_ref!(f.editor).1.id();
+    let (socket, mut wire) = adapter_server(false).await?;
+    let id = f
+        .editor
+        .start_debugger(document, Some("run"), Some(socket), None)?;
+    wait_for_startup(&mut f, id).await?;
+    let launch = command(&mut wire, "launch").await?;
+    assert_eq!(launch["arguments"]["program"], "example");
+    assert_eq!(launch["arguments"]["port"], 123);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn failed_debugger_launch_removes_its_adapter_and_reports_the_error() -> anyhow::Result<()> {
     let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
     let document = view::current_ref!(f.editor).1.id();
     let (socket, mut wire) = adapter_server(true).await?;
-    let id = f
-        .editor
-        .start_debugger(document, Some("run"), Some(socket), None)?;
+    let id = f.editor.start_debugger(
+        document,
+        Some("run"),
+        Some(socket),
+        Some(&["program".into(), "123".into()]),
+    )?;
     wait_for_startup(&mut f, id).await?;
     assert_eq!(message(&mut wire).await?["command"], "initialize");
     assert_eq!(message(&mut wire).await?["command"], "launch");

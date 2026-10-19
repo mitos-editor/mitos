@@ -8,6 +8,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 diagnostics.workspace = true
 core.workspace = true
 stdx.workspace = true

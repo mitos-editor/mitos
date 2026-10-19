@@ -4,9 +4,8 @@ use super::startup::StartupOrigin;
 use crate::{DocumentId, Editor};
 use anyhow::{bail, Context as _, Result};
 use dap::{ConnectionType, DebugAdapterId};
-use language_config::{DebugConfigCompletion, DebugTemplate};
-use serde_json::{to_value, Value};
-use std::{collections::HashMap, net::SocketAddr};
+use serde_json::Value;
+use std::net::SocketAddr;
 
 /// Resolved launch or attach arguments. Their contents are adapter-specific.
 #[derive(Clone)]
@@ -47,23 +46,10 @@ impl Editor {
         }
         .context("No debug config with given name")?;
         let connection = template.request;
-        let mut args: HashMap<_, _> = match params {
-            Some(params) => {
-                let params = prepare_dap_params(template, params);
-                template
-                    .args
-                    .iter()
-                    .map(|(key, value)| (key.as_str(), map_value(value, &params)))
-                    .collect()
-            }
-            None => template
-                .args
-                .iter()
-                .map(|(key, value)| (key.as_str(), value.clone()))
-                .collect(),
-        };
-        args.insert("cwd", to_value(stdx::env::current_working_dir())?);
-        let args = to_value(args)?;
+        let args = template.resolve(
+            params.unwrap_or_default(),
+            &stdx::env::current_working_dir(),
+        )?;
         let label = format!("{}: {}", config.name, template.name);
         let id = self.begin_debugger_startup(
             socket,
@@ -76,50 +62,5 @@ impl Editor {
         );
         self.debugger.sessions[id].name = label;
         Ok(id)
-    }
-}
-
-fn prepare_dap_params(template: &DebugTemplate, params: &[String]) -> Vec<String> {
-    params
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let mut param = x.to_string();
-            if let Some(DebugConfigCompletion::Advanced(cfg)) = template.completion.get(i)
-                && matches!(cfg.completion.as_deref(), Some("filename" | "directory"))
-            {
-                param = std::fs::canonicalize(x)
-                    .ok()
-                    .and_then(|pb| pb.into_os_string().into_string().ok())
-                    .unwrap_or_else(|| x.to_string());
-            }
-            param
-        })
-        .collect()
-}
-
-fn map_value(value: &Value, params: &[String]) -> Value {
-    match value {
-        Value::String(string) => {
-            let mut string = string.clone();
-            for (i, x) in params.iter().enumerate() {
-                let pattern = format!("{{{}}}", i);
-                string = string.replace(&pattern, x);
-            }
-            if let Ok(integer) = string.parse::<usize>() {
-                to_value(integer).unwrap()
-            } else {
-                to_value(string).unwrap()
-            }
-        }
-        Value::Array(array) => Value::Array(array.iter().map(|x| map_value(x, params)).collect()),
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(k, v)| (k.clone(), map_value(v, params)))
-                .collect(),
-        ),
-
-        _ => value.clone(),
     }
 }
