@@ -47,14 +47,32 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
         let command = message["command"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing command"))?;
-        let body = if command == "initialize" {
-            anyhow::ensure!(
-                message["arguments"]["supportsStartDebuggingRequest"] == true,
-                "child-session support was not advertised"
-            );
-            json!({"supportsConfigurationDoneRequest":true})
-        } else {
-            json!({})
+        let body = match command {
+            "initialize" => {
+                anyhow::ensure!(
+                    message["arguments"]["supportsStartDebuggingRequest"] == true,
+                    "child-session support was not advertised"
+                );
+                json!({"supportsConfigurationDoneRequest":true})
+            }
+            "threads" => json!({"threads":[{"id":1,"name":"main"}]}),
+            "stackTrace" => json!({"stackFrames":[{"id":1,"name":"main","line":1,"column":1}]}),
+            "scopes" => {
+                json!({"scopes":[{"name":"locals","variablesReference":1,"expensive":false},{"name":"globals","variablesReference":2,"expensive":true}]})
+            }
+            "variables" => match message["arguments"]["variablesReference"].as_u64() {
+                Some(1) => {
+                    json!({"variables":[{"name":"answer","value":"42","variablesReference":0},{"name":"object","value":"Object","variablesReference":3}]})
+                }
+                Some(2) => {
+                    json!({"variables":[{"name":"global","value":"true","variablesReference":0}]})
+                }
+                Some(3) => {
+                    json!({"variables":[{"name":"child","value":"nested value","variablesReference":0}]})
+                }
+                reference => anyhow::bail!("unexpected variable reference: {reference:?}"),
+            },
+            _ => json!({}),
         };
         send(
             &mut output,
@@ -66,6 +84,11 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 &mut output,
                 &mut sequence,
                 json!({"type":"event","event":"initialized"}),
+            )?,
+            "launch" if message["arguments"]["inspectVariables"] == true => send(
+                &mut output,
+                &mut sequence,
+                json!({"type":"event","event":"stopped","body":{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}}),
             )?,
             "launch" if message["arguments"]["spawnChild"] == true => {
                 child_request = Some(sequence);

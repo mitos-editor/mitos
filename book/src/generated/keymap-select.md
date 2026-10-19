@@ -305,7 +305,7 @@
 | `` <space>Gi `` | Step in | `` dap_step_in `` |
 | `` <space>Go `` | Step out | `` dap_step_out `` |
 | `` <space>Gn `` | Step to next | `` dap_next `` |
-| `` <space>Gv `` | List variables | `` dap_variables `` |
+| `` <space>Gv `` | Browse variables | `` dap_variables `` |
 | `` <space>Gt `` | End debug session | `` dap_terminate `` |
 | `` <space>G<C-c> `` | Edit breakpoint condition on current line | `` dap_edit_condition `` |
 | `` <space>G<C-l> `` | Edit breakpoint log message on current line | `` dap_edit_log `` |

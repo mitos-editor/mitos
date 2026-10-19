@@ -32,6 +32,7 @@ mod test {
     mod cursor;
     mod debugger_sessions;
     mod debugger_terminal;
+    mod debugger_variables;
     mod document_features;
     mod document_symbols;
     mod file_operations;

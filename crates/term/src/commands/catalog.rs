@@ -337,7 +337,7 @@ impl MappableCommand {
         dap_step_in => super::dap::dap_step_in, "Step in",
         dap_step_out => super::dap::dap_step_out, "Step out",
         dap_next => super::dap::dap_next, "Step to next",
-        dap_variables => super::dap::dap_variables, "List variables",
+        dap_variables => super::dap::dap_variables, "Browse variables",
         dap_terminate => super::dap::dap_terminate, "End debug session",
         dap_edit_condition => super::dap::dap_edit_condition, "Edit breakpoint condition on current line",
         dap_edit_log => super::dap::dap_edit_log, "Edit breakpoint log message on current line",

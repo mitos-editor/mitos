@@ -14,8 +14,11 @@ mod startup;
 pub(crate) use startup::register_hooks;
 mod operations;
 pub use operations::{
-    DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerScope, DebuggerTask, DebuggerUpdate,
+    DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerTask, DebuggerUpdate,
 };
+
+mod inspection;
+pub use inspection::{DebuggerVariable, DebuggerVariables};
 
 use std::path::{Path, PathBuf};
 

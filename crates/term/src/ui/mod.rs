@@ -1,5 +1,6 @@
 pub mod blame;
 mod completion;
+pub(crate) mod debugger_variables;
 mod document;
 pub(crate) mod editor;
 mod icons;

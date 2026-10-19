@@ -2,13 +2,12 @@ use super::Context;
 use crate::{
     compositor::{self, Compositor},
     job::{Callback, Jobs},
-    ui::{self, overlay::overlaid, Picker, Popup, Prompt, PromptEvent, Text},
+    ui::{self, overlay::overlaid, Picker, Prompt, PromptEvent},
 };
 use dap::{self as dap, StackFrame, Thread};
 use editor_core::SmallVec;
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use std::path::PathBuf;
-use tui::text::Line;
 use view::{
     debugger::{Breakpoint, BreakpointProperty, ThreadStates},
     Editor,
@@ -336,29 +335,11 @@ pub fn dap_variables(cx: &mut Context) {
             return;
         }
     };
-    debugger_query(cx.jobs, task, |editor, compositor, _context, scopes| {
-        let scope_style = editor.theme.get("ui.linenr.selected");
-        let type_style = editor.theme.get("ui.text");
-        let text_style = editor.theme.get("ui.text.focus");
-        let mut lines = Vec::new();
-        for scope in scopes {
-            lines.push(Line::from(tui::text::Span::styled(
-                format!("▸ {}", scope.name),
-                scope_style,
-            )));
-            for variable in scope.variables {
-                let mut spans = vec![tui::text::Span::styled(variable.name, text_style)];
-                if let Some(ty) = variable.ty {
-                    spans.push(tui::text::Span::raw(": "));
-                    spans.push(tui::text::Span::styled(ty, type_style));
-                }
-                spans.push(tui::text::Span::raw(" = "));
-                spans.push(tui::text::Span::styled(variable.value, text_style));
-                lines.push(Line::from(spans));
-            }
-        }
-        let contents = Text::from(tui::text::Text::from(lines));
-        compositor.replace_or_push("dap-variables", Popup::new("dap-variables", contents));
+    debugger_query(cx.jobs, task, |editor, compositor, _context, variables| {
+        compositor.replace_or_push(
+            "dap-variables",
+            ui::debugger_variables::Variables::new(editor, variables),
+        );
     });
 }
 

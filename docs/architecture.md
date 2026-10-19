@@ -248,6 +248,14 @@ origin when delivered. Session changes, execution transitions, newer requests,
 and thread/frame changes invalidate results and picker actions. Transport cleanup
 for canceled requests stays local; late replies are discarded.
 
+Variable inspection lives in `view::debugger::inspection`. Each session owns
+its current browser cache; pages expose display data and retain a guarded
+context, never raw adapter references. Scopes load first, and expanding a scope
+or value initializes a per-reference cell. Concurrent callers share that request;
+failed or canceled initializations can retry. Execution changes clear the cache,
+and opening another browser refreshes values. The terminal keeps parent pickers
+for navigation and cancels pending expansion when it closes or changes pages.
+
 `view::debugger::DebuggerState` owns debug-adapter sessions and source breakpoints.
 `Editor::debugger` exposes read access; mutations use session and breakpoint
 operations through `Editor::debugger_mut`. Terminal commands collect input and

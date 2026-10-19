@@ -201,11 +201,9 @@ async fn adapter_server_with_options(
                         json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
                     }
                     "scopes" => {
-                        json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false}]})
+                        json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false},{"name":"globals","variablesReference":8,"expensive":true}]})
                     }
-                    "variables" => {
-                        json!({"variables":[{"name":"answer","value":"42","type":"int","variablesReference":0}]})
-                    }
+                    "variables" => variable_response(&message),
                     "evaluate" => {
                         json!({"result":message["arguments"]["expression"],"variablesReference":0})
                     }
@@ -223,7 +221,9 @@ async fn adapter_server_with_options(
                 write.write_all(&response).await?;
             }
             if let Some(held) = held_event.take() {
-                let body = if held["command"] == "stackTrace" {
+                let body = if held["command"] == "variables" {
+                    variable_response(&held)
+                } else if held["command"] == "stackTrace" {
                     json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))}]})
                 } else {
                     json!({})
@@ -891,8 +891,20 @@ async fn debugger_inspection_returns_typed_results_and_rejects_other_editors() -
     let variables = variables.unwrap();
     assert!(!variables.context().is_current(&second.editor));
     let scopes = variables.into_result(&first.editor).unwrap()?;
-    assert_eq!(scopes[0].name, "locals");
-    assert_eq!(scopes[0].variables[0].value, "42");
+    assert_eq!(scopes.entries()[0].name, "locals");
+    assert!(second
+        .editor
+        .debugger_variable_children(&scopes, 0)
+        .is_err());
+    let locals = first
+        .editor
+        .debugger_variable_children(&scopes, 0)?
+        .run()
+        .await
+        .unwrap()
+        .into_result(&first.editor)
+        .unwrap()?;
+    assert_eq!(locals.entries()[0].value.as_deref(), Some("42"));
     assert!(evaluation.unwrap().into_result(&second.editor).is_none());
     let old = first.editor.debugger_variables()?.run().await.unwrap();
     first
@@ -2449,3 +2461,17 @@ async fn explicit_shutdown_takes_precedence_over_adapter_restart() -> anyhow::Re
     assert!(f.editor.debugger().is_empty());
     Ok(())
 }
+
+fn variable_response(message: &Value) -> Value {
+    match message["arguments"]["variablesReference"].as_u64().unwrap() {
+        7 => {
+            json!({"variables":[{"name":"answer","value":"42","type":"int","variablesReference":0},{"name":"object","value":"Object","variablesReference":9}]})
+        }
+        8 => json!({"variables":[{"name":"global","value":"true","variablesReference":0}]}),
+        9 => json!({"variables":[{"name":"child","value":"nested value","variablesReference":0}]}),
+        _ => panic!("unexpected variable reference: {message}"),
+    }
+}
+
+#[path = "debugger_inspection.rs"]
+mod inspection;

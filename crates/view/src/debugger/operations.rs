@@ -9,7 +9,7 @@ use futures_util::future::BoxFuture;
 use std::{collections::HashMap, future::Future};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum RequestKind {
+pub(super) enum RequestKind {
     Control,
     Threads,
     Variables,
@@ -21,6 +21,7 @@ pub(super) struct SessionRequests {
     lifetime: TaskController,
     current: TaskHandle,
     requests: HashMap<RequestKind, TaskController>,
+    pub(super) inspection: Option<std::sync::Arc<super::inspection::InspectionCache>>,
 }
 
 impl Default for SessionRequests {
@@ -31,6 +32,7 @@ impl Default for SessionRequests {
             lifetime,
             current,
             requests: HashMap::new(),
+            inspection: None,
         }
     }
 }
@@ -45,6 +47,7 @@ impl DebuggerState {
             let requests = &mut session.requests;
             requests.current = requests.lifetime.restart();
             requests.requests.clear();
+            requests.inspection = None;
         }
     }
 }
@@ -52,14 +55,14 @@ impl DebuggerState {
 /// A session snapshot retained by queued results and frontend pickers.
 #[derive(Clone)]
 pub struct DebuggerContext {
-    id: DebugAdapterId,
+    pub(super) id: DebugAdapterId,
     owner: EditorCallbackSender,
     lifetime: TaskHandle,
     request: TaskHandle,
     // Inspection belongs to a particular user selection; controls belong to the session.
     selection: Option<TaskHandle>,
     thread: Option<ThreadId>,
-    frame: Option<usize>,
+    pub(super) frame: Option<usize>,
 }
 
 impl DebuggerContext {
@@ -89,7 +92,7 @@ pub struct DebuggerTask<T> {
 }
 
 impl<T: Send + 'static> DebuggerTask<T> {
-    fn new(
+    pub(super) fn new(
         context: DebuggerContext,
         future: impl Future<Output = dap::Result<T>> + Send + 'static,
     ) -> Self {
@@ -141,11 +144,6 @@ pub struct DebuggerFrames {
     pub thread_state: String,
 }
 
-pub struct DebuggerScope {
-    pub name: String,
-    pub variables: Vec<dap::Variable>,
-}
-
 enum ControlEffect {
     ResumeThread,
     ResumeAll,
@@ -175,7 +173,10 @@ pub enum DebuggerCommand {
 }
 
 impl Editor {
-    fn debugger_context(&mut self, kind: RequestKind) -> Result<(DebuggerContext, RequestSender)> {
+    pub(super) fn debugger_context(
+        &mut self,
+        kind: RequestKind,
+    ) -> Result<(DebuggerContext, RequestSender)> {
         let session = self
             .debugger
             .get_active_session()
@@ -254,37 +255,6 @@ impl Editor {
                 .request::<requests::Threads>(Some(requests::ThreadsArguments {}))
                 .await?
                 .threads)
-        }))
-    }
-
-    pub fn debugger_variables(&mut self) -> Result<DebuggerTask<Vec<DebuggerScope>>> {
-        let (context, sender) = self.debugger_context(RequestKind::Variables)?;
-        let frame_id = context
-            .frame
-            .context("Cannot find current stack frame to access variables")?;
-        Ok(DebuggerTask::new(context, async move {
-            let scopes = sender
-                .request::<requests::Scopes>(requests::ScopesArguments { frame_id })
-                .await?
-                .scopes;
-            let mut result = Vec::with_capacity(scopes.len());
-            for scope in scopes {
-                let variables = sender
-                    .request::<requests::Variables>(requests::VariablesArguments {
-                        variables_reference: scope.variables_reference,
-                        filter: None,
-                        start: None,
-                        count: None,
-                        format: None,
-                    })
-                    .await?
-                    .variables;
-                result.push(DebuggerScope {
-                    name: scope.name,
-                    variables,
-                });
-            }
-            Ok(result)
         }))
     }
 

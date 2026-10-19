@@ -102,7 +102,7 @@ These bindings are available in normal and select mode:
 | `Space G n` | Step over |
 | `Space G i` | Step in |
 | `Space G o` | Step out |
-| `Space G v` | List variables |
+| `Space G v` | Browse variables |
 | `Space G s s` | Switch session |
 | `Space G s t` | Switch thread |
 | `Space G s f` | Switch stack frame |
@@ -114,6 +114,16 @@ These bindings are available in normal and select mode:
 
 Use `:debug-eval <expression>` to evaluate an expression in the current debug
 context. Supported expressions and debugging capabilities depend on the adapter.
+
+## Inspecting variables
+
+While stopped, use `Space G v` to browse the current frame's scopes. Select a
+scope and press Enter to load its values. Entries marked `▸` have children;
+press Enter to open them. Expensive scopes are labeled and load only when opened.
+
+Select `.. (back)` to return to the parent, keeping its filter and selection.
+Escape closes the browser. Resuming execution or switching the session, thread,
+or frame invalidates the displayed values. Reopen the browser to refresh them.
 
 ## Terminal for the debugged program
 
