@@ -2337,3 +2337,115 @@ async fn rejected_shutdown_preserves_launch_configuration_for_restart() -> anyho
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn configuration_remains_pending_until_the_adapter_acknowledges_completion(
+) -> anyhow::Result<()> {
+    use view::debugger::DebugSessionStatus;
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            held_commands: vec!["configurationDone"],
+            ..Default::default()
+        },
+    )
+    .await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    command(&mut wire, "configurationDone").await?;
+    assert_eq!(
+        f.editor.debugger().get_session(id).unwrap().status(),
+        DebugSessionStatus::Starting
+    );
+    release_adapter_request(&wire).await?;
+    debugger_callback(&mut f).await?;
+    assert_eq!(
+        f.editor.debugger().get_session(id).unwrap().status(),
+        DebugSessionStatus::Running
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_results_survive_thread_exit_and_late_initialization_events() -> anyhow::Result<()>
+{
+    use view::debugger::{DebugSessionStatus, DebuggerCommand};
+    for rejected in [false, true] {
+        let mut f = Fixture::new("")?;
+        let (id, mut wire) = paused_adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                held_commands: vec!["terminate"],
+                failed_commands: if rejected { vec!["terminate"] } else { vec![] },
+                ..Default::default()
+            },
+        )
+        .await?;
+        f.editor.debugger_command(DebuggerCommand::Terminate)?;
+        command(&mut wire, "terminate").await?;
+        assert_eq!(
+            f.editor.debugger().get_session(id).unwrap().status(),
+            DebugSessionStatus::Disconnecting
+        );
+        assert!(f.editor.debugger_command(DebuggerCommand::Next).is_err());
+        f.editor
+            .handle_debugger_message(
+                id,
+                debugger_event("thread", json!({"reason":"exited", "threadId":1})),
+            )
+            .await;
+        f.editor
+            .handle_debugger_message(id, debugger_event("initialized", json!({})))
+            .await;
+        assert_eq!(
+            f.editor.debugger().get_session(id).unwrap().status(),
+            DebugSessionStatus::Disconnecting
+        );
+        release_adapter_request(&wire).await?;
+        debugger_callback(&mut f).await?;
+        if rejected {
+            assert_ne!(
+                f.editor.debugger().get_session(id).unwrap().status(),
+                DebugSessionStatus::Disconnecting
+            );
+            assert!(f.editor.debugger_threads().is_ok());
+        } else {
+            assert!(f.editor.debugger().get_session(id).is_none());
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_shutdown_takes_precedence_over_adapter_restart() -> anyhow::Result<()> {
+    use view::debugger::{DebugSessionStatus, DebuggerCommand};
+    let mut f = Fixture::new("")?;
+    let (id, mut wire) = paused_adapter_with_options(
+        &mut f,
+        AdapterOptions {
+            held_commands: vec!["terminate", "disconnect"],
+            ..Default::default()
+        },
+    )
+    .await?;
+    f.editor.debugger_command(DebuggerCommand::Terminate)?;
+    command(&mut wire, "terminate").await?;
+    f.editor
+        .handle_debugger_message(id, debugger_event("terminated", json!({"restart":true})))
+        .await;
+    let disconnect = command(&mut wire, "disconnect").await?;
+    assert_eq!(disconnect["arguments"]["restart"], false);
+    f.editor
+        .handle_debugger_message(id, debugger_event("initialized", json!({})))
+        .await;
+    assert_eq!(
+        f.editor.debugger().get_session(id).unwrap().status(),
+        DebugSessionStatus::Disconnecting
+    );
+    release_adapter_request(&wire).await?;
+    wait_for_adapter_removal(&mut f, id).await?;
+    assert!(f.editor.debugger().is_empty());
+    Ok(())
+}

@@ -149,7 +149,6 @@ pub struct DebuggerScope {
 enum ControlEffect {
     ResumeThread,
     ResumeAll,
-    Terminate,
     Unchanged,
 }
 
@@ -393,17 +392,11 @@ impl Editor {
         {
             return Ok(());
         }
-        anyhow::ensure!(
-            !self
-                .debugger
-                .get_active_session()
-                .is_some_and(|session| self.debugger.is_starting(session.id())),
-            "Selected debugging session is still starting"
-        );
         let session = self
             .debugger
             .get_active_session()
             .context("Debugger is not running")?;
+        session.lifecycle.ensure_command_available()?;
         let capabilities = session.capabilities().context("Debugger is initializing")?;
         if matches!(command, DebuggerCommand::Restart) {
             anyhow::ensure!(
@@ -414,6 +407,11 @@ impl Editor {
                 session.launch.is_some(),
                 "No arguments found with which to restart the session"
             );
+        }
+        if matches!(command, DebuggerCommand::Terminate) {
+            let id = session.id();
+            self.terminate_debugger_session(id);
+            return Ok(());
         }
         let thread = session.selected_thread();
         if matches!(
@@ -456,19 +454,7 @@ impl Editor {
                 client.restart(session.launch.as_ref().unwrap().arguments.clone()),
                 ControlEffect::ResumeAll,
             ),
-            DebuggerCommand::Terminate
-                if capabilities.supports_terminate_request.unwrap_or(false) =>
-            {
-                control_effect(
-                    client.terminate(Some(requests::TerminateArguments {
-                        restart: Some(false),
-                    })),
-                    ControlEffect::Terminate,
-                )
-            }
-            DebuggerCommand::Terminate => {
-                control_effect(client.disconnect(None), ControlEffect::Terminate)
-            }
+            DebuggerCommand::Terminate => unreachable!("shutdown handled by the lifecycle owner"),
             DebuggerCommand::Exceptions(enabled) => {
                 let filters = if enabled {
                     capabilities
@@ -499,10 +485,6 @@ impl Editor {
                     .get_session_mut(id)
                     .unwrap()
                     .resume_all_threads(),
-                ControlEffect::Terminate => {
-                    editor.debugger.remove_session(id);
-                    return;
-                }
                 ControlEffect::Unchanged => return,
             }
             editor.debugger.invalidate_requests(id);

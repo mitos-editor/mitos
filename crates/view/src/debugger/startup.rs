@@ -114,6 +114,9 @@ impl StartupContext {
             .get_active_session()
             .is_some_and(|session| session.id() == self.id);
         editor.debugger.sessions[self.id].startup = None;
+        editor.debugger.sessions[self.id]
+            .lifecycle
+            .startup_finished();
         if result.is_err() {
             editor.debugger.remove_session(self.id);
         }
@@ -235,6 +238,9 @@ impl Editor {
     }
 
     pub(crate) fn debugger_initialized(&mut self, id: DebugAdapterId) {
+        if !self.debugger.sessions[id].lifecycle.accept_initialization() {
+            return;
+        }
         if self
             .debugger
             .get_session(id)

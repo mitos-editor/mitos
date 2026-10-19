@@ -25,7 +25,6 @@ pub(super) struct BreakpointSession {
     _lifetime: TaskController,
     current: TaskHandle,
     sources: HashMap<PathBuf, SourceSync>,
-    configuring: bool,
     bindings: ::debugger::BreakpointBindings,
 }
 
@@ -37,7 +36,6 @@ impl Default for BreakpointSession {
             _lifetime: lifetime,
             current,
             sources: HashMap::new(),
-            configuring: false,
             bindings: ::debugger::BreakpointBindings::default(),
         }
     }
@@ -73,9 +71,6 @@ fn source_breakpoints(
 }
 
 impl BreakpointSession {
-    pub(super) fn is_configuring(&self) -> bool {
-        self.configuring
-    }
     pub(super) fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove_binding(identity);
     }
@@ -144,10 +139,9 @@ impl Editor {
         self.debugger
             .get_client(id)
             .context("Debugger has stopped")?;
-        self.debugger.sessions[id].breakpoints = Some(BreakpointSession {
-            configuring: true,
-            ..Default::default()
-        });
+        let session = &mut self.debugger.sessions[id];
+        session.lifecycle.begin_configuration();
+        session.breakpoints = Some(BreakpointSession::default());
         let paths: Vec<_> = self.debugger.breakpoints.paths().cloned().collect();
         for path in paths {
             if let Err(error) = self.sync_debugger_breakpoints(id, path) {
@@ -304,15 +298,13 @@ impl Editor {
     }
 
     fn finish_breakpoint_configuration(&mut self, id: DebugAdapterId) {
-        let Some(session) = self
-            .debugger
-            .sessions
-            .get_mut(id)
-            .and_then(|session| session.breakpoints.as_mut())
-        else {
+        let Some(debug_session) = self.debugger.sessions.get_mut(id) else {
             return;
         };
-        if !session.configuring
+        let Some(session) = debug_session.breakpoints.as_mut() else {
+            return;
+        };
+        if !debug_session.lifecycle.needs_configuration_done()
             || session
                 .sources
                 .values()
@@ -320,7 +312,7 @@ impl Editor {
         {
             return;
         }
-        session.configuring = false;
+        debug_session.lifecycle.configuration_sent();
         let lifetime = session.current.clone();
         let Some(client) = self.debugger.get_client(id) else {
             return;
@@ -351,10 +343,17 @@ impl Editor {
                 .send(move |editor| {
                     if !owner.same_destination(editor.callback_sender())
                         || lifetime.is_canceled()
-                        || !editor
-                            .debugger
-                            .get_active_client()
-                            .is_some_and(|client| client.id() == id)
+                        || editor.debugger.get_session(id).is_none()
+                    {
+                        return;
+                    }
+                    editor.debugger.sessions[id]
+                        .lifecycle
+                        .configuration_finished();
+                    if editor
+                        .debugger
+                        .get_active_session()
+                        .is_none_or(|session| session.id() != id)
                     {
                         return;
                     }

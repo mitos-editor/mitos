@@ -6,6 +6,7 @@
 
 mod breakpoints;
 mod execution;
+mod lifecycle;
 mod sessions;
 
 pub use breakpoints::{
@@ -14,3 +15,5 @@ pub use breakpoints::{
 };
 pub use execution::{ExecutionState, StopTransition, ThreadState, ThreadStates};
 pub use sessions::Sessions;
+
+pub use lifecycle::SessionLifecycle;

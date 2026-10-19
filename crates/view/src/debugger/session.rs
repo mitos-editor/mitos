@@ -4,7 +4,7 @@ use super::{
     breakpoints::BreakpointSession, events::SessionEvents, operations::SessionRequests,
     progress::ProgressState, reverse_requests::ReverseRequests, startup::Startup, DebuggerState,
 };
-use ::debugger::{ExecutionState, ThreadState, ThreadStates};
+use ::debugger::{ExecutionState, SessionLifecycle, ThreadState, ThreadStates};
 use dap::{Client, DebugAdapterId, StackFrame, ThreadId};
 use std::collections::HashMap;
 
@@ -19,6 +19,7 @@ pub struct DebugSession {
     pub(super) capabilities: Option<dap::DebuggerCapabilities>,
     pub(super) launch: Option<super::DebuggerLaunch>,
     pending_capabilities: Option<dap::DebuggerCapabilities>,
+    pub(super) lifecycle: SessionLifecycle,
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
     pub(super) requests: SessionRequests,
@@ -60,6 +61,7 @@ impl DebugSession {
             capabilities: None,
             launch: None,
             pending_capabilities: None,
+            lifecycle: SessionLifecycle::default(),
             startup: None,
             breakpoints: None,
             requests: SessionRequests::default(),
@@ -80,14 +82,9 @@ impl DebugSession {
     }
 
     pub fn status(&self) -> DebugSessionStatus {
-        if self.events.is_terminating() {
+        if self.lifecycle.is_disconnecting() {
             DebugSessionStatus::Disconnecting
-        } else if self.startup.is_some()
-            || self
-                .breakpoints
-                .as_ref()
-                .is_some_and(|state| state.is_configuring())
-        {
+        } else if self.lifecycle.is_starting() || self.lifecycle.is_configuring() {
             DebugSessionStatus::Starting
         } else if self
             .execution
@@ -227,7 +224,7 @@ impl DebuggerState {
 
     pub fn is_starting(&self, id: DebugAdapterId) -> bool {
         self.get_session(id)
-            .is_some_and(|session| session.startup.is_some())
+            .is_some_and(|session| session.lifecycle.is_starting())
     }
 
     /// Cancel connection, initialization, or launch without affecting running sessions.

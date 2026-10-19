@@ -16,13 +16,6 @@ use crate::{
 pub(super) struct SessionEvents {
     transition: TaskController,
     current: TaskHandle,
-    terminating: bool,
-}
-
-impl SessionEvents {
-    pub(super) fn is_terminating(&self) -> bool {
-        self.terminating
-    }
 }
 
 impl Default for SessionEvents {
@@ -32,7 +25,6 @@ impl Default for SessionEvents {
         Self {
             transition,
             current,
-            terminating: false,
         }
     }
 }
@@ -101,7 +93,7 @@ struct StoppedState {
 impl super::DebuggerState {
     pub(super) fn is_terminating(&self, id: DebugAdapterId) -> bool {
         self.get_session(id)
-            .is_some_and(|session| session.events.is_terminating())
+            .is_some_and(|session| session.lifecycle.is_disconnecting())
     }
 }
 
@@ -127,7 +119,6 @@ impl Editor {
         self.debugger.invalidate_requests(id);
         let state = &mut self.debugger.sessions[id].events;
         state.current = state.transition.restart();
-        state.terminating = false;
     }
 
     pub(crate) fn debugger_stopped(&mut self, id: DebugAdapterId, event: events::StoppedBody) {
@@ -295,6 +286,35 @@ impl Editor {
         }
     }
 
+    pub(super) fn terminate_debugger_session(&mut self, id: DebugAdapterId) {
+        let session = &self.debugger.sessions[id];
+        let client = session.client.as_ref().unwrap();
+        let future: BoxFuture<'static, dap::Result<Value>> = if session
+            .capabilities()
+            .unwrap()
+            .supports_terminate_request
+            .unwrap_or(false)
+        {
+            Box::pin(client.terminate(Some(requests::TerminateArguments {
+                restart: Some(false),
+            })))
+        } else {
+            Box::pin(client.disconnect(None))
+        };
+        self.debugger.invalidate_requests(id);
+        self.debugger.sessions[id].lifecycle.begin_disconnect();
+        let context = self.debugger_lifecycle_context(id);
+        context.spawn(future, |editor, context, result| match result {
+            Ok(_) => editor.debugger.remove_session(context.id),
+            Err(error) => {
+                editor.debugger.sessions[context.id]
+                    .lifecycle
+                    .connection_retained();
+                context.report_error(editor, "Debugger request failed", error);
+            }
+        });
+    }
+
     pub(crate) fn debugger_terminated(&mut self, id: DebugAdapterId, restart: Option<Value>) {
         self.debugger.cancel_child_startups(id);
         self.cancel_debugger_reverse_requests(id);
@@ -306,7 +326,8 @@ impl Editor {
         session.execution.clear();
         let launch = session.launch.clone();
         let client = session.client.as_ref().unwrap();
-        let restart = restart.filter(|value| *value != Value::Bool(false));
+        let restart_allowed = session.lifecycle.adapter_terminated();
+        let restart = restart.filter(|value| restart_allowed && *value != Value::Bool(false));
         let disconnect = client.disconnect(Some(requests::DisconnectArguments {
             restart: Some(restart.is_some()),
             terminate_debuggee: None,
@@ -316,7 +337,6 @@ impl Editor {
         session.breakpoints = None;
         let state = &mut session.events;
         state.current = state.transition.restart();
-        state.terminating = true;
         // Disconnect belongs to the adapter lifecycle, independent of thread
         // and frame changes, including thread-exit events during shutdown.
         let context = self.debugger_lifecycle_context(id);
@@ -360,7 +380,7 @@ impl Editor {
                 request: launch.request,
                 arguments: arguments.clone(),
             });
-            editor.debugger.sessions[id].events.terminating = false;
+            editor.debugger.sessions[id].lifecycle.connection_retained();
             let client = editor.debugger.get_client(id).unwrap();
             let future: BoxFuture<'static, dap::Result<Value>> = match launch.request {
                 ConnectionType::Launch => Box::pin(client.launch(arguments)),
