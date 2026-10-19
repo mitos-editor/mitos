@@ -15,73 +15,122 @@ pub(super) enum RequestKind {
     Variables,
     Evaluate,
     SelectThread,
+    Configuration,
 }
 
-pub(super) struct SessionRequests {
-    lifetime: TaskController,
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RequestScope {
+    Session,
+    Execution,
+    Inspection,
+}
+
+impl RequestKind {
+    fn scope(self) -> RequestScope {
+        match self {
+            Self::Configuration => RequestScope::Session,
+            Self::Control => RequestScope::Execution,
+            _ => RequestScope::Inspection,
+        }
+    }
+}
+
+struct RequestLifetime {
+    owner: TaskController,
     current: TaskHandle,
+}
+impl Default for RequestLifetime {
+    fn default() -> Self {
+        let mut owner = TaskController::new();
+        let current = owner.restart();
+        Self { owner, current }
+    }
+}
+impl RequestLifetime {
+    fn restart(&mut self) {
+        self.current = self.owner.restart();
+    }
+}
+
+#[derive(Default)]
+pub(super) struct SessionRequests {
+    session: RequestLifetime,
+    execution: RequestLifetime,
+    selection: RequestLifetime,
     requests: HashMap<RequestKind, TaskController>,
     pub(super) inspection: Option<std::sync::Arc<super::inspection::InspectionCache>>,
 }
 
-impl Default for SessionRequests {
-    fn default() -> Self {
-        let mut lifetime = TaskController::new();
-        let current = lifetime.restart();
-        Self {
-            lifetime,
-            current,
-            requests: HashMap::new(),
-            inspection: None,
-        }
-    }
-}
-
 impl DebuggerState {
     pub(super) fn execution_handle(&mut self, id: DebugAdapterId) -> TaskHandle {
-        self.sessions[id].requests.current.clone()
+        self.sessions[id].requests.execution.current.clone()
     }
 
-    pub(crate) fn invalidate_requests(&mut self, id: DebugAdapterId) {
+    pub(super) fn inspection_handle(&self, id: DebugAdapterId) -> TaskHandle {
+        self.sessions[id].requests.selection.current.clone()
+    }
+
+    pub(crate) fn invalidate_inspection(&mut self, id: DebugAdapterId) {
         if let Some(session) = self.sessions.get_mut(id) {
             let requests = &mut session.requests;
-            requests.current = requests.lifetime.restart();
-            requests.requests.clear();
+            requests.selection.restart();
+            requests
+                .requests
+                .retain(|kind, _| kind.scope() != RequestScope::Inspection);
             requests.inspection = None;
         }
     }
+
+    pub(crate) fn invalidate_execution(&mut self, id: DebugAdapterId) {
+        self.invalidate_inspection(id);
+        if let Some(session) = self.sessions.get_mut(id) {
+            session.requests.execution.restart();
+            session
+                .requests
+                .requests
+                .retain(|kind, _| kind.scope() == RequestScope::Session);
+        }
+    }
 }
 
-/// A session snapshot retained by queued results and frontend pickers.
+/// A guarded session snapshot. Only inspection follows the selected thread and frame.
 #[derive(Clone)]
 pub struct DebuggerContext {
     pub(super) id: DebugAdapterId,
     owner: EditorCallbackSender,
-    lifetime: TaskHandle,
+    pub(super) lifetimes: Vec<TaskHandle>,
     request: TaskHandle,
-    // Inspection belongs to a particular user selection; controls belong to the session.
-    selection: Option<TaskHandle>,
+    scope: RequestScope,
     thread: Option<ThreadId>,
     pub(super) frame: Option<usize>,
 }
 
 impl DebuggerContext {
     pub fn is_current(&self, editor: &Editor) -> bool {
-        !self.lifetime.is_canceled()
+        self.lifetimes.iter().all(|handle| !handle.is_canceled())
             && !self.request.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
-            && !editor.debugger.is_terminating(self.id)
-            && self.selection.as_ref().is_none_or(|selection| {
-                !selection.is_canceled()
-                    && editor
+            && (self.scope == RequestScope::Session || !editor.debugger.is_terminating(self.id))
+            && editor.debugger.get_session(self.id).is_some_and(|session| {
+                self.scope != RequestScope::Inspection
+                    || (editor
                         .debugger
                         .get_active_session()
-                        .is_some_and(|session| session.id() == self.id)
+                        .is_some_and(|active| active.id() == self.id)
+                        && session.selected_thread() == self.thread
+                        && session.current_stack_frame().map(|frame| frame.id) == self.frame)
             })
-            && editor.debugger.get_session(self.id).is_some_and(|session| {
-                session.selected_thread() == self.thread
-                    && session.current_stack_frame().map(|frame| frame.id) == self.frame
-            })
+    }
+
+    async fn canceled(&self) {
+        use futures_util::{stream::FuturesUnordered, StreamExt};
+        let mut canceled: FuturesUnordered<_> = self
+            .lifetimes
+            .iter()
+            .map(|handle| handle.canceled())
+            .collect();
+        canceled.push(self.request.canceled());
+        canceled.next().await;
     }
 }
 
@@ -105,14 +154,7 @@ impl<T: Send + 'static> DebuggerTask<T> {
     pub async fn run(self) -> Option<DebuggerUpdate<T>> {
         let result = tokio::select! {
             biased;
-            _ = self.context.lifetime.canceled() => return None,
-            _ = self.context.request.canceled() => return None,
-            _ = async {
-                match &self.context.selection {
-                    Some(selection) => selection.canceled().await,
-                    None => std::future::pending().await,
-                }
-            } => return None,
+            _ = self.context.canceled() => return None,
             result = self.future => result,
         };
         Some(DebuggerUpdate {
@@ -177,9 +219,22 @@ impl Editor {
         &mut self,
         kind: RequestKind,
     ) -> Result<(DebuggerContext, RequestSender)> {
-        let session = self
+        let id = self
             .debugger
             .get_active_session()
+            .context("Debugger is not running")?
+            .id();
+        self.debugger_context_for(id, kind)
+    }
+
+    pub(super) fn debugger_context_for(
+        &mut self,
+        id: DebugAdapterId,
+        kind: RequestKind,
+    ) -> Result<(DebuggerContext, RequestSender)> {
+        let session = self
+            .debugger
+            .get_session(id)
             .context("Debugger is not running")?;
         anyhow::ensure!(session.capabilities().is_some(), "Debugger is initializing");
         let (id, thread, frame, sender) = (
@@ -197,24 +252,31 @@ impl Editor {
             "Debugger session is disconnecting"
         );
         let owner = self.callback_sender().clone();
+        let scope = kind.scope();
         let state = &mut self.debugger.sessions[id].requests;
+        let mut lifetimes = vec![state.session.current.clone()];
+        if scope != RequestScope::Session {
+            lifetimes.push(state.execution.current.clone());
+        }
+        if scope == RequestScope::Inspection {
+            lifetimes.push(state.selection.current.clone());
+            if let Some(selection) = &self.debugger.current_selection {
+                lifetimes.push(selection.clone());
+            }
+        }
         let context = DebuggerContext {
             id,
             owner,
-            lifetime: state.current.clone(),
+            lifetimes,
             request: state.requests.entry(kind).or_default().restart(),
-            selection: if kind == RequestKind::Control {
-                None
-            } else {
-                self.debugger.current_selection.clone()
-            },
+            scope,
             thread,
             frame,
         };
         Ok((context, sender))
     }
 
-    fn spawn_debugger_task<T: Send + 'static>(
+    pub(super) fn spawn_debugger_task<T: Send + 'static>(
         &self,
         task: DebuggerTask<T>,
         apply: impl FnOnce(&mut Editor, T) + Send + 'static,
@@ -286,7 +348,7 @@ impl Editor {
         if !context.is_current(self) {
             return Ok(());
         }
-        self.debugger.invalidate_requests(context.id);
+        self.debugger.invalidate_inspection(context.id);
         let (context, sender) = self.debugger_context(RequestKind::SelectThread)?;
         let id = context.id;
         let task = DebuggerTask::new(context, async move {
@@ -305,9 +367,9 @@ impl Editor {
                 .execution
                 .select_thread(thread, response.stack_frames);
             let frame = session.current_stack_frame().cloned();
-            editor.debugger.invalidate_requests(id);
+            editor.debugger.invalidate_inspection(id);
             if let Some(frame) = frame {
-                crate::handlers::dap::jump_to_stack_frame(editor, &frame);
+                editor.navigate_debugger_frame(id, &frame);
             }
         });
         Ok(())
@@ -349,8 +411,8 @@ impl Editor {
             .select_frame(index)
             .context("Stack frame is no longer available")?
             .clone();
-        self.debugger.invalidate_requests(context.id);
-        crate::handlers::dap::jump_to_stack_frame(self, &frame);
+        self.debugger.invalidate_inspection(context.id);
+        self.navigate_debugger_frame(context.id, &frame);
         Ok(())
     }
 
@@ -382,6 +444,9 @@ impl Editor {
             let id = session.id();
             self.terminate_debugger_session(id);
             return Ok(());
+        }
+        if let DebuggerCommand::Exceptions(enabled) = command {
+            return self.configure_debugger_exceptions(session.id(), enabled);
         }
         let thread = session.selected_thread();
         if matches!(
@@ -425,23 +490,11 @@ impl Editor {
                 ControlEffect::ResumeAll,
             ),
             DebuggerCommand::Terminate => unreachable!("shutdown handled by the lifecycle owner"),
-            DebuggerCommand::Exceptions(enabled) => {
-                let filters = if enabled {
-                    capabilities
-                        .exception_breakpoint_filters
-                        .as_ref()
-                        .map(|filters| filters.iter().map(|filter| filter.filter.clone()).collect())
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                control_effect(
-                    client.set_exception_breakpoints(filters),
-                    ControlEffect::Unchanged,
-                )
+            DebuggerCommand::Exceptions(_) => {
+                unreachable!("configuration has its own request lifetime")
             }
         };
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         let (context, _) = self.debugger_context(RequestKind::Control)?;
         self.spawn_debugger_task(DebuggerTask::new(context, future), move |editor, effect| {
             match effect {
@@ -457,7 +510,7 @@ impl Editor {
                     .resume_all_threads(),
                 ControlEffect::Unchanged => return,
             }
-            editor.debugger.invalidate_requests(id);
+            editor.debugger.invalidate_execution(id);
         });
         Ok(())
     }
@@ -471,6 +524,14 @@ impl Editor {
             self.debugger_command(DebuggerCommand::Pause(thread))
         } else {
             Ok(())
+        }
+    }
+}
+
+impl SessionRequests {
+    pub(super) fn cancel_configuration(&mut self) {
+        if let Some(request) = self.requests.get_mut(&RequestKind::Configuration) {
+            request.cancel();
         }
     }
 }

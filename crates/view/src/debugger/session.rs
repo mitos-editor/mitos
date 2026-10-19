@@ -23,6 +23,7 @@ pub struct DebugSession {
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
     pub(super) requests: SessionRequests,
+    pub(super) configuration: super::configuration::SessionConfiguration,
     pub(super) reverse_requests: ReverseRequests,
     pub(super) events: SessionEvents,
     pub(super) execution: ExecutionState,
@@ -65,6 +66,7 @@ impl DebugSession {
             startup: None,
             breakpoints: None,
             requests: SessionRequests::default(),
+            configuration: super::configuration::SessionConfiguration::default(),
             reverse_requests: ReverseRequests::default(),
             events: SessionEvents::default(),
             execution: ExecutionState::default(),
@@ -265,7 +267,7 @@ impl crate::Editor {
     pub fn select_debugger_session(&mut self, id: DebugAdapterId) -> anyhow::Result<()> {
         self.debugger.select_session(id)?;
         if let Some(frame) = self.debugger.current_stack_frame().cloned() {
-            crate::handlers::dap::jump_to_stack_frame(self, &frame);
+            self.navigate_debugger_frame(id, &frame);
         }
         Ok(())
     }

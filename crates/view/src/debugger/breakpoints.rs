@@ -465,14 +465,15 @@ impl Editor {
         Ok(())
     }
 
-    fn finish_breakpoint_configuration(&mut self, id: DebugAdapterId) {
+    pub(super) fn finish_breakpoint_configuration(&mut self, id: DebugAdapterId) {
         let Some(debug_session) = self.debugger.sessions.get_mut(id) else {
             return;
         };
         let Some(session) = debug_session.breakpoints.as_mut() else {
             return;
         };
-        if debug_session.lifecycle.is_disconnecting()
+        if debug_session.configuration.in_flight
+            || debug_session.lifecycle.is_disconnecting()
             || !debug_session.lifecycle.needs_configuration_done()
             || session
                 .sources

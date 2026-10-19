@@ -16,6 +16,7 @@ pub(crate) fn register_hooks() {
     startup::register_hooks();
     breakpoints::register_hooks();
 }
+mod configuration;
 mod operations;
 pub use operations::{
     DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerTask, DebuggerUpdate,

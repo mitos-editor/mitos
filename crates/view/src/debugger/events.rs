@@ -8,10 +8,7 @@ use dap::{events, requests, ConnectionType, DebugAdapterId, ThreadId};
 use event::{TaskController, TaskHandle};
 use serde_json::Value;
 
-use crate::{
-    callbacks::EditorCallbackSender, features::request::SelectionRequest,
-    handlers::dap::jump_to_stack_frame, Editor,
-};
+use crate::{callbacks::EditorCallbackSender, features::request::SelectionRequest, Editor};
 
 pub(super) struct SessionEvents {
     transition: TaskController,
@@ -116,7 +113,7 @@ impl Editor {
     }
 
     pub(crate) fn reset_debugger_events(&mut self, id: DebugAdapterId) {
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         let state = &mut self.debugger.sessions[id].events;
         state.current = state.transition.restart();
     }
@@ -125,7 +122,7 @@ impl Editor {
         if self.debugger.is_terminating(id) {
             return;
         }
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
@@ -210,9 +207,21 @@ impl Editor {
                 frames,
             })
         };
+        let inspection = self.debugger.inspection_handle(id);
+        let waiting = inspection.clone();
+        let future = async move {
+            match event::cancelable_future(future, &waiting).await {
+                Some(result) => result.map(Some),
+                None => Ok(None),
+            }
+        };
         context.spawn(future, move |editor, context, result| {
+            if inspection.is_canceled() {
+                return;
+            }
             let state = match result {
-                Ok(state) => state,
+                Ok(Some(state)) => state,
+                Ok(None) => return,
                 Err(error) => {
                     context.report_error(editor, "Cannot list stopped threads", error);
                     return;
@@ -243,7 +252,7 @@ impl Editor {
                         })
                         && let Some(frame) = frame
                     {
-                        jump_to_stack_frame(editor, &frame);
+                        editor.navigate_debugger_frame(id, &frame);
                     }
                 }
                 Err(error) => {
@@ -254,7 +263,7 @@ impl Editor {
     }
 
     pub(crate) fn debugger_continued(&mut self, id: DebugAdapterId, event: events::ContinuedBody) {
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };
@@ -270,7 +279,7 @@ impl Editor {
         event: events::ThreadBody,
     ) {
         if event.reason == "exited" {
-            self.debugger.invalidate_requests(id);
+            self.debugger.invalidate_execution(id);
         }
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
@@ -301,9 +310,10 @@ impl Editor {
         } else {
             Box::pin(client.disconnect(None))
         };
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         self.debugger.sessions[id].lifecycle.begin_disconnect();
         self.suspend_debugger_breakpoints(id);
+        self.suspend_debugger_configuration(id);
         self.debugger.cancel_child_startups(id);
         self.cancel_debugger_reverse_requests(id);
         let context = self.debugger_lifecycle_context(id);
@@ -313,6 +323,7 @@ impl Editor {
                 editor.debugger.sessions[context.id]
                     .lifecycle
                     .connection_retained();
+                editor.resume_debugger_configuration(context.id);
                 editor.resume_debugger_breakpoints(context.id);
                 context.report_error(editor, "Debugger request failed", error);
             }
@@ -320,10 +331,11 @@ impl Editor {
     }
 
     pub(crate) fn debugger_terminated(&mut self, id: DebugAdapterId, restart: Option<Value>) {
+        self.suspend_debugger_configuration(id);
         self.debugger.cancel_child_startups(id);
         self.cancel_debugger_reverse_requests(id);
         self.debugger.cancel_startup_requests(id);
-        self.debugger.invalidate_requests(id);
+        self.debugger.invalidate_execution(id);
         let Some(session) = self.debugger.get_session_mut(id) else {
             return;
         };

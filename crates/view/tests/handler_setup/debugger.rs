@@ -2483,3 +2483,6 @@ mod inspection;
 
 #[path = "debugger_shutdown_coordination.rs"]
 mod shutdown_coordination;
+
+#[path = "debugger_request_lifetimes.rs"]
+mod request_lifetimes;

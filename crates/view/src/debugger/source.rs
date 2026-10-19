@@ -48,6 +48,19 @@ pub(crate) fn frame_selection(text: &Rope, frame: &StackFrame) -> Option<Selecti
     Some(Selection::single(start, end))
 }
 
+impl crate::Editor {
+    pub(crate) fn navigate_debugger_frame(&mut self, id: dap::DebugAdapterId, frame: &StackFrame) {
+        if self
+            .debugger
+            .get_active_session()
+            .is_some_and(|session| session.id() == id)
+            && !self.debugger.is_terminating(id)
+        {
+            crate::handlers::dap::jump_to_stack_frame(self, frame);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

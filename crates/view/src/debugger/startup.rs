@@ -268,6 +268,7 @@ impl Editor {
         if active {
             self.set_status("Debugger initialized...");
         }
+        self.resume_debugger_configuration(id);
         if let Err(error) = self.configure_debugger_breakpoints(id) {
             if active {
                 self.set_error(|| format!("Debugger configuration failed: {error}"));

@@ -248,6 +248,12 @@ origin when delivered. Session changes, execution transitions, newer requests,
 and thread/frame changes invalidate results and picker actions. Transport cleanup
 for canceled requests stays local; late replies are discarded.
 
+Debugger request lifetimes distinguish session configuration, execution controls,
+and inspection. Thread/frame selection cancels inspection without dropping control
+acknowledgements. Execution transitions cancel controls and inspection while
+session configuration remains independent. Exception settings serialize updates,
+retain the latest desired value, and recover through the shared shutdown path.
+
 Variable inspection lives in `view::debugger::inspection`. Each session owns
 its current browser cache; pages expose display data and retain a guarded
 context, never raw adapter references. Scopes load first, and expanding a scope
