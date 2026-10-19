@@ -8,7 +8,8 @@
 //! Session membership, execution state, and active selection belong to the editor.
 //! Protocol data structures are re-exported from `dap-types`.
 //!
-//! Adapter selection and launch configuration belong to the session owner.
+//! Capabilities, launch arguments, and restart configuration belong to the session
+//! owner, alongside adapter selection.
 //! The client accepts explicit stream, stdio, or TCP connections.
 
 mod client;

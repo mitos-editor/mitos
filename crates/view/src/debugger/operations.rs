@@ -181,13 +181,7 @@ impl Editor {
             .debugger
             .get_active_session()
             .context("Debugger is not running")?;
-        anyhow::ensure!(
-            session
-                .client
-                .as_ref()
-                .is_some_and(|client| client.caps.is_some()),
-            "Debugger is initializing"
-        );
+        anyhow::ensure!(session.capabilities().is_some(), "Debugger is initializing");
         let (id, thread, frame, sender) = (
             session.id(),
             session.selected_thread(),
@@ -406,28 +400,22 @@ impl Editor {
                 .is_some_and(|session| self.debugger.is_starting(session.id())),
             "Selected debugging session is still starting"
         );
-        let client = self
+        let session = self
             .debugger
-            .get_active_client()
+            .get_active_session()
             .context("Debugger is not running")?;
+        let capabilities = session.capabilities().context("Debugger is initializing")?;
         if matches!(command, DebuggerCommand::Restart) {
             anyhow::ensure!(
-                client
-                    .capabilities()
-                    .supports_restart_request
-                    .unwrap_or(false),
+                capabilities.supports_restart_request.unwrap_or(false),
                 "Debugger does not support session restarts"
             );
             anyhow::ensure!(
-                client.starting_request_args().is_some(),
+                session.launch.is_some(),
                 "No arguments found with which to restart the session"
             );
         }
-        let thread = self
-            .debugger
-            .get_active_session()
-            .unwrap()
-            .selected_thread();
+        let thread = session.selected_thread();
         if matches!(
             command,
             DebuggerCommand::Continue
@@ -438,10 +426,8 @@ impl Editor {
         {
             bail!("Currently active thread is not stopped. Switch the thread.");
         }
-        let id = client.id();
-        self.debugger.invalidate_requests(id);
-        let (context, _) = self.debugger_context(RequestKind::Control)?;
-        let client = self.debugger.get_client_mut(id).unwrap();
+        let id = session.id();
+        let client = session.client.as_ref().context("Debugger is connecting")?;
         let future: BoxFuture<'static, dap::Result<ControlEffect>> = match command {
             DebuggerCommand::Continue => {
                 let response = client.continue_thread(thread.unwrap());
@@ -466,12 +452,12 @@ impl Editor {
             DebuggerCommand::Pause(thread) => {
                 control_effect(client.pause(thread), ControlEffect::Unchanged)
             }
-            DebuggerCommand::Restart => control_effect(client.restart(), ControlEffect::ResumeAll),
+            DebuggerCommand::Restart => control_effect(
+                client.restart(session.launch.as_ref().unwrap().arguments.clone()),
+                ControlEffect::ResumeAll,
+            ),
             DebuggerCommand::Terminate
-                if client
-                    .capabilities()
-                    .supports_terminate_request
-                    .unwrap_or(false) =>
+                if capabilities.supports_terminate_request.unwrap_or(false) =>
             {
                 control_effect(
                     client.terminate(Some(requests::TerminateArguments {
@@ -485,8 +471,7 @@ impl Editor {
             }
             DebuggerCommand::Exceptions(enabled) => {
                 let filters = if enabled {
-                    client
-                        .capabilities()
+                    capabilities
                         .exception_breakpoint_filters
                         .as_ref()
                         .map(|filters| filters.iter().map(|filter| filter.filter.clone()).collect())
@@ -500,6 +485,8 @@ impl Editor {
                 )
             }
         };
+        self.debugger.invalidate_requests(id);
+        let (context, _) = self.debugger_context(RequestKind::Control)?;
         self.spawn_debugger_task(DebuggerTask::new(context, future), move |editor, effect| {
             match effect {
                 ControlEffect::ResumeThread => editor

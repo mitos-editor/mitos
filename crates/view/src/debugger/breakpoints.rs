@@ -231,7 +231,10 @@ impl Editor {
                 adapter_data: None,
                 checksums: None,
             },
-            breakpoints: Some(source_breakpoints(breakpoints, client.caps.as_ref())?),
+            breakpoints: Some(source_breakpoints(
+                breakpoints,
+                debug_session.capabilities.as_ref(),
+            )?),
             source_modified: Some(false),
         };
         let definitions = breakpoints.to_vec();
@@ -323,9 +326,9 @@ impl Editor {
             return;
         };
         let sender = client.request_sender();
-        let supported = client
+        let supported = self.debugger.sessions[id]
             .capabilities()
-            .supports_configuration_done_request
+            .and_then(|caps| caps.supports_configuration_done_request)
             .unwrap_or(false);
         let callbacks = self.callback_sender().clone();
         let owner = callbacks.clone();

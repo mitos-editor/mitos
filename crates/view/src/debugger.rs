@@ -119,10 +119,7 @@ impl DebuggerState {
         property: BreakpointProperty,
         value: Option<String>,
     ) -> anyhow::Result<()> {
-        let capabilities = self
-            .sessions
-            .active()
-            .and_then(|session| session.client.as_ref()?.caps.as_ref());
+        let capabilities = self.sessions.active().and_then(DebugSession::capabilities);
         self.breakpoints
             .set_property(path, identity, property, value, capabilities)?;
         Ok(())

@@ -211,7 +211,8 @@ impl Editor {
                         .is_some_and(|startup| startup.initialized);
                     let session = editor.debugger.get_session_mut(id).unwrap();
                     session.initialize_capabilities(capabilities);
-                    let client = session.client.as_mut().unwrap();
+                    session.launch = launch.clone();
+                    let client = session.client.as_ref().unwrap();
                     if let Some(launch) = launch {
                         let future: futures_util::future::BoxFuture<'static, dap::Result<Value>> =
                             match launch.request {
@@ -236,8 +237,8 @@ impl Editor {
     pub(crate) fn debugger_initialized(&mut self, id: DebugAdapterId) {
         if self
             .debugger
-            .get_client(id)
-            .is_some_and(|client| client.caps.is_none())
+            .get_session(id)
+            .is_some_and(|session| session.capabilities().is_none())
         {
             if let Some(startup) = self
                 .debugger

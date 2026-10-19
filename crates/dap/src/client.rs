@@ -27,7 +27,7 @@ use tokio::{
 };
 
 #[derive(Debug)]
-/// One debug-adapter transport and its negotiated protocol configuration.
+/// One debug-adapter transport and its typed protocol requests.
 ///
 /// Construction returns a separate receiver for adapter events and reverse
 /// requests. Callers must continue polling that receiver while awaiting typed
@@ -38,11 +38,8 @@ pub struct Client {
     _transport: Transport,
     server_tx: TransportSender,
     request_counter: Arc<AtomicU64>,
-    connection_type: Option<ConnectionType>,
-    starting_request_args: Option<Value>,
     /// The socket address of the debugger, if using TCP transport.
     pub socket: Option<SocketAddr>,
-    pub caps: Option<DebuggerCapabilities>,
 }
 
 impl Client {
@@ -66,9 +63,6 @@ impl Client {
             _transport: transport,
             server_tx,
             request_counter: Arc::new(AtomicU64::new(0)),
-            caps: None,
-            connection_type: None,
-            starting_request_args: None,
             socket: None,
         };
 
@@ -136,14 +130,6 @@ impl Client {
         )
     }
 
-    /// Returns the arguments used by the most recent launch or attach request.
-    ///
-    /// They are retained so adapters supporting restart can receive the same
-    /// session configuration.
-    pub fn starting_request_args(&self) -> Option<&Value> {
-        self.starting_request_args.as_ref()
-    }
-
     /// Spawns an adapter that listens on an ephemeral loopback TCP port.
     ///
     /// Every `{}` in `port_format` is replaced with the selected port. The
@@ -194,11 +180,6 @@ impl Client {
     /// Returns this client's registry identifier.
     pub fn id(&self) -> DebugAdapterId {
         self.id
-    }
-
-    /// Returns whether this session was started by launch or attach.
-    pub fn connection_type(&self) -> Option<ConnectionType> {
-        self.connection_type
     }
 
     /// An owned transport handle for requests that must outlive a borrow of editor state.
@@ -253,15 +234,6 @@ impl Client {
         self.server_tx.send(Payload::Response(response))
     }
 
-    /// Returns the negotiated capabilities.
-    ///
-    /// # Panics
-    ///
-    /// Panics until the owner installs the capabilities returned by [`Self::initialize`].
-    pub fn capabilities(&self) -> &DebuggerCapabilities {
-        self.caps.as_ref().expect("debugger not yet initialized!")
-    }
-
     /// Return an owned initialization request. The owner installs its capabilities
     /// while continuing to serve incoming events and reverse requests.
     pub fn initialize(
@@ -291,45 +263,28 @@ impl Client {
     }
 
     pub fn disconnect(
-        &mut self,
+        &self,
         args: Option<DisconnectArguments>,
     ) -> impl Future<Output = Result<Value>> + use<> {
-        self.connection_type = None;
         self.call::<requests::Disconnect>(args)
     }
 
     pub fn terminate(
-        &mut self,
+        &self,
         args: Option<TerminateArguments>,
     ) -> impl Future<Output = Result<Value>> + use<> {
-        self.connection_type = None;
         self.call::<requests::Terminate>(args)
     }
 
-    pub fn launch(
-        &mut self,
-        args: serde_json::Value,
-    ) -> impl Future<Output = Result<Value>> + use<> {
-        self.connection_type = Some(ConnectionType::Launch);
-        self.starting_request_args = Some(args.clone());
+    pub fn launch(&self, args: serde_json::Value) -> impl Future<Output = Result<Value>> + use<> {
         self.call::<requests::Launch>(args)
     }
 
-    pub fn attach(
-        &mut self,
-        args: serde_json::Value,
-    ) -> impl Future<Output = Result<Value>> + use<> {
-        self.connection_type = Some(ConnectionType::Attach);
-        self.starting_request_args = Some(args.clone());
+    pub fn attach(&self, args: serde_json::Value) -> impl Future<Output = Result<Value>> + use<> {
         self.call::<requests::Attach>(args)
     }
 
-    pub fn restart(&self) -> impl Future<Output = Result<Value>> + use<> {
-        let args = if let Some(args) = &self.starting_request_args {
-            args.clone()
-        } else {
-            Value::Null
-        };
+    pub fn restart(&self, args: Value) -> impl Future<Output = Result<Value>> + use<> {
         self.call::<requests::Restart>(args)
     }
 
@@ -358,16 +313,8 @@ impl Client {
         Ok(response.breakpoints)
     }
 
+    /// Sends configuration completion after the owner checks adapter support.
     pub async fn configuration_done(&self) -> Result<()> {
-        if !self
-            .caps
-            .as_ref()
-            .and_then(|caps| caps.supports_configuration_done_request)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-
         self.request::<requests::ConfigurationDone>(Some(requests::ConfigurationDoneArguments {}))
             .await
             .map(|_| ())

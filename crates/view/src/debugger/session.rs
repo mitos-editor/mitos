@@ -16,6 +16,8 @@ pub struct DebugSession {
     pub(super) parent: Option<DebugAdapterId>,
     pub(super) client: Option<Client>,
     pub(super) adapter: Option<language_config::DebugAdapterConfig>,
+    pub(super) capabilities: Option<dap::DebuggerCapabilities>,
+    pub(super) launch: Option<super::DebuggerLaunch>,
     pending_capabilities: Option<dap::DebuggerCapabilities>,
     pub(super) startup: Option<Startup>,
     pub(super) breakpoints: Option<BreakpointSession>,
@@ -55,6 +57,8 @@ impl DebugSession {
             parent,
             client: None,
             adapter: None,
+            capabilities: None,
+            launch: None,
             pending_capabilities: None,
             startup: None,
             breakpoints: None,
@@ -113,11 +117,11 @@ impl DebugSession {
 
     /// Negotiated capabilities, including subsequent adapter updates.
     pub fn capabilities(&self) -> Option<&dap::DebuggerCapabilities> {
-        self.client.as_ref()?.caps.as_ref()
+        self.capabilities.as_ref()
     }
 
     pub(crate) fn update_capabilities(&mut self, update: dap::DebuggerCapabilities) {
-        if let Some(capabilities) = self.client.as_mut().and_then(|client| client.caps.as_mut()) {
+        if let Some(capabilities) = self.capabilities.as_mut() {
             capabilities.apply_update(update);
             return;
         }
@@ -131,11 +135,11 @@ impl DebugSession {
         if let Some(update) = self.pending_capabilities.take() {
             capabilities.apply_update(update);
         }
-        self.client.as_mut().unwrap().caps = Some(capabilities);
+        self.capabilities = Some(capabilities);
     }
 
     pub fn connection_type(&self) -> Option<dap::ConnectionType> {
-        self.client.as_ref()?.connection_type()
+        self.launch.as_ref().map(|launch| launch.request)
     }
 
     pub fn selected_thread(&self) -> Option<ThreadId> {
@@ -178,14 +182,10 @@ impl DebuggerState {
         self.get_session(id)?.client.as_ref()
     }
 
-    pub(crate) fn get_client_mut(&mut self, id: DebugAdapterId) -> Option<&mut Client> {
-        self.get_session_mut(id)?.client.as_mut()
-    }
-
     pub(crate) fn get_active_client(&self) -> Option<&Client> {
-        let client = self.get_client(self.sessions.active_id()?)?;
-        client.caps.as_ref()?;
-        Some(client)
+        let session = self.get_active_session()?;
+        session.capabilities()?;
+        session.client.as_ref()
     }
 
     pub fn current_stack_frame(&self) -> Option<&StackFrame> {

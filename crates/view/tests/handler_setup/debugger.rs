@@ -103,6 +103,7 @@ async fn adapter_server(fail_launch: bool) -> anyhow::Result<(std::net::SocketAd
 struct AdapterOptions {
     fail_launch: bool,
     fail_restarts: bool,
+    failed_commands: Vec<&'static str>,
     continue_all: Option<bool>,
     held_commands: Vec<&'static str>,
     empty_stack: bool,
@@ -111,6 +112,17 @@ struct AdapterOptions {
     stack_source: Option<std::path::PathBuf>,
     launch: Option<view::debugger::DebuggerLaunch>,
     hold_launch_restarts: bool,
+}
+
+impl AdapterOptions {
+    fn succeeds(&self, message: &Value) -> bool {
+        let command = message["command"].as_str().unwrap();
+        !(self.failed_commands.contains(&command)
+            || (command == "launch"
+                && (self.fail_launch
+                    || (self.fail_restarts && message["arguments"].get("__restart").is_some())))
+            || (command == "stackTrace" && self.fail_stack))
+    }
 }
 
 async fn adapter_server_with_options(
@@ -204,7 +216,7 @@ async fn adapter_server_with_options(
                     _ => json!({}),
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":1,
-                    "request_seq":message["seq"], "command":message["command"], "success":!(((options.fail_launch || (options.fail_restarts && message["arguments"].get("__restart").is_some())) && message["command"] == "launch") || (options.fail_stack && message["command"] == "stackTrace")), "body":body}))?;
+                    "request_seq":message["seq"], "command":message["command"], "success":options.succeeds(&message), "body":body}))?;
                 write
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
@@ -218,7 +230,7 @@ async fn adapter_server_with_options(
                 };
                 let response = serde_json::to_vec(&json!({"type":"response", "seq":2,
                         "request_seq":held["seq"], "command":held["command"],
-                        "success":!(((options.fail_launch || (options.fail_restarts && held["arguments"].get("__restart").is_some())) && held["command"] == "launch") || (options.fail_stack && held["command"] == "stackTrace")), "body":body}))?;
+                        "success":options.succeeds(&held), "body":body}))?;
                 write
                     .write_all(format!("Content-Length: {}\r\n\r\n", response.len()).as_bytes())
                     .await?;
@@ -2249,5 +2261,52 @@ async fn capability_updates_belong_to_their_session_and_preserve_selection() -> 
             .supports_restart_request,
         Some(true)
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rejected_shutdown_preserves_launch_configuration_for_restart() -> anyhow::Result<()> {
+    use view::debugger::{DebuggerCommand, DebuggerLaunch};
+
+    for shutdown in ["terminate", "disconnect"] {
+        let mut f = Fixture::new("")?;
+        let arguments = json!({"program":"example", "args":["original"]});
+        let (id, mut wire) = adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                launch: Some(DebuggerLaunch {
+                    request: dap::ConnectionType::Launch,
+                    arguments: arguments.clone(),
+                }),
+                failed_commands: vec![shutdown],
+                ..Default::default()
+            },
+        )
+        .await?;
+        command(&mut wire, "launch").await?;
+        if shutdown == "disconnect" {
+            f.editor
+                .handle_debugger_message(
+                    id,
+                    debugger_event(
+                        "capabilities",
+                        json!({
+                            "capabilities": {"supportsTerminateRequest":false}
+                        }),
+                    ),
+                )
+                .await;
+        }
+        f.editor.debugger_command(DebuggerCommand::Terminate)?;
+        command(&mut wire, shutdown).await?;
+        debugger_callback(&mut f).await?;
+        let session = f.editor.debugger().get_session(id).unwrap();
+        assert_eq!(session.connection_type(), Some(dap::ConnectionType::Launch));
+        assert!(session.capabilities().is_some());
+        f.editor.debugger_command(DebuggerCommand::Restart)?;
+        let restart = command(&mut wire, "restart").await?;
+        assert_eq!(restart["arguments"], arguments);
+        debugger_callback(&mut f).await?;
+    }
     Ok(())
 }

@@ -304,9 +304,8 @@ impl Editor {
             return;
         };
         session.execution.clear();
-        let client = session.client.as_mut().unwrap();
-        let connection = client.connection_type();
-        let starting_arguments = client.starting_request_args().cloned();
+        let launch = session.launch.clone();
+        let client = session.client.as_ref().unwrap();
         let restart = restart.filter(|value| *value != Value::Bool(false));
         let disconnect = client.disconnect(Some(requests::DisconnectArguments {
             restart: Some(restart.is_some()),
@@ -335,7 +334,7 @@ impl Editor {
                 }
                 return;
             };
-            let Some(connection) = connection else {
+            let Some(launch) = launch else {
                 if context.is_active(editor) {
                     editor.set_error(|| {
                         "No starting request found to restart the debugging session."
@@ -344,7 +343,7 @@ impl Editor {
                 editor.debugger.remove_session(id);
                 return;
             };
-            let Some(Value::Object(mut arguments)) = starting_arguments else {
+            let Value::Object(mut arguments) = launch.arguments else {
                 if context.is_active(editor) {
                     editor.set_error(|| {
                         "No launch or attach arguments found to restart the debugging session."
@@ -357,9 +356,13 @@ impl Editor {
             // launch/attach configuration, rather than replacing that configuration.
             arguments.insert("__restart".to_owned(), restart_data);
             let arguments = Value::Object(arguments);
+            editor.debugger.sessions[id].launch = Some(super::DebuggerLaunch {
+                request: launch.request,
+                arguments: arguments.clone(),
+            });
             editor.debugger.sessions[id].events.terminating = false;
-            let client = editor.debugger.get_client_mut(id).unwrap();
-            let future: BoxFuture<'static, dap::Result<Value>> = match connection {
+            let client = editor.debugger.get_client(id).unwrap();
+            let future: BoxFuture<'static, dap::Result<Value>> = match launch.request {
                 ConnectionType::Launch => Box::pin(client.launch(arguments)),
                 ConnectionType::Attach => Box::pin(client.attach(arguments)),
             };
