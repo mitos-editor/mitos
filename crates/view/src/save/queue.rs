@@ -3,8 +3,10 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Weak},
+};
 
 use futures_util::{
     stream::{self, Flatten, Once, SelectAll},
@@ -57,9 +59,70 @@ pub(crate) struct WriteQueue {
     completions: SelectAll<DocumentWrites>,
     pending: usize,
     paths: Arc<Mutex<HashMap<PathBuf, usize>>>,
+    blocked: Vec<Weak<Vec<PathBuf>>>,
+}
+
+/// Suspends write admission for an external filesystem operation. Dropping it releases the paths.
+#[must_use = "Keep the write block alive until the filesystem operation completes"]
+pub struct FileWriteBlock {
+    _paths: Arc<Vec<PathBuf>>,
+}
+
+impl FileWriteBlock {
+    pub fn contains(&self, path: &Path) -> bool {
+        blocked_by(path, &self._paths)
+    }
+}
+
+fn blocked_by(path: &Path, blocked: &[PathBuf]) -> bool {
+    let path = stdx::path::canonicalize(path);
+    let matches = |path: &Path| blocked.iter().any(|blocked| path.starts_with(blocked));
+    if matches(&path) {
+        return true;
+    }
+    // Preserve the leaf: an external operation may replace a file with a symlink.
+    if let Some((parent, name)) = path.parent().zip(path.file_name())
+        && matches(&stdx::path::canonicalize_existing(parent).join(name))
+    {
+        return true;
+    }
+    // Resolve ancestor aliases independently of a newly introduced symlink farther down.
+    path.ancestors()
+        .any(|ancestor| matches(&stdx::path::canonicalize_existing(ancestor)))
 }
 
 impl WriteQueue {
+    pub(crate) fn block(&mut self, paths: Vec<PathBuf>) -> anyhow::Result<FileWriteBlock> {
+        anyhow::ensure!(
+            !self.has_pending(),
+            "Wait for pending saves before changing files on disk"
+        );
+        self.blocked.retain(|paths| paths.strong_count() != 0);
+        let mut paths: Vec<_> = paths
+            .into_iter()
+            .flat_map(|path| {
+                [
+                    stdx::path::canonicalize(&path),
+                    stdx::path::canonicalize_existing(&path),
+                ]
+            })
+            .collect();
+        paths.sort();
+        paths.dedup();
+        let paths = Arc::new(paths);
+        self.blocked.push(Arc::downgrade(&paths));
+        Ok(FileWriteBlock { _paths: paths })
+    }
+
+    pub(crate) fn is_blocked(&self, path: &Path) -> bool {
+        if self.blocked.iter().all(|paths| paths.strong_count() == 0) {
+            return false;
+        }
+        self.blocked
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|paths| blocked_by(path, &paths))
+    }
     pub(crate) fn open_document(&mut self, document: DocumentId) {
         let (sender, receiver) = unbounded_channel();
         assert!(
@@ -145,6 +208,35 @@ mod tests {
     use crate::document::DocumentSavedEvent;
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_blocks_cover_aliases_and_files_replaced_by_symlinks() -> anyhow::Result<()> {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let file = root.path().join("file");
+        std::fs::write(&file, "original")?;
+        let target = outside.path().join("target");
+        std::fs::write(&target, "outside")?;
+        let alias = outside.path().join("alias");
+        symlink(root.path(), &alias)?;
+        let mut queue = WriteQueue::default();
+        let block = queue.block(vec![file.clone()])?;
+        std::fs::remove_file(&file)?;
+        symlink(&target, &file)?;
+        assert!(queue.is_blocked(&file));
+        assert!(block.contains(&alias.join("file")));
+        assert!(!queue.is_blocked(&target));
+        drop(block);
+        assert!(!queue.is_blocked(&file));
+        let block = queue.block(vec![root.path().into()])?;
+        assert!(queue.is_blocked(&alias.join("new-file")));
+        assert!(!queue.is_blocked(&outside.path().join("other")));
+        drop(block);
+        assert!(!queue.is_blocked(&alias.join("new-file")));
+        Ok(())
+    }
 
     fn completed(document: DocumentId, revision: usize) -> DocumentSavedEventResult {
         Ok(DocumentSavedEvent {

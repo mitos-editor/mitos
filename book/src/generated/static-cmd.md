@@ -115,6 +115,7 @@
 | `show_change` | Show the current change against HEAD | normal: `` <space>i ``, select: `` <space>i `` |
 | `blame_line` | Show commit details for the current line |  |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
+| `git_stash_picker` | Browse Git stashes in the current repository |  |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
 | `changed_file_picker_in_repository` | Open changed file picker in repository |  |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |

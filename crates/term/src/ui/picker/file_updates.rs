@@ -23,6 +23,12 @@ pub(super) struct FileUpdates<T, D> {
     dirty: bool,
     task: TaskController,
     pending: Option<Pending<T, D>>,
+    generation: Option<Generation>,
+}
+
+struct Generation {
+    current: fn(&Editor) -> u64,
+    observed: u64,
 }
 
 struct Pending<T, D> {
@@ -74,6 +80,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             dirty: false,
             task: TaskController::new(),
             pending: None,
+            generation: None,
         });
         self
     }
@@ -102,6 +109,22 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Refresh after an explicit operation even when filesystem watching and polling are disabled.
+    #[cfg(feature = "git")]
+    pub(crate) fn with_refresh_generation(
+        mut self,
+        editor: &Editor,
+        generation: fn(&Editor) -> u64,
+    ) -> Self {
+        if let Some(updates) = &mut self.file_updates {
+            updates.generation = Some(Generation {
+                current: generation,
+                observed: generation(editor),
+            });
+        }
+        self
+    }
+
     pub(super) fn refresh_files(&mut self, editor: &Editor) {
         use oneshot::error::TryRecvError as ResultError;
 
@@ -111,6 +134,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         updates.dirty |= updates
             .changes
             .changed(editor, (updates.root)(&self.results.editor_data));
+        if let Some(generation) = &mut updates.generation {
+            let current = (generation.current)(editor);
+            if current != generation.observed {
+                generation.observed = current;
+                updates.stop();
+                if let Some(preview) = &mut self.custom_preview {
+                    preview.invalidate();
+                }
+            }
+        }
 
         if updates.pending.as_ref().is_some_and(|pending| {
             !Arc::ptr_eq(&pending.data, &self.results.editor_data)

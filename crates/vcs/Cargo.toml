@@ -15,7 +15,7 @@ event.workspace = true
 ropey.workspace = true
 stdx.workspace = true
 
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "parking_lot", "macros", "process", "io-util"] }
 parking_lot.workspace = true
 arc-swap.workspace = true
 

@@ -41,11 +41,11 @@ fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
 
 fn close_selected_buffer(
     cx: &mut crate::compositor::Context,
-    meta: &BufferMeta,
+    meta: Option<&BufferMeta>,
     action: PickerItemAction,
 ) -> PickerCallbackResult<BufferMeta, PathStyleConfig> {
-    match action {
-        PickerItemAction::CloseBuffer => {
+    match (action, meta) {
+        (PickerItemAction::CloseBuffer, Some(meta)) => {
             let doc_id = meta.id;
             if let Err(error) =
                 cx.after_writes(move |editor| match editor.close_document(doc_id, false) {
@@ -64,7 +64,7 @@ fn close_selected_buffer(
                 editor_data: PathStyleConfig::new(cx.editor),
             }
         }
-        PickerItemAction::RemoveQuicklistEntry => PickerCallbackResult::KeepOpen,
+        _ => PickerCallbackResult::KeepOpen,
     }
 }
 

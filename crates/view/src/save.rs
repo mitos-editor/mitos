@@ -9,6 +9,7 @@ mod operation;
 mod queue;
 
 pub use operation::{submit, SaveError, SaveProgress, SaveTask, SaveUpdate};
+pub use queue::FileWriteBlock;
 pub(crate) use queue::WriteQueue;
 pub(crate) use queue::WriteReservation;
 

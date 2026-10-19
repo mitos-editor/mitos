@@ -329,6 +329,10 @@ fn component_keys_reject_invalid_actions_shapes_and_contexts() {
         "[keys.unknown]\nj = 'move_down'",
         "[keys.picker]\nj = 'scroll_down'",
         "[keys.picker]\nC-x = 'close_buffer'",
+        "[keys.picker]\nA-s = 'stage'",
+        "[keys.buffer-picker]\nA-s = 'stage'",
+        "[keys.git-picker]\nA-s = 'apply_stash'",
+        "[keys.stash-picker]\nA-s = 'stage'",
         "[keys.menu]\nC-x = 'close_buffer'",
         "[keys.buffer-picker]\nC-x = 'scroll_down'",
         "[keys.picker]\nC-x = 'remove_entry'",
@@ -880,4 +884,37 @@ fn rulers_normalize_legacy_arrays_before_layering() {
     }
     assert!(Config::load_test_result("[editor.rulers]\nchar = '|'").is_err());
     assert!(Config::load_test_result("[editor]\nrulers = [80]\nrulers.columns = [40]").is_err());
+}
+
+#[test]
+fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{KeymapState, Lookup};
+    let config = Config::load(
+        Ok(&"[keys.git-picker]\nC-j = 'stage'\nA-z = 'unbound'\n[keys.stash-picker]\nC-j = 'apply_stash_with_index'".to_owned()),
+        Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
+    ).unwrap();
+    let maps = &config.component_keys;
+    let mut state = KeymapState::default();
+    assert_eq!(
+        state.lookup(&maps.git_picker, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::Stage)])
+    );
+    assert_eq!(
+        state.lookup(&maps.stash_picker, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::ApplyStashWithIndex)])
+    );
+    assert_eq!(
+        state.lookup(&maps.git_picker, "C-k".parse().unwrap()),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    assert_eq!(
+        state.lookup(&maps.git_picker, "A-z".parse().unwrap()),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(&maps.picker, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::MoveUp])
+    );
+    assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
 }

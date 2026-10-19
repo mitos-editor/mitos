@@ -65,6 +65,13 @@ pub enum PickerItemAction {
     CloseBuffer,
     #[serde(rename = "remove_entry")]
     RemoveQuicklistEntry,
+    Stage,
+    Unstage,
+    Stash,
+    Actions,
+    Stashes,
+    ApplyStash,
+    ApplyStashWithIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -115,6 +122,8 @@ pub struct ComponentKeymaps {
     pub picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
     pub quicklist_picker: Keymap<PickerAction>,
+    pub git_picker: Keymap<PickerAction>,
+    pub stash_picker: Keymap<PickerAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -143,6 +152,29 @@ pub(crate) fn quicklist_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<P
         PickerAction::Item(PickerItemAction::RemoveQuicklistEntry),
     )]));
     keys
+}
+
+impl ComponentKeymaps {
+    pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        use PickerItemAction as I;
+        shared.merge(bindings(&[
+            ("A-a", PickerAction::Item(I::Actions)),
+            ("A-s", PickerAction::Item(I::Stage)),
+            ("A-u", PickerAction::Item(I::Unstage)),
+            ("A-z", PickerAction::Item(I::Stash)),
+            ("A-l", PickerAction::Item(I::Stashes)),
+        ]));
+        shared
+    }
+    pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        use PickerItemAction as I;
+        shared.merge(bindings(&[
+            ("A-a", PickerAction::Item(I::Actions)),
+            ("A-s", PickerAction::Item(I::ApplyStash)),
+            ("A-i", PickerAction::Item(I::ApplyStashWithIndex)),
+        ]));
+        shared
+    }
 }
 
 impl Default for ComponentKeymaps {
@@ -226,6 +258,8 @@ impl Default for ComponentKeymaps {
             ]),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
+            git_picker: Self::git_picker(picker.clone()),
+            stash_picker: Self::stash_picker(picker.clone()),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),
