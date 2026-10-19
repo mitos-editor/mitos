@@ -221,7 +221,7 @@ impl Client {
             columns_start_at_one: Some(true),
             path_format: Some("path".to_owned()),
             supports_variable_type: Some(true),
-            supports_variable_paging: Some(false),
+            supports_variable_paging: Some(true),
             supports_run_in_terminal_request: Some(supports_run_in_terminal),
             supports_start_debugging_request: Some(supports_start_debugging),
             supports_memory_references: Some(false),

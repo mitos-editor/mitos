@@ -124,6 +124,9 @@ While stopped, use `Space G v` to browse the current frame's scopes. Select a
 scope and press Enter to load its values. Entries marked `▸` have children;
 press Enter to open them. Expensive scopes are labeled and load only when opened.
 
+Large containers load 100 values at a time. Select `Load more…` to append the next
+page while keeping the current filter and selection.
+
 Select `.. (back)` to return to the parent, keeping its filter and selection.
 Escape closes the browser. Resuming execution or switching the session, thread,
 or frame invalidates the displayed values. Reopen the browser to refresh them.

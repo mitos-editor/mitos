@@ -14,11 +14,19 @@ use view::{debugger::DebuggerVariables, graphics::Rect, Editor};
 enum Action {
     Back,
     Expand(usize),
+    More,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum RowKey {
+    Back,
+    More,
+    Variable(String),
 }
 
 struct Row {
     action: Action,
-    key: Option<String>,
+    key: RowKey,
     name: String,
     value: String,
 }
@@ -43,7 +51,7 @@ impl Page {
         if parent {
             rows.push(Row {
                 action: Action::Back,
-                key: None,
+                key: RowKey::Back,
                 name: ".. (back)".into(),
                 value: String::new(),
             });
@@ -58,11 +66,19 @@ impl Page {
                 .unwrap_or_default();
             Row {
                 action: Action::Expand(index),
-                key: Some(entry.name.clone()),
+                key: RowKey::Variable(entry.name.clone()),
                 name: format!("{marker}{}{ty}{expensive}", entry.name),
                 value: entry.value.clone().unwrap_or_default(),
             }
         }));
+        if data.has_more() {
+            rows.push(Row {
+                action: Action::More,
+                key: RowKey::More,
+                name: "Load more…".into(),
+                value: String::new(),
+            });
+        }
         rows
     }
 
@@ -177,17 +193,31 @@ impl Variables {
     }
 
     fn expand(&mut self, cx: &mut Context, index: usize) {
-        let page = &self.current.data;
-        if !page.entries()[index].is_expandable() {
+        if !self.current.data.entries()[index].is_expandable() {
             return;
         }
-        let task = match cx.editor.debugger_variable_children(page, index) {
-            Ok(task) => task,
-            Err(error) => {
-                cx.editor.set_error(|| error.to_string());
-                return;
-            }
-        };
+        match cx
+            .editor
+            .debugger_variable_children(&self.current.data, index)
+        {
+            Ok(task) => self.load(cx, task, false),
+            Err(error) => cx.editor.set_error(|| error.to_string()),
+        }
+    }
+
+    fn more(&mut self, cx: &mut Context) {
+        match cx.editor.debugger_more_variables(&self.current.data) {
+            Ok(task) => self.load(cx, task, true),
+            Err(error) => cx.editor.set_error(|| error.to_string()),
+        }
+    }
+
+    fn load(
+        &mut self,
+        cx: &mut Context,
+        task: view::debugger::DebuggerTask<DebuggerVariables>,
+        append: bool,
+    ) {
         let load = self.load.restart();
         cx.jobs.callback(async move {
             let update = tokio::select! {
@@ -207,7 +237,13 @@ impl Variables {
                         return;
                     };
                     match update.into_result(editor) {
-                        Some(Ok(data)) => browser.push(editor, data),
+                        Some(Ok(data)) => {
+                            if append {
+                                browser.current.refresh(data, !browser.parents.is_empty());
+                            } else {
+                                browser.push(editor, data);
+                            }
+                        }
                         Some(Err(error)) => {
                             editor.set_error(|| format!("Debugger request failed: {error}"))
                         }
@@ -244,6 +280,7 @@ impl Component for Variables {
                     self.current = parent;
                 }
             }
+            Some(Action::More) => self.more(cx),
             Some(Action::Expand(index)) => self.expand(cx, index),
             None => {}
         }

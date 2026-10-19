@@ -104,6 +104,7 @@ async fn adapter_server(fail_launch: bool) -> anyhow::Result<(std::net::SocketAd
 #[derive(Default)]
 struct AdapterOptions {
     fail_launch: bool,
+    variable_count: Option<usize>,
     fail_restarts: bool,
     failed_commands: Vec<&'static str>,
     continue_all: Option<bool>,
@@ -205,7 +206,7 @@ async fn adapter_server_with_options(
                     "scopes" => {
                         json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false},{"name":"globals","variablesReference":8,"expensive":true}]})
                     }
-                    "variables" => variable_response(&message),
+                    "variables" => variable_response(&message, options.variable_count),
                     "evaluate" => {
                         json!({"result":message["arguments"]["expression"],"variablesReference":0})
                     }
@@ -224,7 +225,7 @@ async fn adapter_server_with_options(
             }
             if let Some(held) = held_event.take() {
                 let body = if held["command"] == "variables" {
-                    variable_response(&held)
+                    variable_response(&held, options.variable_count)
                 } else if held["command"] == "stackTrace" {
                     json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))}]})
                 } else {
@@ -2469,7 +2470,17 @@ async fn explicit_shutdown_takes_precedence_over_adapter_restart() -> anyhow::Re
     Ok(())
 }
 
-fn variable_response(message: &Value) -> Value {
+fn variable_response(message: &Value, count: Option<usize>) -> Value {
+    if message["arguments"]["variablesReference"] == 7
+        && let Some(total) = count
+    {
+        let start = message["arguments"]["start"].as_u64().unwrap_or(0) as usize;
+        let count = message["arguments"]["count"]
+            .as_u64()
+            .unwrap_or(total as u64) as usize;
+        return json!({"variables":(start..total.min(start.saturating_add(count))).map(|i| json!({"name":format!("item{i}"),"value":i.to_string(),"variablesReference":9})).collect::<Vec<_>>()});
+    }
+
     match message["arguments"]["variablesReference"].as_u64().unwrap() {
         7 => {
             json!({"variables":[{"name":"answer","value":"42","type":"int","variablesReference":0},{"name":"object","value":"Object","variablesReference":9}]})
@@ -2479,6 +2490,9 @@ fn variable_response(message: &Value) -> Value {
         _ => panic!("unexpected variable reference: {message}"),
     }
 }
+
+#[path = "debugger_variable_paging.rs"]
+mod variable_paging;
 
 #[path = "debugger_inspection.rs"]
 mod inspection;

@@ -10,6 +10,15 @@ use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::OnceCell;
 
+const PAGE_SIZE: usize = 100;
+
+fn child_count(named: Option<usize>, indexed: Option<usize>) -> Option<usize> {
+    match (named, indexed) {
+        (Some(named), Some(indexed)) => Some(named.saturating_add(indexed)),
+        _ => None, // Either category may still have an unknown number of children.
+    }
+}
+
 /// A scope or value in the variable browser. References remain private to its page.
 #[derive(Clone)]
 pub struct DebuggerVariable {
@@ -18,6 +27,7 @@ pub struct DebuggerVariable {
     pub ty: Option<String>,
     pub expensive: bool,
     reference: usize,
+    children: Option<usize>,
 }
 
 impl DebuggerVariable {
@@ -30,6 +40,7 @@ impl DebuggerVariable {
 struct VariableKey {
     name: String,
     occurrence: usize,
+    index: usize,
 }
 
 /// A page of values bound to its original editor, session, stop, and frame selection.
@@ -39,6 +50,9 @@ pub struct DebuggerVariables {
     data: TaskHandle,
     entries: Arc<[DebuggerVariable]>,
     path: Vec<VariableKey>,
+    container: Option<usize>,
+    total: Option<usize>,
+    more: bool,
 }
 
 impl DebuggerVariables {
@@ -55,6 +69,10 @@ impl DebuggerVariables {
         &self.entries
     }
 
+    pub fn has_more(&self) -> bool {
+        self.more
+    }
+
     fn task_context(&self) -> DebuggerContext {
         let mut context = self.context.clone();
         context.lifetimes.push(self.data.clone());
@@ -67,7 +85,11 @@ impl DebuggerVariables {
             .iter()
             .filter(|entry| entry.name == name)
             .count();
-        VariableKey { name, occurrence }
+        VariableKey {
+            name,
+            occurrence,
+            index,
+        }
     }
 }
 
@@ -76,7 +98,7 @@ type VariableCell = Arc<OnceCell<Arc<[DebuggerVariable]>>>;
 struct CachedValues {
     lifetime: TaskController,
     current: TaskHandle,
-    variables: HashMap<usize, VariableCell>,
+    variables: HashMap<(usize, usize), VariableCell>,
 }
 
 pub(super) struct InspectionCache {
@@ -127,6 +149,7 @@ impl InspectionCache {
                 ty: None,
                 expensive: scope.expensive,
                 reference: scope.variables_reference,
+                children: child_count(scope.named_variables, scope.indexed_variables),
             })
             .collect();
         Ok(DebuggerVariables {
@@ -134,12 +157,16 @@ impl InspectionCache {
             data,
             entries,
             path: Vec::new(),
+            container: None,
+            total: None,
+            more: false,
         })
     }
 
     async fn variables(
         &self,
         reference: usize,
+        start: usize,
         data: &TaskHandle,
     ) -> dap::Result<Arc<[DebuggerVariable]>> {
         // Requests share initialization, but never hold the map lock across an await.
@@ -149,7 +176,11 @@ impl InspectionCache {
             if data.is_canceled() {
                 return Err(anyhow::anyhow!("Debugger values were invalidated").into());
             }
-            values.variables.entry(reference).or_default().clone()
+            values
+                .variables
+                .entry((reference, start))
+                .or_default()
+                .clone()
         };
         let variables = cell
             .get_or_try_init(|| async {
@@ -158,8 +189,8 @@ impl InspectionCache {
                     .request::<requests::Variables>(requests::VariablesArguments {
                         variables_reference: reference,
                         filter: None,
-                        start: None,
-                        count: None,
+                        start: Some(start),
+                        count: Some(PAGE_SIZE),
                         format: None,
                     })
                     .await?
@@ -173,6 +204,10 @@ impl InspectionCache {
                             ty: variable.ty,
                             expensive: false,
                             reference: variable.variables_reference,
+                            children: child_count(
+                                variable.named_variables,
+                                variable.indexed_variables,
+                            ),
                         })
                         .collect(),
                 )
@@ -186,9 +221,10 @@ impl InspectionCache {
         page: &DebuggerVariables,
         index: usize,
     ) -> dap::Result<DebuggerVariables> {
-        let entries = self
-            .variables(page.entries[index].reference, &page.data)
-            .await?;
+        let entry = &page.entries[index];
+        let entries = self.variables(entry.reference, 0, &page.data).await?;
+        let more =
+            entries.len() == PAGE_SIZE && entry.children.is_none_or(|total| entries.len() < total);
         let mut path = page.path.clone();
         path.push(page.key(index));
         Ok(DebuggerVariables {
@@ -196,7 +232,37 @@ impl InspectionCache {
             data: page.data.clone(),
             entries,
             path,
+            container: Some(entry.reference),
+            total: entry.children,
+            more,
         })
+    }
+    async fn more(&self, page: &DebuggerVariables) -> dap::Result<DebuggerVariables> {
+        let start = page.entries.len();
+        let next = self
+            .variables(
+                page.container.expect("only containers have more pages"),
+                start,
+                &page.data,
+            )
+            .await?;
+        let more = next.len() == PAGE_SIZE
+            && page
+                .total
+                .is_none_or(|total| start.saturating_add(next.len()) < total);
+        let entries = page.entries.iter().chain(next.iter()).cloned().collect();
+        Ok(DebuggerVariables {
+            entries,
+            more,
+            ..page.clone()
+        })
+    }
+
+    async fn restore_count(&self, page: &mut DebuggerVariables, count: usize) -> dap::Result<()> {
+        while page.more && page.entries.len() < count {
+            *page = self.more(page).await?;
+        }
+        Ok(())
     }
 }
 
@@ -256,6 +322,28 @@ impl Editor {
         }))
     }
 
+    /// Fetch the next bounded range, retaining the values already visible in this container.
+    pub fn debugger_more_variables(
+        &self,
+        page: &DebuggerVariables,
+    ) -> Result<DebuggerTask<DebuggerVariables>> {
+        anyhow::ensure!(
+            page.is_current(self),
+            "Debugger variables are no longer current"
+        );
+        anyhow::ensure!(page.more, "All debugger variables are already loaded");
+        let cache = self.debugger.sessions[page.context.id]
+            .requests
+            .inspection
+            .as_ref()
+            .context("Debugger variable inspection is unavailable")?
+            .clone();
+        let page = page.clone();
+        Ok(DebuggerTask::new(page.task_context(), async move {
+            cache.more(&page).await
+        }))
+    }
+
     /// Rebuild only the open ancestry. Missing children return the nearest surviving parent.
     pub fn debugger_refresh_variables(
         &self,
@@ -274,12 +362,16 @@ impl Editor {
         let context = page.context.clone();
         let data = cache.current();
         let path = page.path.clone();
+        let loaded = page.entries.len();
         let mut task_context = context.clone();
         task_context.lifetimes.push(data.clone());
         Ok(DebuggerTask::new(task_context, async move {
             let mut pages = vec![cache.scopes(context, data).await?];
             for key in path {
-                let parent = pages.last().unwrap();
+                let parent = pages.last_mut().unwrap();
+                cache
+                    .restore_count(parent, key.index.saturating_add(1))
+                    .await?;
                 let Some((index, entry)) = parent
                     .entries
                     .iter()
@@ -295,6 +387,9 @@ impl Editor {
                 let child = cache.children(parent, index).await?;
                 pages.push(child);
             }
+            cache
+                .restore_count(pages.last_mut().unwrap(), loaded)
+                .await?;
             Ok(pages)
         }))
     }

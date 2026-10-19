@@ -39,6 +39,18 @@ async fn wait_for_text(app: &mut Application, expected: &str) -> anyhow::Result<
     Ok(())
 }
 
+async fn wait_for_row(app: &mut Application, name: &str) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        // One occurrence is the query; another must be the actual matched row.
+        while screen(app).matches(name).count() < 2 {
+            app.editor.reset_idle_timer();
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
 ) -> anyhow::Result<()> {
@@ -101,7 +113,18 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     wait_for_text(&mut app, "true").await?;
     keys(&mut app, "global<ret>").await?;
     assert!(screen(&app).contains("true")); // A leaf keeps the browser open.
+    keys(&mut app, "<C-w>back<ret><C-w>large<ret>").await?;
+    wait_for_text(&mut app, "Load more").await?;
+    keys(&mut app, "Load more<ret>").await?;
+    keys(&mut app, "<C-w><C-w>item199").await?;
+    wait_for_row(&mut app, "item199").await?;
+    assert!(!screen(&app).contains("item200"));
+    keys(&mut app, "<C-w>Load more<ret><C-w><C-w>item249").await?;
+    wait_for_row(&mut app, "item249").await?;
+    keys(&mut app, "<C-w>").await?;
+    assert!(!screen(&app).contains("Load more"));
     keys(&mut app, "<esc><esc>").await?;
+
     app.editor
         .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
     tokio::time::timeout(Duration::from_secs(10), async {

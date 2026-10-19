@@ -63,7 +63,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
             "threads" => json!({"threads":[{"id":1,"name":"main"}]}),
             "stackTrace" => json!({"stackFrames":[{"id":1,"name":"main","line":1,"column":1}]}),
             "scopes" => {
-                json!({"scopes":[{"name":"locals","variablesReference":1,"expensive":false},{"name":"globals","variablesReference":2,"expensive":true}]})
+                json!({"scopes":[{"name":"locals","variablesReference":1,"expensive":false},{"name":"globals","variablesReference":2,"expensive":true},{"name":"large","variablesReference":4,"expensive":false}]})
             }
             "variables" => match message["arguments"]["variablesReference"].as_u64() {
                 Some(1) => {
@@ -74,6 +74,11 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 }
                 Some(3) => {
                     json!({"variables":[{"name":"child","value":nested_value,"variablesReference":0}]})
+                }
+                Some(4) => {
+                    let start = message["arguments"]["start"].as_u64().unwrap_or(0) as usize;
+                    let count = message["arguments"]["count"].as_u64().unwrap_or(250) as usize;
+                    json!({"variables":(start..250.min(start.saturating_add(count))).map(|i| json!({"name":format!("item{i}"),"value":i.to_string(),"variablesReference":0})).collect::<Vec<_>>()})
                 }
                 reference => anyhow::bail!("unexpected variable reference: {reference:?}"),
             },
