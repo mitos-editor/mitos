@@ -114,6 +114,8 @@ struct AdapterOptions {
     empty_threads: bool,
     fail_stack: bool,
     stack_source: Option<std::path::PathBuf>,
+    stack_reference: Option<usize>,
+    source_content: String,
     launch: Option<view::debugger::DebuggerLaunch>,
     hold_launch_restarts: bool,
 }
@@ -127,6 +129,10 @@ impl AdapterOptions {
                     || (self.fail_restarts && message["arguments"].get("__restart").is_some())))
             || (command == "stackTrace" && self.fail_stack))
     }
+}
+
+fn frame_source(options: &AdapterOptions) -> Option<Value> {
+    (options.stack_source.is_some() || options.stack_reference.is_some()).then(|| json!({"name":"adapter.rs","path":options.stack_source,"sourceReference":options.stack_reference}))
 }
 
 async fn adapter_server_with_options(
@@ -194,6 +200,7 @@ async fn adapter_server_with_options(
                     "initialize" => {
                         json!({"supportsRestartRequest":true,"supportsTerminateRequest":true,"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":options.stack_count.is_some()})
                     }
+                    "source" => json!({"content":options.source_content}),
                     "setBreakpoints" => breakpoint_response(&message),
                     "threads" if options.empty_threads => json!({"threads":[]}),
                     "threads" => {
@@ -215,7 +222,7 @@ async fn adapter_server_with_options(
                     }
                     "stackTrace" => {
                         let thread = message["arguments"]["threadId"].as_u64().unwrap();
-                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
+                        json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":frame_source(&options)},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
                     }
                     "scopes" => {
                         json!({"scopes":[{"name":"locals","variablesReference":7,"expensive":false},{"name":"globals","variablesReference":8,"expensive":true}]})
@@ -241,7 +248,7 @@ async fn adapter_server_with_options(
                 let body = if held["command"] == "variables" {
                     variable_response(&held)
                 } else if held["command"] == "stackTrace" {
-                    json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))}]})
+                    json!({"stackFrames":[{"id":901,"name":"late","line":1,"column":1,"source":frame_source(&options)}]})
                 } else {
                     json!({})
                 };
@@ -2509,3 +2516,6 @@ mod inspection_refresh;
 
 #[path = "debugger_stack_paging.rs"]
 mod stack_paging;
+
+#[path = "debugger_source_resolution.rs"]
+mod source_resolution;

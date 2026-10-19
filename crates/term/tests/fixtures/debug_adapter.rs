@@ -16,6 +16,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
     let mut sequence = 1;
     let mut child_request = None;
     let mut stack_count = 1;
+    let mut adapter_source = false;
     let mut nested_value = "nested value";
     loop {
         let mut header = String::new();
@@ -67,7 +68,12 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 let levels = message["arguments"]["levels"]
                     .as_u64()
                     .unwrap_or(stack_count as u64) as usize;
-                json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1})).collect::<Vec<_>>(),"totalFrames":stack_count})
+                json!({"stackFrames":(start..stack_count.min(start.saturating_add(levels))).map(|i| json!({"id":i+1,"name":format!("frame{i}"),"line":1,"column":1,"source":adapter_source.then(||json!({"name":"generated.rs","sourceReference":7}))})).collect::<Vec<_>>(),"totalFrames":stack_count})
+            }
+            "source" => json!({"content":"adapter content\n"}),
+            "launch" if message["arguments"]["inspectSource"] == true => {
+                adapter_source = true;
+                json!({})
             }
             "launch" if message["arguments"]["inspectStack"] == true => {
                 stack_count = 70;
@@ -104,7 +110,8 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
             )?,
             "launch"
                 if message["arguments"]["inspectVariables"] == true
-                    || message["arguments"]["inspectStack"] == true =>
+                    || message["arguments"]["inspectStack"] == true
+                    || message["arguments"]["inspectSource"] == true =>
             {
                 send(
                     &mut output,

@@ -11,6 +11,7 @@ use view::{DocumentId, Editor};
 #[derive(PartialEq)]
 struct BufferMeta {
     id: DocumentId,
+    name: String,
     path: Option<Cow<'static, Path>>,
     is_modified: bool,
     is_current: bool,
@@ -23,6 +24,7 @@ fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
         .documents()
         .map(|doc| BufferMeta {
             id: doc.id(),
+            name: doc.display_name().into_owned(),
             path: doc
                 .path()
                 .map(ToOwned::to_owned)
@@ -88,7 +90,11 @@ fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConf
             flags.into()
         }),
         PickerColumn::new("path", |meta: &BufferMeta, config: &PathStyleConfig| {
-            config.stylize(meta.path.as_deref(), None)
+            if meta.path.is_none() {
+                meta.name.as_str().into()
+            } else {
+                config.stylize(meta.path.as_deref(), None)
+            }
         }),
     ];
 

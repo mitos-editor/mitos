@@ -7,11 +7,7 @@ use theme::icons::ICONS;
 use theme::Style;
 use view::document::DEFAULT_LANGUAGE_NAME;
 use view::graphics::RectExt as _;
-use view::{
-    document::{Mode, SCRATCH_BUFFER_NAME},
-    graphics::Rect,
-    Document, Editor, View,
-};
+use view::{document::Mode, graphics::Rect, Document, Editor, View};
 
 use crate::ui::ProgressSpinners;
 use std::{collections::HashSet, path::Path};
@@ -552,14 +548,7 @@ fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = {
-        let rel_path = context.doc.display_path();
-        let path = rel_path
-            .as_ref()
-            .map(|p| p.to_string_lossy())
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
-        format!(" {} ", path)
-    };
+    let title = format!(" {} ", context.doc.display_name());
 
     write(context, title.into());
 }
@@ -573,7 +562,7 @@ where
             .doc
             .path()
             .as_ref()
-            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |p| p.to_string_lossy());
+            .map_or_else(|| context.doc.display_name(), |p| p.to_string_lossy());
         format!(" {} ", path)
     };
 
@@ -614,7 +603,7 @@ where
         let path = rel_path
             .as_ref()
             .and_then(|p| p.file_name().map(|s| s.to_string_lossy()))
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
+            .unwrap_or_else(|| context.doc.display_name());
         format!(" {} ", path)
     };
 

@@ -59,6 +59,7 @@ pub(super) struct FileState {
     has_bom: bool,
     binary: bool,
     readonly: bool,
+    readonly_name: Option<String>,
     // The last read or successful save, used to detect external changes.
     last_saved_time: SystemTime,
     last_saved_revision: usize,
@@ -77,6 +78,7 @@ impl FileState {
             has_bom,
             binary: false,
             readonly: false,
+            readonly_name: None,
             last_saved_time: SystemTime::now(),
             last_saved_revision: 0,
             auto_reload_seen_mtime: None,
@@ -100,6 +102,17 @@ impl Editor {
 }
 
 impl Document {
+    /// Name an immutable, pathless document supplied by an external service.
+    pub(crate) fn with_readonly_name(mut self, name: String) -> Self {
+        self.file.readonly_name = Some(name);
+        self.detect_readonly();
+        self
+    }
+
+    pub(crate) fn is_virtual(&self) -> bool {
+        self.file.readonly_name.is_some()
+    }
+
     /// Load an unregistered preview and prepare its cancellable syntax request.
     pub fn open_for_preview(
         path: &Path,
@@ -229,6 +242,9 @@ impl Document {
         impl Future<Output = Result<DocumentSavedEvent, anyhow::Error>> + 'static + Send + use<>,
         anyhow::Error,
     > {
+        if self.is_virtual() {
+            bail!("Adapter source documents cannot be saved; copy the text to a new buffer first");
+        }
         if self.file.binary {
             bail!("Binary files are read-only and cannot be saved as text");
         }
@@ -465,8 +481,9 @@ impl Document {
     // Detect if the file is readonly and change the readonly field if necessary (unix only)
     pub fn detect_readonly(&mut self) {
         // Allows setting the flag for files the user cannot modify, like root files
-        self.file.readonly =
-            self.file.binary || self.file.path.as_ref().is_some_and(|p| readonly(p));
+        self.file.readonly = self.is_virtual()
+            || self.file.binary
+            || self.file.path.as_ref().is_some_and(|p| readonly(p));
     }
 
     /// Reload the document from its path.
@@ -650,6 +667,9 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
+        if let Some(name) = &self.file.readonly_name {
+            return name.as_str().into();
+        }
         self.display_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }

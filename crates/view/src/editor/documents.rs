@@ -47,7 +47,7 @@ impl Editor {
                 // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
                 // Boolean value is determined before the call to `view_mut` because the operation requires a borrow
                 // of `self.tree`, which is mutably borrowed when `view_mut` is called.
-                let remove_empty_scratch = !doc.is_modified()
+                let remove_empty_scratch = !doc.is_modified() && !doc.is_virtual()
                     // If the buffer has no path and is not modified, it is an empty scratch buffer.
                     && doc.path().is_none()
                     // If the buffer we are changing to is not this buffer
@@ -175,7 +175,7 @@ impl Editor {
         id
     }
 
-    fn new_file_from_document(&mut self, action: Action, doc: Document) -> DocumentId {
+    pub(crate) fn new_file_from_document(&mut self, action: Action, doc: Document) -> DocumentId {
         let id = self.new_document(doc);
         self.switch(id, action);
         self.refresh_spelling(id);

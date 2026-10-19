@@ -126,6 +126,10 @@ impl Editor {
 
     pub fn set_doc_path(&mut self, doc_id: DocumentId, path: &Path) {
         let doc = self.documents.get_mut(&doc_id).expect("document exists");
+        if doc.is_virtual() {
+            self.set_error(|| "Adapter source documents cannot be renamed");
+            return;
+        }
         let old_path = doc.path();
 
         if let Some(old_path) = old_path {

@@ -620,7 +620,7 @@ pub mod requests {
     #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SetBreakpointsArguments {
-        pub source: Source,
+        pub source: super::Source,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub breakpoints: Option<Vec<SourceBreakpoint>>,
         // lines is deprecated
@@ -711,6 +711,27 @@ pub mod requests {
         type Arguments = Option<ThreadsArguments>;
         type Result = ThreadsResponse;
         const COMMAND: &'static str = "threads";
+    }
+
+    #[derive(Debug)]
+    pub enum Source {}
+    impl Request for Source {
+        type Arguments = SourceArguments;
+        type Result = SourceResponse;
+        const COMMAND: &'static str = "source";
+    }
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SourceArguments {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub source: Option<super::Source>,
+        pub source_reference: usize,
+    }
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SourceResponse {
+        pub content: String,
+        pub mime_type: Option<String>,
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
