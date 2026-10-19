@@ -185,6 +185,7 @@ pub struct DebuggerFrames {
     pub context: DebuggerContext,
     pub frames: Vec<(usize, dap::StackFrame)>,
     pub thread_state: String,
+    pub has_more: bool,
 }
 
 enum ControlEffect {
@@ -355,21 +356,13 @@ impl Editor {
         self.debugger.invalidate_inspection(context.id);
         let (context, sender) = self.debugger_context(RequestKind::SelectThread)?;
         let id = context.id;
+        let paging = self.debugger.sessions[id].stack_paging();
         let task = DebuggerTask::new(context, async move {
-            sender
-                .request::<requests::StackTrace>(requests::StackTraceArguments {
-                    thread_id: thread,
-                    start_frame: None,
-                    levels: None,
-                    format: None,
-                })
-                .await
+            super::stack::request_stack_trace(sender, thread, 0, paging).await
         });
         self.spawn_debugger_task(task, move |editor, response| {
             let session = editor.debugger.get_session_mut(id).unwrap();
-            session
-                .execution
-                .select_thread(thread, response.stack_frames);
+            session.execution.select_thread(thread, response);
             let frame = session.current_stack_frame().cloned();
             editor.debugger.invalidate_inspection(id);
             if let Some(frame) = frame {
@@ -391,24 +384,21 @@ impl Editor {
             .requests
             .remove(&RequestKind::SelectThread);
         context.lifetimes.push(self.debugger.inspection_handle(id));
+        let session = &self.debugger.sessions[id];
+        let paging = session.stack_paging();
+        let loaded = session
+            .stack_frames()
+            .get(&thread)
+            .map_or(0, |trace| trace.frames().len());
         let task = DebuggerTask::new(context, async move {
-            sender
-                .request::<requests::StackTrace>(requests::StackTraceArguments {
-                    thread_id: thread,
-                    start_frame: None,
-                    levels: None,
-                    format: None,
-                })
-                .await
+            super::stack::refresh_stack_trace(sender, thread, paging, loaded).await
         });
         self.spawn_debugger_task(task, move |editor, response| {
             let session = &mut editor.debugger.sessions[id];
             // A frame picker holds indices into the previous trace. Revoke it even
             // when the selected frame survives the refresh.
             session.requests.requests.remove(&RequestKind::SelectThread);
-            session
-                .execution
-                .refresh_stack_frames(thread, response.stack_frames);
+            session.execution.refresh_stack_frames(thread, response);
             if session.current_stack_frame().map(|frame| frame.id) != previous {
                 editor.debugger.invalidate_inspection(id);
             }
@@ -417,18 +407,26 @@ impl Editor {
 
     pub fn debugger_stack_frames(&mut self) -> Result<DebuggerFrames> {
         let (context, _) = self.debugger_context(RequestKind::SelectThread)?;
-        let session = self.debugger.get_session(context.id).unwrap();
+        self.debugger_frames_snapshot(context)
+    }
+
+    pub(super) fn debugger_frames_snapshot(
+        &self,
+        context: DebuggerContext,
+    ) -> Result<DebuggerFrames> {
+        let session = self
+            .debugger
+            .get_session(context.id)
+            .context("Debugger is not running")?;
         let thread = session
             .selected_thread()
             .context("No thread is currently active")?;
-        let frames = session
+        let trace = session
             .stack_frames()
             .get(&thread)
-            .context("No stack frames for the active thread")?
-            .iter()
-            .cloned()
-            .enumerate()
-            .collect();
+            .context("No stack frames for the active thread")?;
+        let has_more = trace.has_more();
+        let frames = trace.frames().iter().cloned().enumerate().collect();
         let state = session
             .thread_states()
             .get(&thread)
@@ -438,6 +436,7 @@ impl Editor {
             context,
             frames,
             thread_state: state,
+            has_more,
         })
     }
 

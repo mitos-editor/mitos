@@ -4,7 +4,7 @@ use crate::{
     job::{Callback, Jobs},
     ui::{self, overlay::overlaid, Picker, Prompt, PromptEvent},
 };
-use dap::{self as dap, StackFrame, Thread};
+use dap::{self as dap, Thread};
 use editor_core::SmallVec;
 use language_config::{DebugConfigCompletion, DebugTemplate};
 use std::path::PathBuf;
@@ -95,7 +95,7 @@ fn thread_picker(
                     .get_active_session()?
                     .stack_frames()
                     .get(&thread.id)?;
-                let frame = frames.first()?;
+                let frame = frames.frames().first()?;
                 let path = frame.source.as_ref()?.path.as_ref()?.as_path();
                 Some((
                     path.into(),
@@ -488,46 +488,10 @@ pub fn dap_switch_thread(cx: &mut Context) {
 }
 
 pub fn dap_switch_stack_frame(cx: &mut Context) {
-    let view::debugger::DebuggerFrames {
-        context,
-        frames,
-        thread_state,
-    } = match cx.editor.debugger_stack_frames() {
-        Ok(frames) => frames,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-
-    let columns = [ui::PickerColumn::new(
-        "frame",
-        |item: &(usize, StackFrame), thread_state: &String| {
-            format!("{} ({})", item.1.name, thread_state).into()
-        },
-    )];
-    let preview_context = context.clone();
-    let picker = Picker::new(
-        cx.editor.redraw().clone(),
-        columns,
-        0,
-        frames,
-        thread_state,
-        move |cx, (index, _frame), _action| {
-            if let Err(error) = cx.editor.select_debugger_frame(&context, *index) {
-                cx.editor.set_error(|| error.to_string());
-            }
-        },
-    )
-    .with_preview(move |editor, (_index, frame)| {
-        if !preview_context.is_current(editor) {
-            return None;
-        }
-        let lines = view::debugger::source::frame_line_range(frame)?;
-        let path = frame.source.as_ref()?.path.as_ref()?;
-        Some((path.as_path().into(), Some(lines)))
-    });
-    cx.push_layer(Box::new(picker))
+    match cx.editor.debugger_stack_frames() {
+        Ok(frames) => cx.push_layer(Box::new(ui::debugger_stack::Frames::new(cx.editor, frames))),
+        Err(error) => cx.editor.set_error(|| error.to_string()),
+    }
 }
 
 pub(super) mod typed {

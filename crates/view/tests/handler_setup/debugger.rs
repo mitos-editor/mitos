@@ -108,6 +108,8 @@ struct AdapterOptions {
     failed_commands: Vec<&'static str>,
     continue_all: Option<bool>,
     held_commands: Vec<&'static str>,
+    stack_count: Option<usize>,
+    unknown_stack_total: bool,
     empty_stack: bool,
     empty_threads: bool,
     fail_stack: bool,
@@ -190,7 +192,7 @@ async fn adapter_server_with_options(
                 }
                 let body = match message["command"].as_str().unwrap() {
                     "initialize" => {
-                        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true,"supportsConfigurationDoneRequest":true})
+                        json!({"supportsRestartRequest":true,"supportsTerminateRequest":true,"supportsConfigurationDoneRequest":true,"supportsDelayedStackTraceLoading":options.stack_count.is_some()})
                     }
                     "setBreakpoints" => breakpoint_response(&message),
                     "threads" if options.empty_threads => json!({"threads":[]}),
@@ -198,6 +200,19 @@ async fn adapter_server_with_options(
                         json!({"threads":[{"id":1,"name":"main"},{"id":2,"name":"worker"}]})
                     }
                     "stackTrace" if options.empty_stack => json!({"stackFrames":[]}),
+                    "stackTrace" if options.stack_count.is_some() => {
+                        let total = options.stack_count.unwrap();
+                        let start =
+                            message["arguments"]["startFrame"].as_u64().unwrap_or(0) as usize;
+                        let levels = message["arguments"]["levels"]
+                            .as_u64()
+                            .unwrap_or(total as u64) as usize;
+                        let mut body = json!({"stackFrames":(start..total.min(start.saturating_add(levels))).map(|i| json!({"id":100+i,"name":format!("frame{i}"),"line":1,"column":1})).collect::<Vec<_>>()});
+                        if !options.unknown_stack_total {
+                            body["totalFrames"] = total.into();
+                        }
+                        body
+                    }
                     "stackTrace" => {
                         let thread = message["arguments"]["threadId"].as_u64().unwrap();
                         json!({"stackFrames":[{"id":thread*100+1,"name":"first","line":1,"column":1,"source":options.stack_source.as_ref().map(|path|json!({"path":path}))},{"id":thread*100+2,"name":"second","line":2,"column":1}]})
@@ -2491,3 +2506,6 @@ mod request_lifetimes;
 
 #[path = "debugger_inspection_refresh.rs"]
 mod inspection_refresh;
+
+#[path = "debugger_stack_paging.rs"]
+mod stack_paging;

@@ -22,6 +22,8 @@ pub use operations::{
     DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerTask, DebuggerUpdate,
 };
 
+mod stack;
+pub use stack::DebuggerStackPage;
 mod inspection;
 pub use inspection::{DebuggerVariable, DebuggerVariables};
 
