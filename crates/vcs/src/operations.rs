@@ -360,13 +360,15 @@ impl GitRepository {
 
     fn command(&self) -> Command {
         let mut command = Command::new("git");
+        // Git for Windows rejects Rust's verbatim paths (\\?\C:\...). Keep native
+        // canonical paths for identity checks, but simplify them at the CLI boundary.
         command
-            .current_dir(&self.root)
+            .current_dir(dunce::simplified(&self.root))
             .arg("--no-pager")
             .arg("--git-dir")
-            .arg(&self.git_dir)
+            .arg(dunce::simplified(&self.git_dir))
             .arg("--work-tree")
-            .arg(&self.root)
+            .arg(dunce::simplified(&self.root))
             .args([
                 "-c",
                 "core.fsmonitor=false",

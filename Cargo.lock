@@ -4745,6 +4745,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "dunce",
  "event",
  "gix",
  "log",
