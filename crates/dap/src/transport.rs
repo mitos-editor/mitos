@@ -3,7 +3,11 @@ use anyhow::Context;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex as SequenceMutex},
+};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{
@@ -26,7 +30,9 @@ pub struct Request {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 /// DAP response envelope.
 pub struct Response {
-    // seq is omitted as unused and is not sent by some implementations
+    /// Some adapters omit incoming sequence numbers; outgoing messages always have one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
     pub request_seq: u64,
     pub success: bool,
     pub command: String,
@@ -37,6 +43,8 @@ pub struct Response {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 /// DAP event envelope.
 pub struct Event {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
     pub event: String,
     pub body: Option<Value>,
 }
@@ -124,24 +132,58 @@ impl Transport {
                 _shutdown: shutdown,
             },
             rx,
-            TransportSender(tx),
+            TransportSender {
+                tx,
+                sequence: Arc::new(SequenceMutex::new(1)),
+            },
         )
     }
 }
 
 /// Sends protocol messages while keeping local request cleanup off the wire.
 #[derive(Clone, Debug)]
-pub struct TransportSender(UnboundedSender<Outgoing>);
+pub struct TransportSender {
+    tx: UnboundedSender<Outgoing>,
+    sequence: Arc<SequenceMutex<u64>>,
+}
 
 impl TransportSender {
     pub fn send(&self, payload: Payload) -> Result<()> {
-        self.0
+        self.send_message(payload).map(|_| ())
+    }
+
+    pub(crate) fn send_request(
+        &self,
+        command: &str,
+        arguments: Option<Value>,
+        back_ch: Sender<Result<Response>>,
+    ) -> Result<u64> {
+        self.send_message(Payload::Request(Request {
+            back_ch: Some(back_ch),
+            seq: 0,
+            command: command.to_owned(),
+            arguments,
+        }))
+    }
+
+    fn send_message(&self, mut payload: Payload) -> Result<u64> {
+        // Allocate and enqueue together so cloned senders preserve wire order.
+        let mut next = self.sequence.lock().unwrap();
+        let sequence = *next;
+        match &mut payload {
+            Payload::Request(request) => request.seq = sequence,
+            Payload::Response(response) => response.seq = Some(sequence),
+            Payload::Event(event) => event.seq = Some(sequence),
+        }
+        self.tx
             .send(Outgoing::Message(payload))
-            .map_err(|_| Error::StreamClosed)
+            .map_err(|_| Error::StreamClosed)?;
+        *next += 1;
+        Ok(sequence)
     }
 
     pub(crate) fn forget(&self, sequence: u64) {
-        let _ = self.0.send(Outgoing::Forget(sequence));
+        let _ = self.tx.send(Outgoing::Forget(sequence));
     }
 }
 

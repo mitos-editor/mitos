@@ -2,7 +2,7 @@ mod tcp;
 
 use crate::{
     requests::{DisconnectArguments, TerminateArguments},
-    transport::{ClientEvent, Payload, Request, Response, Transport, TransportSender},
+    transport::{ClientEvent, Payload, Response, Transport, TransportSender},
     DebugAdapterId, Error, Result,
 };
 use dap_types::*;
@@ -10,16 +10,7 @@ use dap_types::*;
 use serde_json::Value;
 
 use anyhow::anyhow;
-use std::{
-    future::Future,
-    net::SocketAddr,
-    path::PathBuf,
-    process::Stdio,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{future::Future, net::SocketAddr, path::PathBuf, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
@@ -38,7 +29,6 @@ pub struct Client {
     _process: Option<Child>,
     _transport: Transport,
     server_tx: TransportSender,
-    request_counter: Arc<AtomicU64>,
     /// The socket address of the debugger, if using TCP transport.
     pub socket: Option<SocketAddr>,
 }
@@ -63,7 +53,6 @@ impl Client {
             _process: process,
             _transport: transport,
             server_tx,
-            request_counter: Arc::new(AtomicU64::new(0)),
             socket: None,
         };
 
@@ -156,7 +145,6 @@ impl Client {
     pub fn request_sender(&self) -> RequestSender {
         RequestSender {
             server_tx: self.server_tx.clone(),
-            request_counter: self.request_counter.clone(),
         }
     }
 
@@ -187,6 +175,7 @@ impl Client {
     ) -> Result<()> {
         let response = match result {
             Ok(result) => Response {
+                seq: None,
                 request_seq,
                 command: command.to_owned(),
                 success: true,
@@ -194,6 +183,7 @@ impl Client {
                 body: Some(result),
             },
             Err(error) => Response {
+                seq: None,
                 request_seq,
                 command: command.to_owned(),
                 success: false,
@@ -418,18 +408,9 @@ impl Client {
 #[derive(Clone, Debug)]
 pub struct RequestSender {
     server_tx: TransportSender,
-    request_counter: Arc<AtomicU64>,
 }
 
 impl RequestSender {
-    fn next_request_id(&self) -> u64 {
-        // > The `seq` for the first message sent by a client or debug adapter
-        // > is 1, and for each subsequent message is 1 greater than the
-        // > previous message sent by that actor
-        // <https://microsoft.github.io/debug-adapter-protocol/specification#Base_Protocol_ProtocolMessage>
-        self.request_counter.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
     /// Executes a typed request and returns its untyped JSON body.
     ///
     /// Requests use monotonically increasing DAP sequence numbers and time out
@@ -442,7 +423,6 @@ impl RequestSender {
         R::Arguments: serde::Serialize,
     {
         let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
 
         async move {
             use std::time::Duration;
@@ -452,14 +432,7 @@ impl RequestSender {
 
             let (callback_tx, mut callback_rx) = channel(1);
 
-            let req = Request {
-                back_ch: Some(callback_tx),
-                seq: id,
-                command: R::COMMAND.to_string(),
-                arguments,
-            };
-
-            server_tx.send(Payload::Request(req))?;
+            let id = server_tx.send_request(R::COMMAND, arguments, callback_tx)?;
 
             // Dropping the wait releases transport bookkeeping, including on cancellation.
             let _pending = PendingRequest {
@@ -510,7 +483,8 @@ impl Drop for PendingRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
     use tokio::time;
 
     fn connection() -> (
@@ -529,6 +503,98 @@ mod tests {
         )
         .unwrap();
         (client, incoming, adapter)
+    }
+
+    async fn read_message(adapter: &mut BufReader<tokio::io::DuplexStream>) -> Value {
+        time::timeout(time::Duration::from_secs(5), async {
+            let mut header = String::new();
+            adapter.read_line(&mut header).await.unwrap();
+            let length: usize = header
+                .trim()
+                .strip_prefix("Content-Length: ")
+                .unwrap()
+                .parse()
+                .unwrap();
+            header.clear();
+            adapter.read_line(&mut header).await.unwrap();
+            assert_eq!(header, "\r\n");
+            let mut body = vec![0; length];
+            adapter.read_exact(&mut body).await.unwrap();
+            serde_json::from_slice(&body).unwrap()
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn reply_to(
+        adapter: &mut BufReader<tokio::io::DuplexStream>,
+        request: &Value,
+        body: Value,
+    ) {
+        let response = json!({
+            "type": "response", "request_seq": request["seq"],
+            "command": request["command"], "success": true, "body": body,
+        })
+        .to_string();
+        adapter
+            .get_mut()
+            .write_all(format!("Content-Length: {}\r\n\r\n{response}", response.len()).as_bytes())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn requests_and_reverse_replies_share_wire_sequence() {
+        let (client, _incoming, adapter) = connection();
+        let mut adapter = BufReader::new(adapter);
+        let first = client.call::<requests::Threads>(None);
+        let sender = client.request_sender();
+        let abandoned = sender.call::<requests::Threads>(None);
+        drop(abandoned);
+        let second = tokio::spawn(sender.call::<requests::Threads>(None));
+        let second_request = read_message(&mut adapter).await;
+        assert_eq!(second_request["seq"], 1);
+
+        client.reply(700, "runInTerminal", Ok(json!({}))).unwrap();
+        client
+            .reply(701, "startDebugging", Err(Error::Unhandled))
+            .unwrap();
+        for (sequence, request_sequence, success) in [(2, 700, true), (3, 701, false)] {
+            let reply = read_message(&mut adapter).await;
+            assert_eq!(reply["type"], "response");
+            assert_eq!(reply["seq"], sequence);
+            assert_eq!(reply["request_seq"], request_sequence);
+            assert_eq!(reply["success"], success);
+        }
+
+        let first = tokio::spawn(first);
+        let first_request = read_message(&mut adapter).await;
+        assert_eq!(first_request["seq"], 4);
+        // Reply out of order and without adapter sequence numbers, as some adapters do.
+        reply_to(&mut adapter, &first_request, json!({"value": "first"})).await;
+        reply_to(&mut adapter, &second_request, json!({"value": "second"})).await;
+        assert_eq!(first.await.unwrap().unwrap()["value"], "first");
+        assert_eq!(second.await.unwrap().unwrap()["value"], "second");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_senders_preserve_wire_order() {
+        let (client, _incoming, adapter) = connection();
+        let mut adapter = BufReader::new(adapter);
+        let mut tasks = Vec::new();
+        for _ in 0..32 {
+            tasks.push(tokio::spawn(
+                client.request_sender().call::<requests::Threads>(None),
+            ));
+        }
+        for sequence in 1..=32 {
+            let request = read_message(&mut adapter).await;
+            assert_eq!(request["seq"], sequence);
+            reply_to(&mut adapter, &request, json!({})).await;
+        }
+        for task in tasks {
+            assert!(task.await.unwrap().is_ok());
+        }
     }
 
     #[tokio::test]
