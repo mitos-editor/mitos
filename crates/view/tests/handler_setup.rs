@@ -54,6 +54,8 @@ mod save;
 #[path = "handler_setup/formatting.rs"]
 mod formatting;
 
+#[path = "handler_setup/save_paths.rs"]
+mod save_paths;
 #[path = "handler_setup/write_completion.rs"]
 mod write_completion;
 

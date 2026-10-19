@@ -206,6 +206,9 @@ impl Editor {
         if matches!(&operation, FileOperation::Move { from, to } if from == to) {
             return Ok(());
         }
+        for path in operation.paths() {
+            self.ensure_path_not_writing(path)?;
+        }
         let servers = self
             .language_servers
             .iter_clients()

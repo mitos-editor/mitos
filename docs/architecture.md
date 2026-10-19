@@ -765,6 +765,11 @@ the underlying write queue and document-saved events report write completion.
 `view::save::WriteQueue` privately owns per-document admission channels, ordered
 write futures, concurrent completion polling across documents, and pending-write
 accounting. Closing a document rejects further writes but retains accepted work.
+Accepted writes reserve the document's current path and destination, including
+resolved symlink aliases. Filesystem operations reject conflicting files and
+directories until those writes complete; unrelated paths remain available.
+Reservations survive document closure and successful event delivery until the
+editor applies completion. Failure or abandoned delivery releases them too.
 Both the event loop and `Editor::flush_writes` consume completions through the
 same queue operation, including failed writes. Frontends can query
 `Editor::has_pending_writes` without inspecting queue internals. Successful

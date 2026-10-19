@@ -28,7 +28,7 @@ use stdx::{
 use text_io::to_writer;
 use vcs::DiffProviderRegistry;
 
-/// A snapshot of the text of a document that we want to write out to disk
+/// The text, revision, and destination confirmed by a completed write.
 #[derive(Debug, Clone)]
 pub struct DocumentSavedEvent {
     pub revision: usize,
@@ -36,6 +36,7 @@ pub struct DocumentSavedEvent {
     pub doc_id: DocumentId,
     pub path: PathBuf,
     pub text: Rope,
+    pub(crate) reservation: Option<std::sync::Arc<crate::save::WriteReservation>>,
 }
 
 pub type DocumentSavedEventResult = Result<DocumentSavedEvent, anyhow::Error>;
@@ -431,6 +432,7 @@ impl Document {
                 doc_id,
                 path,
                 text: text.clone(),
+                reservation: None,
             };
 
             for language_server in language_servers {

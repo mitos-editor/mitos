@@ -470,6 +470,20 @@ impl Editor {
         let doc = doc_mut!(self, &doc_id);
         // the path that will be written: the override, else the document's own path
         let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
+        // Save-as completion can change the document's identity too. Reserve
+        // both its current path and the actual write destination until completion.
+        let paths = doc
+            .path()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .chain(save_path.iter().cloned())
+            .flat_map(|path| {
+                [
+                    stdx::path::canonicalize(&path),
+                    stdx::path::canonicalize_existing(&path),
+                ]
+            })
+            .collect();
         let created = save_path.as_ref().is_some_and(|path| !path.exists());
         let doc_save_future = doc.save(path, force)?;
 
@@ -494,7 +508,7 @@ impl Editor {
             res
         };
 
-        self.writes.enqueue(doc_id, future)
+        self.writes.enqueue(doc_id, paths, future)
     }
 
     /// Whether accepted writes still await completion in the event loop or a flush.
@@ -732,6 +746,9 @@ impl Editor {
             }
         } else {
             self.debugger_closed_source_written(event);
+        }
+        if let Some(reservation) = &event.reservation {
+            reservation.release();
         }
     }
 

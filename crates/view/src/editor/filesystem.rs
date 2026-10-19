@@ -47,6 +47,8 @@ impl Editor {
         if !self.prepare_resource_target(&new_path, existing)? {
             return Ok(());
         }
+        self.ensure_path_not_writing(old_path)?;
+        self.ensure_path_not_writing(&new_path)?;
         let old_watched = self.file_watcher.is_watching(old_path);
         let new_watched = self.file_watcher.is_watching(&new_path);
         let source_exists = match fs::symlink_metadata(old_path) {
@@ -125,6 +127,7 @@ impl Editor {
         if !self.prepare_resource_target(&path, existing)? {
             return Ok(());
         }
+        self.ensure_path_not_writing(&path)?;
         if let Some(dir) = path.parent()
             && !dir.is_dir()
         {
@@ -178,9 +181,12 @@ impl Editor {
         }
         // Replacing an open target would create duplicate document identities or
         // leave its buffer disconnected from the file's new contents.
+        let resolved = stdx::path::canonicalize_existing(path);
         if self.documents().any(|doc| {
-            doc.path()
-                .is_some_and(|doc_path| doc_path.starts_with(path))
+            doc.path().is_some_and(|doc_path| {
+                doc_path.starts_with(path)
+                    || stdx::path::canonicalize_existing(doc_path).starts_with(&resolved)
+            })
         }) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -192,8 +198,10 @@ impl Editor {
 
     pub(crate) fn delete_path(&mut self, path: &Path, recursive: bool) -> io::Result<()> {
         let path = canonicalize(path);
+        let metadata = fs::symlink_metadata(&path)?;
+        self.ensure_path_not_writing(&path)?;
         let watched = self.file_watcher.is_watching(&path);
-        let is_dir = path.is_dir();
+        let is_dir = metadata.is_dir();
         if is_dir {
             if recursive {
                 fs::remove_dir_all(&path)?;
@@ -214,6 +222,23 @@ impl Editor {
             self.language_servers
                 .file_event_handler
                 .file_changed(path, lsp::FileChangeType::DELETED);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_path_not_writing(&self, path: &Path) -> io::Result<()> {
+        if self.writes.conflicts_with(path)
+            || self
+                .writes
+                .conflicts_with(&stdx::path::canonicalize_existing(path))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                format!(
+                    "A save is pending for {}; wait for it to complete and try again",
+                    path.display()
+                ),
+            ));
         }
         Ok(())
     }
