@@ -521,7 +521,6 @@ pub mod completers {
     use std::collections::BTreeSet;
     use std::sync::LazyLock;
     use tui::text::Span;
-    use view::document::SCRATCH_BUFFER_NAME;
     use view::Editor;
 
     pub type Completer = fn(&Editor, &str) -> Vec<Completion>;
@@ -531,11 +530,10 @@ pub mod completers {
     }
 
     pub fn buffer(editor: &Editor, input: &str) -> Vec<Completion> {
-        let names = editor.documents.values().map(|doc| {
-            doc.display_path()
-                .map(|p| p.display().to_string().into())
-                .unwrap_or_else(|| Cow::from(SCRATCH_BUFFER_NAME))
-        });
+        let names = editor
+            .documents
+            .values()
+            .map(|doc| doc.display_name().into_owned());
 
         fuzzy_match(input, names, MatchKind::Path)
             .into_iter()

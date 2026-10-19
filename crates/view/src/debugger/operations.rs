@@ -16,6 +16,7 @@ pub(super) enum RequestKind {
     Evaluate,
     SelectThread,
     RefreshStack,
+    Source,
     Configuration,
 }
 
@@ -100,7 +101,7 @@ pub struct DebuggerContext {
     pub(super) id: DebugAdapterId,
     owner: EditorCallbackSender,
     pub(super) lifetimes: Vec<TaskHandle>,
-    request: TaskHandle,
+    pub(super) request: TaskHandle,
     scope: RequestScope,
     thread: Option<ThreadId>,
     pub(super) frame: Option<usize>,
@@ -283,13 +284,27 @@ impl Editor {
         task: DebuggerTask<T>,
         apply: impl FnOnce(&mut Editor, T) + Send + 'static,
     ) {
+        self.spawn_debugger_task_if(task, |_| true, apply);
+    }
+
+    /// Check frontend navigation before delivering either a value or an error.
+    pub(super) fn spawn_debugger_task_if<T: Send + 'static>(
+        &self,
+        task: DebuggerTask<T>,
+        current: impl FnOnce(&Editor) -> bool + Send + 'static,
+        apply: impl FnOnce(&mut Editor, T) + Send + 'static,
+    ) {
         let callbacks = self.callback_sender().clone();
+
         tokio::spawn(async move {
             let Some(update) = task.run().await else {
                 return;
             };
             callbacks
                 .send(move |editor| {
+                    if !current(editor) {
+                        return;
+                    }
                     let id = update.context.id;
                     match update.into_result(editor) {
                         Some(Ok(result)) => apply(editor, result),
@@ -535,7 +550,11 @@ impl Editor {
         };
         self.debugger.invalidate_execution(id);
         let (context, _) = self.debugger_context(RequestKind::Control)?;
+        let restarting = matches!(command, DebuggerCommand::Restart);
         self.spawn_debugger_task(DebuggerTask::new(context, future), move |editor, effect| {
+            if restarting {
+                editor.debugger.sessions[id].sources = Default::default();
+            }
             match effect {
                 ControlEffect::ResumeThread => editor
                     .debugger

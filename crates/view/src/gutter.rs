@@ -337,26 +337,13 @@ fn execution_pause_indicator<'doc>(
     is_focused: bool,
 ) -> GutterFn<'doc> {
     let style = theme.get("ui.debug.active");
-    let current_stack_frame = editor.current_stack_frame();
-    let frame_line =
-        current_stack_frame.and_then(|frame| crate::debugger::source::line_index(frame.line));
-    let frame_source_path = current_stack_frame.map(|frame| {
-        frame
-            .source
-            .as_ref()
-            .and_then(|source| source.path.as_deref())
-    });
-
-    let should_display_for_current_doc =
-        doc.path().is_some() && frame_source_path.unwrap_or(None) == doc.path();
+    let frame_line = editor
+        .debugger_frame_in_document(doc)
+        .and_then(|frame| crate::debugger::source::line_index(frame.line));
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
-            if !first_visual_line
-                || !is_focused
-                || line != frame_line?
-                || !should_display_for_current_doc
-            {
+            if !first_visual_line || !is_focused || line != frame_line? {
                 return None;
             }
 

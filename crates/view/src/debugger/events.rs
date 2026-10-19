@@ -333,6 +333,7 @@ impl Editor {
             return;
         };
         session.execution.clear();
+        session.sources = Default::default();
         let launch = session.launch.clone();
         let client = session.client.as_ref().unwrap();
         let restart_allowed = session.lifecycle.adapter_terminated();

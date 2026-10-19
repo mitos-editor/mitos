@@ -21,6 +21,8 @@ pub enum EditError {
     InvalidLength { expected: usize, actual: usize },
     #[error("Cannot edit binary document text")]
     BinaryDocument,
+    #[error("Cannot edit read-only document text")]
+    ReadOnlyDocument,
 }
 
 impl From<buffer::InvalidLength> for EditError {

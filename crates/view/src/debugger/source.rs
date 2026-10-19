@@ -48,15 +48,192 @@ pub(crate) fn frame_selection(text: &Rope, frame: &StackFrame) -> Option<Selecti
     Some(Selection::single(start, end))
 }
 
+/// A local preview is valid only when the adapter does not require source resolution.
+pub fn local_path(frame: &StackFrame) -> Option<&std::path::Path> {
+    let source = frame.source.as_ref()?;
+    if source
+        .source_reference
+        .is_some_and(|reference| reference > 0)
+    {
+        return None;
+    }
+    source.path.as_deref()
+}
+
+#[derive(Default)]
+pub(super) struct SessionSources {
+    entries: std::collections::HashMap<usize, CachedSource>,
+}
+
+struct CachedSource {
+    document: Option<crate::DocumentId>,
+    content: std::sync::Arc<tokio::sync::OnceCell<dap::requests::SourceResponse>>,
+    _owner: event::TaskController,
+    current: event::TaskHandle,
+}
+impl Default for CachedSource {
+    fn default() -> Self {
+        let mut owner = event::TaskController::new();
+        let current = owner.restart();
+        Self {
+            document: None,
+            content: Default::default(),
+            _owner: owner,
+            current,
+        }
+    }
+}
+
 impl crate::Editor {
+    /// The paused location belongs to the resolved document, never to a coincidental path.
+    pub fn debugger_frame_in_document(&self, doc: &crate::Document) -> Option<&StackFrame> {
+        let session = self.debugger.get_active_session()?;
+        let frame = session.current_stack_frame()?;
+        let source = frame.source.as_ref()?;
+        let matches =
+            if let Some(reference) = source.source_reference.filter(|reference| *reference > 0) {
+                session
+                    .sources
+                    .entries
+                    .get(&reference)
+                    .and_then(|cached| cached.document)
+                    == Some(doc.id())
+            } else {
+                local_path(frame).is_some_and(|path| Some(path) == doc.path())
+            };
+        matches.then_some(frame)
+    }
+
     pub(crate) fn navigate_debugger_frame(&mut self, id: dap::DebugAdapterId, frame: &StackFrame) {
-        if self
+        if !self
             .debugger
             .get_active_session()
             .is_some_and(|session| session.id() == id)
-            && !self.debugger.is_terminating(id)
+            || self.debugger.is_terminating(id)
+            || line_index(frame.line).is_none()
         {
+            return;
+        }
+        let Some(source) = frame.source.as_ref() else {
+            return;
+        };
+        let Some(reference) = source.source_reference.filter(|reference| *reference > 0) else {
             crate::handlers::dap::jump_to_stack_frame(self, frame);
+            return;
+        };
+        let cached = self.debugger.sessions[id]
+            .sources
+            .entries
+            .get(&reference)
+            .and_then(|cached| cached.document);
+        if let Some(document) = cached.filter(|document| self.document(*document).is_some()) {
+            self.show_debugger_source(document, frame);
+            return;
+        }
+        let Ok((mut context, sender)) =
+            self.debugger_context_for(id, super::operations::RequestKind::Source)
+        else {
+            return;
+        };
+        let Some(view) = self.tree.try_get(self.tree.focus) else {
+            return;
+        };
+        let Some(doc) = self.document(view.doc) else {
+            return;
+        };
+        let navigation = crate::features::request::SelectionRequest::new(
+            doc,
+            view.id,
+            context.request.clone(),
+            Vec::new(),
+        );
+        let mode = self.mode();
+        let cached = self.debugger.sessions[id]
+            .sources
+            .entries
+            .entry(reference)
+            .or_default();
+        context.lifetimes.push(cached.current.clone());
+        let content = cached.content.clone();
+        let source = source.clone();
+        let frame = frame.clone();
+        let name = source
+            .name
+            .clone()
+            .or_else(|| {
+                source
+                    .path
+                    .as_ref()
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| format!("source {reference}"));
+        let task = super::DebuggerTask::new(context, async move {
+            content
+                .get_or_try_init(|| {
+                    sender.request::<dap::requests::Source>(dap::requests::SourceArguments {
+                        source: Some(source),
+                        source_reference: reference,
+                    })
+                })
+                .await
+                .cloned()
+        });
+        self.spawn_debugger_task_if(
+            task,
+            move |editor| {
+                editor.mode() == mode
+                    && navigation
+                        .get(editor)
+                        .is_some_and(|(view, _)| view.id == editor.tree.focus)
+            },
+            move |editor, response| {
+                let session = &editor.debugger.sessions[id];
+                let title = format!("[debug #{}: {name}]", session.number());
+                let mut doc = crate::Document::from(
+                    Rope::from_str(&response.content),
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                )
+                .with_readonly_name(title);
+                let loader = editor.syn_loader.load_full();
+                if let Some(language) = loader.language_for_filename(std::path::Path::new(&name)) {
+                    doc.set_language(Some(loader.language(language).config().clone()), &loader);
+                }
+                let document = editor.new_file_from_document(crate::editor::Action::Replace, doc);
+                editor.debugger.sessions[id]
+                    .sources
+                    .entries
+                    .get_mut(&reference)
+                    .unwrap()
+                    .document = Some(document);
+                editor.show_debugger_source(document, &frame);
+            },
+        );
+    }
+
+    fn show_debugger_source(&mut self, document: crate::DocumentId, frame: &StackFrame) {
+        self.switch(document, crate::editor::Action::Replace);
+        let (view, doc) = current!(self);
+        if let Some(selection) = frame_selection(doc.text(), frame) {
+            doc.set_selection(view.id, selection);
+            crate::align_view(doc, view, crate::Align::Center);
+        }
+    }
+
+    pub(crate) fn debugger_source_changed(
+        &mut self,
+        id: dap::DebugAdapterId,
+        event: dap::events::LoadedSourceBody,
+    ) {
+        if matches!(event.reason.as_str(), "changed" | "removed")
+            && let Some(reference) = event.source.source_reference
+        {
+            self.debugger.sessions[id]
+                .sources
+                .entries
+                .remove(&reference);
         }
     }
 }

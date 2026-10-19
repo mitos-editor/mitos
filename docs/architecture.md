@@ -1002,3 +1002,10 @@ replay, remaining stale steps stop without discarding that edit.
 
 Committing an empty undo group clears its pending cursor snapshot as well as its
 original text, preventing a later document-only edit from inheriting cursor state.
+
+Debugger source references resolve through the owning session. Adapter content is
+shown in a named, read-only document without a filesystem identity. Closing a
+source document permits reopening it from the session cache; source-change events
+and restarts invalidate that cache. Open documents remain historical snapshots
+after the session ends. Delayed replies validate the selected frame and the
+original editor location before navigating.

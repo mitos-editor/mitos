@@ -96,7 +96,7 @@ fn thread_picker(
                     .stack_frames()
                     .get(&thread.id)?;
                 let frame = frames.frames().first()?;
-                let path = frame.source.as_ref()?.path.as_ref()?.as_path();
+                let path = view::debugger::source::local_path(frame)?;
                 Some((
                     path.into(),
                     Some(view::debugger::source::frame_line_range(frame)?),

@@ -6,13 +6,7 @@ pub fn jump_to_stack_frame(editor: &mut Editor, frame: &dap::StackFrame) {
     if source::line_index(frame.line).is_none() {
         return;
     }
-    let path = if let Some(dap::Source {
-        path: Some(ref path),
-        ..
-    }) = frame.source
-    {
-        path.clone()
-    } else {
+    let Some(path) = source::local_path(frame).map(ToOwned::to_owned) else {
         return;
     };
 
@@ -101,6 +95,7 @@ impl Editor {
                             .update_capabilities(event.capabilities);
                     }
                     Event::Invalidated(event) => self.debugger_invalidated(id, event),
+                    Event::LoadedSource(event) => self.debugger_source_changed(id, event),
                     Event::Stopped(event) => self.debugger_stopped(id, event),
                     Event::Continued(event) => self.debugger_continued(id, event),
                     Event::Thread(event) => self.debugger_thread_changed(id, event),
