@@ -1,6 +1,6 @@
 //! Lazy, session-owned variable data for one paused frame.
 
-use super::operations::RequestKind;
+use super::requests::RequestKind;
 use super::{DebuggerContext, DebuggerTask};
 use crate::Editor;
 use anyhow::{Context as _, Result};

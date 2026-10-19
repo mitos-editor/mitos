@@ -1,8 +1,8 @@
 //! One editor-owned adapter lifetime, including pending startup and execution state.
 
 use super::{
-    breakpoints::BreakpointSession, events::SessionEvents, operations::SessionRequests,
-    progress::ProgressState, reverse_requests::ReverseRequests, startup::Startup, DebuggerState,
+    breakpoints::BreakpointSession, events::SessionEvents, progress::ProgressState,
+    requests::SessionRequests, reverse_requests::ReverseRequests, startup::Startup, DebuggerState,
 };
 use ::debugger::{ExecutionState, SessionLifecycle, ThreadState, ThreadStates};
 use dap::{Client, DebugAdapterId, StackFrame, ThreadId};

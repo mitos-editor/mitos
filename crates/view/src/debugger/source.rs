@@ -131,7 +131,7 @@ impl crate::Editor {
             return;
         }
         let Ok((mut context, sender)) =
-            self.debugger_context_for(id, super::operations::RequestKind::Source)
+            self.debugger_context_for(id, super::requests::RequestKind::Source)
         else {
             return;
         };

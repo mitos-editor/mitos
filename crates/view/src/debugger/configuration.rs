@@ -1,6 +1,6 @@
 //! Session settings are serialized independently of execution and frame inspection.
 
-use super::operations::RequestKind;
+use super::requests::RequestKind;
 use super::DebuggerTask;
 use crate::Editor;
 use anyhow::Result;

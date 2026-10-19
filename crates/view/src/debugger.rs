@@ -17,10 +17,12 @@ pub(crate) fn register_hooks() {
     breakpoints::register_hooks();
 }
 mod configuration;
+mod navigation;
 mod operations;
-pub use operations::{
-    DebuggerCommand, DebuggerContext, DebuggerFrames, DebuggerTask, DebuggerUpdate,
-};
+mod requests;
+pub use navigation::DebuggerFrames;
+pub use operations::DebuggerCommand;
+pub use requests::{DebuggerContext, DebuggerTask, DebuggerUpdate};
 
 mod stack;
 pub use stack::DebuggerStackPage;
