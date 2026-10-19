@@ -152,13 +152,12 @@ impl Document {
                     Default::default()
                 })
                 .unwrap_or_default();
-            Ok(
-                crate::language_servers::edits::generate_transaction_from_edits(
-                    &text,
-                    edits,
-                    offset_encoding,
-                ),
+            crate::language_servers::edits::generate_transaction_from_edits(
+                &text,
+                edits,
+                offset_encoding,
             )
+            .map_err(FormatterError::InvalidEdits)
         };
         Some(fut.boxed())
     }
@@ -166,6 +165,7 @@ impl Document {
 
 #[derive(Clone, Debug)]
 pub enum FormatterError {
+    InvalidEdits(crate::language_servers::edits::TextEditError),
     SpawningFailed {
         command: String,
         error: std::io::ErrorKind,
@@ -176,11 +176,19 @@ pub enum FormatterError {
     NonZeroExitStatus(Option<String>),
 }
 
-impl std::error::Error for FormatterError {}
+impl std::error::Error for FormatterError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidEdits(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl Display for FormatterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidEdits(error) => write!(f, "Invalid formatter edits: {error}"),
             Self::SpawningFailed { command, error } => {
                 write!(f, "Failed to spawn formatter {}: {:?}", command, error)
             }

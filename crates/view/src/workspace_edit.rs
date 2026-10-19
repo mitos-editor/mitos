@@ -25,6 +25,8 @@ pub struct ApplyEditError {
 #[derive(Debug, thiserror::Error)]
 pub enum ApplyEditErrorKind {
     #[error(transparent)]
+    InvalidTextEdit(#[from] crate::language_servers::edits::TextEditError),
+    #[error(transparent)]
     Document(#[from] EditError),
     #[error("failed to open document {path}: {source}")]
     OpenDocument {
@@ -83,7 +85,7 @@ impl Editor {
         }
 
         let doc = doc!(self, &doc_id);
-        let transaction = generate_transaction_from_edits(doc.text(), text_edits, offset_encoding);
+        let transaction = generate_transaction_from_edits(doc.text(), text_edits, offset_encoding)?;
         self.apply_document_changes(doc_id, actual_version, transaction.changes())?;
         Ok(())
     }

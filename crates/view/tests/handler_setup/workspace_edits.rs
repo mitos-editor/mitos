@@ -134,3 +134,69 @@ async fn workspace_edits_report_document_open_errors_with_the_path() -> anyhow::
     assert_eq!(current_ref!(fixture.editor).1.text(), "abc\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_document_edits_fail_without_applying_a_subset() -> anyhow::Result<()> {
+    for edits in [
+        serde_json::json!([
+            {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"first"},
+            {"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":4}},"newText":"overlapping"}
+        ]),
+        serde_json::json!([
+            {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"first"},
+            {"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":2}},"newText":"reversed"}
+        ]),
+    ] {
+        for versioned in [false, true] {
+            let mut fixture = Fixture::new("abcdef\n")?;
+            let doc = current_ref!(fixture.editor).1;
+            let uri = doc.url().unwrap();
+            let version = doc.version();
+            let edit: lsp::WorkspaceEdit = serde_json::from_value(if versioned {
+                serde_json::json!({"documentChanges":[{"textDocument":{"uri":uri,"version":version},"edits":edits}]})
+            } else {
+                serde_json::json!({"changes":{uri.as_str():edits}})
+            })?;
+            let error = fixture
+                .editor
+                .apply_workspace_edit(OffsetEncoding::Utf8, &edit)
+                .unwrap_err();
+            assert_eq!(error.failed_change_idx, 0);
+            assert!(matches!(error.kind, ApplyEditErrorKind::InvalidTextEdit(_)));
+            let (view, doc) = current!(fixture.editor);
+            assert_eq!(doc.text(), "abcdef\n");
+            assert_eq!(doc.version(), version);
+            assert!(!view::editing::undo(doc, view));
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_document_edits_preserve_completed_workspace_changes() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("original\n")?;
+    let uri = current_ref!(fixture.editor).1.url().unwrap();
+    let created = fixture.dir.path().join("created.txt");
+    let skipped = fixture.dir.path().join("skipped.txt");
+    let bad_edit: lsp::TextDocumentEdit = serde_json::from_value(serde_json::json!({
+        "textDocument":{"uri":uri,"version":null},
+        "edits":[{"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":2}},"newText":"bad"}]
+    }))?;
+    let edit = lsp::WorkspaceEdit {
+        document_changes: Some(lsp::DocumentChanges::Operations(vec![
+            create_file(Url::from_file_path(&created).unwrap()),
+            lsp::DocumentChangeOperation::Edit(bad_edit),
+            create_file(Url::from_file_path(&skipped).unwrap()),
+        ])),
+        ..Default::default()
+    };
+    let error = fixture
+        .editor
+        .apply_workspace_edit(OffsetEncoding::Utf8, &edit)
+        .unwrap_err();
+    assert_eq!(error.failed_change_idx, 1);
+    assert!(created.exists());
+    assert!(!skipped.exists());
+    assert_eq!(current_ref!(fixture.editor).1.text(), "original\n");
+    Ok(())
+}

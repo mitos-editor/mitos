@@ -213,11 +213,14 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
     Ok(FormattingTask {
         target,
         future: async move {
-            Ok(request.await?.map(|edits| {
-                crate::language_servers::edits::generate_transaction_from_edits(
-                    &text, edits, encoding,
-                )
-            }))
+            Ok(request
+                .await?
+                .map(|edits| {
+                    crate::language_servers::edits::generate_transaction_from_edits(
+                        &text, edits, encoding,
+                    )
+                })
+                .transpose()?)
         }
         .boxed(),
     })

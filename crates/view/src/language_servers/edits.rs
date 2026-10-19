@@ -128,58 +128,54 @@ pub fn generate_transaction_from_snippet(
     (transaction, snippet)
 }
 
+/// A malformed edit, retaining its index in the server's original edit array.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum TextEditError {
+    #[error("text edit {edit_idx} has a reversed range {range:?}")]
+    ReversedRange { edit_idx: usize, range: lsp::Range },
+    #[error("text edit {edit_idx} has an invalid position {position:?}")]
+    InvalidPosition {
+        edit_idx: usize,
+        position: lsp::Position,
+    },
+    #[error("text edit {edit_idx} overlaps text edit {previous_edit_idx}")]
+    Overlapping {
+        edit_idx: usize,
+        previous_edit_idx: usize,
+    },
+}
+
+/// Validate an entire document edit before constructing its transaction.
+/// Unsorted edits are accepted; equal-position inserts retain server order.
 pub fn generate_transaction_from_edits(
     doc: &Rope,
-    mut edits: Vec<lsp::TextEdit>,
+    edits: Vec<lsp::TextEdit>,
     offset_encoding: OffsetEncoding,
-) -> Transaction {
-    // Sort edits by start range, since some LSPs (Omnisharp) send them
-    // in reverse order.
-    edits.sort_by_key(|edit| edit.range.start);
-
-    // Generate a diff if the edit is a full document replacement.
-    #[allow(clippy::collapsible_if)]
-    if edits.len() == 1 {
-        let is_document_replacement = edits.first().and_then(|edit| {
-            let start = lsp_pos_to_pos(doc, edit.range.start, offset_encoding)?;
-            let end = lsp_pos_to_pos(doc, edit.range.end, offset_encoding)?;
-            Some(start..end)
-        }) == Some(0..doc.len_chars());
-        if is_document_replacement {
-            let new_text = Rope::from(edits.pop().unwrap().new_text);
-            return text_diff::compare_ropes(doc, &new_text);
-        }
-    }
-
-    // `ChangeSet::from_changes` requires its changes to be sorted and
-    // non-overlapping (it does `retain(from - last)`, which underflows when
-    // `from < last`). The sort above handles ordering, but the LSP spec
-    // already forbids overlapping edits and some servers violate that. So
-    // resolve the edits here and drop any that overlap an earlier one (or
-    // fail to map), instead of feeding an overlap into `from_changes` and
-    // panicking. This matches the overlap policy of `Transaction::delete`.
-    // See issue #15514 / AUDIT-044/045.
+) -> Result<Transaction, TextEditError> {
+    let mut edits: Vec<_> = edits.into_iter().enumerate().collect();
+    edits.sort_by_key(|(_, edit)| edit.range.start);
     let mut last_end = 0;
+    let mut previous_edit_idx = 0;
     let mut changes: Vec<(usize, usize, Option<editor_core::Tendril>)> =
         Vec::with_capacity(edits.len());
-    for edit in edits {
-        let Some(start) = lsp_pos_to_pos(doc, edit.range.start, offset_encoding) else {
-            continue;
-        };
-        let Some(end) = lsp_pos_to_pos(doc, edit.range.end, offset_encoding) else {
-            continue;
-        };
-
-        if start > end {
-            log::error!("Invalid LSP text edit start {start:?} > end {end:?}, discarding");
-            continue;
+    for (edit_idx, edit) in edits {
+        if edit.range.start > edit.range.end {
+            return Err(TextEditError::ReversedRange {
+                edit_idx,
+                range: edit.range,
+            });
         }
+        let start = edit_position(doc, edit.range.start, offset_encoding, edit_idx)?;
+        let end = edit_position(doc, edit.range.end, offset_encoding, edit_idx)?;
 
         if start < last_end {
-            log::error!("Overlapping LSP text edit {start}..{end} (after {last_end}), discarding");
-            continue;
+            return Err(TextEditError::Overlapping {
+                edit_idx,
+                previous_edit_idx,
+            });
         }
         last_end = end;
+        previous_edit_idx = edit_idx;
 
         // simplify "" into None for cleaner changesets
         let replacement = if edit.new_text.is_empty() {
@@ -191,7 +187,35 @@ pub fn generate_transaction_from_edits(
         changes.push((start, end, replacement));
     }
 
-    Transaction::change(doc, changes.into_iter())
+    // Diff a validated full-document replacement to preserve unchanged anchors.
+    if let [(0, end, replacement)] = changes.as_slice()
+        && *end == doc.len_chars()
+    {
+        let new_text = Rope::from_str(replacement.as_deref().unwrap_or(""));
+        return Ok(text_diff::compare_ropes(doc, &new_text));
+    }
+    Ok(Transaction::change(doc, changes.into_iter()))
+}
+
+fn edit_position(
+    doc: &Rope,
+    position: lsp::Position,
+    encoding: OffsetEncoding,
+    edit_idx: usize,
+) -> Result<usize, TextEditError> {
+    let invalid = || TextEditError::InvalidPosition { edit_idx, position };
+    let offset = lsp_pos_to_pos(doc, position, encoding).ok_or_else(invalid)?;
+    // Preserve protocol end-of-line/EOF clamping, but reject offsets inside a
+    // UTF-8 code point or UTF-16 surrogate pair instead of rounding them down.
+    let actual = lsp_client::util::pos_to_lsp_pos(doc, offset, encoding);
+    if actual.line == position.line
+        && actual.character < position.character
+        && offset
+            != editor_core::line_ending::line_end_char_index(&doc.slice(..), position.line as usize)
+    {
+        return Err(invalid());
+    }
+    Ok(offset)
 }
 
 #[cfg(test)]
@@ -232,16 +256,14 @@ mod tests {
 
         let mut source = Rope::from_str("[\n\"🇺🇸\",\n\"🎄\",\n]");
 
-        let transaction = generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16);
+        let transaction =
+            generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16).unwrap();
         assert!(transaction.apply(&mut source));
         assert_eq!(source, "[\n  \"🇺🇸\",\n  \"🎄\",\n]");
     }
 
     #[test]
-    fn overlapping_edits_are_dropped() {
-        // Regression for issue #15514: a language server may send overlapping text edits.
-        // Feeding overlapping ranges to `ChangeSet::from_changes` violates its sorted/non-overlapping
-        // precondition and underflows `retain(from - last)`. The overlapping edit must be discarded here
+    fn overlapping_edits_reject_the_document_change() {
         use lsp::{Position, Range, TextEdit};
 
         let edit = |sc, ec, text: &str| TextEdit {
@@ -256,12 +278,15 @@ mod tests {
         // (0..3 vs 2..4); after sorting, 2..4 starts before 0..3 ends.
         let edits = vec![edit(4, 5, "Z"), edit(0, 3, "X"), edit(2, 4, "Y")];
 
-        let mut source = Rope::from_str("abcdef");
-        let transaction = generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16);
-        // Must not panic. The overlapping 2..4 edit is dropped; 0..3 -> "X",
-        // retain "d" (idx 3), 4..5 -> "Z", retain "f": "abcdef" -> "XdZf".
-        assert!(transaction.apply(&mut source));
-        assert_eq!(source, "XdZf");
+        let source = Rope::from_str("abcdef");
+        assert!(matches!(
+            generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16),
+            Err(TextEditError::Overlapping {
+                edit_idx: 2,
+                previous_edit_idx: 1
+            })
+        ));
+        assert_eq!(source, "abcdef");
     }
 
     #[test]
@@ -281,8 +306,65 @@ mod tests {
         let edits = vec![edit(4, 5, "Y"), edit(0, 1, "X")];
 
         let mut source = Rope::from_str("abcdef");
-        let transaction = generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16);
+        let transaction =
+            generate_transaction_from_edits(&source, edits, OffsetEncoding::Utf16).unwrap();
         assert!(transaction.apply(&mut source));
         assert_eq!(source, "XbcdYf");
+    }
+
+    #[test]
+    fn equal_position_inserts_keep_server_order() {
+        let mut source = Rope::from_str("abc");
+        let edits = ["first", "second"].map(|text| lsp::TextEdit {
+            range: lsp::Range::default(),
+            new_text: text.into(),
+        });
+        let transaction =
+            generate_transaction_from_edits(&source, edits.into(), OffsetEncoding::Utf8).unwrap();
+        assert!(transaction.apply(&mut source));
+        assert_eq!(source, "firstsecondabc");
+    }
+
+    #[test]
+    fn positions_inside_encoded_characters_are_rejected() {
+        let source = Rope::from_str("a😀z\r\n");
+        for (encoding, character) in [(OffsetEncoding::Utf8, 2), (OffsetEncoding::Utf16, 2)] {
+            let position = lsp::Position::new(0, character);
+            let edits = vec![lsp::TextEdit {
+                range: lsp::Range::new(position, position),
+                new_text: "bad".into(),
+            }];
+            assert_eq!(
+                generate_transaction_from_edits(&source, edits, encoding).unwrap_err(),
+                TextEditError::InvalidPosition {
+                    edit_idx: 0,
+                    position
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn encoded_ranges_and_line_end_clamping_remain_supported() {
+        for (encoding, end) in [
+            (OffsetEncoding::Utf8, 5),
+            (OffsetEncoding::Utf16, 3),
+            (OffsetEncoding::Utf32, 2),
+        ] {
+            let mut source = Rope::from_str("a😀z\r\n");
+            let edits = vec![
+                lsp::TextEdit {
+                    range: lsp::Range::new(lsp::Position::new(0, 1), lsp::Position::new(0, end)),
+                    new_text: "X".into(),
+                },
+                lsp::TextEdit {
+                    range: lsp::Range::new(lsp::Position::new(0, 100), lsp::Position::new(0, 100)),
+                    new_text: "!".into(),
+                },
+            ];
+            let transaction = generate_transaction_from_edits(&source, edits, encoding).unwrap();
+            assert!(transaction.apply(&mut source));
+            assert_eq!(source, "aXz!\r\n");
+        }
     }
 }

@@ -501,6 +501,13 @@ or workspace-edit failure is reported and prevents the follow-up command. Existi
 workspace-edit application can partially succeed before an error; it does not
 roll back already-applied changes.
 
+Each document's text edit group is validated before its transaction is built.
+Reversed ranges, overlaps, and positions inside encoded characters return an
+error with the original edit index. Workspace application reports the enclosing
+change index and stops; prior workspace changes remain applied. Formatting uses
+the same validator. Equal-position inserts keep server order, and full-document
+replacements retain diff-based anchor mapping.
+
 Feature modules group a feature's state, request policy, and lifecycle wiring.
 Hover keeps those together in `features/hover.rs`. Inlay hints, document colors,
 links, highlights, symbols, and code lenses each group cache/edit mapping in
