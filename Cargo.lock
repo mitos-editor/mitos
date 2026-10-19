@@ -714,6 +714,7 @@ dependencies = [
  "anyhow",
  "dap-types",
  "log",
+ "parking_lot",
  "serde_json",
  "slotmap",
 ]

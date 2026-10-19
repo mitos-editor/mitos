@@ -176,6 +176,7 @@ pub struct Document {
     pub(crate) buffer: buffer::Buffer,
     view_states: HashMap<ViewId, DocumentViewState>,
     pub active_snippet: Option<ActiveSnippet>,
+    pub(crate) breakpoint_source: Option<::debugger::SourceBreakpoints>,
 
     // Each feature owns its cache, scheduling handle, and request controllers.
     // Dropping the document drops those controllers and cancels in-flight work.
@@ -302,6 +303,7 @@ impl Document {
             rename: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
+            breakpoint_source: None,
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
             spelling_languages: Vec::new(),

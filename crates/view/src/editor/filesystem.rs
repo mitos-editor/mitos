@@ -107,7 +107,7 @@ impl Editor {
     }
 
     pub fn set_doc_path(&mut self, doc_id: DocumentId, path: &Path) {
-        let doc = doc_mut!(self, &doc_id);
+        let doc = self.documents.get_mut(&doc_id).expect("document exists");
         let old_path = doc.path();
 
         if let Some(old_path) = old_path {
@@ -120,6 +120,7 @@ impl Editor {
         doc.close_language_server_documents();
         doc.language_servers.clear();
         doc.set_path(Some(path));
+        doc.breakpoint_source = Some(self.debugger.breakpoint_source(path));
         let trust_full = self
             .workspace_trust
             .query(doc.workspace_root(), TrustQuery::Git)

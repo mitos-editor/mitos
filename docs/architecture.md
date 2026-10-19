@@ -264,6 +264,9 @@ present debugger output. `language-config` resolves launch templates and default
 Breakpoint toggles, property changes, and adapter
 synchronization belong to the shared owner, including before a session starts.
 
+Source definitions are shared with open documents through `SourceBreakpoints`.
+Document mutations map positions synchronously before observers run; queries return
+snapshots and adapter bindings carry the submitted definition revision.
 Breakpoint prompts retain an editor-owned `BreakpointId`, independent of the adapter's
 optional session ID and reported line. Removing a breakpoint invalidates that target;
 verification and relocation preserve it. New property values are checked against adapter

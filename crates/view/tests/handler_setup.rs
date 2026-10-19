@@ -41,6 +41,8 @@ mod document_mutation;
 #[path = "handler_setup/editor_signals.rs"]
 mod editor_signals;
 
+#[path = "handler_setup/debugger_breakpoints.rs"]
+mod debugger_breakpoints;
 #[path = "handler_setup/document_transactions.rs"]
 mod document_transactions;
 

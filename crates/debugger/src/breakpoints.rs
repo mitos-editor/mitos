@@ -16,6 +16,7 @@ pub struct BreakpointId(u64);
 #[derive(Debug, Clone, Default)]
 pub struct Breakpoint {
     identity: BreakpointId,
+    revision: u64,
     pub line: usize,
     /// Optional one-based UTF-16 column, matching the DAP source-breakpoint format.
     pub column: Option<usize>,
@@ -51,6 +52,10 @@ impl Breakpoint {
             BreakpointProperty::Condition => self.condition = value,
             BreakpointProperty::LogMessage => self.log_message = value,
         }
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .expect("breakpoint revision exhausted");
         Ok(())
     }
 }
@@ -91,6 +96,7 @@ pub fn validate_capabilities(
 /// Adapter-specific verification and location. Requested source definitions are unchanged.
 #[derive(Debug, Clone)]
 pub struct BreakpointBinding {
+    requested_revision: u64,
     pub id: Option<usize>,
     pub verified: bool,
     pub message: Option<String>,
@@ -106,8 +112,10 @@ impl BreakpointBinding {
         line: usize,
         column: Option<usize>,
         response: dap_types::Breakpoint,
+        requested_revision: u64,
     ) -> Self {
         Self {
+            requested_revision,
             id: response.id,
             verified: response.verified,
             message: response.message,
@@ -130,8 +138,8 @@ impl BreakpointBinding {
 }
 
 /// A source marker projected through the active adapter's bindings, or its requested location.
-pub struct BreakpointLocation<'a> {
-    pub definition: Option<&'a Breakpoint>,
+pub struct BreakpointLocation {
+    pub definition: Option<Breakpoint>,
     pub line: usize,
     pub verified: bool,
 }
@@ -145,6 +153,10 @@ pub struct BreakpointBindings {
 impl BreakpointBindings {
     pub fn get(&self, identity: BreakpointId) -> Option<&BreakpointBinding> {
         self.bindings.get(&identity)
+    }
+    pub fn get_for(&self, definition: &Breakpoint) -> Option<&BreakpointBinding> {
+        self.get(definition.identity())
+            .filter(|binding| binding.requested_revision == definition.revision)
     }
     pub fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove(&identity);
@@ -168,6 +180,7 @@ impl BreakpointBindings {
                     definition.line,
                     definition.column,
                     response,
+                    definition.revision,
                 ),
             );
         }
@@ -205,27 +218,69 @@ impl BreakpointBindings {
             && let Some(line) = response.line.and_then(line_index)
         {
             self.discovered
-                .insert(id, BreakpointBinding::new(path, line, None, response));
+                .insert(id, BreakpointBinding::new(path, line, None, response, 0));
         }
+    }
+}
+
+/// The editor and an open document share one source's definitions. Queries return
+/// snapshots so no lock is held while applying editor effects or adapter replies.
+#[derive(Clone, Default)]
+pub struct SourceBreakpoints(std::sync::Arc<parking_lot::RwLock<Vec<Breakpoint>>>);
+
+impl SourceBreakpoints {
+    pub fn snapshot(&self) -> Vec<Breakpoint> {
+        self.0.read().clone()
+    }
+
+    /// Move markers through a document edit. Deleted lines use the nearest surviving
+    /// line; if markers collapse onto one line, retain the oldest identity.
+    pub fn map_positions(&self, mut map: impl FnMut(&Breakpoint) -> (usize, Option<usize>)) {
+        let mut definitions = self.0.write();
+        let mut lines = std::collections::HashSet::new();
+        for definition in definitions.iter_mut() {
+            (definition.line, definition.column) = map(definition);
+            definition.revision = definition
+                .revision
+                .checked_add(1)
+                .expect("breakpoint revision exhausted");
+        }
+        definitions.retain(|definition| lines.insert(definition.line));
     }
 }
 
 /// Source definitions persist across adapter sessions; IDs are never reused.
 #[derive(Default)]
 pub struct BreakpointStore {
-    definitions: HashMap<PathBuf, Vec<Breakpoint>>,
+    definitions: HashMap<PathBuf, SourceBreakpoints>,
     next_identity: u64,
 }
 
 impl BreakpointStore {
-    pub fn breakpoints(&self, path: &Path) -> &[Breakpoint] {
+    pub fn source(&mut self, path: PathBuf) -> SourceBreakpoints {
+        self.definitions.entry(path).or_default().clone()
+    }
+    pub fn breakpoints(&self, path: &Path) -> Vec<Breakpoint> {
         self.definitions
             .get(path)
-            .map(Vec::as_slice)
+            .map(SourceBreakpoints::snapshot)
             .unwrap_or_default()
     }
+    pub fn definition(&self, identity: BreakpointId) -> Option<Breakpoint> {
+        self.definitions.values().find_map(|source| {
+            source
+                .0
+                .read()
+                .iter()
+                .find(|definition| definition.identity == identity)
+                .cloned()
+        })
+    }
     pub fn paths(&self) -> impl Iterator<Item = &PathBuf> {
-        self.definitions.keys()
+        self.definitions
+            .iter()
+            .filter(|(_, source)| !source.0.read().is_empty())
+            .map(|(path, _)| path)
     }
     pub fn insert(&mut self, path: PathBuf, line: usize) -> BreakpointId {
         self.next_identity = self
@@ -233,7 +288,7 @@ impl BreakpointStore {
             .checked_add(1)
             .expect("breakpoint identities exhausted");
         let identity = BreakpointId(self.next_identity);
-        self.definitions.entry(path).or_default().push(Breakpoint {
+        self.source(path).0.write().push(Breakpoint {
             identity,
             line,
             ..Default::default()
@@ -241,8 +296,11 @@ impl BreakpointStore {
         identity
     }
     pub fn remove(&mut self, path: &Path, identity: BreakpointId) {
-        if let Some(definitions) = self.definitions.get_mut(path) {
-            definitions.retain(|definition| definition.identity != identity);
+        if let Some(source) = self.definitions.get(path) {
+            source
+                .0
+                .write()
+                .retain(|definition| definition.identity != identity);
         }
     }
     pub fn set_property(
@@ -253,32 +311,31 @@ impl BreakpointStore {
         value: Option<String>,
         capabilities: Option<&DebuggerCapabilities>,
     ) -> anyhow::Result<()> {
-        let definition = self
+        let source = self
             .definitions
-            .get_mut(path)
-            .and_then(|definitions| {
-                definitions
-                    .iter_mut()
-                    .find(|definition| definition.identity == identity)
-            })
+            .get(path)
             .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?;
-        definition.set_property(property, value, capabilities)
+        let mut definitions = source.0.write();
+        definitions
+            .iter_mut()
+            .find(|definition| definition.identity == identity)
+            .ok_or_else(|| anyhow::anyhow!("Breakpoint no longer exists"))?
+            .set_property(property, value, capabilities)
     }
     /// Markers for a source file, including breakpoints discovered by the active adapter.
     pub fn locations<'a>(
-        &'a self,
+        &self,
         path: &'a Path,
         session: Option<&'a BreakpointBindings>,
-    ) -> impl Iterator<Item = BreakpointLocation<'a>> {
+    ) -> impl Iterator<Item = BreakpointLocation> + 'a {
         self.breakpoints(path)
-            .iter()
+            .into_iter()
             .map(move |definition| {
-                let binding =
-                    session.and_then(|session| session.bindings.get(&definition.identity));
+                let binding = session.and_then(|session| session.get_for(&definition));
                 BreakpointLocation {
-                    definition: Some(definition),
                     line: binding.map_or(definition.line, |binding| binding.line),
                     verified: binding.is_some_and(|binding| binding.verified),
+                    definition: Some(definition),
                 }
             })
             .chain(
@@ -296,47 +353,30 @@ impl BreakpointStore {
 }
 
 #[cfg(test)]
-mod tests {
+mod edit_tests {
     use super::*;
 
-    fn response(id: usize, line: Option<usize>) -> dap_types::Breakpoint {
-        serde_json::from_value(serde_json::json!({"id":id,"verified":true,"line":line})).unwrap()
-    }
-
     #[test]
-    fn adapter_locations_do_not_change_requested_source_definitions() {
-        let definitions = [Breakpoint {
-            identity: BreakpointId(1),
-            line: 7,
-            ..Default::default()
-        }];
-        let mut session = BreakpointBindings::default();
-        session.apply_response(
-            Path::new("main.rs"),
-            &definitions,
-            vec![response(100, Some(42))],
-        );
-        assert_eq!(definitions[0].line, 7);
-        assert_eq!(session.bindings[&BreakpointId(1)].line, 41);
-        session.apply_response(
-            Path::new("main.rs"),
-            &definitions,
-            vec![response(200, None)],
-        );
-        assert_eq!(session.bindings[&BreakpointId(1)].line, 7);
-    }
-
-    #[test]
-    fn unknown_adapter_locations_preserve_requested_breakpoints() {
+    fn mapped_definitions_reject_adapter_locations_from_older_revisions() {
         let path = PathBuf::from("main.rs");
-        let mut binding = BreakpointBinding::new(path.clone(), 7, Some(3), response(1, Some(0)));
-        assert_eq!(binding.line, 7);
-        binding.update(response(1, Some(0)));
-        assert_eq!(binding.line, 7);
-        let mut session = BreakpointBindings::default();
-        let mut unknown = response(2, Some(0));
-        unknown.source = Some(serde_json::from_value(serde_json::json!({"path":path})).unwrap());
-        session.handle_event("new", unknown);
-        assert!(session.discovered.is_empty());
+        let mut store = BreakpointStore::default();
+        let identity = store.insert(path.clone(), 2);
+        let submitted = store.breakpoints(&path);
+        store
+            .source(path.clone())
+            .map_positions(|breakpoint| (breakpoint.line + 1, breakpoint.column));
+        let mut bindings = BreakpointBindings::default();
+        bindings.apply_response(
+            &path,
+            &submitted,
+            vec![
+                serde_json::from_value(serde_json::json!({"id":1,"verified":true,"line":3}))
+                    .unwrap(),
+            ],
+        );
+        let marker = store.locations(&path, Some(&bindings)).next().unwrap();
+        assert_eq!(marker.definition.unwrap().identity(), identity);
+        assert_eq!(marker.line, 3);
+        assert!(!marker.verified);
     }
 }

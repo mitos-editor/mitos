@@ -1,6 +1,7 @@
 //! Editor-owned debugger sessions and source breakpoints.
 
 mod breakpoints;
+pub(crate) use breakpoints::map_breakpoint_positions;
 pub mod source;
 pub use ::debugger::{BreakpointBinding, BreakpointLocation};
 mod events;
@@ -78,14 +79,18 @@ impl DebuggerState {
         }
     }
 
+    pub(crate) fn breakpoint_source(&mut self, path: &Path) -> ::debugger::SourceBreakpoints {
+        self.breakpoints.source(path.to_owned())
+    }
+
     /// Source breakpoints in a file, including breakpoints configured before debugging starts.
-    pub fn breakpoints(&self, path: &Path) -> &[Breakpoint] {
+    pub fn breakpoints(&self, path: &Path) -> Vec<Breakpoint> {
         self.breakpoints.breakpoints(path)
     }
 
-    pub fn breakpoint_at_line(&self, path: &Path, line: usize) -> Option<&Breakpoint> {
+    pub fn breakpoint_at_line(&self, path: &Path, line: usize) -> Option<Breakpoint> {
         self.breakpoints(path)
-            .iter()
+            .into_iter()
             .find(|breakpoint| self.breakpoint_line(breakpoint) == line)
     }
 
@@ -97,7 +102,7 @@ impl DebuggerState {
         for line in lines {
             let existing = self
                 .breakpoint_at_line(&path, line)
-                .map(Breakpoint::identity);
+                .map(|breakpoint| breakpoint.identity());
             if let Some(identity) = existing {
                 self.breakpoints.remove(&path, identity);
                 for session in self

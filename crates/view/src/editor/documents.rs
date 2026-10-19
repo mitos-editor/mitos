@@ -159,6 +159,7 @@ impl Editor {
         let id = self.documents.insert(doc);
         let doc = self.documents.get_mut(&id).unwrap();
         self.handlers.attach_document(doc);
+        doc.breakpoint_source = doc.path().map(|path| self.debugger.breakpoint_source(path));
         doc.initialize_syntax(self.syn_loader.load_full());
         doc.detect_spelling_languages();
         self.refresh_vcs_watches();

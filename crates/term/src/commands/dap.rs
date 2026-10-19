@@ -113,10 +113,7 @@ fn get_breakpoint_at_current_line(editor: &Editor) -> Option<Breakpoint> {
         .selection(view.id)
         .primary()
         .cursor_line(doc.text().slice(..));
-    editor
-        .debugger()
-        .breakpoint_at_line(doc.path()?, line)
-        .cloned()
+    editor.debugger().breakpoint_at_line(doc.path()?, line)
 }
 
 // -- DAP

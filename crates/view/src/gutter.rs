@@ -310,9 +310,11 @@ pub fn breakpoints<'doc>(
 
             let conditional = breakpoint
                 .definition
+                .as_ref()
                 .is_some_and(|definition| definition.condition.is_some());
             let logpoint = breakpoint
                 .definition
+                .as_ref()
                 .is_some_and(|definition| definition.log_message.is_some());
             let style = match (conditional, logpoint) {
                 (true, true) => error.underline_style(UnderlineStyle::Line),

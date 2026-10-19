@@ -70,6 +70,30 @@ fn source_breakpoints(
         .collect()
 }
 
+pub(crate) fn map_breakpoint_positions(
+    source: &::debugger::SourceBreakpoints,
+    changes: &editor_core::ChangeSet,
+    old: &editor_core::Rope,
+    new: &editor_core::Rope,
+) {
+    source.map_positions(|breakpoint| {
+        let position = super::source::position_to_char(
+            old,
+            breakpoint.line.saturating_add(1),
+            breakpoint.column.unwrap_or(1),
+        )
+        .unwrap_or_else(|| old.len_chars());
+        let position = changes
+            .map_pos(position, editor_core::Assoc::After)
+            .min(new.len_chars());
+        let line = new.char_to_line(position);
+        let column = breakpoint.column.map(|_| {
+            new.char_to_utf16_cu(position) - new.char_to_utf16_cu(new.line_to_char(line)) + 1
+        });
+        (line, column)
+    });
+}
+
 impl BreakpointSession {
     pub(super) fn remove_binding(&mut self, identity: BreakpointId) {
         self.bindings.remove_binding(identity);
@@ -91,7 +115,9 @@ impl DebuggerState {
     /// Verification and resolved location in the currently selected adapter.
     pub fn breakpoint_binding(&self, identity: BreakpointId) -> Option<&BreakpointBinding> {
         let session = self.get_active_session()?.breakpoints.as_ref()?;
-        session.bindings.get(identity)
+        session
+            .bindings
+            .get_for(&self.breakpoints.definition(identity)?)
     }
 
     pub(super) fn breakpoint_line(&self, definition: &Breakpoint) -> usize {
@@ -103,7 +129,7 @@ impl DebuggerState {
     pub fn breakpoint_locations<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl Iterator<Item = BreakpointLocation<'a>> {
+    ) -> impl Iterator<Item = BreakpointLocation> {
         self.breakpoints.locations(
             path,
             self.get_active_session()
@@ -226,12 +252,12 @@ impl Editor {
                 checksums: None,
             },
             breakpoints: Some(source_breakpoints(
-                breakpoints,
+                &breakpoints,
                 debug_session.capabilities.as_ref(),
             )?),
             source_modified: Some(false),
         };
-        let definitions = breakpoints.to_vec();
+        let definitions = breakpoints;
         let request = source.request.restart();
         let lifetime = session.current.clone();
         let sender = client.request_sender();

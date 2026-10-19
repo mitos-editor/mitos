@@ -116,6 +116,9 @@ impl Document {
         }
 
         // Map cached anchors as part of the mutation, before protocol synchronization or observers.
+        if emit_lsp_notification && let Some(source) = &self.breakpoint_source {
+            crate::debugger::map_breakpoint_positions(source, changes, old_doc, self.buffer.text());
+        }
         self.diagnostics.apply_changes(changes, self.buffer.text());
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);
