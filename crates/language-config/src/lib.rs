@@ -7,8 +7,10 @@ use ::diagnostics::Severity;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::comment::BlockCommentToken;
 
-pub use dap_types::{
-    AdvancedCompletion, DebugAdapterConfig, DebugConfigCompletion, DebugTemplate, DebuggerQuirks,
+mod debugger;
+pub use debugger::{
+    AdvancedCompletion, DebugAdapterConfig, DebugAdapterTransport, DebugConfigCompletion,
+    DebugTemplate, DebuggerQuirks,
 };
 use serde::{ser::SerializeSeq as _, Deserialize, Serialize};
 use stdx::rope;

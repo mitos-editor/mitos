@@ -1,9 +1,11 @@
 //! Cancellable connection, initialization, and launch tasks for debugger sessions.
 
+use super::DebuggerLaunch;
 use crate::{callbacks::EditorCallbackSender, events::DocumentDidClose, DocumentId, Editor};
 use anyhow::Context as _;
-use dap::{ConnectionType, DebugAdapterConfig, DebugAdapterId, DebuggerCapabilities};
+use dap::{ConnectionType, DebugAdapterId, DebuggerCapabilities};
 use event::{register_hook, TaskController, TaskHandle};
+use language_config::{DebugAdapterConfig, DebugAdapterTransport};
 use serde_json::Value;
 use std::{future::Future, net::SocketAddr};
 
@@ -140,7 +142,7 @@ impl Editor {
         &mut self,
         socket: Option<SocketAddr>,
         config: DebugAdapterConfig,
-        launch: Option<(ConnectionType, Value)>,
+        launch: Option<DebuggerLaunch>,
     ) -> DebugAdapterId {
         self.begin_debugger_startup(socket, config, launch, StartupOrigin::Connection)
     }
@@ -149,7 +151,7 @@ impl Editor {
         &mut self,
         socket: Option<SocketAddr>,
         config: DebugAdapterConfig,
-        launch: Option<(ConnectionType, Value)>,
+        launch: Option<DebuggerLaunch>,
         origin: StartupOrigin,
     ) -> DebugAdapterId {
         let name = config.name.clone();
@@ -159,7 +161,26 @@ impl Editor {
             _ => None,
         };
         let id = self.debugger.insert_session(name.clone(), parent);
-        let connect = dap::Client::connect(socket, config, id);
+        self.debugger.sessions[id].adapter = Some(config.clone());
+        let connect = async move {
+            if let Some(socket) = socket {
+                return dap::Client::tcp(socket, id).await;
+            }
+            if config.command.is_empty() {
+                return Err(anyhow::anyhow!("Debug adapter command is empty").into());
+            }
+            let args = config.args.iter().map(String::as_str).collect();
+            match config.transport {
+                DebugAdapterTransport::Stdio => dap::Client::stdio(&config.command, args, id),
+                DebugAdapterTransport::Tcp => {
+                    let port = config
+                        .port_arg
+                        .as_deref()
+                        .context("TCP debug adapter requires port-arg")?;
+                    dap::Client::tcp_process(&config.command, args, port, id).await
+                }
+            }
+        };
         let mut startup = Startup {
             cancel: TaskController::new(),
             origin,
@@ -190,11 +211,11 @@ impl Editor {
                         .is_some_and(|startup| startup.initialized);
                     let client = editor.debugger.get_client_mut(id).unwrap();
                     client.caps = Some(capabilities);
-                    if let Some((connection, arguments)) = launch {
+                    if let Some(launch) = launch {
                         let future: futures_util::future::BoxFuture<'static, dap::Result<Value>> =
-                            match connection {
-                                ConnectionType::Launch => Box::pin(client.launch(arguments)),
-                                ConnectionType::Attach => Box::pin(client.attach(arguments)),
+                            match launch.request {
+                                ConnectionType::Launch => Box::pin(client.launch(launch.arguments)),
+                                ConnectionType::Attach => Box::pin(client.attach(launch.arguments)),
                             };
                         context.spawn(future, |editor, context, result| {
                             context.finish(editor, Ok(result))
@@ -256,14 +277,20 @@ impl Editor {
             .context("No active debugger found")?;
         // Reconnect TCP adapters to their server; stdio children get their own process.
         let socket = client.socket;
-        let config = client
-            .config
+        let config = self
+            .debugger
+            .get_session(parent)
+            .unwrap()
+            .adapter
             .clone()
             .context("No debugger configuration found")?;
         self.begin_debugger_startup(
             socket,
             config,
-            Some((arguments.request, arguments.configuration)),
+            Some(DebuggerLaunch {
+                request: arguments.request,
+                arguments: arguments.configuration,
+            }),
             StartupOrigin::Child { parent, sequence },
         );
         Ok(())

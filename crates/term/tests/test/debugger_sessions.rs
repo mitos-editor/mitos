@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use dap::{DebugAdapterConfig, DebugAdapterId};
+use dap::DebugAdapterId;
+use language_config::DebugAdapterConfig;
 use term::application::Application;
 use tokio::net::TcpListener;
 use ui_core::input::parse_macro;
@@ -35,7 +36,7 @@ fn connect(app: &mut Application, listener: &TcpListener, name: &str) -> DebugAd
         Some(listener.local_addr().unwrap()),
         DebugAdapterConfig {
             name: name.into(),
-            transport: "tcp".into(),
+            transport: language_config::DebugAdapterTransport::Tcp,
             command: String::new(),
             args: vec![],
             port_arg: None,
@@ -140,17 +141,17 @@ async fn stdio_adapters_can_start_child_sessions_without_changing_selection() ->
         None,
         DebugAdapterConfig {
             name: "stdio fixture".into(),
-            transport: "stdio".into(),
+            transport: language_config::DebugAdapterTransport::Stdio,
             command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
             args: vec![],
             port_arg: None,
             templates: vec![],
             quirks: Default::default(),
         },
-        Some((
-            dap::ConnectionType::Launch,
-            serde_json::json!({"spawnChild":true}),
-        )),
+        Some(view::debugger::DebuggerLaunch {
+            request: dap::ConnectionType::Launch,
+            arguments: serde_json::json!({"spawnChild":true}),
+        }),
     );
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

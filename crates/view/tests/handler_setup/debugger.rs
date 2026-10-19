@@ -77,9 +77,9 @@ async fn adapter_with_options(
 ) -> anyhow::Result<(DebugAdapterId, AdapterWire)> {
     let launch = options.launch.clone();
     let (socket, receiver) = adapter_server_with_options(options).await?;
-    let config = dap::DebugAdapterConfig {
+    let config = language_config::DebugAdapterConfig {
         name: "fixture".into(),
-        transport: "tcp".into(),
+        transport: language_config::DebugAdapterTransport::Tcp,
         command: String::new(),
         args: vec![],
         port_arg: None,
@@ -109,7 +109,7 @@ struct AdapterOptions {
     empty_threads: bool,
     fail_stack: bool,
     stack_source: Option<std::path::PathBuf>,
-    launch: Option<(dap::ConnectionType, Value)>,
+    launch: Option<view::debugger::DebuggerLaunch>,
     hold_launch_restarts: bool,
 }
 
@@ -565,10 +565,6 @@ transport = "tcp"
 name = "run"
 request = "launch"
 args = { program = "{0}", port = "{1}", nested = ["{0}", true] }
-[[language.debugger.templates]]
-name = "unsupported"
-request = "unknown"
-args = {}
 "#;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -577,14 +573,12 @@ async fn debugger_launch_validates_configuration_before_connecting_and_preserves
     let mut f = Fixture::with_languages("", LAUNCH_LANGUAGES)?;
     let document = view::current_ref!(f.editor).1.id();
     let (socket, mut wire) = adapter_server(false).await?;
-    for name in ["missing", "unsupported"] {
-        let error = f
-            .editor
-            .start_debugger(document, Some(name), Some(socket), None)
-            .unwrap_err();
-        assert!(!error.to_string().contains("Failed to start debug client"));
-        assert!(wire.try_recv().is_err());
-    }
+    let error = f
+        .editor
+        .start_debugger(document, Some("missing"), Some(socket), None)
+        .unwrap_err();
+    assert!(error.to_string().contains("No debug config"));
+    assert!(wire.try_recv().is_err());
     f.editor.new_file(view::editor::Action::Replace);
     let id = f.editor.start_debugger(
         document,
@@ -1575,14 +1569,14 @@ async fn termination_disconnects_and_relaunches_without_blocking_the_editor() ->
             AdapterOptions {
                 held_commands: vec!["disconnect", if attach { "attach" } else { "launch" }],
                 fail_restarts: !attach,
-                launch: Some((
-                    if attach {
+                launch: Some(view::debugger::DebuggerLaunch {
+                    request: if attach {
                         dap::ConnectionType::Attach
                     } else {
                         dap::ConnectionType::Launch
                     },
-                    initial.clone(),
-                )),
+                    arguments: initial.clone(),
+                }),
                 hold_launch_restarts: true,
                 ..Default::default()
             },

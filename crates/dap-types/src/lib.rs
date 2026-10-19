@@ -1,11 +1,4 @@
-//! Configuration and wire types for the Debug Adapter Protocol (DAP).
-//!
-//! The crate contains two related families of data:
-//!
-//! - [`DebugAdapterConfig`] and [`DebugTemplate`] describe Mitos's
-//!   `languages.toml` configuration; and
-//! - the remaining request, response, event, and capability types mirror DAP
-//!   JSON payloads and are shared by the `dap` transport and editor layers.
+//! Wire types for the Debug Adapter Protocol (DAP).
 //!
 //! Wire types intentionally use `Option` heavily. A missing capability is not
 //! equivalent to support, and adapters regularly omit fields allowed by the
@@ -16,65 +9,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-/// An interactive value requested while completing a debug template.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct AdvancedCompletion {
-    pub name: Option<String>,
-    pub completion: Option<String>,
-    pub default: Option<String>,
-}
-
-/// A completion prompt used by a [`DebugTemplate`].
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case", untagged)]
-pub enum DebugConfigCompletion {
-    Named(String),
-    Advanced(AdvancedCompletion),
-}
-
-/// A named launch or attach template exposed to users.
-///
-/// `args` is deliberately untyped because its contents are adapter-specific
-/// and become the arguments of the template's DAP request.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct DebugTemplate {
-    pub name: String,
-    pub request: String,
-    #[serde(default)]
-    pub completion: Vec<DebugConfigCompletion>,
-    pub args: HashMap<String, Value>,
-}
-
-/// Configuration for starting and communicating with a debug adapter.
-///
-/// `transport` currently accepts `"stdio"` or `"tcp"`. For TCP adapters,
-/// `port_arg` is a format string whose `{}` placeholder is replaced with an
-/// ephemeral local port before the process is spawned.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct DebugAdapterConfig {
-    pub name: String,
-    pub transport: String,
-    #[serde(default)]
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    pub port_arg: Option<String>,
-    pub templates: Vec<DebugTemplate>,
-    #[serde(default)]
-    pub quirks: DebuggerQuirks,
-}
-
-/// Workarounds for differences between debug adapters.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct DebuggerQuirks {
-    /// Treat paths received from the adapter as absolute.
-    #[serde(default)]
-    pub absolute_paths: bool,
-}
 
 /// Opaque identifier for a thread within one debug adapter session.
 #[derive(

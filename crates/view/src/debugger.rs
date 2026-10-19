@@ -9,6 +9,7 @@ mod reverse_requests;
 mod session;
 pub use session::{DebugSession, DebugSessionStatus, ThreadState, ThreadStates};
 mod launch;
+pub use launch::DebuggerLaunch;
 mod startup;
 pub(crate) use startup::register_hooks;
 mod operations;

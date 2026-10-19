@@ -8,6 +8,13 @@ use language_config::{DebugConfigCompletion, DebugTemplate};
 use serde_json::{to_value, Value};
 use std::{collections::HashMap, net::SocketAddr};
 
+/// Resolved launch or attach arguments. Their contents are adapter-specific.
+#[derive(Clone)]
+pub struct DebuggerLaunch {
+    pub request: ConnectionType,
+    pub arguments: Value,
+}
+
 impl Editor {
     /// Validate the document's launch configuration before creating an adapter.
     /// The document may be hidden; focus changes do not retarget the launch.
@@ -39,11 +46,7 @@ impl Editor {
             None => config.templates.first(),
         }
         .context("No debug config with given name")?;
-        let connection = match template.request.as_str() {
-            "launch" => ConnectionType::Launch,
-            "attach" => ConnectionType::Attach,
-            request => bail!("Unsupported request '{request}'"),
-        };
+        let connection = template.request;
         let mut args: HashMap<_, _> = match params {
             Some(params) => {
                 let params = prepare_dap_params(template, params);
@@ -65,7 +68,10 @@ impl Editor {
         let id = self.begin_debugger_startup(
             socket,
             config,
-            Some((connection, args)),
+            Some(DebuggerLaunch {
+                request: connection,
+                arguments: args,
+            }),
             StartupOrigin::Document(document),
         );
         self.debugger.sessions[id].name = label;

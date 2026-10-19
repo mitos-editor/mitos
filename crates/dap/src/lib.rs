@@ -8,9 +8,8 @@
 //! Session membership, execution state, and active selection belong to the editor.
 //! Protocol data structures are re-exported from `dap-types`.
 //!
-//! DAP adapters are less uniform than language servers. Keep adapter-specific
-//! behavior in [`DebuggerQuirks`] or configuration rather than branching on an
-//! adapter name in the transport.
+//! Adapter selection and launch configuration belong to the session owner.
+//! The client accepts explicit stream, stdio, or TCP connections.
 
 mod client;
 pub mod registry;

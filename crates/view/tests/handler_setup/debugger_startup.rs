@@ -73,10 +73,10 @@ impl Adapter {
     }
 }
 
-fn config() -> dap::DebugAdapterConfig {
-    dap::DebugAdapterConfig {
+fn config() -> language_config::DebugAdapterConfig {
+    language_config::DebugAdapterConfig {
         name: "fixture".into(),
-        transport: "tcp".into(),
+        transport: language_config::DebugAdapterTransport::Tcp,
         command: String::new(),
         args: Vec::new(),
         port_arg: None,

@@ -43,58 +43,9 @@ pub struct Client {
     /// The socket address of the debugger, if using TCP transport.
     pub socket: Option<SocketAddr>,
     pub caps: Option<DebuggerCapabilities>,
-    pub quirks: DebuggerQuirks,
-    /// The config which was used to start this debugger.
-    pub config: Option<DebugAdapterConfig>,
 }
 
 impl Client {
-    /// Establish the configured transport, leaving initialization to the session owner.
-    pub async fn connect(
-        socket: Option<SocketAddr>,
-        config: DebugAdapterConfig,
-        id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
-        let (mut client, incoming) = match socket {
-            Some(socket) => Self::tcp(socket, id).await?,
-            None => {
-                Self::process(
-                    &config.transport,
-                    &config.command,
-                    config.args.iter().map(String::as_str).collect(),
-                    config.port_arg.as_deref(),
-                    id,
-                )
-                .await?
-            }
-        };
-        client.quirks = config.quirks.clone();
-        client.config = Some(config);
-        Ok((client, incoming))
-    }
-
-    /// Spawns an adapter and communicates over its configured transport.
-    ///
-    /// The receiver tags every payload with `id`, allowing a registry to merge
-    /// streams from multiple clients. TCP process transport requires
-    /// `port_arg`; stdio ignores it.
-    pub async fn process(
-        transport: &str,
-        command: &str,
-        args: Vec<&str>,
-        port_arg: Option<&str>,
-        id: DebugAdapterId,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
-        if command.is_empty() {
-            return Result::Err(Error::Other(anyhow!("Command not provided")));
-        }
-        match (transport, port_arg) {
-            ("tcp", Some(port_arg)) => Self::tcp_process(command, args, port_arg, id).await,
-            ("stdio", _) => Self::stdio(command, args, id),
-            _ => Result::Err(Error::Other(anyhow!("Incorrect transport {}", transport))),
-        }
-    }
-
     /// Builds a client around already-open asynchronous streams.
     ///
     /// This is the common constructor for TCP, stdio, and test transports. If
@@ -119,8 +70,6 @@ impl Client {
             connection_type: None,
             starting_request_args: None,
             socket: None,
-            quirks: DebuggerQuirks::default(),
-            config: None,
         };
 
         Ok((client, incoming))
