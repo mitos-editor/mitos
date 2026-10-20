@@ -654,3 +654,74 @@ async fn language_changes_reopen_documents_on_reused_servers() -> anyhow::Result
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_tokens_are_scoped_to_servers_and_removed_on_stop() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha", "beta"])?;
+    f.initialize().await?;
+    let alpha = f.server("alpha");
+    let beta = f.server("beta");
+    for server in [alpha, beta] {
+        f.app
+            .handle_language_server_message(
+                notification(
+                    "$/progress",
+                    json!({
+                        "token": "shared", "value": {"kind": "begin", "title": "Indexing"}
+                    }),
+                ),
+                server,
+            )
+            .await;
+    }
+    f.app
+        .handle_language_server_message(
+            notification(
+                "$/progress",
+                json!({
+                    "token": "second", "value": {"kind": "begin", "title": "Checking"}
+                }),
+            ),
+            alpha,
+        )
+        .await;
+    for _ in 0..2 {
+        f.app
+            .handle_language_server_message(
+                notification(
+                    "$/progress",
+                    json!({
+                        "token": "shared", "value": {"kind": "end"}
+                    }),
+                ),
+                alpha,
+            )
+            .await;
+    }
+    assert!(f.app.editor.language_server_is_progressing(alpha));
+    assert!(f.app.editor.language_server_is_progressing(beta));
+    let document = current_ref!(f.app.editor).1.id();
+    f.app.editor.stop_language_servers(document, &["alpha"])?;
+    assert!(!f.app.editor.language_server_is_progressing(alpha));
+    assert!(f.app.editor.language_server_is_progressing(beta));
+    // Notifications already in transit cannot restore a stopped server's progress.
+    f.app
+        .handle_language_server_message(
+            notification(
+                "$/progress",
+                json!({
+                    "token": "late", "value": {"kind": "begin", "title": "Late"}
+                }),
+            ),
+            alpha,
+        )
+        .await;
+    assert!(!f.app.editor.language_server_is_progressing(alpha));
+    f.app
+        .handle_language_server_message(notification("exit", Value::Null), beta)
+        .await;
+    assert_eq!(f.app.editor.progressing_language_servers().count(), 0);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

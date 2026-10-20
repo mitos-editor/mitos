@@ -24,6 +24,7 @@ mod snippet;
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
+    pub(crate) lsp_progress: lsp_client::LspProgressMap,
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
     pub(crate) status_messages: tokio::sync::mpsc::Receiver<event::status::StatusMessage>,
@@ -63,6 +64,7 @@ impl Handlers {
         register_hooks();
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
+            lsp_progress: Default::default(),
             status,
             status_messages,
             document_symbols: document_symbols::DocumentSymbolsHandler::new(callbacks.clone()),

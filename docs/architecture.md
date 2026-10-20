@@ -453,6 +453,10 @@ capabilities directly.
 
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
+`view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
+refreshes. It processes notifications even while a prompt suppresses status text,
+and server cleanup removes its tokens. Terminal spinners follow the shared active
+server set when rendering.
 
 `view::handlers::lsp::workspace` owns server-requested workspace edit validation,
 application results, and dynamic file-watcher registration. It uses the server's
@@ -462,7 +466,7 @@ ordered configuration sections; workspace folders remain on the client.
 `term::Application` decodes requests, calls these typed operations, and serializes
 and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
 entry point. Unsupported capability registrations retain their compatibility
-acknowledgement; progress and interactive requests stay with the frontend.
+acknowledgement; progress presentation and interactive requests stay with the frontend.
 
 `workspace::trust` owns trust policy, persisted grants/exclusions, and
 workspace configuration hashing. `view::features::workspace_trust` owns each
@@ -519,9 +523,9 @@ inter-file debounce queues, server-requested retries, and report publication.
 Result IDs and cancellation controllers live in feature state attached to each
 document and are scoped per server. A provider refresh affects only that provider;
 queued reports and retries validate their document snapshot and server attachment.
-The terminal application calls shared refresh entry points for server progress and
-diagnostic refresh requests. Diagnostic visibility during mode changes, panels,
-and pickers stay in `term`.
+Shared progress completion and server-requested diagnostic refreshes call this
+coordinator. Diagnostic visibility during mode changes, panels, and pickers stays
+in `term`.
 
 `view::features::code_action_hint` owns debounced code-action availability checks
 for each document/view. `view::action::code_actions_for_range` builds LSP requests

@@ -8,6 +8,17 @@ pub struct ProgressSpinners {
 }
 
 impl ProgressSpinners {
+    pub fn synchronize(&mut self, servers: impl Iterator<Item = LanguageServerId>) {
+        let active: std::collections::HashSet<_> = servers.collect();
+        self.inner.retain(|id, _| active.contains(id));
+        for id in active {
+            let spinner = self.get_or_create(id);
+            if spinner.is_stopped() {
+                spinner.start();
+            }
+        }
+    }
+
     pub fn get(&self, id: LanguageServerId) -> Option<&Spinner> {
         self.inner.get(&id)
     }

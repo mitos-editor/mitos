@@ -86,6 +86,7 @@ impl Editor {
     /// Clear diagnostics and notify features while the server and attachments still exist.
     /// Registry removal belongs to the caller so manual stop keeps its tombstone.
     pub(crate) fn cleanup_language_server(&mut self, server_id: LanguageServerId) {
+        self.handlers.lsp_progress.remove_server(server_id);
         self.forget_language_server(server_id);
         self.clear_language_server_diagnostics(server_id);
         event::dispatch(LanguageServerExited {

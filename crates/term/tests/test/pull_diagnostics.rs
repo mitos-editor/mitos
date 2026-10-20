@@ -349,3 +349,40 @@ async fn workspace_refresh_request_targets_only_the_requesting_provider() -> any
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_completion_refreshes_diagnostics_while_a_prompt_is_open() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(f.requests(0)?.len(), 1);
+    super::helpers::keys(&mut f.app, ":").await?;
+    f.app.editor.set_status("prompt status");
+    let server = f.server("alpha");
+    for value in [
+        serde_json::json!({"kind": "begin", "title": "Indexing"}),
+        serde_json::json!({"kind": "report", "percentage": 50}),
+        serde_json::json!({"kind": "end"}),
+    ] {
+        let completed = value["kind"] == "end";
+        let call = serde_json::from_value(serde_json::json!({
+            "jsonrpc": "2.0", "method": "$/progress",
+            "params": {"token": "indexing", "value": value}
+        }))?;
+        f.app.handle_language_server_message(call, server).await;
+        assert_eq!(
+            f.app.editor.language_server_is_progressing(server),
+            !completed
+        );
+        assert_eq!(
+            f.app.editor.get_status().unwrap().0.as_ref(),
+            "prompt status"
+        );
+    }
+    f.publish().await?;
+    assert_eq!(f.requests(0)?.len(), 2);
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

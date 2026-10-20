@@ -219,6 +219,16 @@ impl LspProgressMap {
         Self::default()
     }
 
+    pub fn progressing_servers(&self) -> impl Iterator<Item = LanguageServerId> + '_ {
+        self.0
+            .iter()
+            .filter_map(|(&server, tokens)| (!tokens.is_empty()).then_some(server))
+    }
+
+    pub fn remove_server(&mut self, server: LanguageServerId) {
+        self.0.remove(&server);
+    }
+
     /// Returns a map of all tokens corresponding to the language server with `id`.
     pub fn progress_map(
         &self,

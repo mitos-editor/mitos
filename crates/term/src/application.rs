@@ -2,7 +2,7 @@ use arc_swap::{access::Map, ArcSwap};
 use editor_core::{pos_at_coords, Range, Selection};
 use futures_util::Stream;
 use language::syntax;
-use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, LspProgressMap};
+use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId};
 use serde_json::json;
 use stdx::path::get_relative_path;
 use tui::backend::BackendExt;
@@ -89,7 +89,6 @@ pub struct Application {
     signals: Signals,
     jobs: Jobs,
     _presentation_hooks: event::HookRegistration,
-    lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
 }
@@ -288,7 +287,6 @@ impl Application {
             signals,
             jobs,
             _presentation_hooks: presentation_hooks,
-            lsp_progress: LspProgressMap::new(),
             theme_mode,
         };
 
@@ -887,96 +885,21 @@ impl Application {
                     Notification::LogMessage(params) => {
                         log::info!("window/logMessage: {:?}", params);
                     }
-                    Notification::ProgressMessage(params)
-                        if !self
-                            .compositor
-                            .has_component(std::any::type_name::<ui::Prompt>()) =>
-                    {
-                        let editor_view = self
-                            .compositor
-                            .find::<ui::EditorView>()
-                            .expect("expected at least one EditorView");
-                        let lsp::ProgressParams {
-                            token,
-                            value: lsp::ProgressParamsValue::WorkDone(work),
-                        } = params;
-                        let (title, message, percentage) = match &work {
-                            lsp::WorkDoneProgress::Begin(lsp::WorkDoneProgressBegin {
-                                title,
-                                message,
-                                percentage,
-                                ..
-                            }) => (Some(title), message, percentage),
-                            lsp::WorkDoneProgress::Report(lsp::WorkDoneProgressReport {
-                                message,
-                                percentage,
-                                ..
-                            }) => (None, message, percentage),
-                            lsp::WorkDoneProgress::End(lsp::WorkDoneProgressEnd { message }) => {
-                                if message.is_some() {
-                                    (None, message, &None)
-                                } else {
-                                    self.lsp_progress.end_progress(server_id, &token);
-                                    if !self.lsp_progress.is_progressing(server_id) {
-                                        editor_view.spinners_mut().get_or_create(server_id).stop();
-                                        view::features::diagnostics::pull::request_all_document_diagnostics_for_language_server(
-                                            &mut self.editor,
-                                            server_id,
-                                        );
-                                    }
-                                    self.editor.clear_status();
-
-                                    // we want to render to clear any leftover spinners or messages
-                                    return;
-                                }
-                            }
-                        };
-
-                        if self.editor.config().lsp.progress.enable {
-                            let title =
-                                title.or_else(|| self.lsp_progress.title(server_id, &token));
-                            if title.is_some() || percentage.is_some() || message.is_some() {
-                                use std::fmt::Write as _;
-                                let mut status = format!("{}: ", language_server!().name());
-                                if let Some(percentage) = percentage {
-                                    write!(status, "{percentage:>2}% ").unwrap();
-                                }
-                                if let Some(title) = title {
-                                    status.push_str(title);
-                                }
-                                if title.is_some() && message.is_some() {
-                                    status.push_str(" ⋅ ");
-                                }
-                                if let Some(message) = message {
-                                    status.push_str(message);
-                                }
-                                self.editor.set_status(status);
+                    Notification::ProgressMessage(params) => {
+                        if let Some(update) = self
+                            .editor
+                            .handle_language_server_progress(server_id, params)
+                            && !self
+                                .compositor
+                                .has_component(std::any::type_name::<ui::Prompt>())
+                            && self.editor.config().lsp.progress.enable
+                        {
+                            if let Some(message) = update.message {
+                                self.editor.set_status(message);
+                            } else if update.completed {
+                                self.editor.clear_status();
                             }
                         }
-
-                        match work {
-                            lsp::WorkDoneProgress::Begin(begin_status) => {
-                                self.lsp_progress
-                                    .begin(server_id, token.clone(), begin_status);
-                            }
-                            lsp::WorkDoneProgress::Report(report_status) => {
-                                self.lsp_progress
-                                    .update(server_id, token.clone(), report_status);
-                            }
-                            lsp::WorkDoneProgress::End(_) => {
-                                self.lsp_progress.end_progress(server_id, &token);
-                                if !self.lsp_progress.is_progressing(server_id) {
-                                    editor_view.spinners_mut().get_or_create(server_id).stop();
-                                    view::features::diagnostics::pull::request_all_document_diagnostics_for_language_server(
-                                        &mut self.editor,
-                                        server_id,
-                                    );
-                                };
-                            }
-                        }
-                    }
-                    Notification::ProgressMessage(_params) => {
-                        // do nothing
                     }
                     Notification::Exit => {
                         let status =
@@ -1016,16 +939,8 @@ impl Application {
                         })
                     }
                     Ok(MethodCall::WorkDoneProgressCreate(params)) => {
-                        self.lsp_progress.create(server_id, params.token);
-
-                        let editor_view = self
-                            .compositor
-                            .find::<ui::EditorView>()
-                            .expect("expected at least one EditorView");
-                        let spinner = editor_view.spinners_mut().get_or_create(server_id);
-                        if spinner.is_stopped() {
-                            spinner.start();
-                        }
+                        self.editor
+                            .create_language_server_progress(server_id, params.token);
 
                         Ok(serde_json::Value::Null)
                     }

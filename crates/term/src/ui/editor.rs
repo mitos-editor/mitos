@@ -90,10 +90,6 @@ impl EditorView {
         }
     }
 
-    pub fn spinners_mut(&mut self) -> &mut ProgressSpinners {
-        &mut self.spinners
-    }
-
     pub(crate) fn set_next_key_callback(
         &mut self,
         callback: (commands::OnKeyCallback, OnKeyCallbackKind),
@@ -1640,6 +1636,8 @@ impl Component for EditorView {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        self.spinners
+            .synchronize(cx.editor.progressing_language_servers());
         // clear with background color
         surface.set_style(area, cx.editor.theme.get("ui.background"));
         let config = cx.editor.config();
