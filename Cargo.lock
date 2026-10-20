@@ -4574,7 +4574,7 @@ dependencies = [
  "anyhow",
  "bitflags 2.13.2",
  "crossterm",
- "ratatui",
+ "ratatui-core",
  "serde",
  "termina 0.4.0",
  "unicode-segmentation",

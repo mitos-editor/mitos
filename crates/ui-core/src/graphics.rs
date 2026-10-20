@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-pub use ratatui::layout::{Margin, Rect};
+pub use ratatui_core::layout::{Margin, Rect};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
@@ -199,7 +199,7 @@ impl Color {
     }
 }
 
-impl From<Color> for ratatui::style::Color {
+impl From<Color> for ratatui_core::style::Color {
     fn from(color: Color) -> Self {
         match color {
             Color::Reset => Self::Reset,
@@ -293,11 +293,11 @@ pub enum UnderlineStyle {
 // Ratatui models whether text is underlined and its color, but not the shape of
 // the underline. Preserve Mitos's richer underline styles in currently-unused
 // modifier bits so the Mitos terminal backends can render them.
-const RATATUI_UNDERLINE_STYLE_MASK: ratatui::style::Modifier =
-    ratatui::style::Modifier::from_bits_retain(0x0e00);
+const RATATUI_UNDERLINE_STYLE_MASK: ratatui_core::style::Modifier =
+    ratatui_core::style::Modifier::from_bits_retain(0x0e00);
 
 impl UnderlineStyle {
-    fn ratatui_modifier(self) -> ratatui::style::Modifier {
+    fn ratatui_modifier(self) -> ratatui_core::style::Modifier {
         let bits = match self {
             Self::Reset | Self::Line => 0,
             Self::Curl => 0x0200,
@@ -305,16 +305,16 @@ impl UnderlineStyle {
             Self::Dashed => 0x0600,
             Self::DoubleLine => 0x0800,
         };
-        let shape = ratatui::style::Modifier::from_bits_retain(bits);
+        let shape = ratatui_core::style::Modifier::from_bits_retain(bits);
         if self == Self::Reset {
             shape
         } else {
-            shape | ratatui::style::Modifier::UNDERLINED
+            shape | ratatui_core::style::Modifier::UNDERLINED
         }
     }
 
-    pub fn from_ratatui_modifier(modifier: ratatui::style::Modifier) -> Self {
-        if !modifier.contains(ratatui::style::Modifier::UNDERLINED) {
+    pub fn from_ratatui_modifier(modifier: ratatui_core::style::Modifier) -> Self {
+        if !modifier.contains(ratatui_core::style::Modifier::UNDERLINED) {
             return Self::Reset;
         }
         match (modifier & RATATUI_UNDERLINE_STYLE_MASK).bits() {
@@ -395,7 +395,7 @@ bitflags! {
     }
 }
 
-impl From<Modifier> for ratatui::style::Modifier {
+impl From<Modifier> for ratatui_core::style::Modifier {
     fn from(modifier: Modifier) -> Self {
         let mut result = Self::empty();
         if modifier.contains(Modifier::BOLD) {
@@ -460,8 +460,8 @@ impl FromStr for Modifier {
 ///
 /// ```rust
 /// # use ui_core::graphics::{Rect, Color, Modifier, Style};
-/// # use ratatui::buffer::Buffer;
-/// # use ratatui::style::{Modifier as RatatuiModifier, Style as RatatuiStyle};
+/// # use ratatui_core::buffer::Buffer;
+/// # use ratatui_core::style::{Modifier as RatatuiModifier, Style as RatatuiStyle};
 /// let styles = [
 ///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
 ///     Style::default().bg(Color::Red),
@@ -486,7 +486,7 @@ impl FromStr for Modifier {
 ///
 /// ```
 /// # use ui_core::graphics::{Rect, Color, Modifier, Style};
-/// # use ratatui::{buffer::Buffer, style::Style as RatatuiStyle};
+/// # use ratatui_core::{buffer::Buffer, style::Style as RatatuiStyle};
 /// let styles = [
 ///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
 ///     Style::reset().fg(Color::Yellow),
@@ -671,21 +671,23 @@ impl Style {
     }
 }
 
-impl From<Style> for ratatui::style::Style {
+impl From<Style> for ratatui_core::style::Style {
     fn from(style: Style) -> Self {
-        let mut add_modifier: ratatui::style::Modifier = style.add_modifier.into();
-        let mut sub_modifier: ratatui::style::Modifier = style.sub_modifier.into();
+        let mut add_modifier: ratatui_core::style::Modifier = style.add_modifier.into();
+        let mut sub_modifier: ratatui_core::style::Modifier = style.sub_modifier.into();
         match style.underline_style {
             Some(UnderlineStyle::Reset) => {
-                add_modifier
-                    .remove(ratatui::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK);
-                sub_modifier
-                    .insert(ratatui::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK);
+                add_modifier.remove(
+                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK,
+                );
+                sub_modifier.insert(
+                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK,
+                );
             }
             Some(underline_style) => {
                 let encoded = underline_style.ratatui_modifier();
                 let underline_bits =
-                    ratatui::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK;
+                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK;
                 add_modifier.remove(underline_bits);
                 add_modifier.insert(encoded);
                 sub_modifier.insert(underline_bits);
@@ -694,7 +696,7 @@ impl From<Style> for ratatui::style::Style {
             None => {}
         }
 
-        ratatui::style::Style {
+        ratatui_core::style::Style {
             fg: style.fg.map(Into::into),
             bg: style.bg.map(Into::into),
             underline_color: style.underline_color.map(Into::into),
@@ -805,7 +807,7 @@ mod tests {
 
         for underline_style in styles {
             let style =
-                ratatui::style::Style::from(Style::default().underline_style(underline_style));
+                ratatui_core::style::Style::from(Style::default().underline_style(underline_style));
             assert_eq!(
                 UnderlineStyle::from_ratatui_modifier(style.add_modifier),
                 underline_style
@@ -813,11 +815,11 @@ mod tests {
         }
 
         assert!(
-            (ratatui::style::Modifier::all() & RATATUI_UNDERLINE_STYLE_MASK).is_empty(),
+            (ratatui_core::style::Modifier::all() & RATATUI_UNDERLINE_STYLE_MASK).is_empty(),
             "Ratatui assigned one of Mitos's underline transport bits"
         );
 
-        let mut cell = ratatui::buffer::Cell::default();
+        let mut cell = ratatui_core::buffer::Cell::default();
         cell.set_style(Style::default().underline_style(UnderlineStyle::Curl));
         cell.set_style(Style::default().underline_style(UnderlineStyle::Dotted));
         assert_eq!(

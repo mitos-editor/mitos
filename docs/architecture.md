@@ -37,7 +37,9 @@ Features live with the state they change; frontends adapt input and present resu
 | `xtask` | Repository maintenance, validation, and generated documentation |
 
 `term` composes `view` with `tui`; shared editor behavior does not depend on either
-terminal crate. `view` coordinates feature and protocol crates. For example,
+terminal crate. `view` coordinates feature and protocol crates. Shared geometry and style adapters
+in `ui-core` depend on `ratatui-core`; widgets and concrete terminal integration
+remain in `tui` and `term`. For example,
 `view` → `spelling` → `core` keeps dictionary algorithms independent of editor
 state. `ui-core` supplies UI value types without owning editor services.
 `view` → `debugger` → `dap-types` separates debugger state from editor effects. The
