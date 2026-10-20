@@ -196,6 +196,48 @@ pub fn textobject_paragraph(
     Range::new(anchor, head)
 }
 
+/// Collect word objects fully contained in `range`, preserving selection direction.
+pub fn word_ranges(
+    text: RopeSlice,
+    range: Range,
+    object: TextObject,
+    long: bool,
+) -> crate::SmallVec<[Range; 1]> {
+    contained_ranges(text, range, |cursor| {
+        textobject_word(text, cursor, object, 1, long)
+    })
+}
+
+/// Collect paragraph objects fully contained in `range`, preserving selection direction.
+pub fn paragraph_ranges(
+    text: RopeSlice,
+    range: Range,
+    object: TextObject,
+) -> crate::SmallVec<[Range; 1]> {
+    contained_ranges(text, range, |cursor| {
+        textobject_paragraph(text, cursor, object, 1)
+    })
+}
+
+fn contained_ranges(
+    text: RopeSlice,
+    range: Range,
+    locate: impl Fn(Range) -> Range,
+) -> crate::SmallVec<[Range; 1]> {
+    let mut ranges = crate::SmallVec::new();
+    let mut pos = range.from();
+    while pos < range.to() {
+        let object = locate(Range::point(pos)).with_direction(range.direction());
+        if !object.is_empty() && object.to() > pos && range.contains_range(&object) {
+            pos = object.to();
+            ranges.push(object);
+        } else {
+            pos = crate::graphemes::next_grapheme_boundary(text, pos);
+        }
+    }
+    ranges
+}
+
 #[cfg(test)]
 mod test {
     use super::TextObject::*;
@@ -402,5 +444,50 @@ mod test {
             let actual = crate::test::plain(s.as_ref(), &selection);
             assert_eq!(actual, expected, "\nbefore: `{:?}`", before);
         }
+    }
+}
+
+#[cfg(test)]
+mod collection_tests {
+    use super::*;
+    use crate::Rope;
+
+    #[test]
+    fn word_collections_preserve_direction_and_exclude_partial_objects() {
+        let text = Rope::from_str("é foo-bar");
+        let range = Range::new(text.len_chars(), 0);
+        let words = word_ranges(text.slice(..), range, TextObject::Inside, false);
+        let fragments: Vec<_> = words
+            .iter()
+            .map(|range| range.fragment(text.slice(..)).into_owned())
+            .collect();
+        assert_eq!(fragments, ["é", "foo", "-", "bar"]);
+        assert!(words
+            .iter()
+            .all(|range| range.direction() == Direction::Backward));
+        let long = word_ranges(text.slice(..), range, TextObject::Inside, true);
+        let fragments: Vec<_> = long
+            .iter()
+            .map(|range| range.fragment(text.slice(..)).into_owned())
+            .collect();
+        assert_eq!(fragments, ["é", "foo-bar"]);
+        let partial = word_ranges(text.slice(..), Range::new(3, 8), TextObject::Inside, false);
+        assert_eq!(partial.as_slice(), &[Range::new(5, 6)]);
+        assert!(word_ranges(text.slice(..), Range::point(0), TextObject::Inside, false).is_empty());
+    }
+
+    #[test]
+    fn paragraph_collections_cover_contained_paragraphs_without_repeating_the_last() {
+        let text = Rope::from_str("one\n\nmiddle\n\nlast\n\n");
+        let ranges = paragraph_ranges(
+            text.slice(..),
+            Range::new(0, text.len_chars()),
+            TextObject::Inside,
+        );
+        let fragments: Vec<_> = ranges
+            .iter()
+            .map(|range| range.fragment(text.slice(..)).trim().to_owned())
+            .collect();
+        assert_eq!(fragments, ["one", "middle", "last"]);
     }
 }

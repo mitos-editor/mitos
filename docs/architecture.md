@@ -203,6 +203,14 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Text objects
+
+`core::textobject` collects contained word and paragraph ranges from text.
+`language::textobject` collects contained query captures from syntax layers.
+Both preserve range direction and return ranges without editor state or prompts.
+Terminal commands interpret the requested object and present unsupported or empty
+results to the user.
+
 ### Syntax-aware editing
 
 Document editing operations resolve indentation, comment tokens, and automatic

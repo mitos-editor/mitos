@@ -2,10 +2,7 @@
 
 use crate::commands::{context::Context, spelling::spelling_ranges, vcs::hunk_range};
 use arc_swap::access::DynAccess;
-use editor_core::{
-    graphemes::next_grapheme_boundary, textobject, Range, RopeSlice, Selection, SmallVec,
-};
-use language::Syntax;
+use editor_core::{textobject, Range, Selection, SmallVec};
 use view::{info::Info, Editor};
 
 pub(super) fn select_textobject_around(cx: &mut Context) {
@@ -14,98 +11,6 @@ pub(super) fn select_textobject_around(cx: &mut Context) {
 
 pub(super) fn select_textobject_inner(cx: &mut Context) {
     select_textobject(cx, textobject::TextObject::Inside);
-}
-
-fn select_all_treesitter_textobject_ranges(
-    text: RopeSlice,
-    range: Range,
-    objtype: textobject::TextObject,
-    obj_name: &str,
-    syntax: Option<&Syntax>,
-    loader: &language::syntax::Loader,
-) -> SmallVec<[Range; 1]> {
-    let Some(syntax) = syntax else {
-        return SmallVec::new();
-    };
-
-    let from = text.char_to_byte(range.from()) as u32;
-    let to = text.char_to_byte(range.to()) as u32;
-    // Syntax layer ranges use an inclusive end while editor ranges use an exclusive end.
-    let end = if to > from { to - 1 } else { to };
-    let layer = syntax.layer_for_byte_range(from, end);
-    let root = syntax.tree_for_byte_range(from, end).root_node();
-    let Some(textobject_query) = loader.textobject_query(syntax.layer(layer).language) else {
-        return SmallVec::new();
-    };
-
-    let capture_name = format!("{obj_name}.{objtype}");
-    // TODO(perf): Limit the query cursor to `from..to` once textobject queries support ranges.
-    let Some(nodes) = textobject_query.capture_nodes(&capture_name, &root, text) else {
-        return SmallVec::new();
-    };
-
-    nodes
-        .filter_map(|node| {
-            let start_byte = node.start_byte();
-            let end_byte = node.end_byte();
-            if start_byte > text.len_bytes() || end_byte > text.len_bytes() {
-                return None;
-            }
-
-            let object_range =
-                Range::new(text.byte_to_char(start_byte), text.byte_to_char(end_byte))
-                    .with_direction(range.direction());
-
-            range.contains_range(&object_range).then_some(object_range)
-        })
-        .collect()
-}
-
-fn select_all_word_textobject_ranges(
-    text: RopeSlice,
-    range: Range,
-    objtype: textobject::TextObject,
-    long: bool,
-) -> SmallVec<[Range; 1]> {
-    let mut ranges = SmallVec::new();
-    let mut pos = range.from();
-
-    while pos < range.to() {
-        let object_range = textobject::textobject_word(text, Range::point(pos), objtype, 1, long)
-            .with_direction(range.direction());
-
-        if !object_range.is_empty() && range.contains_range(&object_range) {
-            ranges.push(object_range);
-            pos = object_range.to();
-        } else {
-            pos = next_grapheme_boundary(text, pos);
-        }
-    }
-
-    ranges
-}
-
-fn select_all_paragraph_textobject_ranges(
-    text: RopeSlice,
-    range: Range,
-    objtype: textobject::TextObject,
-) -> SmallVec<[Range; 1]> {
-    let mut ranges = SmallVec::new();
-    let mut pos = range.from();
-
-    while pos < range.to() {
-        let object_range = textobject::textobject_paragraph(text, Range::point(pos), objtype, 1)
-            .with_direction(range.direction());
-
-        if !object_range.is_empty() && range.contains_range(&object_range) {
-            ranges.push(object_range);
-            pos = object_range.to();
-        } else {
-            pos = next_grapheme_boundary(text, pos);
-        }
-    }
-
-    ranges
 }
 
 fn select_all_textobjects_ranges(
@@ -121,14 +26,10 @@ fn select_all_textobjects_ranges(
 
     for range in selection {
         match ch {
-            'w' => ranges.extend(select_all_word_textobject_ranges(
-                text, range, objtype, false,
-            )),
-            'W' => ranges.extend(select_all_word_textobject_ranges(
-                text, range, objtype, true,
-            )),
-            'p' => ranges.extend(select_all_paragraph_textobject_ranges(text, range, objtype)),
-            't' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'w' => ranges.extend(textobject::word_ranges(text, range, objtype, false)),
+            'W' => ranges.extend(textobject::word_ranges(text, range, objtype, true)),
+            'p' => ranges.extend(textobject::paragraph_ranges(text, range, objtype)),
+            't' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -136,7 +37,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'f' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'f' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -144,7 +45,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'a' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'a' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -152,7 +53,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'c' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'c' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -160,7 +61,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'T' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'T' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -168,7 +69,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'e' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'e' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,
@@ -176,7 +77,7 @@ fn select_all_textobjects_ranges(
                 doc.syntax(),
                 &loader,
             )),
-            'x' => ranges.extend(select_all_treesitter_textobject_ranges(
+            'x' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
                 range,
                 objtype,

@@ -1,6 +1,8 @@
 //! Structural selections from syntax trees and matched pairs.
 use crate::{surround, syntax, Syntax};
-use editor_core::{graphemes::next_grapheme_boundary, textobject::TextObject, Range, RopeSlice};
+use editor_core::{
+    graphemes::next_grapheme_boundary, textobject::TextObject, Range, RopeSlice, SmallVec,
+};
 
 pub fn textobject_pair_surround(
     syntax: Option<&Syntax>,
@@ -94,6 +96,53 @@ pub fn textobject_treesitter(
         Some(Range::new(start_char, end_char))
     };
     get_range().unwrap_or(range)
+}
+
+/// Collect query captures fully contained in `range`, preserving its direction.
+/// A document without a syntax tree has no query-backed text objects.
+pub fn textobject_treesitter_ranges(
+    text: RopeSlice,
+    range: Range,
+    objtype: TextObject,
+    obj_name: &str,
+    syntax: Option<&Syntax>,
+    loader: &syntax::Loader,
+) -> SmallVec<[Range; 1]> {
+    let Some(syntax) = syntax else {
+        return SmallVec::new();
+    };
+
+    let from = text.char_to_byte(range.from()) as u32;
+    let to = text.char_to_byte(range.to()) as u32;
+    // Syntax layer ranges use an inclusive end while editor ranges use an exclusive end.
+    let end = if to > from { to - 1 } else { to };
+    let layer = syntax.layer_for_byte_range(from, end);
+    let root = syntax.tree_for_byte_range(from, end).root_node();
+    let Some(textobject_query) = loader.textobject_query(syntax.layer(layer).language) else {
+        return SmallVec::new();
+    };
+
+    let capture_name = format!("{obj_name}.{objtype}");
+    // TODO(perf): Limit the query cursor to `from..to` once textobject queries support ranges.
+    let Some(nodes) = textobject_query.capture_nodes(&capture_name, &root, text) else {
+        return SmallVec::new();
+    };
+
+    nodes
+        .filter_map(|node| {
+            let start_byte = node.start_byte();
+            let end_byte = node.end_byte();
+            if start_byte > text.len_bytes() || end_byte > text.len_bytes() {
+                return None;
+            }
+
+            let object_range =
+                Range::new(text.byte_to_char(start_byte), text.byte_to_char(end_byte))
+                    .with_direction(range.direction());
+
+            range.contains_range(&object_range).then_some(object_range)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -190,5 +239,65 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod collection_tests {
+    use super::*;
+    use editor_core::{movement::Direction, Rope};
+
+    #[test]
+    fn query_collections_preserve_unicode_direction_and_captures_at_eof() {
+        let loader = syntax::Loader::new(
+            toml::from_str(
+                "[[language]]\nname = 'rust'\nscope = 'source.rust'\nfile-types = ['rs']",
+            )
+            .unwrap(),
+            loader::syntax::Resources::default(),
+        )
+        .unwrap();
+        let text = Rope::from_str("fn café() {}\nfn b() {}");
+        let syntax = Syntax::new(
+            text.slice(..),
+            loader.language_for_name("rust").unwrap(),
+            &loader,
+        )
+        .unwrap();
+        let ranges = textobject_treesitter_ranges(
+            text.slice(..),
+            Range::new(text.len_chars(), 0),
+            TextObject::Around,
+            "function",
+            Some(&syntax),
+            &loader,
+        );
+        let fragments: Vec<_> = ranges
+            .iter()
+            .map(|range| range.fragment(text.slice(..)).into_owned())
+            .collect();
+        assert_eq!(fragments, ["fn café() {}", "fn b() {}"]);
+        assert!(ranges
+            .iter()
+            .all(|range| range.direction() == Direction::Backward));
+        let first = ranges[0].with_direction(Direction::Forward);
+        let contained = textobject_treesitter_ranges(
+            text.slice(..),
+            first,
+            TextObject::Around,
+            "function",
+            Some(&syntax),
+            &loader,
+        );
+        assert_eq!(contained.as_slice(), &[first]);
+        assert!(textobject_treesitter_ranges(
+            text.slice(..),
+            first,
+            TextObject::Around,
+            "function",
+            None,
+            &loader
+        )
+        .is_empty());
     }
 }
