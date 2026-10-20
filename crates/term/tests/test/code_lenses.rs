@@ -426,17 +426,25 @@ async fn space_l_menu_executes_commands_on_the_selected_server() -> anyhow::Resu
     let mut fixture = Fixture::new(&["alpha", "beta"], &[]).await?;
     fixture.keys("<space>l").await?;
     fixture.keys("<down><down><ret>").await?;
-    // A resolve request acts as a transport barrier after executeCommand.
-    fixture.resolve().await;
+    // Commands are sent asynchronously; wait for the selected server to receive it.
+    let command = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(command) = fixture
+                .messages(1)
+                .into_iter()
+                .find(|message| message["method"] == "workspace/executeCommand")
+            {
+                break command;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .context("selected server did not receive the code-lens command")?;
     assert!(!fixture
         .messages(0)
         .iter()
         .any(|msg| msg["method"] == "workspace/executeCommand"));
-    let messages = fixture.messages(1);
-    let command = messages
-        .iter()
-        .find(|msg| msg["method"] == "workspace/executeCommand")
-        .unwrap();
     assert_eq!(command["params"]["command"], "fixture.lens");
     assert_eq!(command["params"]["arguments"][0], "beta");
     assert!(fixture.app.close().await.is_empty());

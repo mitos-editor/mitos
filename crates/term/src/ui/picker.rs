@@ -55,6 +55,13 @@ pub use self::preview::{
 };
 pub(crate) use updates::UpdateContext;
 
+/// Borrowed content and navigation state for the selected preview.
+struct PreviewState<'picker, 'editor> {
+    content: Preview<'picker, 'editor>,
+    range: Option<(usize, usize)>,
+    scroll: &'picker mut isize,
+}
+
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
 
@@ -215,6 +222,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     /// Whether to show the preview panel (default true)
     show_preview: bool,
+    preview_height: u16,
+    preview_scroll: isize,
+    preview_target: Option<(QuicklistTarget, Option<(usize, usize)>)>,
     /// Constraints for tabular formatting
     widths: Vec<Constraint>,
 
@@ -398,6 +408,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query,
             truncate_start: true,
             show_preview: true,
+            preview_height: 0,
+            preview_scroll: 0,
+            preview_target: None,
             callback_fn: Box::new(callback_fn),
             default_action: Action::Replace,
             completion_height: 0,
@@ -765,17 +778,36 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
-    ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
+    ) -> Option<PreviewState<'picker, 'editor>> {
         let snapshot = self.results.matcher.snapshot();
         let location = snapshot
             .get_matched_item(self.results.cursor)
             .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
         let Some(location) = location else {
             self.preview.cancel_loads(None);
+            self.preview_target = None;
+            self.preview_scroll = 0;
             return None;
         };
-        self.preview
-            .get::<T, D>(editor, location, jobs, image_picker, image_size)
+        // Result indices can change during live refreshes. Keep the scroll with the
+        // preview location, resetting when filtering or navigation changes its target.
+        let target = match &location.0 {
+            PathOrId::Path(path) => QuicklistTarget::Path(path.to_path_buf()),
+            PathOrId::Id(id) => QuicklistTarget::Document(*id),
+        };
+        let target = Some((target, location.1));
+        if self.preview_target != target {
+            self.preview_scroll = 0;
+            self.preview_target = target;
+        }
+        let (preview, range) =
+            self.preview
+                .get::<T, D>(editor, location, jobs, image_picker, image_size)?;
+        Some(PreviewState {
+            content: preview,
+            range,
+            scroll: &mut self.preview_scroll,
+        })
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -990,15 +1022,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let inner = block.inner(area);
         block.render(area, surface);
 
+        self.preview_height = inner.height;
         if inner.is_empty() {
             self.preview.cancel_loads(None);
             return;
         }
         let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
-        if let Some((preview, range)) =
-            self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
+        if let Some(PreviewState {
+            content,
+            range,
+            scroll,
+        }) = self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
         {
-            render_preview_content(preview, range, area, inner, surface, cx);
+            render_preview_content(content, range, scroll, area, inner, surface, cx);
         }
     }
 
@@ -1069,10 +1105,30 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 PickerAction::MoveDown => {
                     self.move_by(1, Direction::Forward);
                 }
-                PickerAction::PageDown => {
+                PickerAction::PreviewPageDown if self.show_preview && self.preview_height > 0 => {
+                    self.preview_scroll = self
+                        .preview_scroll
+                        .saturating_add(self.preview_height as isize);
+                }
+                PickerAction::PreviewPageUp if self.show_preview && self.preview_height > 0 => {
+                    self.preview_scroll = self
+                        .preview_scroll
+                        .saturating_sub(self.preview_height as isize);
+                }
+                PickerAction::PreviewDown | PickerAction::PreviewUp => {
+                    if self.show_preview && self.preview_height > 0 {
+                        let lines = ctx.editor.config().scroll.wheel_lines.unsigned_abs() as isize;
+                        self.preview_scroll = if matches!(action, PickerAction::PreviewUp) {
+                            self.preview_scroll.saturating_sub(lines)
+                        } else {
+                            self.preview_scroll.saturating_add(lines)
+                        };
+                    }
+                }
+                PickerAction::PageDown | PickerAction::PreviewPageDown => {
                     self.page_down();
                 }
-                PickerAction::PageUp => {
+                PickerAction::PageUp | PickerAction::PreviewPageUp => {
                     self.page_up();
                 }
                 PickerAction::MoveStart => {
@@ -1251,6 +1307,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
         } else {
+            self.preview_height = 0;
             self.preview.cancel_loads(None);
         }
     }
@@ -1260,8 +1317,6 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
-        // TODO: keybinds for scrolling preview
-
         let key_event = match event {
             Event::Key(event) => *event,
             Event::Paste(..) => {

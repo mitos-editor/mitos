@@ -21,8 +21,9 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use text_layout::char_idx_at_visual_offset;
+use text_layout::doc_formatter::TextFormat;
 use text_layout::text_annotations::TextAnnotations;
+use text_layout::{char_idx_at_visual_offset, visual_offset_from_anchor};
 use theme::icons::ICONS;
 use tui::{buffer::Buffer as Surface, layout::Size};
 use view::{
@@ -490,6 +491,7 @@ impl FilePreview {
 pub(super) fn render_preview_content(
     mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
+    scroll: &mut isize,
     area: Rect,
     inner: Rect,
     surface: &mut Surface,
@@ -618,6 +620,15 @@ pub(super) fn render_preview_content(
         }
     }
 
+    let (offset, at_bottom) = scrolled_position(
+        doc.text().slice(..),
+        offset,
+        scroll,
+        inner.height,
+        &doc.text_format(inner.width, None),
+    );
+    let current_line = doc.text().char_to_line(offset.anchor);
+    let doc_height = doc.text().len_lines();
     let loader = cx.editor.syn_loader.load();
     let config = cx.editor.config();
 
@@ -674,6 +685,80 @@ pub(super) fn render_preview_content(
         &cx.editor.theme,
         decorations,
     );
+
+    // The indicator uses document lines as an approximation for wrapped text.
+    let height = inner.height as usize;
+    // Use the panel padding, keeping the last text column (and wide glyphs) intact.
+    if doc_height > height && height > 0 && inner.right() < area.right() {
+        let thumb = height.pow(2).div_ceil(doc_height).min(height);
+        let track = height - thumb;
+        let top = if at_bottom {
+            track
+        } else {
+            (track * current_line / doc_height.saturating_sub(height).max(1)).min(track)
+        };
+        let style = cx.editor.theme.get("ui.menu.scroll");
+        for row in 0..height {
+            let color = if (top..top + thumb).contains(&row) {
+                style.fg
+            } else {
+                style.bg
+            };
+            surface[(inner.right(), inner.top() + row as u16)]
+                .set_symbol("▐")
+                .set_fg(color.unwrap_or(theme::Color::Reset).into());
+        }
+    }
+}
+
+/// Apply a relative visual-row offset, preserving the natural match centring at zero.
+/// Normalize clamped offsets so reversing direction always responds immediately.
+fn scrolled_position(
+    text: editor_core::RopeSlice<'_>,
+    natural: ViewPosition,
+    scroll: &mut isize,
+    height: u16,
+    format: &TextFormat,
+) -> (ViewPosition, bool) {
+    if *scroll == 0 || height == 0 {
+        return (natural, false);
+    }
+    let annotations = TextAnnotations::default();
+    let (anchor, vertical_offset) =
+        char_idx_at_visual_offset(text, natural.anchor, *scroll, 0, format, &annotations);
+    let (max_anchor, _) = char_idx_at_visual_offset(
+        text,
+        text.len_chars().saturating_sub(1),
+        -(height as isize - 1),
+        0,
+        format,
+        &annotations,
+    );
+    let at_bottom = anchor >= max_anchor;
+    let anchor = anchor.min(max_anchor);
+    let (from, to, sign) = if anchor < natural.anchor {
+        (anchor, natural.anchor, -1)
+    } else {
+        (natural.anchor, anchor, 1)
+    };
+    if let Ok((position, _)) = visual_offset_from_anchor(
+        text,
+        from,
+        to,
+        format,
+        &annotations,
+        scroll.unsigned_abs().saturating_add(height as usize),
+    ) {
+        *scroll = sign * position.row as isize;
+    }
+    (
+        ViewPosition {
+            anchor,
+            vertical_offset: if at_bottom { 0 } else { vertical_offset },
+            ..natural
+        },
+        at_bottom,
+    )
 }
 
 fn render_preview_placeholder(
@@ -896,5 +981,100 @@ mod image_preview_tests {
         assert!(
             decode_image_preview(&path, &ImagePicker::halfblocks(), Size::new(20, 10)).is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+    use editor_core::Rope;
+
+    #[test]
+    fn soft_wrapped_preview_scrolls_by_visual_rows_and_clamps_both_edges() {
+        let text = Rope::from("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        let format = TextFormat {
+            soft_wrap: true,
+            viewport_width: 10,
+            ..TextFormat::default()
+        };
+        let natural = ViewPosition::default();
+        let mut scroll = 1;
+        let (first, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert!(first.anchor > 0);
+        assert_eq!(text.char_to_line(first.anchor), 0);
+        assert_eq!(scroll, 1);
+
+        scroll = 1000;
+        let (bottom, at_bottom) =
+            scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert!(at_bottom);
+        assert!(scroll < 1000);
+        let clamped = scroll;
+        scroll -= 1;
+        let (up, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert!(up.anchor < bottom.anchor);
+        assert_eq!(scroll, clamped - 1);
+
+        scroll = -1000;
+        let (top, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert_eq!(top.anchor, 0);
+        assert_eq!(scroll, 0);
+        scroll += 1;
+        let (down, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert_eq!(down.anchor, first.anchor);
+    }
+
+    #[test]
+    fn range_preview_preserves_centring_and_clamps_relative_offsets() {
+        let text = Rope::from("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n");
+        let natural = ViewPosition {
+            anchor: text.line_to_char(5),
+            ..ViewPosition::default()
+        };
+        let format = TextFormat::default();
+        let mut scroll = 0;
+        assert_eq!(
+            scrolled_position(text.slice(..), natural, &mut scroll, 3, &format)
+                .0
+                .anchor,
+            natural.anchor
+        );
+        scroll = -100;
+        let (top, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        assert_eq!(top.anchor, 0);
+        assert_eq!(scroll, -5);
+        scroll += 1;
+        assert_eq!(
+            scrolled_position(text.slice(..), natural, &mut scroll, 3, &format)
+                .0
+                .anchor,
+            text.line_to_char(1)
+        );
+        scroll = 100;
+        let (bottom, _) = scrolled_position(text.slice(..), natural, &mut scroll, 3, &format);
+        scroll -= 1;
+        assert!(
+            scrolled_position(text.slice(..), natural, &mut scroll, 3, &format)
+                .0
+                .anchor
+                < bottom.anchor
+        );
+    }
+
+    #[test]
+    fn empty_and_short_previews_do_not_accumulate_scroll() {
+        for contents in ["", "short"] {
+            let text = Rope::from(contents);
+            let mut scroll = 100;
+            let (position, _) = scrolled_position(
+                text.slice(..),
+                ViewPosition::default(),
+                &mut scroll,
+                20,
+                &TextFormat::default(),
+            );
+            assert_eq!(position.anchor, 0);
+            assert_eq!(scroll, 0);
+        }
     }
 }

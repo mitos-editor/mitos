@@ -13,9 +13,13 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
-| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
-| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-d> `` | `` page_down `` |
+| `` <C-u> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-j> ``, `` <S-down> `` | `` preview_down `` |
+| `` <pagedown> `` | `` preview_page_down `` |
+| `` <pageup> `` | `` preview_page_up `` |
+| `` <A-k> ``, `` <S-up> `` | `` preview_up `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Buffer picker
@@ -31,9 +35,13 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
-| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
-| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-d> `` | `` page_down `` |
+| `` <C-u> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-j> ``, `` <S-down> `` | `` preview_down `` |
+| `` <pagedown> `` | `` preview_page_down `` |
+| `` <pageup> `` | `` preview_page_up `` |
+| `` <A-k> ``, `` <S-up> `` | `` preview_up `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Prompt
