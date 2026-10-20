@@ -355,7 +355,11 @@ mod directory_tests {
         let config_runtime = super::config_dir().join("runtime");
         let data_runtime = super::data_dir().join("runtime");
         assert_eq!(directories[0], config_runtime);
-        assert_eq!(directories[1], runtime_override.path());
+        // Normalization can expand Windows short aliases such as RUNNER~1.
+        assert_eq!(
+            std::fs::canonicalize(&directories[1]).unwrap(),
+            std::fs::canonicalize(runtime_override.path()).unwrap()
+        );
         if data_runtime != config_runtime {
             assert_eq!(directories[2], data_runtime);
             assert!(directories.len() >= 4);
