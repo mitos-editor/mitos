@@ -157,7 +157,7 @@ fn prepare_target(
 pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
     let (target, doc) = prepare_target(editor, view, FormatKind::Document)?;
     let format = doc
-        .format_snapshot(editor, target.snapshot.buffer.clone())
+        .format_snapshot(editor, target.snapshot.buffer.clone(), Some(view))
         .context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;

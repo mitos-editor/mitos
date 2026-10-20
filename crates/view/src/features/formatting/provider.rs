@@ -10,7 +10,7 @@ use lsp_client::lsp;
 use crate::{
     expansion,
     features::process::{self, Error as ProcessError},
-    Document, Editor,
+    Document, Editor, ViewId,
 };
 
 impl Document {
@@ -20,12 +20,20 @@ impl Document {
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+        self.auto_format_for_view(editor, self.focused_view(editor))
+    }
+
+    pub(crate) fn auto_format_for_view(
+        &self,
+        editor: &Editor,
+        origin: Option<ViewId>,
+    ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
         if self
             .language_config()?
             .auto_format
             .unwrap_or(editor.config().format.on_save)
         {
-            self.format(editor)
+            self.format_snapshot(editor, self.snapshot(), origin)
         } else {
             None
         }
@@ -36,13 +44,22 @@ impl Document {
         &self,
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
-        self.format_snapshot(editor, self.snapshot())
+        self.format_snapshot(editor, self.snapshot(), self.focused_view(editor))
+    }
+
+    fn focused_view(&self, editor: &Editor) -> Option<ViewId> {
+        editor
+            .tree
+            .try_get(editor.tree.focus)
+            .filter(|view| view.doc == self.id())
+            .map(|view| view.id)
     }
 
     pub(crate) fn format_snapshot(
         &self,
         editor: &Editor,
         snapshot: buffer::Snapshot,
+        origin: Option<ViewId>,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
         let text = snapshot.text().clone();
         if let Some((fmt_cmd, fmt_args)) = self
@@ -65,11 +82,19 @@ impl Document {
                 .and_then(|path| path.parent())
                 .map(Path::to_path_buf)
                 .unwrap_or_else(stdx::env::current_working_dir);
-            process.current_dir(directory);
+            process.current_dir(&directory);
 
-            let expansion = expansion::Context::capture(editor, &fmt_args.join(" "));
+            let expansion = expansion::Context::capture_document(
+                editor,
+                self,
+                origin.and_then(|view| self.try_selection(view)),
+                directory,
+                &fmt_args.join(" "),
+            );
             let fmt_args = fmt_args.clone();
             let formatting_future = async move {
+                let expansion = expansion
+                    .map_err(|error| FormatterError::ExpansionFailed(error.to_string()))?;
                 for content in &fmt_args {
                     let arg = expansion
                         .expand(Token::expand(content), &[])

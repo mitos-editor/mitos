@@ -5,7 +5,8 @@ use command_line::{ExpansionKind, Token, TokenKind, Tokenizer};
 
 use anyhow::{anyhow, ensure, Result};
 
-use crate::Editor;
+use crate::{Document, Editor};
+use editor_core::Selection;
 
 /// Variables that can be expanded in the command mode (`:`) via the expansion syntax.
 ///
@@ -111,19 +112,43 @@ pub struct Context {
 
 impl Context {
     pub fn capture(editor: &Editor, source: &str) -> Self {
+        let (view, document) = current_ref!(editor);
+        Self::capture_document(
+            editor,
+            document,
+            Some(document.selection(view.id)),
+            stdx::env::current_working_dir(),
+            source,
+        )
+        .expect("a focused document has a selection")
+    }
+
+    pub(crate) fn capture_document(
+        editor: &Editor,
+        document: &Document,
+        selection: Option<&Selection>,
+        directory: PathBuf,
+        source: &str,
+    ) -> Result<Self> {
         let mut context = Self {
             variables: HashMap::new(),
             registers: HashMap::new(),
             shell: editor.config().shell.clone(),
-            directory: stdx::env::current_working_dir(),
+            directory,
         };
-        context.capture_inner(editor, source);
-        context
+        context.capture_inner(editor, document, selection, source)?;
+        Ok(context)
     }
 
     // Scan raw input too: signatures may consume the remainder as a single expanded token.
     // Ignore syntax errors here; the actual parser reports them with command context.
-    fn capture_inner(&mut self, editor: &Editor, source: &str) {
+    fn capture_inner(
+        &mut self,
+        editor: &Editor,
+        document: &Document,
+        selection: Option<&Selection>,
+        source: &str,
+    ) -> Result<()> {
         let mut start = 0;
         while let Some(offset) = source[start..].find('%') {
             let index = start + offset;
@@ -136,24 +161,30 @@ impl Context {
                 Some(Ok(token)) => {
                     match token.kind {
                         TokenKind::Expansion(ExpansionKind::Variable) => {
-                            if let Some(variable) = Variable::from_name(&token.content) {
-                                self.variables
-                                    .entry(variable)
-                                    .or_insert_with(|| expand_variable(editor, variable));
+                            if let Some(variable) = Variable::from_name(&token.content)
+                                && let std::collections::hash_map::Entry::Vacant(entry) =
+                                    self.variables.entry(variable)
+                            {
+                                entry.insert(expand_variable(document, selection, variable)?);
                             }
                         }
                         TokenKind::Expansion(ExpansionKind::Register) => {
-                            if let Ok(name) = register_name(&token.content) {
-                                self.registers.entry(name).or_insert_with(|| {
-                                    editor
-                                        .read_register(name)
+                            if let Ok(name) = register_name(&token.content)
+                                && let std::collections::hash_map::Entry::Vacant(entry) =
+                                    self.registers.entry(name)
+                            {
+                                let values =
+                                    crate::register::read_contextual(name, document, selection)?
+                                        .or_else(|| editor.registers.read(name));
+                                entry.insert(
+                                    values
                                         .map(|values| Cow::Owned(values.collect()))
-                                        .unwrap_or_default()
-                                });
+                                        .unwrap_or_default(),
+                                );
                             }
                         }
                         TokenKind::Expansion(ExpansionKind::Shell) | TokenKind::Expand => {
-                            self.capture_inner(editor, &token.content)
+                            self.capture_inner(editor, document, selection, &token.content)?
                         }
                         _ => {}
                     }
@@ -162,6 +193,7 @@ impl Context {
                 _ => start = index + 1,
             }
         }
+        Ok(())
     }
 
     /// Evaluate using captured editor inputs. Dropping this future kills an active shell.
@@ -339,17 +371,24 @@ impl Context {
 // function to return then, instead, would normally be a `String`. We can return some statically
 // known strings like the scratch buffer name or line ending strings though, so this function
 // returns a `Cow<'static, str>` instead.
-fn expand_variable(editor: &Editor, variable: Variable) -> Cow<'static, str> {
-    let (view, doc) = current_ref!(editor);
+fn expand_variable(
+    doc: &Document,
+    selection: Option<&Selection>,
+    variable: Variable,
+) -> Result<Cow<'static, str>> {
+    let selection = || {
+        selection
+            .ok_or_else(|| anyhow!("Variable '{}' requires a document view", variable.as_str()))
+    };
     let text = doc.text().slice(..);
 
-    match variable {
+    Ok(match variable {
         Variable::CursorLine => {
-            let cursor_line = doc.selection(view.id).primary().cursor_line(text);
+            let cursor_line = selection()?.primary().cursor_line(text);
             Cow::Owned((cursor_line + 1).to_string())
         }
         Variable::CursorColumn => {
-            let cursor = doc.selection(view.id).primary().cursor(text);
+            let cursor = selection()?.primary().cursor(text);
             let position = editor_core::coords_at_pos(text, cursor);
             Cow::Owned((position.col + 1).to_string())
         }
@@ -384,18 +423,16 @@ fn expand_variable(editor: &Editor, variable: Variable) -> Cow<'static, str> {
             Some(lang) => Cow::Owned(lang.to_owned()),
             None => Cow::Borrowed("text"),
         },
-        Variable::Selection => {
-            Cow::Owned(doc.selection(view.id).primary().fragment(text).to_string())
-        }
+        Variable::Selection => Cow::Owned(selection()?.primary().fragment(text).to_string()),
         Variable::SelectionLineStart => {
-            let start_line = doc.selection(view.id).primary().line_range(text).0;
+            let start_line = selection()?.primary().line_range(text).0;
             Cow::Owned((start_line + 1).to_string())
         }
         Variable::SelectionLineEnd => {
-            let end_line = doc.selection(view.id).primary().line_range(text).1;
+            let end_line = selection()?.primary().line_range(text).1;
             Cow::Owned((end_line + 1).to_string())
         }
-    }
+    })
 }
 
 #[cfg(test)]

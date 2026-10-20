@@ -616,6 +616,11 @@ its provider is still attached and supports servers that only advertise range
 formatting. Whole-document formatting commits one undo revision and restores the
 cursor viewport; selection formatting preserves its existing history policy.
 
+Formatter argument expansion captures the target document and an optional origin
+selection. Filename registers and variables never use the focused buffer;
+selection-dependent values require that explicit origin. Shell expansion uses
+the captured formatter directory.
+
 Manual formatting and accepted saves share the same document/configuration
 snapshot checks. Their view lifetimes differ intentionally: manual formatting
 requires its original split, while an accepted save continues on its document

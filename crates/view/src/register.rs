@@ -301,3 +301,23 @@ impl ExactSizeIterator for RegisterValues<'_> {
 trait DoubleEndedExactSizeIterator: DoubleEndedIterator + ExactSizeIterator {}
 
 impl<I: DoubleEndedIterator + ExactSizeIterator> DoubleEndedExactSizeIterator for I {}
+
+/// Resolve document-relative registers without consulting the focused view.
+pub(crate) fn read_contextual<'a>(
+    name: char,
+    document: &'a crate::Document,
+    selection: Option<&'a editor_core::Selection>,
+) -> Result<Option<RegisterValues<'a>>> {
+    let selection =
+        || selection.ok_or_else(|| anyhow::anyhow!("Register '{name}' requires a document view"));
+    Ok(match name {
+        '#' => Some(RegisterValues::new(
+            (0..selection()?.len()).map(|i| (i + 1).to_string().into()),
+        )),
+        '.' => Some(RegisterValues::new(
+            selection()?.fragments(document.text().slice(..)),
+        )),
+        '%' => Some(RegisterValues::new(iter::once(document.display_name()))),
+        _ => None,
+    })
+}

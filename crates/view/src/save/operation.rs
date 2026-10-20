@@ -148,7 +148,7 @@ impl SaveOperation {
         // Build formatting only after all action kinds have completed: each stage
         // must see edits from its predecessor, including language overrides.
         if self.request.auto_format
-            && let Some(format) = doc.auto_format(editor)
+            && let Some(format) = doc.auto_format_for_view(editor, self.request.origin)
         {
             let snapshot = FormatSnapshot::new(editor, doc);
             return Ok(SaveProgress::Pending(SaveTask(

@@ -153,3 +153,103 @@ async fn formatter_errors_are_reported_only_for_a_current_target() -> anyhow::Re
     }
     Ok(())
 }
+
+fn argument_fixture(argument: &str) -> anyhow::Result<Fixture> {
+    let script = "printf '%%s' \"$1\"";
+    Fixture::with_languages(
+        "original\n",
+        &format!(
+            r#"
+        [[language]]
+        name = "words"
+        scope = "text.words"
+        roots = []
+        file-types = ["words"]
+        formatter = {{ command = "bash", args = ["-c", {script:?}, "formatter", {argument:?}] }}
+    "#
+        ),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn formatting_an_unfocused_split_uses_its_document_and_selection() -> anyhow::Result<()> {
+    let mut fixture = argument_fixture("%{file_path_absolute}:%{selection}:%reg{%}:%reg{.}")?;
+    let (view, doc) = current!(fixture.editor);
+    let (origin, document, path, display) = (
+        view.id,
+        doc.id(),
+        doc.path().unwrap().to_string_lossy().into_owned(),
+        doc.display_name().into_owned(),
+    );
+    doc.set_selection(origin, editor_core::Selection::single(0, 3));
+    fixture.editor.new_file(Action::VerticalSplit);
+    fixture.replace("other\n");
+    let update = formatting::prepare_document(&fixture.editor, origin)?
+        .run()
+        .await;
+    assert!(update.apply(&mut fixture.editor)?);
+    assert_eq!(
+        fixture
+            .editor
+            .document(document)
+            .unwrap()
+            .text()
+            .to_string(),
+        format!("{path}:ori:{display}:ori")
+    );
+    assert_eq!(current_ref!(fixture.editor).1.text().to_string(), "other\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_documents_can_format_without_creating_view_state() -> anyhow::Result<()> {
+    let mut fixture = argument_fixture("%{file_path_absolute}")?;
+    let document = current_ref!(fixture.editor).1.id();
+    let path = current_ref!(fixture.editor)
+        .1
+        .path()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    fixture.editor.new_file(Action::Replace);
+    let doc = fixture.editor.document(document).unwrap();
+    let views: Vec<_> = doc.view_ids().collect();
+    let change = doc.format(&fixture.editor).unwrap().await?;
+    fixture
+        .editor
+        .apply_document_changes(document, doc.version(), change.changes())?;
+    let doc = fixture.editor.document(document).unwrap();
+    assert_eq!(doc.text().to_string(), path);
+    assert_eq!(doc.view_ids().collect::<Vec<_>>(), views);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_document_formatters_report_missing_selection_context() -> anyhow::Result<()> {
+    for variable in ["%{selection}", "%{cursor_line}", "%reg{.}", "%reg{#}"] {
+        let mut fixture = argument_fixture(variable)?;
+        let document = current_ref!(fixture.editor).1.id();
+        fixture.editor.new_file(Action::Replace);
+        let result = fixture
+            .editor
+            .document(document)
+            .unwrap()
+            .format(&fixture.editor)
+            .unwrap()
+            .await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requires a document view"));
+        assert_eq!(
+            fixture
+                .editor
+                .document(document)
+                .unwrap()
+                .text()
+                .to_string(),
+            "original\n"
+        );
+    }
+    Ok(())
+}

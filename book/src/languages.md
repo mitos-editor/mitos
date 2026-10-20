@@ -94,6 +94,11 @@ argument to the formatter:
 formatter = { command = "mylang-formatter" , args = ["--stdin", "--stdin-filename", "%{buffer_name}"] }
 ```
 
+Expansions use the document being formatted, including its filename and directory.
+Selection and cursor expansions use the view that requested formatting. They
+require a view, so they are unavailable when saving a hidden document. Shell
+expansions run in the formatter's working directory.
+
 ### Configuring code actions on save
 
 The `code-actions-on-save` key lists LSP code actions to run (in order) when
