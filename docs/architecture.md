@@ -62,6 +62,13 @@ cleanup cannot remove a later prompt in the same application.
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.
 
+`term::config` retains its public configuration API behind private modules:
+`schema` owns serialized values and defaults, `keymaps` composes bindings,
+`sources` parses and merges in-memory layers, and `migration` owns trusted file
+loading and explicitly requested rewrites. Workspace trust is checked before
+reading local configuration, and migrations validate all loaded layers before
+writing a selected file.
+
 ## Where new code belongs
 
 | Change | Home |
