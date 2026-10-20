@@ -99,16 +99,48 @@ impl Fixture {
         doc
     }
 
-    fn read_preview(&mut self, path: &Path) -> Option<String> {
-        let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
-        let (preview, _) = picker.content.preview.get::<(), ()>(
-            &self.app.editor,
-            (PathOrId::Path(path), None),
-            &self.jobs,
-            None,
-            Size::new(30, 20),
-        )?;
-        preview.document().map(|doc| doc.text().to_string())
+    async fn loaded(&mut self, name: &str) -> Arc<Path> {
+        let path = self.preview(name);
+        while !self
+            .picker()
+            .preview
+            .preview_cache
+            .get(&path)
+            .is_some_and(|entry| matches!(entry.preview, CachedPreview::Document(_)))
+        {
+            let callback = self.completion().await;
+            self.publish(callback);
+        }
+        path
+    }
+
+    async fn highlighted(&mut self, path: &Path) {
+        loop {
+            let ready = self.picker().preview.preview_cache.get(path).is_some_and(|entry| matches!(&entry.preview,CachedPreview::Document(doc) if doc.syntax().is_some()));
+            if ready {
+                return;
+            }
+            let callback = self.completion().await;
+            self.publish(callback);
+        }
+    }
+
+    async fn read_preview(&mut self, path: &Path) -> Option<String> {
+        loop {
+            let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
+            let (preview, _) = picker.content.preview.get::<(), ()>(
+                &self.app.editor,
+                (PathOrId::Path(path), None),
+                &self.jobs,
+                None,
+                Size::new(30, 20),
+            )?;
+            if !matches!(preview, Preview::Cached(CachedPreview::Loading)) {
+                return preview.document().map(|doc| doc.text().to_string());
+            }
+            let callback = self.completion().await;
+            self.publish(callback);
+        }
     }
 
     async fn completion(&mut self) -> Callback {
@@ -155,16 +187,22 @@ async fn previews_follow_unwatched_rewrites_deletion_and_recreation() -> anyhow:
     let mut fixture = Fixture::new()?;
     let path = fixture.dir.path().join("file.txt");
     std::fs::write(&path, "before\n")?;
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("before\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("before\n")
+    );
     std::fs::write(&path, "after rewrite\n")?;
     assert_eq!(
-        fixture.read_preview(&path).as_deref(),
+        fixture.read_preview(&path).await.as_deref(),
         Some("after rewrite\n")
     );
     std::fs::remove_file(&path)?;
-    assert!(fixture.read_preview(&path).is_none());
+    assert!(fixture.read_preview(&path).await.is_none());
     std::fs::write(&path, "recreated\n")?;
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("recreated\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("recreated\n")
+    );
     Ok(())
 }
 
@@ -177,7 +215,10 @@ async fn native_batches_invalidate_same_stamp_previews_and_lagged_subscribers() 
     let path = fixture.dir.path().join("file.txt");
     std::fs::write(&path, "before\n")?;
     let modified = path.metadata()?.modified()?;
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("before\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("before\n")
+    );
     std::fs::write(&path, "after!\n")?;
     std::fs::File::options()
         .write(true)
@@ -188,7 +229,10 @@ async fn native_batches_invalidate_same_stamp_previews_and_lagged_subscribers() 
         ty: EventType::Modified,
     }]);
     fixture.app.editor.handle_file_events(&events);
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("after!\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("after!\n")
+    );
 
     std::fs::write(&path, "latest\n")?;
     std::fs::File::options()
@@ -198,7 +242,10 @@ async fn native_batches_invalidate_same_stamp_previews_and_lagged_subscribers() 
     for _ in 0..100 {
         fixture.app.editor.handle_file_events(&events);
     }
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("latest\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("latest\n")
+    );
     Ok(())
 }
 
@@ -206,17 +253,17 @@ async fn native_batches_invalidate_same_stamp_previews_and_lagged_subscribers() 
 async fn directory_previews_follow_unwatched_membership_changes() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.dir.path().to_owned();
-    fixture.read_preview(&path);
+    fixture.read_preview(&path).await;
     let child = path.join("new.txt");
     std::fs::write(&child, "new\n")?;
-    fixture.read_preview(&path);
+    fixture.read_preview(&path).await;
     let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*path].preview
     else {
         panic!("expected directory preview");
     };
     assert!(entries.iter().any(|(path, _)| path == &child));
     std::fs::remove_file(&child)?;
-    fixture.read_preview(&path);
+    fixture.read_preview(&path).await;
     let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*path].preview
     else {
         panic!("expected directory preview");
@@ -232,7 +279,10 @@ async fn preview_keeps_the_open_buffer_authoritative() -> anyhow::Result<()> {
     std::fs::write(&path, "buffer\n")?;
     fixture.app.editor.open(&path, Action::Load)?;
     std::fs::write(&path, "external change\n")?;
-    assert_eq!(fixture.read_preview(&path).as_deref(), Some("buffer\n"));
+    assert_eq!(
+        fixture.read_preview(&path).await.as_deref(),
+        Some("buffer\n")
+    );
     Ok(())
 }
 
@@ -247,7 +297,7 @@ async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_cha
     let child = root.join("file.txt");
     std::fs::write(&child, "file")?;
     std::fs::write(root.join(".ignore"), "")?;
-    fixture.read_preview(&root);
+    fixture.read_preview(&root).await;
     let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*root].preview
     else {
         panic!("expected directory");
@@ -255,7 +305,7 @@ async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_cha
     assert!(entries.iter().any(|(path, _)| path == &child));
     std::fs::write(root.join(".ignore"), "file.txt\n")?;
     tokio::time::sleep(Duration::from_millis(110)).await;
-    fixture.read_preview(&root);
+    fixture.read_preview(&root).await;
     let CachedPreview::Directory(entries) = &fixture.picker().preview.preview_cache[&*root].preview
     else {
         panic!("expected directory");
@@ -267,7 +317,7 @@ async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_cha
 #[tokio::test]
 async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
-    let path = fixture.preview("short.json");
+    let path = fixture.loaded("short.json").await;
     let mut entry = fixture
         .picker()
         .preview
@@ -321,6 +371,7 @@ async fn preview_highlights_after_50_ms_without_restarting_or_switching_queues(
     tokio::time::resume();
     assert!(other_jobs.callbacks.try_recv().is_err());
     fixture.publish(callback);
+    fixture.highlighted(&path).await;
     assert!(fixture.document(&path).syntax().is_some());
     assert!(!fixture.document(&path).is_syntax_pending());
     Ok(())
@@ -341,13 +392,13 @@ async fn changing_selection_cancels_the_previous_preview_and_allows_returning() 
 
     let callback = fixture.completion().await;
     fixture.publish(callback);
-    assert!(fixture.document(&first).syntax().is_none());
+    assert!(!fixture.picker().preview.preview_cache.contains_key(&first));
+    fixture.highlighted(&second).await;
     assert!(fixture.document(&second).syntax().is_some());
     assert!(fixture.jobs.callbacks.try_recv().is_err());
 
     fixture.preview("first.json");
-    let callback = fixture.completion().await;
-    fixture.publish(callback);
+    fixture.highlighted(&first).await;
     assert!(fixture.document(&first).syntax().is_some());
     Ok(())
 }
@@ -375,18 +426,33 @@ async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyho
         )
         .is_none());
     fixture.publish(callback);
-    assert!(fixture.document(&path).syntax().is_none());
+    assert!(!fixture
+        .picker()
+        .preview
+        .preview_cache
+        .get(&path)
+        .is_some_and(
+            |entry| matches!(&entry.preview, CachedPreview::Document(doc) if doc.syntax().is_some())
+        ));
 
     fixture.preview("preview.json");
     let callback = fixture.completion().await;
     fixture.picker().preview.clear();
     fixture.preview("preview.json");
     fixture.publish(callback);
-    assert!(fixture.document(&path).syntax().is_none());
-    assert!(fixture.document(&path).is_syntax_pending());
-
-    let callback = fixture.completion().await;
-    fixture.publish(callback);
+    assert!(!fixture
+        .picker()
+        .preview
+        .preview_cache
+        .get(&path)
+        .is_some_and(
+            |entry| matches!(&entry.preview, CachedPreview::Document(doc) if doc.syntax().is_some())
+        ));
+    assert!(matches!(
+        fixture.picker().preview.preview_cache[&path].preview,
+        CachedPreview::Loading
+    ));
+    fixture.highlighted(&path).await;
     assert!(fixture.document(&path).syntax().is_some());
     Ok(())
 }
@@ -419,13 +485,72 @@ async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> 
 
     fixture.preview("file.json");
     fixture.publish(old_completion);
-    assert!(fixture.document(&path).is_syntax_pending());
-    let completion = fixture.completion().await;
-    fixture.publish(completion);
+    fixture.preview("file.json");
+    fixture.highlighted(&path).await;
     assert_eq!(
         fixture.document(&path).syntax().unwrap().root_language(),
         expected
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "manual release-mode performance probe"]
+async fn text_preview_submission_performance() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("large.txt");
+    std::fs::write(&path, "some plain text\n".repeat(9_000_000 / 16))?;
+    let mut times = Vec::new();
+    for _ in 0..21 {
+        fixture.picker().preview.clear();
+        let start = std::time::Instant::now();
+        std::hint::black_box(fixture.preview("large.txt"));
+        times.push(start.elapsed());
+    }
+    times.sort_unstable();
+    eprintln!("9 MB uncached preview submission: median {:?}", times[10]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_loading_is_deferred_and_missing_files_clear_the_loading_state(
+) -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.preview("removed.json");
+    assert!(matches!(
+        fixture.picker().preview.preview_cache[&path].preview,
+        CachedPreview::Loading
+    ));
+    std::fs::remove_file(&path)?;
+    let callback = fixture.completion().await;
+    fixture.publish(callback);
+    assert!(matches!(
+        fixture.picker().preview.preview_cache[&path].preview,
+        CachedPreview::NotFound
+    ));
+    assert!(fixture.picker().preview.text_task.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn deferred_preview_rechecks_file_size_and_binary_contents() -> anyhow::Result<()> {
+    for large in [false, true] {
+        let mut fixture = Fixture::new()?;
+        let path = fixture.preview("changed.json");
+        if large {
+            std::fs::write(&path, vec![b'x'; MAX_FILE_SIZE_FOR_PREVIEW as usize + 1])?;
+        } else {
+            std::fs::write(&path, b"\0binary")?;
+        }
+        let callback = fixture.completion().await;
+        fixture.publish(callback);
+        let entry = &fixture.picker().preview.preview_cache[&path];
+        assert!(if large {
+            matches!(entry.preview, CachedPreview::LargeFile)
+        } else {
+            matches!(entry.preview, CachedPreview::Binary)
+        });
+    }
     Ok(())
 }
 
@@ -464,5 +589,32 @@ async fn preview_cache_retention_performance() -> anyhow::Result<()> {
         cache.len(),
         bytes
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_load_results_stay_with_their_picker_instance() -> anyhow::Result<()> {
+    let mut first = Fixture::new()?;
+    let path = first.preview("shared.json");
+    let old_result = first.completion().await;
+    std::fs::write(&path, "[1,2,3]")?;
+    let mut second = Fixture::new()?;
+    second.app.editor.syn_loader = first.app.editor.syn_loader.clone();
+    let picker = second.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
+    picker.content.preview.get::<(), ()>(
+        &second.app.editor,
+        (PathOrId::Path(&path), None),
+        &second.jobs,
+        None,
+        Size::new(30, 20),
+    );
+    second.publish(old_result);
+    assert!(matches!(
+        second.picker().preview.preview_cache[&path].preview,
+        CachedPreview::Loading
+    ));
+    assert_eq!(second.read_preview(&path).await.as_deref(), Some("[1,2,3]"));
+    // The old picker can retry after its queued result was discarded.
+    assert_eq!(first.read_preview(&path).await.as_deref(), Some("[1,2,3]"));
     Ok(())
 }

@@ -63,6 +63,7 @@ pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
 pub enum CachedPreview {
     Document(Box<Document>),
+    Loading,
     Directory(Vec<(PathBuf, bool)>),
     Image(Box<ImagePreview>),
     Binary,
@@ -128,6 +129,7 @@ impl Preview<'_, '_> {
             Self::EditorDocument(_) => "<Invalid file location>",
             Self::Cached(preview) => match &**preview {
                 CachedPreview::Document(_) => "<Invalid file location>",
+                CachedPreview::Loading => "<Loading preview>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
                 CachedPreview::Image(image) => match &**image {
                     ImagePreview::Loading { .. } => "<Loading image>",
@@ -146,6 +148,7 @@ pub(super) struct FilePreview {
     preview_cache: HashMap<Arc<Path>, CacheEntry>,
     read_buffer: Vec<u8>,
     image_task: Option<ImagePreviewTask>,
+    text_task: Option<TextPreviewTask>,
     syntax_path: Option<Arc<Path>>,
     events: Option<tokio::sync::broadcast::Receiver<view::file_watcher::Events>>,
 }
@@ -196,6 +199,7 @@ impl Default for FilePreview {
             preview_cache: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
             image_task: None,
+            text_task: None,
             syntax_path: None,
             events: None,
         }
@@ -230,6 +234,13 @@ impl FilePreview {
         self.preview_cache.insert(path, entry);
     }
 
+    #[cfg(feature = "integration")]
+    pub(super) fn has_pending_render(&self) -> bool {
+        self.text_task.as_ref().is_some_and(|task| task.cancel.is_running()) || self.syntax_path.as_ref().is_some_and(|path| {
+            self.preview_cache.get(path).is_some_and(|entry| matches!(&entry.preview, CachedPreview::Document(doc) if doc.is_syntax_pending()))
+        })
+    }
+
     fn cancel_image_load(&mut self, location: Option<(&Path, Size)>) {
         if self
             .image_task
@@ -260,6 +271,18 @@ impl FilePreview {
     }
 
     pub(super) fn cancel_loads(&mut self, location: Option<(&Path, Size)>) {
+        if self.text_task.as_ref().is_some_and(|task| {
+            !task.cancel.is_running() || Some(task.path.as_ref()) != location.map(|(path, _)| path)
+        }) {
+            let task = self.text_task.take().unwrap();
+            if self
+                .preview_cache
+                .get(&task.path)
+                .is_some_and(|entry| matches!(entry.preview, CachedPreview::Loading))
+            {
+                self.preview_cache.remove(&task.path);
+            }
+        }
         self.cancel_image_load(location);
         self.cancel_syntax_load(location.map(|(path, _)| path));
     }
@@ -278,7 +301,7 @@ impl FilePreview {
         };
         if let Some(request) = doc.syntax_request() {
             self.syntax_path = Some(path.clone());
-            highlight_preview::<T, D>(jobs, path, request);
+            highlight_preview::<T, D>(jobs, path, request, SYNTAX_PREVIEW_DELAY);
         }
     }
 
@@ -294,7 +317,11 @@ impl FilePreview {
             .get(path)
             .map_or(path, |entry| entry.canonical_path.as_path());
         invalidate_cached_image(canonical_path);
-        if self.syntax_path.as_deref() == Some(path)
+        if self
+            .text_task
+            .as_ref()
+            .is_some_and(|task| task.path.as_ref() == path)
+            || self.syntax_path.as_deref() == Some(path)
             || self
                 .image_task
                 .as_ref()
@@ -466,16 +493,7 @@ impl FilePreview {
                                     CachedPreview::Binary
                                 });
                             }
-                            let doc = Document::open_for_preview(
-                                &path,
-                                editor.config.clone(),
-                                editor.syn_loader.load_full(),
-                            )
-                            .or(Err(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "Cannot open document",
-                            )))?;
-                            Ok(CachedPreview::Document(Box::new(doc)))
+                            Ok(CachedPreview::Loading)
                         } else {
                             Err(std::io::Error::new(
                                 std::io::ErrorKind::NotFound,
@@ -499,6 +517,9 @@ impl FilePreview {
                         .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                 }
                 self.cache(path.clone(), CacheEntry::new(&path, stamp, preview));
+                if matches!(self.preview_cache[&path].preview, CachedPreview::Loading) {
+                    self.text_task = Some(load_text_preview::<T, D>(jobs, editor, path.clone()));
+                }
                 self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
@@ -719,6 +740,117 @@ fn render_preview_placeholder(
     surface.set_stringn(x, y, placeholder, area.width as usize, style);
 }
 
+// Running reads retain their permit after cancellation, bounding slow I/O too.
+static TEXT_PREVIEW_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+struct TextPreviewTask {
+    path: Arc<Path>,
+    cancel: event::TaskController,
+    request: Arc<()>,
+}
+
+fn load_text_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+    jobs: &job::Jobs,
+    editor: &Editor,
+    path: Arc<Path>,
+) -> TextPreviewTask {
+    let mut controller = event::TaskController::new();
+    let cancel = controller.restart();
+    let loader = editor.syn_loader.load_full();
+    let config: editor_config::Config = (*editor.config.load()).clone();
+    let task_path = path.clone();
+    let request = Arc::new(());
+    let task_request = request.clone();
+    jobs.add(job::Job {
+        wait: false,
+        future: Box::pin(async move {
+            let worker_loader = loader.clone();
+            let worker_path = path.clone();
+            let result = event::cancelable_future(
+                async move {
+                    tokio::time::sleep(SYNTAX_PREVIEW_DELAY).await;
+                    let permit = TEXT_PREVIEW_WORKERS.acquire().await?;
+                    tokio::task::spawn_blocking(move || {
+                        let _permit = permit;
+                        if worker_path.metadata()?.len() > MAX_FILE_SIZE_FOR_PREVIEW {
+                            return Ok(None);
+                        }
+                        view::document::PreparedPreview::load(&worker_path, config, worker_loader)
+                            .map(Some)
+                    })
+                    .await?
+                    .map_err(anyhow::Error::from)
+                },
+                &cancel,
+            )
+            .await;
+            let Some(result) = result else {
+                return Ok(None);
+            };
+            Ok(Some(job::Callback::Context(Box::new(
+                move |compositor, cx| {
+                    if cancel.is_canceled() {
+                        return;
+                    }
+                    let Some(Overlay {
+                        content: picker, ..
+                    }) = compositor.find::<Overlay<Picker<T, D>>>()
+                    else {
+                        return;
+                    };
+                    if !picker
+                        .preview
+                        .text_task
+                        .as_ref()
+                        .is_some_and(|task| Arc::ptr_eq(&task.request, &request))
+                    {
+                        return;
+                    }
+                    if !Arc::ptr_eq(&loader, &cx.editor.syn_loader.load_full()) {
+                        picker.preview.remove(&path);
+                        return;
+                    }
+                    let Some(mut entry) = picker.preview.preview_cache.remove(&path) else {
+                        return;
+                    };
+                    entry.preview = match result {
+                        Ok(Some(source)) => {
+                            let doc = source.finish(cx.editor.config.clone());
+                            if doc.is_binary() {
+                                CachedPreview::Binary
+                            } else {
+                                CachedPreview::Document(Box::new(doc))
+                            }
+                        }
+                        Ok(None) => CachedPreview::LargeFile,
+                        Err(error) => {
+                            log::debug!("Cannot load picker preview: {error}");
+                            CachedPreview::NotFound
+                        }
+                    };
+                    picker.preview.cache(path.clone(), entry);
+                    picker.preview.text_task = None;
+                    if let Some(CachedPreview::Document(doc)) = picker
+                        .preview
+                        .preview_cache
+                        .get_mut(&path)
+                        .map(|entry| &mut entry.preview)
+                        && let Some(request) = doc.syntax_request()
+                    {
+                        picker.preview.syntax_path = Some(path.clone());
+                        highlight_preview::<T, D>(cx.jobs, path, request, Duration::ZERO);
+                    }
+                },
+            ))))
+        }),
+    });
+    TextPreviewTask {
+        path: task_path,
+        cancel: controller,
+        request: task_request,
+    }
+}
+
 const IMAGE_PREVIEW_DELAY: Duration = Duration::from_millis(150);
 
 struct ImagePreviewTask {
@@ -791,13 +923,14 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
     jobs: &job::Jobs,
     path: Arc<Path>,
     request: view::document::SyntaxRequest,
+    delay: Duration,
 ) {
     jobs.add(job::Job {
         future: Box::pin(async move {
             tokio::select! {
                 biased;
                 _ = request.canceled() => return Ok(None),
-                _ = tokio::time::sleep(SYNTAX_PREVIEW_DELAY) => {},
+                _ = tokio::time::sleep(delay) => {},
             }
             let Some(result) = request.compute().await else {
                 return Ok(None);
