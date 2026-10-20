@@ -177,7 +177,13 @@ mod tests {
             }
         }
         let viewport = view::graphics::Rect::new(2, 1, width, 10);
-        let mut renderer = TextRenderer::new(&mut surface, doc, &theme, offset, viewport);
+        let mut renderer = TextRenderer::new(
+            &mut surface,
+            crate::ui::document::render_settings(doc, &doc.config.load()),
+            &theme,
+            offset,
+            viewport,
+        );
         let mut decorations = DecorationManager::default();
         let config = InlineDiagnosticsConfig {
             cursor_line: DiagnosticFilter::Disable,
@@ -204,7 +210,7 @@ mod tests {
             0,
             &doc.text_format(width, Some(&theme)),
             &text_layout::text_annotations::TextAnnotations::default(),
-            None,
+            std::iter::empty(),
             vec![],
             &theme,
             decorations,

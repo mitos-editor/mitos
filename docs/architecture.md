@@ -58,7 +58,9 @@ They reuse input types from `ui-core`; `command-line` only parses command argume
 
 `term::ui::highlights` prepares syntax, diagnostic, selection, link, bracket,
 and snippet highlight layers from explicit documents, viewports, and themes.
-Editor panes and picker previews call it directly. `EditorView` owns input,
+Editor panes and picker previews call it directly. Parser highlights are adapted to
+a stream of character positions and resolved styles before drawing. The text
+renderer receives explicit whitespace and indentation settings instead of a document. `EditorView` owns input,
 component state, and composition of the rendered pane.
 
 Picker matching, input, and composition live in `term::ui::picker`. Its private

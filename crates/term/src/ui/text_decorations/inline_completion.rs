@@ -194,7 +194,7 @@ mod tests {
         };
         let mut renderer = TextRenderer::new(
             &mut surface,
-            &doc,
+            crate::ui::document::render_settings(&doc, &doc.config.load()),
             &theme,
             DisplayPosition::new(3, 0),
             view::graphics::Rect::new(0, 1, 20, 2),

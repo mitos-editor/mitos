@@ -413,3 +413,32 @@ pub(super) fn primary_cursor_is_software(
 ) -> bool {
     !is_owner || (kind == CursorKind::Block && terminal_focused)
 }
+
+/// Adapt parser highlight events to character-indexed, fully resolved styles.
+/// The drawing loop consumes this stream without knowing about syntax trees.
+pub(crate) fn syntax_styles(
+    text: editor_core::RopeSlice<'_>,
+    mut highlighter: Option<syntax::Highlighter<'_>>,
+    theme: &Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> {
+    use editor_core::highlight::HighlightEvent;
+    use stdx::rope::RopeSliceExt;
+
+    let text_style = theme.get("ui.text");
+    let mut style = text_style;
+    std::iter::from_fn(move || {
+        let highlighter = highlighter.as_mut()?;
+        let offset = highlighter.next_event_offset();
+        if offset == u32::MAX {
+            return None;
+        }
+        let position = text.byte_to_char(text.ceil_char_boundary(offset as usize));
+        let (event, highlights) = highlighter.advance();
+        let base = match event {
+            HighlightEvent::Refresh => text_style,
+            HighlightEvent::Push => style,
+        };
+        style = highlights.fold(base, |acc, highlight| acc.patch(theme.highlight(highlight)));
+        Some((position, style))
+    })
+}

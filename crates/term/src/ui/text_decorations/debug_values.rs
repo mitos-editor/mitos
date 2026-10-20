@@ -140,7 +140,7 @@ mod tests {
         ));
         let mut renderer = TextRenderer::new(
             &mut surface,
-            &doc,
+            crate::ui::document::render_settings(&doc, &doc.config.load()),
             &theme,
             offset,
             view::graphics::Rect::new(0, 0, width, 6),
@@ -151,7 +151,7 @@ mod tests {
             0,
             &doc.text_format(width, Some(&theme)),
             &Default::default(),
-            None,
+            std::iter::empty(),
             vec![],
             &theme,
             decorations,

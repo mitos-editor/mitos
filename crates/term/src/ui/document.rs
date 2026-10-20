@@ -1,14 +1,13 @@
 use std::cmp::min;
 use text_layout::DisplayPosition;
 
-use editor_config::{WhitespaceConfig, WhitespaceRenderValue};
+use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::Grapheme;
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
 use editor_core::RopeSlice;
 use language::syntax::Highlighter;
-use stdx::rope::RopeSliceExt;
 use text_layout::doc_formatter::{
     DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat,
 };
@@ -48,9 +47,10 @@ pub fn render_document(
     theme: &Theme,
     decorations: DecorationManager,
 ) {
+    let config = doc.config.load();
     let mut renderer = TextRenderer::new(
         surface,
-        doc,
+        render_settings(doc, &config),
         theme,
         DisplayPosition::new(offset.vertical_offset, offset.horizontal_offset),
         viewport,
@@ -61,13 +61,15 @@ pub fn render_document(
         offset.anchor,
         &doc.text_format(viewport.width, Some(theme)),
         doc_annotations,
-        syntax_highlighter,
+        super::highlights::syntax_styles(doc.text().slice(..), syntax_highlighter, theme),
         overlay_highlights,
         theme,
         decorations,
     )
 }
 
+/// Paint text using resolved syntax styles at monotonically increasing character positions.
+/// An empty stream uses the theme's base text style. Virtual text uses its own highlight.
 #[allow(clippy::too_many_arguments)]
 pub fn render_text(
     renderer: &mut TextRenderer,
@@ -75,7 +77,7 @@ pub fn render_text(
     anchor: usize,
     text_fmt: &TextFormat,
     text_annotations: &TextAnnotations,
-    syntax_highlighter: Option<Highlighter<'_>>,
+    syntax_styles: impl Iterator<Item = (usize, Style)>,
     overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     mut decorations: DecorationManager,
@@ -86,8 +88,8 @@ pub fn render_text(
 
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, text_annotations, anchor);
-    let mut syntax_highlighter =
-        SyntaxHighlighter::new(syntax_highlighter, text, theme, renderer.text_style);
+    let mut syntax_styles = syntax_styles.peekable();
+    let mut syntax_style = renderer.text_style;
     let mut overlay_highlighter = OverlayHighlighter::new(overlay_highlights, theme);
 
     let mut last_line_pos = LinePos {
@@ -150,8 +152,11 @@ pub fn render_text(
         }
 
         // acquire the correct grapheme style
-        while grapheme.char_idx >= syntax_highlighter.pos {
-            syntax_highlighter.advance();
+        while syntax_styles
+            .peek()
+            .is_some_and(|(pos, _)| *pos <= grapheme.char_idx)
+        {
+            syntax_style = syntax_styles.next().unwrap().1;
         }
         while grapheme.char_idx >= overlay_highlighter.pos {
             overlay_highlighter.advance();
@@ -168,7 +173,7 @@ pub fn render_text(
             }
         } else {
             GraphemeStyle {
-                syntax_style: syntax_highlighter.style,
+                syntax_style,
                 overlay_style: overlay_highlighter.style,
             }
         };
@@ -246,6 +251,27 @@ impl WhitespacePalette {
     }
 }
 
+/// Resolved document settings needed to paint text, independent of document ownership.
+pub struct RenderSettings<'a> {
+    pub whitespace: &'a WhitespaceConfig,
+    pub indent_guides: &'a IndentGuidesConfig,
+    pub tab_width: usize,
+    pub indent_width: usize,
+}
+
+pub(crate) fn render_settings<'a>(
+    doc: &Document,
+    config: &'a editor_config::Config,
+) -> RenderSettings<'a> {
+    let tab_width = doc.tab_width();
+    RenderSettings {
+        whitespace: &config.whitespace,
+        indent_guides: &config.indent_guides,
+        tab_width,
+        indent_width: doc.indent_style.indent_width(tab_width),
+    }
+}
+
 #[derive(Debug)]
 pub struct TextRenderer<'a> {
     surface: &'a mut Surface,
@@ -277,24 +303,22 @@ pub struct GraphemeStyle {
 impl<'a> TextRenderer<'a> {
     pub fn new(
         surface: &'a mut Surface,
-        doc: &Document,
+        settings: RenderSettings<'_>,
         theme: &Theme,
         offset: DisplayPosition,
         viewport: Rect,
     ) -> TextRenderer<'a> {
-        let editor_config = doc.config.load();
-        let tab_width = doc.tab_width();
-        let regular = WhitespacePalette::new(&editor_config.whitespace, tab_width, false);
-        let trailing_whitespace =
-            WhitespacePalette::new(&editor_config.whitespace, tab_width, true);
+        let tab_width = settings.tab_width;
+        let regular = WhitespacePalette::new(settings.whitespace, tab_width, false);
+        let trailing_whitespace = WhitespacePalette::new(settings.whitespace, tab_width, true);
 
         let text_style = theme.get("ui.text");
 
-        let indent_width = doc.indent_style.indent_width(tab_width) as u16;
+        let indent_width = settings.indent_width as u16;
 
         TextRenderer {
             surface,
-            indent_guide_char: editor_config.indent_guides.character.into(),
+            indent_guide_char: settings.indent_guides.character.into(),
             newline: regular.newline,
             nbsp: regular.nbsp,
             nnbsp: regular.nnbsp,
@@ -303,7 +327,7 @@ impl<'a> TextRenderer<'a> {
             virtual_tab: " ".repeat(tab_width),
             trailing_whitespace,
             classify_trailing: {
-                let render = editor_config.whitespace.render;
+                let render = settings.whitespace.render;
                 let modes = [render.space(), render.tab(), render.nbsp(), render.nnbsp()];
                 modes.contains(&WhitespaceRenderValue::Trailing)
                     || (theme
@@ -318,14 +342,14 @@ impl<'a> TextRenderer<'a> {
             indent_width,
             starting_indent: offset.col / indent_width as usize
                 + !offset.col.is_multiple_of(indent_width as usize) as usize
-                + editor_config.indent_guides.skip_levels as usize,
+                + settings.indent_guides.skip_levels as usize,
             indent_guide_style: text_style.patch(
                 theme
                     .try_get("ui.virtual.indent-guide")
                     .unwrap_or_else(|| theme.get("ui.virtual.whitespace")),
             ),
             text_style,
-            draw_indent_guides: editor_config.indent_guides.render,
+            draw_indent_guides: settings.indent_guides.render,
             viewport,
             offset,
         }
@@ -580,70 +604,6 @@ impl<'a> TextRenderer<'a> {
     }
 }
 
-struct SyntaxHighlighter<'h, 'r, 't> {
-    inner: Option<Highlighter<'h>>,
-    text: RopeSlice<'r>,
-    /// The character index of the next highlight event, or `usize::MAX` if the highlighter is
-    /// finished.
-    pos: usize,
-    theme: &'t Theme,
-    text_style: Style,
-    style: Style,
-}
-
-impl<'h, 'r, 't> SyntaxHighlighter<'h, 'r, 't> {
-    fn new(
-        inner: Option<Highlighter<'h>>,
-        text: RopeSlice<'r>,
-        theme: &'t Theme,
-        text_style: Style,
-    ) -> Self {
-        let mut highlighter = Self {
-            inner,
-            text,
-            pos: 0,
-            theme,
-            style: text_style,
-            text_style,
-        };
-        highlighter.update_pos();
-        highlighter
-    }
-
-    fn update_pos(&mut self) {
-        self.pos = self
-            .inner
-            .as_ref()
-            .and_then(|highlighter| {
-                let next_byte_idx = highlighter.next_event_offset();
-                (next_byte_idx != u32::MAX).then(|| {
-                    // Move the byte index to the nearest character boundary (rounding up) and
-                    // convert it to a character index.
-                    self.text
-                        .byte_to_char(self.text.ceil_char_boundary(next_byte_idx as usize))
-                })
-            })
-            .unwrap_or(usize::MAX);
-    }
-
-    fn advance(&mut self) {
-        let Some(highlighter) = self.inner.as_mut() else {
-            return;
-        };
-
-        let (event, highlights) = highlighter.advance();
-        let base = match event {
-            HighlightEvent::Refresh => self.text_style,
-            HighlightEvent::Push => self.style,
-        };
-
-        self.style = highlights.fold(base, |acc, highlight| {
-            acc.patch(self.theme.highlight(highlight))
-        });
-        self.update_pos();
-    }
-}
-
 struct OverlayHighlighter<'t> {
     inner: editor_core::highlight::OverlayHighlighter,
     pos: usize,
@@ -721,7 +681,7 @@ mod whitespace_tests {
         let mut surface = Surface::empty(viewport);
         let mut renderer = TextRenderer::new(
             &mut surface,
-            &doc,
+            render_settings(&doc, &doc.config.load()),
             &theme,
             DisplayPosition::new(0, offset),
             viewport,
@@ -734,7 +694,7 @@ mod whitespace_tests {
             0,
             &doc.text_format(width, Some(&theme)),
             &annotations,
-            None,
+            std::iter::empty(),
             vec![],
             &theme,
             DecorationManager::default(),
@@ -746,6 +706,52 @@ mod whitespace_tests {
         (0..surface.area.width)
             .map(|x| surface[(x, y)].symbol())
             .collect()
+    }
+
+    #[test]
+    fn syntax_styles_follow_character_positions_through_virtual_text_and_clipping() {
+        use text_layout::text_annotations::InlineAnnotation;
+        let text = Rope::from_str("é界x");
+        let config = editor_config::Config::default();
+        let theme = Theme::from(toml::from_str::<toml::Value>("\"ui.text\" = \"white\"").unwrap());
+        let viewport = Rect::new(0, 0, 12, 1);
+        let mut surface = Surface::empty(viewport);
+        let mut renderer = TextRenderer::new(
+            &mut surface,
+            RenderSettings {
+                whitespace: &config.whitespace,
+                indent_guides: &config.indent_guides,
+                tab_width: 4,
+                indent_width: 4,
+            },
+            &theme,
+            DisplayPosition::new(0, 1),
+            viewport,
+        );
+        let inline = [InlineAnnotation::new(1, "hint")];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_inline_annotations(&inline, None);
+        let style = |color| Style::default().fg(color);
+        render_text(
+            &mut renderer,
+            text.slice(..),
+            0,
+            &TextFormat::default(),
+            &annotations,
+            [
+                (0, style(theme::Color::Red)),
+                (1, style(theme::Color::Blue)),
+                (2, style(theme::Color::Green)),
+            ]
+            .into_iter(),
+            vec![],
+            &theme,
+            DecorationManager::default(),
+        );
+        assert_eq!(row(&surface, 0), "hint界 x     ");
+        assert_eq!(surface[(0, 0)].fg, Color::White);
+        assert_eq!(surface[(4, 0)].fg, Color::Blue);
+        assert_eq!(surface[(6, 0)].fg, Color::Green);
     }
 
     #[test]
