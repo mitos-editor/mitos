@@ -238,6 +238,9 @@ Creates and non-replacing renames enforce that policy at the filesystem call,
 including when a destination appears after validation. Overwrite takes precedence
 over ignore, but replacing an open destination is rejected to preserve document
 identity and unsaved text. Ignored operations emit no change notifications.
+Filesystem result handling distinguishes applied mutations from ignored destination
+collisions. Successful moves retarget open documents and debugger sources before
+notifying language servers; fallback watcher events follow those notifications.
 
 Interactive file-operation preflight snapshots open documents before each provider
 request. On delivery, it validates the operation's paths and the returned edit's

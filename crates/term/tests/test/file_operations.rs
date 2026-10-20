@@ -1,4 +1,5 @@
 mod fixture;
+mod notifications;
 mod preflight_scope;
 
 use std::time::Duration;

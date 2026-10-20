@@ -19,6 +19,13 @@ pub(crate) enum ExistingTarget {
     Overwrite,
 }
 
+/// Ignored operations leave editor state and protocol observers untouched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MutationOutcome {
+    Applied,
+    Ignored,
+}
+
 impl ExistingTarget {
     pub(crate) fn from_options(overwrite: bool, ignore: bool) -> Self {
         if overwrite {
@@ -27,6 +34,16 @@ impl ExistingTarget {
             Self::Ignore
         } else {
             Self::Reject
+        }
+    }
+
+    fn mutation_outcome(self, result: io::Result<()>) -> io::Result<MutationOutcome> {
+        match result {
+            Ok(()) => Ok(MutationOutcome::Applied),
+            Err(error) if self == Self::Ignore && error.kind() == io::ErrorKind::AlreadyExists => {
+                Ok(MutationOutcome::Ignored)
+            }
+            Err(error) => Err(error),
         }
     }
 }
@@ -62,38 +79,12 @@ impl Editor {
             } else {
                 stdx::file::rename_noreplace(old_path, &new_path)
             };
-            match result {
-                Err(error)
-                    if existing == ExistingTarget::Ignore
-                        && error.kind() == io::ErrorKind::AlreadyExists =>
-                {
-                    return Ok(())
-                }
-                result => result?,
+            if existing.mutation_outcome(result)? == MutationOutcome::Ignored {
+                return Ok(());
             }
         }
 
-        let breakpoint_paths = self.rename_debugger_sources(old_path, &new_path);
-        let documents: Vec<_> = self
-            .documents()
-            .filter_map(|doc| {
-                let suffix = doc.path()?.strip_prefix(old_path).ok()?;
-                Some((
-                    doc.id(),
-                    if suffix.as_os_str().is_empty() {
-                        new_path.clone()
-                    } else {
-                        new_path.join(suffix)
-                    },
-                    doc.breakpoint_saved_text.clone(),
-                ))
-            })
-            .collect();
-        for (id, path, saved) in documents {
-            self.set_doc_path(id, &path);
-            self.documents.get_mut(&id).unwrap().breakpoint_saved_text = saved;
-        }
-        self.sync_renamed_debugger_sources(breakpoint_paths);
+        self.retarget_moved_documents(old_path, &new_path);
         let is_dir = new_path.is_dir();
         for ls in self.language_servers.iter_clients() {
             // A new language server might have been started in `set_doc_path` and won't
@@ -115,6 +106,31 @@ impl Editor {
                 .file_changed(new_path, lsp::FileChangeType::CREATED);
         }
         Ok(())
+    }
+
+    /// Retarget documents and debugger sources before notifying language servers.
+    fn retarget_moved_documents(&mut self, old_path: &Path, new_path: &Path) {
+        let breakpoint_paths = self.rename_debugger_sources(old_path, new_path);
+        let documents: Vec<_> = self
+            .documents()
+            .filter_map(|doc| {
+                let suffix = doc.path()?.strip_prefix(old_path).ok()?;
+                Some((
+                    doc.id(),
+                    if suffix.as_os_str().is_empty() {
+                        new_path.to_owned()
+                    } else {
+                        new_path.join(suffix)
+                    },
+                    doc.breakpoint_saved_text.clone(),
+                ))
+            })
+            .collect();
+        for (id, path, saved) in documents {
+            self.set_doc_path(id, &path);
+            self.documents.get_mut(&id).unwrap().breakpoint_saved_text = saved;
+        }
+        self.sync_renamed_debugger_sources(breakpoint_paths);
     }
 
     pub(crate) fn create_path(
@@ -140,14 +156,8 @@ impl Editor {
         } else {
             fs::File::create_new(&path).map(|_| ())
         };
-        match result {
-            Err(error)
-                if existing == ExistingTarget::Ignore
-                    && error.kind() == io::ErrorKind::AlreadyExists =>
-            {
-                return Ok(())
-            }
-            result => result?,
+        if existing.mutation_outcome(result)? == MutationOutcome::Ignored {
+            return Ok(());
         }
 
         for ls in self.language_servers.iter_clients() {

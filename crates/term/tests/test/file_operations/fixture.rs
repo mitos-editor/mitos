@@ -79,6 +79,27 @@ impl Fixture {
         wait_for_request(&[lsp::log_path(self.dir.path(), "scope")]).await
     }
 
+    pub(super) async fn flush_notifications(&self) -> anyhow::Result<Vec<Value>> {
+        // A response is a FIFO barrier for earlier notifications on this transport.
+        std::fs::write(self.dir.path().join("edit.json"), "null")?;
+        self.gate.release()?;
+        let server = self
+            .app
+            .editor
+            .language_servers
+            .iter_clients()
+            .next()
+            .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            server
+                .will_create(&self.dir.path().join("barrier"), false)
+                .unwrap(),
+        )
+        .await??;
+        lsp::read_log(&lsp::log_path(self.dir.path(), "scope"))
+    }
+
     pub(super) async fn complete_rename(&mut self, succeeds: bool) -> anyhow::Result<()> {
         self.gate.release()?;
         tokio::time::timeout(Duration::from_secs(10), async {
