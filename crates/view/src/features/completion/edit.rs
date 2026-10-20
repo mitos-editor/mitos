@@ -33,7 +33,7 @@ struct PreparedCompletion {
     savepoint: Arc<SavePoint>,
     transaction: Transaction,
     snippet: Option<RenderedSnippet>,
-    encoding: Option<OffsetEncoding>,
+    additional: Option<Transaction>,
 }
 
 impl Editor {
@@ -65,7 +65,7 @@ impl Editor {
             .completions
             .active_completions
             .get(&item.provider())?;
-        let (transaction, snippet, encoding) = match item {
+        let (transaction, snippet, additional) = match item {
             CompletionItem::Lsp(item) => {
                 let server = self.language_servers.get_by_id(item.provider)?;
                 let encoding = server.offset_encoding();
@@ -80,7 +80,27 @@ impl Editor {
                     self.config().completion.replace,
                     &mut doc.snippet_ctx(),
                 )?;
-                (transaction, snippet, Some(encoding))
+                let additional = item
+                    .item
+                    .additional_text_edits
+                    .as_ref()
+                    .filter(|edits| !edits.is_empty())
+                    .and_then(|edits| {
+                        let mut current = text.clone();
+                        transaction.apply(&mut current);
+                        let additional = additional_edits_transaction(
+                            &text,
+                            &current,
+                            transaction.changes(),
+                            edits.clone(),
+                            encoding,
+                        );
+                        if additional.is_none() {
+                            log::error!("Completion contains conflicting additional edits");
+                        }
+                        additional
+                    });
+                (transaction, snippet, additional)
             }
             CompletionItem::Path(TextCompletion { transaction, .. })
             | CompletionItem::Word(TextCompletion { transaction, .. }) => {
@@ -91,7 +111,7 @@ impl Editor {
             savepoint: context.savepoint.clone(),
             transaction,
             snippet,
-            encoding,
+            additional,
         })
     }
 
@@ -117,6 +137,9 @@ impl Editor {
         }
         doc.restore(view, &prepared.savepoint, false);
         crate::editing::apply_temporary(doc, &prepared.transaction, view.id);
+        if let Some(additional) = prepared.additional {
+            crate::editing::apply_temporary(doc, &additional, view.id);
+        }
         true
     }
 
@@ -131,7 +154,7 @@ impl Editor {
             savepoint,
             transaction,
             snippet,
-            encoding,
+            additional,
         }) = self.prepare_completion(session, item)
         else {
             return false;
@@ -159,24 +182,8 @@ impl Editor {
             placeholder,
         }));
 
-        if let CompletionItem::Lsp(item) = item
-            && let Some(edits) = item
-                .item
-                .additional_text_edits
-                .as_ref()
-                .filter(|edits| !edits.is_empty())
-        {
-            if let Some(additional) = additional_edits_transaction(
-                before.text(),
-                doc.text(),
-                transaction.changes(),
-                edits.clone(),
-                encoding.unwrap(),
-            ) {
-                crate::editing::apply(doc, &additional, view.id);
-            } else {
-                log::error!("Completion contains conflicting additional edits");
-            }
+        if let Some(additional) = additional {
+            crate::editing::apply(doc, &additional, view.id);
         }
         let document = doc.id();
         if let CompletionItem::Lsp(item) = item

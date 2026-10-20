@@ -846,3 +846,71 @@ async fn accepting_a_trigger_character_preserves_the_next_completion_request() -
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn postfix_snippet_previews_switch_cancel_accept_and_undo() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let original = "// postfix\n/* 😀 */ x.f\n";
+    let mut f = Fixture::new(dir.path(), original, &["alpha"]).await?;
+    f.show().await?;
+    f.key("<tab>").await?;
+    assert_eq!(f.text(), "// postfix\n/* 😀 */ for i := range x {\n\t\n}\n");
+    f.key("<tab>").await?;
+    let expanded = "// postfix\n/* 😀 */ for i, v := range x {\n\t\n}\n";
+    assert_eq!(f.text(), expanded);
+    f.key("<C-c>").await?;
+    assert_eq!(f.text(), original);
+    assert!(current_ref!(f.app.editor).1.active_snippet.is_none());
+
+    f.show().await?;
+    f.key("<tab>").await?;
+    f.key("<tab>").await?;
+    f.key("<ret>").await?;
+    assert_eq!(f.text(), expanded);
+    // The receiver deletion must move snippet placeholders along with the text.
+    for key in ["i", "d", "x"] {
+        f.key(key).await?;
+    }
+    assert_eq!(f.text(), expanded.replace("for i,", "for idx,"));
+    f.key("<tab>").await?;
+    for key in ["v", "a", "l", "u", "e"] {
+        f.key(key).await?;
+    }
+    assert_eq!(f.text(), expanded.replace("for i, v", "for idx, value"));
+    f.key("<esc>").await?;
+    f.key("u").await?;
+    assert_eq!(f.text(), original);
+    f.key("U").await?;
+    assert_eq!(f.text(), expanded.replace("for i, v", "for idx, value"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn postfix_snippets_accept_without_preview_and_preserve_typing_on_cancel(
+) -> anyhow::Result<()> {
+    for preview in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let original = "// postfix\nx.f\n";
+        let mut config = test_config();
+        config.editor.completion.preview_insert = preview;
+        let mut f = Fixture::uninitialized_with_config(dir.path(), original, &["alpha"], config)?;
+        f.initialize().await?;
+        f.show().await?;
+        // Preserve input typed since the completion request when dismissing a preview.
+        f.key("o").await?;
+        f.key("<tab>").await?;
+        f.key("<C-c>").await?;
+        assert_eq!(f.text(), "// postfix\nx.fo\n");
+        f.show().await?;
+        f.key("<tab>").await?;
+        f.key("<ret>").await?;
+        assert_eq!(f.text(), "// postfix\nfor i := range x {\n\t\n}\n");
+        f.key("<esc>").await?;
+        f.key("u").await?;
+        assert_eq!(f.text(), "// postfix\nx.fo\n");
+        assert!(current_ref!(f.app.editor).1.active_snippet.is_none());
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}

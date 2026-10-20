@@ -84,3 +84,18 @@ async fn clearing_a_placeholder_preserves_the_rest_of_the_snippet() -> anyhow::R
     assert!(current_ref!(f.editor).1.active_snippet.is_some());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_replay_ends_the_active_snippet_session() -> anyhow::Result<()> {
+    let mut f = Fixture::new("\n")?;
+    insert_snippet(&mut f.editor)?;
+    let (view, doc) = current!(f.editor);
+    assert!(doc.active_snippet.is_some());
+    assert!(view::editing::undo(doc, view));
+    assert_eq!(doc.text().to_string(), "\n");
+    assert!(doc.active_snippet.is_none());
+    assert!(view::editing::redo(doc, view));
+    assert_eq!(doc.text().to_string(), "one two\n");
+    assert!(doc.active_snippet.is_none());
+    Ok(())
+}

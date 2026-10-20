@@ -460,6 +460,35 @@ fn main() -> anyhow::Result<()> {
             } else {
                 ("apple", "apricot")
             };
+            if text.contains("postfix") {
+                let source_line = text.lines().nth(line as usize).unwrap();
+                let dot = source_line[..source_line.rfind('.').unwrap()]
+                    .encode_utf16()
+                    .count();
+                let mut prefix_range = edit_range.clone();
+                prefix_range["start"]["character"] = json!(dot - 1);
+                prefix_range["end"]["character"] = json!(dot + 1);
+                edit_range["start"]["character"] = json!(dot + 1);
+                // gopls replaces the suffix and deletes the receiver separately.
+                let items: Vec<_> = [
+                    ("for!", "for ${1:i} := range x {\n\t$0\n}"),
+                    ("forr!", "for ${1:i}, ${2:v} := range x {\n\t$0\n}"),
+                ]
+                .into_iter()
+                .map(|(label, snippet)| {
+                    json!({
+                        "label": label, "insertTextFormat": 2,
+                        "textEdit": {"range": edit_range, "newText": snippet},
+                        "additionalTextEdits": [{"range": prefix_range, "newText": ""}]
+                    })
+                })
+                .collect();
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id, "result": {"isIncomplete": false, "items": items}}),
+                )?;
+                continue;
+            }
             let snippet = text.contains("snippet");
             let first_text = if snippet {
                 format!("{first}(${{1:value}})$0")

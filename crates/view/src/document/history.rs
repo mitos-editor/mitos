@@ -56,8 +56,9 @@ impl Document {
                 // An observer may have edited or committed after the previous step.
                 break;
             };
-            // Accepted completion edits belong to the history being replayed.
+            // History replay ends interactive completion and snippet sessions.
             self.accepted_completions.cancel();
+            self.active_snippet = None;
             self.publish_change(&change, selection.as_ref(), origin, true);
             applied = true;
         }
