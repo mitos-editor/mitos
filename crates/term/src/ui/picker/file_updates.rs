@@ -1,49 +1,28 @@
 //! Debounced filesystem refreshes that keep the current results visible while loading.
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc};
 
 use event::{TaskController, TaskHandle};
 use futures_util::future::BoxFuture;
-use tokio::{
-    sync::{broadcast, oneshot},
-    time::Instant,
-};
+use tokio::sync::oneshot;
 use view::{
-    file_watcher::{EventType, Events},
-    DocumentId, Editor,
+    features::workspace_changes::{Documents, Policy, WorkspaceChanges},
+    Editor,
 };
 
-use super::{preview::is_ignore_file, Picker};
+use super::Picker;
 
 type Refresh<T, D> =
     fn(&str, &Editor, Arc<D>, TaskHandle) -> BoxFuture<'static, anyhow::Result<Vec<T>>>;
 
 pub(super) struct FileUpdates<T, D> {
-    events: broadcast::Receiver<Events>,
+    changes: WorkspaceChanges,
     root: fn(&D) -> &Path,
     refresh: Refresh<T, D>,
     same: fn(&T, &T) -> bool,
-    checked: Instant,
     dirty: bool,
     task: TaskController,
     pending: Option<Pending<T, D>>,
-    include_modified: bool,
-    include_vcs: bool,
-    include_documents: bool,
-    documents: Vec<(DocumentId, i32, std::path::PathBuf)>,
-}
-
-fn document_versions(editor: &Editor, root: &Path) -> Vec<(DocumentId, i32, std::path::PathBuf)> {
-    let mut versions: Vec<_> = editor
-        .documents()
-        .filter_map(|doc| {
-            let path = stdx::path::canonicalize_existing(doc.path()?);
-            path.starts_with(root)
-                .then(|| (doc.id(), doc.version(), path))
-        })
-        .collect();
-    versions.sort_unstable_by_key(|(id, _, _)| *id);
-    versions
 }
 
 struct Pending<T, D> {
@@ -77,21 +56,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .map(|index| index as u32)
         }));
         self.file_updates = Some(FileUpdates {
-            events: editor.file_watcher.subscribe(),
+            changes: WorkspaceChanges::new(
+                editor,
+                root(&self.results.editor_data),
+                Policy {
+                    ignore_files: true,
+                    ..Policy::default()
+                },
+            ),
             root,
             refresh,
             same: T::eq,
-            checked: Instant::now(),
             dirty: false,
             task: TaskController::new(),
             pending: None,
-            include_modified: false,
-            include_vcs: false,
-            include_documents: false,
-            documents: document_versions(
-                editor,
-                &stdx::path::canonicalize_existing(root(&self.results.editor_data)),
-            ),
         });
         self
     }
@@ -99,7 +77,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Search and VCS rows depend on file contents as well as directory membership.
     pub(crate) fn refresh_on_content_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
-            updates.include_modified = true;
+            updates.changes.policy.contents = true;
         }
         self
     }
@@ -107,7 +85,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Text search also depends on unsaved editor buffers, independently of disk events.
     pub(crate) fn refresh_on_document_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
-            updates.include_documents = true;
+            updates.changes.policy.documents = Documents::Workspace;
         }
         self
     }
@@ -115,49 +93,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Linked-worktree metadata can live outside the picker's worktree root.
     pub(crate) fn refresh_on_vcs_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
-            updates.include_vcs = true;
+            updates.changes.policy.vcs = true;
         }
         self
     }
 
     pub(super) fn refresh_files(&mut self, editor: &Editor) {
-        use broadcast::error::TryRecvError;
         use oneshot::error::TryRecvError as ResultError;
 
         let Some(mut updates) = self.file_updates.take() else {
             return;
         };
-        let root = stdx::path::canonicalize_existing((updates.root)(&self.results.editor_data));
-        if updates.include_documents {
-            let documents = document_versions(editor, &root);
-            if documents != updates.documents {
-                updates.dirty = true;
-                updates.documents = documents;
-            }
-        }
-        loop {
-            match updates.events.try_recv() {
-                Ok(events) => {
-                    updates.dirty |= events.iter().any(|event| {
-                        let path = event.path.as_std_path();
-                        event.ty != EventType::Tempfile
-                            && (is_ignore_file(path)
-                                || (updates.include_vcs && editor.file_watcher.is_vcs_path(path))
-                                || ((updates.include_modified
-                                    || event.ty != EventType::Modified
-                                    || path.is_dir())
-                                    && (path.starts_with(&root) || root.starts_with(path))))
-                    })
-                }
-                Err(TryRecvError::Lagged(_)) => updates.dirty = true,
-                Err(TryRecvError::Closed) => {
-                    updates.stop();
-                    updates.events = editor.file_watcher.subscribe();
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-            }
-        }
+        updates.dirty |= updates
+            .changes
+            .changed(editor, (updates.root)(&self.results.editor_data));
 
         if updates.pending.as_ref().is_some_and(|pending| {
             !Arc::ptr_eq(&pending.data, &self.results.editor_data)
@@ -173,7 +122,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             match pending.result.try_recv() {
                 Ok(result) => {
                     updates.pending = None;
-                    updates.checked = Instant::now();
+                    updates.changes.mark_refreshed();
                     // Publish this valid scan even when more changes arrived.
                     // Keep dirty set so another scan follows without starving results.
                     match result {
@@ -198,11 +147,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
         }
 
-        let poll = &editor.config().files.reload.poll;
-        if updates.pending.is_none()
-            && poll.enable
-            && updates.checked.elapsed() >= Duration::from_millis(poll.interval.max(100))
-        {
+        if updates.pending.is_none() && updates.changes.poll_due(editor) {
             updates.dirty = true;
         }
         if updates.dirty
@@ -211,7 +156,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             && !self.results.is_refreshing()
         {
             updates.dirty = false;
-            updates.checked = Instant::now();
+            updates.changes.mark_refreshed();
             let cancel = updates.task.restart();
             let version = self
                 .results

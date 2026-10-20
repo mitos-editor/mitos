@@ -1023,6 +1023,12 @@ Workspace text requests live in `view::features::workspace_search`: they capture
 open-buffer snapshots and run matching on blocking workers. `search` owns matching
 and traversal; `term` chooses streaming or replacement publication and display paths.
 
+`view::features::workspace_changes` tracks editor-owned file batches, document
+revisions, root changes, watcher replacement, and polling deadlines. Syntax-symbol
+caches and picker file providers select their invalidation policy through this
+shared tracker. Each consumer retains its own scheduling, cancellation, cache
+replacement, and result publication.
+
 Shared directory traversal lives in `search::Options::walker`. Terminal configuration
 adapters supply ignore paths and traversal flags; callers add their own ordering
 and type filters. The directory explorer explicitly retains metadata directories

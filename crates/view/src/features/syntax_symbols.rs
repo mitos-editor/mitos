@@ -1,4 +1,5 @@
 //! Syntax-symbol queries, parsed-file caches, and workspace refresh ownership.
+use super::workspace_changes::{Documents, Policy, Polling, WorkspaceChanges};
 use crate::{
     callbacks::EditorCallbackSender,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
@@ -92,22 +93,6 @@ pub fn document_symbols(editor: &Editor, document: DocumentId) -> Vec<Symbol> {
         .unwrap_or_default()
 }
 
-fn document_versions(editor: &Editor) -> Vec<(DocumentId, i32)> {
-    let mut versions: Vec<_> = editor
-        .documents()
-        .map(|doc| (doc.id(), doc.version()))
-        .collect();
-    versions.sort_unstable_by_key(|(id, _)| *id);
-    versions
-}
-
-struct Refresh {
-    versions: Vec<(DocumentId, i32)>,
-    events: tokio::sync::broadcast::Receiver<crate::file_watcher::Events>,
-    checked: tokio::time::Instant,
-    root: PathBuf,
-}
-
 pub struct WorkspaceSymbols {
     owner: EditorCallbackSender,
     searcher_builder: SearcherBuilder,
@@ -116,7 +101,7 @@ pub struct WorkspaceSymbols {
     rope_regex_builder: rope::RegexBuilder,
     search_root: PathBuf,
     syntax_cache: ArcSwap<DashMap<PathBuf, Option<(Rope, Syntax)>>>,
-    refresh: Mutex<Refresh>,
+    refresh: Mutex<WorkspaceChanges>,
 }
 
 impl WorkspaceSymbols {
@@ -133,12 +118,17 @@ impl WorkspaceSymbols {
         let mut rope_regex_builder = rope::RegexBuilder::new();
         rope_regex_builder
             .syntax(rope::Config::new().case_insensitive(editor.config().search.smart_case));
-        let refresh = Mutex::new(Refresh {
-            versions: document_versions(editor),
-            events: editor.file_watcher.subscribe(),
-            checked: tokio::time::Instant::now(),
-            root: stdx::path::canonicalize_existing(&search_root),
-        });
+        let refresh = Mutex::new(WorkspaceChanges::new(
+            editor,
+            &search_root,
+            Policy {
+                contents: true,
+                documents: Documents::All,
+                polling: Polling::Unwatched,
+                ignore_files: true,
+                ..Policy::default()
+            },
+        ));
         Self {
             owner: editor.callback_sender().clone(),
             searcher_builder,
@@ -318,40 +308,10 @@ impl WorkspaceSymbols {
         if !self.owner.same_destination(editor.callback_sender()) {
             return false;
         }
-        use tokio::sync::broadcast::error::TryRecvError;
         let mut refresh = self.refresh.lock();
-        let Refresh {
-            versions,
-            events,
-            checked,
-            root,
-        } = &mut *refresh;
-        let next = document_versions(editor);
-        let mut changed = next != *versions;
-        *versions = next;
-        loop {
-            match events.try_recv() {
-                Ok(events) => {
-                    changed |= events.iter().any(|event| {
-                        event.ty != crate::file_watcher::EventType::Tempfile
-                            && event.path.as_std_path().starts_with(&*root)
-                    })
-                }
-                Err(TryRecvError::Lagged(_)) => changed = true,
-                Err(TryRecvError::Closed) => {
-                    *events = editor.file_watcher.subscribe();
-                    changed = true;
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-            }
-        }
-        let poll = &editor.config().files.reload.poll;
-        changed |= poll.enable
-            && !editor.file_watcher.is_watching(root)
-            && checked.elapsed() >= std::time::Duration::from_millis(poll.interval.max(100));
+        let changed = refresh.changed(editor, &self.search_root) || refresh.poll_due(editor);
         if changed {
-            *checked = tokio::time::Instant::now();
+            refresh.mark_refreshed();
             // Old workers retain their old cache and cannot repopulate the new one.
             self.syntax_cache.store(Arc::new(DashMap::default()));
         }
