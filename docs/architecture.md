@@ -310,6 +310,14 @@ pairs through the document's syntax resource snapshot. Callers do not supply a
 separate loader. The same snapshot provides configuration for injected languages
 and incremental syntax updates.
 
+### Buffer search
+
+`core::search` finds regex matches in character coordinates and builds literal
+patterns from selections. Match results include wraparound without UI messages.
+`Editor::search_buffer` applies counted matches, preserves primary selection
+semantics, and centers the resulting cursor once. Terminal commands retain regex
+prompts, history/register handling, and status messages.
+
 ### Visual movement
 
 `view::editing::movement` owns vertical document/visual-line motion, scrolling,

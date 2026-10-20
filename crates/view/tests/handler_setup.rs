@@ -79,3 +79,6 @@ mod shell;
 
 #[path = "handler_setup/syntax_symbols.rs"]
 mod syntax_symbols;
+
+#[path = "handler_setup/buffer_search.rs"]
+mod buffer_search;

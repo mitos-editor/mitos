@@ -15,8 +15,10 @@ pub use filesystem::FileOperation;
 mod input;
 mod language_servers;
 mod mode;
+mod search;
 mod snippet;
 pub use input::InputKind;
+pub use search::SearchOutcome;
 pub use snippet::SnippetNavigation;
 mod registers;
 #[cfg(test)]

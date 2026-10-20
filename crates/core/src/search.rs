@@ -1,6 +1,101 @@
 use crate::movement::Direction;
-use crate::RopeSlice;
+use crate::{Range, RopeSlice, Selection};
 use stdx::rope::RopeExt as _;
+use stdx::rope::{self, RopeSliceExt};
+
+/// A buffer match in character coordinates and whether reaching it wrapped the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchMatch {
+    pub range: Range,
+    pub wrapped: bool,
+}
+
+/// Find the next/previous regex match after the primary selection. Search windows
+/// retain full-rope context for anchors. A point at EOF cannot repeatedly match itself.
+pub fn find_regex(
+    text: RopeSlice,
+    primary: Range,
+    regex: &rope::Regex,
+    direction: Direction,
+    wrap: bool,
+) -> Option<SearchMatch> {
+    let boundary = match direction {
+        Direction::Forward => primary.to(),
+        Direction::Backward => primary.from(),
+    };
+    let start = text.char_to_byte_idx(boundary);
+    let find =
+        |wrapped| match (direction, wrapped) {
+            (Direction::Forward, false) => regex
+                .find_iter(text.regex_input_at_bytes(start..))
+                .find(|matched| {
+                    !(matched.is_empty() && matched.start() == start && primary.is_empty())
+                }),
+            (Direction::Backward, false) => regex
+                .find_iter(text.regex_input_at_bytes(..start))
+                .filter(|matched| !(matched.is_empty() && matched.start() == start))
+                .last(),
+            (Direction::Forward, true) => regex.find_iter(text.regex_input()).find(|matched| {
+                !(matched.is_empty() && matched.start() == start && primary.is_empty())
+            }),
+            (Direction::Backward, true) => regex
+                .find_iter(text.regex_input_at_bytes(start..))
+                .filter(|matched| !(matched.is_empty() && matched.start() == start))
+                .last(),
+        };
+    let (matched, wrapped) = find(false).map(|matched| (matched, false)).or_else(|| {
+        wrap.then(|| find(true))
+            .flatten()
+            .map(|matched| (matched, true))
+    })?;
+    Some(SearchMatch {
+        range: Range::new(
+            text.byte_to_char_idx(matched.start()),
+            text.byte_to_char_idx(matched.end()),
+        )
+        .with_direction(primary.direction()),
+        wrapped,
+    })
+}
+
+/// Build a literal alternation from selections, deduplicated in stable order.
+/// Optional word boundaries follow the surrounding document characters.
+pub fn selection_pattern(text: RopeSlice, selection: &Selection, word_boundaries: bool) -> String {
+    use crate::chars::char_is_word;
+    let word_start = |index| {
+        index < text.len_chars()
+            && char_is_word(text.char(index))
+            && (index == 0 || !char_is_word(text.char(index - 1)))
+    };
+    let word_end = |index| {
+        index > 0
+            && index < text.len_chars()
+            && char_is_word(text.char(index - 1))
+            && !char_is_word(text.char(index))
+    };
+    selection
+        .iter()
+        .map(|range| {
+            let prefix = if word_boundaries && word_start(range.from()) {
+                "\\b"
+            } else {
+                ""
+            };
+            let suffix = if word_boundaries && word_end(range.to()) {
+                "\\b"
+            } else {
+                ""
+            };
+            format!(
+                "{prefix}{}{suffix}",
+                crate::regex::escape(&range.fragment(text))
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join("|")
+}
 
 // TODO: switch to std::str::Pattern when it is stable.
 pub trait CharMatcher {
@@ -84,5 +179,117 @@ mod test {
         assert_eq!(find_nth_char(1, text, 'x', 5, Direction::Forward), None); // Not found
         assert_eq!(find_nth_char(1, text, 'a', 20, Direction::Forward), None); // Beyond text
         assert_eq!(find_nth_char(1, text, 'a', 0, Direction::Backward), None); // At start going backward
+    }
+}
+
+#[cfg(test)]
+mod buffer_tests {
+    use super::*;
+    use crate::Rope;
+
+    #[test]
+    fn regex_search_uses_character_coordinates_and_wraps_in_both_directions() {
+        let text = Rope::from("é😀é\n");
+        let text = text.slice(..);
+        let regex = rope::Regex::new("é").unwrap();
+        let first = Range::new(0, 1);
+        let last = Range::new(2, 3);
+        assert_eq!(
+            find_regex(text, first, &regex, Direction::Forward, false),
+            Some(SearchMatch {
+                range: last,
+                wrapped: false
+            })
+        );
+        assert_eq!(
+            find_regex(text, last, &regex, Direction::Forward, false),
+            None
+        );
+        assert_eq!(
+            find_regex(text, last, &regex, Direction::Forward, true),
+            Some(SearchMatch {
+                range: first,
+                wrapped: true
+            })
+        );
+        assert_eq!(
+            find_regex(text, first, &regex, Direction::Backward, true),
+            Some(SearchMatch {
+                range: last,
+                wrapped: true
+            })
+        );
+        let backward =
+            find_regex(text, Range::new(3, 2), &regex, Direction::Backward, false).unwrap();
+        assert_eq!(backward.range, Range::new(1, 0));
+    }
+
+    #[test]
+    fn zero_width_matches_advance_past_document_edges() {
+        let text = Rope::from("a\n");
+        let text = text.slice(..);
+        let regex = rope::Regex::new("(?m)$").unwrap();
+        let eof = find_regex(text, Range::new(1, 2), &regex, Direction::Forward, false).unwrap();
+        assert_eq!(eof.range, Range::point(2));
+        assert!(find_regex(text, eof.range, &regex, Direction::Forward, false).is_none());
+        let wrapped = find_regex(text, eof.range, &regex, Direction::Forward, true).unwrap();
+        assert_eq!(wrapped.range, Range::point(1));
+        assert!(wrapped.wrapped);
+        let start = rope::Regex::new("(?m)^").unwrap();
+        let wrapped =
+            find_regex(text, Range::new(0, 1), &start, Direction::Backward, true).unwrap();
+        assert_eq!(wrapped.range, Range::point(2));
+    }
+
+    #[test]
+    fn search_windows_preserve_line_anchors_for_lf_and_crlf() {
+        for newline in ["\n", "\r\n"] {
+            let text = Rope::from(format!("a{newline}b{newline}c"));
+            let text = text.slice(..);
+            let regex = rope::RegexBuilder::new()
+                .syntax(rope::Config::new().multi_line(true).crlf(newline == "\r\n"))
+                .build("^b$")
+                .unwrap();
+            let found =
+                find_regex(text, Range::new(0, 1), &regex, Direction::Forward, false).unwrap();
+            assert_eq!(
+                found.range,
+                Range::new(1 + newline.len(), 2 + newline.len())
+            );
+            assert_eq!(
+                find_regex(
+                    text,
+                    Range::point(text.len_chars()),
+                    &regex,
+                    Direction::Backward,
+                    false
+                )
+                .unwrap()
+                .range,
+                found.range
+            );
+        }
+    }
+
+    #[test]
+    fn selection_patterns_escape_literals_deduplicate_and_have_stable_order() {
+        let text = Rope::from("beta alpha beta\n");
+        let selection = Selection::new(
+            vec![Range::new(0, 4), Range::new(5, 10), Range::new(11, 15)].into(),
+            1,
+        );
+        assert_eq!(
+            selection_pattern(text.slice(..), &selection, true),
+            r"\balpha\b|\bbeta\b"
+        );
+        let text = Rope::from("é.+");
+        assert_eq!(
+            selection_pattern(text.slice(..), &Selection::single(0, 3), false),
+            r"é\.\+"
+        );
+        assert_eq!(
+            selection_pattern(text.slice(..), &Selection::point(3), true),
+            ""
+        );
     }
 }

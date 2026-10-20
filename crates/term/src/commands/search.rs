@@ -5,16 +5,13 @@ use crate::{
     ui::{self, overlay::overlaid, Picker, PickerColumn, PromptEvent},
 };
 use editor_core::{
-    chars::char_is_word,
-    graphemes,
     line_ending::line_end_char_index,
     movement::{Direction, Movement},
-    regex, LineEnding, Range, RopeSlice, Selection,
+    LineEnding, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::{collections::HashSet, ops::ControlFlow, sync::Arc};
-use stdx::rope::RopeExt as _;
-use stdx::rope::{self, RopeSliceExt};
+use std::{ops::ControlFlow, sync::Arc};
+use stdx::rope::{self, RopeExt as _};
 use view::{
     align_view,
     document::Mode,
@@ -22,89 +19,6 @@ use view::{
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
-
-#[allow(clippy::too_many_arguments)]
-fn search_impl(
-    editor: &mut Editor,
-    regex: &rope::Regex,
-    movement: Movement,
-    direction: Direction,
-    scrolloff: usize,
-    wrap_around: bool,
-    show_warnings: bool,
-) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-    let selection = doc.selection(view.id);
-
-    // Get the right side of the primary block cursor for forward search, or the
-    // grapheme before the start of the selection for reverse search.
-    let start = match direction {
-        Direction::Forward => text.char_to_byte_idx(graphemes::ensure_grapheme_boundary_next(
-            text,
-            selection.primary().to(),
-        )),
-        Direction::Backward => text.char_to_byte_idx(graphemes::ensure_grapheme_boundary_prev(
-            text,
-            selection.primary().from(),
-        )),
-    };
-
-    // A regex::Match returns byte-positions in the str. In the case where we
-    // do a reverse search and wraparound to the end, we don't need to search
-    // the text before the current cursor position for matches, but by slicing
-    // it out, we need to add it back to the position of the selection.
-    let doc = doc!(editor).text().slice(..);
-
-    // use find_at to find the next match after the cursor, loop around the end
-    // Careful, `Regex` uses `bytes` as offsets, not character indices!
-    let mut mat = match direction {
-        Direction::Forward => regex.find(doc.regex_input_at_bytes(start..)),
-        Direction::Backward => regex.find_iter(doc.regex_input_at_bytes(..start)).last(),
-    };
-
-    if mat.is_none() {
-        if wrap_around {
-            mat = match direction {
-                Direction::Forward => regex.find(doc.regex_input()),
-                Direction::Backward => regex.find_iter(doc.regex_input_at_bytes(start..)).last(),
-            };
-        }
-        if show_warnings {
-            if wrap_around && mat.is_some() {
-                editor.set_status("Wrapped around document");
-            } else {
-                editor.set_error(|| "No more matches");
-            }
-        }
-    }
-
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-    let selection = doc.selection(view.id);
-
-    if let Some(mat) = mat {
-        let start = text.byte_to_char_idx(mat.start());
-        let end = text.byte_to_char_idx(mat.end());
-
-        if end == 0 {
-            // skip empty matches that don't make sense
-            return;
-        }
-
-        // Determine range direction based on the primary range
-        let primary = selection.primary();
-        let range = Range::new(start, end).with_direction(primary.direction());
-
-        let selection = match movement {
-            Movement::Extend => selection.clone().push(range),
-            Movement::Move => selection.clone().replace(selection.primary_index(), range),
-        };
-
-        doc.set_selection(view.id, selection);
-        view.ensure_cursor_in_view_center(doc, scrolloff);
-    };
-}
 
 fn search_completions(cx: &mut Context, reg: Option<char>) -> Vec<String> {
     let mut items = reg
@@ -126,7 +40,6 @@ pub(super) fn rsearch(cx: &mut Context) {
 fn searcher(cx: &mut Context, direction: Direction) {
     let reg = cx.register.unwrap_or('/');
     let config = cx.editor.config();
-    let scrolloff = config.scroll.padding;
     let wrap_around = config.search.wrap_around;
     let movement = if cx.editor.mode() == Mode::Select {
         Movement::Extend
@@ -154,15 +67,8 @@ fn searcher(cx: &mut Context, direction: Direction) {
             } else if event != PromptEvent::Update {
                 return;
             }
-            search_impl(
-                cx.editor,
-                &regex,
-                movement,
-                direction,
-                scrolloff,
-                wrap_around,
-                false,
-            );
+            cx.editor
+                .search_buffer(&regex, movement, direction, 1, wrap_around);
         },
     );
 }
@@ -173,7 +79,6 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         .register
         .unwrap_or(cx.editor.registers.last_search_register);
     let config = cx.editor.config();
-    let scrolloff = config.scroll.padding;
     if let Some(query) = cx.editor.first_register_value(register) {
         let search_config = &config.search;
         let case_insensitive = if search_config.smart_case {
@@ -193,16 +98,17 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
             .build(&query)
         {
             Ok(regex) => {
-                for _ in 0..count {
-                    search_impl(
-                        cx.editor,
-                        &regex,
-                        movement,
-                        direction,
-                        scrolloff,
-                        wrap_around,
-                        true,
-                    );
+                match cx
+                    .editor
+                    .search_buffer(&regex, movement, direction, count, wrap_around)
+                {
+                    view::editor::SearchOutcome::Found { wrapped: true } => {
+                        cx.editor.set_status("Wrapped around document")
+                    }
+                    view::editor::SearchOutcome::NotFound => {
+                        cx.editor.set_error(|| "No more matches")
+                    }
+                    view::editor::SearchOutcome::Found { wrapped: false } => {}
                 }
             }
             _ => {
@@ -240,55 +146,15 @@ pub(super) fn search_selection_detect_word_boundaries(cx: &mut Context) {
 }
 
 fn search_selection_impl(cx: &mut Context, detect_word_boundaries: bool) {
-    fn is_at_word_start(text: RopeSlice, index: usize) -> bool {
-        // This can happen when the cursor is at the last character in
-        // the document +1 (ge + j), in this case text.char_at(index) will panic as
-        // it will index out of bounds. See https://github.com/helix-editor/helix/issues/12609
-        if index == text.len_chars() {
-            return false;
-        }
-        let ch = text.char_at(index);
-        if index == 0 {
-            return char_is_word(ch);
-        }
-        let prev_ch = text.char_at(index - 1);
-
-        !char_is_word(prev_ch) && char_is_word(ch)
-    }
-
-    fn is_at_word_end(text: RopeSlice, index: usize) -> bool {
-        if index == 0 || index == text.len_chars() {
-            return false;
-        }
-        let ch = text.char_at(index);
-        let prev_ch = text.char_at(index - 1);
-
-        char_is_word(prev_ch) && !char_is_word(ch)
-    }
-
     let register = cx.register.unwrap_or('/');
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
 
-    let regex = doc
-        .selection(view.id)
-        .iter()
-        .map(|selection| {
-            let add_boundary_prefix =
-                detect_word_boundaries && is_at_word_start(text, selection.from());
-            let add_boundary_suffix =
-                detect_word_boundaries && is_at_word_end(text, selection.to());
-
-            let prefix = if add_boundary_prefix { "\\b" } else { "" };
-            let suffix = if add_boundary_suffix { "\\b" } else { "" };
-
-            let word = regex::escape(&selection.fragment(text));
-            format!("{}{}{}", prefix, word, suffix)
-        })
-        .collect::<HashSet<_>>() // Collect into hashset to deduplicate identical regexes
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join("|");
+    let regex = editor_core::search::selection_pattern(
+        text,
+        doc.selection(view.id),
+        detect_word_boundaries,
+    );
 
     let msg = format!("register '{}' set to '{}'", register, regex);
     match cx.editor.registers.push(register, regex) {
