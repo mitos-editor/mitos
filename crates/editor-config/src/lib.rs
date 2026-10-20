@@ -280,8 +280,8 @@ where
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BorderStyle {
-    #[default]
     Plain,
+    #[default]
     Rounded,
     Double,
     Thick,
@@ -878,7 +878,7 @@ pub struct WhitespaceConfig {
 impl Default for WhitespaceConfig {
     fn default() -> Self {
         Self {
-            render: WhitespaceRender::Basic(WhitespaceRenderValue::None),
+            render: WhitespaceRender::Basic(WhitespaceRenderValue::Trailing),
             characters: WhitespaceCharacters::default(),
         }
     }
@@ -1483,11 +1483,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn border_style_defaults_to_plain_and_round_trips_all_choices() {
-        assert_eq!(Config::default().border_style, BorderStyle::Plain);
+    fn border_style_defaults_to_rounded_and_round_trips_all_choices() {
+        assert_eq!(Config::default().border_style, BorderStyle::Rounded);
         assert_eq!(
             toml::from_str::<Config>("").unwrap().border_style,
-            BorderStyle::Plain
+            BorderStyle::Rounded
         );
 
         for (name, expected) in [

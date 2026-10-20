@@ -713,19 +713,15 @@ mod whitespace_tests {
 
     #[test]
     fn trailing_spaces_and_unicode_before_crlf_and_eof() {
-        let surface = render(
-            "a b \u{00a0}\u{202f}\r\nc ",
-            "[whitespace]\nrender = 'trailing'",
-            12,
-            false,
-            0,
-        );
-        assert_eq!(row(&surface, 0), "a b·⍽␣      ");
-        assert_eq!(row(&surface, 1), "c·          ");
-        assert_eq!(surface[(1, 0)].fg, Color::Blue);
-        assert_eq!(surface[(3, 0)].fg, Color::Red);
-        // The formatter's synthetic EOF space must stay invisible.
-        assert_eq!(surface[(2, 1)].symbol(), " ");
+        for settings in ["", "[whitespace]\nrender = 'trailing'"] {
+            let surface = render("a b \u{00a0}\u{202f}\r\nc ", settings, 12, false, 0);
+            assert_eq!(row(&surface, 0), "a b·⍽␣      ");
+            assert_eq!(row(&surface, 1), "c·          ");
+            assert_eq!(surface[(1, 0)].fg, Color::Blue);
+            assert_eq!(surface[(3, 0)].fg, Color::Red);
+            // The formatter's synthetic EOF space must stay invisible.
+            assert_eq!(surface[(2, 1)].symbol(), " ");
+        }
     }
 
     #[test]

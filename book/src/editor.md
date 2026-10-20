@@ -122,6 +122,18 @@ prose instead. Languages can override soft wrapping and text width.
 
 ## Visible whitespace
 
+By default, whitespace is shown only at the end of document lines, including
+the final line without a newline. This is equivalent to:
+
+```toml
+[editor.whitespace]
+render = "trailing"
+```
+
+Character glyphs keep their defaults unless configured separately. Whitespace
+at a soft wrap or viewport edge is only shown if it also belongs to the trailing
+whitespace of that document line.
+
 To show all whitespace characters:
 
 ```toml
@@ -141,11 +153,6 @@ newline = "all"
 tab = "→"
 tabpad = "·"
 ```
-
-Set `render = "trailing"` to show spaces, tabs, non-breaking spaces, and narrow
-non-breaking spaces only at the end of document lines, including the final line
-without a newline. Whitespace at a soft wrap or viewport edge is only shown if
-it also belongs to the trailing whitespace of that document line.
 
 Each kind also accepts `"trailing"` independently, for example:
 

@@ -111,7 +111,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `continue-comments` | boolean | `true` | Continue a line comment when Enter creates a new line inside it. |
 | `auto-info` | boolean | `true` | Display contextual information popups. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
-| `border-style` | `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"plain"` | Border glyphs for panels, popups, menus, and separators. This preference stays the same when switching themes; colors come from the theme. |
+| `border-style` | `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. This preference stays the same when switching themes; colors come from the theme. |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
@@ -535,19 +535,23 @@ enable delayed saving.
 
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
-| `render` | `"none"`, `"all"`, or table | `"none"` | Render all whitespace uniformly, or configure kinds separately. |
-| `render.default` | `"none"` or `"all"` | `"none"` | Fallback for omitted per-kind rendering values. |
-| `render.space` | `"none"` or `"all"` | Inherits `default` | Render ordinary spaces. |
-| `render.nbsp` | `"none"` or `"all"` | Inherits `default` | Render non-breaking spaces. |
-| `render.nnbsp` | `"none"` or `"all"` | Inherits `default` | Render narrow non-breaking spaces. |
-| `render.tab` | `"none"` or `"all"` | Inherits `default` | Render tabs. |
-| `render.newline` | `"none"` or `"all"` | Inherits `default` | Render line endings. |
+| `render` | `"none"`, `"trailing"`, `"all"`, or table | `"trailing"` | Render all whitespace uniformly, or configure kinds separately. |
+| `render.default` | `"none"`, `"trailing"`, or `"all"` | `"none"` | Fallback for omitted per-kind rendering values when using a table. |
+| `render.space` | `"none"`, `"trailing"`, or `"all"` | Inherits `default` | Render ordinary spaces. |
+| `render.nbsp` | `"none"`, `"trailing"`, or `"all"` | Inherits `default` | Render non-breaking spaces. |
+| `render.nnbsp` | `"none"`, `"trailing"`, or `"all"` | Inherits `default` | Render narrow non-breaking spaces. |
+| `render.tab` | `"none"`, `"trailing"`, or `"all"` | Inherits `default` | Render tabs. |
+| `render.newline` | `"none"`, `"trailing"`, or `"all"` | Inherits `default` | Render line endings with `"all"`; `"trailing"` keeps them hidden. |
 | `characters.space` | character | `"·"` | Glyph for a space. |
 | `characters.nbsp` | character | `"⍽"` | Glyph for a non-breaking space. |
 | `characters.nnbsp` | character | `"␣"` | Glyph for a narrow non-breaking space. |
 | `characters.tab` | character | `"→"` | Glyph at the start of a tab. |
 | `characters.tabpad` | character | `" "` | Glyph used to fill the rest of a tab. |
 | `characters.newline` | character | `"⏎"` | Glyph for a line ending. |
+
+The default `"trailing"` mode shows whitespace only at the end of a document
+line, including the last line without a line ending. Interior whitespace and
+line endings stay hidden.
 
 ### `[editor.indent-guides]`
 
