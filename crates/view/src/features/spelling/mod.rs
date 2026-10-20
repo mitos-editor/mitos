@@ -277,7 +277,12 @@ impl Editor {
                                         Some(Tendril::from(&*suggestion)),
                                     )),
                                 );
-                                crate::editing::apply(doc, &transaction, view_id);
+                                if let Err(error) =
+                                    crate::editing::apply(doc, &transaction, view_id)
+                                {
+                                    editor.set_error(|| error.to_string());
+                                    return;
+                                }
                                 crate::editing::commit(doc, view);
                             },
                         ));

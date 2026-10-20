@@ -495,7 +495,10 @@ pub(crate) fn invalidate(editor: &mut Editor) {
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
         return;
     }
-    editor.restore_completion_preview();
+    if let Err(error) = editor.restore_completion_preview() {
+        editor.set_error(|| error.to_string());
+        return;
+    }
     editor.handlers.completions.invalidate();
 }
 

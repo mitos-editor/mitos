@@ -429,7 +429,7 @@ mod tests {
         assert_eq!(doc.text(), &Rope::new());
         assert!(doc.language_config().is_none());
         let insert = Transaction::insert(doc.text(), &Selection::point(0), "corrupt".into());
-        assert!(!view::editing::apply(&mut doc, &insert, ViewId::default()));
+        assert!(view::editing::apply(&mut doc, &insert, ViewId::default()).is_err());
         assert!(!doc.is_modified());
         assert!(doc.save::<PathBuf>(None, false).is_err());
         assert!(doc.save::<PathBuf>(None, true).is_err());

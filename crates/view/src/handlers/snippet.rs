@@ -14,11 +14,12 @@ pub(super) fn register_hooks() {
 
 impl Editor {
     /// Remove the active placeholder before inserting replacement input.
-    pub fn clear_snippet_placeholder(&mut self) -> bool {
+    pub fn clear_snippet_placeholder(&mut self) -> Result<bool, crate::editing::EditError> {
         let (view, doc) = current!(self);
         let Some(snippet) = &doc.active_snippet else {
-            return false;
+            return Ok(false);
         };
-        crate::editing::apply(doc, &snippet.delete_placeholder(doc.text()), view.id)
+        crate::editing::apply(doc, &snippet.delete_placeholder(doc.text()), view.id)?;
+        Ok(true)
     }
 }

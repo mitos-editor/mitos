@@ -118,9 +118,7 @@ impl FormattingUpdate {
         };
         let scrolloff = editor.config().scroll.padding;
         let doc = doc_mut!(editor, &snapshot.document);
-        if !crate::editing::apply(doc, &transaction, view) {
-            return Ok(false);
-        }
+        crate::editing::apply(doc, &transaction, view)?;
         if matches!(kind, FormatKind::Document) {
             let view = view_mut!(editor, view);
             crate::editing::commit(doc, view);

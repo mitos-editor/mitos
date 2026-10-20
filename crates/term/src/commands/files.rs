@@ -310,7 +310,7 @@ pub(super) mod typed {
             Some(view_id),
             path.map(Into::into),
             options,
-        );
+        )?;
         submit_save(cx.editor, cx.jobs, request)
     }
 
@@ -557,7 +557,7 @@ pub(super) mod typed {
                 }
             }),
         );
-        view::editing::try_apply(doc, &transaction, view.id)?;
+        view::editing::apply(doc, &transaction, view.id)?;
         doc.line_ending = line_ending;
         view::editing::commit(doc, view);
 
@@ -991,7 +991,7 @@ pub(super) mod typed {
         let contents = Tendril::from(contents);
         let selection = doc.selection(view.id);
         let transaction = Transaction::insert(doc.text(), selection, contents);
-        view::editing::try_apply(doc, &transaction, view.id)?;
+        view::editing::apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 

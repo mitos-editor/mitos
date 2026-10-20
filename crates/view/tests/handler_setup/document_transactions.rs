@@ -48,7 +48,7 @@ async fn same_length_stale_edits_preserve_pending_typing() -> anyhow::Result<()>
     let (id, version) = (doc.id(), doc.version());
     let stale = Transaction::change(doc.text(), [(1, 2, Some("Z".into()))].into_iter());
     let first = Transaction::change(doc.text(), [(0, 1, Some("A".into()))].into_iter());
-    assert!(view::editing::apply(doc, &first, view.id));
+    view::editing::apply(doc, &first, view.id).unwrap();
     let actual = doc.version();
     assert_eq!(
         fixture
@@ -62,7 +62,7 @@ async fn same_length_stale_edits_preserve_pending_typing() -> anyhow::Result<()>
     let (view, doc) = current!(fixture.editor);
     assert_eq!(doc.text().to_string(), "Abc\n");
     let second = Transaction::change(doc.text(), [(2, 3, Some("C".into()))].into_iter());
-    assert!(view::editing::apply(doc, &second, view.id));
+    view::editing::apply(doc, &second, view.id).unwrap();
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text().to_string(), "abc\n");
     assert!(!view::editing::undo(doc, view));
@@ -159,17 +159,17 @@ async fn branching_history_restores_each_revisions_selection() -> anyhow::Result
     doc.set_selection(view.id, Selection::single(0, 1));
     let first = Transaction::change(doc.text(), [(0, 1, Some("A".into()))].into_iter())
         .with_selection(Selection::single(1, 2));
-    assert!(view::editing::apply(doc, &first, view.id));
+    view::editing::apply(doc, &first, view.id).unwrap();
     view::editing::commit(doc, view);
     let second = Transaction::change(doc.text(), [(1, 2, Some("B".into()))].into_iter())
         .with_selection(Selection::single(2, 3));
-    assert!(view::editing::apply(doc, &second, view.id));
+    view::editing::apply(doc, &second, view.id).unwrap();
     view::editing::commit(doc, view);
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.selection(view.id), &Selection::single(1, 2));
     let alternative = Transaction::change(doc.text(), [(1, 2, Some("Z".into()))].into_iter())
         .with_selection(Selection::single(0, 1));
-    assert!(view::editing::apply(doc, &alternative, view.id));
+    view::editing::apply(doc, &alternative, view.id).unwrap();
     view::editing::commit(doc, view);
     assert!(view::editing::earlier(doc, view, UndoKind::Steps(1)));
     assert_eq!(doc.text().to_string(), "ABc\n");
@@ -232,7 +232,7 @@ async fn document_edits_preserve_pending_native_undo_groups_and_map_every_split(
     let (view, doc) = current!(fixture.editor);
     doc.set_selection(view.id, Selection::point(2));
     let native = Transaction::change(doc.text(), [(0, 0, Some("N".into()))].into_iter());
-    assert!(view::editing::apply(doc, &native, view.id));
+    view::editing::apply(doc, &native, view.id).unwrap();
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("D".into()))].into_iter());
     fixture.editor.apply_document_changes(
         id,
@@ -279,7 +279,7 @@ async fn rejected_transactions_preserve_pending_native_undo_groups() -> anyhow::
     let id = doc.id();
     let stale = Transaction::change(doc.text(), [(0, 1, Some("Z".into()))].into_iter());
     let first = Transaction::change(doc.text(), [(0, 0, Some("A".into()))].into_iter());
-    assert!(view::editing::apply(doc, &first, view.id));
+    view::editing::apply(doc, &first, view.id).unwrap();
     assert!(fixture
         .editor
         .apply_document_changes(
@@ -290,7 +290,7 @@ async fn rejected_transactions_preserve_pending_native_undo_groups() -> anyhow::
         .is_err());
     let (view, doc) = current!(fixture.editor);
     let second = Transaction::change(doc.text(), [(0, 0, Some("B".into()))].into_iter());
-    assert!(view::editing::apply(doc, &second, view.id));
+    view::editing::apply(doc, &second, view.id).unwrap();
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text().to_string(), "abc\n");
     assert!(!view::editing::undo(doc, view));
@@ -303,7 +303,7 @@ async fn empty_transactions_preserve_pending_native_undo_groups() -> anyhow::Res
     let (view, doc) = current!(fixture.editor);
     let id = doc.id();
     let first = Transaction::change(doc.text(), [(0, 0, Some("A".into()))].into_iter());
-    assert!(view::editing::apply(doc, &first, view.id));
+    view::editing::apply(doc, &first, view.id).unwrap();
     let empty = Transaction::new(doc.text());
     let version = doc.version();
     fixture.editor.apply_document_changes(
@@ -314,7 +314,7 @@ async fn empty_transactions_preserve_pending_native_undo_groups() -> anyhow::Res
     let (view, doc) = current!(fixture.editor);
     assert_eq!(doc.version(), version);
     let second = Transaction::change(doc.text(), [(0, 0, Some("B".into()))].into_iter());
-    assert!(view::editing::apply(doc, &second, view.id));
+    view::editing::apply(doc, &second, view.id).unwrap();
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text().to_string(), "abc\n");
     assert!(!view::editing::undo(doc, view));
@@ -331,7 +331,7 @@ async fn closing_the_originating_split_preserves_pending_edit_undo_selection() -
     let origin = view.id;
     doc.set_selection(origin, Selection::single(2, 3));
     let native = Transaction::change(doc.text(), [(0, 0, Some("N".into()))].into_iter());
-    assert!(view::editing::apply(doc, &native, origin));
+    view::editing::apply(doc, &native, origin).unwrap();
     fixture.editor.close(origin);
 
     let doc = fixture.editor.document(id).unwrap();
@@ -366,10 +366,10 @@ async fn document_edits_synchronize_stale_split_jump_lists() -> anyhow::Result<(
     let second = view.id;
     view.push_jump(doc, (id, Selection::single(2, 3)));
     let committed = Transaction::change(doc.text(), [(0, 0, Some("C".into()))].into_iter());
-    assert!(view::editing::apply(doc, &committed, view.id));
+    view::editing::apply(doc, &committed, view.id).unwrap();
     view::editing::commit(doc, view);
     let pending = Transaction::change(doc.text(), [(0, 0, Some("P".into()))].into_iter());
-    assert!(view::editing::apply(doc, &pending, view.id));
+    view::editing::apply(doc, &pending, view.id).unwrap();
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("D".into()))].into_iter());
     fixture.editor.apply_document_changes(
         id,
@@ -391,7 +391,7 @@ async fn empty_undo_groups_do_not_supply_cursors_to_later_document_edits() -> an
     let (view, doc) = current!(fixture.editor);
     doc.set_selection(view.id, Selection::single(1, 2));
     let insert = Transaction::change(doc.text(), [(0, 0, Some("x".into()))].into_iter());
-    assert!(view::editing::apply(doc, &insert, view.id));
+    view::editing::apply(doc, &insert, view.id).unwrap();
     let remove = Transaction::change(doc.text(), [(0, 1, None)].into_iter());
     doc.apply(remove.changes())?;
     assert_eq!(doc.commit_changes(), None);

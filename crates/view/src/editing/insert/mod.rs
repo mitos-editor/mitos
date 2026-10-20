@@ -67,7 +67,7 @@ pub fn insert_char(
             .unwrap_or_else(|| insert_char(*range, c))
     });
 
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// Insert indentation up to the next indent stop at each cursor.
@@ -89,7 +89,7 @@ pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) -> Result<(
             (cursor, cursor, Some(indent))
         }),
     );
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// Insert line endings with language-aware indentation and comment continuation.
@@ -245,7 +245,7 @@ pub fn insert_newline(
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
     drop(config);
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// Move cursors to line boundaries and indent empty lines.
@@ -310,7 +310,7 @@ pub fn insert_at_line_boundary(
     });
 
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// Open indented lines above or below selections.
@@ -434,7 +434,7 @@ pub fn open_lines(
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
     drop(config);
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// Add blank lines above or below selections without changing editing mode.
@@ -463,7 +463,7 @@ pub fn add_newlines(
     });
 
     let transaction = Transaction::change(text, changes);
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 #[cfg(test)]

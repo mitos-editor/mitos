@@ -84,7 +84,7 @@ impl Editor {
                 doc.text(),
                 [(end, end, Some(doc.line_ending.as_str().into()))].into_iter(),
             );
-            editing::try_apply(doc, &transaction, view.id)?;
+            editing::apply(doc, &transaction, view.id)?;
         }
         let selection = doc.selection(view.id).clone().transform(|range| {
             Range::new(
@@ -201,7 +201,7 @@ fn try_restore_indent(doc: &mut Document, view: &mut View) -> Result<(), EditErr
         let line_start_pos = text.line_to_char_idx(range.cursor_line(text));
         let transaction =
             Transaction::change(doc.text(), [(line_start_pos, pos, None)].into_iter());
-        editing::try_apply(doc, &transaction, view.id)?;
+        editing::apply(doc, &transaction, view.id)?;
     }
     Ok(())
 }

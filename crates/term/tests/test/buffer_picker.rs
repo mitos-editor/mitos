@@ -134,7 +134,7 @@ async fn modified_selected_buffer_reports_error_and_keeps_picker_open() -> anyho
     f.app.editor.switch(f.ids[0], Action::Replace);
     let (view, doc) = current!(f.app.editor);
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("changed".into()))].into_iter());
-    view::editing::apply(doc, &transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     f.app.editor.switch(f.ids[1], Action::Replace);
     f.keys("<space>b").await?;
     f.keys("pick").await?;
@@ -160,7 +160,7 @@ async fn close_selected_buffer_waits_for_pending_save() -> anyhow::Result<()> {
     f.app.editor.switch(f.ids[0], Action::Replace);
     let (view, doc) = current!(f.app.editor);
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("saved ".into()))].into_iter());
-    view::editing::apply(doc, &transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let path = doc.path().unwrap().to_owned();
     f.app.editor.switch(f.ids[1], Action::Replace);
     f.keys("<space>b").await?;

@@ -120,7 +120,7 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
     assert_eq!(f.messages(), ["current"]);
     let (view, doc) = current!(f.app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "x".into());
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let version = doc.version();
     for stale in [version - 1, version + 1] {
         f.app
@@ -424,7 +424,7 @@ async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Resul
         let id = doc.id();
         let uri = doc.identifier().uri;
         let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "x".into());
-        assert!(view::editing::apply(doc, &transaction, view.id));
+        view::editing::apply(doc, &transaction, view.id).unwrap();
         fixture.app.editor.new_file(view::editor::Action::Replace);
         assert!(fixture.app.editor.close_document(id, true).is_ok());
         // Application shutdown only flushes outgoing messages. Await the fixture's
@@ -480,7 +480,7 @@ async fn document_synchronization_precedes_early_change_and_close_observers() ->
     let (view, doc) = current!(fixture.app.editor);
     let id = doc.id();
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "x".into());
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     assert!(fixture.app.editor.close_document(id, true).is_ok());
     // A response is a transport barrier for all earlier notifications.
     fixture
@@ -526,7 +526,7 @@ async fn documents_open_once_with_current_text_after_editor_initialization() -> 
     f.app.editor.open(&second, view::editor::Action::Replace)?;
     let (view, doc) = current!(f.app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "changed ".into());
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let uri = doc.identifier().uri;
     let text = doc.text().to_string();
     let version = doc.version();

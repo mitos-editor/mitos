@@ -1113,7 +1113,7 @@ async fn test_shared_auto_save_prepares_hidden_files_without_formatting() -> any
     let scratch_id = app.editor.new_file(Action::Replace);
     let (view, doc) = current!(app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "scratch   ".into());
-    view::editing::apply(doc, &transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let scratch_before = doc.text().clone();
 
     // No command context, job collection, or command dispatch is needed.
@@ -1145,7 +1145,7 @@ async fn test_shared_save_all_reports_scratch_after_saving_files() -> anyhow::Re
     app.editor.new_file(Action::Replace);
     let (view, doc) = current!(app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "scratch".into());
-    view::editing::apply(doc, &transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let scratch_before = doc.text().clone();
     let options = save::WriteAllOptions {
         force: false,
@@ -1199,7 +1199,7 @@ async fn test_shared_save_all_stops_before_preparing_later_documents() -> anyhow
     app.editor.open(second.path(), Action::Replace)?;
     let (view, doc) = current!(app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "second   ".into());
-    view::editing::apply(doc, &transaction, view.id);
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     let before: Vec<_> = app
         .editor
         .documents()

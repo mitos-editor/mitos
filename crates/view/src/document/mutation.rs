@@ -21,10 +21,17 @@ impl Document {
 
     pub(crate) fn validate_changes(&self, changes: &ChangeSet) -> Result<(), EditError> {
         self.buffer.validate_changes(changes)?;
-        if self.is_virtual() && !changes.is_empty() {
+        if !changes.is_empty() {
+            self.validate_editable()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_editable(&self) -> Result<(), EditError> {
+        if self.is_virtual() {
             return Err(EditError::ReadOnlyDocument);
         }
-        if self.is_binary() && !changes.is_empty() {
+        if self.is_binary() {
             return Err(EditError::BinaryDocument);
         }
         Ok(())

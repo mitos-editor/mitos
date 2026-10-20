@@ -138,7 +138,7 @@ impl Fixture {
             doc.text(),
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
-        assert!(view::editing::apply(doc, &transaction, view.id));
+        view::editing::apply(doc, &transaction, view.id).unwrap();
     }
 
     fn automatic(&mut self, enabled: bool) {

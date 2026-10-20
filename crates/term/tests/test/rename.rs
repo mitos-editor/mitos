@@ -150,7 +150,7 @@ async fn rename_without_prepare_support_uses_the_captured_word_and_rejects_edits
     assert_eq!(session.prefill(), "foo");
     let (view, doc) = current!(app.editor);
     let change = Transaction::change(doc.text(), [(2, 5, Some("new".into()))].into_iter());
-    assert!(view::editing::apply(doc, &change, view.id));
+    view::editing::apply(doc, &change, view.id).unwrap();
     assert!(app
         .editor
         .rename_symbol(session, "unexpected".into())
@@ -167,7 +167,7 @@ async fn queued_rename_reply_cannot_overwrite_a_newer_document() -> anyhow::Resu
     let callback = f.response().await?;
     let (view, doc) = current!(f.app.editor);
     let change = Transaction::change(doc.text(), [(2, 5, Some("new".into()))].into_iter());
-    assert!(view::editing::apply(doc, &change, view.id));
+    view::editing::apply(doc, &change, view.id).unwrap();
     callback(&mut f.app.editor);
     assert_eq!(current_ref!(f.app.editor).1.text().to_string(), "😀 new\n");
     Ok(())

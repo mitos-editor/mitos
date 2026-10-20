@@ -77,12 +77,7 @@ impl SelectionHistory {
 
 /// Apply an interactive transaction with an originating selection. Text mutation
 /// and pending undo groups use the same document path as edits without a view.
-pub fn apply(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
-    try_apply(doc, transaction, origin).is_ok()
-}
-
-/// Apply an interactive transaction, returning the reason an edit was rejected.
-pub fn try_apply(
+pub fn apply(
     doc: &mut Document,
     transaction: &Transaction,
     origin: ViewId,
@@ -91,8 +86,12 @@ pub fn try_apply(
 }
 
 /// Apply a completion preview without sending its temporary text to language servers.
-pub fn apply_temporary(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
-    apply_with_notifications(doc, transaction, origin, false).is_ok()
+pub fn apply_temporary(
+    doc: &mut Document,
+    transaction: &Transaction,
+    origin: ViewId,
+) -> Result<(), EditError> {
+    apply_with_notifications(doc, transaction, origin, false)
 }
 
 pub(crate) fn apply_with_notifications(
@@ -179,7 +178,7 @@ pub fn replace_selections(
                 Some(selection),
             )
         });
-    try_apply(doc, &transaction, view.id)?;
+    apply(doc, &transaction, view.id)?;
     commit(doc, view);
     Ok(())
 }
@@ -215,7 +214,7 @@ pub fn paste<T: AsRef<str>>(
     if mode == crate::document::Mode::Normal {
         transaction = transaction.with_selection(inserted);
     }
-    try_apply(doc, &transaction, view.id)?;
+    apply(doc, &transaction, view.id)?;
     commit(doc, view);
     Ok(true)
 }
@@ -240,13 +239,13 @@ pub fn replace_selection_contents<T: AsRef<str>>(
     if transaction.changes().is_empty() {
         return Ok(false);
     }
-    try_apply(doc, &transaction, view.id)?;
+    apply(doc, &transaction, view.id)?;
     commit(doc, view);
     Ok(true)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
@@ -309,12 +308,12 @@ mod tests {
             doc.text(),
             [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
         );
-        assert!(apply(&mut doc, &edit, view.id));
+        apply(&mut doc, &edit, view.id).unwrap();
         commit(&mut doc, &mut view);
         assert_eq!(last_edit_pos(&mut doc), Some(7));
     }
 
-    pub(super) fn document_and_view(input: &str) -> (Document, View) {
+    pub(crate) fn document_and_view(input: &str) -> (Document, View) {
         let (text, selection) = test::print(input);
         let mut doc = Document::from(
             Rope::from(text),

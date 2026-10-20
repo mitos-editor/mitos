@@ -109,7 +109,7 @@ async fn file_preflight_keeps_the_editor_available_and_rejects_changed_targets(
                     doc.selection(view.id),
                     "typed".into(),
                 );
-                assert!(view::editing::apply(doc, &edit, view.id));
+                view::editing::apply(doc, &edit, view.id).unwrap();
             }
             "path" => std::fs::write(&target, "external\n")?,
             "closed" => {

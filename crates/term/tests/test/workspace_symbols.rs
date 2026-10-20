@@ -115,7 +115,7 @@ async fn workspace_symbol_picker_refreshes_edited_buffers_and_keeps_its_query() 
         doc.text(),
         [(0, doc.text().len_chars(), Some("new\n".into()))].into_iter(),
     );
-    assert!(view::editing::apply(doc, &edit, view.id));
+    view::editing::apply(doc, &edit, view.id).unwrap();
     super::helpers::keys(&mut app, "").await?;
     let screen: String = app
         .terminal_backend()

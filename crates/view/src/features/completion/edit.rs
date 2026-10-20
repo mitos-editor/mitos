@@ -10,7 +10,7 @@ use super::{
     additional_edits_transaction, trigger_auto_completion, AcceptedCompletion, CompletionItem,
     CompletionSession, TextCompletion,
 };
-use crate::{document::SavePoint, DocumentId, Editor, ViewId};
+use crate::{document::SavePoint, editing::EditError, Document, DocumentId, Editor, ViewId};
 
 /// Accepted edit information a frontend can record for insert-mode repetition.
 pub struct CompletionApply {
@@ -34,6 +34,33 @@ struct PreparedCompletion {
     transaction: Transaction,
     snippet: Option<RenderedSnippet>,
     additional: Option<Transaction>,
+}
+
+impl PreparedCompletion {
+    // Check the whole edit against its saved text before restoring previews or
+    // committing typing. Additional edits use the primary edit's resulting text.
+    fn validate(&self, doc: &Document) -> Result<(), EditError> {
+        if !self.transaction.changes().is_empty()
+            || self
+                .additional
+                .as_ref()
+                .is_some_and(|edit| !edit.changes().is_empty())
+        {
+            doc.validate_editable()?;
+        }
+        let (mut text, _) = self.savepoint.saved_state(doc.text());
+        for edit in std::iter::once(&self.transaction).chain(self.additional.iter()) {
+            let expected = text.len_chars();
+            if edit.changes().len_before() != expected {
+                return Err(EditError::InvalidLength {
+                    expected,
+                    actual: edit.changes().len_before(),
+                });
+            }
+            edit.apply(&mut text);
+        }
+        Ok(())
+    }
 }
 
 impl Editor {
@@ -117,15 +144,19 @@ impl Editor {
 
     /// Show an unsynchronized edit. Restore it before applying real changes, so
     /// incremental language-server updates always start from synchronized text.
-    /// Returns false when the item's provider or completion session has expired.
+    /// Returns `Ok(false)` for an expired provider or session, or the edit's rejection.
     pub fn preview_completion(
         &mut self,
         session: &CompletionSession,
         item: &CompletionItem,
-    ) -> bool {
+    ) -> Result<bool, EditError> {
         let Some(prepared) = self.prepare_completion(session, item) else {
-            return false;
+            return Ok(false);
         };
+        prepared.validate(
+            self.document(session.trigger.doc)
+                .expect("validated session"),
+        )?;
         let previewing = super::has_preview(self);
         let (view, doc) = current!(self);
         if !previewing {
@@ -135,12 +166,12 @@ impl Editor {
                 view: view.id,
             });
         }
-        doc.restore(view, &prepared.savepoint, false);
-        crate::editing::apply_temporary(doc, &prepared.transaction, view.id);
+        doc.restore(view, &prepared.savepoint, false)?;
+        crate::editing::apply_temporary(doc, &prepared.transaction, view.id)?;
         if let Some(additional) = prepared.additional {
-            crate::editing::apply_temporary(doc, &additional, view.id);
+            crate::editing::apply_temporary(doc, &additional, view.id)?;
         }
-        true
+        Ok(true)
     }
 
     /// Insert the selected text and snippet, then apply or resolve additional
@@ -149,23 +180,27 @@ impl Editor {
         &mut self,
         session: &CompletionSession,
         item: &CompletionItem,
-    ) -> bool {
-        let Some(PreparedCompletion {
+    ) -> Result<bool, EditError> {
+        let Some(prepared) = self.prepare_completion(session, item) else {
+            return Ok(false);
+        };
+        prepared.validate(
+            self.document(session.trigger.doc)
+                .expect("validated session"),
+        )?;
+        let PreparedCompletion {
             savepoint,
             transaction,
             snippet,
             additional,
-        }) = self.prepare_completion(session, item)
-        else {
-            return false;
-        };
+        } = prepared;
         let trigger_offset = session.trigger.pos;
-        self.restore_completion_preview();
+        self.restore_completion_preview()?;
         let (view, doc) = current!(self);
-        doc.restore(view, &savepoint, true);
+        doc.restore(view, &savepoint, true)?;
         crate::editing::commit(doc, view);
         let before = doc.snapshot();
-        crate::editing::apply(doc, &transaction, view.id);
+        crate::editing::apply(doc, &transaction, view.id)?;
         let placeholder = snippet.is_some();
         if let Some(snippet) = snippet {
             doc.active_snippet = match doc.active_snippet.take() {
@@ -183,7 +218,7 @@ impl Editor {
         }));
 
         if let Some(additional) = additional {
-            crate::editing::apply(doc, &additional, view.id);
+            crate::editing::apply(doc, &additional, view.id)?;
         }
         let document = doc.id();
         if let CompletionItem::Lsp(item) = item
@@ -198,39 +233,40 @@ impl Editor {
         }
         // An accepted item can itself end in a completion trigger, such as `::`.
         trigger_auto_completion(self, true);
-        true
+        Ok(true)
     }
 
-    pub(super) fn restore_completion_preview(&mut self) {
+    pub(super) fn restore_completion_preview(&mut self) -> Result<(), EditError> {
         let Some(CompletionEdit::Preview {
             savepoint,
             document,
             view,
         }) = &self.handlers.completions.edit
         else {
-            return;
+            return Ok(());
         };
         let (savepoint, document, view) = (savepoint.clone(), *document, *view);
-        self.handlers.completions.edit = None;
         if self
             .tree
             .try_get(view)
             .is_some_and(|view| view.doc == document)
             && let Some(doc) = self.documents.get_mut(&document)
         {
-            doc.restore(self.tree.get_mut(view), &savepoint, false);
+            doc.restore(self.tree.get_mut(view), &savepoint, false)?;
         }
+        self.handlers.completions.edit = None;
+        Ok(())
     }
 
     /// Dismiss a menu, restoring an unaccepted preview and returning only accepted
     /// edit metadata. A newly scheduled completion trigger remains intact.
-    pub fn finish_completion(&mut self) -> Option<CompletionApply> {
-        self.restore_completion_preview();
+    pub fn finish_completion(&mut self) -> Result<Option<CompletionApply>, EditError> {
+        self.restore_completion_preview()?;
         self.handlers.completions.dismiss();
-        match self.handlers.completions.edit.take() {
+        Ok(match self.handlers.completions.edit.take() {
             Some(CompletionEdit::Applied(applied)) => Some(applied),
             _ => None,
-        }
+        })
     }
 }
 
@@ -353,6 +389,92 @@ mod tests {
             transaction.apply(&mut text);
             assert_eq!(text, expected);
             assert!(snippet.is_none());
+        }
+    }
+}
+
+#[cfg(test)]
+mod rejection_tests {
+    use super::super::{
+        request::{Trigger, TriggerKind},
+        CompletionProvider, ResponseContext,
+    };
+    use super::*;
+    use crate::{
+        document::Mode,
+        editing,
+        editor::{tests::editor, Action},
+    };
+
+    #[tokio::test]
+    async fn rejected_completions_preserve_typing_selection_and_acceptance_state() {
+        for readonly in [false, true] {
+            let (mut editor, _store) = editor("al#[|\n]#");
+            if readonly {
+                let doc = Document::from(
+                    Rope::from("al\n"),
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.load_full(),
+                )
+                .with_readonly_name("adapter source".into());
+                editor.new_file_from_document(Action::Replace, doc);
+            }
+            editor.set_mode(Mode::Insert);
+            let (view, doc) = current!(editor);
+            doc.set_selection(view.id, Selection::point(2));
+            let trigger = Trigger {
+                pos: 2,
+                doc: doc.id(),
+                view: view.id,
+                kind: TriggerKind::Manual,
+            };
+            let savepoint = doc.savepoint(view);
+            let transaction = if readonly {
+                Transaction::change(doc.text(), [(0, 2, Some("alpha".into()))].into_iter())
+            } else {
+                let transaction =
+                    Transaction::change(doc.text(), [(2, 2, Some("p".into()))].into_iter());
+                editing::apply(doc, &transaction, view.id).unwrap();
+                Transaction::new(&Rope::from("incompatible text"))
+            };
+            let before = (
+                doc.text().clone(),
+                doc.selection(view.id).clone(),
+                doc.changes().clone(),
+                doc.version(),
+            );
+            let epoch = editor
+                .handlers
+                .completions
+                .shared
+                .epoch
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let session = CompletionSession::new(&mut editor, trigger, epoch);
+            editor.handlers.completions.active_completions.insert(
+                CompletionProvider::Word,
+                ResponseContext {
+                    is_incomplete: false,
+                    priority: 0,
+                    savepoint,
+                },
+            );
+            let item = CompletionItem::Word(TextCompletion {
+                transaction,
+                label: "alpha".into(),
+                kind: "word".into(),
+                documentation: None,
+            });
+            assert!(editor.begin_completion(&session));
+            assert!(editor.preview_completion(&session, &item).is_err());
+            assert!(editor.accept_completion(&session, &item).is_err());
+            assert!(editor.finish_completion().unwrap().is_none());
+            let (view, doc) = current!(editor);
+            assert_eq!(doc.text(), &before.0);
+            assert_eq!(doc.selection(view.id), &before.1);
+            assert_eq!(doc.changes(), &before.2);
+            assert_eq!(doc.version(), before.3);
+            assert!(doc.active_snippet.is_none());
         }
     }
 }

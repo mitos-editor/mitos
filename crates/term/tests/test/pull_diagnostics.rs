@@ -109,7 +109,7 @@ impl Fixture {
             doc.text(),
             [(2, doc.text().len_chars() - 1, Some(word.into()))].into_iter(),
         );
-        assert!(view::editing::apply(doc, &change, view.id));
+        view::editing::apply(doc, &change, view.id).unwrap();
     }
 
     fn server(&self, name: &str) -> LanguageServerId {

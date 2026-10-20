@@ -105,7 +105,7 @@ impl Fixture {
             doc.text(),
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
-        assert!(view::editing::apply(doc, &change, view.id));
+        view::editing::apply(doc, &change, view.id).unwrap();
     }
 
     async fn wait_message(&self, method: &str) -> anyhow::Result<serde_json::Value> {

@@ -60,13 +60,13 @@ async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() ->
         doc.text(),
         [(trigger, trigger, Some("p".into()))].into_iter(),
     );
-    assert!(view::editing::apply(doc, &typing, view.id));
-    assert!(f.editor.preview_completion(&session, item));
+    view::editing::apply(doc, &typing, view.id).unwrap();
+    assert!(f.editor.preview_completion(&session, item).unwrap());
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alpha\n"
     );
-    assert!(f.editor.finish_completion().is_none());
+    assert!(f.editor.finish_completion().unwrap().is_none());
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alp\n"
@@ -90,21 +90,21 @@ async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyho
         .iter()
         .find(|item| item.filter_text() == "alphabet")
         .unwrap();
-    assert!(f.editor.preview_completion(&session, alpha));
-    assert!(f.editor.preview_completion(&session, alphabet));
+    assert!(f.editor.preview_completion(&session, alpha).unwrap());
+    assert!(f.editor.preview_completion(&session, alphabet).unwrap());
     assert!(!f.editor.begin_completion(&session));
-    assert!(f.editor.accept_completion(&session, alphabet));
-    assert!(!f.editor.accept_completion(&session, alpha));
+    assert!(f.editor.accept_completion(&session, alphabet).unwrap());
+    assert!(!f.editor.accept_completion(&session, alpha).unwrap());
     assert!(!f.editor.begin_completion(&session));
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alphabet\n"
     );
-    let accepted = f.editor.finish_completion().unwrap();
+    let accepted = f.editor.finish_completion().unwrap().unwrap();
     assert_eq!(accepted.trigger_offset, trigger);
     assert_eq!(accepted.changes, vec![(15, 17, Some("alphabet".into()))]);
     assert!(!accepted.placeholder);
-    assert!(f.editor.finish_completion().is_none());
+    assert!(f.editor.finish_completion().unwrap().is_none());
     let (view, doc) = current!(f.editor);
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
@@ -124,9 +124,9 @@ async fn expired_completion_items_cannot_preview_or_edit_another_document() -> a
     f.editor.new_file(view::editor::Action::Replace);
     let before = current_ref!(f.editor).1.text().clone();
     assert!(!f.editor.begin_completion(&session));
-    assert!(!f.editor.preview_completion(&session, item));
-    assert!(!f.editor.accept_completion(&session, item));
-    assert!(f.editor.finish_completion().is_none());
+    assert!(!f.editor.preview_completion(&session, item).unwrap());
+    assert!(!f.editor.accept_completion(&session, item).unwrap());
+    assert!(f.editor.finish_completion().unwrap().is_none());
     assert_eq!(current_ref!(f.editor).1.text(), &before);
     Ok(())
 }
@@ -140,8 +140,8 @@ async fn replaced_sessions_reject_old_items_from_the_same_provider() -> anyhow::
         .iter()
         .find(|item| item.filter_text() == "alpha")
         .unwrap();
-    assert!(!f.editor.preview_completion(&old_session, old));
-    assert!(!f.editor.accept_completion(&old_session, old));
+    assert!(!f.editor.preview_completion(&old_session, old).unwrap());
+    assert!(!f.editor.accept_completion(&old_session, old).unwrap());
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet al\n"
@@ -150,11 +150,11 @@ async fn replaced_sessions_reject_old_items_from_the_same_provider() -> anyhow::
         .iter()
         .find(|item| item.filter_text() == "alphabet")
         .unwrap();
-    assert!(f.editor.accept_completion(&session, item));
+    assert!(f.editor.accept_completion(&session, item).unwrap());
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alphabet\n"
     );
-    assert!(f.editor.finish_completion().is_some());
+    assert!(f.editor.finish_completion().unwrap().is_some());
     Ok(())
 }

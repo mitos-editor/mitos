@@ -249,7 +249,7 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
     let (view, doc) = current!(a.editor);
     let change = Transaction::change(doc.text(), [(0, 0, Some("inserted\n".into()))].into_iter())
         .with_selection(Selection::point(0));
-    assert!(view::editing::apply(doc, &change, view.id));
+    view::editing::apply(doc, &change, view.id).unwrap();
     wait_for_diff(&a).await?;
     let doc = current_ref!(a.editor).1;
     assert!(matches!(

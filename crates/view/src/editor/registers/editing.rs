@@ -105,7 +105,7 @@ impl Editor {
                 .collect();
             self.registers.write(register, values)?;
         }
-        editing::try_apply(doc, &transaction, view.id)?;
+        editing::apply(doc, &transaction, view.id)?;
         Ok(linewise)
     }
 

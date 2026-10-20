@@ -126,7 +126,7 @@ impl Fixture {
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         )
         .with_selection(Selection::point(0));
-        assert!(view::editing::apply(doc, &transaction, view.id));
+        view::editing::apply(doc, &transaction, view.id).unwrap();
     }
 
     /// Replace the current buffer as one completed undo group.

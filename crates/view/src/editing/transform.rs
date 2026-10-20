@@ -22,7 +22,7 @@ pub fn reorder_selection_contents(
         count,
     ) {
         let selection = selection.map(transaction.changes());
-        super::try_apply(doc, &transaction.with_selection(selection), view_id)?;
+        super::apply(doc, &transaction.with_selection(selection), view_id)?;
     }
     Ok(())
 }
@@ -115,7 +115,7 @@ pub fn join_selections(
         Transaction::change(text, changes.into_iter())
     };
 
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 // comments
@@ -175,7 +175,7 @@ fn toggle_comments_impl(
     let transaction =
         comment_transaction(line_token, block_tokens, doc.text(), doc.selection(view_id));
 
-    super::try_apply(doc, &transaction, view_id)
+    super::apply(doc, &transaction, view_id)
 }
 
 /// commenting behavior:

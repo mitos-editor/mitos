@@ -131,7 +131,7 @@ async fn absent_and_empty_registers_leave_pending_typing_uncommitted() {
     let (mut editor, _store) = editor("#[|x]#\n");
     let (view, doc) = current!(editor);
     let edit = Transaction::change(doc.text(), [(0, 1, Some("a".into()))].into_iter());
-    editing::try_apply(doc, &edit, view.id).unwrap();
+    editing::apply(doc, &edit, view.id).unwrap();
     assert!(!editor.paste_register('z', PastePosition::After, 1).unwrap());
     assert!(!editor.paste_register('_', PastePosition::After, 1).unwrap());
     assert!(!editor.replace_from_register('z', 1).unwrap());
@@ -140,7 +140,7 @@ async fn absent_and_empty_registers_leave_pending_typing_uncommitted() {
     assert!(!editor.paste_register('e', PastePosition::After, 1).unwrap());
     let (view, doc) = current!(editor);
     let edit = Transaction::change(doc.text(), [(0, 1, Some("b".into()))].into_iter());
-    editing::try_apply(doc, &edit, view.id).unwrap();
+    editing::apply(doc, &edit, view.id).unwrap();
     assert!(editing::undo(doc, view));
     assert_eq!(doc.text(), "x\n");
     assert!(!editing::undo(doc, view));

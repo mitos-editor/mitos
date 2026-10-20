@@ -22,7 +22,7 @@ fn formatting_save(fixture: &mut Fixture) -> anyhow::Result<SaveTask> {
             auto_format: true,
             code_actions: true,
         },
-    );
+    )?;
     let SaveProgress::Pending(task) = save::submit(&mut fixture.editor, request)? else {
         anyhow::bail!("expected formatting stage")
     };

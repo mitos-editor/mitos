@@ -152,13 +152,19 @@ impl Completion {
         let menu = Menu::new(items, data, move |editor: &mut Editor, item, event| {
             match event {
                 PromptEvent::Update if preview_completion_insert => {
-                    if let Some(item) = item {
-                        editor.preview_completion(&session, item);
+                    if let Some(item) = item
+                        && let Err(error) = editor.preview_completion(&session, item)
+                    {
+                        editor.set_error(|| error.to_string());
+                        return;
                     }
                 }
                 PromptEvent::Validate => {
-                    if let Some(item) = item {
-                        editor.accept_completion(&session, item);
+                    if let Some(item) = item
+                        && let Err(error) = editor.accept_completion(&session, item)
+                    {
+                        editor.set_error(|| error.to_string());
+                        return;
                     }
                 }
                 PromptEvent::Abort | PromptEvent::Update => {}

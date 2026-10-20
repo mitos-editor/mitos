@@ -1018,7 +1018,7 @@ impl EditorView {
             }
             // special handling for repeat operator
             (key!('.'), _) if self.keymaps.pending().is_empty() => {
-                for _ in 0..cxt.editor.count.map_or(1, NonZeroUsize::into) {
+                'repeat: for _ in 0..cxt.editor.count.map_or(1, NonZeroUsize::into) {
                     let (command, events) = match self.last_edit.clone() {
                         LastEdit::Replace(text) => {
                             commands::replace_selections(cxt.editor, &text);
@@ -1040,8 +1040,11 @@ impl EditorView {
                             } => {
                                 let (view, doc) = current!(cxt.editor);
 
-                                if let Some(last_savepoint) = last_savepoint.as_deref() {
-                                    doc.restore(view, last_savepoint, true);
+                                if let Some(last_savepoint) = last_savepoint.as_deref()
+                                    && let Err(error) = doc.restore(view, last_savepoint, true)
+                                {
+                                    cxt.editor.set_error(|| error.to_string());
+                                    break 'repeat;
                                 }
 
                                 let text = doc.text().slice(..);
@@ -1057,7 +1060,10 @@ impl EditorView {
                                         (shift_position(start), shift_position(end), t)
                                     }),
                                 );
-                                view::editing::apply(doc, &tx, view.id);
+                                if let Err(error) = view::editing::apply(doc, &tx, view.id) {
+                                    cxt.editor.set_error(|| error.to_string());
+                                    break 'repeat;
+                                }
                             }
                             InsertEvent::InlineCompletionApply(applied) => {
                                 let (view, doc) = current!(cxt.editor);
@@ -1075,7 +1081,11 @@ impl EditorView {
                                         .map(|(from, to, text)| (shift(from), shift(to), text)),
                                 )
                                 .with_selection(Selection::point(shift(applied.selection)));
-                                view::editing::apply(doc, &transaction, view.id);
+                                if let Err(error) = view::editing::apply(doc, &transaction, view.id)
+                                {
+                                    cxt.editor.set_error(|| error.to_string());
+                                    break 'repeat;
+                                }
                             }
                             InsertEvent::TriggerCompletion => {
                                 last_savepoint = take(&mut last_request_savepoint);
@@ -1137,11 +1147,18 @@ impl EditorView {
     pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
         self.completion = None;
         let mut on_next_key: Option<OnKeyCallback> = None;
+        let applied = match editor.finish_completion() {
+            Ok(applied) => applied,
+            Err(error) => {
+                editor.set_error(|| error.to_string());
+                return None;
+            }
+        };
         if let Some(view::features::completion::CompletionApply {
             trigger_offset,
             changes,
             placeholder,
-        }) = editor.finish_completion()
+        }) = applied
         {
             self.record_insert_event(InsertEvent::CompletionApply {
                 trigger_offset,
@@ -1149,7 +1166,10 @@ impl EditorView {
             });
             on_next_key = placeholder.then_some(Box::new(|cx, key| {
                 if let Some(c) = key.char() {
-                    cx.editor.clear_snippet_placeholder();
+                    if let Err(error) = cx.editor.clear_snippet_placeholder() {
+                        cx.editor.set_error(|| error.to_string());
+                        return;
+                    }
                     commands::insert::insert_char(cx, c);
                 }
             }))

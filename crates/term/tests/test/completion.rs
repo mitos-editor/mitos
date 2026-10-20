@@ -792,16 +792,20 @@ async fn empty_snippet_completions_preserve_typing_and_existing_previews() -> an
     assert_eq!(f.text(), "😀 app\n");
     for preview in [false, true] {
         if preview {
-            assert!(f.app.editor.preview_completion(&session, &items[0]));
+            assert!(f
+                .app
+                .editor
+                .preview_completion(&session, &items[0])
+                .unwrap());
         }
         let before = f.text();
         let version = current_ref!(f.app.editor).1.version();
-        assert!(!f.app.editor.preview_completion(&session, &item));
-        assert!(!f.app.editor.accept_completion(&session, &item));
+        assert!(!f.app.editor.preview_completion(&session, &item).unwrap());
+        assert!(!f.app.editor.accept_completion(&session, &item).unwrap());
         assert_eq!(f.text(), before);
         assert_eq!(current_ref!(f.app.editor).1.version(), version);
     }
-    assert!(f.app.editor.finish_completion().is_none());
+    assert!(f.app.editor.finish_completion().unwrap().is_none());
     assert_eq!(f.text(), "😀 app\n");
     assert!(f.app.close().await.is_empty());
     Ok(())
@@ -832,8 +836,8 @@ async fn accepting_a_trigger_character_preserves_the_next_completion_request() -
     config.completion.auto_trigger = true;
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
-    assert!(f.app.editor.accept_completion(&session, &item));
-    assert!(f.app.editor.finish_completion().is_some());
+    assert!(f.app.editor.accept_completion(&session, &item).unwrap());
+    assert!(f.app.editor.finish_completion().unwrap().is_some());
     assert_eq!(f.text(), "😀 apricot.\n");
     assert!(matches!(
         f.update().await?.apply(&mut f.app.editor),

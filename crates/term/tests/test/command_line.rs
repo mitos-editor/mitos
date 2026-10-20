@@ -501,7 +501,7 @@ async fn goto_preview_cannot_follow_a_rebound_view() -> anyhow::Result<()> {
             doc.text(),
             std::iter::once((0, 0, Some("alpha\nbeta\ngamma\ndelta\n".into()))),
         );
-        assert!(view::editing::apply(doc, &transaction, view.id));
+        view::editing::apply(doc, &transaction, view.id).unwrap();
         doc.set_selection(view.id, Selection::single(1, 2));
         let jumps = view.jumps.iter().count();
         goto_keys(&mut app, ending).await?;
@@ -599,7 +599,7 @@ async fn goto_preview_rejects_a_selection_snapshot_after_text_changes() -> anyho
             doc.text(),
             std::iter::once((0, doc.text().len_chars(), None)),
         );
-        assert!(view::editing::apply(doc, &transaction, view.id));
+        view::editing::apply(doc, &transaction, view.id).unwrap();
         goto_keys(&mut app, ending).await?;
         assert_goto_cursor(&app, 0);
         assert!(app.close().await.is_empty());

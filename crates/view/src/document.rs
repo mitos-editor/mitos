@@ -568,7 +568,13 @@ impl Document {
         savepoint
     }
 
-    pub fn restore(&mut self, view: &mut View, savepoint: &SavePoint, emit_lsp_notification: bool) {
+    /// Restore saved text and selection. Rejected edits leave the savepoint reusable.
+    pub fn restore(
+        &mut self,
+        view: &mut View,
+        savepoint: &SavePoint,
+        emit_lsp_notification: bool,
+    ) -> Result<(), crate::editing::EditError> {
         assert_eq!(
             savepoint.view, view.id,
             "Savepoint must not be used with a different view!"
@@ -583,10 +589,13 @@ impl Document {
 
         let savepoint_ref = self.savepoints.remove(savepoint_idx);
         let mut revert = savepoint.revert.lock();
-        let _ =
+        let result =
             crate::editing::apply_with_notifications(self, &revert, view.id, emit_lsp_notification);
-        *revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
-        self.savepoints.push(savepoint_ref)
+        if result.is_ok() {
+            *revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
+        }
+        self.savepoints.push(savepoint_ref);
+        result
     }
 
     pub fn id(&self) -> DocumentId {
@@ -1115,7 +1124,7 @@ mod test {
         let transaction =
             Transaction::change(doc.text(), vec![(5, 7, Some("\n".into()))].into_iter());
         let old_doc = doc.text().clone();
-        crate::editing::apply(&mut doc, &transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view).unwrap();
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -1155,7 +1164,7 @@ mod test {
 
         let transaction = Transaction::insert(doc.text(), doc.selection(view), " world".into());
         let old_doc = doc.text().clone();
-        crate::editing::apply(&mut doc, &transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view).unwrap();
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -1179,7 +1188,7 @@ mod test {
 
         let transaction = transaction.invert(&old_doc);
         let old_doc = doc.text().clone();
-        crate::editing::apply(&mut doc, &transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view).unwrap();
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -1216,7 +1225,7 @@ mod test {
         );
         // aeilou
         let old_doc = doc.text().clone();
-        crate::editing::apply(&mut doc, &transaction, view);
+        crate::editing::apply(&mut doc, &transaction, view).unwrap();
         let changes = Client::changeset_to_changes(
             &old_doc,
             doc.text(),
@@ -1337,5 +1346,27 @@ mod test {
                 }
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod savepoint_rejection_tests {
+    use crate::editing::{self, tests::document_and_view};
+    use editor_core::Transaction;
+
+    #[tokio::test]
+    async fn rejected_restoration_retains_the_saved_text_and_pending_history() {
+        let (mut doc, mut view) = document_and_view("#[|a]#\n");
+        let saved = doc.savepoint(&view);
+        let edit = Transaction::change(doc.text(), [(0, 1, Some("界".into()))].into_iter());
+        editing::apply(&mut doc, &edit, view.id).unwrap();
+        let mut doc = doc.with_readonly_name("adapter source".into());
+        let pending = doc.changes().clone();
+        assert!(doc.restore(&mut view, &saved, true).is_err());
+        assert_eq!(doc.text(), "界\n");
+        assert_eq!(doc.changes(), &pending);
+        assert_eq!(saved.saved_state(doc.text()).0, "a\n");
+        assert!(doc.restore(&mut view, &saved, true).is_err());
+        assert_eq!(saved.saved_state(doc.text()).0, "a\n");
     }
 }

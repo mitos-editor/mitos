@@ -340,7 +340,8 @@ pub fn accept(editor: &mut Editor) -> Option<AppliedInlineCompletion> {
     let cursor = completion.range.from() + completion.text.chars().count();
     let transaction = Transaction::change(doc.text(), changes.clone().into_iter())
         .with_selection(Selection::point(cursor));
-    if !crate::editing::apply(doc, &transaction, view.id) {
+    if let Err(error) = crate::editing::apply(doc, &transaction, view.id) {
+        editor.set_error(|| error.to_string());
         return None;
     }
     // The server may attach a command to record acceptance.

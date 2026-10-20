@@ -15,7 +15,7 @@ mod language_servers;
 mod mode;
 mod registers;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 use crate::{
     document::{DocumentSavedEventResult, Mode},
     events::DocumentFocusLost,

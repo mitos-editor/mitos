@@ -35,7 +35,10 @@ fn goto_next_tabstop_impl(cx: &mut Context, direction: Direction) {
     if cx.editor.mode() == Mode::Insert {
         cx.on_next_key_fallback(|cx, key| {
             if let Some(c) = key.char() {
-                cx.editor.clear_snippet_placeholder();
+                if let Err(error) = cx.editor.clear_snippet_placeholder() {
+                    cx.editor.set_error(|| error.to_string());
+                    return;
+                }
                 insert_char(cx, c);
             }
         })

@@ -212,7 +212,7 @@ impl Editor {
         let transaction =
             editor_core::Transaction::insert(doc.text(), doc.selection(view.id), stdin.into())
                 .with_selection(Selection::point(0));
-        crate::editing::apply(doc, &transaction, view.id);
+        crate::editing::apply(doc, &transaction, view.id)?;
         crate::editing::commit(doc, view);
         Ok(doc_id)
     }

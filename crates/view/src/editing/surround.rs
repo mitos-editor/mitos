@@ -49,7 +49,7 @@ pub fn add(doc: &mut Document, view: ViewId, delimiter: Delimiter) -> Result<(),
     }
     let transaction = Transaction::change(doc.text(), changes.into_iter())
         .with_selection(Selection::new(ranges, selection.primary_index()));
-    super::try_apply(doc, &transaction, view)
+    super::apply(doc, &transaction, view)
 }
 
 pub fn delete(
@@ -71,7 +71,7 @@ pub fn delete(
         doc.text(),
         positions.into_iter().map(|pos| (pos, pos + 1, None)),
     );
-    super::try_apply(doc, &transaction, view)?;
+    super::apply(doc, &transaction, view)?;
     Ok(())
 }
 
@@ -161,7 +161,7 @@ impl Replacement {
         {
             return Err(Error::StaleSelection);
         }
-        super::try_apply(doc, &transaction, view)?;
+        super::apply(doc, &transaction, view)?;
         Ok(())
     }
 }

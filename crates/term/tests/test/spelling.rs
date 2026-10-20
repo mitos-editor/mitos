@@ -45,7 +45,7 @@ fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
         doc.text(),
         [(start, end, Some(replacement.into()))].into_iter(),
     );
-    view::editing::apply(doc, &tx, view.id);
+    view::editing::apply(doc, &tx, view.id).unwrap();
     view::editing::commit(doc, view);
 }
 

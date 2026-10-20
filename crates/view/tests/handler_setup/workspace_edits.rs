@@ -29,7 +29,7 @@ async fn stale_workspace_edits_preserve_the_rejection_and_pending_undo_group() -
     let version = doc.version();
     let url = doc.url().unwrap();
     let typing = Transaction::change(doc.text(), [(0, 0, Some("first".into()))].into_iter());
-    assert!(view::editing::apply(doc, &typing, view.id));
+    view::editing::apply(doc, &typing, view.id).unwrap();
     let actual = doc.version();
     let edit = lsp::WorkspaceEdit {
         document_changes: Some(lsp::DocumentChanges::Edits(vec![text_edit(
@@ -51,7 +51,7 @@ async fn stale_workspace_edits_preserve_the_rejection_and_pending_undo_group() -
     ));
     let (view, doc) = current!(fixture.editor);
     let typing = Transaction::change(doc.text(), [(0, 0, Some("second".into()))].into_iter());
-    assert!(view::editing::apply(doc, &typing, view.id));
+    view::editing::apply(doc, &typing, view.id).unwrap();
     assert!(view::editing::undo(doc, view));
     assert_eq!(doc.text(), "abc\n");
     assert!(!view::editing::undo(doc, view));

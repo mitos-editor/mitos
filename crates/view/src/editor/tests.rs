@@ -8,7 +8,7 @@ use editor_config::Config;
 use editor_core::{test, LineEnding, Rope};
 use std::sync::Arc;
 
-pub(super) fn editor(input: &str) -> (Editor, tempfile::TempDir) {
+pub(crate) fn editor(input: &str) -> (Editor, tempfile::TempDir) {
     let store = tempfile::tempdir().unwrap();
     let mut config = Config::default();
     config.files.watch.enable = false;

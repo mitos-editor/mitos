@@ -333,7 +333,7 @@ mod tests {
             doc.text(),
             [(1, 1, Some("\"updated\": true".into()))].into_iter(),
         );
-        assert!(crate::editing::apply(&mut doc, &transaction, view));
+        crate::editing::apply(&mut doc, &transaction, view).unwrap();
         assert!(doc.syntax().is_none());
 
         let result = request.compute().await.unwrap();

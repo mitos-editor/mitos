@@ -161,7 +161,10 @@ impl Editor {
                         .is_some_and(|view| view.doc == accepted.document)
                         && crate::features::completion::has_preview(editor)
                     {
-                        editor.restore_completion_preview();
+                        if let Err(error) = editor.restore_completion_preview() {
+                            editor.set_error(|| error.to_string());
+                            return;
+                        }
                         editor
                             .handlers
                             .completions

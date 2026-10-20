@@ -176,7 +176,7 @@ async fn leaving_insert_mode_removes_new_blank_line_indentation_in_character_coo
         let transaction =
             Transaction::change(doc.text(), [(1, 1, Some(inserted.into()))].into_iter())
                 .with_selection(Selection::point(cursor));
-        editing::try_apply(doc, &transaction, view.id).unwrap();
+        editing::apply(doc, &transaction, view.id).unwrap();
         editor.enter_normal_mode();
         let (view, doc) = current_ref!(editor);
         assert_eq!(doc.text(), format!("a{newline}{newline}").as_str());

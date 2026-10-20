@@ -144,7 +144,9 @@ impl Editor {
 
     /// Dismiss the displayed completion session without canceling a new trigger.
     pub fn dismiss_completions(&mut self) {
-        self.finish_completion();
+        if let Err(error) = self.finish_completion() {
+            self.set_error(|| error.to_string());
+        }
     }
 
     /// Replace autosave coordination, rejecting queued saves from its previous owner.
@@ -173,7 +175,10 @@ impl Editor {
     /// Replace completion coordination and cancel its pending and displayed work.
     pub fn replace_completion_handler(&mut self, handler: CompletionHandler) {
         self.handlers.completions.event(CompletionEvent::Cancel);
-        self.finish_completion();
+        if let Err(error) = self.finish_completion() {
+            self.set_error(|| error.to_string());
+            return;
+        }
         self.handlers.completions = handler;
         self.handlers.completions.invalidate();
     }

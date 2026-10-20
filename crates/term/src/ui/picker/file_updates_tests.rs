@@ -187,7 +187,7 @@ async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
     .await?;
     let (view, doc) = view::current!(app.editor);
     let edit = editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "new".into());
-    assert!(view::editing::apply(doc, &edit, view.id));
+    view::editing::apply(doc, &edit, view.id).unwrap();
     until(&mut picker, &mut app, |picker| {
         picker.selection() == Some(&6)
     })

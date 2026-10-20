@@ -77,7 +77,7 @@ async fn modified_buffers_prompt_once_and_reload_only_when_confirmed() -> anyhow
             doc.text(),
             [(0, 0, Some("local ".into()))].into_iter(),
         );
-        view::editing::apply(doc, &transaction, view.id);
+        view::editing::apply(doc, &transaction, view.id).unwrap();
         view::editing::commit(doc, view);
     }
     changed(&path, "external\n", 2)?;
@@ -261,7 +261,7 @@ fn edit_buffer(app: &mut Application, prefix: &str) {
     let (view, doc) = current!(app.editor);
     let transaction =
         editor_core::Transaction::change(doc.text(), [(0, 0, Some(prefix.into()))].into_iter());
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     view::editing::commit(doc, view);
 }
 

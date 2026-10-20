@@ -18,7 +18,7 @@ pub(super) fn insert_snippet(editor: &mut Editor) -> anyhow::Result<()> {
         |range| (range.from(), range.to()),
         &mut ctx,
     );
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     doc.set_selection(view.id, selection);
     doc.active_snippet = snippets::ActiveSnippet::new(rendered);
     Ok(())
@@ -32,7 +32,7 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
     let (view, doc) = current!(first.editor);
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("xx".into()))].into_iter())
         .with_selection(Selection::point(4));
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     assert_eq!(
         doc.active_snippet
             .as_ref()
@@ -50,7 +50,7 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
     let (view, doc) = current!(first.editor);
     let transaction =
         Transaction::delete(doc.text(), [(0, doc.text().len_chars() - 1)].into_iter());
-    assert!(view::editing::apply(doc, &transaction, view.id));
+    view::editing::apply(doc, &transaction, view.id).unwrap();
     assert!(doc.active_snippet.is_none());
     insert_snippet(&mut first.editor)?;
     let id = current_ref!(first.editor).1.id();
@@ -77,9 +77,9 @@ async fn document_switch_invalidates_the_previous_documents_snippet() -> anyhow:
 #[tokio::test(flavor = "multi_thread")]
 async fn clearing_a_placeholder_preserves_the_rest_of_the_snippet() -> anyhow::Result<()> {
     let mut f = Fixture::new("\n")?;
-    assert!(!f.editor.clear_snippet_placeholder());
+    assert!(!f.editor.clear_snippet_placeholder().unwrap());
     insert_snippet(&mut f.editor)?;
-    assert!(f.editor.clear_snippet_placeholder());
+    assert!(f.editor.clear_snippet_placeholder().unwrap());
     assert_eq!(current_ref!(f.editor).1.text().to_string(), " two\n");
     assert!(current_ref!(f.editor).1.active_snippet.is_some());
     Ok(())

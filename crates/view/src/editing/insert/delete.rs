@@ -106,7 +106,7 @@ pub fn delete_char_backward(
                 })
         });
 
-    super::super::try_apply(doc, &transaction, view_id)
+    super::super::apply(doc, &transaction, view_id)
 }
 
 /// Delete forward while retaining append-mode selections.
@@ -203,7 +203,7 @@ fn delete_by_selection_insert_mode(
             .map(transaction.changes());
         transaction = transaction.with_selection(selection);
     }
-    super::super::try_apply(doc, &transaction, view_id)
+    super::super::apply(doc, &transaction, view_id)
 }
 
 /// Delete to the first nonblank character or the previous line ending.

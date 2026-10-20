@@ -250,7 +250,10 @@ Replacement previews retain the originating document/view, a buffer snapshot,
 and the original and preview selections. Applying or cancelling a preview validates
 that identity, text, and selection before using saved positions. Terminal commands
 request the delimiter keys and display help or errors. Interactive edits can return
-`EditError` through `try_apply`; boolean callers retain the existing `apply` API.
+`EditError` through `apply`, including temporary edits and savepoint restoration.
+Completion validates primary and ready additional edits before restoring previews or
+committing typing. Failed restoration retains its savepoint. Save normalization
+publishes a single transaction and checkpoints only after successful application.
 Insertion, insert-mode deletion, joining, reordering, and comment operations return
 these errors to their callers. Selection adjustments travel with transactions so
 rejected edits cannot move cursors or change undo groups. Terminal commands report

@@ -22,7 +22,7 @@ async fn queries_capture_unsaved_buffers_before_worker_execution() -> anyhow::Re
         doc.text(),
         [(0, 5, Some("héllo needle\n".into()))].into_iter(),
     );
-    assert!(view::editing::apply(doc, &change, view.id));
+    view::editing::apply(doc, &change, view.id).unwrap();
     let collected = Request::new("needle", &fixture.editor, config.clone())?.unwrap();
     let streamed = Request::new("needle", &fixture.editor, config.clone())?.unwrap();
     let (view, doc) = current!(fixture.editor);
@@ -30,7 +30,7 @@ async fn queries_capture_unsaved_buffers_before_worker_execution() -> anyhow::Re
         doc.text(),
         [(0, doc.text().len_chars(), Some("changed\n".into()))].into_iter(),
     );
-    assert!(view::editing::apply(doc, &change, view.id));
+    view::editing::apply(doc, &change, view.id).unwrap();
     let collected = collected.collect(|| false).await?;
     assert_eq!(collected.len(), 1);
     assert_eq!(collected[0].match_start_col, 6);

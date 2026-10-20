@@ -14,9 +14,10 @@ pub(crate) use queue::WriteReservation;
 
 use std::path::PathBuf;
 
+use crate::editing::EditError;
 use crate::{Document, DocumentId, Editor, ViewId};
 use editor_config::Config;
-use editor_core::{line_ending, Selection, Transaction};
+use editor_core::{line_ending, LineEnding, Rope, Transaction};
 use stdx::rope::RopeSliceExt;
 
 /// Options for an explicit single-document save.
@@ -61,7 +62,7 @@ pub fn prepare(
     origin: Option<ViewId>,
     path: Option<PathBuf>,
     options: WriteOptions,
-) -> PreparedSave {
+) -> Result<PreparedSave, EditError> {
     let config = editor.config();
     prepare_with_config(editor, doc_id, origin, path, options, &config)
 }
@@ -73,19 +74,28 @@ fn prepare_with_config(
     path: Option<PathBuf>,
     options: WriteOptions,
     config: &Config,
-) -> PreparedSave {
+) -> Result<PreparedSave, EditError> {
     editor.sync_document_views(doc_id);
     let doc = doc_mut!(editor, &doc_id);
 
+    // Build normalization against a working rope and publish one transaction. Rejection
+    // must not leave a partly normalized document or commit pending typing.
+    let mut text = doc.text().clone();
+    let mut normalization = Transaction::new(&text);
     if doc.trim_trailing_whitespace() {
-        trim_trailing_whitespace(doc, origin);
+        let transaction = trim_trailing_whitespace(&text);
+        transaction.apply(&mut text);
+        normalization = normalization.compose(transaction);
     }
     if config.files.save.trim_final_newlines {
-        trim_final_newlines(doc, origin);
+        let transaction = trim_final_newlines(&text);
+        transaction.apply(&mut text);
+        normalization = normalization.compose(transaction);
     }
     if doc.insert_final_newline() {
-        insert_final_newline(doc, origin);
+        normalization = normalization.compose(insert_final_newline(&text, doc.line_ending));
     }
+    apply_normalization(doc, &normalization, origin)?;
     doc.commit_changes();
 
     let code_actions = options.code_actions
@@ -103,7 +113,7 @@ fn prepare_with_config(
         code_actions,
     };
     editor.sync_document_views(doc_id);
-    request
+    Ok(request)
 }
 
 /// Prepare and submit each modified file-backed document in editor order.
@@ -152,7 +162,7 @@ pub fn save_all(
                 code_actions: options.code_actions,
             },
             &config,
-        );
+        )?;
         submit(editor, request)?;
     }
 
@@ -177,21 +187,21 @@ pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
     )
 }
 
-fn apply_normalization(doc: &mut Document, transaction: &Transaction, origin: Option<ViewId>) {
-    if let Some(origin) = origin {
-        crate::editing::apply(doc, transaction, origin);
-    } else {
-        // Normalization is built synchronously from this document's current text.
-        doc.apply(transaction.changes())
-            .expect("normalization uses current text");
+fn apply_normalization(
+    doc: &mut Document,
+    transaction: &Transaction,
+    origin: Option<ViewId>,
+) -> Result<(), EditError> {
+    match origin {
+        Some(origin) => crate::editing::apply(doc, transaction, origin),
+        None => doc.apply(transaction.changes()),
     }
 }
 
 /// Trim all whitespace preceding line-endings in a document.
-fn trim_trailing_whitespace(doc: &mut Document, origin: Option<ViewId>) {
-    let text = doc.text();
+fn trim_trailing_whitespace(text: &Rope) -> Transaction {
     let mut pos = 0;
-    let transaction = Transaction::delete(
+    Transaction::delete(
         text,
         text.lines(stdx::rope::LINE_TYPE).filter_map(|line| {
             let line_end_len_chars = line_ending::get_line_ending(&line)
@@ -211,13 +221,11 @@ fn trim_trailing_whitespace(doc: &mut Document, origin: Option<ViewId>) {
                 None
             }
         }),
-    );
-    apply_normalization(doc, &transaction, origin);
+    )
 }
 
 /// Trim any extra line-endings after the final line-ending.
-fn trim_final_newlines(doc: &mut Document, origin: Option<ViewId>) {
-    let rope = doc.text();
+fn trim_final_newlines(rope: &Rope) -> Transaction {
     let mut text = rope.slice(..);
     let mut total_char_len = 0;
     let mut final_char_len = 0;
@@ -227,21 +235,61 @@ fn trim_final_newlines(doc: &mut Document, origin: Option<ViewId>) {
         text = text.slice_chars(..text.len_chars() - line_ending.len_chars());
     }
     let chars_to_delete = total_char_len - final_char_len;
-    if chars_to_delete != 0 {
-        let transaction = Transaction::delete(
-            rope,
-            [(rope.len_chars() - chars_to_delete, rope.len_chars())].into_iter(),
-        );
-        apply_normalization(doc, &transaction, origin);
-    }
+    Transaction::delete(
+        rope,
+        [(rope.len_chars() - chars_to_delete, rope.len_chars())].into_iter(),
+    )
 }
 
 /// Ensure that the document is terminated with a line ending.
-fn insert_final_newline(doc: &mut Document, origin: Option<ViewId>) {
-    let text = doc.text();
+fn insert_final_newline(text: &Rope, ending: LineEnding) -> Transaction {
     if text.len_chars() > 0 && line_ending::get_line_ending(&text.slice(..)).is_none() {
-        let eof = Selection::point(text.len_chars());
-        let insert = Transaction::insert(text, &eof, doc.line_ending.as_str().into());
-        apply_normalization(doc, &insert, origin);
+        let end = text.len_chars();
+        Transaction::change(text, [(end, end, Some(ending.as_str().into()))].into_iter())
+    } else {
+        Transaction::new(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        editing,
+        editor::{tests::editor, Action},
+    };
+
+    #[tokio::test]
+    async fn rejected_normalization_preserves_document_with_or_without_an_origin() {
+        for visible in [false, true] {
+            let (mut editor, _store) = editor("#[|x]#\n");
+            let mut config = editor_config::Config::default();
+            config.files.save.trim_trailing_whitespace = true;
+            let doc = Document::from(
+                Rope::from("x  \n"),
+                None,
+                std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(config)),
+                editor.syn_loader.load_full(),
+            )
+            .with_readonly_name("adapter source".into());
+            let id = editor.new_file_from_document(Action::Replace, doc);
+            let view = editor.tree.focus();
+            let before = editor.document(id).unwrap().text().clone();
+            let result = prepare(
+                &mut editor,
+                id,
+                visible.then_some(view),
+                None,
+                WriteOptions {
+                    force: false,
+                    auto_format: false,
+                    code_actions: false,
+                },
+            );
+            assert!(matches!(result, Err(EditError::ReadOnlyDocument)));
+            assert_eq!(editor.document(id).unwrap().text(), &before);
+            let (view, doc) = current!(editor);
+            assert!(!editing::undo(doc, view));
+        }
     }
 }

@@ -1090,7 +1090,7 @@ mod tests {
             doc.text(),
             std::iter::once((2, 2, Some("XXXXXXXXXX".into()))),
         );
-        assert!(crate::editing::apply(&mut doc, &insert, view2.id));
+        crate::editing::apply(&mut doc, &insert, view2.id).unwrap();
         crate::editing::commit(&mut doc, &mut view2);
         assert_eq!(doc.get_current_revision(), 1);
         let len = doc.text().len_chars();

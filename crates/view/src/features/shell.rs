@@ -88,9 +88,11 @@ impl Editor {
                     doc.shell_filters.remove_view(view.id);
                     match result {
                         Ok(FilterResult::Transaction(transaction)) => {
-                            if crate::editing::apply(doc, &transaction, view.id) {
-                                crate::editing::commit(doc, view);
+                            if let Err(error) = crate::editing::apply(doc, &transaction, view.id) {
+                                editor.set_error(|| error.to_string());
+                                return;
                             }
+                            crate::editing::commit(doc, view);
                         }
                         Ok(FilterResult::Selection(selection)) => {
                             doc.set_selection(view.id, selection);

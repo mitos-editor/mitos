@@ -18,7 +18,7 @@ pub(super) fn align_selections(cx: &mut Context) {
             .set_error(|| "align cannot work with multi line selections");
         return;
     };
-    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+    if let Err(error) = view::editing::apply(doc, &transaction, view.id) {
         cx.editor.set_error(|| error.to_string());
         return;
     }
@@ -28,7 +28,7 @@ pub(super) fn align_selections(cx: &mut Context) {
 fn apply_transform(cx: &mut Context, operation: fn(&Rope, &Selection) -> Transaction) {
     let (view, doc) = current!(cx.editor);
     let transaction = operation(doc.text(), doc.selection(view.id));
-    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+    if let Err(error) = view::editing::apply(doc, &transaction, view.id) {
         cx.editor.set_error(|| error.to_string());
         return;
     }
@@ -86,7 +86,7 @@ pub(super) fn indent(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let transaction =
         editor_core::transform::indent(doc.text(), doc.selection(view.id), doc.indent_style, count);
-    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+    if let Err(error) = view::editing::apply(doc, &transaction, view.id) {
         cx.editor.set_error(|| error.to_string());
         return;
     }
@@ -102,7 +102,7 @@ pub(super) fn unindent(cx: &mut Context) {
         doc.tab_width(),
         count * doc.indent_width(),
     );
-    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+    if let Err(error) = view::editing::apply(doc, &transaction, view.id) {
         cx.editor.set_error(|| error.to_string());
         return;
     }
@@ -161,7 +161,7 @@ pub(super) fn replace_char(cx: &mut Context) {
 
         if let Some(ch) = ch {
             let transaction = editor_core::transform::replace_graphemes(doc.text(), selection, ch);
-            if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+            if let Err(error) = view::editing::apply(doc, &transaction, view.id) {
                 cx.editor.set_error(|| error.to_string());
                 return;
             }
@@ -363,7 +363,7 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
     ) else {
         return;
     };
-    match view::editing::try_apply(doc, &transaction, view.id) {
+    match view::editing::apply(doc, &transaction, view.id) {
         Ok(()) => exit_select_mode(cx),
         Err(error) => cx.editor.set_error(|| error.to_string()),
     }
@@ -395,7 +395,7 @@ pub(super) mod typed {
         ) else {
             bail!("Sorting requires multiple selections. Hint: split selection first");
         };
-        view::editing::try_apply(doc, &transaction, view.id)?;
+        view::editing::apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 
@@ -431,7 +431,7 @@ pub(super) mod typed {
             text_width,
             doc.line_ending,
         );
-        view::editing::try_apply(doc, &transaction, view.id)?;
+        view::editing::apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 

@@ -25,7 +25,7 @@ async fn syntax_picker_refreshes(keys: &str) -> anyhow::Result<()> {
         )]
         .into_iter(),
     );
-    assert!(view::editing::apply(doc, &edit, view.id));
+    view::editing::apply(doc, &edit, view.id).unwrap();
     super::helpers::keys(&mut app, "").await?;
     let buffer = app.terminal_backend().buffer();
     let picker: String = buffer
@@ -84,7 +84,7 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
             doc.text(),
             [(0, doc.text().len_chars(), Some(format!("{name}\n").into()))].into_iter(),
         );
-        assert!(view::editing::apply(doc, &edit, view.id));
+        view::editing::apply(doc, &edit, view.id).unwrap();
         super::helpers::keys(&mut app, if reopen { "<space>'" } else { "" }).await?;
         super::helpers::keys(&mut app, "<home>").await?;
         let screen: String = app
@@ -175,7 +175,7 @@ async fn document_symbol_queries_preserve_hierarchy_locations_and_origin() -> an
     let (active_view, doc) = current!(app.editor);
     let transaction =
         Transaction::insert(doc.text(), doc.selection(active_view.id), "typed".into());
-    assert!(view::editing::apply(doc, &transaction, active_view.id));
+    view::editing::apply(doc, &transaction, active_view.id).unwrap();
     assert!(queued.into_symbols(&app.editor).is_none());
 
     let queued = app
