@@ -984,6 +984,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-watch"
+version = "0.1.0"
+dependencies = [
+ "filesentry",
+ "ignore",
+ "log",
+ "parking_lot",
+ "stdx",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "filedescriptor"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4714,7 +4727,7 @@ dependencies = [
  "diagnostics",
  "editor-config",
  "event",
- "filesentry",
+ "file-watch",
  "foldhash 0.2.0",
  "futures-util",
  "fuzzy",

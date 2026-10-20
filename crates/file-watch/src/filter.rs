@@ -1,5 +1,5 @@
 //! Ignore rules and native-watch coverage filtering.
-use editor_config::WatchConfig;
+use crate::Options;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{
     borrow::Borrow,
@@ -39,7 +39,7 @@ struct IgnoreFiles {
 impl IgnoreFiles {
     fn new(
         workspace_ignore: Option<Arc<Gitignore>>,
-        config: &WatchConfig,
+        config: &Options,
         root: &Path,
         globals: &[Arc<Gitignore>],
     ) -> Self {
@@ -51,7 +51,7 @@ impl IgnoreFiles {
         for ancestor in root.ancestors() {
             let ignore = if config.ignore {
                 if config.git_ignore {
-                    // the second path takes priority
+                    // Later caller-supplied files take priority.
                     build_ignore(
                         [ancestor.join(".gitignore"), ancestor.join(".ignore")],
                         ancestor,
@@ -77,17 +77,11 @@ impl IgnoreFiles {
 
     fn shared_ignores(
         workspace: &Path,
-        config: &WatchConfig,
+        config: &Options,
     ) -> (Vec<Arc<Gitignore>>, Option<Arc<Gitignore>>) {
         let mut ignores = Vec::new();
-        let workspace_ignore = build_ignore(
-            [
-                loader::config_dir().join("ignore"),
-                workspace.join(".mitos/ignore"),
-            ],
-            workspace,
-        )
-        .map(Arc::new);
+        let workspace_ignore =
+            build_ignore(config.ignore_files.iter().cloned(), workspace).map(Arc::new);
         if config.git_global {
             let (gitignore_global, err) = Gitignore::global();
             if let Some(err) = err
@@ -102,16 +96,10 @@ impl IgnoreFiles {
         (ignores, workspace_ignore)
     }
 
-    fn filesentry_ignores(workspace: &Path) -> Gitignore {
-        // the second path takes priority
-        build_ignore(
-            [
-                loader::config_dir().join("filesentryignore"),
-                workspace.join(".mitos/filesentryignore"),
-            ],
-            workspace,
-        )
-        .unwrap_or(Gitignore::empty())
+    fn filesentry_ignores(workspace: &Path, config: &Options) -> Gitignore {
+        // Later caller-supplied files take priority.
+        build_ignore(config.watch_ignore_files.iter().cloned(), workspace)
+            .unwrap_or(Gitignore::empty())
     }
 
     fn is_ignored(
@@ -167,7 +155,7 @@ pub(super) struct WatchFilter {
     hidden: bool,
     watch_vcs: bool,
     max_depth: Option<usize>,
-    config: WatchConfig,
+    config: Options,
     workspace_ignore: Option<Arc<Gitignore>>,
     nested_ignores:
         parking_lot::RwLock<std::collections::HashMap<PathBuf, Arc<Vec<Arc<Gitignore>>>>>,
@@ -175,11 +163,11 @@ pub(super) struct WatchFilter {
 
 impl WatchFilter {
     pub(super) fn new<'a>(
-        config: &WatchConfig,
+        config: &Options,
         workspace: &'a Path,
         roots: impl Iterator<Item = &'a Path> + Clone,
     ) -> WatchFilter {
-        let filesentry_ignores = IgnoreFiles::filesentry_ignores(workspace);
+        let filesentry_ignores = IgnoreFiles::filesentry_ignores(workspace, config);
         let (global_ignores, workspace_ignore) = IgnoreFiles::shared_ignores(workspace, config);
         let ignore_files = roots
             .chain([workspace])
@@ -397,6 +385,28 @@ fn is_vcs_ignore(path: &Path, watch_vcs: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn caller_supplied_ignore_files_control_native_coverage() {
+        use super::{Options, WatchFilter};
+        use filesentry::Filter;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let ignore = root.join("custom.ignore");
+        let native = root.join("native.ignore");
+        std::fs::write(&ignore, "generated/\n").unwrap();
+        std::fs::write(&native, "excluded/\n").unwrap();
+        let options = Options {
+            ignore_files: vec![ignore],
+            watch_ignore_files: vec![native],
+            git_global: false,
+            ..Options::default()
+        };
+        let filter = WatchFilter::new(&options, &root, std::iter::empty());
+        assert!(filter.ignore_path_rec(&root.join("generated/file.rs"), Some(false)));
+        assert!(filter.ignore_path_rec(&root.join("excluded/file.rs"), Some(false)));
+        assert!(!filter.ignore_path_rec(&root.join("src/file.rs"), Some(false)));
+    }
+
     use std::path::Path;
 
     use super::{is_hardcoded_whitelist, is_hidden, is_vcs_ignore};
@@ -417,16 +427,16 @@ mod tests {
 
     #[test]
     fn explicit_metadata_includes_only_demanded_paths_and_respects_watch_exclusions() {
-        use super::{WatchConfig, WatchFilter};
+        use super::{Options, WatchFilter};
         use filesentry::Filter;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let metadata = root.join("external-metadata");
         let index = metadata.join("worktrees/linked/index");
         let head = metadata.join("refs/heads/feature");
-        let config = WatchConfig {
+        let config = Options {
             max_depth: Some(1),
-            ..WatchConfig::default()
+            ..Options::default()
         };
         let mut filter = WatchFilter::new(&config, &root, std::iter::empty()).with_extra_paths(
             [index.clone(), head.clone(), metadata.join("packed-refs")].into_iter(),
@@ -465,7 +475,7 @@ mod tests {
         use filesentry::Filter;
         use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-        use super::{IgnoreFiles, WatchConfig, WatchFilter};
+        use super::{IgnoreFiles, Options, WatchFilter};
 
         let mut builder = GitignoreBuilder::new("/repo");
         // dir-only pattern: matches the `target` directory, not a file named target
@@ -482,7 +492,7 @@ mod tests {
             hidden: true,
             watch_vcs: true,
             max_depth: None,
-            config: WatchConfig::default(),
+            config: Options::default(),
             workspace_ignore: None,
             nested_ignores: Default::default(),
         };
@@ -495,7 +505,7 @@ mod tests {
     }
     #[test]
     fn filters_nested_ignores_hidden_paths_depth_and_independent_roots() {
-        use super::{WatchConfig, WatchFilter};
+        use super::{Options, WatchFilter};
         use filesentry::Filter;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
@@ -503,10 +513,10 @@ mod tests {
         std::fs::write(root.join("src/.gitignore"), "generated/\n").unwrap();
         let other = tempfile::tempdir().unwrap();
         let other = other.path().canonicalize().unwrap();
-        let config = WatchConfig {
+        let config = Options {
             git_global: false,
             max_depth: Some(3),
-            ..WatchConfig::default()
+            ..Options::default()
         };
         let filter = WatchFilter::new(&config, &root, [other.as_path()].into_iter());
         assert!(filter.ignore_path_rec(&root.join("src/generated/file.rs"), Some(false)));

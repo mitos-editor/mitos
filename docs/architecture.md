@@ -26,6 +26,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `text-diff` | Text-to-transaction comparison and reusable line differencing |
 | `text-io` | Streaming text decoding, encoding detection, BOM handling, and encoded writes |
 | `workspace` | Workspace discovery, trust policy and persistence with an explicit store directory |
+| `file-watch` | Native watches, ignore filtering, coverage, and metadata polling |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
 | `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
@@ -447,6 +448,14 @@ reload. Modal acceptance launches missing language servers; explicit trust comma
 restart the current document's selected servers through
 `Editor::restart_language_servers`, also used by `:lsp-restart`. Revoking or excluding
 trust leaves running servers alone. `term` owns modal text, labels, and command adapters.
+
+`file-watch` owns native watches, filters, readiness, and explicit metadata polling.
+Its caller supplies workspace classification, watch options, and ordered ignore-file
+paths. Batches retain a watcher generation: the editor discards obsolete batches
+before callback queueing and validates ownership again when applying them.
+`view::file_watcher` adapts configuration, owns callback delivery and subscriptions,
+and dispatches LSP notifications and reload decisions. Native Windows path forms
+remain intact throughout watcher coverage and event matching.
 
 `view::features::auto_reload` owns external-change detection, polling, reload
 decisions, split synchronization, VCS refresh, and ignore-filter refresh. Polls

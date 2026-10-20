@@ -22,6 +22,7 @@ members = [
   "crates/search",
   "crates/word-index",
   "crates/fuzzy",
+  "crates/file-watch",
   "crates/text-diff",
   "crates/text-io",
   "crates/workspace",
@@ -74,6 +75,7 @@ clipboard = { path = "crates/clipboard" }
 word-index = { path = "crates/word-index" }
 search = { path = "crates/search" }
 fuzzy = { path = "crates/fuzzy" }
+file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }

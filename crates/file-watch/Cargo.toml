@@ -1,0 +1,22 @@
+[package]
+name = "file-watch"
+description = "Native file watching, coverage, and ignore filtering for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+stdx.workspace = true
+filesentry.workspace = true
+ignore.workspace = true
+parking_lot.workspace = true
+log.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tempfile.workspace = true
