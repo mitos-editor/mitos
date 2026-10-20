@@ -6,10 +6,10 @@ use crate::{
     job,
     ui::{
         document::{render_document, LinePos, TextRenderer},
+        highlights,
         image::{cached_image, invalidate_cached_image, load_image, render_image, PreparedImage},
         overlay::Overlay,
         text_decorations::DecorationManager,
-        EditorView,
     },
 };
 use ratatui_image::picker::Picker as ImagePicker;
@@ -625,13 +625,13 @@ pub(super) fn render_preview_content(
     let config = cx.editor.config();
 
     let syntax_highlighter =
-        EditorView::doc_syntax_highlighter(doc, offset.anchor, area.height, &loader);
+        highlights::syntax_highlighter(doc, offset.anchor, area.height, &loader);
     let mut overlay_highlights = Vec::new();
     if doc
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = EditorView::doc_rainbow_highlights(
+        && let Some(overlay) = highlights::rainbow_highlights(
             doc,
             offset.anchor,
             area.height,
@@ -642,7 +642,7 @@ pub(super) fn render_preview_content(
         overlay_highlights.push(overlay);
     }
 
-    EditorView::doc_diagnostics_highlights_into(doc, &cx.editor.theme, &mut overlay_highlights);
+    highlights::diagnostic_highlights(doc, &cx.editor.theme, &mut overlay_highlights);
 
     let mut decorations = DecorationManager::default();
 

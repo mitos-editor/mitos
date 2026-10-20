@@ -55,6 +55,11 @@ Editor mode keymaps and their menu and binding labels also belong to `term`,
 where static commands, typable commands, and macros are resolved and executed.
 They reuse input types from `ui-core`; `command-line` only parses command arguments.
 
+`term::ui::highlights` prepares syntax, diagnostic, selection, link, bracket,
+and snippet highlight layers from explicit documents, viewports, and themes.
+Editor panes and picker previews call it directly. `EditorView` owns input,
+component state, and composition of the rendered pane.
+
 Picker matching, input, and composition live in `term::ui::picker`. Its private
 `preview` module owns preview caches, loading, cancellation, asynchronous
 publication, and rendering. Dynamic query scheduling remains in `handlers`. Query callbacks validate
