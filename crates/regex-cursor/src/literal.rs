@@ -1,5 +1,4 @@
 pub use regex_automata::util::prefilter::Prefilter;
-pub use regex_automata::MatchKind;
 use regex_automata::Span;
 
 use crate::cursor::Cursor;

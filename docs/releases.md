@@ -8,7 +8,8 @@ archives, Debian package, SHA-256 checksums, and provenance attestations.
 Releases use Git tags only; release-plz does not publish crates to crates.io.
 The `term` package owns the release and root changelog. Its version is inherited
 from `workspace.package.version`, so the editor's internal workspace crates
-remain on the same version. `lsp-types` retains its independent vendored version.
+remain on the same version. `lsp-types` and `regex-cursor` retain their independent
+vendored versions.
 
 ## Version baseline
 

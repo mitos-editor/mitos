@@ -13,7 +13,7 @@ use regex_automata::util::{captures, look};
 ///
 /// Otherwise, errors typically occur when a limit has been breeched. For
 /// example, if the total heap usage of the compiled NFA exceeds the limit
-/// set by [`Config::nfa_size_limit`](crate::nfa::thompson::Config), then
+/// set by [`Config::nfa_size_limit`](regex_automata::nfa::thompson::Config), then
 /// building the NFA will fail.
 #[derive(Clone, Debug)]
 pub struct BuildError {

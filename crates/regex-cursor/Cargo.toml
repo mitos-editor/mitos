@@ -4,25 +4,26 @@ description = "regex fork that can search discontiguous haystacks"
 version = "0.1.5"
 edition = "2021"
 documentation = "https://docs.rs/regex-cursor"
-author = "Pascal Kuthe <pascalkuthe@pm.me>"
-repository = "https://github.com/pascalkuthe/regex-cursor"
+authors = ["Pascal Kuthe <pascalkuthe@pm.me>", "Mitos contributors"]
+repository.workspace = true
+publish = false
 readme = "README.md"
 keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
 license = "MIT OR Apache-2.0"
 categories = ["text-processing"]
-rust-version = "1.65"
+rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4.22"
+log.workspace = true
 memchr = "2.7"
-regex-automata = "0.4.7"
+regex-automata.workspace = true
 regex-syntax = "0.8.4"
-ropey = { version = "1.6.1", default-features = false, optional = true }
+ropey = { workspace = true, optional = true }
 
 [dev-dependencies]
-anyhow = "1.0.89"
+anyhow.workspace = true
 proptest = "1.5.0"
 regex-test =  "0.1.1"
 
@@ -30,3 +31,13 @@ regex-test =  "0.1.1"
 default = ["perf-inline", "ropey"]
 perf-inline = []
 ropey = ["dep:ropey"]
+
+[lints.rust]
+# Retain the inactive upstream gates without exposing unsupported features.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("internal-instrument-pikevm", "perf-literal-multisubstring"))'] }
+
+[lints.clippy]
+# Preserve upstream documentation, engine names and error representations.
+doc_lazy_continuation = "allow"
+upper_case_acronyms = "allow"
+result_large_err = "allow"

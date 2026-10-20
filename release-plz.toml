@@ -30,6 +30,11 @@ name = "lsp-types"
 # Preserve the vendored library's version independently of the editor.
 release = false
 
+[[package]]
+name = "regex-cursor"
+# Preserve the imported version used by tree-house's dependency requirement.
+release = false
+
 # These crates did not exist at the last shared release. Use an unmatched tag
 # pattern so release-plz treats them as new instead of loading missing packages.
 # Remove this block after the first shared release containing these crates.

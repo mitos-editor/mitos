@@ -20,7 +20,7 @@ without having to slice the haystack yourself. In contrast, a meta `Regex`
 returns match objects that only have offsets in them.
 * At time of writing, a meta `Regex` doesn't have some of the convenience
 routines that the `regex` crate has, such as replacements. Note though that
-[`Captures::interpolate_string`](crate::util::captures::Captures::interpolate_string)
+[`Captures::interpolate_string`](regex_automata::util::captures::Captures::interpolate_string)
 will handle the replacement string interpolation for you.
 * A meta `Regex` supports the [`Input`](crate::Input) abstraction, which
 provides a way to configure a search in more ways than is supported by the
@@ -28,10 +28,10 @@ provides a way to configure a search in more ways than is supported by the
 be used to run an anchored search, regardless of whether the pattern is itself
 anchored with a `^`.
 * A meta `Regex` supports multi-pattern searching everywhere.
-Indeed, every [`Match`](crate::Match) returned by the search APIs
-include a [`PatternID`](crate::PatternID) indicating which pattern
+Indeed, every [`Match`](regex_automata::Match) returned by the search APIs
+include a [`PatternID`](regex_automata::PatternID) indicating which pattern
 matched. In the single pattern case, all matches correspond to
-[`PatternID::ZERO`](crate::PatternID::ZERO). In contrast, the `regex` crate
+[`PatternID::ZERO`](regex_automata::PatternID::ZERO). In contrast, the `regex` crate
 has distinct `Regex` and a `RegexSet` APIs. The former only supports a single
 pattern, while the latter supports multiple patterns but cannot report the
 offsets of a match.

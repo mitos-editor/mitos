@@ -342,10 +342,7 @@ fn search_imp<C: Cursor>(
     // Whether we want to visit all match states instead of emulating the
     // 'leftmost' semantics of typical backtracking regex engines.
     let allmatches = vm.get_config().get_match_kind() == MatchKind::All;
-    let (anchored, start_id) = match start_config(vm, input) {
-        None => return None,
-        Some(config) => config,
-    };
+    let (anchored, start_id) = start_config(vm, input)?;
 
     let pre = if anchored { None } else { vm.get_config().get_prefilter() };
     let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
@@ -678,7 +675,7 @@ fn epsilon_closure_explore<C: Cursor>(
                 sid = next;
             }
             State::Union { ref alternates } => {
-                sid = match alternates.get(0) {
+                sid = match alternates.first() {
                     None => return,
                     Some(&sid) => sid,
                 };
@@ -870,7 +867,7 @@ enum FollowEpsilon {
 /// in a haystack. The other set corresponds to the "next" set of states being
 /// built, which will become the new "current" set for the next position in the
 /// haystack. These two sets correspond to CLIST and NLIST in Thompson's
-/// original paper regexes: https://dl.acm.org/doi/pdf/10.1145/363347.363387
+/// original paper regexes: <https://dl.acm.org/doi/pdf/10.1145/363347.363387>
 ///
 /// In addition to representing a set of NFA states, this also maintains slot
 /// values for each state. These slot values are what turn the NFA simulation

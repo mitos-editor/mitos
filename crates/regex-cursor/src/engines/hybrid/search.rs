@@ -198,7 +198,7 @@ pub fn try_search_fwd<C: Cursor>(
 ///
 /// This routine is principally useful when used in
 /// conjunction with the
-/// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
+/// [`nfa::thompson::Config::reverse`](regex_automata::nfa::thompson::Config::reverse)
 /// configuration. In general, it's unlikely to be correct to use both
 /// `try_search_fwd` and `try_search_rev` with the same DFA since any
 /// particular DFA will only support searching in one direction with

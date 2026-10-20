@@ -58,9 +58,9 @@ type CachePoolFn = Box<dyn Fn() -> Cache + Send + Sync + UnwindSafe + RefUnwindS
 ///
 /// * When calling [`Regex::captures`], instead of immediately
 /// running a slower but more capable regex engine like the
-/// [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM), the meta regex engine
+/// [`PikeVM`](regex_automata::nfa::thompson::pikevm::PikeVM), the meta regex engine
 /// will usually first look for the bounds of a match with a higher throughput
-/// regex engine like a [lazy DFA](crate::hybrid). Only when a match is found
+/// regex engine like a [lazy DFA](crate::engines::hybrid). Only when a match is found
 /// is a slower engine like `PikeVM` used to find the matching span for each
 /// capture group.
 /// * While higher throughout engines like the lazy DFA cannot handle
@@ -96,11 +96,11 @@ type CachePoolFn = Box<dyn Fn() -> Cache + Send + Sync + UnwindSafe + RefUnwindS
 /// mutable scratch space. This scratch space is called a [`Cache`].
 ///
 /// Most regex engines _also_ usually have a read-only component, typically
-/// a [Thompson `NFA`](crate::nfa::thompson::NFA).
+/// a [Thompson `NFA`](regex_automata::nfa::thompson::NFA).
 ///
 /// In order to make the `Regex` API convenient, most of the routines hide
 /// the fact that a `Cache` is needed at all. To achieve this, a [memory
-/// pool](crate::util::pool::Pool) is used internally to retrieve `Cache`
+/// pool](regex_automata::util::pool::Pool) is used internally to retrieve `Cache`
 /// values in a thread safe way that also permits reuse. This in turn implies
 /// that every such search call requires some form of synchronization. Usually
 /// this synchronization is fast enough to not notice, but in some cases, it
@@ -108,7 +108,7 @@ type CachePoolFn = Box<dyn Fn() -> Cache + Send + Sync + UnwindSafe + RefUnwindS
 /// true:
 ///
 /// * The same `Regex` is shared across multiple threads simultaneously,
-/// usually via a [`util::lazy::Lazy`](crate::util::lazy::Lazy) or something
+/// usually via a [`util::lazy::Lazy`](regex_automata::util::lazy::Lazy) or something
 /// similar from the `once_cell` or `lazy_static` crates.
 /// * The primary unit of work in each thread is a regex search.
 /// * Searches are run on very short haystacks.
@@ -615,7 +615,7 @@ impl Regex {
     /// This yields the same matches as [`Regex::find_iter`], but it includes
     /// the spans of all capturing groups that participate in each match.
     ///
-    /// **Tip:** See [`util::iter::Searcher`](crate::util::iter::Searcher) for
+    /// **Tip:** See `util::iter::Searcher` for
     /// how to correctly iterate over all matches in a haystack while avoiding
     /// the creation of a new `Captures` value for every match. (Which you are
     /// forced to do with an `Iterator`.)
@@ -1068,7 +1068,7 @@ impl Regex {
     /// * A slice with [`pattern_len() * 2`](Regex::pattern_len) slots, if you
     /// only care about the overall match spans for each matching pattern.
     /// * A slice with
-    /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
+    /// [`slot_len()`](regex_automata::util::captures::GroupInfo::slot_len) slots, which
     /// permits recording match offsets for every capturing group in every
     /// pattern.
     ///
@@ -2185,7 +2185,7 @@ impl<'r, C: Cursor> core::iter::FusedIterator for SplitN<'r, C> {}
 /// Most of the regex engines in this crate require some kind of
 /// mutable state in order to execute a search. This mutable state is
 /// explicitly separated from the the core regex object (such as a
-/// [`thompson::NFA`](crate::nfa::thompson::NFA)) so that the read-only regex
+/// [`thompson::NFA`](regex_automata::nfa::thompson::NFA)) so that the read-only regex
 /// object can be shared across multiple threads simultaneously without any
 /// synchronization. Conversely, a `Cache` must either be duplicated if using
 /// the same `Regex` from multiple threads, or else there must be some kind of
@@ -2307,7 +2307,7 @@ impl Cache {
 /// This configuration only includes options for the
 /// non-syntax behavior of a `Regex`, and can be applied via the
 /// [`Builder::configure`] method. For configuring the syntax options, see
-/// [`util::syntax::Config`](crate::util::syntax::Config).
+/// [`util::syntax::Config`](regex_automata::util::syntax::Config).
 ///
 /// # Example: lower the NFA size limit
 ///
@@ -2853,7 +2853,7 @@ impl Config {
     ///
     /// **Warning**: This does not change the behavior of `.`. To do that,
     /// you'll need to configure the syntax option
-    /// [`syntax::Config::line_terminator`](crate::util::syntax::Config::line_terminator)
+    /// [`syntax::Config::line_terminator`](regex_automata::util::syntax::Config::line_terminator)
     /// in addition to this. Otherwise, `.` will continue to match any
     /// character other than `\n`.
     ///
@@ -2910,7 +2910,7 @@ impl Config {
     // /// definitely be used. It just means that it will be _available_ for
     // /// use if the meta regex engine thinks it will be useful. (Indeed, a
     // /// one-pass DFA can only be used when the regex is one-pass. See the
-    // /// [`dfa::onepass`](crate::dfa::onepass) module for more details.)
+    // /// [`dfa::onepass`](regex_automata::dfa::onepass) module for more details.)
     // ///
     // /// When the `dfa-onepass` crate feature is enabled, then this is enabled
     // /// by default. Otherwise, if the crate feature is disabled, then this is
@@ -3118,7 +3118,7 @@ impl Config {
 /// * [`Builder::configure`] will set high-level configuration options as
 /// described by a [`Config`].
 /// * [`Builder::syntax`] will set the syntax level configuration options
-/// as described by a [`util::syntax::Config`](crate::util::syntax::Config).
+/// as described by a [`util::syntax::Config`](regex_automata::util::syntax::Config).
 /// This only applies when building a `Regex` from pattern strings.
 ///
 /// Once configured, the builder can then be used to construct a `Regex` from
@@ -3201,6 +3201,12 @@ pub struct Builder {
     config: Config,
     ast: ast::parse::ParserBuilder,
     hir: hir::translate::TranslatorBuilder,
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Builder {

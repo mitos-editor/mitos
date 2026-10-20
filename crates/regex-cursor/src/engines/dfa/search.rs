@@ -1,6 +1,6 @@
 use regex_automata::{
     dfa::{Automaton, StartError},
-    util::{escape::DebugByte, prefilter::Prefilter, primitives::StateID, start},
+    util::{prefilter::Prefilter, primitives::StateID, start},
     Anchored, HalfMatch, MatchError,
 };
 
@@ -49,7 +49,7 @@ use crate::{cursor::Cursor, engines::dfa::accel, literal, util::empty, Input};
 /// # Example
 ///
 /// This example shows how to use this method with a
-/// [`dense::DFA`](crate::dfa::dense::DFA).
+/// [`dense::DFA`](regex_automata::dfa::dense::DFA).
 ///
 /// ```
 /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
@@ -191,9 +191,9 @@ pub fn try_search_fwd<C: Cursor, A: Automaton>(
 /// # Example
 ///
 /// This example shows how to use this method with a
-/// [`dense::DFA`](crate::dfa::dense::DFA). In particular, this
+/// [`dense::DFA`](regex_automata::dfa::dense::DFA). In particular, this
 /// routine is principally useful when used in conjunction with the
-/// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
+/// [`nfa::thompson::Config::reverse`](regex_automata::nfa::thompson::Config::reverse)
 /// configuration. In general, it's unlikely to be correct to use
 /// both `try_search_fwd` and `try_search_rev` with the same DFA since
 /// any particular DFA will only support searching in one direction with

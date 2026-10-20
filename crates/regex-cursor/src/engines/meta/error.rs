@@ -7,7 +7,7 @@ use regex_syntax::{ast, hir};
 /// modes. First is a parse or syntax error in the concrete syntax of a
 /// pattern. Second is that the construction of the underlying regex matcher
 /// fails, usually because it gets too big with respect to limits like
-/// [`Config::nfa_size_limit`](crate::meta::Config::nfa_size_limit).
+/// [`Config::nfa_size_limit`](crate::engines::meta::Config::nfa_size_limit).
 ///
 /// This error provides very little introspection capabilities. You can:
 ///

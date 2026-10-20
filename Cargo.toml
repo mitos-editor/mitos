@@ -22,6 +22,7 @@ members = [
   "crates/grammar-build",
   "crates/clipboard",
   "crates/search",
+  "crates/regex-cursor",
   "crates/word-index",
   "crates/fuzzy",
   "crates/file-watch",
@@ -77,6 +78,7 @@ grammar-build = { path = "crates/grammar-build" }
 clipboard = { path = "crates/clipboard" }
 word-index = { path = "crates/word-index" }
 search = { path = "crates/search" }
+regex-cursor = { path = "crates/regex-cursor" }
 fuzzy = { path = "crates/fuzzy" }
 file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
@@ -147,7 +149,6 @@ percent-encoding = "2.3"
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 regex-automata = "0.4.14"
-regex-cursor = "0.1.5"
 tree-house = { version = "0.4", default-features = false }
 
 # Serialization and configuration
@@ -204,3 +205,7 @@ repository = "https://github.com/mitos-editor/mitos"
 homepage = "https://github.com/mitos-editor/mitos"
 license = "MPL-2.0"
 rust-version = "1.97.1"
+
+# Share the workspace implementation with tree-house and its bindings.
+[patch.crates-io]
+regex-cursor = { path = "crates/regex-cursor" }

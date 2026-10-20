@@ -46,7 +46,7 @@ fn is_anchored(regex: &Regex, input: &Input<impl Cursor>) -> bool {
 /// example, if the lazy DFA gives up or quits during a search using this
 /// method, then a panic will occur during iteration.
 ///
-/// Use [`Regex::try_search`] with [`util::iter::Searcher`](iter::Searcher)
+/// Use [`Regex::try_search`] with `util::iter::Searcher`
 /// if you want to handle these error conditions.
 ///
 /// # Example

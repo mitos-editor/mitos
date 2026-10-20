@@ -7,7 +7,7 @@ types that implement `Iterator`. The documentation for `Searcher` explains a
 bit more about why these different APIs exist.
 
 Currently, this module supports iteration over any regex engine that works
-with the [`HalfMatch`], [`Match`] or [`Captures`] types.
+with the [`HalfMatch`], [`Match`] or [`Captures`](regex_automata::util::captures::Captures) types.
 */
 
 use std::fmt::Debug;
@@ -47,7 +47,7 @@ use crate::input::Input;
 ///
 /// In particular, a `Searcher` is not itself an iterator. Instead, it provides
 /// `advance` routines that permit moving the search along explicitly. It also
-/// provides various routines, like [`Searcher::into_matches_iter`], that
+/// provides routines, like [`Searcher::into_half_matches_iter`], that
 /// accept a closure (representing how a regex engine executes a search) and
 /// returns a conventional iterator.
 ///
@@ -81,7 +81,7 @@ use crate::input::Input;
 /// that cannot be named, it is difficult to encapsulate them without both
 /// costs to speed and added complexity to the public API. For example, in
 /// defining an iterator type like
-/// [`dfa::regex::FindMatches`](crate::dfa::regex::FindMatches),
+/// [`dfa::regex::FindMatches`](regex_automata::dfa::regex::FindMatches),
 /// if we use a closure internally, it's not possible to name this type in the
 /// return type of the iterator constructor. Thus, the only way around it is
 /// to erase the type by boxing it and turning it into a `Box<dyn FnMut ...>`.
@@ -111,7 +111,7 @@ use crate::input::Input;
 /// # Example: iterating with captures
 ///
 /// Several regex engines in this crate over convenient iterator APIs over
-/// [`Captures`] values. To do so, this requires allocating a new `Captures`
+/// [`Captures`](regex_automata::util::captures::Captures) values. To do so, this requires allocating a new `Captures`
 /// value for each iteration step. This can perhaps be more costly than you
 /// might want. Instead of implementing your own iterator to avoid that
 /// cost (which can be a little subtle if you want to handle empty matches
@@ -446,7 +446,7 @@ impl<C: Cursor> Searcher<C> {
     ///
     /// The iterator returned yields result values. If the underlying regex
     /// engine is configured to never return an error, consider calling
-    /// [`TryHalfMatchesIter::infallible`] to convert errors into panics.
+    /// `TryHalfMatchesIter::infallible` to convert errors into panics.
     ///
     /// # Example
     ///
@@ -646,8 +646,9 @@ impl<C: Cursor, F> core::fmt::Debug for TryHalfMatchesIter<C, F> {
 /// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_half_matches_iter`] and
-/// then calling [`TryHalfMatchesIter::infallible`].
+/// then calling `TryHalfMatchesIter::infallible`.
 #[derive(Debug)]
+#[expect(dead_code, reason = "the upstream infallible half-match adapter is unfinished")]
 pub struct HalfMatchesIter<C: Cursor, F>(TryHalfMatchesIter<C, F>);
 
 // impl<C: Cursor, F> HalfMatchesIter<C, F> {

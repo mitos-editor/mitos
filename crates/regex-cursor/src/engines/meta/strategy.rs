@@ -1,4 +1,4 @@
-use core::{fmt::Debug, panic};
+use core::fmt::Debug;
 
 use std::sync::Arc;
 
@@ -712,7 +712,7 @@ impl Core {
     }
 
     fn is_accelerated(&self) -> bool {
-        self.pre.as_ref().map_or(false, |pre| pre.is_fast())
+        self.pre.as_ref().is_some_and(|pre| pre.is_fast())
     }
 
     fn memory_usage(&self) -> usize {
@@ -728,7 +728,7 @@ impl Core {
     fn search<C: Cursor>(&self, cache: &mut Cache, input: &mut Input<C>) -> Option<Match> {
         // We manually inline try_search_mayfail here because letting the
         // compiler do it seems to produce pretty crappy codegen.
-        return if let Some(e) = self.dfa.get(input) {
+        if let Some(e) = self.dfa.get(input) {
             trace!("using full DFA for full search at {:?}", input.get_span());
             match e.try_search(input) {
                 Ok(x) => x,
@@ -748,7 +748,7 @@ impl Core {
             }
         } else {
             self.search_nofail(cache, input)
-        };
+        }
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]

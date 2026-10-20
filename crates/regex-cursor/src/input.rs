@@ -586,7 +586,7 @@ impl<C: Cursor> Input<C> {
     /// # Panics
     ///
     /// This routine will panic if the given range could not be converted
-    /// to a valid [`Range`]. For example, this would panic when given
+    /// to a valid [`Range`](std::ops::Range). For example, this would panic when given
     /// `0..=usize::MAX` since it cannot be represented using a half-open
     /// interval in terms of `usize`.
     ///
@@ -746,7 +746,7 @@ impl<C: Cursor> Input<C> {
     /// # Panics
     ///
     /// This routine will panic if the given range could not be converted
-    /// to a valid [`Range`]. For example, this would panic when given
+    /// to a valid [`Range`](std::ops::Range). For example, this would panic when given
     /// `0..=usize::MAX` since it cannot be represented using a half-open
     /// interval in terms of `usize`.
     ///

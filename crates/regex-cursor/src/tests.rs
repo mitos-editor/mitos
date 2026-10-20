@@ -12,7 +12,7 @@ fn suite() -> anyhow::Result<regex_test::RegexTests> {
     let mut tests = regex_test::RegexTests::new();
     macro_rules! load {
         ($name:expr) => {{
-            const DATA: &[u8] = include_bytes!(concat!("../../regex/testdata/", $name, ".toml"));
+            const DATA: &[u8] = include_bytes!(concat!("../testdata/", $name, ".toml"));
             tests.load_slice($name, DATA)?;
         }};
     }
@@ -47,7 +47,7 @@ fn suite() -> anyhow::Result<regex_test::RegexTests> {
 }
 
 /// Configure a regex_automata::Input with the given test configuration.
-fn create_input(test: &regex_test::RegexTest) -> crate::Input<SingleByteChunks> {
+fn create_input(test: &regex_test::RegexTest) -> crate::Input<SingleByteChunks<'_>> {
     use regex_automata::Anchored;
 
     let bounds = test.bounds();
@@ -185,20 +185,18 @@ fn run_test(re: &Regex, test: &RegexTest) -> TestResult {
             SearchKind::Earliest => {
                 input.earliest(true);
                 TestResult::matches(
-                    re.find_iter(input).take(test.match_limit().unwrap_or(std::usize::MAX)).map(
-                        |m| Match {
+                    re.find_iter(input).take(test.match_limit().unwrap_or(usize::MAX)).map(|m| {
+                        Match {
                             id: m.pattern().as_usize(),
                             span: Span { start: m.start(), end: m.end() },
-                        },
-                    ),
+                        }
+                    }),
                 )
             }
             SearchKind::Leftmost => TestResult::matches(
-                re.find_iter(input).take(test.match_limit().unwrap_or(std::usize::MAX)).map(|m| {
-                    Match {
-                        id: m.pattern().as_usize(),
-                        span: Span { start: m.start(), end: m.end() },
-                    }
+                re.find_iter(input).take(test.match_limit().unwrap_or(usize::MAX)).map(|m| Match {
+                    id: m.pattern().as_usize(),
+                    span: Span { start: m.start(), end: m.end() },
                 }),
             ),
             SearchKind::Overlapping => TestResult::skip(),
@@ -208,14 +206,14 @@ fn run_test(re: &Regex, test: &RegexTest) -> TestResult {
                 input.earliest(true);
                 let it = re
                     .captures_iter(input)
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .take(test.match_limit().unwrap_or(usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
             SearchKind::Leftmost => {
                 let it = re
                     .captures_iter(input)
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .take(test.match_limit().unwrap_or(usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }

@@ -60,6 +60,7 @@ mod literal;
 mod util;
 
 #[cfg(test)]
+#[expect(dead_code, reason = "retain upstream random-chunk test helpers")]
 mod test_rope;
 #[cfg(test)]
 mod tests;

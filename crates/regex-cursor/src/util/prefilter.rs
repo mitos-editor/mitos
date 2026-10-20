@@ -1,7 +1,7 @@
 /*!
 Defines a prefilter for accelerating regex searches.
 
-A prefilter can be created by building a [`Prefilter`] value.
+A prefilter can be created by building a [`Prefilter`](regex_automata::util::prefilter::Prefilter) value.
 
 A prefilter represents one of the most important optimizations available for
 accelerating regex searches. The idea of a prefilter is to very quickly find

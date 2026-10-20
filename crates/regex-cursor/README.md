@@ -1,3 +1,34 @@
+# `regex-cursor` in Mitos
+
+Owns cursor-based regular expression search over discontiguous text, including
+Ropey slices. Mitos and the crates.io tree-house dependencies share this local
+implementation through the root `[patch.crates-io]` entry.
+
+Imported from [`regex-cursor` 0.1.5](https://crates.io/crates/regex-cursor) at
+[`fd4c51c73587981219daf9a36184aabbddae78ee`](https://github.com/helix-editor/regex-cursor/commit/fd4c51c73587981219daf9a36184aabbddae78ee),
+originally authored by **Pascal Kuthe**, with engine code adapted from
+[`rust-lang/regex`](https://github.com/rust-lang/regex).
+
+The imported code remains licensed under **MIT OR Apache-2.0**. Original license
+texts and copyright notices are preserved in [`LICENSE-MIT`](LICENSE-MIT),
+[`LICENSE-MIT.regex`](LICENSE-MIT.regex), and [`LICENSE-APACHE`](LICENSE-APACHE).
+
+This import keeps Mitos's existing Ropey 1 API. The Ropey 2 migration by
+**Blaž Hrastnik (@archseer)** in
+[helix-editor/regex-cursor#6](https://github.com/helix-editor/regex-cursor/pull/6),
+adopted in [mitos-editor/regex-cursor#1](https://github.com/mitos-editor/regex-cursor/pull/1),
+is separate from this move and can be applied here when Mitos migrates to Ropey 2.
+
+The package keeps version `0.1.5` to satisfy tree-house's dependency requirement;
+it is an internal workspace crate and is not published separately.
+
+Run `cargo test -p regex-cursor --locked` from the repository root. The upstream
+regex corpus is included in [`testdata`](testdata/README.md).
+
+The upstream README follows.
+
+---
+
 # regex-cursor
 
 
