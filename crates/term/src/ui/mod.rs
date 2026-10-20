@@ -1,4 +1,5 @@
 pub mod blame;
+mod bufferline;
 mod completion;
 pub(crate) mod debugger_stack;
 pub(crate) mod debugger_variables;

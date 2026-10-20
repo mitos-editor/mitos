@@ -48,7 +48,7 @@ use tui::{
     buffer::Buffer as Surface,
     layout::{Alignment, Constraint, Layout, Size},
     text::{Line, Span},
-    widgets::{Paragraph, Row, Table, TableState, Tabs, Widget},
+    widgets::{Paragraph, Row, Table, TableState, Widget},
 };
 
 pub struct EditorView {
@@ -962,7 +962,7 @@ impl EditorView {
 
         let current_doc = view!(editor).document_id();
         let mut current_tab = 0;
-        // PERF: Ratatui Tabs needs an owned title list every frame. Cache these by document
+        // PERF: Bufferline rendering needs an owned title list every frame. Cache these by document
         // metadata if bufferline rendering becomes measurable with very large buffer sets.
         let titles: Vec<Line<'static>> = editor
             .documents()
@@ -1005,12 +1005,7 @@ impl EditorView {
             })
             .collect();
 
-        Tabs::new(titles)
-            .select(current_tab)
-            .highlight_style(Style::default())
-            .divider("")
-            .padding("", "")
-            .render(viewport, surface);
+        super::bufferline::render(&titles, current_tab, viewport, surface);
     }
 
     #[allow(clippy::too_many_lines)]

@@ -222,6 +222,8 @@ Saving, autosave, reloads, and native watching are configured in the
 | --- | --- | --- | --- |
 | `show` | `"never"`, `"always"`, or `"multiple"` | `"never"` | When to show open buffers at the top of the editor. |
 
+The bufferline scrolls horizontally to keep the active buffer visible when the tabs exceed the window width.
+
 ### `[editor.files.save]`
 
 | Key | Type / accepted values | Default | Description |
