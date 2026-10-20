@@ -40,7 +40,7 @@ impl Hover {
                     )
                 });
                 let body = Markdown::new(
-                    hover_contents_to_string(hover.contents),
+                    view::features::hover::contents_to_markdown(hover.contents),
                     config_loader.clone(),
                 );
                 (header, body)
@@ -176,29 +176,5 @@ impl Component for Hover {
             }
         }
         EventResult::Consumed(None)
-    }
-}
-
-fn hover_contents_to_string(contents: lsp::HoverContents) -> String {
-    fn marked_string_to_markdown(contents: lsp::MarkedString) -> String {
-        match contents {
-            lsp::MarkedString::String(contents) => contents,
-            lsp::MarkedString::LanguageString(string) => {
-                if string.language == "markdown" {
-                    string.value
-                } else {
-                    format!("```{}\n{}\n```", string.language, string.value)
-                }
-            }
-        }
-    }
-    match contents {
-        lsp::HoverContents::Scalar(contents) => marked_string_to_markdown(contents),
-        lsp::HoverContents::Array(contents) => contents
-            .into_iter()
-            .map(marked_string_to_markdown)
-            .collect::<Vec<_>>()
-            .join("\n\n"),
-        lsp::HoverContents::Markup(contents) => contents.value,
     }
 }

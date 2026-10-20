@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use editor_core::Rope;
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use language_config::LanguageServerFeature;
@@ -14,8 +15,9 @@ use parking_lot::Mutex;
 use super::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
+    editor::Action,
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
-    DocumentId, Editor, ViewId,
+    Document, DocumentId, Editor, ViewId,
 };
 
 /// Cancellation follows the owning document and its attached views.
@@ -84,6 +86,20 @@ impl Request {
 
 /// Request hover at the focused selection, superseding its previous request.
 pub fn request(editor: &mut Editor) {
+    request_impl(editor, HoverDisplay::Popup);
+}
+
+/// Request hover in a new Markdown scratch buffer in the focused view.
+pub fn request_buffer(editor: &mut Editor) {
+    request_impl(editor, HoverDisplay::Buffer);
+}
+
+enum HoverDisplay {
+    Popup,
+    Buffer,
+}
+
+fn request_impl(editor: &mut Editor, display: HoverDisplay) {
     let shared = editor.handlers.hover.shared.clone();
     let previous = {
         let mut session = shared.session.lock();
@@ -141,8 +157,16 @@ pub fn request(editor: &mut Editor) {
         callbacks
             .send(move |editor| {
                 if request.is_current(editor) {
-                    editor.handlers.hover.shared.session.lock().pending =
-                        Some(HoverUpdate { request, hovers });
+                    if matches!(display, HoverDisplay::Buffer) {
+                        if hovers.is_empty() {
+                            editor.set_status("No hover results available.");
+                        } else {
+                            open_buffer(editor, hovers);
+                        }
+                    } else {
+                        editor.handlers.hover.shared.session.lock().pending =
+                            Some(HoverUpdate { request, hovers });
+                    }
                     editor.redraw().request();
                 }
             })
@@ -199,4 +223,96 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
+}
+
+fn open_buffer(editor: &mut Editor, hovers: Vec<(String, lsp::Hover)>) {
+    let mut doc = Document::from(
+        Rope::from_str(&hovers_to_markdown(hovers)),
+        None,
+        editor.config.clone(),
+        editor.syn_loader.clone(),
+    );
+    let loader = editor.syn_loader.load_full();
+    if let Some(language) = loader.language_for_name("markdown") {
+        doc.set_language(Some(loader.language(language).config().clone()), &loader);
+    }
+    editor.new_file_from_document(Action::Replace, doc);
+}
+
+fn hovers_to_markdown(hovers: Vec<(String, lsp::Hover)>) -> String {
+    let count = hovers.len();
+    let contents = hovers
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, hover))| {
+            let body = contents_to_markdown(hover.contents);
+            if count > 1 {
+                format!("**[{}/{}] {}**\n\n{}", index + 1, count, name, body)
+            } else {
+                body
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+    format!("{contents}\n")
+}
+
+/// Convert a language-server hover body to Markdown for any frontend.
+pub fn contents_to_markdown(contents: lsp::HoverContents) -> String {
+    fn marked_string_to_markdown(contents: lsp::MarkedString) -> String {
+        match contents {
+            lsp::MarkedString::String(contents) => contents,
+            lsp::MarkedString::LanguageString(string) => {
+                if string.language == "markdown" {
+                    string.value
+                } else {
+                    format!("```{}\n{}\n```", string.language, string.value)
+                }
+            }
+        }
+    }
+    match contents {
+        lsp::HoverContents::Scalar(contents) => marked_string_to_markdown(contents),
+        lsp::HoverContents::Array(contents) => contents
+            .into_iter()
+            .map(marked_string_to_markdown)
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        lsp::HoverContents::Markup(contents) => contents.value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_preserves_multiple_servers_and_code_blocks() {
+        let hover = |contents| lsp::Hover {
+            contents,
+            range: None,
+        };
+        let markdown = hovers_to_markdown(vec![
+            (
+                "alpha".into(),
+                hover(lsp::HoverContents::Scalar(
+                    lsp::MarkedString::LanguageString(lsp::LanguageString {
+                        language: "rust".into(),
+                        value: "fn hello()".into(),
+                    }),
+                )),
+            ),
+            (
+                "beta".into(),
+                hover(lsp::HoverContents::Array(vec![
+                    lsp::MarkedString::String("**Docs**".into()),
+                    lsp::MarkedString::LanguageString(lsp::LanguageString {
+                        language: "markdown".into(),
+                        value: "More docs".into(),
+                    }),
+                ])),
+            ),
+        ]);
+        assert_eq!(markdown, "**[1/2] alpha**\n\n```rust\nfn hello()\n```\n\n---\n\n**[2/2] beta**\n\n**Docs**\n\nMore docs\n");
+    }
 }

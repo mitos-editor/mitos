@@ -672,6 +672,10 @@ pub fn hover(cx: &mut Context) {
     view::features::hover::request(cx.editor);
 }
 
+pub fn goto_hover(cx: &mut Context) {
+    view::features::hover::request_buffer(cx.editor);
+}
+
 pub fn rename_symbol(cx: &mut Context) {
     let (view, doc) = current_ref!(cx.editor);
     let task = match cx.editor.prepare_rename(doc.id(), view.id) {

@@ -43,6 +43,8 @@ command; sticky groups stay open until Escape. See
 - `m` works with [surround](./surround.md) and [textobjects](./textobjects.md).
 - `Ctrl-w` manages [split views](./files.md).
 - Space opens pickers and project tools. `Space '` reopens global search.
+  `Space k` shows documentation in a popup; `Space K` opens it in a Markdown
+  scratch buffer where you can search, select, and copy text.
 - `[` and `]` move to previous and next items, including syntax textobjects.
 
 ### Bindings

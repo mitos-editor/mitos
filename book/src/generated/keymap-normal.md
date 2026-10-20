@@ -285,6 +285,7 @@
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
 | `` <space>/ `` | Global search in workspace folder | `` global_search `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
+| `` <space>K `` | Show docs for item under cursor in a new buffer | `` goto_hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
 | `` <space>h `` | Select symbol references | `` select_references_to_symbol_under_cursor `` |
 | `` <space>c `` | Comment/uncomment selections | `` toggle_comments `` |

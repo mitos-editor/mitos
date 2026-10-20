@@ -171,7 +171,14 @@ impl Fixture {
                     Some(CompletionChange::Show { items, session }) if items.len() == count => {
                         return Ok((items, session))
                     }
-                    Some(CompletionChange::Show { .. }) => {}
+                    // Cancellation and a new request can leave lifecycle updates or
+                    // stale replies ahead of the next valid provider result.
+                    Some(
+                        CompletionChange::Show { .. }
+                        | CompletionChange::Started
+                        | CompletionChange::Hide,
+                    )
+                    | None => {}
                     _ => anyhow::bail!("expected completion items"),
                 }
             }

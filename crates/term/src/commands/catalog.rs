@@ -262,6 +262,7 @@ impl MappableCommand {
         inline_completion_prev => super::completion::inline_completion_prev, "Cycle to previous inline completion",
         inline_completion_trigger => super::completion::inline_completion_trigger, "Trigger inline completion",
         hover => super::lsp::hover, "Show docs for item under cursor",
+        goto_hover => super::lsp::goto_hover, "Show docs for item under cursor in a new buffer",
         toggle_comments => super::editing::toggle_comments, "Comment/uncomment selections",
         toggle_line_comments => super::editing::toggle_line_comments, "Line comment/uncomment selections",
         toggle_block_comments => super::editing::toggle_block_comments, "Block comment/uncomment selections",

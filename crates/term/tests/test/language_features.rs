@@ -110,6 +110,80 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn goto_hover_opens_markdown_scratch_and_preserves_source() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path()).await?;
+    let source = current_ref!(f.app.editor).1.id();
+    hover::request_buffer(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    let (_, doc) = current_ref!(f.app.editor);
+    assert_ne!(doc.id(), source);
+    assert!(doc.path().is_none());
+    assert_eq!(doc.language_name(), Some("markdown"));
+    assert_eq!(doc.text().to_string(), "alpha: 😀 original\n");
+    assert!(hover::next_update(&f.app.editor).is_none());
+    assert_eq!(
+        f.app.editor.document(source).unwrap().text().to_string(),
+        "😀 original\n"
+    );
+    f.app.editor.switch(source, Action::Replace);
+    assert_eq!(current_ref!(f.app.editor).1.id(), source);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_hover_rejects_stale_and_empty_results() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path()).await?;
+    let source = current_ref!(f.app.editor).1.id();
+    let count = f.app.editor.documents().count();
+    hover::request_buffer(&mut f.app.editor);
+    let response = f.response().await?;
+    f.edit();
+    response(&mut f.app.editor);
+    assert_eq!(current_ref!(f.app.editor).1.id(), source);
+    assert_eq!(f.app.editor.documents().count(), count);
+
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::insert(doc.text(), &Selection::point(0), "empty ".into());
+    view::editing::apply(doc, &transaction, view.id);
+    hover::request_buffer(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    assert_eq!(current_ref!(f.app.editor).1.id(), source);
+    assert_eq!(f.app.editor.documents().count(), count);
+    assert_eq!(
+        f.app.editor.status_msg.as_ref().unwrap().0,
+        "No hover results available."
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_hover_rejects_replaced_requests_and_focus_changes() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path()).await?;
+    let source = current_ref!(f.app.editor).1.id();
+    hover::request_buffer(&mut f.app.editor);
+    let response = f.response().await?;
+    hover::request(&mut f.app.editor);
+    response(&mut f.app.editor);
+    assert_eq!(current_ref!(f.app.editor).1.id(), source);
+    f.response().await?(&mut f.app.editor);
+    assert!(hover::next_update(&f.app.editor)
+        .unwrap()
+        .resolve(&f.app.editor)
+        .is_some());
+
+    hover::request_buffer(&mut f.app.editor);
+    let response = f.response().await?;
+    let other = f.app.editor.new_file(Action::HorizontalSplit);
+    response(&mut f.app.editor);
+    assert_eq!(current_ref!(f.app.editor).1.id(), other);
+    assert_eq!(f.app.editor.documents().count(), 2);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn hover_rejects_edits_before_publication_and_presentation() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path()).await?;
