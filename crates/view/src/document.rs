@@ -199,8 +199,6 @@ pub struct Document {
 
     file: file::FileState,
 
-    pub restore_cursor: bool,
-
     /// Current indent style.
     pub indent_style: IndentStyle,
     editor_config: EditorConfig,
@@ -268,7 +266,6 @@ impl fmt::Debug for Document {
             .field("views", &self.view_states)
             .field("text_annotations", &self.inlay_hints)
             .field("file", &self.file)
-            .field("restore_cursor", &self.restore_cursor)
             .field("syntax", &self.syntax)
             .field("language", &self.language)
             .field("modified_since_accessed", &self.modified_since_accessed)
@@ -310,7 +307,6 @@ impl Document {
             spelling_languages: Vec::new(),
             spelling_language_override: None,
             line_ending,
-            restore_cursor: false,
             syntax: None,
             pending_syntax: None,
             syntax_handler: None,

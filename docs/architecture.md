@@ -272,10 +272,13 @@ command repetition, and mode interpretation remain in `term`.
 ### Mode transitions
 
 `Editor::set_mode` in `editor/mode.rs` owns mode changes, feature cancellation,
-insert-mode triggers, diagnostic activity, and deferred autosave. Normal mode also
-restores indentation and the append cursor. `ModeDidChange` observers run after
-those required effects. Terminal hooks retain menu presentation and edit replay;
-headless callers use the same transition operation.
+insert-mode triggers, diagnostic activity, and deferred autosave. Leaving insert
+mode restores indentation and the append cursor. Shared editor entry operations
+prepare insert, append, select, line-boundary, and open-line selections before mode
+observers run. Append restoration belongs to the document/view relationship and is
+removed with that state. Failed edits leave the prior mode and selections intact.
+Terminal hooks retain menu presentation and edit replay; headless callers use the
+same operations.
 
 ### Document settings
 
@@ -1200,7 +1203,7 @@ protocol sessions, cancellation, and view bindings remain editor-level checks.
 ## Document/view state
 
 Each document owns one `DocumentViewState` per bound view, containing its selection,
-viewport position, jump labels, and structural selection history. Initialization
+viewport position, jump labels, append cursor restoration, and structural selection history. Initialization
 preserves existing records; removal drops them together while feature coordinators
 cancel their own requests. Selection and viewport anchors map through each edit before observers
 run. Optional selection lookup and read-only iterators expose the state without

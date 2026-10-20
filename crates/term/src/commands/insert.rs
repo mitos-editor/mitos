@@ -1,10 +1,7 @@
 //! Character and line insertion, indentation, comment continuation, and insert-mode deletion.
 
 use super::{
-    context::Context,
-    mode::{append_mode, enter_insert_mode, insert_mode},
-    snippets::goto_next_tabstop,
-    syntax::move_parent_node_end,
+    context::Context, mode::insert_mode, snippets::goto_next_tabstop, syntax::move_parent_node_end,
 };
 use crate::{events::PostInsertChar, key};
 use editor_config::SmartTabConfig;
@@ -70,7 +67,10 @@ fn insert_tab_impl(cx: &mut Context, count: usize) {
 pub fn append_char_interactive(cx: &mut Context) {
     // Save the current mode, so we can restore it later.
     let mode = cx.editor.mode();
-    append_mode(cx);
+    if let Err(error) = cx.editor.enter_append_mode() {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     insert_selection_interactive(cx, mode);
 }
 
@@ -183,23 +183,16 @@ pub(super) fn insert_at_line_end(cx: &mut Context) {
 // Enter insert mode and auto-indent the current line if it is empty.
 // If the line is not empty, move the cursor to the specified fallback position.
 fn insert_with_indent(cx: &mut Context, cursor_fallback: LineBoundary) {
-    let extend = cx.editor.mode() == Mode::Select;
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::insert_at_line_boundary(doc, view.id, cursor_fallback, extend) {
+    if let Err(error) = cx.editor.insert_at_line_boundary(cursor_fallback) {
         cx.editor.set_error(|| error.to_string());
-        return;
     }
-    enter_insert_mode(cx);
 }
 
 pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentContinuation) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::open_lines(doc, view.id, open, comment_continuation, count) {
+    if let Err(error) = cx.editor.open_lines(open, comment_continuation, count) {
         cx.editor.set_error(|| error.to_string());
-        return;
     }
-    enter_insert_mode(cx);
 }
 
 // o inserts a new line after each line with a selection

@@ -13,6 +13,8 @@ pub use filesystem::FileOperation;
 mod language_servers;
 mod mode;
 mod registers;
+#[cfg(test)]
+mod tests;
 use crate::{
     document::{DocumentSavedEventResult, Mode},
     events::DocumentFocusLost,
