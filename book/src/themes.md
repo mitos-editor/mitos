@@ -164,6 +164,26 @@ rainbow = ["#ff0000", "#ffa500", "#fff000", { fg = "#00ff00", modifiers = ["bold
 
 Colors from the palette and modifiers may be used.
 
+### Border style
+
+The `border_style` key controls the appearance of borders around panels, popups,
+menus, and other bordered interface elements.
+
+```toml
+border_style = "rounded"
+```
+
+The following values are supported:
+
+- `plain`
+- `rounded`
+- `double`
+- `thick`
+- `quadrant-inside`
+- `quadrant-outside`
+
+If `border_style` is omitted, Mitos uses `plain` borders.
+
 ### Scopes
 
 The following is a list of scopes available to use for styling:
