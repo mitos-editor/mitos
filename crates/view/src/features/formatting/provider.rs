@@ -2,13 +2,16 @@
 use std::{fmt::Display, path::Path};
 
 use command_line::Token;
-use editor_core::{encoding, indent::IndentStyle, Rope, Transaction};
+use editor_core::{indent::IndentStyle, Rope, Transaction};
 use futures_util::{future::BoxFuture, FutureExt};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
-use crate::{expansion, Document, Editor};
-use text_io::to_writer;
+use crate::{
+    expansion,
+    features::process::{self, Error as ProcessError},
+    Document, Editor,
+};
 
 impl Document {
     /// The same as [`Self::format`], but only returns formatting changes if auto-formatting
@@ -54,7 +57,6 @@ impl Document {
                 self.display_name(),
                 fmt_cmd.display(),
             );
-            use std::process::Stdio;
 
             let mut process = tokio::process::Command::new(&fmt_cmd);
 
@@ -67,11 +69,6 @@ impl Document {
 
             let expansion = expansion::Context::capture(editor, &fmt_args.join(" "));
             let fmt_args = fmt_args.clone();
-            process
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
             let formatting_future = async move {
                 for content in &fmt_args {
                     let arg = expansion
@@ -80,27 +77,16 @@ impl Document {
                         .map_err(|error| FormatterError::ExpansionFailed(error.to_string()))?;
                     process.arg(arg.as_ref());
                 }
-                let mut process = process
-                    .spawn()
-                    .map_err(|e| FormatterError::SpawningFailed {
-                        command: fmt_cmd.to_string_lossy().into(),
-                        error: e.kind(),
+                let output = process::output(process, Some(&text))
+                    .await
+                    .map_err(|error| match error {
+                        ProcessError::Spawn(error) => FormatterError::SpawningFailed {
+                            command: fmt_cmd.to_string_lossy().into(),
+                            error: error.kind(),
+                        },
+                        ProcessError::Input(_) => FormatterError::BrokenStdin,
+                        ProcessError::Wait(_) => FormatterError::WaitForOutputFailed,
                     })?;
-
-                let mut stdin = process.stdin.take().ok_or(FormatterError::BrokenStdin)?;
-                let input_text = text.clone();
-                let input_task = tokio::spawn(async move {
-                    to_writer(&mut stdin, (encoding::UTF_8, false), &input_text).await
-                    // Note that `stdin` is dropped here, causing the pipe to close. This can
-                    // avoid a deadlock with `wait_with_output` below if the process is waiting on
-                    // stdin to close before exiting.
-                });
-                let (input_result, output_result) = tokio::join! {
-                    input_task,
-                    process.wait_with_output(),
-                };
-                let _ = input_result.map_err(|_| FormatterError::BrokenStdin)?;
-                let output = output_result.map_err(|_| FormatterError::WaitForOutputFailed)?;
 
                 if !output.status.success() {
                     if !output.stderr.is_empty() {

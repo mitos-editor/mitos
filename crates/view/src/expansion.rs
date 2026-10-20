@@ -250,23 +250,14 @@ impl Context {
         content: Cow<'a, str>,
         positional_args: &[Cow<'a, str>],
     ) -> Result<Cow<'a, str>> {
-        use std::process::Stdio;
         let content = self.expand_inner(content, positional_args).await?;
         ensure!(!self.shell.is_empty(), "No shell set");
         let mut process = tokio::process::Command::new(&self.shell[0]);
         process
             .args(&self.shell[1..])
             .arg(content.as_ref())
-            .current_dir(&self.directory)
-            .kill_on_drop(true)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = process
-            .spawn()
-            .map_err(|error| anyhow!("Failed to start shell: {error}"))?;
-        drop(child.stdin.take());
-        let output = child.wait_with_output().await?;
+            .current_dir(&self.directory);
+        let output = crate::features::process::output(process, None).await?;
         let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
         if !output.stderr.is_empty() {
             log::warn!(

@@ -959,6 +959,11 @@ process; formatters similarly use the document directory or a captured fallback.
 This avoids delayed work inheriting a later `:cd`; it does not provide independent
 working directories for multiple editors in one process.
 
+External formatters, selection filters, and shell expansions share the private
+`view::features::process` runner. It owns the child, closes stdin, and drives input
+and output together; dropping its future terminates the child without retaining a
+separate input-writing task. Callers retain exit-status and output interpretation.
+
 ## Editor-owned signals
 
 `event::Redraw` owns one frontend's coalescing notification and frame barrier. The

@@ -1,8 +1,8 @@
 //! Selection shell operations with document-owned cancellation and snapshot validation.
 
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, path::Path};
 
-use editor_core::{encoding, Range, Rope, Selection, SmallVec, Tendril, Transaction};
+use editor_core::{Range, Rope, Selection, SmallVec, Tendril, Transaction};
 use event::{cancelable_future, register_hook, TaskController, TaskHandle};
 use stdx::rope::RopeSliceExt;
 use tokio::process::Command;
@@ -214,32 +214,8 @@ pub async fn run(
     process
         .current_dir(directory)
         .args(&shell[1..])
-        .arg(command)
-        .kill_on_drop(true)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(if input.is_some() || cfg!(windows) {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        });
-    let mut process = process.spawn()?;
-    let stdin = process.stdin.take();
-    let (output, input_result) = tokio::join!(process.wait_with_output(), async move {
-        if let (Some(mut stdin), Some(input)) = (stdin, input) {
-            text_io::to_writer(&mut stdin, (encoding::UTF_8, false), &input).await?;
-        }
-        anyhow::Ok(())
-    });
-    // Commands may deliberately close stdin early, for example `head -n 1`.
-    if let Err(error) = input_result
-        && !error
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|error| error.kind() == std::io::ErrorKind::BrokenPipe)
-    {
-        return Err(error);
-    }
-    let output = output?;
+        .arg(command);
+    let output = super::process::output(process, input.as_ref()).await?;
     let output = if !output.status.success() && output.stderr.is_empty() {
         match output.status.code() {
             Some(code) => anyhow::bail!("Shell command failed: status {code}"),

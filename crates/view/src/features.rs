@@ -21,6 +21,7 @@ pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;
 pub mod navigation;
+pub(crate) mod process;
 pub mod rename;
 pub(crate) mod request;
 pub mod shell;
