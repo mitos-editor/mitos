@@ -596,7 +596,10 @@ fn main() -> anyhow::Result<()> {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
-            let result = if method == "workspace/willRenameFiles" {
+            let result = if let Some(index) = args.iter().position(|arg| arg == "--preflight-edit")
+            {
+                serde_json::from_slice(&std::fs::read(&args[index + 1])?)?
+            } else if method == "workspace/willRenameFiles" {
                 let uri = params["files"][0]["oldUri"].as_str().unwrap();
                 if documents
                     .get(uri)

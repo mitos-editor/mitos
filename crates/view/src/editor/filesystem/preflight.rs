@@ -1,15 +1,17 @@
 //! User-initiated file operations, with asynchronous language-server preflight.
 
+mod documents;
+
 use std::{collections::VecDeque, fs, io, path::PathBuf, sync::Arc, time::SystemTime};
 
 use anyhow::{ensure, Result};
-use editor_core::Uri;
+use documents::DocumentGuard;
 use event::TaskHandle;
 use futures_util::{future::BoxFuture, FutureExt};
 use lsp_client::{lsp, Client};
 
 use super::ExistingTarget;
-use crate::{DocumentId, Editor};
+use crate::Editor;
 
 /// An explicit filesystem target, independent of the currently focused document.
 pub enum FileOperation {
@@ -92,12 +94,6 @@ fn path_state(path: &std::path::Path) -> io::Result<Option<PathState>> {
     }
 }
 
-struct DocumentState {
-    id: DocumentId,
-    buffer: buffer::Snapshot,
-    uri: Option<Uri>,
-}
-
 struct Preflight {
     operation: FileOperation,
     servers: VecDeque<Arc<Client>>,
@@ -116,16 +112,7 @@ impl Preflight {
                 .into_iter()
                 .map(path_state)
                 .collect::<io::Result<Vec<_>>>()?;
-            // A preflight edit may touch any open document, including unversioned edits.
-            // Capture again after each provider's edits, so our own changes remain valid.
-            let documents: Vec<_> = editor
-                .documents()
-                .map(|doc| DocumentState {
-                    id: doc.id(),
-                    buffer: doc.snapshot(),
-                    uri: doc.uri(),
-                })
-                .collect();
+            let documents = DocumentGuard::capture(editor);
             let callbacks = editor.callback_sender().clone();
             let owner = callbacks.clone();
             tokio::spawn(async move {
@@ -148,14 +135,11 @@ impl Preflight {
                                         .is_some_and(|current| Arc::ptr_eq(current, &server)),
                                 "File operation server has stopped"
                             );
-                            ensure!(
-                                documents.len() == editor.documents().count()
-                                    && documents.iter().all(|state| editor
-                                        .document(state.id)
-                                        .is_some_and(|doc| state.buffer.is_current(&doc.buffer)
-                                            && state.uri == doc.uri())),
-                                "Documents changed while preparing file operation; try again"
-                            );
+                            documents.validate(
+                                editor,
+                                &self.operation,
+                                result.as_ref().ok().and_then(Option::as_ref),
+                            )?;
                             let current_paths = self
                                 .operation
                                 .paths()

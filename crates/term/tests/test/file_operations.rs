@@ -1,3 +1,6 @@
+mod fixture;
+mod preflight_scope;
+
 use std::time::Duration;
 
 use anyhow::Context as _;

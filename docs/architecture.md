@@ -239,6 +239,12 @@ including when a destination appears after validation. Overwrite takes precedenc
 over ignore, but replacing an open destination is rejected to preserve document
 identity and unsaved text. Ignored operations emit no change notifications.
 
+Interactive file-operation preflight snapshots open documents before each provider
+request. On delivery, it validates the operation's paths and the returned edit's
+text and resource targets, including directory descendants. Affected documents
+must retain their identity, URI, and buffer snapshot; unrelated documents may be
+edited, opened, renamed, or closed while the request is pending.
+
 `Editor::open_scratch` loads a fresh text copy before attaching it to editor
 services. The copy retains its source language and encoding without acquiring
 a file identity. It cannot overwrite its source through an unnamed save.
