@@ -7,6 +7,9 @@ use editor_core::{ChangeSet, Selection};
 impl Document {
     /// Cancel language-dependent work before installing a new language configuration.
     pub(super) fn invalidate_language_features(&mut self) {
+        for state in self.view_states.values_mut() {
+            state.expansion_history.clear();
+        }
         self.hover.clear();
         self.navigation.clear();
         self.rename.cancel();
@@ -28,7 +31,11 @@ impl Document {
         let selection = selection.ensure_invariants(self.buffer.text().slice(..));
         match self.view_states.entry(view) {
             std::collections::hash_map::Entry::Occupied(mut state) => {
-                state.get_mut().selection = selection
+                let state = state.get_mut();
+                if state.selection != selection {
+                    state.expansion_history.clear();
+                }
+                state.selection = selection
             }
             std::collections::hash_map::Entry::Vacant(state) => {
                 state.insert(super::DocumentViewState::new(selection));

@@ -497,6 +497,7 @@ mod tests {
 
 pub mod insert;
 pub mod movement;
+pub mod syntax;
 
 mod transform;
 pub use transform::{

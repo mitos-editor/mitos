@@ -74,6 +74,7 @@ impl Document {
         self.modified_since_accessed = true;
 
         for state in self.view_states.values_mut() {
+            state.expansion_history.clear();
             let selection = &mut state.selection;
             *selection = selection
                 .clone()

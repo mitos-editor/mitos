@@ -1,7 +1,6 @@
 //! Text-object selection and its interactive prompts.
 
 use crate::commands::{context::Context, spelling::spelling_ranges, vcs::hunk_range};
-use arc_swap::access::DynAccess;
 use editor_core::{textobject, Range, Selection, SmallVec};
 use view::{info::Info, Editor};
 
@@ -19,7 +18,7 @@ fn select_all_textobjects_ranges(
     ch: char,
 ) -> Result<Option<Selection>, ()> {
     let (view, doc) = current!(editor);
-    let loader = editor.syn_loader.load();
+    let loader = doc.syntax_loader();
     let text = doc.text().slice(..);
     let selection = doc.selection(view.id).clone();
     let mut ranges = SmallVec::new();
@@ -35,7 +34,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "class",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'f' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -43,7 +42,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "function",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'a' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -51,7 +50,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "parameter",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'c' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -59,7 +58,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "comment",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'T' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -67,7 +66,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "test",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'e' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -75,7 +74,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "entry",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'x' => ranges.extend(language::textobject::textobject_treesitter_ranges(
                 text,
@@ -83,7 +82,7 @@ fn select_all_textobjects_ranges(
                 objtype,
                 "xml-element",
                 doc.syntax(),
-                &loader,
+                loader,
             )),
             'g' => {
                 let Some(diff_handle) = doc.diff_handle() else {
@@ -174,7 +173,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
         if let Some(ch) = event.char() {
             let textobject = move |editor: &mut Editor| {
                 let (view, doc) = current!(editor);
-                let loader = editor.syn_loader.load();
+                let loader = doc.syntax_loader();
                 let text = doc.text().slice(..);
 
                 let textobject_treesitter = |obj_name: &str, range: Range| -> Range {
@@ -182,7 +181,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                         return range;
                     };
                     language::textobject::textobject_treesitter(
-                        text, range, objtype, obj_name, syntax, &loader, count,
+                        text, range, objtype, obj_name, syntax, loader, count,
                     )
                 };
 

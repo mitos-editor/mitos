@@ -211,6 +211,15 @@ Both preserve range direction and return ranges without editor state or prompts.
 Terminal commands interpret the requested object and present unsupported or empty
 results to the user.
 
+### Structural selection
+
+`view::editing::syntax` coordinates expansion, shrinking, sibling and child
+selection, parent-boundary motion, bracket matching, and syntax-object jumps.
+Expansion history belongs to each document/view relationship. Text changes,
+language refreshes, and unrelated selection changes discard it; removing a view
+drops its history. Structural operations install selection and history before
+selection observers run. Terminal commands retain prompts and motion repetition.
+
 ### Syntax-aware editing
 
 Document editing operations resolve indentation, comment tokens, and automatic
@@ -1157,9 +1166,9 @@ protocol sessions, cancellation, and view bindings remain editor-level checks.
 ## Document/view state
 
 Each document owns one `DocumentViewState` per bound view, containing its selection,
-viewport position, and jump labels. Initialization preserves existing records;
-removal drops all three together while feature coordinators cancel their own
-requests. Selection and viewport anchors map through each edit before observers
+viewport position, jump labels, and structural selection history. Initialization
+preserves existing records; removal drops them together while feature coordinators
+cancel their own requests. Selection and viewport anchors map through each edit before observers
 run. Optional selection lookup and read-only iterators expose the state without
 parallel maps. Revision-keyed cursor history remains document-owned so undo in
 another split can restore the original selection after its originating view closes.

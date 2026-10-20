@@ -1,19 +1,14 @@
 //! Syntax traversal, inspection, and symbol pickers.
 use super::Context;
-use crate::{
-    commands::navigation::push_jump,
-    ui::{
-        overlay::overlaid,
-        picker::{Injector, PathOrId},
-        Picker, PickerColumn,
-    },
+use crate::ui::{
+    overlay::overlaid,
+    picker::{Injector, PathOrId},
+    Picker, PickerColumn,
 };
 use editor_core::{
-    match_brackets,
     movement::{Direction, Movement},
-    Range, RopeSlice, Selection,
+    Selection,
 };
-use language::{object, Syntax};
 use std::{ops::ControlFlow, sync::Arc};
 use view::{
     align_view,
@@ -183,100 +178,34 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-// tree sitter node selection
+fn structural_selection(cx: &mut Context, action: view::editing::syntax::SelectionAction) {
+    cx.editor.apply_motion(move |editor: &mut Editor| {
+        let (view, doc) = current!(editor);
+        view::editing::syntax::select(doc, view.id, action);
+    });
+}
 
 pub(super) fn expand_selection(cx: &mut Context) {
-    let motion = |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-
-        if let Some(syntax) = doc.syntax() {
-            let text = doc.text().slice(..);
-
-            let current_selection = doc.selection(view.id);
-            let selection = object::expand_selection(syntax, text, current_selection.clone());
-
-            // check if selection is different from the last one
-            if *current_selection != selection {
-                // save current selection so it can be restored using shrink_selection
-                view.object_selections.push(current_selection.clone());
-
-                doc.set_selection(view.id, selection);
-            }
-        }
-    };
-    cx.editor.apply_motion(motion);
+    structural_selection(cx, view::editing::syntax::SelectionAction::Expand);
 }
 
 pub(super) fn shrink_selection(cx: &mut Context) {
-    let motion = |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-        let current_selection = doc.selection(view.id);
-        // try to restore previous selection
-        if let Some(prev_selection) = view.object_selections.pop() {
-            if current_selection.contains(&prev_selection) {
-                doc.set_selection(view.id, prev_selection);
-                return;
-            } else {
-                // clear existing selection as they can't be shrunk to anyway
-                view.object_selections.clear();
-            }
-        }
-        // if not previous selection, shrink to first child
-        if let Some(syntax) = doc.syntax() {
-            let text = doc.text().slice(..);
-            let selection = object::shrink_selection(syntax, text, current_selection.clone());
-            doc.set_selection(view.id, selection);
-        }
-    };
-    cx.editor.apply_motion(motion);
-}
-
-fn select_sibling_impl<F>(cx: &mut Context, sibling_fn: F)
-where
-    F: Fn(&language::Syntax, RopeSlice, Selection) -> Selection + 'static,
-{
-    let motion = move |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-
-        if let Some(syntax) = doc.syntax() {
-            let text = doc.text().slice(..);
-            let current_selection = doc.selection(view.id);
-            let selection = sibling_fn(syntax, text, current_selection.clone());
-            doc.set_selection(view.id, selection);
-        }
-    };
-    cx.editor.apply_motion(motion);
+    structural_selection(cx, view::editing::syntax::SelectionAction::Shrink);
 }
 
 pub(super) fn select_next_sibling(cx: &mut Context) {
-    select_sibling_impl(cx, object::select_next_sibling)
+    structural_selection(cx, view::editing::syntax::SelectionAction::NextSibling);
 }
 
 pub(super) fn select_prev_sibling(cx: &mut Context) {
-    select_sibling_impl(cx, object::select_prev_sibling)
+    structural_selection(cx, view::editing::syntax::SelectionAction::PreviousSibling);
 }
 
 fn move_node_bound_impl(cx: &mut Context, dir: Direction, movement: Movement) {
-    let motion = move |editor: &mut Editor| {
+    cx.editor.apply_motion(move |editor: &mut Editor| {
         let (view, doc) = current!(editor);
-
-        if let Some(syntax) = doc.syntax() {
-            let text = doc.text().slice(..);
-            let current_selection = doc.selection(view.id);
-
-            let selection = language::movement::move_parent_node_end(
-                syntax,
-                text,
-                current_selection.clone(),
-                dir,
-                movement,
-            );
-
-            doc.set_selection(view.id, selection);
-        }
-    };
-
-    cx.editor.apply_motion(motion);
+        view::editing::syntax::move_parent_boundary(doc, view.id, dir, movement);
+    });
 }
 
 pub fn move_parent_node_end(cx: &mut Context) {
@@ -295,94 +224,37 @@ pub fn extend_parent_node_start(cx: &mut Context) {
     move_node_bound_impl(cx, Direction::Backward, Movement::Extend)
 }
 
-fn select_all_impl<F>(editor: &mut Editor, select_fn: F)
-where
-    F: Fn(&Syntax, RopeSlice, Selection) -> Selection,
-{
-    let (view, doc) = current!(editor);
-
-    if let Some(syntax) = doc.syntax() {
-        let text = doc.text().slice(..);
-        let current_selection = doc.selection(view.id);
-        let selection = select_fn(syntax, text, current_selection.clone());
-        doc.set_selection(view.id, selection);
-    }
-}
-
 pub(super) fn select_all_siblings(cx: &mut Context) {
-    let motion = |editor: &mut Editor| {
-        select_all_impl(editor, object::select_all_siblings);
-    };
-
-    cx.editor.apply_motion(motion);
+    structural_selection(cx, view::editing::syntax::SelectionAction::AllSiblings);
 }
 
 pub(super) fn select_all_children(cx: &mut Context) {
-    let motion = |editor: &mut Editor| {
-        select_all_impl(editor, object::select_all_children);
-    };
-
-    cx.editor.apply_motion(motion);
+    structural_selection(cx, view::editing::syntax::SelectionAction::AllChildren);
 }
 
 pub(super) fn match_brackets(cx: &mut Context) {
-    let mode = cx.editor.mode();
+    let movement = if cx.editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
+    };
     let (view, doc) = current!(cx.editor);
-    let is_select = mode == Mode::Select;
-    let text = doc.text();
-    let text_slice = text.slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let pos = range.cursor(text_slice);
-        if let Some(matched_pos) = doc.syntax().map_or_else(
-            || match_brackets::find_matching_bracket_plaintext(text.slice(..), pos),
-            |syntax| {
-                language::match_brackets::find_matching_bracket_fuzzy(syntax, text.slice(..), pos)
-            },
-        ) {
-            range.put_cursor(text_slice, matched_pos, is_select)
-        } else {
-            range
-        }
-    });
-
-    doc.set_selection(view.id, selection);
+    view::editing::syntax::match_brackets(doc, view.id, movement);
 }
 
 fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
     let count = cx.count();
-    let motion = move |editor: &mut Editor| {
-        let mode = editor.mode();
-        let (view, doc) = current!(editor);
-        let loader = editor.syn_loader.load();
-        if let Some(syntax) = doc.syntax() {
-            let text = doc.text().slice(..);
-
-            let selection = doc.selection(view.id).clone().transform(|range| {
-                let new_range = language::movement::goto_treesitter_object(
-                    text, range, object, direction, syntax, &loader, count,
-                );
-
-                if mode == Mode::Select {
-                    let head = if new_range.head < range.anchor {
-                        new_range.anchor
-                    } else {
-                        new_range.head
-                    };
-
-                    Range::new(range.anchor, head)
-                } else {
-                    new_range.with_direction(direction)
-                }
-            });
-
-            push_jump(view, doc);
-            doc.set_selection(view.id, selection);
+    cx.editor.apply_motion(move |editor: &mut Editor| {
+        let movement = if editor.mode() == Mode::Select {
+            Movement::Extend
         } else {
+            Movement::Move
+        };
+        let (view, doc) = current!(editor);
+        if !view::editing::syntax::goto_object(doc, view, object, direction, count, movement) {
             editor.set_status("Syntax-tree is not available in current buffer");
         }
-    };
-    cx.editor.apply_motion(motion);
+    });
 }
 
 pub(super) fn goto_next_function(cx: &mut Context) {

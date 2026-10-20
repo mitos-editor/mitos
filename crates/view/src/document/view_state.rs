@@ -9,6 +9,7 @@ pub(super) struct DocumentViewState {
     pub selection: Selection,
     pub position: ViewPosition,
     pub jump_labels: Vec<Overlay>,
+    pub expansion_history: Vec<Selection>,
 }
 
 impl DocumentViewState {
@@ -17,6 +18,27 @@ impl DocumentViewState {
             selection,
             position: ViewPosition::default(),
             jump_labels: Vec::new(),
+            expansion_history: Vec::new(),
         }
+    }
+}
+
+impl super::Document {
+    pub(crate) fn take_expansion_history(&mut self, view: crate::ViewId) -> Vec<Selection> {
+        self.view_states
+            .get_mut(&view)
+            .map(|state| std::mem::take(&mut state.expansion_history))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn set_expanded_selection(
+        &mut self,
+        view: crate::ViewId,
+        selection: Selection,
+        history: Vec<Selection>,
+    ) {
+        self.update_selection(view, selection);
+        self.view_state_mut(view).expansion_history = history;
+        self.selection_did_change(view);
     }
 }

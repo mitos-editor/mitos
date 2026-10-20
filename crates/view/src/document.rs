@@ -471,6 +471,10 @@ impl Document {
     pub fn set_selection(&mut self, view_id: ViewId, selection: Selection) {
         // TODO: use a transaction?
         self.update_selection(view_id, selection);
+        self.selection_did_change(view_id);
+    }
+
+    fn selection_did_change(&mut self, view_id: ViewId) {
         let errors = event::dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
