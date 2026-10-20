@@ -2,116 +2,111 @@
 
 use super::{context::Context, mode::exit_select_mode};
 use editor_core::transform::PastePosition;
-use std::borrow::Cow;
 use view::{document::Mode, info::Info, Editor};
 
 pub(super) fn yank(cx: &mut Context) {
-    yank_impl(
+    if yank_impl(
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
-    );
-    exit_select_mode(cx);
-}
-
-pub(super) fn yank_to_clipboard(cx: &mut Context) {
-    yank_impl(cx.editor, '+');
-    exit_select_mode(cx);
-}
-
-pub(super) fn yank_to_primary_clipboard(cx: &mut Context) {
-    yank_impl(cx.editor, '*');
-    exit_select_mode(cx);
-}
-
-fn yank_impl(editor: &mut Editor, register: char) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-
-    let values: Vec<String> = doc
-        .selection(view.id)
-        .fragments(text)
-        .map(Cow::into_owned)
-        .collect();
-    let selections = values.len();
-
-    match editor.registers.write(register, values) {
-        Ok(_) => editor.set_status(format!(
-            "yanked {selections} selection{} to register {register}",
-            if selections == 1 { "" } else { "s" }
-        )),
-        Err(err) => editor.set_error(|| err.to_string()),
+    ) {
+        exit_select_mode(cx);
     }
 }
 
-pub(super) fn yank_joined_impl(editor: &mut Editor, separator: &str, register: char) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
+pub(super) fn yank_to_clipboard(cx: &mut Context) {
+    if yank_impl(cx.editor, '+') {
+        exit_select_mode(cx);
+    }
+}
 
-    let selection = doc.selection(view.id);
-    let selections = selection.len();
-    let joined = selection
-        .fragments(text)
-        .fold(String::new(), |mut acc, fragment| {
-            if !acc.is_empty() {
-                acc.push_str(separator);
-            }
-            acc.push_str(&fragment);
-            acc
-        });
+pub(super) fn yank_to_primary_clipboard(cx: &mut Context) {
+    if yank_impl(cx.editor, '*') {
+        exit_select_mode(cx);
+    }
+}
 
-    match editor.registers.write(register, vec![joined]) {
-        Ok(_) => editor.set_status(format!(
-            "joined and yanked {selections} selection{} to register {register}",
-            if selections == 1 { "" } else { "s" }
-        )),
-        Err(err) => editor.set_error(|| err.to_string()),
+fn yank_impl(editor: &mut Editor, register: char) -> bool {
+    match editor.yank_selections(register) {
+        Ok(selections) => {
+            editor.set_status(format!(
+                "yanked {selections} selection{} to register {register}",
+                if selections == 1 { "" } else { "s" }
+            ));
+            true
+        }
+        Err(error) => {
+            editor.set_error(|| error.to_string());
+            false
+        }
+    }
+}
+
+pub(super) fn yank_joined_impl(editor: &mut Editor, separator: &str, register: char) -> bool {
+    match editor.yank_joined_selections(register, separator) {
+        Ok(selections) => {
+            editor.set_status(format!(
+                "joined and yanked {selections} selection{} to register {register}",
+                if selections == 1 { "" } else { "s" }
+            ));
+            true
+        }
+        Err(error) => {
+            editor.set_error(|| error.to_string());
+            false
+        }
     }
 }
 
 pub(super) fn yank_joined(cx: &mut Context) {
     let separator = doc!(cx.editor).line_ending.as_str();
-    yank_joined_impl(
+    if yank_joined_impl(
         cx.editor,
         separator,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
-    );
-    exit_select_mode(cx);
+    ) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn yank_joined_to_clipboard(cx: &mut Context) {
     let line_ending = doc!(cx.editor).line_ending;
-    yank_joined_impl(cx.editor, line_ending.as_str(), '+');
-    exit_select_mode(cx);
+    if yank_joined_impl(cx.editor, line_ending.as_str(), '+') {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn yank_joined_to_primary_clipboard(cx: &mut Context) {
     let line_ending = doc!(cx.editor).line_ending;
-    yank_joined_impl(cx.editor, line_ending.as_str(), '*');
-    exit_select_mode(cx);
+    if yank_joined_impl(cx.editor, line_ending.as_str(), '*') {
+        exit_select_mode(cx);
+    }
 }
 
-pub(crate) fn yank_main_selection_to_register(editor: &mut Editor, register: char) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).primary().fragment(text).to_string();
-
-    match editor.registers.write(register, vec![selection]) {
-        Ok(_) => editor.set_status(format!("yanked primary selection to register {register}",)),
-        Err(err) => editor.set_error(|| err.to_string()),
+pub(crate) fn yank_main_selection_to_register(editor: &mut Editor, register: char) -> bool {
+    match editor.yank_primary_selection(register) {
+        Ok(()) => {
+            editor.set_status(format!("yanked primary selection to register {register}"));
+            true
+        }
+        Err(error) => {
+            editor.set_error(|| error.to_string());
+            false
+        }
     }
 }
 
 pub(super) fn yank_main_selection_to_clipboard(cx: &mut Context) {
-    yank_main_selection_to_register(cx.editor, '+');
-    exit_select_mode(cx);
+    if yank_main_selection_to_register(cx.editor, '+') {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn yank_main_selection_to_primary_clipboard(cx: &mut Context) {
-    yank_main_selection_to_register(cx.editor, '*');
-    exit_select_mode(cx);
+    if yank_main_selection_to_register(cx.editor, '*') {
+        exit_select_mode(cx);
+    }
 }
 
 pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
@@ -122,95 +117,112 @@ pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
     };
     let mode = cx.editor.mode();
     let (view, doc) = current!(cx.editor);
-    view::editing::paste(doc, view, &[contents], paste, count, mode);
-    exit_select_mode(cx);
+    match view::editing::paste(doc, view, &[contents], paste, count, mode) {
+        Ok(true) => exit_select_mode(cx),
+        Ok(false) => (),
+        Err(error) => cx.editor.set_error(|| error.to_string()),
+    }
 }
 
 pub(super) fn paste_clipboard_after(cx: &mut Context) {
-    paste(cx.editor, '+', PastePosition::After, cx.count());
-    exit_select_mode(cx);
+    if paste(cx.editor, '+', PastePosition::After, cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn paste_clipboard_before(cx: &mut Context) {
-    paste(cx.editor, '+', PastePosition::Before, cx.count());
-    exit_select_mode(cx);
+    if paste(cx.editor, '+', PastePosition::Before, cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn paste_primary_clipboard_after(cx: &mut Context) {
-    paste(cx.editor, '*', PastePosition::After, cx.count());
-    exit_select_mode(cx);
+    if paste(cx.editor, '*', PastePosition::After, cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn paste_primary_clipboard_before(cx: &mut Context) {
-    paste(cx.editor, '*', PastePosition::Before, cx.count());
-    exit_select_mode(cx);
+    if paste(cx.editor, '*', PastePosition::Before, cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn replace_with_yanked(cx: &mut Context) {
-    replace_selections_with_register(
+    if replace_selections_with_register(
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         cx.count(),
-    );
-    exit_select_mode(cx);
+    ) {
+        exit_select_mode(cx);
+    }
 }
 
-pub(crate) fn replace_selections_with_register(editor: &mut Editor, register: char, count: usize) {
-    let Some(values) = editor
-        .read_register(register)
-        .filter(|values| values.len() > 0)
-    else {
-        return;
-    };
-    let scrolloff = editor.config().scroll.padding;
-    let values: Vec<_> = values.map(Cow::into_owned).collect();
-    let (view, doc) = current!(editor);
-    view::editing::replace_selection_contents(doc, view, &values, count);
-    view.ensure_cursor_in_view(doc, scrolloff);
+pub(crate) fn replace_selections_with_register(
+    editor: &mut Editor,
+    register: char,
+    count: usize,
+) -> bool {
+    match editor.replace_from_register(register, count) {
+        Ok(true) => {
+            let scrolloff = editor.config().scroll.padding;
+            let (view, doc) = current!(editor);
+            view.ensure_cursor_in_view(doc, scrolloff);
+            true
+        }
+        Ok(false) => false,
+        Err(error) => {
+            editor.set_error(|| error.to_string());
+            false
+        }
+    }
 }
 
 pub(super) fn replace_selections_with_clipboard(cx: &mut Context) {
-    replace_selections_with_register(cx.editor, '+', cx.count());
-    exit_select_mode(cx);
+    if replace_selections_with_register(cx.editor, '+', cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn replace_selections_with_primary_clipboard(cx: &mut Context) {
-    replace_selections_with_register(cx.editor, '*', cx.count());
-    exit_select_mode(cx);
+    if replace_selections_with_register(cx.editor, '*', cx.count()) {
+        exit_select_mode(cx);
+    }
 }
 
-pub(crate) fn paste(editor: &mut Editor, register: char, pos: PastePosition, count: usize) {
-    let Some(values) = editor.read_register(register) else {
-        return;
-    };
-    let values: Vec<_> = values.map(|value| value.to_string()).collect();
-
-    let mode = editor.mode();
-    let (view, doc) = current!(editor);
-    view::editing::paste(doc, view, &values, pos, count, mode);
+pub(crate) fn paste(editor: &mut Editor, register: char, pos: PastePosition, count: usize) -> bool {
+    match editor.paste_register(register, pos, count) {
+        Ok(changed) => changed,
+        Err(error) => {
+            editor.set_error(|| error.to_string());
+            false
+        }
+    }
 }
 
 pub(super) fn paste_after(cx: &mut Context) {
-    paste(
+    if paste(
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         PastePosition::After,
         cx.count(),
-    );
-    exit_select_mode(cx);
+    ) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn paste_before(cx: &mut Context) {
-    paste(
+    if paste(
         cx.editor,
         cx.register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register),
         PastePosition::Before,
         cx.count(),
-    );
-    exit_select_mode(cx);
+    ) {
+        exit_select_mode(cx);
+    }
 }
 
 pub(super) fn select_register(cx: &mut Context) {

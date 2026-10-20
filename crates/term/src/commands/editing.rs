@@ -1,14 +1,8 @@
 //! Text transformations and editing commands over selections.
 
-use super::{
-    context::Context,
-    insert::{open, CommentContinuation, Open},
-    mode::{enter_insert_mode, exit_select_mode},
-};
+use super::{context::Context, mode::exit_select_mode};
 use crate::ui::{self, Prompt, PromptEvent};
-use arc_swap::access::DynAccess;
 use editor_core::{Rope, Selection, Tendril, Transaction};
-use std::borrow::Cow;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::editing::surround::{self, Delimiter, Replacement};
 use view::{document::Mode, info::Info, Editor};
@@ -172,7 +166,10 @@ pub(super) fn replace(cx: &mut Context) {
 pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
     let scrolloff = editor.config().scroll.padding;
     let (view, doc) = current!(editor);
-    view::editing::replace_selections(doc, view, replacement);
+    if let Err(error) = view::editing::replace_selections(doc, view, replacement) {
+        editor.set_error(|| error.to_string());
+        return;
+    }
     view.ensure_cursor_in_view(doc, scrolloff);
     if editor.mode() == Mode::Select {
         editor.set_mode(Mode::Normal);
@@ -184,61 +181,22 @@ enum Operation {
     Change,
 }
 
-fn selection_is_linewise(selection: &Selection, text: &Rope) -> bool {
-    selection.ranges().iter().all(|range| {
-        let text = text.slice(..);
-        if range.slice(text).len_lines() < 2 {
-            return false;
-        }
-        // If the start of the selection is at the start of a line and the end at the end of a line.
-        let (start_line, end_line) = range.line_range(text);
-        let start = text.line_to_char(start_line);
-        let end = text.line_to_char((end_line + 1).min(text.len_lines()));
-        start == range.from() && end == range.to()
-    })
-}
-
 enum YankAction {
     Yank,
     NoYank,
 }
 
-fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
-    let (view, doc) = current!(cx.editor);
-
-    let selection = doc.selection(view.id);
-    let only_whole_lines = selection_is_linewise(selection, doc.text());
-
-    if cx.register != Some('_') && matches!(yank, YankAction::Yank) {
-        // yank the selection
-        let text = doc.text().slice(..);
-        let values: Vec<String> = selection.fragments(text).map(Cow::into_owned).collect();
-        let reg_name = cx
-            .register
-            .unwrap_or_else(|| cx.editor.config.load().clipboard.default_yank_register);
-        if let Err(err) = cx.editor.registers.write(reg_name, values) {
-            cx.editor.set_error(|| err.to_string());
-            return;
-        }
-    }
-
-    // delete the selection
-    let transaction =
-        Transaction::delete_by_selection(doc.text(), selection, |range| (range.from(), range.to()));
-    view::editing::apply(doc, &transaction, view.id);
-
-    match op {
-        Operation::Delete => {
-            // exit select mode, if currently in select mode
-            exit_select_mode(cx);
-        }
-        Operation::Change => {
-            if only_whole_lines {
-                open(cx, Open::Above, CommentContinuation::Disabled);
-            } else {
-                enter_insert_mode(cx);
-            }
-        }
+fn delete_selection_impl(cx: &mut Context, operation: Operation, yank: YankAction) {
+    let register = matches!(yank, YankAction::Yank).then(|| {
+        cx.register
+            .unwrap_or(cx.editor.config().clipboard.default_yank_register)
+    });
+    let result = match operation {
+        Operation::Change => cx.editor.change_selections(register, cx.count()),
+        Operation::Delete => cx.editor.delete_selections(register),
+    };
+    if let Err(error) = result {
+        cx.editor.set_error(|| error.to_string());
     }
 }
 

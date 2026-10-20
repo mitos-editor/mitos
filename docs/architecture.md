@@ -203,6 +203,18 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Register-backed editing
+
+The editor coordinates yanking, register paste/replacement, and delete/change
+operations against its focused document/view. Deletion validates edits before
+writing registers or invoking clipboard providers; write failures leave text,
+selections, undo history, and mode unchanged. Successful changes retain linewise
+insertion and enter insert mode after text is prepared. Shared paste/replacement
+operations return rejection errors and validate before committing pending typing.
+Empty paste operations do not create undo boundaries. Terminal adapters resolve
+register keys and command arguments, display messages, and manage viewport and
+selection-mode presentation for yank/paste commands.
+
 ### Text transformations
 
 `core::transform` builds transactions for selected text without editor or frontend

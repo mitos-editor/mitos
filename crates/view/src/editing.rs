@@ -163,7 +163,11 @@ pub fn last_edit_pos(doc: &mut Document) -> Option<usize> {
 /// Positions are character indices. The view must display this document and have
 /// an initialized selection. Mode changes, scrolling, prompts, and repeat recording
 /// belong to the caller.
-pub fn replace_selections(doc: &mut Document, view: &mut View, replacement: &str) {
+pub fn replace_selections(
+    doc: &mut Document,
+    view: &mut View,
+    replacement: &str,
+) -> Result<(), EditError> {
     let replacement = Tendril::from(normalize_line_endings(replacement, doc.line_ending).as_ref());
     let len = replacement.chars().count();
     let transaction =
@@ -175,12 +179,14 @@ pub fn replace_selections(doc: &mut Document, view: &mut View, replacement: &str
                 Some(selection),
             )
         });
-    crate::editing::apply(doc, &transaction, view.id);
-    crate::editing::commit(doc, view);
+    try_apply(doc, &transaction, view.id)?;
+    commit(doc, view);
+    Ok(())
 }
 
 /// Paste register or clipboard contents as one undo group. In insert mode,
-/// commit preceding typing first; normal mode selects the inserted text.
+/// commit preceding typing first; normal mode selects the inserted text. Rejected
+/// edits leave pending history untouched; empty pastes return `Ok(false)`.
 pub fn paste<T: AsRef<str>>(
     doc: &mut Document,
     view: &mut View,
@@ -188,7 +194,7 @@ pub fn paste<T: AsRef<str>>(
     position: editor_core::transform::PastePosition,
     count: usize,
     mode: crate::document::Mode,
-) {
+) -> Result<bool, EditError> {
     let Some((mut transaction, inserted)) = editor_core::transform::paste(
         doc.text(),
         doc.selection(view.id),
@@ -197,25 +203,31 @@ pub fn paste<T: AsRef<str>>(
         count,
         doc.line_ending,
     ) else {
-        return;
+        return Ok(false);
     };
+    if transaction.changes().is_empty() {
+        return Ok(false);
+    }
+    doc.validate_changes(transaction.changes())?;
     if mode == crate::document::Mode::Insert {
         commit(doc, view);
     }
     if mode == crate::document::Mode::Normal {
         transaction = transaction.with_selection(inserted);
     }
-    apply(doc, &transaction, view.id);
+    try_apply(doc, &transaction, view.id)?;
     commit(doc, view);
+    Ok(true)
 }
 
 /// Replace nonempty selections with register contents and commit one undo group.
+/// Returns `Ok(false)` when no replacement is available or no text would change.
 pub fn replace_selection_contents<T: AsRef<str>>(
     doc: &mut Document,
     view: &mut View,
     values: &[T],
     count: usize,
-) {
+) -> Result<bool, EditError> {
     let Some(transaction) = editor_core::transform::replace_selection_contents(
         doc.text(),
         doc.selection(view.id),
@@ -223,10 +235,14 @@ pub fn replace_selection_contents<T: AsRef<str>>(
         count,
         doc.line_ending,
     ) else {
-        return;
+        return Ok(false);
     };
-    apply(doc, &transaction, view.id);
+    if transaction.changes().is_empty() {
+        return Ok(false);
+    }
+    try_apply(doc, &transaction, view.id)?;
     commit(doc, view);
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -252,7 +268,8 @@ mod tests {
             editor_core::transform::PastePosition::Cursor,
             1,
             crate::document::Mode::Insert,
-        );
+        )
+        .unwrap();
         assert_eq!(doc.text(), "a界\n");
         assert!(undo(&mut doc, &mut view));
         assert_eq!(doc.text(), "a\n");
@@ -336,7 +353,7 @@ mod tests {
             let original_selection = doc.selection(view.id).clone();
             let version = doc.version();
 
-            replace_selections(&mut doc, &mut view, replacement);
+            replace_selections(&mut doc, &mut view, replacement).unwrap();
 
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
@@ -359,8 +376,8 @@ mod tests {
     async fn successive_replacements_have_separate_history_checkpoints() {
         let (mut doc, mut view) = document_and_view("#[original|]#\n");
 
-        replace_selections(&mut doc, &mut view, "first");
-        replace_selections(&mut doc, &mut view, "second");
+        replace_selections(&mut doc, &mut view, "first").unwrap();
+        replace_selections(&mut doc, &mut view, "second").unwrap();
 
         for expected in ["#[first|]#\n", "#[original|]#\n"] {
             assert!(crate::editing::undo(&mut doc, &mut view));

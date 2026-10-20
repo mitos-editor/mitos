@@ -1,5 +1,9 @@
 //! Resolve contextual registers against the focused document and view.
 
+mod editing;
+#[cfg(test)]
+mod tests;
+
 use crate::{register::RegisterValues, Editor};
 use std::borrow::Cow;
 
