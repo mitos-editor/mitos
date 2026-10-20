@@ -301,9 +301,33 @@ impl<'a> TextAnnotations<'a> {
         }
     }
 
+    /// Next input position whose layout must be visited explicitly.
+    pub(crate) fn next_anchor(&self) -> usize {
+        self.inline_annotations
+            .iter()
+            .filter_map(|layer| {
+                layer
+                    .annotations
+                    .get(layer.current_index.get())
+                    .map(|a| a.char_idx)
+            })
+            .chain(self.overlays.iter().filter_map(|layer| {
+                layer
+                    .annotations
+                    .get(layer.current_index.get())
+                    .map(|a| a.char_idx)
+            }))
+            .chain(self.line_annotations.iter().map(|(anchor, _)| anchor.get()))
+            .min()
+            .unwrap_or(usize::MAX)
+    }
+
     pub fn collect_overlay_highlights(&self, char_range: Range<usize>) -> OverlayHighlights {
         let mut highlights = Vec::new();
         self.reset_pos(char_range.start);
+        if self.overlays.is_empty() {
+            return OverlayHighlights::Heterogenous { highlights };
+        }
         for char_idx in char_range {
             if let Some((_, Some(highlight))) = self.overlay_at(char_idx) {
                 // we don't know the number of chars the original grapheme takes
