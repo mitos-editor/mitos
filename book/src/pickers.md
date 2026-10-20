@@ -22,6 +22,13 @@ opens the selected item; `Alt-Enter` opens it in the background while keeping
 the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
 `Ctrl-t` toggles the preview. `Esc` closes the picker.
 
+Use `PageUp` and `PageDown` to scroll the preview by a page, or `Alt-k` / `Alt-j`
+and `Shift-Up` / `Shift-Down` to scroll by `editor.scroll.wheel-lines` visual lines.
+Soft-wrapped lines scroll one visible row at a time. Choosing another preview
+location resets its scroll position. `Ctrl-u` and `Ctrl-d` page the result list;
+`PageUp` and `PageDown` also page the list when the preview is hidden.
+These actions can be changed under [component keys](./remapping.md#component-keys).
+
 Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.md)
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).

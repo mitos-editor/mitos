@@ -291,6 +291,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
     render_preview_content(
         Preview::Cached(&mut entry.preview),
         Some((100, 150)),
+        &mut 0,
         area,
         area,
         &mut Surface::empty(area),
@@ -388,5 +389,170 @@ async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyho
     let callback = fixture.completion().await;
     fixture.publish(callback);
     assert!(fixture.document(&path).syntax().is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_scroll_follows_locations_across_result_refreshes() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    let first = fixture.dir.path().join("first.txt");
+    let second = fixture.dir.path().join("second.txt");
+    std::fs::write(&first, "first\n")?;
+    std::fs::write(&second, "second\n")?;
+    let mut picker = Picker::new(
+        fixture.app.editor.redraw().clone(),
+        [Column::new("name", |path: &PathBuf, _| {
+            path.to_string_lossy().into()
+        })],
+        0,
+        [first.clone(), second.clone()],
+        (),
+        |_, _, _| {},
+    )
+    .with_preview(|_, path| Some((PathOrId::Path(path), None)))
+    .with_item_key(Clone::clone);
+    for _ in 0..100 {
+        picker.results.matcher.tick(10);
+        if picker.selection().is_some() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(picker.selection(), Some(&first));
+    picker.get_preview(&fixture.app.editor, &fixture.jobs, None, Size::new(30, 20));
+    picker.preview_scroll = 7;
+    picker.refresh_options(vec![second.clone(), first.clone()], Arc::new(()));
+    for _ in 0..100 {
+        picker.publish_options();
+        if !picker.results.is_refreshing() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(!picker.results.is_refreshing());
+    assert_eq!(picker.selection(), Some(&first));
+    picker.get_preview(&fixture.app.editor, &fixture.jobs, None, Size::new(30, 20));
+    assert_eq!(picker.preview_scroll, 7);
+    picker.move_by(1, editor_core::movement::Direction::Backward);
+    assert_eq!(picker.selection(), Some(&second));
+    picker.get_preview(&fixture.app.editor, &fixture.jobs, None, Size::new(30, 20));
+    assert_eq!(picker.preview_scroll, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_keys_keep_list_navigation_and_prompt_editing_available() -> anyhow::Result<()> {
+    use crate::compositor::{Component, Event};
+    let mut fixture = Fixture::new()?;
+    let id = fixture.app.editor.new_file(Action::Load);
+    let mut picker = Picker::new(
+        fixture.app.editor.redraw().clone(),
+        [Column::new("name", |item: &usize, _| {
+            item.to_string().into()
+        })],
+        0,
+        0..50,
+        (),
+        |_, _, _| {},
+    )
+    .with_preview(move |_, _| Some((PathOrId::Id(id), None)));
+    let config = Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut fixture.app.editor,
+        jobs: &mut fixture.jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let area = Rect::new(0, 0, 120, 20);
+    picker.required_size((area.width, area.height));
+    for _ in 0..100 {
+        picker.render(area, &mut Surface::empty(area), &mut cx);
+        if picker.selection().is_some() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(picker.preview_height > 0);
+    let key = |picker: &mut Picker<usize, ()>, cx: &mut Context, key: &str| {
+        picker.handle_event(&Event::Key(key.parse().unwrap()), cx);
+    };
+    key(&mut picker, &mut cx, "pagedown");
+    assert_eq!(picker.results.cursor, 0);
+    assert_eq!(picker.preview_scroll, picker.preview_height as isize);
+    key(&mut picker, &mut cx, "A-k");
+    assert_eq!(
+        picker.preview_scroll,
+        picker.preview_height as isize
+            - cx.editor.config().scroll.wheel_lines.unsigned_abs() as isize
+    );
+    key(&mut picker, &mut cx, "S-down");
+    assert_eq!(picker.preview_scroll, picker.preview_height as isize);
+    key(&mut picker, &mut cx, "C-d");
+    assert!(picker.results.cursor > 0);
+    key(&mut picker, &mut cx, "C-u");
+    assert_eq!(picker.results.cursor, 0);
+    for key_name in ["a", "b", "c", "A-b", "A-d"] {
+        key(&mut picker, &mut cx, key_name);
+    }
+    assert_eq!(picker.prompt.line(), "");
+    key(&mut picker, &mut cx, "C-t");
+    key(&mut picker, &mut cx, "pagedown");
+    assert!(picker.results.cursor > 0);
+    key(&mut picker, &mut cx, "C-u");
+    key(&mut picker, &mut cx, "C-t");
+    let narrow = Rect::new(0, 0, 40, 20);
+    picker.render(narrow, &mut Surface::empty(narrow), &mut cx);
+    assert_eq!(picker.preview_height, 0);
+    key(&mut picker, &mut cx, "pagedown");
+    assert!(picker.results.cursor > 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_scrollbar_preserves_wide_glyphs_in_the_last_text_column() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("wide.txt");
+    std::fs::write(&path, "12345678界\n".repeat(20))?;
+    let path = fixture.preview("wide.txt");
+    let mut entry = fixture
+        .picker()
+        .preview
+        .preview_cache
+        .remove(&path)
+        .unwrap();
+    let config = Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut fixture.app.editor,
+        jobs: &mut fixture.jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let area = Rect::new(0, 0, 14, 6);
+    let inner = Rect::new(2, 1, 10, 4);
+    let mut surface = Surface::empty(area);
+    render_preview_content(
+        Preview::Cached(&mut entry.preview),
+        None,
+        &mut 0,
+        area,
+        inner,
+        &mut surface,
+        &cx,
+    );
+    assert_eq!(surface[(inner.x + 8, inner.y)].symbol(), "界");
+    assert_ne!(surface[(inner.right() - 1, inner.y)].symbol(), "▐");
+    assert_eq!(surface[(inner.right(), inner.y)].symbol(), "▐");
     Ok(())
 }

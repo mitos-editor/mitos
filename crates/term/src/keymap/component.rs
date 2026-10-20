@@ -44,6 +44,10 @@ pub enum PickerAction {
     AcceptHorizontalSplit,
     AcceptVerticalSplit,
     TogglePreview,
+    PreviewPageUp,
+    PreviewPageDown,
+    PreviewUp,
+    PreviewDown,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(skip)]
@@ -128,9 +132,9 @@ impl Default for ComponentKeymaps {
             ("tab", K::MoveDown),
             ("down", K::MoveDown),
             ("C-n", K::MoveDown),
-            ("pagedown", K::PageDown),
+            ("pagedown", K::PreviewPageDown),
             ("C-d", K::PageDown),
-            ("pageup", K::PageUp),
+            ("pageup", K::PreviewPageUp),
             ("C-u", K::PageUp),
             ("home", K::MoveStart),
             ("end", K::MoveEnd),
@@ -142,6 +146,10 @@ impl Default for ComponentKeymaps {
             ("C-s", K::AcceptHorizontalSplit),
             ("C-v", K::AcceptVerticalSplit),
             ("C-t", K::TogglePreview),
+            ("A-k", K::PreviewUp),
+            ("S-up", K::PreviewUp),
+            ("A-j", K::PreviewDown),
+            ("S-down", K::PreviewDown),
         ]);
         Self {
             prompt: bindings(&[
