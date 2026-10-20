@@ -1,4 +1,5 @@
 use super::*;
+use editor_core::Rope;
 
 fn configuration() -> Configuration {
     toml::from_str(
@@ -150,4 +151,80 @@ fn missing_grammar_stays_optional_even_with_invalid_query_files() {
     let language = loader.language_for_name("resource-json").unwrap();
     assert!(loader.get_config(language).is_none());
     loader.validate_queries(language).unwrap();
+}
+
+fn json_loader() -> Loader {
+    let runtime = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+    crate::loader::default_lang_loader(resources(&runtime))
+}
+
+#[test]
+fn json_comment_prefilter_preserves_injections_across_edits() {
+    use editor_core::Transaction;
+    let loader = json_loader();
+    for name in ["json", "jsonc"] {
+        let language = loader.language_for_name(name).unwrap();
+        let text = Rope::from("[1]");
+        let mut syntax = Syntax::new(text.slice(..), language, &loader).unwrap();
+        let prefix = "// TODO comment\n";
+        let edit = Transaction::change(&text, std::iter::once((0, 0, Some(prefix.into()))));
+        let mut commented = text.clone();
+        assert!(edit.changes().apply(&mut commented));
+        syntax
+            .update(text.slice(..), commented.slice(..), edit.changes(), &loader)
+            .unwrap();
+        let comment = loader.language_for_name("comment").unwrap();
+        let layer = syntax.layer_for_byte_range(3, 4);
+        assert_eq!(syntax.layer(layer).language, comment);
+        let inverse = edit.changes().invert(&text);
+        syntax
+            .update(commented.slice(..), text.slice(..), &inverse, &loader)
+            .unwrap();
+        assert_eq!(
+            syntax.layer(syntax.layer_for_byte_range(0, 1)).language,
+            language
+        );
+    }
+}
+
+#[test]
+#[ignore = "manual release-mode performance probe"]
+fn json_update_performance() {
+    use editor_core::Transaction;
+    let loader = json_loader();
+    let language = loader.language_for_name("json").unwrap();
+    for lines in [1_000, 10_000, 100_000] {
+        let text = Rope::from(format!(
+            "[{}]",
+            std::iter::repeat_n("{\"key\":\"value\"}", lines)
+                .collect::<Vec<_>>()
+                .join(",\n")
+        ));
+        let mut syntax =
+            Syntax::new_with_timeout(text.slice(..), language, &loader, Duration::from_secs(10))
+                .unwrap();
+        let edit = Transaction::change(
+            &text,
+            std::iter::once((text.len_chars() / 2, text.len_chars() / 2, Some(" ".into()))),
+        );
+        let mut after = text.clone();
+        assert!(edit.changes().apply(&mut after));
+        let inverse = edit.changes().invert(&text);
+        let mut times = Vec::new();
+        for _ in 0..11 {
+            let start = std::time::Instant::now();
+            syntax
+                .update(text.slice(..), after.slice(..), edit.changes(), &loader)
+                .unwrap();
+            syntax
+                .update(after.slice(..), text.slice(..), &inverse, &loader)
+                .unwrap();
+            times.push(start.elapsed());
+        }
+        times.sort_unstable();
+        eprintln!(
+            "JSON {lines} rows, insert and inverse: median {:?}",
+            times[5]
+        );
+    }
 }

@@ -148,7 +148,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 regex-automata = "0.4.14"
 regex-cursor = "0.1.5"
-tree-house = { version = "0.4", default-features = false }
+tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "046283140d7528e280a4a306432ad22a0e71d0f1", default-features = false }
 
 # Serialization and configuration
 serde = { version = "1.0.228", features = ["derive"] }

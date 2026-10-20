@@ -4536,13 +4536,11 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 [[package]]
 name = "tree-house"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "333476442882205ab249a8ced263ae53db3d0797c727cc3424836a6fb221d7b1"
+source = "git+https://github.com/mitos-editor/tree-house?rev=046283140d7528e280a4a306432ad22a0e71d0f1#046283140d7528e280a4a306432ad22a0e71d0f1"
 dependencies = [
  "arc-swap",
  "hashbrown 0.15.5",
  "kstring",
- "once_cell",
  "regex",
  "regex-cursor",
  "ropey",
@@ -4553,8 +4551,7 @@ dependencies = [
 [[package]]
 name = "tree-house-bindings"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f5d0eed0db98578618e598b8f6f413f7c172bade1f12f8242d71c38dd5deb0f"
+source = "git+https://github.com/mitos-editor/tree-house?rev=046283140d7528e280a4a306432ad22a0e71d0f1#046283140d7528e280a4a306432ad22a0e71d0f1"
 dependencies = [
  "cc",
  "libloading",
