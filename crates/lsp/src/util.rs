@@ -1,13 +1,12 @@
 //! Conversion between protocol values and editor text positions and edits.
 
 use crate::{lsp, OffsetEncoding};
-use editor_core::line_ending::{line_end_byte_index, line_end_char_index};
+use editor_core::line_ending::get_line_ending;
 use editor_core::{Range, Rope};
-use stdx::rope::RopeExt as _;
 
 /// Converts [`lsp::Position`] to a position in the document.
 ///
-/// Returns `None` if position.line is out of bounds or an overflow occurs
+/// Out-of-range lines resolve to EOF. Columns are capped before the line terminator.
 pub fn lsp_pos_to_pos(
     doc: &Rope,
     pos: lsp::Position,
@@ -22,7 +21,7 @@ pub fn lsp_pos_to_pos(
         return Some(doc.len_chars());
     }
 
-    // We need to be careful here to fully comply ith the LSP spec.
+    // We need to be careful here to fully comply with the LSP spec.
     // Two relevant quotes from the spec:
     //
     // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#position
@@ -38,7 +37,7 @@ pub fn lsp_pos_to_pos(
     // This means that while the line must be in bounds the `character`
     // must be capped to the end of the line.
     // Note that the end of the line here is **before** the line terminator
-    // so we must use `line_end_char_index` instead of `doc.line_to_char_idx(pos_line + 1)`
+    // so we exclude the terminator before converting the column.
     //
     // FIXME: Mitos does not fully comply with the LSP spec for line terminators.
     // The LSP standard requires that line terminators are ['\n', '\r\n', '\r'].
@@ -46,69 +45,39 @@ pub fn lsp_pos_to_pos(
     // With the unicode-linebreak feature, mitos recognizes multiple extra line break chars
     // which means that positions will be decoded/encoded incorrectly in their presence
 
-    let line = match offset_encoding {
-        OffsetEncoding::Utf8 => {
-            let line_start = doc.line_to_byte_idx(pos_line, stdx::rope::LINE_TYPE);
-            let line_end = line_end_byte_index(&doc.slice(..), pos_line);
-            line_start..line_end
-        }
+    let start = doc.line_to_byte_idx(pos_line, stdx::rope::LINE_TYPE);
+    let end = doc.line_to_byte_idx(pos_line + 1, stdx::rope::LINE_TYPE);
+    let line = doc.slice(start..end);
+    let ending = get_line_ending(&line).map_or(0, |ending| ending.as_str().len());
+    let line = line.slice(..line.len() - ending);
+    // Short lines can use contiguous UTF-8 directly. Long lines keep rope metrics.
+    let line = line.as_str().map_or(line, editor_core::RopeSlice::from);
+    let column = pos.character as usize;
+    let offset = match offset_encoding {
+        OffsetEncoding::Utf8 => line.byte_to_char_idx(column.min(line.len())),
         OffsetEncoding::Utf16 => {
-            // TODO directly translate line index to char-idx
-            // ropey can do this just as easily as utf-8 byte translation
-            // but the functions are just missing.
-            // Translate to char first and then utf-16 as a workaround
-            let line_start = doc.line_to_char_idx(pos_line);
-            let line_end = line_end_char_index(&doc.slice(..), pos_line);
-            doc.char_to_utf16_idx(line_start)..doc.char_to_utf16_idx(line_end)
+            line.byte_to_char_idx(line.utf16_to_byte_idx(column.min(line.len_utf16())))
         }
-        OffsetEncoding::Utf32 => {
-            let line_start = doc.line_to_char_idx(pos_line);
-            let line_end = line_end_char_index(&doc.slice(..), pos_line);
-            line_start..line_end
-        }
+        OffsetEncoding::Utf32 => column.min(line.len_chars()),
     };
-
-    // The LSP spec demands that the offset is capped to the end of the line
-    let pos = line
-        .start
-        .checked_add(pos.character as usize)
-        .unwrap_or(line.end)
-        .min(line.end);
-
-    match offset_encoding {
-        OffsetEncoding::Utf8 => doc.try_byte_to_char_idx(pos).ok(),
-        OffsetEncoding::Utf16 => doc.try_utf16_to_char_idx(pos).ok(),
-        OffsetEncoding::Utf32 => Some(pos),
-    }
+    Some(doc.byte_to_char_idx(start) + offset)
 }
 
 /// Converts position in the document to [`lsp::Position`].
 ///
 /// Panics when `pos` is out of `doc` bounds or operation overflows.
 pub fn pos_to_lsp_pos(doc: &Rope, pos: usize, offset_encoding: OffsetEncoding) -> lsp::Position {
-    match offset_encoding {
-        OffsetEncoding::Utf8 => {
-            let line = doc.char_to_line_idx(pos);
-            let line_start = doc.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
-            let col = doc.char_to_byte_idx(pos) - line_start;
-
-            lsp::Position::new(line as u32, col as u32)
-        }
+    let byte_idx = doc.char_to_byte_idx(pos);
+    let line = doc.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
+    let line_start = doc.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
+    let col = match offset_encoding {
+        OffsetEncoding::Utf8 => byte_idx - line_start,
         OffsetEncoding::Utf16 => {
-            let line = doc.char_to_line_idx(pos);
-            let line_start = doc.char_to_utf16_idx(doc.line_to_char_idx(line));
-            let col = doc.char_to_utf16_idx(pos) - line_start;
-
-            lsp::Position::new(line as u32, col as u32)
+            doc.byte_to_utf16_idx(byte_idx) - doc.byte_to_utf16_idx(line_start)
         }
-        OffsetEncoding::Utf32 => {
-            let line = doc.char_to_line_idx(pos);
-            let line_start = doc.line_to_char_idx(line);
-            let col = pos - line_start;
-
-            lsp::Position::new(line as u32, col as u32)
-        }
-    }
+        OffsetEncoding::Utf32 => pos - doc.byte_to_char_idx(line_start),
+    };
+    lsp::Position::new(line as u32, col as u32)
 }
 
 /// Converts a range in the document to [`lsp::Range`].
@@ -145,6 +114,54 @@ pub fn lsp_range_to_range(
 mod tests {
     use super::*;
     use editor_core::Rope;
+
+    #[test]
+    fn unicode_protocol_positions_cross_chunks_and_clamp_before_crlf() {
+        let lines = 512;
+        let text = Rope::from_str(&format!("{}終", "α😀e\u{301}\r\n".repeat(lines)));
+        for line in [0, lines - 1] {
+            for (encoding, columns) in [
+                (OffsetEncoding::Utf8, [0, 2, 6, 7, 9]),
+                (OffsetEncoding::Utf16, [0, 1, 3, 4, 5]),
+                (OffsetEncoding::Utf32, [0, 1, 2, 3, 4]),
+            ] {
+                for (offset, column) in columns.into_iter().enumerate() {
+                    let expected = lsp::Position::new(line as u32, column);
+                    let position = line * 6 + offset;
+                    assert_eq!(pos_to_lsp_pos(&text, position, encoding), expected);
+                    assert_eq!(lsp_pos_to_pos(&text, expected, encoding), Some(position));
+                }
+                assert_eq!(
+                    lsp_pos_to_pos(&text, lsp::Position::new(line as u32, u32::MAX), encoding),
+                    Some(line * 6 + 4)
+                );
+            }
+            for (encoding, column) in [(OffsetEncoding::Utf8, 3), (OffsetEncoding::Utf16, 2)] {
+                assert_eq!(
+                    lsp_pos_to_pos(&text, lsp::Position::new(line as u32, column), encoding),
+                    Some(line * 6 + 1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn protocol_positions_on_long_lines_keep_rope_metrics() {
+        let source = format!("{}\r\n", "α😀".repeat(20_000));
+        let text = Rope::from_str(&source);
+        for position in [0, 1, 8191, 20_001, 40_000] {
+            let byte = source.char_indices().nth(position).unwrap().0;
+            for (encoding, column) in [
+                (OffsetEncoding::Utf8, byte),
+                (OffsetEncoding::Utf16, source[..byte].encode_utf16().count()),
+                (OffsetEncoding::Utf32, position),
+            ] {
+                let protocol = lsp::Position::new(0, column as u32);
+                assert_eq!(pos_to_lsp_pos(&text, position, encoding), protocol);
+                assert_eq!(lsp_pos_to_pos(&text, protocol, encoding), Some(position));
+            }
+        }
+    }
 
     #[test]
     fn converts_lsp_pos_to_pos() {

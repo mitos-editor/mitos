@@ -13,7 +13,6 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem::replace;
-use stdx::rope::RopeExt as _;
 
 #[cfg(test)]
 mod test;
@@ -217,15 +216,17 @@ impl<'t> DocumentFormatter<'t> {
         char_idx: usize,
     ) -> Self {
         // TODO divide long lines into blocks to avoid bad performance for long lines
-        let block_line_idx = text.char_to_line_idx(char_idx.min(text.len_chars()));
-        let block_char_idx = text.line_to_char_idx(block_line_idx);
+        let byte_idx = text.char_to_byte_idx(char_idx.min(text.len_chars()));
+        let block_line_idx = text.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
+        let block_byte_idx = text.line_to_byte_idx(block_line_idx, stdx::rope::LINE_TYPE);
+        let block_char_idx = text.byte_to_char_idx(block_byte_idx);
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
             text_fmt,
             annotations,
             visual_pos: DisplayPosition { row: 0, col: 0 },
-            graphemes: text.slice_chars(block_char_idx..).graphemes(),
+            graphemes: text.slice(block_byte_idx..).graphemes(),
             char_pos: block_char_idx,
             exhausted: false,
             indent_level: None,

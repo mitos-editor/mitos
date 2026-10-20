@@ -222,9 +222,9 @@ pub fn line_end_byte_index(slice: &RopeSlice, line: usize) -> usize {
 
 /// Fetches line `line_idx` from the passed rope slice, sans any line ending.
 pub fn line_without_line_ending<'a>(slice: &'a RopeSlice, line_idx: usize) -> RopeSlice<'a> {
-    let start = slice.line_to_char_idx(line_idx);
-    let end = line_end_char_index(slice, line_idx);
-    slice.slice_chars(start..end)
+    let start = slice.line_to_byte_idx(line_idx, stdx::rope::LINE_TYPE);
+    let end = line_end_byte_index(slice, line_idx);
+    slice.slice(start..end)
 }
 
 /// Returns the char index of the end of the given RopeSlice, not including

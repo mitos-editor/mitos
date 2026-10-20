@@ -1,7 +1,6 @@
 //! Utility functions to traverse the unicode graphemes of a `Rope`'s text contents.
 //!
 //! Based on <https://github.com/cessen/led/blob/c4fa72405f510b7fd16052f90a598c429b3104a6/src/graphemes.rs>
-use crate::str_utils::byte_to_char_idx;
 use ropey::RopeSlice;
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 use unicode_width::UnicodeWidthStr;
@@ -127,13 +126,16 @@ pub fn grapheme_width(g: &str) -> usize {
 pub fn nth_prev_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -> usize {
     // Bounds check
     debug_assert!(char_idx <= slice.len_chars());
-
-    // We work with bytes for this, so convert.
+    // We work with bytes for this, so convert and validate the input index.
     let mut byte_idx = slice.char_to_byte_idx(char_idx);
+    if n == 0 {
+        return char_idx;
+    }
 
     // Get the chunk with our byte index in it.
     let (mut chunk, mut chunk_byte_idx) = slice.chunk(byte_idx);
-    let mut chunk_char_idx = slice.byte_to_char_idx(chunk_byte_idx);
+    let initial_byte_idx = byte_idx;
+    let initial_chunk_idx = chunk_byte_idx;
 
     // Set up the grapheme cursor.
     let mut gc = GraphemeCursor::new(byte_idx, slice.len(), true);
@@ -148,10 +150,7 @@ pub fn nth_prev_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
                     break;
                 }
                 Err(GraphemeIncomplete::PrevChunk) => {
-                    let (a, b) = slice.chunk(chunk_byte_idx - 1);
-                    chunk = a;
-                    chunk_byte_idx = b;
-                    chunk_char_idx = slice.byte_to_char_idx(b);
+                    (chunk, chunk_byte_idx) = slice.chunk(chunk_byte_idx - 1);
                 }
                 Err(GraphemeIncomplete::PreContext(n)) => {
                     let ctx_chunk = slice.chunk(n - 1).0;
@@ -161,8 +160,14 @@ pub fn nth_prev_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
             }
         }
     }
-    let tmp = byte_to_char_idx(chunk, byte_idx - chunk_byte_idx);
-    chunk_char_idx + tmp
+    if chunk_byte_idx == initial_chunk_idx {
+        char_idx
+            - str_indices::chars::count(
+                &chunk[byte_idx - chunk_byte_idx..initial_byte_idx - chunk_byte_idx],
+            )
+    } else {
+        slice.byte_to_char_idx(byte_idx)
+    }
 }
 
 /// Finds the previous grapheme boundary before the given char position.
@@ -176,13 +181,16 @@ pub fn prev_grapheme_boundary(slice: RopeSlice, char_idx: usize) -> usize {
 pub fn nth_next_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -> usize {
     // Bounds check
     debug_assert!(char_idx <= slice.len_chars());
-
-    // We work with bytes for this, so convert.
+    // We work with bytes for this, so convert and validate the input index.
     let mut byte_idx = slice.char_to_byte_idx(char_idx);
+    if n == 0 {
+        return char_idx;
+    }
 
     // Get the chunk with our byte index in it.
     let (mut chunk, mut chunk_byte_idx) = slice.chunk(byte_idx);
-    let mut chunk_char_idx = slice.byte_to_char_idx(chunk_byte_idx);
+    let initial_byte_idx = byte_idx;
+    let initial_chunk_idx = chunk_byte_idx;
 
     // Set up the grapheme cursor.
     let mut gc = GraphemeCursor::new(byte_idx, slice.len(), true);
@@ -197,10 +205,7 @@ pub fn nth_next_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
                     break;
                 }
                 Err(GraphemeIncomplete::NextChunk) => {
-                    chunk_byte_idx += chunk.len();
-                    let (a, _) = slice.chunk(chunk_byte_idx);
-                    chunk = a;
-                    chunk_char_idx = slice.byte_to_char_idx(chunk_byte_idx);
+                    (chunk, chunk_byte_idx) = slice.chunk(chunk_byte_idx + chunk.len());
                 }
                 Err(GraphemeIncomplete::PreContext(n)) => {
                     let ctx_chunk = slice.chunk(n - 1).0;
@@ -210,8 +215,14 @@ pub fn nth_next_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
             }
         }
     }
-    let tmp = byte_to_char_idx(chunk, byte_idx - chunk_byte_idx);
-    chunk_char_idx + tmp
+    if chunk_byte_idx == initial_chunk_idx {
+        char_idx
+            + str_indices::chars::count(
+                &chunk[initial_byte_idx - chunk_byte_idx..byte_idx - chunk_byte_idx],
+            )
+    } else {
+        slice.byte_to_char_idx(byte_idx)
+    }
 }
 
 /// Finds the next grapheme boundary after the given char position.
@@ -340,5 +351,101 @@ impl Display for GraphemeStr<'_> {
 impl Clone for GraphemeStr<'_> {
     fn clone(&self) -> Self {
         self.deref().to_owned().into()
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::{nth_next_grapheme_boundary, nth_prev_grapheme_boundary};
+    use crate::Rope;
+    use stdx::rope::RopeExt as _;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    #[test]
+    fn counted_moves_preserve_unicode_boundaries_across_chunks_and_slices() {
+        for (source, compare_with_contiguous) in [
+            (String::new(), true),
+            ("😀\r\n".into(), true),
+            ("α😀e\u{301}界\r\n".repeat(512), true),
+            ("α😀e\u{301}👩🏽‍💻\r\n🇨🇿".repeat(512), false),
+            (format!("x{}y", "🇨".repeat(1500)), false),
+            (format!("e{}z", "\u{301}".repeat(3000)), true),
+        ] {
+            let text = Rope::from_str(&source);
+            let start = 1.min(text.len_chars());
+            let end = text.len_chars().saturating_sub(1).max(start);
+            for slice in [text.slice(..), text.slice_chars(start..end)] {
+                let source = slice.to_string();
+                let mut boundaries = vec![0];
+                for grapheme in source.graphemes(true) {
+                    boundaries.push(boundaries.last().unwrap() + grapheme.chars().count());
+                }
+                let mut positions = vec![0, slice.len_chars()];
+                let mut byte_idx = 0;
+                for chunk in slice.chunks() {
+                    let position = slice.byte_to_char_idx(byte_idx);
+                    positions
+                        .extend(position.saturating_sub(2)..=(position + 2).min(slice.len_chars()));
+                    byte_idx += chunk.len();
+                }
+                positions.sort_unstable();
+                positions.dedup();
+                for position in positions {
+                    for count in [0, 1, 2, 17, 4096] {
+                        let next = if count == 0 {
+                            position
+                        } else {
+                            boundaries
+                                .iter()
+                                .copied()
+                                .filter(|&b| b > position)
+                                .nth(count - 1)
+                                .unwrap_or(slice.len_chars())
+                        };
+                        let prev = if count == 0 {
+                            position
+                        } else {
+                            boundaries
+                                .iter()
+                                .copied()
+                                .rev()
+                                .filter(|&b| b < position)
+                                .nth(count - 1)
+                                .unwrap_or(0)
+                        };
+                        // The released segmenter has known chunk-seam bugs for RI/ZWJ
+                        // sequences (upstream #175/#172). Preserve existing byte traversal
+                        // for those inputs; use the contiguous Unicode oracle otherwise.
+                        let (next, prev) = if !compare_with_contiguous {
+                            let byte = slice.char_to_byte_idx(position);
+                            (
+                                slice.byte_to_char_idx(
+                                    stdx::rope::RopeSliceExt::nth_next_grapheme_boundary(
+                                        slice, byte, count,
+                                    ),
+                                ),
+                                slice.byte_to_char_idx(
+                                    stdx::rope::RopeSliceExt::nth_prev_grapheme_boundary(
+                                        slice, byte, count,
+                                    ),
+                                ),
+                            )
+                        } else {
+                            (next, prev)
+                        };
+                        assert_eq!(
+                            nth_next_grapheme_boundary(slice, position, count),
+                            next,
+                            "next: {position}, {count}"
+                        );
+                        assert_eq!(
+                            nth_prev_grapheme_boundary(slice, position, count),
+                            prev,
+                            "prev: {position}, {count}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

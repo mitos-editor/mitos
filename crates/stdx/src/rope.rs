@@ -481,45 +481,17 @@ impl<'a> RopeSliceExt<'a> for RopeSlice<'a> {
             .map(|pos| self.len_chars() - pos - 1)
     }
 
-    // These three are adapted from std:
-
+    // Keep the editor's clamping semantics around Ropey's direct chunk queries.
     fn floor_char_boundary(self, byte_idx: usize) -> usize {
-        if byte_idx >= self.len() {
-            self.len()
-        } else {
-            let offset = self
-                .bytes_at(byte_idx + 1)
-                .reversed()
-                .take(4)
-                .position(is_utf8_char_boundary)
-                // A char can only be four bytes long so we are guaranteed to find a boundary.
-                .unwrap();
-
-            byte_idx - offset
-        }
+        RopeSlice::floor_char_boundary(&self, byte_idx.min(self.len()))
     }
 
     fn ceil_char_boundary(self, byte_idx: usize) -> usize {
-        if byte_idx > self.len() {
-            self.len()
-        } else {
-            let upper_bound = self.len().min(byte_idx + 4);
-            self.bytes_at(byte_idx)
-                .position(is_utf8_char_boundary)
-                .map_or(upper_bound, |pos| pos + byte_idx)
-        }
+        RopeSlice::ceil_char_boundary(&self, byte_idx.min(self.len()))
     }
 
     fn is_char_boundary(self, byte_idx: usize) -> bool {
-        if byte_idx == 0 {
-            return true;
-        }
-
-        if byte_idx >= self.len() {
-            byte_idx == self.len()
-        } else {
-            is_utf8_char_boundary(self.bytes_at(byte_idx).next().unwrap())
-        }
+        byte_idx <= self.len() && RopeSlice::is_char_boundary(&self, byte_idx)
     }
 
     fn floor_grapheme_boundary(self, mut byte_idx: usize) -> usize {
@@ -710,13 +682,6 @@ impl<'a> RopeSliceExt<'a> for RopeSlice<'a> {
 
         byte_idx
     }
-}
-
-// copied from std
-#[inline]
-const fn is_utf8_char_boundary(b: u8) -> bool {
-    // This is bit magic equivalent to: b < 128 || b >= 192
-    (b as i8) >= -0x40
 }
 
 /// An iterator over the graphemes of a `RopeSlice`.
@@ -963,6 +928,30 @@ mod tests {
                     char_idx + 1
                 );
             }
+        }
+    }
+
+    #[test]
+    fn character_boundary_queries_preserve_clamping_on_chunked_slices() {
+        let source = "α😀界".repeat(1024);
+        let text = ropey::Rope::from_str(&source);
+        let slice = text.slice(2..text.len() - 3);
+        let source = slice.to_string();
+        let boundaries: Vec<_> = source
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(source.len()))
+            .collect();
+        for byte in (0..=source.len() + 2).chain(std::iter::once(usize::MAX)) {
+            let clamped = byte.min(source.len());
+            let floor = *boundaries.iter().rfind(|&&b| b <= clamped).unwrap();
+            let ceil = *boundaries.iter().find(|&&b| b >= clamped).unwrap();
+            assert_eq!(RopeSliceExt::floor_char_boundary(slice, byte), floor);
+            assert_eq!(RopeSliceExt::ceil_char_boundary(slice, byte), ceil);
+            assert_eq!(
+                RopeSliceExt::is_char_boundary(slice, byte),
+                source.is_char_boundary(byte)
+            );
         }
     }
 

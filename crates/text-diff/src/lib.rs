@@ -12,6 +12,13 @@ pub use transaction::compare_ropes;
 const MAX_DIFF_LINES: usize = 64 * u16::MAX as usize;
 const MAX_DIFF_BYTES: usize = MAX_DIFF_LINES * 128;
 
+// Tree-backed Ropey 2 slices allocate chunk cursors even for a single leaf.
+// Keep short contiguous line tokens as borrowed strings to avoid those allocations
+// during hashing, equality, and character iteration. Long lines retain rope metrics.
+fn line_token(line: editor_core::RopeSlice<'_>) -> editor_core::RopeSlice<'_> {
+    line.as_str().map_or(line, editor_core::RopeSlice::from)
+}
+
 /// Reusable line interning and diff allocations for a base and its edited text.
 /// Callers own scheduling, publication, and synchronization.
 pub struct LineDiff {
@@ -76,6 +83,24 @@ impl LineDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_tokens_keep_multichunk_lines_and_survive_base_replacement() {
+        let long = "α😀".repeat(2000);
+        let base = Rope::from_str(&format!("prefix α\n{long}\nend 😀\n"));
+        let changed = Rope::from_str(&format!("changed α\n{long}\nend 😀\n"));
+        assert!(base.line(1, stdx::rope::LINE_TYPE).as_str().is_none());
+        let mut diff = LineDiff::new(base.clone(), changed.clone());
+        let hunk = diff.hunks().next().unwrap();
+        assert_eq!(hunk.before, 0..1);
+        assert_eq!(hunk.after, 0..1);
+        diff.update(Some(changed.clone()), None);
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(None, Some(base));
+        let hunk = diff.hunks().next().unwrap();
+        assert_eq!(hunk.before, 0..1);
+        assert_eq!(hunk.after, 0..1);
+    }
 
     #[test]
     fn line_diffs_reuse_snapshots_across_document_and_base_updates() {
