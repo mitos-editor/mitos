@@ -235,25 +235,9 @@ fn file_picker_paths(
     root: &Path,
     config: &editor_config::FilePickerConfig,
 ) -> impl Iterator<Item = PathBuf> + use<> {
-    use ignore::WalkBuilder;
-    let dedup_symlinks = config.deduplicate_links;
-    let absolute_root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
-
-    let mut walk_builder = WalkBuilder::new(root);
-
-    walk_builder
-        .hidden(config.hidden)
-        .parents(config.parents)
-        .ignore(config.ignore)
-        .follow_links(config.follow_symlinks)
-        .git_ignore(config.git_ignore)
-        .git_global(config.git_global)
-        .git_exclude(config.git_exclude)
+    crate::files::picker_options(config)
+        .walker(root)
         .sort_by_file_name(|name1, name2| name1.cmp(name2))
-        .max_depth(config.max_depth)
-        .filter_entry(move |entry| ::search::include_entry(entry, &absolute_root, dedup_symlinks))
-        .add_custom_ignore_filename(loader::config_dir().join("ignore"))
-        .add_custom_ignore_filename(".mitos/ignore")
         .types(get_excluded_types())
         .build()
         .filter_map(|entry| {
@@ -469,23 +453,10 @@ fn directory_content_cancellable(
     config: &editor_config::FileExplorerConfig,
     cancelled: impl Fn() -> bool,
 ) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
-    use ignore::WalkBuilder;
-
     // Keep the previous listing when its directory disappears or becomes unreadable.
     std::fs::read_dir(root)?;
-    let mut walk_builder = WalkBuilder::new(root);
-
-    let mut content: Vec<(PathBuf, bool)> = walk_builder
-        .hidden(config.hidden)
-        .parents(config.parents)
-        .ignore(config.ignore)
-        .follow_links(config.follow_symlinks)
-        .git_ignore(config.git_ignore)
-        .git_global(config.git_global)
-        .git_exclude(config.git_exclude)
-        .max_depth(Some(1))
-        .add_custom_ignore_filename(loader::config_dir().join("ignore"))
-        .add_custom_ignore_filename(".mitos/ignore")
+    let mut content: Vec<(PathBuf, bool)> = crate::files::explorer_options(config)
+        .walker(root)
         .types(get_excluded_types())
         .build()
         .take_while(|_| !cancelled())

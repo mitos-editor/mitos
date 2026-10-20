@@ -8,13 +8,16 @@ use editor_core::{Rope, RopeReader};
 use grep_matcher::Matcher;
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
-use ignore::{DirEntry, WalkBuilder, WalkState};
+use ignore::WalkState;
+
+mod walk;
 use std::{
     collections::HashMap,
     ops::ControlFlow,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
+pub use walk::{include_entry, Options};
 
 /// Zero-based line and character-column bounds for one matching line or block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,38 +27,6 @@ pub struct Match {
     pub line_end: usize,
     pub match_start_col: usize,
     pub match_end_col: usize,
-}
-
-/// Directory traversal policy, supplied independently of application settings.
-#[derive(Debug, Clone)]
-pub struct Options {
-    pub hidden: bool,
-    pub parents: bool,
-    pub ignore: bool,
-    pub follow_symlinks: bool,
-    pub deduplicate_links: bool,
-    pub git_ignore: bool,
-    pub git_global: bool,
-    pub git_exclude: bool,
-    pub max_depth: Option<usize>,
-    pub custom_ignore_files: Vec<PathBuf>,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            hidden: true,
-            parents: true,
-            ignore: true,
-            follow_symlinks: true,
-            deduplicate_links: true,
-            git_ignore: true,
-            git_global: true,
-            git_exclude: true,
-            max_depth: None,
-            custom_ignore_files: Vec::new(),
-        }
-    }
 }
 
 pub struct Search {
@@ -83,28 +54,13 @@ impl Search {
         is_cancelled: impl Fn() -> bool + Sync,
         emit: impl Fn(Match) -> ControlFlow<()> + Sync,
     ) {
-        let absolute_root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
-        let deduplicate_links = options.deduplicate_links;
         let stopped = AtomicBool::new(false);
         let cancelled = || stopped.load(Ordering::Relaxed) || is_cancelled();
         let searcher = SearcherBuilder::new()
             .binary_detection(BinaryDetection::quit(b'\x00'))
             .multi_line(true)
             .build();
-        let mut walker = WalkBuilder::new(root);
-        walker
-            .hidden(options.hidden)
-            .parents(options.parents)
-            .ignore(options.ignore)
-            .follow_links(options.follow_symlinks)
-            .git_ignore(options.git_ignore)
-            .git_global(options.git_global)
-            .git_exclude(options.git_exclude)
-            .max_depth(options.max_depth)
-            .filter_entry(move |entry| include_entry(entry, &absolute_root, deduplicate_links));
-        for filename in &options.custom_ignore_files {
-            walker.add_custom_ignore_filename(filename);
-        }
+        let walker = options.walker(root);
         walker.build_parallel().run(|| {
             let mut searcher = searcher.clone();
             let matcher = self.matcher.clone();
@@ -186,32 +142,6 @@ fn match_line_cols(
         .count();
 
     Some((start_line, start_col, end_line, end_col))
-}
-
-/// Shared traversal policy for search and file/symbol pickers.
-/// Excludes VCS internals and optionally symlinks into the search root.
-pub fn include_entry(entry: &DirEntry, root: &Path, dedup_symlinks: bool) -> bool {
-    // We always want to ignore popular VCS directories, otherwise if
-    // `ignore` is turned off, we end up with a lot of noise
-    // in our picker.
-    if matches!(
-        entry.file_name().to_str(),
-        Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
-    ) {
-        return false;
-    }
-
-    // We also ignore symlinks that point inside the current directory
-    // if `dedup_links` is enabled.
-    if dedup_symlinks && entry.path_is_symlink() {
-        return entry
-            .path()
-            .canonicalize()
-            .ok()
-            .is_some_and(|path| !path.starts_with(root));
-    }
-
-    true
 }
 
 #[cfg(test)]

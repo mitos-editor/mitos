@@ -476,18 +476,7 @@ pub(super) fn global_search(cx: &mut Context) {
     let config = GlobalSearchConfig {
         root: stdx::env::current_working_dir(),
         smart_case: config.search.smart_case,
-        options: ::search::Options {
-            hidden: config.file_picker.hidden,
-            parents: config.file_picker.parents,
-            ignore: config.file_picker.ignore,
-            follow_symlinks: config.file_picker.follow_symlinks,
-            deduplicate_links: config.file_picker.deduplicate_links,
-            git_ignore: config.file_picker.git_ignore,
-            git_global: config.file_picker.git_global,
-            git_exclude: config.file_picker.git_exclude,
-            max_depth: config.file_picker.max_depth,
-            custom_ignore_files: vec![loader::config_dir().join("ignore"), ".mitos/ignore".into()],
-        },
+        options: crate::files::picker_options(&config.file_picker),
         style: PathStyleConfig::new(cx.editor),
     };
 

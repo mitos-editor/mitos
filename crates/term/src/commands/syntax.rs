@@ -308,26 +308,8 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
         workspace::find_workspace().0
     };
 
-    let absolute_root = search_root
-        .canonicalize()
-        .unwrap_or_else(|_| search_root.clone());
-
     let config = cx.editor.config();
-    let dedup_symlinks = config.file_picker.deduplicate_links;
-
-    let mut walk_builder = WalkBuilder::new(&search_root);
-    walk_builder
-        .hidden(config.file_picker.hidden)
-        .parents(config.file_picker.parents)
-        .ignore(config.file_picker.ignore)
-        .follow_links(config.file_picker.follow_symlinks)
-        .git_ignore(config.file_picker.git_ignore)
-        .git_global(config.file_picker.git_global)
-        .git_exclude(config.file_picker.git_exclude)
-        .max_depth(config.file_picker.max_depth)
-        .filter_entry(move |entry| ::search::include_entry(entry, &absolute_root, dedup_symlinks))
-        .add_custom_ignore_filename(loader::config_dir().join("ignore"))
-        .add_custom_ignore_filename(".mitos/ignore");
+    let walk_builder = crate::files::picker_options(&config.file_picker).walker(&search_root);
 
     let mut regex_matcher_builder = RegexMatcherBuilder::new();
     regex_matcher_builder.case_smart(config.search.smart_case);

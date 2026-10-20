@@ -985,6 +985,11 @@ failed variable requests and replies released after execution resumes.
 
 ## Workspace search
 
+Shared directory traversal lives in `search::Options::walker`. Terminal configuration
+adapters supply ignore paths and traversal flags; callers add their own ordering
+and type filters. The directory explorer explicitly retains metadata directories
+and symlink aliases while limiting traversal to one level.
+
 `search` owns directory traversal, regex matching, unsaved snapshot precedence,
 and zero-based line and character-column match records. Callers supply roots,
 ignore paths, traversal settings, cancellation, and a result sink. The terminal
