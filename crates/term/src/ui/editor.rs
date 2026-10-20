@@ -1,4 +1,5 @@
 use super::highlights::{self, primary_cursor_is_software};
+use crate::repeat::InsertEvent;
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Cursor, Event, EventResult},
@@ -19,9 +20,7 @@ use text_layout::DisplayPosition;
 
 use ::diagnostics::NumberOrString;
 use editor_config::{BufferLine, DiagnosticFilter};
-use editor_core::{
-    movement::Direction, unicode::width::UnicodeWidthStr, Change, Range, Selection, Transaction,
-};
+use editor_core::{movement::Direction, unicode::width::UnicodeWidthStr, Range, Selection};
 use loader::VERSION_AND_GIT_HASH;
 use std::{
     collections::HashMap, mem::take, num::NonZeroUsize, path::PathBuf, rc::Rc, sync::LazyLock,
@@ -51,30 +50,12 @@ pub struct EditorView {
     pub keymaps: Keymaps,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
-    pub(crate) last_edit: LastEdit,
+    pub(crate) repeat: crate::repeat::RepeatController,
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
     images: HashMap<ViewId, ImageDocumentView>,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
-}
-
-#[derive(Clone)]
-pub(crate) enum LastEdit {
-    Insert(commands::MappableCommand, Vec<InsertEvent>),
-    Replace(editor_core::Tendril),
-}
-
-#[derive(Debug, Clone)]
-pub enum InsertEvent {
-    Key(KeyEvent),
-    CompletionApply {
-        trigger_offset: usize,
-        changes: Vec<Change>,
-    },
-    InlineCompletionApply(view::features::inline_completion::AppliedInlineCompletion),
-    TriggerCompletion,
-    RequestCompletion,
 }
 
 impl EditorView {
@@ -83,7 +64,7 @@ impl EditorView {
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),
-            last_edit: LastEdit::Insert(commands::MappableCommand::normal_mode, Vec::new()),
+            repeat: crate::repeat::RepeatController::default(),
             completion: None,
             spinners: ProgressSpinners::default(),
             images: HashMap::new(),
@@ -99,9 +80,7 @@ impl EditorView {
     }
 
     pub(crate) fn record_insert_event(&mut self, event: InsertEvent) {
-        if let LastEdit::Insert(_, events) = &mut self.last_edit {
-            events.push(event);
-        }
+        self.repeat.record(event);
     }
 
     fn render_welcome(theme: &Theme, area: Rect, surface: &mut Surface, colorful: bool) {
@@ -948,7 +927,7 @@ impl EditorView {
                 if current_mode == Mode::Insert {
                     // how we entered insert mode is important, and we should track that so
                     // we can repeat the side effect.
-                    self.last_edit = LastEdit::Insert(command.clone(), Vec::new());
+                    self.repeat.start_insert(command.clone());
                 }
             }
 
@@ -970,20 +949,24 @@ impl EditorView {
         None
     }
 
-    fn insert_mode(&mut self, cx: &mut commands::Context, event: KeyEvent) {
+    pub(crate) fn insert_mode(
+        &mut self,
+        cx: &mut commands::Context,
+        event: KeyEvent,
+    ) -> Result<(), view::editing::EditError> {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
                     if !self.on_next_key(OnKeyCallbackKind::Fallback, cx, event)
                         && let Some(ch) = event.char()
                     {
-                        commands::insert::insert_char(cx, ch)
+                        commands::insert::try_insert_char(cx, ch)?
                     }
                 }
                 KeymapResult::Cancelled(pending) => {
                     for ev in pending {
                         match ev.char() {
-                            Some(ch) => commands::insert::insert_char(cx, ch),
+                            Some(ch) => commands::insert::try_insert_char(cx, ch)?,
                             None => {
                                 if let KeymapResult::Matched(command) =
                                     self.keymaps.get(Mode::Insert, ev)
@@ -997,6 +980,7 @@ impl EditorView {
                 _ => unreachable!(),
             }
         }
+        Ok(())
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
@@ -1017,83 +1001,12 @@ impl EditorView {
             }
             // special handling for repeat operator
             (key!('.'), _) if self.keymaps.pending().is_empty() => {
-                'repeat: for _ in 0..cxt.editor.count.map_or(1, NonZeroUsize::into) {
-                    let (command, events) = match self.last_edit.clone() {
-                        LastEdit::Replace(text) => {
-                            commands::replace_selections(cxt.editor, &text);
-                            continue;
-                        }
-                        LastEdit::Insert(command, events) => (command, events),
-                    };
-                    // first execute whatever put us into insert mode
-                    command.execute(cxt);
-                    let mut last_savepoint = None;
-                    let mut last_request_savepoint = None;
-                    // then replay the inputs
-                    for key in events {
-                        match key {
-                            InsertEvent::Key(key) => self.insert_mode(cxt, key),
-                            InsertEvent::CompletionApply {
-                                trigger_offset,
-                                changes,
-                            } => {
-                                let (view, doc) = current!(cxt.editor);
-
-                                if let Some(last_savepoint) = last_savepoint.as_deref()
-                                    && let Err(error) = doc.restore(view.id, last_savepoint, true)
-                                {
-                                    cxt.editor.set_error(|| error.to_string());
-                                    break 'repeat;
-                                }
-
-                                let text = doc.text().slice(..);
-                                let cursor = doc.selection(view.id).primary().cursor(text);
-
-                                let shift_position = |pos: usize| -> usize {
-                                    (pos + cursor).saturating_sub(trigger_offset)
-                                };
-
-                                let tx = Transaction::change(
-                                    doc.text(),
-                                    changes.iter().cloned().map(|(start, end, t)| {
-                                        (shift_position(start), shift_position(end), t)
-                                    }),
-                                );
-                                if let Err(error) = view::editing::apply(doc, &tx, view.id) {
-                                    cxt.editor.set_error(|| error.to_string());
-                                    break 'repeat;
-                                }
-                            }
-                            InsertEvent::InlineCompletionApply(applied) => {
-                                let (view, doc) = current!(cxt.editor);
-                                let cursor = doc
-                                    .selection(view.id)
-                                    .primary()
-                                    .cursor(doc.text().slice(..));
-                                let shift =
-                                    |pos: usize| (pos + cursor).saturating_sub(applied.cursor);
-                                let transaction = Transaction::change(
-                                    doc.text(),
-                                    applied
-                                        .changes
-                                        .into_iter()
-                                        .map(|(from, to, text)| (shift(from), shift(to), text)),
-                                )
-                                .with_selection(Selection::point(shift(applied.selection)));
-                                if let Err(error) = view::editing::apply(doc, &transaction, view.id)
-                                {
-                                    cxt.editor.set_error(|| error.to_string());
-                                    break 'repeat;
-                                }
-                            }
-                            InsertEvent::TriggerCompletion => {
-                                last_savepoint = take(&mut last_request_savepoint);
-                            }
-                            InsertEvent::RequestCompletion => {
-                                let (view, doc) = current!(cxt.editor);
-                                last_request_savepoint = Some(doc.savepoint(view.id));
-                            }
-                        }
+                if let Some(plan) = self.repeat.begin_replay() {
+                    let count = cxt.editor.count.map_or(1, NonZeroUsize::into);
+                    let result = plan.replay(cxt, count, |cx, key| self.insert_mode(cx, key));
+                    self.repeat.end_replay();
+                    if let Err(error) = result {
+                        cxt.editor.set_error(|| error.to_string());
                     }
                 }
                 cxt.editor.count = None;
@@ -1579,9 +1492,10 @@ impl Component for EditorView {
 
                             // if completion didn't take the event, we pass it onto commands
                             if !consumed {
-                                self.insert_mode(&mut cx, key);
-
-                                self.record_insert_event(InsertEvent::Key(key));
+                                match self.insert_mode(&mut cx, key) {
+                                    Ok(()) => self.record_insert_event(InsertEvent::Key(key)),
+                                    Err(error) => cx.editor.set_error(|| error.to_string()),
+                                }
                             }
                         }
                         mode => self.command_mode(mode, &mut cx, key),

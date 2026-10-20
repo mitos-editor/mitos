@@ -1,5 +1,7 @@
 //! Editing operations over documents and their per-view selections.
 
+pub mod replay;
+
 use std::collections::HashMap;
 
 use editor_core::{

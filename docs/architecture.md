@@ -282,8 +282,23 @@ mode restores indentation and the append cursor. Shared editor entry operations
 prepare insert, append, select, line-boundary, and open-line selections before mode
 observers run. Append restoration belongs to the document/view relationship and is
 removed with that state. Failed edits leave the prior mode and selections intact.
-Terminal hooks retain menu presentation and edit replay; headless callers use the
+Terminal hooks retain menu presentation and repeat recording; headless callers use the
 same operations.
+
+### Insert repetition
+
+`term::repeat::RepeatController` owns the last edit and its insert events. It
+snapshots one replay plan for a counted repeat and suspends recording until that
+plan finishes. The editor view supplies keymap dispatch, while the controller
+coordinates the entry command, request savepoints, accepted completions, and
+replacement operations. Rejected edits stop the remaining replay.
+
+`view::editing::replay` checks rebased character ranges and resulting cursor
+positions before constructing a transaction. It rejects underflow, overflow,
+out-of-order edits, overlapping ranges, and edits beyond the buffer. Replaying a
+menu completion composes checkpoint restoration with the recorded edit into one
+mutation, so invalid metadata cannot discard newer typing. Inline completion
+replay uses the same validation without requesting another server response.
 
 ### Document settings
 

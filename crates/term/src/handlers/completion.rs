@@ -1,8 +1,9 @@
+use crate::repeat::InsertEvent;
 use crate::{
     commands,
     compositor::Compositor,
     events::OnModeSwitch,
-    ui::{self, editor::InsertEvent, lsp::signature_help::SignatureHelp, Popup},
+    ui::{self, lsp::signature_help::SignatureHelp, Popup},
 };
 use editor_core::chars::char_is_word;
 use event::register_hook;

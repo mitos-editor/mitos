@@ -17,7 +17,7 @@ pub fn insert_char(cx: &mut Context, c: char) {
     }
 }
 
-fn try_insert_char(cx: &mut Context, c: char) -> Result<(), view::editing::EditError> {
+pub(crate) fn try_insert_char(cx: &mut Context, c: char) -> Result<(), view::editing::EditError> {
     cx.editor.insert_char(c)?;
     cx.flush_completion_updates();
     Ok(())

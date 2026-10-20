@@ -19,9 +19,7 @@ pub fn inline_completion_accept(cx: &mut Context) {
             compositor
                 .find::<crate::ui::EditorView>()
                 .unwrap()
-                .record_insert_event(crate::ui::editor::InsertEvent::InlineCompletionApply(
-                    applied,
-                ));
+                .record_insert_event(crate::repeat::InsertEvent::InlineCompletionApply(applied));
         }));
     }
 }

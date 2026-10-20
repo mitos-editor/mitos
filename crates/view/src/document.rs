@@ -554,12 +554,20 @@ impl Document {
         savepoint: &SavePoint,
         emit_lsp_notification: bool,
     ) -> Result<(), crate::editing::EditError> {
+        let revert = self.savepoint_transaction(view, savepoint)?;
+        crate::editing::apply_with_notifications(self, &revert, view, emit_lsp_notification)
+    }
+
+    pub(crate) fn savepoint_transaction(
+        &self,
+        view: ViewId,
+        savepoint: &SavePoint,
+    ) -> Result<Transaction, crate::editing::EditError> {
         if savepoint.view != view || self.try_selection(view).is_none() {
             return Err(crate::editing::EditError::InvalidSavepointView);
         }
-        let revert = Transaction::from(savepoint.text.revert(&self.buffer)?)
-            .with_selection(savepoint.selection.clone());
-        crate::editing::apply_with_notifications(self, &revert, view, emit_lsp_notification)
+        Ok(Transaction::from(savepoint.text.revert(&self.buffer)?)
+            .with_selection(savepoint.selection.clone()))
     }
 
     pub fn id(&self) -> DocumentId {

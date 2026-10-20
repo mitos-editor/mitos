@@ -181,26 +181,33 @@ pub(super) fn replace(cx: &mut Context) {
             }
             let replacement = Tendril::from(input);
             Some(Box::new(move |compositor, cx| {
-                replace_selections(cx.editor, &replacement);
-                compositor.find::<ui::EditorView>().unwrap().last_edit =
-                    ui::editor::LastEdit::Replace(replacement);
+                if let Err(error) = replace_selections(cx.editor, &replacement) {
+                    cx.editor.set_error(|| error.to_string());
+                    return;
+                }
+                compositor
+                    .find::<ui::EditorView>()
+                    .unwrap()
+                    .repeat
+                    .replace(replacement);
             }))
         },
     );
     cx.push_layer(Box::new(prompt));
 }
 
-pub(crate) fn replace_selections(editor: &mut Editor, replacement: &str) {
+pub(crate) fn replace_selections(
+    editor: &mut Editor,
+    replacement: &str,
+) -> Result<(), view::editing::EditError> {
     let scrolloff = editor.config().scroll.padding;
     let (view, doc) = current!(editor);
-    if let Err(error) = view::editing::replace_selections(doc, view, replacement) {
-        editor.set_error(|| error.to_string());
-        return;
-    }
+    view::editing::replace_selections(doc, view, replacement)?;
     view.ensure_cursor_in_view(doc, scrolloff);
     if editor.mode() == Mode::Select {
         editor.set_mode(Mode::Normal);
     }
+    Ok(())
 }
 
 enum Operation {

@@ -13,6 +13,7 @@
 #[macro_use]
 extern crate view;
 
+mod repeat;
 mod terminal_launcher;
 
 pub mod application;
