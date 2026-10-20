@@ -443,6 +443,7 @@ mod tests {
 }
 
 pub mod insert;
+pub mod movement;
 
 mod transform;
 pub use transform::{

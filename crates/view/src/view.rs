@@ -428,12 +428,6 @@ impl View {
             .saturating_sub(1)
     }
 
-    /// Calculates the last non-empty visual line on screen
-    #[inline]
-    pub fn last_visual_line(&self, doc: &Document) -> usize {
-        self.layout(doc, None).last_visual_line()
-    }
-
     /// Translate a document character position to a visible position relative to the text viewport.
     pub fn screen_coords_at_pos(&self, doc: &Document, pos: usize) -> Option<DisplayPosition> {
         self.layout(doc, None).display_position_at_pos(pos)
@@ -451,16 +445,6 @@ impl View {
             format,
             annotations,
         }
-    }
-
-    /// Get the text annotations to display in the current view for the given document and theme.
-    pub fn text_annotations<'a>(
-        &self,
-        doc: &'a Document,
-        theme: Option<&Theme>,
-    ) -> TextAnnotations<'a> {
-        let width = self.inner_width(doc);
-        self.prepare_text_annotations(doc, theme, &doc.text_format(width, theme), width)
     }
 
     fn prepare_text_annotations<'a>(

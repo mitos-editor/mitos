@@ -203,6 +203,14 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Visual movement
+
+`view::editing::movement` owns vertical document/visual-line motion, scrolling,
+window-relative cursor movement, and horizontal centering. These operations use
+prepared view layout and update the selected document/view relationship. Frontends
+supply direction, count, selection behavior, and scroll margins. Key handling,
+command repetition, and mode interpretation remain in `term`.
+
 ### Mode transitions
 
 `Editor::set_mode` in `editor/mode.rs` owns mode changes, feature cancellation,

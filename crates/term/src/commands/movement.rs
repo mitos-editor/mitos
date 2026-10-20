@@ -1,6 +1,6 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
-use text_layout::movement::{move_vertically, move_vertically_visual};
+use view::editing::movement::{LineMotion, ScrollCursor};
 
 use editor_core::{
     graphemes::{self, next_grapheme_boundary},
@@ -9,36 +9,15 @@ use editor_core::{
     search, Range, RopeSlice,
 };
 use stdx::rope::RopeSliceExt;
-use text_layout::{char_idx_at_visual_offset, visual_offset_from_block};
-use text_layout::{doc_formatter::TextFormat, text_annotations::TextAnnotations};
 use ui_core::keyboard::KeyCode;
 use view::{align_view, document::Mode, editor::Motion, view::View, Align, Document, Editor};
 
 use super::context::Context;
 
-type MoveFn =
-    fn(RopeSlice, Range, Direction, usize, Movement, &TextFormat, &mut TextAnnotations) -> Range;
-
-fn move_impl(cx: &mut Context, move_fn: MoveFn, dir: Direction, behaviour: Movement) {
+fn move_impl(cx: &mut Context, lines: LineMotion, dir: Direction, behaviour: Movement) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let text_fmt = doc.text_format(view.inner_area(doc).width, None);
-    let mut annotations = view.text_annotations(doc, None);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        move_fn(
-            text,
-            range,
-            dir,
-            count,
-            behaviour,
-            &text_fmt,
-            &mut annotations,
-        )
-    });
-    drop(annotations);
-    doc.set_selection(view.id, selection);
+    view::editing::movement::move_lines(doc, view, lines, dir, count, behaviour);
 }
 
 fn move_char_impl(cx: &mut Context, dir: Direction, behaviour: Movement) {
@@ -61,29 +40,24 @@ pub(super) fn move_char_right(cx: &mut Context) {
 }
 
 pub(super) fn move_line_up(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Backward, Movement::Move)
-}
-
-pub(super) fn move_line_down(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Forward, Movement::Move)
-}
-
-pub(super) fn move_visual_line_up(cx: &mut Context) {
     move_impl(
         cx,
-        move_vertically_visual,
+        LineMotion::Document,
         Direction::Backward,
         Movement::Move,
     )
 }
 
+pub(super) fn move_line_down(cx: &mut Context) {
+    move_impl(cx, LineMotion::Document, Direction::Forward, Movement::Move)
+}
+
+pub(super) fn move_visual_line_up(cx: &mut Context) {
+    move_impl(cx, LineMotion::Visual, Direction::Backward, Movement::Move)
+}
+
 pub(super) fn move_visual_line_down(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Forward,
-        Movement::Move,
-    )
+    move_impl(cx, LineMotion::Visual, Direction::Forward, Movement::Move)
 }
 
 pub(super) fn extend_char_left(cx: &mut Context) {
@@ -95,29 +69,34 @@ pub(super) fn extend_char_right(cx: &mut Context) {
 }
 
 pub(super) fn extend_line_up(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Backward, Movement::Extend)
+    move_impl(
+        cx,
+        LineMotion::Document,
+        Direction::Backward,
+        Movement::Extend,
+    )
 }
 
 pub(super) fn extend_line_down(cx: &mut Context) {
-    move_impl(cx, move_vertically, Direction::Forward, Movement::Extend)
+    move_impl(
+        cx,
+        LineMotion::Document,
+        Direction::Forward,
+        Movement::Extend,
+    )
 }
 
 pub(super) fn extend_visual_line_up(cx: &mut Context) {
     move_impl(
         cx,
-        move_vertically_visual,
+        LineMotion::Visual,
         Direction::Backward,
         Movement::Extend,
     )
 }
 
 pub(super) fn extend_visual_line_down(cx: &mut Context) {
-    move_impl(
-        cx,
-        move_vertically_visual,
-        Direction::Forward,
-        Movement::Extend,
-    )
+    move_impl(cx, LineMotion::Visual, Direction::Forward, Movement::Extend)
 }
 
 fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
@@ -254,43 +233,15 @@ fn goto_first_nonwhitespace_impl(view: &mut View, doc: &mut Document, movement: 
 }
 
 fn goto_window(cx: &mut Context, align: Align) {
-    let count = cx.count() - 1;
-    let config = cx.editor.config();
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    let view_offset = doc.view_offset(view.id);
-
-    let height = view.inner_height(doc);
-
-    // respect user given count if any
-    // - 1 so we have at least one gap in the middle.
-    // a height of 6 with padding of 3 on each side will keep shifting the view back and forth
-    // as we type
-    let scrolloff = config.scroll.padding.min(height.saturating_sub(1) / 2);
-
-    let last_visual_line = view.last_visual_line(doc);
-
-    let visual_line = match align {
-        Align::Top => view_offset.vertical_offset + scrolloff + count,
-        Align::Center => view_offset.vertical_offset + (last_visual_line / 2),
-        Align::Bottom => {
-            view_offset.vertical_offset + last_visual_line.saturating_sub(scrolloff + count)
-        }
+    let count = cx.count();
+    let padding = cx.editor.config().scroll.padding;
+    let behaviour = if cx.editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
     };
-    let visual_line = visual_line
-        .max(view_offset.vertical_offset + scrolloff)
-        .min(view_offset.vertical_offset + last_visual_line.saturating_sub(scrolloff));
-
-    let pos = view
-        .pos_at_visual_coords(doc, visual_line as u16, 0, false)
-        .expect("visual_line was constrained to the view area");
-
-    let text = doc.text().slice(..);
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| range.put_cursor(text, pos, mode == Mode::Select));
-    doc.set_selection(view.id, selection);
+    let (view, doc) = current!(cx.editor);
+    view::editing::movement::goto_window(doc, view, align, count, behaviour, padding);
 }
 
 pub(super) fn goto_window_top(cx: &mut Context) {
@@ -623,114 +574,19 @@ pub(super) fn repeat_last_motion(cx: &mut Context) {
 }
 
 pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
-    use Direction::*;
-    let config = cx.editor.config();
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    let mut view_offset = doc.view_offset(view.id);
-
-    let range = doc.selection(view.id).primary();
-    let text = doc.text().slice(..);
-
-    let cursor = range.cursor(text);
-    let height = view.inner_height(doc);
-
-    let scrolloff = config.scroll.padding.min(height.saturating_sub(1) / 2);
-    let offset = match direction {
-        Forward => offset as isize,
-        Backward => -(offset as isize),
-    };
-
-    let doc_text = doc.text().slice(..);
-    let viewport = view.inner_area(doc);
-    let text_fmt = doc.text_format(viewport.width, None);
-    (view_offset.anchor, view_offset.vertical_offset) = char_idx_at_visual_offset(
-        doc_text,
-        view_offset.anchor,
-        view_offset.vertical_offset as isize + offset,
-        0,
-        &text_fmt,
-        // &annotations,
-        &view.text_annotations(&*doc, None),
-    );
-    doc.set_view_offset(view.id, view_offset);
-
-    let doc_text = doc.text().slice(..);
-    let mut annotations = view.text_annotations(&*doc, None);
-
-    if sync_cursor {
-        let movement = match mode {
-            Mode::Select => Movement::Extend,
-            _ => Movement::Move,
-        };
-        // TODO: When inline diagnostics gets merged- 1. move_vertically_visual removes
-        // line annotations/diagnostics so the cursor may jump further than the view.
-        // 2. If the cursor lands on a complete line of virtual text, the cursor will
-        // jump a different distance than the view.
-        let selection = doc.selection(view.id).clone().transform(|range| {
-            move_vertically_visual(
-                doc_text,
-                range,
-                direction,
-                offset.unsigned_abs(),
-                movement,
-                &text_fmt,
-                &mut annotations,
-            )
-        });
-        drop(annotations);
-        doc.set_selection(view.id, selection);
-        return;
-    }
-
-    let view_offset = doc.view_offset(view.id);
-
-    let mut head;
-    match direction {
-        Forward => {
-            let off;
-            (head, off) = char_idx_at_visual_offset(
-                doc_text,
-                view_offset.anchor,
-                (view_offset.vertical_offset + scrolloff) as isize,
-                0,
-                &text_fmt,
-                &annotations,
-            );
-            head += (off != 0) as usize;
-            if head <= cursor {
-                return;
-            }
-        }
-        Backward => {
-            head = char_idx_at_visual_offset(
-                doc_text,
-                view_offset.anchor,
-                (view_offset.vertical_offset + height - scrolloff - 1) as isize,
-                0,
-                &text_fmt,
-                &annotations,
-            )
-            .0;
-            if head >= cursor {
-                return;
-            }
-        }
-    }
-
-    let anchor = if mode == Mode::Select {
-        range.anchor
+    let padding = cx.editor.config().scroll.padding;
+    let behaviour = if cx.editor.mode() == Mode::Select {
+        Movement::Extend
     } else {
-        head
+        Movement::Move
     };
-
-    // replace primary selection with an empty selection at cursor pos
-    let prim_sel = Range::new(anchor, head);
-    let mut sel = doc.selection(view.id).clone();
-    let idx = sel.primary_index();
-    sel = sel.replace(idx, prim_sel);
-    drop(annotations);
-    doc.set_selection(view.id, sel);
+    let cursor = if sync_cursor {
+        ScrollCursor::Follow
+    } else {
+        ScrollCursor::KeepVisible
+    };
+    let (view, doc) = current!(cx.editor);
+    view::editing::movement::scroll(doc, view, offset, direction, cursor, behaviour, padding);
 }
 
 pub(super) fn page_up(cx: &mut Context) {
@@ -798,28 +654,7 @@ pub(super) fn align_view_bottom(cx: &mut Context) {
 
 pub(super) fn align_view_middle(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    let inner_width = view.inner_width(doc);
-    let text_fmt = doc.text_format(inner_width, None);
-    // there is no horizontal position when softwrap is enabled
-    if text_fmt.soft_wrap {
-        return;
-    }
-    let doc_text = doc.text().slice(..);
-    let pos = doc.selection(view.id).primary().cursor(doc_text);
-    let pos = visual_offset_from_block(
-        doc_text,
-        doc.view_offset(view.id).anchor,
-        pos,
-        &text_fmt,
-        &view.text_annotations(doc, None),
-    )
-    .0;
-
-    let mut offset = doc.view_offset(view.id);
-    offset.horizontal_offset = pos
-        .col
-        .saturating_sub((view.inner_area(doc).width as usize) / 2);
-    doc.set_view_offset(view.id, offset);
+    view::editing::movement::align_middle(doc, view);
 }
 
 pub(super) fn scroll_up(cx: &mut Context) {
