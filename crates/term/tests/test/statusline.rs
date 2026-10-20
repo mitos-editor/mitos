@@ -118,3 +118,71 @@ fn global_statusline_can_be_selected_in_toml() {
     assert!(config.editor.statusline.global);
     assert!(!term::config::Config::default().editor.statusline.global);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn key_help_preserves_the_bottom_statusline() -> anyhow::Result<()> {
+    for global in [false, true] {
+        for bufferline in [BufferLine::Never, BufferLine::Always] {
+            for split in [
+                None,
+                Some(Action::HorizontalSplit),
+                Some(Action::VerticalSplit),
+            ] {
+                let mut config = test_config();
+                config.editor.auto_info = true;
+                config.editor.statusline.global = global;
+                config.editor.bufferline.show = bufferline.clone();
+                let mut app = AppBuilder::new()
+                    .with_config(config)
+                    .with_lang_loader(language::syntax::Loader::default())
+                    .build()?;
+                app.editor.theme = Theme::from(toml::from_str::<toml::Value>(
+                    r#"
+                    "ui.text" = { fg = "white" }
+                    "ui.selection" = { bg = "green" }
+                    "ui.cursor" = { bg = "yellow" }
+                    "ui.statusline" = { bg = "blue" }
+                    "ui.statusline.inactive" = { bg = "gray" }
+                    "ui.popup.info" = { bg = "red" }
+                    "#,
+                )?);
+                if let Some(action) = split {
+                    app.editor.new_file(action);
+                }
+                let statusline = std::cell::RefCell::new(Vec::new());
+                let remember_statusline = |app: &Application| {
+                    let backend = app.terminal_backend();
+                    let buffer = backend.buffer();
+                    let y = buffer.area.bottom() - 2;
+                    *statusline.borrow_mut() = (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].clone())
+                        .collect::<Vec<_>>();
+                };
+                let assert_help = |app: &Application| {
+                    assert!(app.editor.autoinfo.is_some());
+                    let backend = app.terminal_backend();
+                    let buffer = backend.buffer();
+                    let y = buffer.area.bottom() - 2;
+                    let current: Vec<_> = (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].clone())
+                        .collect();
+                    assert!(current == *statusline.borrow(), "help covered the statusline (global={global}, bufferline={bufferline:?}, split={split:?})");
+                    // Ensure the popup was actually painted, rather than merely queued.
+                    assert!(buffer.content().iter().any(|cell| cell.bg == Color::Red));
+                    assert!((0..buffer.area.width).any(|x| buffer[(x, y - 1)].bg == Color::Red));
+                };
+                test_key_sequences(
+                    &mut app,
+                    vec![
+                        (Some("<esc>"), Some(&remember_statusline)),
+                        (Some("<space>"), Some(&assert_help)),
+                        (Some("<esc>:qa!<ret>"), None),
+                    ],
+                    true,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}

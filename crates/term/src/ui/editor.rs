@@ -1701,7 +1701,12 @@ impl Component for EditorView {
         if config.auto_info
             && let Some(mut info) = cx.editor.autoinfo.take()
         {
-            info.render(layout.editor, surface, cx);
+            // Global statuslines are already outside layout.editor; per-view
+            // statuslines occupy its bottom row.
+            let info_area = layout
+                .editor
+                .clip_bottom(u16::from(!config.statusline.global));
+            info.render(info_area, surface, cx);
             cx.editor.autoinfo = Some(info)
         }
 
