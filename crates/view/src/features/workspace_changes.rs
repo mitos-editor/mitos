@@ -5,7 +5,10 @@ use crate::{
     file_watcher::{EventType, Events},
     DocumentId, Editor,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use tokio::{sync::broadcast, time::Instant};
 
 #[derive(Clone, Copy, Default)]
@@ -38,17 +41,46 @@ type Versions = Vec<(DocumentId, i32, Option<PathBuf>)>;
 pub struct WorkspaceChanges {
     owner: EditorCallbackSender,
     root: PathBuf,
+    source_root: PathBuf,
+    paths: HashMap<DocumentId, (PathBuf, PathBuf)>,
+    resolved_at: Instant,
     pub policy: Policy,
     events: broadcast::Receiver<Events>,
     versions: Versions,
     checked: Instant,
 }
 
-fn document_versions(editor: &Editor, root: &Path, scope: Documents) -> Versions {
+fn absolute_root(root: &Path) -> PathBuf {
+    if root.is_absolute() {
+        root.to_owned()
+    } else {
+        stdx::env::current_working_dir().join(root)
+    }
+}
+
+fn document_versions(
+    editor: &Editor,
+    root: &Path,
+    scope: Documents,
+    paths: &mut HashMap<DocumentId, (PathBuf, PathBuf)>,
+) -> Versions {
+    if matches!(scope, Documents::None) {
+        paths.clear();
+        return Vec::new();
+    }
+    paths.retain(|id, _| editor.document(*id).is_some());
     let mut versions: Vec<_> = editor
         .documents()
         .filter_map(|doc| {
-            let path = doc.path().map(stdx::path::canonicalize_existing);
+            let path = doc.path().map(|path| {
+                let entry = paths
+                    .entry(doc.id())
+                    .or_insert_with(|| (path.to_owned(), stdx::path::canonicalize_existing(path)));
+                if entry.0 != path {
+                    *entry = (path.to_owned(), stdx::path::canonicalize_existing(path));
+                }
+                entry.1.clone()
+            });
             if !matches!(scope, Documents::All)
                 && !path.as_ref().is_some_and(|path| path.starts_with(root))
             {
@@ -69,11 +101,16 @@ pub fn is_ignore_file(path: &Path) -> bool {
 
 impl WorkspaceChanges {
     pub fn new(editor: &Editor, root: &Path, policy: Policy) -> Self {
+        let source_root = absolute_root(root);
         let root = stdx::path::canonicalize_existing(root);
-        let versions = document_versions(editor, &root, policy.documents);
+        let mut paths = HashMap::new();
+        let versions = document_versions(editor, &root, policy.documents, &mut paths);
         Self {
             owner: editor.callback_sender().clone(),
             root,
+            source_root,
+            paths,
+            resolved_at: Instant::now(),
             policy,
             versions,
             events: editor.file_watcher.subscribe(),
@@ -87,17 +124,19 @@ impl WorkspaceChanges {
         if !self.owner.same_destination(editor.callback_sender()) {
             return false;
         }
-        let root = stdx::path::canonicalize_existing(root);
-        let mut changed = root != self.root;
-        self.root = root;
-        if !matches!(self.policy.documents, Documents::None) {
-            let versions = document_versions(editor, &self.root, self.policy.documents);
-            changed |= versions != self.versions;
-            self.versions = versions;
-        }
+        let mut changed = false;
+        // Resolve identities after filesystem activity, or periodically when events
+        // are unavailable. Ordinary redraws only compare document metadata.
+        let poll = &editor.config().files.reload.poll;
+        let source_root = absolute_root(root);
+        let mut resolve = source_root != self.source_root
+            || (poll.enable
+                && self.resolved_at.elapsed()
+                    >= std::time::Duration::from_millis(poll.interval.max(100)));
         loop {
             match self.events.try_recv() {
                 Ok(events) => {
+                    resolve = true;
                     changed |= events.iter().any(|event| {
                         let path = event.path.as_std_path();
                         event.ty != EventType::Tempfile
@@ -110,15 +149,31 @@ impl WorkspaceChanges {
                                         || self.root.starts_with(path))))
                     })
                 }
-                Err(broadcast::error::TryRecvError::Lagged(_)) => changed = true,
+                Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                    changed = true;
+                    resolve = true;
+                }
                 Err(broadcast::error::TryRecvError::Closed) => {
                     self.events = editor.file_watcher.subscribe();
                     changed = true;
+                    resolve = true;
                     break;
                 }
                 Err(broadcast::error::TryRecvError::Empty) => break,
             }
         }
+        if resolve {
+            let resolved = stdx::path::canonicalize_existing(root);
+            changed |= resolved != self.root;
+            self.root = resolved;
+            self.source_root = source_root;
+            self.paths.clear();
+            self.resolved_at = Instant::now();
+        }
+        let versions =
+            document_versions(editor, &self.root, self.policy.documents, &mut self.paths);
+        changed |= versions != self.versions;
+        self.versions = versions;
         changed
     }
 
