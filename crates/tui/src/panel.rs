@@ -41,7 +41,7 @@ pub fn uniformly_padded(style: Style) -> Block<'static> {
 
 /// Creates a separator block with only a top border.
 pub fn top_border(style: Style) -> Block<'static> {
-    Block::new().borders(Borders::TOP).border_style(style)
+    bordered(style).borders(Borders::TOP)
 }
 
 /// Returns the area remaining after one cell of padding on every side.
@@ -54,6 +54,35 @@ pub fn content_area(area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{buffer::Buffer, widgets::Widget};
+    use ui_core::graphics::BorderType;
+
+    #[test]
+    fn panel_and_separator_use_the_selected_border_type() {
+        for (border_type, corner, horizontal) in [
+            (None, "┌", "─"),
+            (Some(BorderType::Rounded), "╭", "─"),
+            (Some(BorderType::Double), "╔", "═"),
+            (Some(BorderType::Thick), "┏", "━"),
+        ] {
+            let style = Style {
+                border_type,
+                ..Style::default()
+            };
+            let area = Rect::new(0, 0, 5, 3);
+            let mut frame = Buffer::empty(area);
+            bordered(style).render(area, &mut frame);
+            assert_eq!(frame[(0, 0)].symbol(), corner);
+            assert_eq!(frame[(1, 0)].symbol(), horizontal);
+
+            let mut separator = Buffer::empty(area);
+            top_border(style).render(area, &mut separator);
+            assert_eq!(separator[(0, 0)].symbol(), horizontal);
+            assert_eq!(separator[(1, 0)].symbol(), horizontal);
+            assert_eq!(separator[(0, 1)].symbol(), " ");
+            assert_eq!(separator[(0, 2)].symbol(), " ");
+        }
+    }
 
     #[test]
     fn content_area_applies_a_uniform_inset() {

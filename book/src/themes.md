@@ -171,6 +171,7 @@ menus, and other bordered interface elements.
 
 ```toml
 border_style = "rounded"
+```
 
 The following values are supported:
 
