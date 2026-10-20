@@ -12,15 +12,12 @@ use editor_core::{
     regex, LineEnding, Range, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::{
-    collections::{HashMap, HashSet},
-    ops::ControlFlow,
-    sync::Arc,
-};
+use std::{collections::HashSet, ops::ControlFlow, sync::Arc};
 use stdx::rope::{self, RopeSliceExt};
 use view::{
     align_view,
     document::Mode,
+    features::workspace_search::{Request as SearchRequest, WorkspaceSearch},
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
@@ -343,64 +340,13 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
 }
 
 struct GlobalSearchConfig {
-    root: std::path::PathBuf,
-    smart_case: bool,
-    options: ::search::Options,
+    search: Arc<WorkspaceSearch>,
     style: PathStyleConfig,
 }
 
-/// One query's compiled pattern and open-buffer snapshots, shared by both result paths.
-struct GlobalSearchRequest {
-    search: ::search::Search,
-    documents: HashMap<std::path::PathBuf, editor_core::Rope>,
-    config: Arc<GlobalSearchConfig>,
-}
-
-impl GlobalSearchRequest {
-    fn new(
-        query: &str,
-        editor: &Editor,
-        config: Arc<GlobalSearchConfig>,
-    ) -> anyhow::Result<Option<Self>> {
-        if query.is_empty() {
-            return Ok(None);
-        }
-        anyhow::ensure!(
-            config.root.exists(),
-            "Current working directory does not exist"
-        );
-        let search = ::search::Search::new(query, config.smart_case).map_err(|err| {
-            log::info!("Failed to compile search pattern in global search: {}", err);
-            anyhow::anyhow!("Failed to compile regex")
-        })?;
-        let documents = editor
-            .documents()
-            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
-            .collect();
-        Ok(Some(Self {
-            search,
-            documents,
-            config,
-        }))
-    }
-
-    /// Traverse synchronously on a blocking worker; the caller selects the result sink.
-    fn run(
-        self,
-        cancelled: impl Fn() -> bool + Sync,
-        emit: impl Fn(::search::Match) -> ControlFlow<()> + Sync,
-    ) {
-        self.search.run(
-            &self.config.root,
-            &self.config.options,
-            &self.documents,
-            cancelled,
-            |mut matched| {
-                matched.path = stdx::path::get_relative_path(matched.path).into_owned();
-                emit(matched)
-            },
-        );
-    }
+fn display_match(mut matched: ::search::Match) -> ::search::Match {
+    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
+    matched
 }
 
 fn query_global_search(
@@ -409,9 +355,8 @@ fn query_global_search(
     config: Arc<GlobalSearchConfig>,
     injector: &ui::picker::Injector<::search::Match, GlobalSearchConfig>,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<()>> {
-    let request = GlobalSearchRequest::new(query, editor, config);
+    let request = SearchRequest::new(query, editor, config.search.clone());
     if matches!(request, Ok(Some(_))) {
-        // Clear any "Failed to compile regex" errors out of the statusline.
         editor.clear_status();
     }
     let injector = injector.clone();
@@ -419,17 +364,16 @@ fn query_global_search(
         let Some(request) = request? else {
             return Ok(());
         };
-        tokio::task::spawn_blocking(move || {
-            request.run(
-                || injector.is_shutdown(),
-                |matched| match injector.push(matched) {
+        let cancelled = injector.clone();
+        request
+            .run(
+                move || cancelled.is_shutdown(),
+                move |matched| match injector.push(display_match(matched)) {
                     Ok(()) => ControlFlow::Continue(()),
                     Err(_) => ControlFlow::Break(()),
                 },
-            );
-        })
-        .await?;
-        Ok(())
+            )
+            .await
     }
     .boxed()
 }
@@ -440,31 +384,17 @@ fn refresh_global_search(
     config: Arc<GlobalSearchConfig>,
     cancel: event::TaskHandle,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<::search::Match>>> {
-    let request = GlobalSearchRequest::new(query, editor, config);
+    let request = SearchRequest::new(query, editor, config.search.clone());
     async move {
         let Some(request) = request? else {
             return Ok(Vec::new());
         };
-        Ok(tokio::task::spawn_blocking(move || {
-            let results = std::sync::Mutex::new(Vec::new());
-            request.run(
-                || cancel.is_canceled(),
-                |matched| {
-                    results.lock().unwrap().push(matched);
-                    ControlFlow::Continue(())
-                },
-            );
-            let mut results = results.into_inner().unwrap();
-            results.sort_by(|left, right| {
-                (&left.path, left.line_start, left.match_start_col).cmp(&(
-                    &right.path,
-                    right.line_start,
-                    right.match_start_col,
-                ))
-            });
-            results
-        })
-        .await?)
+        Ok(request
+            .collect(move || cancel.is_canceled())
+            .await?
+            .into_iter()
+            .map(display_match)
+            .collect())
     }
     .boxed()
 }
@@ -474,9 +404,11 @@ pub(super) fn global_search(cx: &mut Context) {
 
     let config = cx.editor.config();
     let config = GlobalSearchConfig {
-        root: stdx::env::current_working_dir(),
-        smart_case: config.search.smart_case,
-        options: crate::files::picker_options(&config.file_picker),
+        search: Arc::new(WorkspaceSearch {
+            root: stdx::env::current_working_dir(),
+            smart_case: config.search.smart_case,
+            options: crate::files::picker_options(&config.file_picker),
+        }),
         style: PathStyleConfig::new(cx.editor),
     };
 
@@ -560,7 +492,11 @@ pub(super) fn global_search(cx: &mut Context) {
     })
     .with_history_register(Some(reg))
     .with_dynamic_query(query_global_search, Some(275), cx.jobs)
-    .with_file_updates(cx.editor, |config| &config.root, refresh_global_search)
+    .with_file_updates(
+        cx.editor,
+        |config| &config.search.root,
+        refresh_global_search,
+    )
     .with_item_key(|item| (item.path.clone(), item.line_start, item.match_start_col))
     .refresh_on_content_changes()
     .refresh_on_document_changes();
@@ -631,9 +567,11 @@ mod tests {
         let path = dir.path().join("file.txt");
         std::fs::write(&path, "needle\nneedle\n")?;
         let config = Arc::new(GlobalSearchConfig {
-            root: dir.path().to_owned(),
-            smart_case: true,
-            options: ::search::Options::default(),
+            search: Arc::new(WorkspaceSearch {
+                root: dir.path().to_owned(),
+                smart_case: true,
+                options: ::search::Options::default(),
+            }),
             style: PathStyleConfig::new(&app.editor),
         });
         let mut task = event::TaskController::new();
@@ -662,9 +600,7 @@ mod tests {
                 },
             )],
             GlobalSearchConfig {
-                root: config.root.clone(),
-                smart_case: config.smart_case,
-                options: config.options.clone(),
+                search: config.search.clone(),
                 style: PathStyleConfig::new(&app.editor),
             },
         );

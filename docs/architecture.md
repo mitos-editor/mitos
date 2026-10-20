@@ -1001,6 +1001,10 @@ failed variable requests and replies released after execution resumes.
 
 ## Workspace search
 
+Workspace text requests live in `view::features::workspace_search`: they capture
+open-buffer snapshots and run matching on blocking workers. `search` owns matching
+and traversal; `term` chooses streaming or replacement publication and display paths.
+
 Shared directory traversal lives in `search::Options::walker`. Terminal configuration
 adapters supply ignore paths and traversal flags; callers add their own ordering
 and type filters. The directory explorer explicitly retains metadata directories
