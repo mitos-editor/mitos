@@ -31,6 +31,7 @@ pub enum MappableCommand {
         name: &'static str,
         fun: fn(cx: &mut Context),
         doc: &'static str,
+        preserves_completion: bool,
     },
     Macro {
         name: String,
@@ -41,6 +42,22 @@ pub enum MappableCommand {
 
 impl MappableCommand {
     pub fn execute(&self, cx: &mut Context) {
+        self.execute_inner(cx);
+        if cx.editor.mode() == view::document::Mode::Insert
+            && !matches!(
+                self,
+                Self::Static {
+                    preserves_completion: true,
+                    ..
+                }
+            )
+        {
+            cx.editor.cancel_completions();
+        }
+        cx.flush_completion_updates();
+    }
+
+    fn execute_inner(&self, cx: &mut Context) {
         match &self {
             Self::Typable { name, args, doc: _ } => {
                 if let Some(command) = TYPABLE_COMMAND_MAP.get(name.as_str()) {

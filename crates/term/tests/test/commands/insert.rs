@@ -691,16 +691,16 @@ async fn test_indent_with_spaces() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn post_insert_char_reports_only_accepted_input() -> anyhow::Result<()> {
+async fn input_notifications_report_only_accepted_input() -> anyhow::Result<()> {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
     use term::{
         commands::{insert::insert_char, Context},
-        events::PostInsertChar,
         job::Jobs,
     };
+    use view::events::InputApplied;
 
     let config = test_config();
     let directory = tempfile::tempdir()?;
@@ -712,7 +712,7 @@ async fn post_insert_char_reports_only_accepted_input() -> anyhow::Result<()> {
         .build()?;
     let events = Arc::new(AtomicUsize::new(0));
     let observed = events.clone();
-    event::register_hook!(move |_event: &mut PostInsertChar<'_, '_>| {
+    event::register_hook!(move |_event: &mut InputApplied<'_>| {
         observed.fetch_add(1, Ordering::Relaxed);
         Ok(())
     });

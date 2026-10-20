@@ -731,7 +731,9 @@ cancellation. Editor-owned callbacks publish typed `EditorEvent::Completion`
 updates that validate their session again before presentation. Sessions retain
 provider savepoints across normal typing and ghost previews; cancellation,
 replacement, focus changes, and stale targets prevent old results from being
-applied. `term` forwards input and owns menu filtering, navigation, documentation,
+applied. Shared `Editor` input operations trigger completion and signature help only after
+acceptance, then publish `InputApplied`. Completion emits typed menu-filter updates;
+`term` owns menu filtering, navigation, documentation,
 and preview/acceptance UI, including insert-repeat history.
 
 `view::features::formatting` prepares explicit document and range-formatting tasks.

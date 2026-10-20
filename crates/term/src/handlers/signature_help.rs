@@ -4,14 +4,14 @@ use event::register_hook;
 use lsp_client::lsp::{self, SignatureInformation};
 use view::{
     document::Mode,
-    features::signature_help::{self, SignatureHelpChange, SignatureHelpUpdate},
+    features::signature_help::{SignatureHelpChange, SignatureHelpUpdate},
     Editor,
 };
 
 use crate::{
     commands::Open,
     compositor::Compositor,
-    events::{OnModeSwitch, PostInsertChar},
+    events::OnModeSwitch,
     ui::{
         self,
         lsp::signature_help::{Signature, SignatureHelp},
@@ -144,10 +144,6 @@ pub(super) fn register_hooks() {
                 compositor.remove(SignatureHelp::ID);
             }));
         }
-        Ok(())
-    });
-    register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
-        signature_help::post_insert_char(event.cx.editor);
         Ok(())
     });
 }

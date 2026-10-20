@@ -2,7 +2,7 @@ use super::highlights::{self, primary_cursor_is_software};
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Cursor, Event, EventResult},
-    events::{OnModeSwitch, PostCommand},
+    events::OnModeSwitch,
     key,
     keymap::{KeymapResult, Keymaps},
     ui::{
@@ -933,7 +933,6 @@ impl EditorView {
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
-            event::dispatch(PostCommand { command, cx: cxt }).report_to(cxt.editor.status_sender());
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {

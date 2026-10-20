@@ -11,8 +11,10 @@ pub use text_layout::DisplayPosition;
 mod filesystem;
 pub(crate) use filesystem::ExistingTarget;
 pub use filesystem::FileOperation;
+mod input;
 mod language_servers;
 mod mode;
+pub use input::InputKind;
 mod registers;
 #[cfg(test)]
 pub(crate) mod tests;

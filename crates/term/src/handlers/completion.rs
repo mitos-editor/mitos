@@ -1,8 +1,7 @@
 use crate::{
     commands,
     compositor::Compositor,
-    events::{OnModeSwitch, PostCommand, PostInsertChar},
-    keymap::MappableCommand,
+    events::OnModeSwitch,
     ui::{self, editor::InsertEvent, lsp::signature_help::SignatureHelp, Popup},
 };
 use editor_core::chars::char_is_word;
@@ -11,7 +10,7 @@ use view::{
     document::Mode,
     features::completion::{
         request_incomplete_completion_list, trigger_auto_completion, CompletionChange,
-        CompletionEvent, CompletionUpdate,
+        CompletionUpdate,
     },
     Editor,
 };
@@ -27,6 +26,9 @@ pub(crate) fn apply_update(
     let size = compositor.size();
     let ui = compositor.find::<ui::EditorView>().unwrap();
     match change {
+        CompletionChange::Filter { character } => {
+            update_completion_filter(editor, compositor, character)
+        }
         CompletionChange::Started => ui.record_insert_event(InsertEvent::RequestCompletion),
         CompletionChange::Hide => {
             ui.clear_completion(editor);
@@ -64,23 +66,19 @@ pub(crate) fn apply_update(
     }
 }
 
-fn update_completion_filter(cx: &mut commands::Context, c: Option<char>) {
-    cx.callback.push(Box::new(move |compositor, cx| {
-        let editor_view = compositor.find::<ui::EditorView>().unwrap();
-        if let Some(completion) = &mut editor_view.completion {
-            completion.update_filter(c);
-            if completion.is_empty() || c.is_some_and(|c| !char_is_word(c)) {
-                editor_view.clear_completion(cx.editor);
-                // clearing completions might mean we want to immediately rerequest them (usually
-                // this occurs if typing a trigger char)
-                if c.is_some() {
-                    trigger_auto_completion(cx.editor, false);
-                }
-            } else {
-                request_incomplete_completion_list(cx.editor)
+fn update_completion_filter(editor: &mut Editor, compositor: &mut Compositor, c: Option<char>) {
+    let editor_view = compositor.find::<ui::EditorView>().unwrap();
+    if let Some(completion) = &mut editor_view.completion {
+        completion.update_filter(c);
+        if completion.is_empty() || c.is_some_and(|c| !char_is_word(c)) {
+            editor_view.clear_completion(editor);
+            if c.is_some() {
+                trigger_auto_completion(editor, false);
             }
+        } else {
+            request_incomplete_completion_list(editor);
         }
-    }))
+    }
 }
 
 fn clear_completions(cx: &mut commands::Context) {
@@ -90,66 +88,10 @@ fn clear_completions(cx: &mut commands::Context) {
     }))
 }
 
-fn completion_post_command_hook(
-    PostCommand { command, cx }: &mut PostCommand<'_, '_>,
-) -> anyhow::Result<()> {
-    if cx.editor.mode() == Mode::Insert {
-        if view::features::completion::is_shown(cx.editor) {
-            match command {
-                MappableCommand::Static {
-                    name: "delete_word_forward" | "delete_char_forward" | "completion",
-                    ..
-                } => (),
-                MappableCommand::Static {
-                    name: "delete_char_backward",
-                    ..
-                } => update_completion_filter(cx, None),
-                _ => clear_completions(cx),
-            }
-        } else {
-            let event = match command {
-                MappableCommand::Static {
-                    name: "delete_char_backward" | "delete_word_forward" | "delete_char_forward",
-                    ..
-                } => {
-                    let (view, doc) = current!(cx.editor);
-                    let primary_cursor = doc
-                        .selection(view.id)
-                        .primary()
-                        .cursor(doc.text().slice(..));
-                    CompletionEvent::DeleteText {
-                        cursor: primary_cursor,
-                    }
-                }
-                // hacks: some commands are handeled elsewhere and we don't want to
-                // cancel in that case
-                MappableCommand::Static {
-                    name: "completion" | "insert_mode" | "append_mode",
-                    ..
-                } => return Ok(()),
-                _ => CompletionEvent::Cancel,
-            };
-            cx.editor.handlers().completions.event(event);
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut PostCommand<'_, '_>| completion_post_command_hook(event));
-
     register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
         if event.old_mode == Mode::Insert {
             clear_completions(event.cx);
-        }
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut PostInsertChar<'_, '_>| {
-        if view::features::completion::is_shown(event.cx.editor) {
-            update_completion_filter(event.cx, Some(event.c))
-        } else {
-            trigger_auto_completion(event.cx.editor, false);
         }
         Ok(())
     });

@@ -3,7 +3,7 @@
 use super::{
     context::Context, mode::insert_mode, snippets::goto_next_tabstop, syntax::move_parent_node_end,
 };
-use crate::{events::PostInsertChar, key};
+use crate::key;
 use editor_config::SmartTabConfig;
 use insert::LineBoundary;
 pub use insert::{CommentContinuation, Open};
@@ -18,10 +18,8 @@ pub fn insert_char(cx: &mut Context, c: char) {
 }
 
 fn try_insert_char(cx: &mut Context, c: char) -> Result<(), view::editing::EditError> {
-    let pairs = cx.editor.auto_pairs.as_ref();
-    let (view, doc) = current!(cx.editor);
-    insert::insert_char(doc, view.id, c, pairs)?;
-    event::dispatch(PostInsertChar { c, cx }).report_to(cx.editor.status_sender());
+    cx.editor.insert_char(c)?;
+    cx.flush_completion_updates();
     Ok(())
 }
 
@@ -59,10 +57,10 @@ pub fn insert_tab(cx: &mut Context) {
 }
 
 fn insert_tab_impl(cx: &mut Context, count: usize) {
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::insert_tab(doc, view.id, count) {
+    if let Err(error) = cx.editor.insert_tab(count) {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub fn append_char_interactive(cx: &mut Context) {
@@ -115,58 +113,56 @@ fn insert_selection_interactive(cx: &mut Context, old_mode: Mode) {
 }
 
 pub fn insert_newline(cx: &mut Context) {
-    let pairs = cx.editor.auto_pairs.as_ref();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::insert_newline(doc, view.id, pairs) {
+    if let Err(error) = cx.editor.insert_newline() {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub fn delete_char_backward(cx: &mut Context) {
     let count = cx.count();
-    let pairs = cx.editor.auto_pairs.as_ref();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::delete_char_backward(doc, view.id, count, pairs) {
+    if let Err(error) = cx.editor.delete_char_backward(count) {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub fn delete_char_forward(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::delete_char_forward(doc, view.id, count) {
+    if let Err(error) = cx.editor.delete_char_forward(count) {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub fn delete_word_backward(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::delete_word_backward(doc, view.id, count) {
+    if let Err(error) = cx.editor.delete_word_backward(count) {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub fn delete_word_forward(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::delete_word_forward(doc, view.id, count) {
+    if let Err(error) = cx.editor.delete_word_forward(count) {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub(super) fn kill_to_line_start(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::kill_to_line_start(doc, view.id) {
+    if let Err(error) = cx.editor.kill_to_line_start() {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 pub(super) fn kill_to_line_end(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    if let Err(error) = insert::kill_to_line_end(doc, view.id) {
+    if let Err(error) = cx.editor.kill_to_line_end() {
         cx.editor.set_error(|| error.to_string());
     }
+    cx.flush_completion_updates();
 }
 
 // `I` inserts at the first nonwhitespace character of each line with a selection.

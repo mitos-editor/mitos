@@ -12,13 +12,16 @@ use ::command_line::{Args, Flag, Signature};
 use std::{collections::HashMap, sync::LazyLock};
 
 macro_rules! static_commands {
-    ( $($name:ident => $handler:path, $doc:literal,)* ) => {
+    (@preserve keep_completion) => { true };
+    (@preserve) => { false };
+    ( $($name:ident => $handler:path, $doc:literal $(; $preserve:ident)?,)* ) => {
         $(
             #[allow(non_upper_case_globals)]
             pub const $name: Self = Self::Static {
                 name: stringify!($name),
                 fun: $handler,
-                doc: $doc
+                doc: $doc,
+                preserves_completion: static_commands!(@preserve $($preserve)?)
             };
         )*
 
@@ -126,8 +129,8 @@ impl MappableCommand {
         collapse_selection => super::selection::collapse_selection, "Collapse selection into single cursor",
         flip_selections => super::selection::flip_selections, "Flip selection cursor and anchor",
         ensure_selections_forward => super::selection::ensure_selections_forward, "Ensure all selections face forward",
-        insert_mode => super::mode::insert_mode, "Insert before selection",
-        append_mode => super::mode::append_mode, "Append after selection",
+        insert_mode => super::mode::insert_mode, "Insert before selection"; keep_completion,
+        append_mode => super::mode::append_mode, "Append after selection"; keep_completion,
         command_mode => super::command_line::command_mode, "Enter command mode",
         file_picker => super::files::file_picker, "Open file picker",
         file_picker_in_current_buffer_directory => super::files::file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
@@ -213,16 +216,16 @@ impl MappableCommand {
         extend_to_line_end_newline => super::movement::extend_to_line_end_newline, "Extend to line end",
         signature_help => super::lsp::signature_help, "Show signature help",
         smart_tab => super::insert::smart_tab, "Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command.",
-        insert_tab => super::insert::insert_tab, "Insert tab char",
-        insert_newline => super::insert::insert_newline, "Insert newline char",
+        insert_tab => super::insert::insert_tab, "Insert tab char"; keep_completion,
+        insert_newline => super::insert::insert_newline, "Insert newline char"; keep_completion,
         insert_char_interactive => super::insert::insert_char_interactive, "Insert an interactively-chosen char",
         append_char_interactive => super::insert::append_char_interactive, "Append an interactively-chosen char",
-        delete_char_backward => super::insert::delete_char_backward, "Delete previous char",
-        delete_char_forward => super::insert::delete_char_forward, "Delete next char",
-        delete_word_backward => super::insert::delete_word_backward, "Delete previous word",
-        delete_word_forward => super::insert::delete_word_forward, "Delete next word",
-        kill_to_line_start => super::insert::kill_to_line_start, "Delete till start of line",
-        kill_to_line_end => super::insert::kill_to_line_end, "Delete till end of line",
+        delete_char_backward => super::insert::delete_char_backward, "Delete previous char"; keep_completion,
+        delete_char_forward => super::insert::delete_char_forward, "Delete next char"; keep_completion,
+        delete_word_backward => super::insert::delete_word_backward, "Delete previous word"; keep_completion,
+        delete_word_forward => super::insert::delete_word_forward, "Delete next word"; keep_completion,
+        kill_to_line_start => super::insert::kill_to_line_start, "Delete till start of line"; keep_completion,
+        kill_to_line_end => super::insert::kill_to_line_end, "Delete till end of line"; keep_completion,
         undo => super::history::undo, "Undo change",
         redo => super::history::redo, "Redo change",
         earlier => super::history::earlier, "Move backward in history",
@@ -255,7 +258,7 @@ impl MappableCommand {
         align_selections => super::editing::align_selections, "Align selections in column",
         keep_primary_selection => super::selection::keep_primary_selection, "Keep primary selection",
         remove_primary_selection => super::selection::remove_primary_selection, "Remove primary selection",
-        completion => super::completion::completion, "Invoke completion popup",
+        completion => super::completion::completion, "Invoke completion popup"; keep_completion,
         inline_completion_accept => super::completion::inline_completion_accept, "Accept inline completion",
         inline_completion_dismiss => super::completion::inline_completion_dismiss, "Dismiss inline completion",
         inline_completion_next => super::completion::inline_completion_next, "Cycle to next inline completion",

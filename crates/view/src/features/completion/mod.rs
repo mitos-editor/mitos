@@ -241,6 +241,10 @@ pub struct CompletionUpdate {
 }
 
 enum UpdateKind {
+    Filter {
+        session: CompletionSession,
+        character: Option<char>,
+    },
     Start {
         owner: Weak<Shared>,
         epoch: u64,
@@ -276,6 +280,10 @@ enum Payload {
 
 /// Presentation work remaining after shared state and lifetime validation.
 pub enum CompletionChange {
+    /// Refine the displayed menu after accepted input; None removes one character.
+    Filter {
+        character: Option<char>,
+    },
     /// Record a request in frontend input history at this point, before processing more input.
     Started,
     Show {
@@ -313,6 +321,16 @@ impl CompletionUpdate {
 
     pub fn apply(self, editor: &mut Editor) -> Option<CompletionChange> {
         match self.kind {
+            UpdateKind::Filter { session, character } => (!session.cancel.is_canceled()
+                && belongs_to(&session.owner, editor, session.epoch)
+                && editor.mode() == Mode::Insert
+                && editor.tree.focus() == session.trigger.view
+                && editor
+                    .tree
+                    .try_get(session.trigger.view)
+                    .is_some_and(|view| view.doc == session.trigger.doc)
+                && is_shown(editor))
+            .then_some(CompletionChange::Filter { character }),
             UpdateKind::Start {
                 owner,
                 epoch,
@@ -388,6 +406,45 @@ impl CompletionUpdate {
 }
 
 /// Whether a completion menu has been opened and has not yet been finished.
+pub(crate) fn input_applied(editor: &mut Editor, kind: crate::editor::InputKind) {
+    use crate::editor::InputKind;
+    if editor.mode() != Mode::Insert {
+        return;
+    }
+    match kind {
+        InputKind::Character(character) if is_shown(editor) => {
+            filter_input(editor, Some(character))
+        }
+        InputKind::Backspace if is_shown(editor) => filter_input(editor, None),
+        InputKind::Character(_) => trigger_auto_completion(editor, false),
+        InputKind::Backspace | InputKind::Delete => {
+            let (view, doc) = current_ref!(editor);
+            let cursor = doc
+                .selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..));
+            editor
+                .handlers
+                .completions
+                .event(CompletionEvent::DeleteText { cursor });
+        }
+        InputKind::Other => invalidate(editor),
+    }
+}
+
+fn filter_input(editor: &mut Editor, character: Option<char>) {
+    if let Some(session) = editor.handlers.completions.session.clone() {
+        editor
+            .handlers
+            .completions
+            .updates
+            .push_back(CompletionUpdate {
+                kind: UpdateKind::Filter { session, character },
+            });
+        editor.redraw().request();
+    }
+}
+
 pub fn is_shown(editor: &Editor) -> bool {
     editor.handlers.completions.edit.is_some()
 }

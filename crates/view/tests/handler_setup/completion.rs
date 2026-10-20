@@ -158,3 +158,63 @@ async fn replaced_sessions_reject_old_items_from_the_same_provider() -> anyhow::
     assert!(f.editor.finish_completion().unwrap().is_some());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shared_typing_starts_and_filters_completions_without_terminal_hooks() -> anyhow::Result<()>
+{
+    let mut f = Fixture::with_config(
+        "alpha alphabet \n",
+        "language = []",
+        Default::default(),
+        |config| {
+            config.completion.auto_trigger = true;
+            config.completion.trigger_length = 1;
+            config.completion.word.trigger_length = std::num::NonZeroU8::new(1).unwrap();
+            config.completion.trigger_delay = Duration::ZERO;
+        },
+    )?;
+    f.expect_words(&["alpha", "alphabet"]).await?;
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
+    f.editor.set_mode(Mode::Insert);
+    f.editor.insert_char('a')?;
+    let (items, session) = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let callback = f
+                .callbacks
+                .recv()
+                .await
+                .expect("editor callback destination");
+            callback(&mut f.editor);
+            while let Some(update) = completion::next_update(&mut f.editor) {
+                if let Some(completion::CompletionChange::Show { items, session }) =
+                    update.apply(&mut f.editor)
+                {
+                    return (items, session);
+                }
+            }
+        }
+    })
+    .await?;
+    assert!(items.iter().any(|item| item.filter_text() == "alpha"));
+    assert!(f.editor.begin_completion(&session));
+    f.editor.insert_char('l')?;
+    let update = completion::next_update(&mut f.editor).expect("input filter update");
+    assert!(matches!(
+        update.apply(&mut f.editor),
+        Some(completion::CompletionChange::Filter {
+            character: Some('l')
+        })
+    ));
+    f.editor.delete_char_backward(1)?;
+    let update = completion::next_update(&mut f.editor).expect("backspace filter update");
+    assert!(matches!(
+        update.apply(&mut f.editor),
+        Some(completion::CompletionChange::Filter { character: None })
+    ));
+    f.editor.insert_char('l')?;
+    let stale = completion::next_update(&mut f.editor).expect("queued input filter update");
+    f.editor.new_file(view::editor::Action::Replace);
+    assert!(stale.apply(&mut f.editor).is_none());
+    Ok(())
+}

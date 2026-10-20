@@ -29,6 +29,14 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    pub(crate) fn flush_completion_updates(&mut self) {
+        while let Some(update) = view::features::completion::next_update(self.editor) {
+            self.callback.push(Box::new(move |compositor, cx| {
+                crate::handlers::completion::apply_update(cx.editor, compositor, update);
+            }));
+        }
+    }
+
     /// Push a new component onto the compositor.
     pub fn push_layer(&mut self, component: Box<dyn Component>) {
         self.callback

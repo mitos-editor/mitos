@@ -6,6 +6,7 @@ use lsp_client::LanguageServerId;
 
 events! {
     // Required session invalidation has finished; observers see the final mode.
+    InputApplied<'a> { editor: &'a mut Editor, kind: crate::editor::InputKind }
     ModeDidChange<'a> { editor: &'a mut Editor, old: Mode, new: Mode }
     DocumentDidOpen<'a> {
         editor: &'a mut Editor,
@@ -59,6 +60,7 @@ pub(crate) fn register() {
     REGISTER.call_once(|| {
         use event::register_event;
         register_event::<ModeDidChange>();
+        register_event::<InputApplied>();
         register_event::<DocumentDidOpen>();
         register_event::<DocumentLanguageDidChange>();
         register_event::<DocumentDidChange>();
