@@ -457,6 +457,7 @@ pub fn symbol_picker(cx: &mut Context) {
             )
             .with_item_key(symbol_updates::symbol_key)
             .with_editor_updates(symbol_updates::document_updates(editor, document, view))
+            .with_title("Document Symbols")
             .with_preview(move |_editor, item| location_to_file_location(&item.location))
             .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.location))
             .truncate_start(false);
@@ -552,6 +553,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     )
     .with_preview(|_editor, item| location_to_file_location(&item.location))
     .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.location))
+    .with_title("Workspace Symbols")
     .with_dynamic_query(get_symbols, None, cx.jobs)
     .with_item_key(symbol_updates::symbol_key)
     .with_query_updates(symbol_updates::workspace_updates(cx.editor, document))
@@ -599,6 +601,7 @@ pub fn code_action(cx: &mut Context) {
 
 /// Precondition: `locations` should be non-empty.
 pub(crate) fn goto_impl(
+    title: &'static str,
     editor: &mut Editor,
     compositor: &mut Compositor,
     locations: Vec<Location>,
@@ -632,7 +635,8 @@ pub(crate) fn goto_impl(
                 cwdir,
                 |cx, location, action| jump_to_location(cx.editor, location, action),
             )
-            .with_preview(|_editor, location| location_to_file_location(location));
+            .with_preview(|_editor, location| location_to_file_location(location))
+            .with_title(title);
             compositor.push(Box::new(overlaid(picker)));
         }
     }
@@ -785,7 +789,7 @@ pub(super) mod typed {
                                 cx.editor.execute_lsp_command(command.clone(), *ls_id);
                             },
                         );
-                        compositor.push(Box::new(overlaid(picker)))
+                        compositor.push(Box::new(overlaid(picker.with_title("LSP Commands"))))
                     },
                 ));
                 Ok(call)

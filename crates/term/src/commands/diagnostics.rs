@@ -429,6 +429,7 @@ fn diag_picker(
                 .immediately_show_diagnostic(doc, view.id);
         },
     )
+    .with_title("Diagnostics")
     .with_item_key(PickerDiagnostic::key)
     .with_editor_updates(move |cx| {
         let mut items = diagnostic_items(cx.editor, document);

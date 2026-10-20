@@ -235,6 +235,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     query_updates: Option<updates::QueryUpdates<D>>,
     query_refresh: bool,
     query_needs_refresh: bool,
+    title: Option<Line<'static>>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.
@@ -412,6 +413,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query_updates: None,
             query_refresh: false,
             query_needs_refresh: false,
+            title: None,
         }
     }
 
@@ -429,6 +431,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn truncate_start(mut self, truncate_start: bool) -> Self {
         self.truncate_start = truncate_start;
+        self
+    }
+
+    /// Label the picker without changing its prompt or result columns.
+    pub fn with_title(mut self, title: impl Into<Line<'static>>) -> Self {
+        self.title = Some(title.into());
         self
     }
 
@@ -790,7 +798,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+        let mut block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+        if let Some(title) = &self.title {
+            block = block.title(title.clone()).title_style(text_style);
+        }
         let inner = block.inner(area);
         block.render(area, surface);
 

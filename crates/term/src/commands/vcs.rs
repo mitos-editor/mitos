@@ -224,6 +224,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             }
         },
     )
+    .with_title("Changed Files")
     .with_preview(|_editor, entry| Some((entry.change.path().into(), None)))
     .with_file_updates(
         cx.editor,

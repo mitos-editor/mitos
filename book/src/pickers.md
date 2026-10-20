@@ -2,6 +2,7 @@
 
 Pickers let you find files, open buffers, search results, symbols, and diagnostics.
 Type to filter, move through the results, then press `Enter` to open one.
+The title in the top border identifies the picker.
 
 | Keys | Picker |
 | --- | --- |

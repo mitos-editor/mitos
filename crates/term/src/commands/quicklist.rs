@@ -115,6 +115,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
             }
         },
     )
+    .with_title("Quicklist")
     .with_initial_cursor(initial_cursor)
     .with_preview(|editor, meta| {
         let path_or_id = match &meta.entry.target {

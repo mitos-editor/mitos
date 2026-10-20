@@ -361,6 +361,10 @@ impl std::fmt::Debug for NavigationUpdate {
 }
 
 impl NavigationUpdate {
+    pub fn kind(&self) -> NavigationKind {
+        self.request.kind
+    }
+
     pub fn resolve(self, editor: &mut Editor) -> Option<Vec<Location>> {
         if !self.request.is_current(editor) {
             return None;

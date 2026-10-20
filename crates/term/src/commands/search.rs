@@ -490,6 +490,7 @@ pub(super) fn global_search(cx: &mut Context) {
             },
         })
     })
+    .with_title("Search")
     .with_history_register(Some(reg))
     .with_dynamic_query(query_global_search, Some(275), cx.jobs)
     .with_file_updates(

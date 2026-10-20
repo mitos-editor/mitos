@@ -327,6 +327,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
             }
         },
     )
+    .with_title("Jump List")
     .with_preview(|editor, meta| {
         let doc = &editor.documents.get(&meta.id)?;
         let line = meta.selection.primary().cursor_line(doc.text().slice(..));

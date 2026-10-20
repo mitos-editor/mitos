@@ -136,7 +136,8 @@ pub fn command_palette(cx: &mut Context) {
                         ))
                     }
                 },
-            );
+            )
+            .with_title("Command Palette");
             compositor.push(Box::new(overlaid(picker)));
         },
     ));

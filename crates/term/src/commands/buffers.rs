@@ -115,6 +115,7 @@ fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConf
             cx.editor.switch(meta.id, action);
         },
     )
+    .with_title("Buffers")
     .with_item_key(|meta| meta.id)
     .with_editor_updates(|cx| Some(buffer_items(cx.editor)))
     .with_item_actions(|maps| &maps.buffer_picker, close_selected_buffer)

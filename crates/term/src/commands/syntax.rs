@@ -62,6 +62,7 @@ pub fn syntax_symbol_picker(cx: &mut Context) {
             }
         },
     )
+    .with_title("Document Symbols")
     .with_item_key(Symbol::key)
     .with_editor_updates(move |cx| {
         let Some(doc) = cx.editor.document(doc_id) else {
@@ -166,6 +167,7 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
             }
         },
     )
+    .with_title("Workspace Symbols")
     .with_dynamic_query(get_tags, Some(275), cx.jobs)
     .with_item_key(Symbol::key)
     .with_query_updates(|editor, state| state.refresh(editor))
