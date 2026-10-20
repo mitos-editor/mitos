@@ -226,6 +226,14 @@ selections; reflow receives the document's line-ending convention. Terminal
 commands resolve arguments, apply through shared editing, and retain prompts,
 mode changes, scrolling, and repeat recording.
 
+### Plain-text find motions
+
+`core::movement` computes character and logical line-ending find/till motions.
+These operations work on ranges in document coordinates, preserve grapheme
+boundaries, and handle mixed LF/CRLF endings. `core::selection::operations` rotates
+the primary selection with wrapping counts. Terminal commands retain the next-key
+prompt, selection publication, and recorded motion repetition.
+
 ### Text objects
 
 `core::textobject` collects contained word and paragraph ranges from text.

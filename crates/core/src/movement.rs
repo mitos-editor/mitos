@@ -25,6 +25,9 @@ pub enum Movement {
     Move,
 }
 
+mod find;
+pub use find::{find_char, find_line_ending};
+
 pub fn move_horizontally(
     slice: RopeSlice,
     range: Range,

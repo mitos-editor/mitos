@@ -4,10 +4,10 @@ use stdx::rope::RopeExt as _;
 use view::editing::movement::{LineMotion, ScrollCursor};
 
 use editor_core::{
-    graphemes::{self, next_grapheme_boundary},
+    graphemes,
     line_ending::line_end_char_index,
     movement::{self, move_horizontally, Direction, Movement},
-    search, Range, RopeSlice,
+    Range, RopeSlice,
 };
 use stdx::rope::RopeSliceExt;
 use ui_core::keyboard::KeyCode;
@@ -419,124 +419,34 @@ pub(super) fn extend_next_sub_word_end(cx: &mut Context) {
     extend_word_impl(cx, movement::move_next_sub_word_end)
 }
 
-/// Separate branch to find_char designed only for `<ret>` char.
-//
-// This is necessary because the one document can have different line endings inside. And we
-// cannot predict what character to find when <ret> is pressed. On the current line it can be `lf`
-// but on the next line it can be `crlf`. That's why [`find_char_impl`] cannot be applied here.
-fn find_char_line_ending_motion(
-    editor: &mut Editor,
-    count: usize,
-    direction: Direction,
-    inclusive: bool,
-    extend: bool,
-) {
-    let (view, doc) = current!(editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let cursor_anchor = range.cursor(text);
-        let cursor_head = next_grapheme_boundary(text, cursor_anchor);
-        let cursor_line = range.cursor_line(text);
-
-        let pos = match direction {
-            Direction::Forward => {
-                let line_end = line_end_char_index(&text, cursor_line);
-                let on_edge = if inclusive {
-                    line_end == cursor_anchor
-                } else {
-                    line_end == cursor_head || line_end == cursor_anchor
-                };
-                let line = cursor_line + count - 1 + on_edge as usize;
-                if line >= text.len_lines(stdx::rope::LINE_TYPE) - 1 {
-                    return range;
-                }
-                line_end_char_index(&text, line) - !inclusive as usize
-            }
-            Direction::Backward => {
-                if inclusive {
-                    let line = cursor_line as isize - count as isize;
-                    if line < 0 {
-                        return range;
-                    }
-                    line_end_char_index(&text, line as usize)
-                } else {
-                    let on_edge = text.line_to_char_idx(cursor_line) == cursor_anchor;
-                    let line = cursor_line as isize - count as isize + 1 - on_edge as isize;
-                    if line <= 0 {
-                        return range;
-                    }
-                    text.line_to_char_idx(line as usize)
-                }
-            }
-        };
-
-        if extend {
-            range.put_cursor(text, pos, true)
-        } else {
-            Range::point(range.cursor(text)).put_cursor(text, pos, true)
-        }
-    });
-    doc.set_selection(view.id, selection);
-}
-
 fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
-    // TODO: count is reset to 1 before next key so we move it into the closure here.
-    // Would be nice to carry over.
+    // Capture the count before the next key resets it.
     let count = cx.count();
-
-    // need to wait for next key
-    // TODO: should this be done by grapheme rather than char?  For example,
-    // we can't properly handle the line-ending CRLF case here in terms of char.
     cx.on_next_key(move |cx, event| {
-        let motion: Motion = if event.code == KeyCode::Enter {
-            Box::new(move |editor: &mut Editor| {
-                find_char_line_ending_motion(editor, count, direction, inclusive, extend);
-            })
-        } else if let Some(ch) = match event.code {
+        let ch = match event.code {
+            KeyCode::Enter => None,
             KeyCode::Tab => Some('\t'),
             KeyCode::Char(ch) => Some(ch),
-            _ => None,
-        } {
-            Box::new(move |editor: &mut Editor| {
-                let (view, doc) = current!(editor);
-                let text = doc.text().slice(..);
-
-                let selection = doc.selection(view.id).clone().transform(|range| {
-                    let cursor_anchor = range.cursor(text);
-                    let cursor_head = next_grapheme_boundary(text, cursor_anchor);
-
-                    // Exclusive search skips the next char after cursor to enable repeated application
-                    let search_start_pos = match (inclusive, direction) {
-                        (true, Direction::Forward) => cursor_head,
-                        (true, Direction::Backward) => cursor_anchor,
-                        (false, Direction::Forward) => cursor_head + 1,
-                        (false, Direction::Backward) => cursor_anchor.saturating_sub(1),
-                    };
-
-                    search::find_nth_char(count, text, ch, search_start_pos, direction)
-                        // Exclusive search should stop on previous character
-                        .map(|pos| match (inclusive, direction) {
-                            (true, Direction::Forward) => pos,
-                            (true, Direction::Backward) => pos,
-                            (false, Direction::Forward) => pos - 1,
-                            (false, Direction::Backward) => pos + 1,
-                        })
-                        .map_or(range, |pos| {
-                            if extend {
-                                range.put_cursor(text, pos, true)
-                            } else {
-                                Range::point(range.cursor(text)).put_cursor(text, pos, true)
-                            }
-                        })
-                });
-
-                doc.set_selection(view.id, selection);
-            })
-        } else {
-            return;
+            _ => return,
         };
-
+        let behaviour = if extend {
+            Movement::Extend
+        } else {
+            Movement::Move
+        };
+        let motion: Motion = Box::new(move |editor: &mut Editor| {
+            let (view, doc) = current!(editor);
+            let text = doc.text().slice(..);
+            let selection = doc.selection(view.id).clone().transform(|range| match ch {
+                Some(ch) => {
+                    movement::find_char(text, range, ch, count, direction, inclusive, behaviour)
+                }
+                None => {
+                    movement::find_line_ending(text, range, count, direction, inclusive, behaviour)
+                }
+            });
+            doc.set_selection(view.id, selection);
+        });
         cx.editor.apply_motion(motion);
     })
 }

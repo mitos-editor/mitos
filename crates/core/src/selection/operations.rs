@@ -7,6 +7,20 @@ use crate::{
 use std::cmp::Ordering;
 use stdx::rope::RopeExt as _;
 
+/// Rotate the primary selection, wrapping counts around the number of ranges.
+pub fn rotate_primary(selection: &Selection, direction: Direction, count: usize) -> Selection {
+    let mut selection = selection.clone();
+    let len = selection.len();
+    let index = selection.primary_index();
+    let offset = count % len;
+    let index = match direction {
+        Direction::Forward => (index + offset) % len,
+        Direction::Backward => (index + len - offset) % len,
+    };
+    selection.set_primary_index(index);
+    selection
+}
+
 /// Trim surrounding whitespace, dropping empty ranges. If none remain,
 /// retain the primary cursor so a selection is always nonempty.
 pub fn trim(text: RopeSlice, selection: &Selection) -> Selection {
@@ -281,6 +295,45 @@ mod tests {
     use super::*;
     use crate::Rope;
     use smallvec::smallvec;
+
+    #[test]
+    fn primary_rotation_wraps_large_counts_without_changing_ranges() {
+        let selection = Selection::new(
+            vec![Range::new(0, 1), Range::new(2, 3), Range::new(4, 5)].into(),
+            1,
+        );
+        for (count, forward, backward) in [
+            (0, 1, 1),
+            (1, 2, 0),
+            (3, 1, 1),
+            (4, 2, 0),
+            (5, 0, 2),
+            (
+                usize::MAX,
+                (1 + usize::MAX % 3) % 3,
+                (4 - usize::MAX % 3) % 3,
+            ),
+        ] {
+            for (direction, expected) in [
+                (Direction::Forward, forward),
+                (Direction::Backward, backward),
+            ] {
+                let rotated = rotate_primary(&selection, direction, count);
+                assert_eq!(rotated.primary_index(), expected);
+                assert_eq!(rotated.ranges(), selection.ranges());
+                let inverse = if direction == Direction::Forward {
+                    Direction::Backward
+                } else {
+                    Direction::Forward
+                };
+                assert_eq!(rotate_primary(&rotated, inverse, count), selection);
+            }
+        }
+        assert_eq!(
+            rotate_primary(&Selection::point(0), Direction::Backward, usize::MAX),
+            Selection::point(0)
+        );
+    }
 
     #[test]
     fn trimming_preserves_direction_and_keeps_a_primary_cursor() {

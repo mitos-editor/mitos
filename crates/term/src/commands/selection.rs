@@ -258,13 +258,11 @@ pub(super) fn remove_primary_selection(cx: &mut Context) {
 fn rotate_selections(cx: &mut Context, direction: Direction) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    let mut selection = doc.selection(view.id).clone();
-    let index = selection.primary_index();
-    let len = selection.len();
-    selection.set_primary_index(match direction {
-        Direction::Forward => (index + count) % len,
-        Direction::Backward => (index + (len.saturating_sub(count) % len)) % len,
-    });
+    let selection = editor_core::selection::operations::rotate_primary(
+        doc.selection(view.id),
+        direction,
+        count,
+    );
     doc.set_selection(view.id, selection);
 }
 pub(super) fn rotate_selections_forward(cx: &mut Context) {
