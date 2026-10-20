@@ -75,7 +75,7 @@ pub fn auto_detect_indent_style(document_text: &Rope) -> Option<IndentStyle> {
 
         // Loop through the lines, checking for and recording indentation
         // increases as we go.
-        'outer: for line in document_text.lines().take(1000) {
+        'outer: for line in document_text.lines(stdx::rope::LINE_TYPE).take(1000) {
             let mut c_iter = line.chars();
 
             // Is first character a tab or space?

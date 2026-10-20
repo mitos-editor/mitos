@@ -1,5 +1,6 @@
 use crate::movement::Direction;
 use crate::RopeSlice;
+use stdx::rope::RopeExt as _;
 
 // TODO: switch to std::str::Pattern when it is stable.
 pub trait CharMatcher {
@@ -31,7 +32,7 @@ pub fn find_nth_char<M: CharMatcher>(
         return None;
     }
 
-    let mut chars = text.get_chars_at(pos)?;
+    let mut chars = text.get_chars_at_char(pos)?;
 
     match direction {
         Direction::Forward => loop {

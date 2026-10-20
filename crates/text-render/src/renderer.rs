@@ -1,4 +1,5 @@
 use std::cmp::min;
+use stdx::rope::RopeExt as _;
 use text_layout::DisplayPosition;
 
 use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
@@ -149,11 +150,11 @@ pub fn render_text(
             trailing_line = grapheme.line_idx;
             let line = line_without_line_ending(&text, trailing_line);
             let count = line
-                .chars_at(line.len_chars())
+                .chars_at_char(line.len_chars())
                 .reversed()
                 .take_while(|ch| matches!(ch, ' ' | '\t' | '\u{00a0}' | '\u{202f}'))
                 .count();
-            trailing_start = text.line_to_char(trailing_line) + line.len_chars() - count;
+            trailing_start = text.line_to_char_idx(trailing_line) + line.len_chars() - count;
         }
         let trailing = renderer.classify_trailing
             && !grapheme.is_virtual()

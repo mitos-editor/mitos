@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use stdx::rope::RopeExt as _;
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
@@ -290,7 +291,7 @@ async fn inlay_hints_reject_superseded_viewports() -> anyhow::Result<()> {
     doc.set_view_offset(
         view.id,
         view::view::ViewPosition {
-            anchor: doc.text().line_to_char(100),
+            anchor: doc.text().line_to_char_idx(100),
             ..Default::default()
         },
     );

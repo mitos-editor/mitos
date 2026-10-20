@@ -1,5 +1,6 @@
 use std::ops::Range;
 use std::time::Instant;
+use stdx::rope::RopeExt as _;
 
 use editor_core::{ropey, RopeSlice};
 use imara_diff::{Algorithm, Diff, Hunk, IndentHeuristic, IndentLevel, InternedInput};
@@ -50,16 +51,16 @@ impl ChangeSetBuilder<'_> {
                     if after.start == 0 {
                         fragment = self.after.to_string().into();
                     } else {
-                        let start = self.after.line_to_char(after.start as usize);
-                        fragment = self.after.slice(start..).to_string().into();
+                        let start = self.after.line_to_char_idx(after.start as usize);
+                        fragment = self.after.slice_chars(start..).to_string().into();
                     }
                 } else if after.start == 0 {
-                    let end = self.after.line_to_char(after.end as usize);
-                    fragment = self.after.slice(..end).to_string().into();
+                    let end = self.after.line_to_char_idx(after.end as usize);
+                    fragment = self.after.slice_chars(..end).to_string().into();
                 } else {
-                    let start = self.after.line_to_char(after.start as usize);
-                    let end = self.after.line_to_char(after.end as usize);
-                    fragment = self.after.slice(start..end).to_string().into();
+                    let start = self.after.line_to_char_idx(after.start as usize);
+                    let end = self.after.line_to_char_idx(after.end as usize);
+                    fragment = self.after.slice_chars(start..end).to_string().into();
                 }
             } else {
                 for &line in &self.file.after[after.start as usize..after.end as usize] {
@@ -127,12 +128,12 @@ impl<'a> imara_diff::TokenSource for RopeLines<'a> {
     type Tokenizer = ropey::iter::Lines<'a>;
 
     fn tokenize(&self) -> Self::Tokenizer {
-        self.0.lines()
+        self.0.lines(stdx::rope::LINE_TYPE)
     }
 
     fn estimate_tokens(&self) -> u32 {
         // we can provide a perfect estimate which is very nice for performance
-        self.0.len_lines() as u32
+        self.0.len_lines(stdx::rope::LINE_TYPE) as u32
     }
 }
 

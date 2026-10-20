@@ -127,12 +127,13 @@ smartstring = "1.0.1"
 # Text and Unicode
 chardetng = "1.0"
 encoding_rs = "0.8"
-ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
+ropey = { version = "2.0.0-beta.1", default-features = false, features = ["simd", "metric_chars", "metric_utf16", "metric_lines_lf"] }
 textwrap = "0.16.2"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
 unicode-width = "=0.2.2"
 spellbook = "0.4"
+str_indices = "0.4"
 
 # Parsing, search, and diffing
 globset = "0.4"
@@ -147,8 +148,10 @@ percent-encoding = "2.3"
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 regex-automata = "0.4.14"
-regex-cursor = "0.1.5"
-tree-house = { version = "0.4", default-features = false }
+# Match tree-house's cursor revision so both forks share one implementation.
+# This has the same source tree as the regex-cursor fork's merged master.
+regex-cursor = { git = "https://github.com/mitos-editor/regex-cursor", rev = "c67264c986709dc45e9ee4efc680813d199c6954" }
+tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "b86f9b379c52ff415f591cd82b009a290e47932a", default-features = false }
 
 # Serialization and configuration
 serde = { version = "1.0.228", features = ["derive"] }

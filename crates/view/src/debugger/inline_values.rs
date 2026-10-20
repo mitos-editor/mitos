@@ -1,5 +1,6 @@
 //! View-bound runtime labels for the selected paused frame.
 
+use stdx::rope::RopeExt as _;
 mod fallback;
 mod labels;
 
@@ -57,11 +58,11 @@ fn can_evaluate(editor: &Editor) -> bool {
 
 fn viewport(view: &View, doc: &Document, stopped_line: usize) -> Range<usize> {
     let text = doc.text();
-    let first = text.char_to_line(doc.view_offset(view.id).anchor.min(text.len_chars()));
+    let first = text.char_to_line_idx(doc.view_offset(view.id).anchor.min(text.len_chars()));
     first
         ..first
             .saturating_add(view.inner_height(doc))
-            .min(text.len_lines())
+            .min(text.len_lines(stdx::rope::LINE_TYPE))
             .min(stopped_line.saturating_add(1))
 }
 
@@ -183,8 +184,8 @@ impl Editor {
             let range = lsp_client::util::range_to_lsp_range(
                 &text,
                 editor_core::Range::new(
-                    text.line_to_char(lines.start),
-                    text.line_to_char(lines.end),
+                    text.line_to_char_idx(lines.start),
+                    text.line_to_char_idx(lines.end),
                 ),
                 encoding,
             );

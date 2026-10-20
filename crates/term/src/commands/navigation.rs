@@ -14,6 +14,7 @@ use editor_core::{
     Range, Selection, Tendril,
 };
 use std::{borrow::Cow, num::NonZeroUsize, path::Path};
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 use text_layout::text_annotations::Overlay;
 use view::{
@@ -127,14 +128,21 @@ pub(super) fn goto_line_without_jumplist(
     if let Some(count) = count {
         let (view, doc) = current!(editor);
         let text = doc.text().slice(..);
-        let max_line = if text.line(text.len_lines() - 1).len_chars() == 0 {
+        let max_line = if text
+            .line(
+                text.len_lines(stdx::rope::LINE_TYPE) - 1,
+                stdx::rope::LINE_TYPE,
+            )
+            .len_chars()
+            == 0
+        {
             // If the last line is blank, don't jump to it.
-            text.len_lines().saturating_sub(2)
+            text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(2)
         } else {
-            text.len_lines() - 1
+            text.len_lines(stdx::rope::LINE_TYPE) - 1
         };
         let line_idx = std::cmp::min(count.get() - 1, max_line);
-        let pos = text.line_to_char(line_idx);
+        let pos = text.line_to_char_idx(line_idx);
         let selection = doc
             .selection(view.id)
             .clone()
@@ -155,13 +163,20 @@ pub(super) fn extend_to_last_line(cx: &mut Context) {
 fn goto_last_line_impl(cx: &mut Context, movement: Movement) {
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
-    let line_idx = if text.line(text.len_lines() - 1).len_chars() == 0 {
+    let line_idx = if text
+        .line(
+            text.len_lines(stdx::rope::LINE_TYPE) - 1,
+            stdx::rope::LINE_TYPE,
+        )
+        .len_chars()
+        == 0
+    {
         // If the last line is blank, don't jump to it.
-        text.len_lines().saturating_sub(2)
+        text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(2)
     } else {
-        text.len_lines() - 1
+        text.len_lines(stdx::rope::LINE_TYPE) - 1
     };
-    let pos = text.line_to_char(line_idx);
+    let pos = text.line_to_char_idx(line_idx);
     let selection = doc
         .selection(view.id)
         .clone()
@@ -185,7 +200,7 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
     let text = doc.text().slice(..);
     let selection = doc.selection(view.id).clone().transform(|range| {
         let line = range.cursor_line(text);
-        let line_start = text.line_to_char(line);
+        let line_start = text.line_to_char_idx(line);
         let line_end = line_end_char_index(&text, line);
         let pos = graphemes::nth_next_grapheme_boundary(text, line_start, count - 1).min(line_end);
         range.put_cursor(text, pos, movement == Movement::Extend)
@@ -457,14 +472,14 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
 
     // This is not necessarily exact if there is virtual text like soft wrap.
     // It's ok though because the extra jump labels will not be rendered.
-    let start = text.line_to_char(text.char_to_line(doc.view_offset(view.id).anchor));
-    let end = text.line_to_char(view.estimate_last_doc_line(doc) + 1);
+    let start = text.line_to_char_idx(text.char_to_line_idx(doc.view_offset(view.id).anchor));
+    let end = text.line_to_char_idx(view.estimate_last_doc_line(doc) + 1);
 
     let primary_selection = doc.selection(view.id).primary();
     let cursor = primary_selection.cursor(text);
     let mut cursor_fwd = Range::point(cursor);
     let mut cursor_rev = Range::point(cursor);
-    if text.get_char(cursor).is_some_and(|c| !c.is_whitespace()) {
+    if text.get_char_at(cursor).is_some_and(|c| !c.is_whitespace()) {
         let cursor_word_end = core_movement::move_next_word_end(text, cursor_fwd, 1);
         //  single grapheme words need a special case
         if cursor_word_end.anchor == cursor {
@@ -484,7 +499,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             // move_next_word_end simply treats a sequence of characters from
             // the same char class as a word so `=<` would also count as a word.
             let add_label = text
-                .slice(..cursor_fwd.head)
+                .slice_chars(..cursor_fwd.head)
                 .graphemes_rev()
                 .take(2)
                 .take_while(|g| g.chars().all(char_is_word))
@@ -496,7 +511,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             changed = true;
             // skip any leading whitespace
             cursor_fwd.anchor += text
-                .chars_at(cursor_fwd.anchor)
+                .chars_at_char(cursor_fwd.anchor)
                 .take_while(|&c| !char_is_word(c))
                 .count();
             words.push(cursor_fwd);
@@ -512,7 +527,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             // move_prev_word_start simply treats a sequence of characters from
             // the same char class as a word so `=<` would also count as a word.
             let add_label = text
-                .slice(cursor_rev.head..)
+                .slice_chars(cursor_rev.head..)
                 .graphemes()
                 .take(2)
                 .take_while(|g| g.chars().all(char_is_word))
@@ -523,7 +538,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             }
             changed = true;
             cursor_rev.anchor -= text
-                .chars_at(cursor_rev.anchor)
+                .chars_at_char(cursor_rev.anchor)
                 .reversed()
                 .take_while(|&c| !char_is_word(c))
                 .count();

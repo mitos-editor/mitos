@@ -1,5 +1,6 @@
 use super::Fixture;
 use editor_core::Transaction;
+use stdx::rope::RopeExt as _;
 use view::editor::Action;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -52,7 +53,7 @@ async fn hidden_document_edits_map_markers_and_collapsed_lines_keep_the_oldest_i
         let id = f.editor.open(&path, Action::Load)?;
         let doc = f.editor.document_mut(id).unwrap();
         assert_eq!(doc.path(), Some(path.as_path()));
-        let end = doc.text().line_to_char(1);
+        let end = doc.text().line_to_char_idx(1);
         let transaction = Transaction::change(doc.text(), [(0, end, None)].into_iter());
         doc.apply(transaction.changes())?;
         let markers = f.editor.debugger().breakpoints(&path);

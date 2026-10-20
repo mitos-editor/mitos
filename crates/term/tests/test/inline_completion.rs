@@ -1,4 +1,5 @@
 use std::{path::Path, time::Duration};
+use stdx::rope::RopeExt as _;
 
 use anyhow::Context as _;
 use editor_core::Selection;
@@ -261,7 +262,10 @@ async fn inline_completion_acceptance_repeats_the_edit_without_waiting_for_the_s
         "🙂 print(界)\n\treturn 1\n🙂 pr\n"
     );
     let (view, doc) = current!(f.app.editor);
-    doc.set_selection(view.id, Selection::point(doc.text().line_to_char(2) + 3));
+    doc.set_selection(
+        view.id,
+        Selection::point(doc.text().line_to_char_idx(2) + 3),
+    );
     f.key(".").await?;
     assert_eq!(
         current_ref!(f.app.editor).1.text().to_string(),

@@ -6,6 +6,7 @@ use editor_core::{
     line_ending::line_end_char_index,
     Range, Rope, RopeSlice, Selection, SmallVec, Tendril, Transaction,
 };
+use stdx::rope::RopeExt as _;
 
 /// Reorder selected contents while retaining primary-selection and undo bookkeeping.
 pub fn reorder_selection_contents(
@@ -41,24 +42,24 @@ pub fn join_selections(
     for selection in doc.selection(view_id) {
         let (start, mut end) = selection.line_range(slice);
         if start == end {
-            end = (end + 1).min(text.len_lines() - 1);
+            end = (end + 1).min(text.len_lines(stdx::rope::LINE_TYPE) - 1);
         }
         let lines = start..end;
 
         changes.reserve(lines.len());
 
-        let first_line_idx = slice.line_to_char(start);
+        let first_line_idx = slice.line_to_char_idx(start);
         let first_line_idx = skip_while(slice, first_line_idx, |ch| matches!(ch, ' ' | '\t'))
             .unwrap_or(first_line_idx);
         let mut current_comment_token =
-            continued_line_comment_token(doc, slice, start, slice.char_to_byte(first_line_idx));
+            continued_line_comment_token(doc, slice, start, slice.char_to_byte_idx(first_line_idx));
 
         for line in lines {
             let start = line_end_char_index(&slice, line);
-            let mut end = text.line_to_char(line + 1);
+            let mut end = text.line_to_char_idx(line + 1);
             end = skip_while(slice, end, |ch| matches!(ch, ' ' | '\t')).unwrap_or(end);
             if let Some(token) =
-                continued_line_comment_token(doc, slice, line + 1, slice.char_to_byte(end))
+                continued_line_comment_token(doc, slice, line + 1, slice.char_to_byte_idx(end))
             {
                 if Some(token) == current_comment_token {
                     end += token.chars().count();
@@ -135,7 +136,7 @@ fn toggle_comments_impl(
         .selection(view_id)
         .primary()
         .cursor(doc.text().slice(..));
-    let byte_pos = doc.text().char_to_byte(cursor);
+    let byte_pos = doc.text().char_to_byte_idx(cursor);
     // Resolve the comment tokens from the enclosing injection layer that owns the comment,
     // not the innermost layer at the cursor. Prefer the innermost layer that defines
     // *line* comment tokens, falling back to the innermost layer with block tokens.
@@ -160,7 +161,7 @@ fn toggle_comments_impl(
 
     // Pick the token the cursor's line is already commented with (longest match, so `///` wins over `//`).
     // If the line isn't commented yet, fall back to the primary token for adding a comment.
-    let cursor_line = doc.text().char_to_line(cursor);
+    let cursor_line = doc.text().char_to_line_idx(cursor);
     let line_token: Option<&str> = lang_config
         .and_then(|lc| lc.comment_tokens.as_ref())
         .and_then(|tokens| {

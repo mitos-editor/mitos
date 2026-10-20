@@ -342,7 +342,7 @@ async fn restore_change_restores_only_the_buffer_and_is_undoable() -> anyhow::Re
             if doc
                 .diff_handle()
                 .and_then(|handle| handle.try_load())
-                .is_some_and(|diff| diff.doc().is_instance(doc.text()) && !diff.is_empty())
+                .is_some_and(|diff| diff.is_current() && !diff.is_empty())
             {
                 break;
             }

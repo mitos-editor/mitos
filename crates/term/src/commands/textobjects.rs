@@ -2,6 +2,7 @@
 
 use crate::commands::{context::Context, spelling::spelling_ranges, vcs::hunk_range};
 use editor_core::{textobject, Range, Selection, SmallVec};
+use stdx::rope::RopeExt as _;
 use view::{info::Info, Editor};
 
 pub(super) fn select_textobject_around(cx: &mut Context) {
@@ -201,8 +202,8 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                     };
                     let hunk = diff.nth_hunk(hunk_idx).after;
 
-                    let start = text.line_to_char(hunk.start as usize);
-                    let end = text.line_to_char(hunk.end as usize);
+                    let start = text.line_to_char_idx(hunk.start as usize);
+                    let end = text.line_to_char_idx(hunk.end as usize);
                     Range::new(start, end).with_direction(range.direction())
                 };
 

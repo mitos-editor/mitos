@@ -1,6 +1,7 @@
 //! Clipped code lens labels after the final visual segment of a document line.
 
 use std::ops::Range;
+use stdx::rope::RopeExt as _;
 use text_layout::DisplayPosition;
 
 use editor_core::{line_ending::line_end_char_index, Rope};
@@ -40,7 +41,10 @@ impl<'a> CodeLensDecoration<'a> {
 
     fn next_anchor(&self) -> usize {
         self.lenses.get(self.index).map_or(usize::MAX, |lens| {
-            line_end_char_index(&self.text.slice(..), self.text.char_to_line(lens.char_idx))
+            line_end_char_index(
+                &self.text.slice(..),
+                self.text.char_to_line_idx(lens.char_idx),
+            )
         })
     }
 }
@@ -48,10 +52,10 @@ impl<'a> CodeLensDecoration<'a> {
 impl Decoration for CodeLensDecoration<'_> {
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.ready = None;
-        let line = self.text.char_to_line(pos.min(self.text.len_chars()));
+        let line = self.text.char_to_line_idx(pos.min(self.text.len_chars()));
         self.index = self
             .lenses
-            .partition_point(|lens| self.text.char_to_line(lens.char_idx) < line);
+            .partition_point(|lens| self.text.char_to_line_idx(lens.char_idx) < line);
         self.next_anchor()
     }
 
@@ -63,7 +67,7 @@ impl Decoration for CodeLensDecoration<'_> {
         while self
             .lenses
             .get(self.index)
-            .is_some_and(|lens| self.text.char_to_line(lens.char_idx) == grapheme.line_idx)
+            .is_some_and(|lens| self.text.char_to_line_idx(lens.char_idx) == grapheme.line_idx)
         {
             self.index += 1;
         }

@@ -4,6 +4,7 @@ use crate::{
     line_ending::{get_line_ending_of_str, normalize_line_endings},
     LineEnding, Range, Rope, Selection, SmallVec, Tendril, Transaction,
 };
+use stdx::rope::RopeExt as _;
 
 /// Where pasted text is inserted relative to each selected range.
 #[derive(Debug, Clone, Copy)]
@@ -61,10 +62,12 @@ pub fn paste<T: AsRef<str>>(
     let mut ranges = SmallVec::with_capacity(selection.len());
     let transaction = Transaction::change_by_selection(doc, selection, |range| {
         let pos = match (position, linewise) {
-            (PastePosition::Before, true) => doc.line_to_char(doc.char_to_line(range.from())),
+            (PastePosition::Before, true) => {
+                doc.line_to_char_idx(doc.char_to_line_idx(range.from()))
+            }
             (PastePosition::After, true) => {
                 let line = range.line_range(doc.slice(..)).1;
-                doc.line_to_char((line + 1).min(doc.len_lines()))
+                doc.line_to_char_idx((line + 1).min(doc.len_lines(stdx::rope::LINE_TYPE)))
             }
             (PastePosition::Before, false) => range.from(),
             (PastePosition::After, false) => range.to(),

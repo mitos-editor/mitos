@@ -69,7 +69,7 @@ fn rename_range(
     range: lsp::Range,
     encoding: OffsetEncoding,
 ) -> Option<editor_core::Range> {
-    (range.start <= range.end && (range.end.line as usize) < text.len_lines())
+    (range.start <= range.end && (range.end.line as usize) < text.len_lines(stdx::rope::LINE_TYPE))
         .then(|| lsp_range_to_range(text, range, encoding))
         .flatten()
 }

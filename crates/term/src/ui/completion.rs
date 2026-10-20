@@ -3,6 +3,7 @@ use crate::ui::{icon_span, menu, panel, Markdown, Menu, Popup, PromptEvent};
 use editor_core::chars;
 use fuzzy::{MatchKind, Matcher};
 use lsp_client::lsp;
+use stdx::rope::RopeExt as _;
 use theme::icons::ICONS;
 use theme::{Color, Modifier, Style};
 use tui::text::Line;
@@ -180,13 +181,13 @@ impl Completion {
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
         let offset = text
-            .chars_at(cursor)
+            .chars_at_char(cursor)
             .reversed()
             .take_while(|ch| chars::char_is_word(*ch))
             .count();
         let start_offset = cursor.saturating_sub(offset);
 
-        let fragment = doc.text().slice(start_offset..cursor);
+        let fragment = doc.text().slice_chars(start_offset..cursor);
         let mut completion = Self {
             popup,
             // TODO: expand nucleo api to allow moving straight to a Utf32String here

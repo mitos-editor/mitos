@@ -235,6 +235,7 @@ mod tests {
     use editor_core::{Rope, Selection};
     use language::syntax;
     use std::path::Path;
+    use stdx::rope::RopeExt;
 
     #[allow(deprecated)]
     fn document_symbol(
@@ -268,7 +269,7 @@ mod tests {
         );
         doc.set_path(Some(Path::new("test.rs")));
         let view = ViewId::default();
-        let cursor = doc.text().line_to_char(1) + 5;
+        let cursor = doc.text().line_to_char_idx(1) + 5;
         doc.set_selection(view, Selection::single(cursor, cursor));
 
         let child = document_symbol(
@@ -296,7 +297,7 @@ mod tests {
         let cached_parent_name = &doc.document_symbols.cache.as_ref().unwrap().tree[0].name;
         assert!(Arc::ptr_eq(cached_parent_name, &breadcrumb.0[0].name));
 
-        let child_end = doc.text().line_to_char(1) + 10;
+        let child_end = doc.text().line_to_char_idx(1) + 10;
         doc.set_selection(view, Selection::single(child_end, child_end));
         doc.update_breadcrumbs_for_view_inlined(view);
         assert_eq!(

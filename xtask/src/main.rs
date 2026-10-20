@@ -17,6 +17,7 @@ type DynError = Box<dyn Error>;
 pub mod tasks {
     use crate::DynError;
     use std::collections::HashSet;
+    use stdx::rope::RopeExt;
 
     pub fn docgen() -> Result<(), DynError> {
         use crate::docgen::*;
@@ -111,13 +112,13 @@ pub mod tasks {
                 .indent_query(language)
                 .ok_or_else(|| format!("{file}: language '{stem}' has no indent query"))?;
 
-            for i in 0..doc.len_lines() {
-                let line = text.line(i);
+            for i in 0..doc.len_lines(stdx::rope::LINE_TYPE) {
+                let line = text.line(i, stdx::rope::LINE_TYPE);
                 let Some(pos) = line.first_non_whitespace_char() else {
                     continue;
                 };
 
-                let trimmed = line.slice(pos..).to_string();
+                let trimmed = line.slice_chars(pos..).to_string();
                 if comment_tokens
                     .iter()
                     .any(|tok| trimmed.starts_with(tok.as_str()))
@@ -133,14 +134,14 @@ pub mod tasks {
                     indent_style.indent_width(tab_width),
                     text,
                     i,
-                    text.line_to_char(i) + pos,
+                    text.line_to_char_idx(i) + pos,
                     false,
                 )
                 .unwrap()
                 .to_string(&indent_style, tab_width);
 
                 let actual = line
-                    .get_slice(..pos)
+                    .get_slice_chars(..pos)
                     .map(|s| s.to_string())
                     .unwrap_or_default();
 
@@ -160,14 +161,17 @@ pub mod tasks {
                 //   - over-indent (computed > canonical) is only acceptable when the next line's leading token is @outdent (a closing
                 //     bracket, case/else/except keyword, ...): entering it dedents the line. An over-indent on a plain statement (e.g.
                 //     a line after `return` that should leave the block but doesn't) has nothing to correct it and is a real failure.
-                if i + 1 < doc.len_lines()
-                    && let Some(next_pos) = text.line(i + 1).first_non_whitespace_char()
+                if i + 1 < doc.len_lines(stdx::rope::LINE_TYPE)
+                    && let Some(next_pos) = text
+                        .line(i + 1, stdx::rope::LINE_TYPE)
+                        .first_non_whitespace_char()
                 {
-                    let next = text.line(i + 1);
-                    let next_trim = next.slice(next_pos..).to_string();
+                    let next = text.line(i + 1, stdx::rope::LINE_TYPE);
+                    let next_trim = next.slice_chars(next_pos..).to_string();
                     // Lines inside an @opaque body (string/comment) carry literal leading whitespace, not code indent — don't
                     // assert a typing indent for them.
-                    let next_byte = text.char_to_byte(text.line_to_char(i + 1) + next_pos) as u32;
+                    let next_byte =
+                        text.char_to_byte_idx(text.line_to_char_idx(i + 1) + next_pos) as u32;
 
                     let next_is_opaque = is_opaque_interior(indent_query, &syntax, text, next_byte);
                     let next_is_comment = next_is_opaque
@@ -184,21 +188,22 @@ pub mod tasks {
                             indent_style.indent_width(tab_width),
                             text,
                             i,
-                            text.line_to_char(i + 1) - 1,
+                            text.line_to_char_idx(i + 1) - 1,
                             true,
                         )
                         .unwrap()
                         .to_string(&indent_style, tab_width);
 
                         let next_actual = next
-                            .get_slice(..next_pos)
+                            .get_slice_chars(..next_pos)
                             .map(|s| s.to_string())
                             .unwrap_or_default();
 
                         let typed_cols = typed.chars().count();
                         let want_cols = next_actual.chars().count();
                         let leading_outdent = || {
-                            let byte = text.char_to_byte(text.line_to_char(i + 1) + next_pos);
+                            let byte =
+                                text.char_to_byte_idx(text.line_to_char_idx(i + 1) + next_pos);
                             is_outdent_token_at(indent_query, &syntax, text, byte as u32)
                         };
 

@@ -1,3 +1,4 @@
+use stdx::rope::RopeExt as _;
 mod layout;
 pub use layout::ViewLayout;
 
@@ -418,10 +419,11 @@ impl View {
     #[inline]
     pub fn estimate_last_doc_line(&self, doc: &Document) -> usize {
         let doc_text = doc.text().slice(..);
-        let line = doc_text.char_to_line(doc.view_offset(self.id).anchor.min(doc_text.len_chars()));
+        let line =
+            doc_text.char_to_line_idx(doc.view_offset(self.id).anchor.min(doc_text.len_chars()));
         // Saturating subs to make it inclusive zero indexing.
         (line + self.inner_height(doc))
-            .min(doc_text.len_lines())
+            .min(doc_text.len_lines(stdx::rope::LINE_TYPE))
             .saturating_sub(1)
     }
 
@@ -500,7 +502,7 @@ impl View {
         }
 
         if let Some(completion) = doc.inline_completion(self.id) {
-            let line = doc.text().char_to_line(completion.cursor);
+            let line = doc.text().char_to_line_idx(completion.cursor);
             let line_end =
                 editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
             text_annotations.add_line_annotation(Box::new(

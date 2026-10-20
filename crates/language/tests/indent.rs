@@ -3,6 +3,7 @@ use language::{indent::treesitter_indent_for_pos, syntax::Loader, Syntax};
 use language_config::Configuration;
 use ropey::Rope;
 use std::{ops::Range, path::PathBuf, process::Command, time::Duration};
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 
 #[test]
@@ -116,7 +117,7 @@ fn test_indent_level_for_line_with_spaces() {
 
     let line = ropey::Rope::from_str("        Indented with 8 spaces");
 
-    let indent_level = indent_level_for_line(line.slice(0..), tab_width, indent_width);
+    let indent_level = indent_level_for_line(line.slice_chars(0..), tab_width, indent_width);
     assert_eq!(indent_level, 2)
 }
 
@@ -127,7 +128,7 @@ fn test_indent_level_for_line_with_tabs() {
 
     let line = ropey::Rope::from_str("\t\tIndented with 2 tabs");
 
-    let indent_level = indent_level_for_line(line.slice(0..), tab_width, indent_width);
+    let indent_level = indent_level_for_line(line.slice_chars(0..), tab_width, indent_width);
     assert_eq!(indent_level, 2)
 }
 
@@ -138,7 +139,7 @@ fn test_indent_level_for_line_with_spaces_and_tabs() {
 
     let line = ropey::Rope::from_str("   \t \tIndented with mix of spaces and tabs");
 
-    let indent_level = indent_level_for_line(line.slice(0..), tab_width, indent_width);
+    let indent_level = indent_level_for_line(line.slice_chars(0..), tab_width, indent_width);
     assert_eq!(indent_level, 2)
 }
 
@@ -173,8 +174,8 @@ fn test_treesitter_indent(
         Syntax::new_with_timeout(text, language, &loader, Duration::from_secs(10)).unwrap();
     let indent_query = loader.indent_query(language).unwrap();
 
-    for i in 0..doc.len_lines() {
-        let line = text.line(i);
+    for i in 0..doc.len_lines(stdx::rope::LINE_TYPE) {
+        let line = text.line(i, stdx::rope::LINE_TYPE);
         if ignored_lines.iter().any(|range| range.contains(&(i + 1))) {
             continue;
         }
@@ -188,17 +189,17 @@ fn test_treesitter_indent(
                 indent_style.indent_width(tab_width),
                 text,
                 i,
-                text.line_to_char(i) + pos,
+                text.line_to_char_idx(i) + pos,
                 false,
             )
             .unwrap()
             .to_string(&indent_style, tab_width);
             assert!(
-                line.get_slice(..pos).is_some_and(|s| s == suggested_indent),
+                line.get_slice_chars(..pos).is_some_and(|s| s == suggested_indent),
                 "Wrong indentation for file {:?} on line {}:\n\"{}\" (original line)\n\"{}\" (suggested indentation)\n",
                 test_name,
                 i+1,
-                line.slice(..line.len_chars()-1),
+                line.slice_chars(..line.len_chars()-1),
                 suggested_indent,
             );
         }

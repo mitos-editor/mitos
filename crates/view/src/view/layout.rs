@@ -3,6 +3,7 @@
 use super::ViewPosition;
 use crate::graphics::Rect;
 use editor_core::RopeSlice;
+use stdx::rope::RopeExt as _;
 use text_layout::{
     char_idx_at_visual_offset, doc_formatter::TextFormat, text_annotations::TextAnnotations,
     visual_offset_from_anchor, DisplayPosition, VisualOffsetError,
@@ -83,8 +84,10 @@ impl ViewLayout<'_> {
         let height = self.offset.vertical_offset + self.viewport.height as usize;
         let first_line = self
             .text
-            .char_to_line(self.offset.anchor.min(self.text.len_chars()));
-        if first_line.saturating_add(self.viewport.height as usize) < self.text.len_lines() {
+            .char_to_line_idx(self.offset.anchor.min(self.text.len_chars()));
+        if first_line.saturating_add(self.viewport.height as usize)
+            < self.text.len_lines(stdx::rope::LINE_TYPE)
+        {
             return self.viewport.height.saturating_sub(1) as usize;
         }
         match visual_offset_from_anchor(

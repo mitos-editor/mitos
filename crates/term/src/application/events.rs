@@ -43,8 +43,8 @@ impl Application {
         }
         self.editor.complete_document_write(&doc_save_event);
 
-        let lines = doc_save_event.text.len_lines();
-        let size = doc_save_event.text.len_bytes();
+        let lines = doc_save_event.text.len_lines(stdx::rope::LINE_TYPE);
+        let size = doc_save_event.text.len();
 
         enum Size {
             Bytes(u16),

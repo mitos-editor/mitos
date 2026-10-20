@@ -1,4 +1,5 @@
 use super::*;
+use stdx::rope::RopeExt as _;
 
 use ::diagnostics::Severity;
 use editor_config::{CustomCommand, CustomCommands};
@@ -453,7 +454,7 @@ async fn goto_confirmation_records_the_selection_before_previewing() -> anyhow::
     let mut app = goto_preview_app()?;
     goto_keys(&mut app, ":goto 3<ret>").await?;
     let (_, doc) = view::current_ref!(app.editor);
-    assert_goto_cursor(&app, doc.text().line_to_char(2));
+    assert_goto_cursor(&app, doc.text().line_to_char_idx(2));
     goto_keys(&mut app, "<C-o>").await?;
     assert_goto_cursor(&app, 1);
     assert!(app.close().await.is_empty());

@@ -2,6 +2,7 @@
 
 use crate::{Diagnostic, DiagnosticProvider, LanguageServerId};
 use editor_core::{Assoc, ChangeSet, Rope};
+use stdx::rope::RopeExt as _;
 
 #[derive(Debug, Default)]
 pub struct DiagnosticStore {
@@ -44,7 +45,7 @@ impl DiagnosticStore {
             } else if diagnostic.range.start >= diagnostic.range.end {
                 return false;
             }
-            diagnostic.line = text.char_to_line(diagnostic.range.start);
+            diagnostic.line = text.char_to_line_idx(diagnostic.range.start);
             true
         });
 

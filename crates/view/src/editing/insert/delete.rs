@@ -10,6 +10,7 @@ use editor_core::{
     Deletion, Range, RopeSlice, Selection, SmallVec, Transaction,
 };
 use std::borrow::Cow;
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 
 /// Exclude the cursor in range.
@@ -27,16 +28,16 @@ fn exclude_cursor(text: RopeSlice, range: Range, cursor: Range) -> Range {
 fn dedent(doc: &Document, range: &Range) -> Option<Deletion> {
     let text = doc.text().slice(..);
     let pos = range.cursor(text);
-    let line_start_pos = text.line_to_char(range.cursor_line(text));
+    let line_start_pos = text.line_to_char_idx(range.cursor_line(text));
 
     // consider to delete by indent level if all characters before `pos` are indent units.
-    let fragment = Cow::from(text.slice(line_start_pos..pos));
+    let fragment = Cow::from(text.slice_chars(line_start_pos..pos));
 
     if fragment.is_empty() || !fragment.chars().all(|ch| ch == ' ' || ch == '\t') {
         return None;
     }
 
-    if text.get_char(pos.saturating_sub(1)) == Some('\t') {
+    if text.get_char_at(pos.saturating_sub(1)) == Some('\t') {
         // fast path, delete one char
         return Some((graphemes::nth_prev_grapheme_boundary(text, pos, 1), pos));
     }
@@ -212,12 +213,15 @@ pub fn kill_to_line_start(doc: &mut Document, view_id: ViewId) -> Result<(), Edi
         view_id,
         move |text, range| {
             let line = range.cursor_line(text);
-            let first_char = text.line_to_char(line);
+            let first_char = text.line_to_char_idx(line);
             let anchor = range.cursor(text);
             let head = if anchor == first_char && line != 0 {
                 // select until previous line
                 line_end_char_index(&text, line - 1)
-            } else if let Some(pos) = text.line(line).first_non_whitespace_char() {
+            } else if let Some(pos) = text
+                .line(line, stdx::rope::LINE_TYPE)
+                .first_non_whitespace_char()
+            {
                 if first_char + pos < anchor {
                     // select until first non-blank in line if cursor is after it
                     first_char + pos
@@ -247,7 +251,7 @@ pub fn kill_to_line_end(doc: &mut Document, view_id: ViewId) -> Result<(), EditE
 
             // if the cursor is on the newline char delete that
             if pos == line_end_pos {
-                (pos, text.line_to_char(line + 1))
+                (pos, text.line_to_char_idx(line + 1))
             } else {
                 (pos, line_end_pos)
             }

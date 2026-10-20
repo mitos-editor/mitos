@@ -426,6 +426,7 @@ dependencies = [
  "smallvec",
  "smartstring",
  "stdx",
+ "str_indices",
  "tempfile",
  "textwrap",
  "unicode-general-category",
@@ -3510,8 +3511,7 @@ dependencies = [
 [[package]]
 name = "regex-cursor"
 version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0497c781d2f982ae8284d2932aee6a877e58a4541daa5e8fadc18cc75c23a61d"
+source = "git+https://github.com/mitos-editor/regex-cursor?rev=c67264c986709dc45e9ee4efc680813d199c6954#c67264c986709dc45e9ee4efc680813d199c6954"
 dependencies = [
  "log",
  "memchr",
@@ -3563,11 +3563,10 @@ dependencies = [
 
 [[package]]
 name = "ropey"
-version = "1.6.1"
+version = "2.0.0-beta.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93411e420bcd1a75ddd1dc3caf18c23155eda2c090631a85af21ba19e97093b5"
+checksum = "4045a00dc327d084a2bbf126976e14125b54f23bd30511d45b842eba76c52d74"
 dependencies = [
- "smallvec",
  "str_indices",
 ]
 
@@ -4286,6 +4285,7 @@ dependencies = [
  "imara-diff",
  "log",
  "quickcheck",
+ "stdx",
 ]
 
 [[package]]
@@ -4315,6 +4315,7 @@ dependencies = [
  "core",
  "editor-config",
  "ratatui-core",
+ "stdx",
  "text-layout",
  "theme",
  "toml",
@@ -4536,13 +4537,11 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 [[package]]
 name = "tree-house"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "333476442882205ab249a8ced263ae53db3d0797c727cc3424836a6fb221d7b1"
+source = "git+https://github.com/mitos-editor/tree-house?rev=b86f9b379c52ff415f591cd82b009a290e47932a#b86f9b379c52ff415f591cd82b009a290e47932a"
 dependencies = [
  "arc-swap",
  "hashbrown 0.15.5",
  "kstring",
- "once_cell",
  "regex",
  "regex-cursor",
  "ropey",
@@ -4553,8 +4552,7 @@ dependencies = [
 [[package]]
 name = "tree-house-bindings"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f5d0eed0db98578618e598b8f6f413f7c172bade1f12f8242d71c38dd5deb0f"
+source = "git+https://github.com/mitos-editor/tree-house?rev=b86f9b379c52ff415f591cd82b009a290e47932a#b86f9b379c52ff415f591cd82b009a290e47932a"
 dependencies = [
  "cc",
  "libloading",

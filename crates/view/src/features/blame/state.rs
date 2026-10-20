@@ -158,8 +158,7 @@ impl Document {
             .diff_handle()
             .and_then(|handle| handle.try_load())
             .ok_or(LineBlameError::NotReadyYet)?;
-        // Rope clones share their root until an edit, so this check is constant-time.
-        if !diff.doc().is_instance(self.text()) {
+        if !diff.is_current() {
             return Err(LineBlameError::NotReadyYet);
         }
         let base_line = diff

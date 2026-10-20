@@ -6,6 +6,7 @@ use editor_core::{
     RopeSlice,
 };
 use std::iter;
+use stdx::rope::RopeExt as _;
 const MATCH_LIMIT: usize = 16;
 
 /// Returns the position of the matching bracket under cursor.
@@ -19,7 +20,7 @@ const MATCH_LIMIT: usize = 16;
 /// If no matching bracket is found, `None` is returned.
 #[must_use]
 pub fn find_matching_bracket(syntax: &Syntax, doc: RopeSlice, pos: usize) -> Option<usize> {
-    if pos >= doc.len_chars() || !is_valid_pair(doc.char(pos)) {
+    if pos >= doc.len_chars() || !is_valid_pair(doc.char_at(pos)) {
         return None;
     }
     find_pair(syntax, doc, pos, false)
@@ -46,7 +47,7 @@ fn find_pair(
     pos_: usize,
     traverse_parents: bool,
 ) -> Option<usize> {
-    let pos = doc.char_to_byte(pos_) as u32;
+    let pos = doc.char_to_byte_idx(pos_) as u32;
 
     let root = syntax.tree_for_byte_range(pos, pos).root_node();
     let mut node = root.descendant_for_byte_range(pos, pos)?;
@@ -98,7 +99,7 @@ fn find_pair(
                 if find_pair_end(doc, sibling.prev_sibling(), start_char, end_char, Backward)
                     .is_some()
                 {
-                    return doc.try_byte_to_char(sibling.start_byte() as usize).ok();
+                    return doc.try_byte_to_char_idx(sibling.start_byte() as usize).ok();
                 }
             }
         } else if node.is_named() {
@@ -114,8 +115,8 @@ fn find_pair(
     if node.child_count() != 0 {
         return None;
     }
-    let node_start = doc.byte_to_char(node.start_byte() as usize);
-    let node_text = doc.byte_slice(node.start_byte() as usize..node.end_byte() as usize);
+    let node_start = doc.byte_to_char_idx(node.start_byte() as usize);
+    let node_text = doc.slice(node.start_byte() as usize..node.end_byte() as usize);
     find_matching_bracket_plaintext(node_text, pos_ - node_start).map(|pos| pos + node_start)
 }
 
@@ -176,6 +177,6 @@ fn as_char(doc: RopeSlice, node: &Node) -> Option<(usize, char)> {
     if node.byte_range().len() != 1 {
         return None;
     }
-    let pos = doc.try_byte_to_char(node.start_byte() as usize).ok()?;
-    Some((pos, doc.char(pos)))
+    let pos = doc.try_byte_to_char_idx(node.start_byte() as usize).ok()?;
+    Some((pos, doc.char_at(pos)))
 }

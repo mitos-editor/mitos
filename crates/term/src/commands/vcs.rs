@@ -7,6 +7,7 @@ use crate::{
 use ::vcs::{FileChange, Hunk};
 use editor_core::{movement::Direction, Range, RopeSlice, Selection};
 use std::{error::Error, path::Path};
+use stdx::rope::RopeExt as _;
 use theme::icons::ICONS;
 use theme::Style;
 use tui::{text::Span, widgets::Cell};
@@ -366,11 +367,11 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
 /// Additions and modifications cover the added and modified ranges.
 /// Deletions are represented as the point at the start of the deletion hunk.
 pub(super) fn hunk_range(hunk: Hunk, text: RopeSlice) -> Range {
-    let anchor = text.line_to_char(hunk.after.start as usize);
+    let anchor = text.line_to_char_idx(hunk.after.start as usize);
     let head = if hunk.after.is_empty() {
         anchor + 1
     } else {
-        text.line_to_char(hunk.after.end as usize)
+        text.line_to_char_idx(hunk.after.end as usize)
     };
 
     Range::new(anchor, head)
@@ -383,6 +384,7 @@ pub(super) mod typed {
     use ::command_line::Args;
     use anyhow::bail;
     use editor_core::{Tendril, Transaction};
+    use stdx::rope::RopeExt;
 
     pub(in crate::commands) fn blame(
         cx: &mut compositor::Context,
@@ -423,12 +425,12 @@ pub(super) mod typed {
             diff.hunks_intersecting_line_ranges(doc.selection(view.id).line_ranges(doc_text))
                 .map(|hunk| {
                     changes += 1;
-                    let start = diff_base.line_to_char(hunk.before.start as usize);
-                    let end = diff_base.line_to_char(hunk.before.end as usize);
-                    let text: Tendril = diff_base.slice(start..end).chunks().collect();
+                    let start = diff_base.line_to_char_idx(hunk.before.start as usize);
+                    let end = diff_base.line_to_char_idx(hunk.before.end as usize);
+                    let text: Tendril = diff_base.slice_chars(start..end).chunks().collect();
                     (
-                        doc_text.line_to_char(hunk.after.start as usize),
-                        doc_text.line_to_char(hunk.after.end as usize),
+                        doc_text.line_to_char_idx(hunk.after.start as usize),
+                        doc_text.line_to_char_idx(hunk.after.end as usize),
                         (!text.is_empty()).then_some(text),
                     )
                 }),

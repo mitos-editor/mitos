@@ -1,4 +1,5 @@
 use ropey::RopeSlice;
+use stdx::rope::RopeExt as _;
 
 const MAX_PLAINTEXT_SCAN: usize = 10000;
 
@@ -48,7 +49,7 @@ pub const PAIRS: [(char, char); BRACKETS.len() + 4] = {
 /// If no matching bracket is found, `None` is returned.
 #[must_use]
 pub fn find_matching_bracket_plaintext(doc: RopeSlice, cursor_pos: usize) -> Option<usize> {
-    let bracket = doc.get_char(cursor_pos)?;
+    let bracket = doc.get_char_at(cursor_pos)?;
     let matching_bracket = {
         let pair = get_pair(bracket);
         if pair.0 == bracket {
@@ -65,9 +66,9 @@ pub fn find_matching_bracket_plaintext(doc: RopeSlice, cursor_pos: usize) -> Opt
     // Determine the direction of the matching.
     let is_fwd = is_open_bracket(bracket);
     let chars_iter = if is_fwd {
-        doc.chars_at(cursor_pos + 1)
+        doc.chars_at_char(cursor_pos + 1)
     } else {
-        doc.chars_at(cursor_pos).reversed()
+        doc.chars_at_char(cursor_pos).reversed()
     };
 
     let mut open_cnt = 1;

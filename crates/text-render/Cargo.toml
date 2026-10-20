@@ -12,6 +12,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+stdx.workspace = true
 core.workspace = true
 editor-config.workspace = true
 text-layout.workspace = true

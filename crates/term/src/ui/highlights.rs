@@ -8,6 +8,7 @@ use editor_core::{
 };
 use language::syntax;
 use std::ops;
+use stdx::rope::RopeExt as _;
 use text_layout::text_annotations::TextAnnotations;
 use theme::Theme;
 use view::{document::Mode, graphics::CursorKind, Document, View};
@@ -19,10 +20,10 @@ fn viewport_byte_range(
 ) -> std::ops::Range<usize> {
     // Calculate viewport byte ranges:
     // Saturating subs to make it inclusive zero indexing.
-    let last_line = text.len_lines().saturating_sub(1);
+    let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
     let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
-    let start = text.line_to_byte(row.min(last_line));
-    let end = text.line_to_byte(last_visible_line + 1);
+    let start = text.line_to_byte_idx(row.min(last_line), stdx::rope::LINE_TYPE);
+    let end = text.line_to_byte_idx(last_visible_line + 1, stdx::rope::LINE_TYPE);
 
     start..end
 }
@@ -37,7 +38,7 @@ pub(crate) fn syntax_highlighter<'editor>(
 ) -> Option<syntax::Highlighter<'editor>> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
-    let row = text.char_to_line(anchor.min(text.len_chars()));
+    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
     let range = viewport_byte_range(text, row, height);
     let range = range.start as u32..range.end as u32;
 
@@ -52,10 +53,10 @@ pub(crate) fn overlay_highlights(
     text_annotations: &TextAnnotations,
 ) -> OverlayHighlights {
     let text = doc.text().slice(..);
-    let row = text.char_to_line(anchor.min(text.len_chars()));
+    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
 
     let mut range = viewport_byte_range(text, row, height);
-    range = text.byte_to_char(range.start)..text.byte_to_char(range.end);
+    range = text.byte_to_char_idx(range.start)..text.byte_to_char_idx(range.end);
 
     text_annotations.collect_overlay_highlights(range)
 }
@@ -68,7 +69,7 @@ pub(crate) fn rainbow_highlights(
 ) -> Option<OverlayHighlights> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
-    let row = text.char_to_line(anchor.min(text.len_chars()));
+    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
     let visible_range = viewport_byte_range(text, row, height);
     let start = syntax::child_for_byte_range(
         &syntax.tree().root_node(),
@@ -430,7 +431,7 @@ pub(crate) fn syntax_styles(
         if offset == u32::MAX {
             return None;
         }
-        let position = text.byte_to_char(text.ceil_char_boundary(offset as usize));
+        let position = text.byte_to_char_idx(text.ceil_char_boundary(offset as usize));
         let (event, highlights) = highlighter.advance();
         let base = match event {
             HighlightEvent::Refresh => text_style,

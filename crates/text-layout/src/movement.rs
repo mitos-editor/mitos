@@ -9,6 +9,7 @@ use editor_core::{
     movement::{Direction, Movement},
     Range, RopeSlice,
 };
+use stdx::rope::RopeExt as _;
 
 pub fn move_vertically_visual(
     slice: RopeSlice,
@@ -52,7 +53,12 @@ pub fn move_vertically_visual(
     }
 
     // Special-case to avoid moving to the end of the last non-empty line.
-    if behaviour == Movement::Extend && slice.line(slice.char_to_line(new_pos)).len_chars() == 0 {
+    if behaviour == Movement::Extend
+        && slice
+            .line(slice.char_to_line_idx(new_pos), stdx::rope::LINE_TYPE)
+            .len_chars()
+            == 0
+    {
         return range;
     }
 
@@ -72,8 +78,8 @@ pub fn move_vertically(
 ) -> Range {
     annotations.clear_line_annotations();
     let pos = range.cursor(slice);
-    let line_idx = slice.char_to_line(pos);
-    let line_start = slice.line_to_char(line_idx);
+    let line_idx = slice.char_to_line_idx(pos);
+    let line_start = slice.line_to_char_idx(line_idx);
 
     // Compute the current position's 2d coordinates.
     let visual_pos = visual_offset_from_block(slice, line_start, pos, text_fmt, annotations).0;
@@ -81,7 +87,7 @@ pub fn move_vertically(
         .old_visual_position
         .map_or((visual_pos.row as u32, visual_pos.col as u32), |pos| pos);
     new_row = new_row.max(visual_pos.row as u32);
-    let line_idx = slice.char_to_line(pos);
+    let line_idx = slice.char_to_line_idx(pos);
 
     // Compute the new position.
     let mut new_line_idx = match dir {
@@ -89,20 +95,20 @@ pub fn move_vertically(
         Direction::Backward => line_idx.saturating_sub(count),
     };
 
-    let line = if new_line_idx >= slice.len_lines() - 1 {
+    let line = if new_line_idx >= slice.len_lines(stdx::rope::LINE_TYPE) - 1 {
         // there is no line terminator for the last line
         // so the logic below is not necessary here
-        new_line_idx = slice.len_lines() - 1;
+        new_line_idx = slice.len_lines(stdx::rope::LINE_TYPE) - 1;
         slice
     } else {
         // char_idx_at_visual_block_offset returns a one-past-the-end index
         // in case it reaches the end of the slice
         // to avoid moving to the nextline in that case the line terminator is removed from the line
-        let new_line_end = prev_grapheme_boundary(slice, slice.line_to_char(new_line_idx + 1));
-        slice.slice(..new_line_end)
+        let new_line_end = prev_grapheme_boundary(slice, slice.line_to_char_idx(new_line_idx + 1));
+        slice.slice_chars(..new_line_end)
     };
 
-    let new_line_start = line.line_to_char(new_line_idx);
+    let new_line_start = line.line_to_char_idx(new_line_idx);
 
     let (new_pos, _) = char_idx_at_visual_block_offset(
         line,
@@ -114,7 +120,9 @@ pub fn move_vertically(
     );
 
     // Special-case to avoid moving to the end of the last non-empty line.
-    if behaviour == Movement::Extend && slice.line(new_line_idx).len_chars() == 0 {
+    if behaviour == Movement::Extend
+        && slice.line(new_line_idx, stdx::rope::LINE_TYPE).len_chars() == 0
+    {
         return range;
     }
 

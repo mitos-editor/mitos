@@ -1,4 +1,5 @@
 pub use crate::features::formatting::FormatterError;
+use stdx::rope::RopeExt as _;
 pub(crate) mod history;
 mod language_servers;
 mod lifecycle;
@@ -493,7 +494,7 @@ impl Document {
     pub fn cursor_line(&self, view_id: ViewId) -> usize {
         let text = self.text();
         let selection = self.selection(view_id);
-        text.char_to_line(selection.primary().cursor(text.slice(..)))
+        text.char_to_line_idx(selection.primary().cursor(text.slice(..)))
     }
 
     /// Reset the view's selection on this document to the

@@ -1,4 +1,5 @@
 use std::iter;
+use stdx::rope::RopeExt as _;
 
 use ropey::iter::Chars;
 
@@ -130,7 +131,9 @@ fn word_move(slice: RopeSlice, range: Range, count: usize, target: WordMotionTar
     // Do the main work.
     let mut range = start_range;
     for _ in 0..count {
-        let next_range = slice.chars_at(range.head).range_to_target(target, range);
+        let next_range = slice
+            .chars_at_char(range.head)
+            .range_to_target(target, range);
         if range == next_range {
             break;
         }
@@ -146,17 +149,17 @@ pub fn move_prev_paragraph(
     behavior: Movement,
 ) -> Range {
     let mut line = range.cursor_line(slice);
-    let first_char = slice.line_to_char(line) == range.cursor(slice);
-    let prev_line_empty = rope_is_line_ending(slice.line(line.saturating_sub(1)));
-    let curr_line_empty = rope_is_line_ending(slice.line(line));
+    let first_char = slice.line_to_char_idx(line) == range.cursor(slice);
+    let prev_line_empty =
+        rope_is_line_ending(slice.line(line.saturating_sub(1), stdx::rope::LINE_TYPE));
+    let curr_line_empty = rope_is_line_ending(slice.line(line, stdx::rope::LINE_TYPE));
     let prev_empty_to_line = prev_line_empty && !curr_line_empty;
 
     // skip character before paragraph boundary
     if prev_empty_to_line && !first_char {
         line += 1;
     }
-    let mut lines = slice.lines_at(line);
-    lines.reverse();
+    let lines = slice.lines_at(line, stdx::rope::LINE_TYPE).reversed();
     let mut lines = lines.map(rope_is_line_ending).peekable();
     let mut last_line = line;
     for _ in 0..count {
@@ -172,7 +175,7 @@ pub fn move_prev_paragraph(
         last_line = line;
     }
 
-    let head = slice.line_to_char(line);
+    let head = slice.line_to_char_idx(line);
     let anchor = if behavior == Movement::Move {
         // exclude first character after paragraph boundary
         if prev_empty_to_line && first_char {
@@ -194,17 +197,27 @@ pub fn move_next_paragraph(
 ) -> Range {
     let mut line = range.cursor_line(slice);
     let last_char =
-        prev_grapheme_boundary(slice, slice.line_to_char(line + 1)) == range.cursor(slice);
-    let curr_line_empty = rope_is_line_ending(slice.line(line));
-    let next_line_empty =
-        rope_is_line_ending(slice.line(slice.len_lines().saturating_sub(1).min(line + 1)));
+        prev_grapheme_boundary(slice, slice.line_to_char_idx(line + 1)) == range.cursor(slice);
+    let curr_line_empty = rope_is_line_ending(slice.line(line, stdx::rope::LINE_TYPE));
+    let next_line_empty = rope_is_line_ending(
+        slice.line(
+            slice
+                .len_lines(stdx::rope::LINE_TYPE)
+                .saturating_sub(1)
+                .min(line + 1),
+            stdx::rope::LINE_TYPE,
+        ),
+    );
     let curr_empty_to_line = curr_line_empty && !next_line_empty;
 
     // skip character after paragraph boundary
     if curr_empty_to_line && last_char {
         line += 1;
     }
-    let mut lines = slice.lines_at(line).map(rope_is_line_ending).peekable();
+    let mut lines = slice
+        .lines_at(line, stdx::rope::LINE_TYPE)
+        .map(rope_is_line_ending)
+        .peekable();
     let mut last_line = line;
     for _ in 0..count {
         while lines.next_if(|&e| !e).is_some() {
@@ -218,7 +231,7 @@ pub fn move_next_paragraph(
         }
         last_line = line;
     }
-    let head = slice.line_to_char(line);
+    let head = slice.line_to_char_idx(line);
     let anchor = if behavior == Movement::Move {
         if curr_empty_to_line && last_char {
             range.head
@@ -242,7 +255,7 @@ pub fn skip_while<F>(slice: RopeSlice, pos: usize, fun: F) -> Option<usize>
 where
     F: Fn(char) -> bool,
 {
-    let mut chars = slice.chars_at(pos).enumerate();
+    let mut chars = slice.chars_at_char(pos).enumerate();
     chars.find_map(|(i, c)| if !fun(c) { Some(pos + i) } else { None })
 }
 
@@ -254,7 +267,7 @@ pub fn backwards_skip_while<F>(slice: RopeSlice, pos: usize, fun: F) -> Option<u
 where
     F: Fn(char) -> bool,
 {
-    let mut chars_starting_from_next = slice.chars_at(pos);
+    let mut chars_starting_from_next = slice.chars_at_char(pos);
     let mut backwards = iter::from_fn(|| chars_starting_from_next.prev()).enumerate();
     backwards.find_map(|(i, c)| {
         if !fun(c) {
@@ -308,7 +321,7 @@ impl CharHelpers for Chars<'_> {
 
         // Reverse the iterator if needed for the motion direction.
         if is_prev {
-            self.reverse();
+            *self = self.clone().reversed();
         }
 
         // Function to advance index in the appropriate motion direction.
@@ -360,7 +373,7 @@ impl CharHelpers for Chars<'_> {
 
         // Un-reverse the iterator if needed.
         if is_prev {
-            self.reverse();
+            *self = self.clone().reversed();
         }
 
         Range::new(anchor, head)

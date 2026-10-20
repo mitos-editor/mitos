@@ -399,7 +399,7 @@ impl Loader {
 
         let marker = SHEBANG_REGEX
             .captures_iter(regex_cursor::Input::new(text))
-            .map(|cap| text.byte_slice(cap.get_group(1).unwrap().range()))
+            .map(|cap| text.slice(cap.get_group(1).unwrap().range()))
             .next()?;
         self.language_for_shebang_marker(marker)
     }
@@ -713,8 +713,9 @@ impl Syntax {
                     .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
             {
                 let start =
-                    source.byte_to_char(source.floor_char_boundary(byte_range.start as usize));
-                let end = source.byte_to_char(source.ceil_char_boundary(byte_range.end as usize));
+                    source.byte_to_char_idx(source.floor_char_boundary(byte_range.start as usize));
+                let end =
+                    source.byte_to_char_idx(source.ceil_char_boundary(byte_range.end as usize));
                 highlights.push((scope.highlight, start..end));
             }
         }
@@ -870,8 +871,8 @@ fn generate_edits(old_text: RopeSlice, changeset: &ChangeSet) -> Vec<InputEdit> 
         match change {
             Retain(_) => {}
             Delete(_) => {
-                let start_byte = old_text.char_to_byte(old_pos) as u32;
-                let old_end_byte = old_text.char_to_byte(old_end) as u32;
+                let start_byte = old_text.char_to_byte_idx(old_pos) as u32;
+                let old_end_byte = old_text.char_to_byte_idx(old_end) as u32;
 
                 // deletion
                 edits.push(InputEdit {
@@ -884,12 +885,12 @@ fn generate_edits(old_text: RopeSlice, changeset: &ChangeSet) -> Vec<InputEdit> 
                 });
             }
             Insert(s) => {
-                let start_byte = old_text.char_to_byte(old_pos) as u32;
+                let start_byte = old_text.char_to_byte_idx(old_pos) as u32;
 
                 // a subsequent delete means a replace, consume it
                 if let Some(Delete(len)) = iter.peek() {
                     old_end = old_pos + len;
-                    let old_end_byte = old_text.char_to_byte(old_end) as u32;
+                    let old_end_byte = old_text.char_to_byte_idx(old_end) as u32;
 
                     iter.next();
 
@@ -1185,10 +1186,7 @@ mod test {
         let syntax =
             Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
                 .unwrap();
-        assert_eq!(
-            syntax.tree().root_node().end_byte() as usize,
-            source.len_bytes()
-        );
+        assert_eq!(syntax.tree().root_node().end_byte() as usize, source.len());
     }
 
     #[test]
@@ -1285,7 +1283,7 @@ mod test {
         let syntax =
             Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
                 .unwrap();
-        let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
+        let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len());
 
         let covered = |needle: &str| {
             let at = source.to_string().find(needle).unwrap();
@@ -1309,7 +1307,7 @@ mod test {
         let syntax =
             Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
                 .unwrap();
-        let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
+        let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len());
 
         let covered = |needle: &str| {
             let at = source.to_string().find(needle).unwrap();

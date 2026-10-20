@@ -5,6 +5,7 @@
 use editor_core::{chars::char_is_word, ChangeSet, Rope, RopeSlice};
 use foldhash::HashMap;
 use std::{borrow::Cow, iter};
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt as _;
 
 /// Minimum number of grapheme clusters required to include a word in the index
@@ -89,10 +90,10 @@ impl WordIndex {
             return;
         }
         for (old_window, new_window) in changes.changed_ranges(MAX_WORD_LEN) {
-            for word in words_cancellable(text.slice(new_window), &should_cancel) {
+            for word in words_cancellable(text.slice_chars(new_window), &should_cancel) {
                 self.insert(word);
             }
-            for word in words_cancellable(old_text.slice(old_window), &should_cancel) {
+            for word in words_cancellable(old_text.slice_chars(old_window), &should_cancel) {
                 self.remove(word);
             }
             if should_cancel() {
@@ -137,7 +138,7 @@ fn words_cancellable(
     // Yields `text[start_byte..end_byte]` if that run satisfies the length bounds.
     let qualify = move |start_byte, end_byte, char_len, graphemes_len| {
         (graphemes_len >= MIN_WORD_GRAPHEMES && char_len <= MAX_WORD_LEN)
-            .then(|| text.byte_slice(start_byte..end_byte))
+            .then(|| text.slice(start_byte..end_byte))
     };
 
     iter::from_fn(move || {
@@ -151,7 +152,7 @@ fn words_cancellable(
             scanned = (scanned + 1) % CANCEL_CHECK_INTERVAL;
             let Some((byte_idx, grapheme)) = graphemes.next() else {
                 // Flush a word that runs up to the end of the text.
-                let word = qualify(start_byte, text.len_bytes(), char_len, graphemes_len);
+                let word = qualify(start_byte, text.len(), char_len, graphemes_len);
                 graphemes_len = 0;
                 return word;
             };

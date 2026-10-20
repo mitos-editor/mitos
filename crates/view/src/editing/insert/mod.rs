@@ -5,6 +5,7 @@
 //! undo groups open so consecutive typed edits remain a single undo step.
 
 use super::continued_line_comment_token;
+use stdx::rope::RopeExt as _;
 mod delete;
 use crate::{editing::EditError, Document, ViewId};
 pub use delete::{
@@ -77,7 +78,7 @@ pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) -> Result<(
             let cursor = range.cursor(doc.text().slice(..));
             let indent = if let IndentStyle::Spaces(indent_width) = doc.indent_style {
                 let line = range.cursor_line(doc.text().slice(..));
-                let line_start = doc.text().line_to_char(line);
+                let line_start = doc.text().line_to_char_idx(line);
                 let offset = (cursor - line_start) % indent_width as usize;
 
                 Tendril::from(doc.indent_style.as_str().repeat(count)).split_off(offset)
@@ -119,35 +120,37 @@ pub fn insert_newline(
         let prev = if pos == 0 {
             ' '
         } else {
-            contents.char(pos - 1)
+            contents.char_at(pos - 1)
         };
-        let curr = contents.get_char(pos).unwrap_or(' ');
+        let curr = contents.get_char_at(pos).unwrap_or(' ');
 
-        let current_line = text.char_to_line(pos);
-        let line_start = text.line_to_char(current_line);
+        let current_line = text.char_to_line_idx(pos);
+        let line_start = text.line_to_char_idx(current_line);
 
         // Continue the comment leader using the comment tokens of the layer at the comment
         // leader (i.e. the first non-whitespace char on the line). Looking up at the cursor
         // would land inside an injected layer (e.g. `comment`, or markdown in a doc comment)
         // and miss the host language's tokens.
         let continue_comment_token = if config.continue_comments {
-            text.line(current_line)
+            text.line(current_line, stdx::rope::LINE_TYPE)
                 .first_non_whitespace_char()
-                .map(|c| text.char_to_byte(line_start + c))
+                .map(|c| text.char_to_byte_idx(line_start + c))
                 .and_then(|byte| continued_line_comment_token(doc, text, current_line, byte))
         } else {
             None
         };
 
         let (from, to, local_offs) = if let Some(idx) =
-            text.slice(line_start..pos).last_non_whitespace_char()
+            text.slice_chars(line_start..pos).last_non_whitespace_char()
         {
             let first_trailing_whitespace_char = (line_start + idx + 1).clamp(last_pos, pos);
             last_pos = pos;
-            let line = text.line(current_line);
+            let line = text.line(current_line, stdx::rope::LINE_TYPE);
 
             let indent = match line.first_non_whitespace_char() {
-                Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
+                Some(pos) if continue_comment_token.is_some() => {
+                    line.slice_chars(..pos).to_string()
+                }
                 _ => language::indent::indent_for_newline(
                     doc.syntax_loader(),
                     doc.syntax(),
@@ -264,7 +267,7 @@ pub fn insert_at_line_boundary(
 
     let mut transaction = Transaction::change_by_selection(contents, selection, |range| {
         let cursor_line = range.cursor_line(text);
-        let cursor_line_start = text.line_to_char(cursor_line);
+        let cursor_line_start = text.line_to_char_idx(cursor_line);
 
         if line_end_char_index(&text, cursor_line) == cursor_line_start {
             // line is empty => auto indent
@@ -293,7 +296,7 @@ pub fn insert_at_line_boundary(
             // move cursor to the fallback position
             let pos = match boundary {
                 LineBoundary::LineStart => text
-                    .line(cursor_line)
+                    .line(cursor_line, stdx::rope::LINE_TYPE)
                     .first_non_whitespace_char()
                     .map(|ws_offset| ws_offset + cursor_line_start)
                     .unwrap_or(cursor_line_start),
@@ -329,7 +332,7 @@ pub fn open_lines(
 
     let mut transaction = Transaction::change_by_selection(contents, selection, |range| {
         // the line number, where the cursor is currently
-        let curr_line_num = text.char_to_line(match open {
+        let curr_line_num = text.char_to_line_idx(match open {
             Open::Below => graphemes::prev_grapheme_boundary(text, range.to()),
             Open::Above => range.from(),
         });
@@ -345,9 +348,9 @@ pub fn open_lines(
         // Continue the comment leader using the comment tokens of the layer at the current line.
         let continue_comment_token =
             if comment_continuation == CommentContinuation::Enabled && config.continue_comments {
-                text.line(curr_line_num)
+                text.line(curr_line_num, stdx::rope::LINE_TYPE)
                     .first_non_whitespace_char()
-                    .map(|c| text.char_to_byte(text.line_to_char(curr_line_num) + c))
+                    .map(|c| text.char_to_byte_idx(text.line_to_char_idx(curr_line_num) + c))
                     .and_then(|byte| continued_line_comment_token(doc, text, curr_line_num, byte))
             } else {
                 None
@@ -364,9 +367,9 @@ pub fn open_lines(
             )
         };
 
-        let line = text.line(curr_line_num);
+        let line = text.line(curr_line_num, stdx::rope::LINE_TYPE);
         let indent = match line.first_non_whitespace_char() {
-            Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
+            Some(pos) if continue_comment_token.is_some() => line.slice_chars(..pos).to_string(),
             _ => language::indent::indent_for_newline(
                 doc.syntax_loader(),
                 doc.syntax(),
@@ -451,7 +454,7 @@ pub fn add_newlines(
             Open::Above => start,
             Open::Below => end + 1,
         };
-        let pos = text.line_to_char(line);
+        let pos = text.line_to_char_idx(line);
         (
             pos,
             pos,

@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
+use stdx::rope::RopeExt as _;
 
 use stdx::rope::RopeSliceExt;
 
@@ -91,11 +92,11 @@ impl From<(usize, usize)> for Position {
 /// Tabs and wide graphemes each count as one column. For cell columns within
 /// unwrapped document lines, use [`line_cell_coords_at_pos`].
 pub fn coords_at_pos(text: RopeSlice, pos: usize) -> Position {
-    let line = text.char_to_line(pos);
+    let line = text.char_to_line_idx(pos);
 
-    let line_start = text.line_to_char(line);
+    let line_start = text.line_to_char_idx(line);
     let pos = ensure_grapheme_boundary_prev(text, pos);
-    let col = text.slice(line_start..pos).graphemes().count();
+    let col = text.slice_chars(line_start..pos).graphemes().count();
 
     Position::new(line, col)
 }
@@ -106,14 +107,14 @@ pub fn coords_at_pos(text: RopeSlice, pos: usize) -> Position {
 /// annotations do not affect these coordinates, making them suitable for text
 /// alignment and indentation. `tab_width` must be greater than zero.
 pub fn line_cell_coords_at_pos(text: RopeSlice, pos: usize, tab_width: usize) -> Position {
-    let line = text.char_to_line(pos);
+    let line = text.char_to_line_idx(pos);
 
-    let line_start = text.line_to_char(line);
+    let line_start = text.line_to_char_idx(line);
     let pos = ensure_grapheme_boundary_prev(text, pos);
 
     let mut col = 0;
 
-    for grapheme in text.slice(line_start..pos).graphemes() {
+    for grapheme in text.slice_chars(line_start..pos).graphemes() {
         if grapheme == "\t" {
             col += tab_width - (col % tab_width);
         } else {
@@ -144,7 +145,7 @@ pub fn line_cell_coords_at_pos(text: RopeSlice, pos: usize, tab_width: usize) ->
 pub fn pos_at_coords(text: RopeSlice, coords: Position, limit_before_line_ending: bool) -> usize {
     let Position { mut row, col } = coords;
     if limit_before_line_ending {
-        let lines = text.len_lines() - 1;
+        let lines = text.len_lines(stdx::rope::LINE_TYPE) - 1;
 
         row = row.min(if crate::line_ending::get_line_ending(&text).is_some() {
             // if the last line is empty, don't jump to it
@@ -153,15 +154,19 @@ pub fn pos_at_coords(text: RopeSlice, coords: Position, limit_before_line_ending
             lines
         });
     };
-    let line_start = text.line_to_char(row);
+    let line_start = text.line_to_char_idx(row);
     let line_end = if limit_before_line_ending {
         line_end_char_index(&text, row)
     } else {
-        text.line_to_char((row + 1).min(text.len_lines()))
+        text.line_to_char_idx((row + 1).min(text.len_lines(stdx::rope::LINE_TYPE)))
     };
 
     let mut col_char_offset = 0;
-    for (i, g) in text.slice(line_start..line_end).graphemes().enumerate() {
+    for (i, g) in text
+        .slice_chars(line_start..line_end)
+        .graphemes()
+        .enumerate()
+    {
         if i == col {
             break;
         }
@@ -178,13 +183,13 @@ pub fn pos_at_coords(text: RopeSlice, coords: Position, limit_before_line_ending
 /// the line end are clamped. `tab_width` must be greater than zero.
 pub fn pos_at_line_cell_coords(text: RopeSlice, coords: Position, tab_width: usize) -> usize {
     let Position { mut row, col } = coords;
-    row = row.min(text.len_lines() - 1);
-    let line_start = text.line_to_char(row);
+    row = row.min(text.len_lines(stdx::rope::LINE_TYPE) - 1);
+    let line_start = text.line_to_char_idx(row);
     let line_end = line_end_char_index(&text, row);
 
     let mut col_char_offset = 0;
     let mut cols_remaining = col;
-    for grapheme in text.slice(line_start..line_end).graphemes() {
+    for grapheme in text.slice_chars(line_start..line_end).graphemes() {
         let grapheme_width = if grapheme == "\t" {
             tab_width - ((col - cols_remaining) % tab_width)
         } else {

@@ -14,6 +14,7 @@ use crate::{
         Completion, ProgressSpinners,
     },
 };
+use stdx::rope::RopeExt as _;
 use text_layout::DisplayPosition;
 
 use ::diagnostics::NumberOrString;
@@ -394,7 +395,7 @@ impl EditorView {
             && editor.mode() == Mode::Insert
             && let Some(completion) = doc.inline_completion(view.id)
         {
-            let line = doc.text().char_to_line(completion.cursor);
+            let line = doc.text().char_to_line_idx(completion.cursor);
             let line_end =
                 editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
             decorations.add_decoration(
@@ -438,7 +439,7 @@ impl EditorView {
         }
         let hidden_line = if is_focused && editor.mode() == Mode::Insert {
             doc.inline_completion(view.id)
-                .map(|completion| doc.text().char_to_line(completion.cursor))
+                .map(|completion| doc.text().char_to_line_idx(completion.cursor))
         } else {
             None
         };
@@ -1285,7 +1286,7 @@ impl EditorView {
                     if let Some(char_idx) =
                         view.pos_at_visual_coords(doc, coords.row as u16, coords.col as u16, true)
                     {
-                        let line = doc.text().char_to_line(char_idx);
+                        let line = doc.text().char_to_line_idx(char_idx);
                         commands::dap_toggle_breakpoints_impl(cxt, path, &[line]);
                         return EventResult::Consumed(None);
                     }

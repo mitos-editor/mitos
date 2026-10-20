@@ -3,6 +3,7 @@
 
 use crate::{graphemes, movement::Direction, Change, Deletion, Range, Rope, Tendril};
 use std::collections::HashMap;
+use stdx::rope::RopeExt as _;
 
 // Heavily based on https://github.com/codemirror/closebrackets/
 pub const DEFAULT_PAIRS: &[(char, char)] = &[
@@ -45,7 +46,7 @@ impl Pair {
 
     pub fn next_is_not_alpha(doc: &Rope, range: &Range) -> bool {
         let cursor = range.cursor(doc.slice(..));
-        let next_char = doc.get_char(cursor);
+        let next_char = doc.get_char_at(cursor);
         next_char.map(|c| !c.is_alphanumeric()).unwrap_or(true)
     }
 
@@ -141,13 +142,14 @@ pub fn hook_delete(doc: &Rope, range: &Range, pairs: &AutoPairs) -> Option<(Dele
     let text = doc.slice(..);
     let cursor = range.cursor(text);
 
-    let cur = doc.get_char(cursor)?;
+    let cur = doc.get_char_at(cursor)?;
     let prev = prev_char(doc, cursor)?;
 
     // check for whitespace surrounding a pair
     if doc.len_chars() >= 4 && prev.is_whitespace() && cur.is_whitespace() {
-        let second_prev = doc.get_char(graphemes::nth_prev_grapheme_boundary(text, cursor, 2))?;
-        let second_next = doc.get_char(graphemes::next_grapheme_boundary(text, cursor))?;
+        let second_prev =
+            doc.get_char_at(graphemes::nth_prev_grapheme_boundary(text, cursor, 2))?;
+        let second_next = doc.get_char_at(graphemes::next_grapheme_boundary(text, cursor))?;
         log::debug!("second_prev: {}, second_next: {}", second_prev, second_next);
 
         if let Some(pair) = pairs.get(second_prev)
@@ -211,7 +213,7 @@ fn handle_insert_whitespace(
 ) -> Option<(Change, Range)> {
     let text = doc.slice(..);
     let cursor = range.cursor(text);
-    let cur = doc.get_char(cursor)?;
+    let cur = doc.get_char_at(cursor)?;
     let prev = prev_char(doc, cursor)?;
     let pair = pairs.get(cur)?;
 
@@ -232,7 +234,7 @@ fn prev_char(doc: &Rope, pos: usize) -> Option<char> {
         return None;
     }
 
-    doc.get_char(pos - 1)
+    doc.get_char_at(pos - 1)
 }
 
 /// calculate what the resulting range should be for an auto pair insertion
@@ -345,7 +347,7 @@ fn get_next_range(doc: &Rope, start_range: &Range, len_inserted: usize) -> Range
 
 fn handle_insert_open(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change, Range)> {
     let cursor = range.cursor(doc.slice(..));
-    let next_char = doc.get_char(cursor);
+    let next_char = doc.get_char_at(cursor);
     let len_inserted;
 
     // Since auto pairs are currently limited to single chars, we're either
@@ -373,7 +375,7 @@ fn handle_insert_open(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change,
 
 fn handle_insert_close(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change, Range)> {
     let cursor = range.cursor(doc.slice(..));
-    let next_char = doc.get_char(cursor);
+    let next_char = doc.get_char_at(cursor);
 
     let change = if next_char == Some(pair.close) {
         // return transaction that moves past close
@@ -394,7 +396,7 @@ fn handle_insert_close(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change
 fn handle_insert_same(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change, Range)> {
     let cursor = range.cursor(doc.slice(..));
     let mut len_inserted = 0;
-    let next_char = doc.get_char(cursor);
+    let next_char = doc.get_char_at(cursor);
 
     let change = if next_char == Some(pair.open) {
         // return transaction that moves past close

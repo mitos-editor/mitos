@@ -1,5 +1,7 @@
 //! Register-backed edits coordinated by the editor that owns both resources.
 
+use stdx::rope::RopeExt as _;
+
 use crate::{
     document::Mode,
     editing::{
@@ -85,12 +87,13 @@ impl Editor {
         let selection = doc.selection(view.id);
         let linewise = selection.iter().all(|range| {
             let slice = text.slice(..);
-            if range.slice(slice).len_lines() < 2 {
+            if range.slice(slice).len_lines(stdx::rope::LINE_TYPE) < 2 {
                 return false;
             }
             let (start, end) = range.line_range(slice);
-            range.from() == slice.line_to_char(start)
-                && range.to() == slice.line_to_char((end + 1).min(slice.len_lines()))
+            range.from() == slice.line_to_char_idx(start)
+                && range.to()
+                    == slice.line_to_char_idx((end + 1).min(slice.len_lines(stdx::rope::LINE_TYPE)))
         });
         let transaction =
             Transaction::delete_by_selection(text, selection, |range| (range.from(), range.to()));

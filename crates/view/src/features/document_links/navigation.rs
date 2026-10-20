@@ -171,18 +171,24 @@ fn literal_targets(doc: &crate::Document, ranges: &[Range]) -> Vec<NavigationTar
         .unwrap_or_else(|| std::path::Path::new(""));
     let paths: Vec<_> = if ranges.len() == 1 && ranges[0].len() == 1 {
         let selection = ranges[0];
-        let position = text.char_to_byte(selection.cursor(text));
+        let position = text.char_to_byte_idx(selection.cursor(text));
         let start = text
-            .line_to_byte(text.byte_to_line(position))
+            .line_to_byte_idx(
+                text.byte_to_line_idx(position, stdx::rope::LINE_TYPE),
+                stdx::rope::LINE_TYPE,
+            )
             .max(text.floor_char_boundary(position.saturating_sub(1000)));
         let end = text
-            .line_to_byte(text.byte_to_line(position) + 1)
+            .line_to_byte_idx(
+                text.byte_to_line_idx(position, stdx::rope::LINE_TYPE) + 1,
+                stdx::rope::LINE_TYPE,
+            )
             .min(text.ceil_char_boundary(position + 1000));
-        let search = text.byte_slice(start..end);
+        let search = text.slice(start..end);
         let path = find_paths(search, true)
             .take_while(|range| start + range.start <= position + 1)
             .find(|range| position <= start + range.end)
-            .map(|range| search.byte_slice(range).to_string())
+            .map(|range| search.slice(range).to_string())
             .unwrap_or_else(|| selection.fragment(text).into_owned());
         vec![path]
     } else {

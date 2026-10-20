@@ -2,6 +2,7 @@
 //! defined as a selection range.
 //!
 //! All positioning is done via `char` offsets into the buffer.
+use stdx::rope::RopeExt as _;
 pub mod operations;
 
 use crate::{
@@ -108,7 +109,7 @@ impl Range {
             prev_grapheme_boundary(text, self.to()).max(from)
         };
 
-        (text.char_to_line(from), text.char_to_line(to))
+        (text.char_to_line_idx(from), text.char_to_line_idx(to))
     }
 
     /// `true` when head and anchor are at the same position.
@@ -256,7 +257,7 @@ impl Range {
     /// copies any contents.
     #[inline]
     pub fn slice<'a, 'b: 'a>(&'a self, text: RopeSlice<'b>) -> RopeSlice<'b> {
-        text.slice(self.from()..self.to())
+        text.slice_chars(self.from()..self.to())
     }
 
     //--------------------------------
@@ -369,12 +370,12 @@ impl Range {
     #[inline]
     #[must_use]
     pub fn cursor_line(&self, text: RopeSlice) -> usize {
-        text.char_to_line(self.cursor(text))
+        text.char_to_line_idx(self.cursor(text))
     }
 
     /// Returns true if this Range covers a single grapheme in the given text
     pub fn is_single_grapheme(&self, doc: RopeSlice) -> bool {
-        let mut graphemes = doc.slice(self.from()..self.to()).graphemes();
+        let mut graphemes = doc.slice_chars(self.from()..self.to()).graphemes();
         let first = graphemes.next();
         let second = graphemes.next();
         first.is_some() && second.is_none()
@@ -383,7 +384,10 @@ impl Range {
     /// Converts this char range into an in order byte range, discarding
     /// direction.
     pub fn into_byte_range(&self, text: RopeSlice) -> (usize, usize) {
-        (text.char_to_byte(self.from()), text.char_to_byte(self.to()))
+        (
+            text.char_to_byte_idx(self.from()),
+            text.char_to_byte_idx(self.to()),
+        )
     }
 }
 
@@ -790,8 +794,8 @@ pub fn select_on_matches(
         for mat in regex.find_iter(text.regex_input_at(sel.from()..sel.to())) {
             // TODO: retain range direction
 
-            let start = text.byte_to_char(mat.start());
-            let end = text.byte_to_char(mat.end());
+            let start = text.byte_to_char_idx(mat.start());
+            let end = text.byte_to_char_idx(mat.end());
 
             let range = Range::new(start, end);
             // Make sure the match is not right outside of the selection.
@@ -825,7 +829,7 @@ pub fn split_on_newline(text: RopeSlice, selection: &Selection) -> Selection {
 
         let mut start = sel_start;
 
-        for line in sel.slice(text).lines() {
+        for line in sel.slice(text).lines(stdx::rope::LINE_TYPE) {
             let Some(line_ending) = get_line_ending(&line) else {
                 break;
             };
@@ -860,9 +864,9 @@ pub fn split_on_matches(text: RopeSlice, selection: &Selection, regex: &rope::Re
 
         for mat in regex.find_iter(text.regex_input_at(sel_start..sel_end)) {
             // TODO: retain range direction
-            let end = text.byte_to_char(mat.start());
+            let end = text.byte_to_char_idx(mat.start());
             result.push(Range::new(start, end));
-            start = text.byte_to_char(mat.end());
+            start = text.byte_to_char_idx(mat.end());
         }
 
         if start < sel_end {

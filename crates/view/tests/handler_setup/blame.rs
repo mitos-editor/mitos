@@ -68,8 +68,7 @@ async fn wait_for_diff(f: &Fixture) -> anyhow::Result<()> {
             .diff_handle()
             .unwrap()
             .load()
-            .doc()
-            .is_instance(current_ref!(f.editor).1.text())
+            .is_current()
         {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }

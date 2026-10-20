@@ -299,7 +299,7 @@ mod tests {
         doc.apply(transaction.changes()).unwrap();
         let root = doc.syntax().unwrap().tree().root_node();
         assert_eq!(root.kind(), "document");
-        assert_eq!(root.byte_range(), 0..doc.text().len_bytes() as u32);
+        assert_eq!(root.byte_range(), 0..doc.text().len() as u32);
         assert_eq!(doc.text().to_string(), "{\"key\": true}");
     }
 
@@ -341,7 +341,7 @@ mod tests {
         assert!(doc.syntax().is_none());
         finish(&mut doc).await;
         let root = doc.syntax().unwrap().tree().root_node();
-        assert_eq!(root.byte_range(), 0..doc.text().len_bytes() as u32);
+        assert_eq!(root.byte_range(), 0..doc.text().len() as u32);
         assert_eq!(doc.text().to_string(), "{\"updated\": true}");
     }
 

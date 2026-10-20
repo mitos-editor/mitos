@@ -5,6 +5,7 @@ use std::{
     str::FromStr as _,
     sync::Arc,
 };
+use stdx::rope::RopeExt as _;
 
 use crate::{document::SavePoint, features::completion::ResponseContext, Document};
 use editor_core::{Selection, Transaction};
@@ -26,9 +27,11 @@ pub(crate) fn path_completion(
 
     let text = doc.text().clone();
     let cursor = selection.primary().cursor(text.slice(..));
-    let cur_line = text.char_to_line(cursor);
-    let start = text.line_to_char(cur_line).max(cursor.saturating_sub(1000));
-    let line_until_cursor = text.slice(start..cursor);
+    let cur_line = text.char_to_line_idx(cursor);
+    let start = text
+        .line_to_char_idx(cur_line)
+        .max(cursor.saturating_sub(1000));
+    let line_until_cursor = text.slice_chars(start..cursor);
 
     let (dir_path, typed_file_name) =
         get_path_suffix(line_until_cursor, false).and_then(|matched_path| {

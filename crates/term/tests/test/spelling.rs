@@ -1,4 +1,5 @@
 use std::{fs, time::Duration};
+use stdx::rope::RopeExt as _;
 
 use ::diagnostics::DiagnosticProvider;
 use editor_core::{Range, Selection, Transaction};
@@ -16,7 +17,11 @@ fn mistakes(app: &Application) -> Vec<String> {
     doc.diagnostics()
         .iter()
         .filter(|d| d.provider == DiagnosticProvider::Spelling)
-        .map(|d| doc.text().slice(d.range.start..d.range.end).to_string())
+        .map(|d| {
+            doc.text()
+                .slice_chars(d.range.start..d.range.end)
+                .to_string()
+        })
         .collect()
 }
 

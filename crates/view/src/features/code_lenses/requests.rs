@@ -1,4 +1,5 @@
 //! Shared code lens requests, lazy resolution, and lifecycle hooks.
+use stdx::rope::RopeExt as _;
 // Adapted from helix-editor/helix#5063 by Matouš Dzivjak.
 
 use std::{collections::HashSet, future::Future, sync::Arc};
@@ -81,7 +82,7 @@ fn request_document_code_lenses(
                     .filter_map(|lens| {
                         if lens.range.start > lens.range.end
                             || lens.range.start.line != lens.range.end.line
-                            || lens.range.end.line as usize >= text.len_lines()
+                            || lens.range.end.line as usize >= text.len_lines(stdx::rope::LINE_TYPE)
                         {
                             return None;
                         }
@@ -215,7 +216,7 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         for (index, lens) in doc.code_lenses().iter().enumerate() {
             if lens.lens.command.is_some()
                 || doc.code_lenses.titles.contains_key(&index)
-                || !visible_lines.contains(&doc.text().char_to_line(lens.char_idx))
+                || !visible_lines.contains(&doc.text().char_to_line_idx(lens.char_idx))
                 || !seen.insert((doc.id(), index))
             {
                 continue;
@@ -351,7 +352,7 @@ pub fn resolve_code_lenses(
         .code_lenses()
         .iter()
         .enumerate()
-        .filter(|(_, lens)| doc.text().char_to_line(lens.char_idx) == line)
+        .filter(|(_, lens)| doc.text().char_to_line_idx(lens.char_idx) == line)
         .filter_map(|(index, lens)| {
             let server = doc
                 .language_servers_with_feature(LanguageServerFeature::CodeLens)

@@ -18,6 +18,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
 };
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 use tree_house::TREE_SITTER_MATCH_LIMIT;
 
@@ -69,7 +70,7 @@ fn add_indent_level(
             },
             tab_width,
         );
-        let byte_end_idx = base_indent_rope.char_to_byte(char_end_idx);
+        let byte_end_idx = base_indent_rope.char_to_byte_idx(char_end_idx);
         base_indent.truncate(byte_end_idx);
         base_indent
     }
@@ -323,7 +324,7 @@ struct IndentQueryResult<'a> {
 }
 
 fn get_node_start_line(text: RopeSlice, node: &Node, new_line_byte_pos: Option<u32>) -> usize {
-    let mut node_line = text.byte_to_line(node.start_byte() as usize);
+    let mut node_line = text.byte_to_line_idx(node.start_byte() as usize, stdx::rope::LINE_TYPE);
     // Adjust for the new line that will be inserted
     if new_line_byte_pos.is_some_and(|pos| node.start_byte() >= pos) {
         node_line += 1;
@@ -331,7 +332,7 @@ fn get_node_start_line(text: RopeSlice, node: &Node, new_line_byte_pos: Option<u
     node_line
 }
 fn get_node_end_line(text: RopeSlice, node: &Node, new_line_byte_pos: Option<u32>) -> usize {
-    let mut node_line = text.byte_to_line(node.end_byte() as usize);
+    let mut node_line = text.byte_to_line_idx(node.end_byte() as usize, stdx::rope::LINE_TYPE);
     // Adjust for the new line that will be inserted (with a strict inequality since end_byte is exclusive)
     if new_line_byte_pos.is_some_and(|pos| node.end_byte() > pos) {
         node_line += 1;
@@ -427,11 +428,11 @@ fn query_indents<'a>(
                     log::error!("Invalid indent query: @align requires an accompanying @anchor.");
                     continue;
                 };
-                let line = text.byte_to_line(anchor.start_byte() as usize);
-                let line_start = text.line_to_byte(line);
-                capture.capture_type = IndentCaptureType::Align(
-                    text.byte_slice(line_start..anchor.start_byte() as usize),
-                );
+                let line =
+                    text.byte_to_line_idx(anchor.start_byte() as usize, stdx::rope::LINE_TYPE);
+                let line_start = text.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
+                capture.capture_type =
+                    IndentCaptureType::Align(text.slice(line_start..anchor.start_byte() as usize));
             }
             indent_captures
                 .entry(node_id)
@@ -483,14 +484,25 @@ fn extend_nodes<'a>(
                         // - the cursor is on the same line as the end of the node OR
                         // - the line that the cursor is on is more indented than the
                         //   first line of the node
-                        if text.byte_to_line(deepest_preceding.end_byte() as usize) == line {
+                        if text.byte_to_line_idx(
+                            deepest_preceding.end_byte() as usize,
+                            stdx::rope::LINE_TYPE,
+                        ) == line
+                        {
                             extend_node = true;
                         } else {
-                            let cursor_indent =
-                                indent_level_for_line(text.line(line), tab_width, indent_width);
+                            let cursor_indent = indent_level_for_line(
+                                text.line(line, stdx::rope::LINE_TYPE),
+                                tab_width,
+                                indent_width,
+                            );
                             let node_indent = indent_level_for_line(
                                 text.line(
-                                    text.byte_to_line(deepest_preceding.start_byte() as usize),
+                                    text.byte_to_line_idx(
+                                        deepest_preceding.start_byte() as usize,
+                                        stdx::rope::LINE_TYPE,
+                                    ),
+                                    stdx::rope::LINE_TYPE,
                                 ),
                                 tab_width,
                                 indent_width,
@@ -716,7 +728,8 @@ fn init_indent_query<'a, 'b>(
 fn opaque_hit(start: u32, end: u32, byte_pos: u32, text: RopeSlice) -> bool {
     start <= byte_pos
         && byte_pos < end
-        && text.byte_to_line(start as usize) < text.byte_to_line(byte_pos as usize)
+        && text.byte_to_line_idx(start as usize, stdx::rope::LINE_TYPE)
+            < text.byte_to_line_idx(byte_pos as usize, stdx::rope::LINE_TYPE)
 }
 
 /// Whether `byte_pos` lies in the *interior* of a node captured `@opaque` — a
@@ -771,7 +784,7 @@ pub fn treesitter_indent_for_pos<'a>(
     pos: usize,
     new_line: bool,
 ) -> Option<Indentation<'a>> {
-    let byte_pos = text.char_to_byte(pos) as u32;
+    let byte_pos = text.char_to_byte_idx(pos) as u32;
     // Inside an injection layer indent with that language's query and tree,
     // then shift the whole result by the injection's base indent.
     let layer = syntax.layer_for_byte_range(byte_pos, byte_pos);
@@ -805,12 +818,12 @@ pub fn treesitter_indent_for_pos<'a>(
     // Lines inside an `@opaque` node are literal content, not code: preserve their
     // existing leading whitespace instead of reformatting it.
     if opaque {
-        let line_slice = text.line(line);
+        let line_slice = text.line(line, stdx::rope::LINE_TYPE);
         let first = line_slice
             .first_non_whitespace_char()
             .unwrap_or_else(|| line_slice.len_chars());
         return Some(Indentation {
-            align: Some(line_slice.slice(..first)),
+            align: Some(line_slice.slice_chars(..first)),
             ..Default::default()
         });
     }
@@ -995,14 +1008,17 @@ fn injection_base_level(
     // A content line of the injection is one whose first non-whitespace char
     // belongs to this layer (the opening `<script>` line does not — its first
     // token is host markup).
-    let in_layer = |line: usize| match text.line(line).first_non_whitespace_char() {
+    let in_layer = |line: usize| match text
+        .line(line, stdx::rope::LINE_TYPE)
+        .first_non_whitespace_char()
+    {
         Some(fnw) => {
-            let b = text.char_to_byte(text.line_to_char(line) + fnw) as u32;
+            let b = text.char_to_byte_idx(text.line_to_char_idx(line) + fnw) as u32;
             syntax.layer_for_byte_range(b, b) == layer
         }
         None => false,
     };
-    let bl = text.byte_to_line(byte_pos as usize);
+    let bl = text.byte_to_line_idx(byte_pos as usize, stdx::rope::LINE_TYPE);
     let first = if in_layer(bl) {
         // Inside the injection: walk back to its first content line.
         let mut f = bl;
@@ -1013,14 +1029,18 @@ fn injection_base_level(
     } else {
         // Typing the first content line from the host boundary (e.g. just after
         // `<script>`): the injection begins on a following line.
-        let total = text.len_lines();
+        let total = text.len_lines(stdx::rope::LINE_TYPE);
         let mut f = bl + 1;
         while f + 1 < total && !in_layer(f) {
             f += 1;
         }
         f
     };
-    indent_level_for_line(text.line(first), tab_width, indent_width)
+    indent_level_for_line(
+        text.line(first, stdx::rope::LINE_TYPE),
+        tab_width,
+        indent_width,
+    )
 }
 
 /// Whether the token at `byte_pos` (expected to be the first token on its line)
@@ -1108,7 +1128,7 @@ pub fn indent_for_newline(
             const MAX_ATTEMPTS: usize = 4;
             let mut num_attempts = 0;
             for line_idx in (0..=line_before).rev() {
-                let line = text.line(line_idx);
+                let line = text.line(line_idx, stdx::rope::LINE_TYPE);
                 let first_non_whitespace_char = match line.first_non_whitespace_char() {
                     Some(i) => i,
                     None => {
@@ -1124,10 +1144,10 @@ pub fn indent_for_newline(
                         indent_width,
                         text,
                         line_idx,
-                        text.line_to_char(line_idx) + first_non_whitespace_char,
+                        text.line_to_char_idx(line_idx) + first_non_whitespace_char,
                         false,
                     )?;
-                    let leading_whitespace = line.slice(0..first_non_whitespace_char);
+                    let leading_whitespace = line.slice_chars(0..first_non_whitespace_char);
                     indent.relative_indent(
                         &computed_indent,
                         leading_whitespace,
@@ -1146,14 +1166,18 @@ pub fn indent_for_newline(
         return indent.to_string(indent_style, tab_width);
     };
     // Fallback in case we either don't have indent queries or they failed for some reason
-    let indent_level = indent_level_for_line(text.line(current_line), tab_width, indent_width);
+    let indent_level = indent_level_for_line(
+        text.line(current_line, stdx::rope::LINE_TYPE),
+        tab_width,
+        indent_width,
+    );
     indent_style.as_str().repeat(indent_level)
 }
 
 pub fn get_scopes<'a>(syntax: Option<&'a Syntax>, text: RopeSlice, pos: usize) -> Vec<&'a str> {
     let mut scopes = Vec::new();
     if let Some(syntax) = syntax {
-        let pos = text.char_to_byte(pos) as u32;
+        let pos = text.char_to_byte_idx(pos) as u32;
         let mut node = match syntax
             .tree()
             .root_node()

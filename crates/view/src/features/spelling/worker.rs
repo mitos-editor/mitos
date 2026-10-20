@@ -388,9 +388,9 @@ fn spelling_regions(
         return std::iter::once(0..text.len_chars()).collect();
     };
     syntax
-        .spell_regions(text, loader, 0..text.len_bytes())
+        .spell_regions(text, loader, 0..text.len())
         .into_iter()
-        .map(|region| text.byte_to_char(region.start)..text.byte_to_char(region.end))
+        .map(|region| text.byte_to_char_idx(region.start)..text.byte_to_char_idx(region.end))
         .collect()
 }
 

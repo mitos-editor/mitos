@@ -90,7 +90,7 @@ async fn syntax_completions_stay_with_simultaneously_open_editors() -> anyhow::R
         assert!(!doc.is_syntax_pending());
         assert_eq!(
             doc.syntax().unwrap().tree().root_node().byte_range(),
-            0..doc.text().len_bytes() as u32
+            0..doc.text().len() as u32
         );
     }
     assert_eq!(doc!(first.editor).text().to_string(), "{\"first\": 1}\n");
@@ -138,7 +138,7 @@ async fn syntax_callbacks_update_their_own_documents() -> anyhow::Result<()> {
         assert!(!doc.is_syntax_pending());
         assert_eq!(
             doc.syntax().unwrap().tree().root_node().byte_range(),
-            0..doc.text().len_bytes() as u32
+            0..doc.text().len() as u32
         );
     }
     assert!(app.close().await.is_empty());
@@ -169,7 +169,7 @@ async fn opening_a_file_publishes_syntax_for_edits_made_before_the_event_loop() 
     let syntax = doc.syntax().expect("event loop should publish syntax");
     assert_eq!(
         syntax.tree().root_node().byte_range(),
-        0..doc.text().len_bytes() as u32
+        0..doc.text().len() as u32
     );
     assert_eq!(doc.text().to_string(), "{\"ready\": true}\n");
     assert!(app.close().await.is_empty());

@@ -5,6 +5,7 @@ use editor_core::{chars::char_is_word, Rope};
 use language::syntax;
 use std::collections::BTreeMap;
 use std::ops::Range;
+use stdx::rope::RopeExt as _;
 
 /// Stay within the innermost function identified by the language's textobject query.
 /// Without a function boundary, only inspect the stopped line.
@@ -15,9 +16,9 @@ pub(super) fn candidates(
     position: usize,
     mut lines: Range<usize>,
 ) -> Vec<Candidate> {
-    let stopped_line = text.char_to_line(position);
+    let stopped_line = text.char_to_line_idx(position);
     let scope = (|| {
-        let byte = text.char_to_byte(position);
+        let byte = text.char_to_byte_idx(position);
         let layer = syntax.layer_for_byte_range(byte as u32, byte as u32);
         let root = syntax
             .tree_for_byte_range(byte as u32, byte as u32)
@@ -43,15 +44,20 @@ pub(super) fn candidates(
     })();
     let (scope, nested) = scope.unwrap_or_else(|| {
         (
-            text.line_to_byte(stopped_line)
-                ..text.line_to_byte((stopped_line + 1).min(text.len_lines())),
+            text.line_to_byte_idx(stopped_line, stdx::rope::LINE_TYPE)
+                ..text.line_to_byte_idx(
+                    (stopped_line + 1).min(text.len_lines(stdx::rope::LINE_TYPE)),
+                    stdx::rope::LINE_TYPE,
+                ),
             Vec::new(),
         )
     });
-    lines.start = lines.start.max(text.byte_to_line(scope.start));
+    lines.start = lines
+        .start
+        .max(text.byte_to_line_idx(scope.start, stdx::rope::LINE_TYPE));
     let mut matches = BTreeMap::new();
     for line in lines {
-        let content = text.line(line);
+        let content = text.line(line, stdx::rope::LINE_TYPE);
         if content.len_chars() > MAX_SOURCE_LENGTH {
             continue;
         }
@@ -73,7 +79,7 @@ pub(super) fn candidates(
             if content[..start].trim_end().ends_with(['.', ':']) {
                 continue;
             }
-            let byte = text.line_to_byte(line) + start;
+            let byte = text.line_to_byte_idx(line, stdx::rope::LINE_TYPE) + start;
             if !scope.contains(&byte) || nested.iter().any(|range| range.contains(&byte)) {
                 continue;
             }
@@ -134,13 +140,13 @@ mod tests {
             std::time::Duration::from_secs(10),
         )
         .unwrap();
-        let position = text.byte_to_char(source.find(stopped).unwrap());
+        let position = text.byte_to_char_idx(source.find(stopped).unwrap());
         candidates(
             &text,
             &syntax,
             &loader,
             position,
-            0..text.char_to_line(position) + 1,
+            0..text.char_to_line_idx(position) + 1,
         )
     }
 

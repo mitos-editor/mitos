@@ -13,6 +13,7 @@ use std::{
     future::Future,
     sync::Arc,
 };
+use stdx::rope::RopeExt as _;
 
 use ::diagnostics::DiagnosticProvider;
 use editor_core::{ChangeSet, Tendril, Transaction};
@@ -232,7 +233,7 @@ impl Editor {
             })
             .map(|diagnostic| {
                 let range = diagnostic.range;
-                let word = Cow::<str>::from(text.slice(range.start..range.end)).into_owned();
+                let word = Cow::<str>::from(text.slice_chars(range.start..range.end)).into_owned();
                 (range, word)
             })
             .collect();

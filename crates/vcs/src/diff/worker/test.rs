@@ -22,6 +22,33 @@ impl DiffHandle {
 }
 
 #[tokio::test]
+async fn readiness_tracks_initial_and_queued_snapshots() {
+    let (differ, worker) = DiffHandle::new_test("base\n", "base\n");
+    assert!(!differ.load().is_current());
+    tokio::task::yield_now().await;
+    assert!(differ.load().is_current());
+
+    // A previously loaded diff also becomes stale as soon as an update is queued.
+    let snapshot = differ.load();
+    differ.update_document(Rope::from_str("first\n"), false);
+    differ.update_document(Rope::from_str("last\n"), false);
+    differ.update_diff_base(Rope::from_str("new base\n"));
+    assert!(!snapshot.is_current());
+    drop(snapshot);
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while !differ.load().is_current() {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(differ.load().doc(), "last\n");
+    assert_eq!(differ.load().diff_base(), "new base\n");
+    differ.into_diff(worker).await;
+}
+
+#[tokio::test]
 async fn append_line() {
     let (differ, handle) = DiffHandle::new_test("foo\n", "foo\nbar\n");
     let line_diffs = differ.into_diff(handle).await;

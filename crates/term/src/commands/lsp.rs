@@ -11,6 +11,7 @@ use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 use std::path::Path;
 use stdx::path;
+use stdx::rope::RopeExt as _;
 use theme::icons::ICONS;
 use theme::Theme;
 use tui::{
@@ -65,7 +66,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
     let selection = doc.selection(view_id).clone();
     let line = doc
         .text()
-        .char_to_line(selection.primary().cursor(doc.text().slice(..)));
+        .char_to_line_idx(selection.primary().cursor(doc.text().slice(..)));
     let Some(future) = code_lenses::resolve_code_lenses(cx.editor, doc_id, line) else {
         cx.editor.set_error(|| "No code lenses available");
         return;

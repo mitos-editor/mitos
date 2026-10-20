@@ -221,6 +221,7 @@ pub(super) fn file_explorer_in_current_directory(cx: &mut Context) {
 pub(super) mod typed {
     //! Typable files commands.
 
+    use stdx::rope::RopeExt;
     use view::save::{self, PreparedSave};
     use view::save::{WriteAllOptions, WriteOptions};
 
@@ -544,7 +545,7 @@ pub(super) mod typed {
         let mut pos = 0;
         let transaction = Transaction::change(
             doc.text(),
-            doc.text().lines().filter_map(|line| {
+            doc.text().lines(stdx::rope::LINE_TYPE).filter_map(|line| {
                 pos += line.len_chars();
                 match editor_core::line_ending::get_line_ending(&line) {
                     Some(ending) if ending != line_ending => {
@@ -659,7 +660,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let grapheme = text.slice(grapheme_start..grapheme_end).to_string();
+        let grapheme = text.slice_chars(grapheme_start..grapheme_end).to_string();
         let encoding = doc.encoding();
 
         let printable = grapheme.chars().fold(String::new(), |mut s, c| {

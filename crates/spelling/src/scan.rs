@@ -4,6 +4,7 @@
 //! revision `1849ccc29792484a1e00bcc48ee8018ca058cf33`.
 
 use std::{borrow::Cow, collections::HashSet, ops::Range, sync::LazyLock};
+use stdx::rope::RopeExt as _;
 
 use crate::Dictionary;
 use ::diagnostics::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange, Severity};
@@ -95,13 +96,13 @@ pub fn expand_check_window(
     if range.len() > max_chars {
         return None;
     }
-    while range.start > 0 && !text.char(range.start - 1).is_whitespace() {
+    while range.start > 0 && !text.char_at(range.start - 1).is_whitespace() {
         if range.len() == max_chars {
             return None;
         }
         range.start -= 1;
     }
-    while range.end < text.len_chars() && !text.char(range.end).is_whitespace() {
+    while range.end < text.len_chars() && !text.char_at(range.end).is_whitespace() {
         if range.len() == max_chars {
             return None;
         }
@@ -153,7 +154,7 @@ pub fn check_region(
         {
             continue;
         }
-        let word = Cow::from(text.byte_slice(m.range()));
+        let word = Cow::from(text.slice(m.range()));
         if filter.ignores(&word) {
             continue;
         }
@@ -161,8 +162,8 @@ pub fn check_region(
             .iter()
             .any(|dictionary| dictionary.check(&word))
         {
-            let start = text.byte_to_char(m.start());
-            let end = text.byte_to_char(m.end());
+            let start = text.byte_to_char_idx(m.start());
+            let end = text.byte_to_char_idx(m.end());
             out.push(spelling_diagnostic(text, start, end, &word));
         }
     }
@@ -170,14 +171,15 @@ pub fn check_region(
 
 fn spelling_diagnostic(text: RopeSlice, start: usize, end: usize, word: &str) -> Diagnostic {
     // Mirror `lsp_diagnostic_to_diagnostic` so edit-mapping associations behave the same.
-    let ends_at_word = start != end && end != 0 && text.get_char(end - 1).is_some_and(char_is_word);
-    let starts_at_word = start != end && text.get_char(start).is_some_and(char_is_word);
+    let ends_at_word =
+        start != end && end != 0 && text.get_char_at(end - 1).is_some_and(char_is_word);
+    let starts_at_word = start != end && text.get_char_at(start).is_some_and(char_is_word);
     Diagnostic {
         range: DiagnosticRange { start, end },
         ends_at_word,
         starts_at_word,
         zero_width: start == end,
-        line: text.char_to_line(start),
+        line: text.char_to_line_idx(start),
         message: format!("Possible spelling mistake: '{word}'").into(),
         severity: Some(Severity::Hint),
         code: None,
@@ -325,7 +327,8 @@ mod tests {
         // ignore regex; only the genuine misspelling "teh" survives.
         assert_eq!(out.len(), 1, "{out:?}");
         assert_eq!(
-            rope.slice(out[0].range.start..out[0].range.end).to_string(),
+            rope.slice_chars(out[0].range.start..out[0].range.end)
+                .to_string(),
             "teh"
         );
     }
@@ -347,7 +350,10 @@ mod tests {
         );
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let range = diagnostics[0].range;
-        assert_eq!(text.slice(range.start..range.end).to_string(), "привеет");
+        assert_eq!(
+            text.slice_chars(range.start..range.end).to_string(),
+            "привеет"
+        );
     }
 
     #[test]
@@ -367,7 +373,7 @@ mod tests {
         );
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let range = diagnostics[0].range;
-        assert_eq!(text.slice(range.start..range.end).to_string(), "quik");
+        assert_eq!(text.slice_chars(range.start..range.end).to_string(), "quik");
     }
 
     #[test]
@@ -398,7 +404,7 @@ mod tests {
         );
         assert_eq!(diagnostics.len(), 1);
         let range = diagnostics[0].range;
-        assert_eq!(text.slice(range.start..range.end).to_string(), "teh");
+        assert_eq!(text.slice_chars(range.start..range.end).to_string(), "teh");
     }
 
     #[test]

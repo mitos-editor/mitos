@@ -1,6 +1,7 @@
 //! LSP diagnostics conversion, caching, and publication for push and pull providers.
 
 use std::collections::BTreeMap;
+use stdx::rope::RopeExt as _;
 
 use crate::{events::DiagnosticsDidChange, Document, DocumentId, Editor};
 use ::diagnostics::Diagnostic;
@@ -129,8 +130,9 @@ fn convert_diagnostic(
         Vec::new()
     };
 
-    let ends_at_word = start != end && end != 0 && text.get_char(end - 1).is_some_and(char_is_word);
-    let starts_at_word = start != end && text.get_char(start).is_some_and(char_is_word);
+    let ends_at_word =
+        start != end && end != 0 && text.get_char_at(end - 1).is_some_and(char_is_word);
+    let starts_at_word = start != end && text.get_char_at(start).is_some_and(char_is_word);
 
     Some(Diagnostic {
         range: Range { start, end },

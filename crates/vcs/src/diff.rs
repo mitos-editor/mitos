@@ -1,4 +1,5 @@
 use std::iter::Peekable;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use event::RenderLockGuard;
@@ -40,6 +41,7 @@ pub struct DiffHandle {
     diff: Arc<RwLock<DiffInner>>,
     inverted: bool,
     redraw: event::Redraw,
+    pending_updates: Arc<AtomicUsize>,
 }
 
 impl DiffHandle {
@@ -54,11 +56,14 @@ impl DiffHandle {
     ) -> (DiffHandle, JoinHandle<()>) {
         let (sender, receiver) = unbounded_channel();
         let diff: Arc<RwLock<DiffInner>> = Arc::default();
+        // The initial snapshots have not been computed yet.
+        let pending_updates = Arc::new(AtomicUsize::new(1));
         let worker = DiffWorker {
             channel: receiver,
             diff: diff.clone(),
             diff_finished_notify: Arc::default(),
             redraw: redraw.clone(),
+            pending_updates: pending_updates.clone(),
         };
         let handle = tokio::spawn(worker.run(diff_base, doc));
         let differ = DiffHandle {
@@ -66,6 +71,7 @@ impl DiffHandle {
             diff,
             inverted: false,
             redraw,
+            pending_updates,
         };
         (differ, handle)
     }
@@ -80,6 +86,7 @@ impl DiffHandle {
         Diff {
             diff: self.diff.read(),
             inverted: self.inverted,
+            pending_updates: &self.pending_updates,
         }
     }
 
@@ -87,6 +94,7 @@ impl DiffHandle {
         Some(Diff {
             diff: self.diff.try_read()?,
             inverted: self.inverted,
+            pending_updates: &self.pending_updates,
         })
     }
 
@@ -119,6 +127,9 @@ impl DiffHandle {
             is_base,
             render_lock,
         };
+        // Count before sending so publication can never precede the increment.
+        // A closed worker stays stale rather than exposing an old snapshot as current.
+        self.pending_updates.fetch_add(1, Ordering::Release);
         self.channel.send(event).is_ok()
     }
 }
@@ -136,9 +147,15 @@ const DIFF_DEBOUNCE_TIME_ASYNC: u64 = 96;
 pub struct Diff<'a> {
     diff: RwLockReadGuard<'a, DiffInner>,
     inverted: bool,
+    pending_updates: &'a AtomicUsize,
 }
 
 impl Diff<'_> {
+    /// Whether all queued updates have been published with this snapshot.
+    pub fn is_current(&self) -> bool {
+        self.pending_updates.load(Ordering::Acquire) == 0
+    }
+
     /// Returns the base [Rope] of the [Diff]
     pub fn diff_base(&self) -> &Rope {
         if self.inverted {
@@ -374,6 +391,7 @@ mod mapping_tests {
         });
         for inverted in [false, true] {
             let diff = Diff {
+                pending_updates: &AtomicUsize::new(0),
                 diff: inner.read(),
                 inverted,
             };
@@ -405,6 +423,7 @@ mod mapping_tests {
     fn unchanged_lines_without_hunks_keep_their_line_number() {
         let inner = RwLock::new(DiffInner::default());
         let diff = Diff {
+            pending_updates: &AtomicUsize::new(0),
             diff: inner.read(),
             inverted: false,
         };

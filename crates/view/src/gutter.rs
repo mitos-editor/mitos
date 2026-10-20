@@ -24,8 +24,8 @@ pub fn width(gutter: GutterType, view: &View, doc: &Document) -> usize {
 /// `editor.gutters.line-numbers.min-width` settings.
 fn line_numbers_width(view: &View, doc: &Document) -> usize {
     let text = doc.text();
-    let last_line = text.len_lines().saturating_sub(1);
-    let draw_last = text.line_to_byte(last_line) < text.len_bytes();
+    let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
+    let draw_last = text.line_to_byte_idx(last_line, stdx::rope::LINE_TYPE) < text.len();
     let last_drawn = if draw_last { last_line + 1 } else { last_line };
     let digits = count_digits(last_drawn);
     let n_min = view.gutters.line_numbers.min_width;

@@ -21,6 +21,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use stdx::rope::RopeExt as _;
 use text_layout::char_idx_at_visual_offset;
 use text_layout::text_annotations::TextAnnotations;
 use theme::icons::ICONS;
@@ -522,7 +523,9 @@ pub(super) fn render_preview_content(
 
     let doc = match preview.document() {
         Some(doc)
-            if range.is_none_or(|(start, end)| start <= end && end <= doc.text().len_lines()) =>
+            if range.is_none_or(|(start, end)| {
+                start <= end && end <= doc.text().len_lines(stdx::rope::LINE_TYPE)
+            }) =>
         {
             doc
         }
@@ -594,13 +597,16 @@ pub(super) fn render_preview_content(
 
     let mut offset = ViewPosition::default();
     if let Some((start_line, end_line)) = range {
-        let last_line = doc.text().len_lines().saturating_sub(1);
+        let last_line = doc
+            .text()
+            .len_lines(stdx::rope::LINE_TYPE)
+            .saturating_sub(1);
         let start_line = start_line.min(last_line);
         let end_line = end_line.max(start_line).min(last_line);
         let height = end_line - start_line;
         let text = doc.text().slice(..);
-        let start = text.line_to_char(start_line);
-        let middle = text.line_to_char(start_line + height / 2);
+        let start = text.line_to_char_idx(start_line);
+        let middle = text.line_to_char_idx(start_line + height / 2);
         if height < inner.height as usize {
             let text_fmt = doc.text_format(inner.width, None);
             let annotations = TextAnnotations::default();

@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use stdx::rope::RopeExt as _;
 
 use crate::{Change, Range, Rope, RopeSlice, Selection, Tendril, Transaction};
 use std::borrow::Cow;
@@ -16,13 +17,13 @@ pub fn get_comment_token<'a, S: AsRef<str>>(
     tokens: &'a [S],
     line_num: usize,
 ) -> Option<&'a str> {
-    let line = text.line(line_num);
+    let line = text.line(line_num, stdx::rope::LINE_TYPE);
     let start = line.first_non_whitespace_char()?;
 
     tokens
         .iter()
         .map(AsRef::as_ref)
-        .filter(|token| line.slice(start..).starts_with(token))
+        .filter(|token| line.slice_chars(start..).starts_with(token))
         .max_by_key(|token| token.len())
 }
 
@@ -47,14 +48,15 @@ fn find_line_comment(
     let token_len = token.chars().count();
 
     for line in lines {
-        let line_slice = text.line(line);
+        let line_slice = text.line(line, stdx::rope::LINE_TYPE);
         if let Some(pos) = line_slice.first_non_whitespace_char() {
             let len = line_slice.len_chars();
 
             min = std::cmp::min(min, pos);
 
             // line can be shorter than pos + token len
-            let fragment = Cow::from(line_slice.slice(pos..std::cmp::min(pos + token.len(), len)));
+            let fragment =
+                Cow::from(line_slice.slice_chars(pos..std::cmp::min(pos + token.len(), len)));
 
             // as soon as one of the non-blank lines doesn't have a comment, the whole block is
             // considered uncommented.
@@ -64,7 +66,7 @@ fn find_line_comment(
 
             // determine margin of 0 or 1 for uncommenting; if any comment token is not followed by a space,
             // a margin of 0 is used for all lines.
-            if !matches!(line_slice.get_char(pos + token_len), Some(c) if c == ' ') {
+            if !matches!(line_slice.get_char_at(pos + token_len), Some(c) if c == ' ') {
                 margin = 0;
             }
 
@@ -88,8 +90,8 @@ pub fn toggle_line_comments(doc: &Rope, selection: &Selection, token: Option<&st
     let mut min_next_line = 0;
     for selection in selection {
         let (start, end) = selection.line_range(text);
-        let start = start.clamp(min_next_line, text.len_lines());
-        let end = (end + 1).min(text.len_lines());
+        let start = start.clamp(min_next_line, text.len_lines(stdx::rope::LINE_TYPE));
+        let end = (end + 1).min(text.len_lines(stdx::rope::LINE_TYPE));
 
         lines.extend(start..end);
         min_next_line = end;
@@ -100,7 +102,7 @@ pub fn toggle_line_comments(doc: &Rope, selection: &Selection, token: Option<&st
     let mut changes: Vec<Change> = Vec::with_capacity(to_change.len());
 
     for line in to_change {
-        let pos = text.line_to_char(line) + min;
+        let pos = text.line_to_char_idx(line) + min;
 
         if !commented {
             // comment line
@@ -176,8 +178,8 @@ pub fn find_block_comments(
                 before_end = end_pos.saturating_sub(end_len);
 
                 if len >= start_len + end_len {
-                    let start_fragment = selection_slice.slice(start_pos..after_start);
-                    let end_fragment = selection_slice.slice(before_end + 1..end_pos + 1);
+                    let start_fragment = selection_slice.slice_chars(start_pos..after_start);
+                    let end_fragment = selection_slice.slice_chars(before_end + 1..end_pos + 1);
 
                     // block commented with these tokens
                     if start_fragment == start.as_str() && end_fragment == end.as_str() {
@@ -203,9 +205,9 @@ pub fn find_block_comments(
                     range: *range,
                     start_pos,
                     end_pos,
-                    start_margin: selection_slice.get_char(after_start) == Some(' '),
+                    start_margin: selection_slice.get_char_at(after_start) == Some(' '),
                     end_margin: after_start != before_end
-                        && (selection_slice.get_char(before_end) == Some(' ')),
+                        && (selection_slice.get_char_at(before_end) == Some(' ')),
                     start_token: start_token.to_string(),
                     end_token: end_token.to_string(),
                 });
@@ -313,8 +315,11 @@ pub fn split_lines_of_selection(text: RopeSlice, selection: &Selection) -> Selec
     let mut ranges = SmallVec::new();
     for range in selection.ranges() {
         let (line_start, line_end) = range.line_range(text.slice(..));
-        let mut pos = text.line_to_char(line_start);
-        for line in text.slice(pos..text.line_to_char(line_end + 1)).lines() {
+        let mut pos = text.line_to_char_idx(line_start);
+        for line in text
+            .slice_chars(pos..text.line_to_char_idx(line_end + 1))
+            .lines(stdx::rope::LINE_TYPE)
+        {
             let start = pos;
             pos += line.len_chars();
             ranges.push(Range::new(start, pos));

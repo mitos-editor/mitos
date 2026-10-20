@@ -242,6 +242,7 @@ mod test {
     use super::*;
     use crate::text_annotations::InlineAnnotation;
     use editor_core::Rope;
+    use stdx::rope::RopeExt;
 
     #[test]
     fn test_visual_off_from_block() {
@@ -405,14 +406,14 @@ mod test {
                 assert_eq!(
                     char_idx_at_visual_offset(
                         slice,
-                        slice.line_to_char(i as usize),
+                        slice.line_to_char_idx(i as usize),
                         j,
                         3,
                         &text_fmt,
                         &TextAnnotations::default(),
                     )
                     .0,
-                    slice.line_to_char((i + j) as usize) + 3
+                    slice.line_to_char_idx((i + j) as usize) + 3
                 );
             }
         }

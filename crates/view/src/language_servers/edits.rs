@@ -3,6 +3,7 @@
 use editor_core::{chars, Rope, RopeSlice, Selection, Tendril, Transaction};
 use lsp_client::{lsp, util::lsp_pos_to_pos, OffsetEncoding};
 use snippets::{RenderedSnippet, Snippet, SnippetRenderCtx};
+use stdx::rope::RopeExt as _;
 
 /// If the LS did not provide a range for the completion or the range of the
 /// primary cursor can not be used for the secondary cursor, this function
@@ -10,14 +11,14 @@ use snippets::{RenderedSnippet, Snippet, SnippetRenderCtx};
 fn find_completion_range(text: RopeSlice, replace_mode: bool, cursor: usize) -> (usize, usize) {
     let start = cursor
         - text
-            .chars_at(cursor)
+            .chars_at_char(cursor)
             .reversed()
             .take_while(|ch| chars::char_is_word(*ch))
             .count();
     let mut end = cursor;
     if replace_mode {
         end += text
-            .chars_at(cursor)
+            .chars_at_char(cursor)
             .take_while(|ch| chars::char_is_word(*ch))
             .count();
     }
@@ -69,7 +70,7 @@ pub fn generate_transaction_from_completion_edit(
         selection.primary().cursor(text),
     )
     .expect("transaction must be valid for primary selection");
-    let removed_text = text.slice(removed_start..removed_end);
+    let removed_text = text.slice_chars(removed_start..removed_end);
 
     let (transaction, mut selection) = Transaction::change_by_selection_ignore_overlapping(
         doc,
@@ -77,7 +78,7 @@ pub fn generate_transaction_from_completion_edit(
         |range| {
             let cursor = range.cursor(text);
             completion_range(text, edit_offset, replace_mode, cursor)
-                .filter(|(start, end)| text.slice(start..end) == removed_text)
+                .filter(|(start, end)| text.slice_chars(start..end) == removed_text)
                 .unwrap_or_else(|| find_completion_range(text, replace_mode, cursor))
         },
         |_, _| replacement.clone(),
@@ -107,14 +108,14 @@ pub fn generate_transaction_from_snippet(
         selection.primary().cursor(text),
     )
     .expect("transaction must be valid for primary selection");
-    let removed_text = text.slice(removed_start..removed_end);
+    let removed_text = text.slice_chars(removed_start..removed_end);
     let (transaction, mapped_selection, snippet) = snippet.render(
         doc,
         selection,
         |range| {
             let cursor = range.cursor(text);
             completion_range(text, edit_offset, replace_mode, cursor)
-                .filter(|(start, end)| text.slice(start..end) == removed_text)
+                .filter(|(start, end)| text.slice_chars(start..end) == removed_text)
                 .unwrap_or_else(|| find_completion_range(text, replace_mode, cursor))
         },
         cx,

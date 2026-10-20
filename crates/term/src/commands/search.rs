@@ -13,6 +13,7 @@ use editor_core::{
 };
 use futures_util::FutureExt;
 use std::{collections::HashSet, ops::ControlFlow, sync::Arc};
+use stdx::rope::RopeExt as _;
 use stdx::rope::{self, RopeSliceExt};
 use view::{
     align_view,
@@ -39,11 +40,11 @@ fn search_impl(
     // Get the right side of the primary block cursor for forward search, or the
     // grapheme before the start of the selection for reverse search.
     let start = match direction {
-        Direction::Forward => text.char_to_byte(graphemes::ensure_grapheme_boundary_next(
+        Direction::Forward => text.char_to_byte_idx(graphemes::ensure_grapheme_boundary_next(
             text,
             selection.primary().to(),
         )),
-        Direction::Backward => text.char_to_byte(graphemes::ensure_grapheme_boundary_prev(
+        Direction::Backward => text.char_to_byte_idx(graphemes::ensure_grapheme_boundary_prev(
             text,
             selection.primary().from(),
         )),
@@ -83,8 +84,8 @@ fn search_impl(
     let selection = doc.selection(view.id);
 
     if let Some(mat) = mat {
-        let start = text.byte_to_char(mat.start());
-        let end = text.byte_to_char(mat.end());
+        let start = text.byte_to_char_idx(mat.start());
+        let end = text.byte_to_char_idx(mat.end());
 
         if end == 0 {
             // skip empty matches that don't make sense
@@ -241,16 +242,16 @@ pub(super) fn search_selection_detect_word_boundaries(cx: &mut Context) {
 fn search_selection_impl(cx: &mut Context, detect_word_boundaries: bool) {
     fn is_at_word_start(text: RopeSlice, index: usize) -> bool {
         // This can happen when the cursor is at the last character in
-        // the document +1 (ge + j), in this case text.char(index) will panic as
+        // the document +1 (ge + j), in this case text.char_at(index) will panic as
         // it will index out of bounds. See https://github.com/helix-editor/helix/issues/12609
         if index == text.len_chars() {
             return false;
         }
-        let ch = text.char(index);
+        let ch = text.char_at(index);
         if index == 0 {
             return char_is_word(ch);
         }
-        let prev_ch = text.char(index - 1);
+        let prev_ch = text.char_at(index - 1);
 
         !char_is_word(prev_ch) && char_is_word(ch)
     }
@@ -259,8 +260,8 @@ fn search_selection_impl(cx: &mut Context, detect_word_boundaries: bool) {
         if index == 0 || index == text.len_chars() {
             return false;
         }
-        let ch = text.char(index);
-        let prev_ch = text.char(index - 1);
+        let ch = text.char_at(index);
+        let prev_ch = text.char_at(index - 1);
 
         char_is_word(prev_ch) && !char_is_word(ch)
     }
@@ -512,12 +513,12 @@ pub(super) fn selection_for_global_search_match(
     end_line: usize,
     end_col: usize,
 ) -> Option<Selection> {
-    if start_line > end_line || end_line >= text.len_lines() {
+    if start_line > end_line || end_line >= text.len_lines(stdx::rope::LINE_TYPE) {
         return None;
     }
 
-    let start = text.line_to_char(start_line).checked_add(start_col)?;
-    let end = text.line_to_char(end_line).checked_add(end_col)?;
+    let start = text.line_to_char_idx(start_line).checked_add(start_col)?;
+    let end = text.line_to_char_idx(end_line).checked_add(end_col)?;
     if start > line_end_char_index(&text, start_line) || end > line_end_char_index(&text, end_line)
     {
         return None;

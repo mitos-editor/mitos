@@ -5,8 +5,8 @@ pub fn expand_selection(syntax: &Syntax, text: RopeSlice, selection: Selection) 
     let cursor = &mut syntax.walk();
 
     selection.transform(|range| {
-        let from = text.char_to_byte(range.from()) as u32;
-        let to = text.char_to_byte(range.to()) as u32;
+        let from = text.char_to_byte_idx(range.from()) as u32;
+        let to = text.char_to_byte_idx(range.to()) as u32;
 
         let byte_range = from..to;
         cursor.reset_to_byte_range(from, to);
@@ -18,8 +18,8 @@ pub fn expand_selection(syntax: &Syntax, text: RopeSlice, selection: Selection) 
         }
 
         let node = cursor.node();
-        let from = text.byte_to_char(node.start_byte() as usize);
-        let to = text.byte_to_char(node.end_byte() as usize);
+        let from = text.byte_to_char_idx(node.start_byte() as usize);
+        let to = text.byte_to_char_idx(node.end_byte() as usize);
 
         Range::new(to, from).with_direction(range.direction())
     })
@@ -119,23 +119,23 @@ where
     let cursor = &mut syntax.walk();
 
     selection.transform(|range| {
-        let from = text.char_to_byte(range.from()) as u32;
-        let to = text.char_to_byte(range.to()) as u32;
+        let from = text.char_to_byte_idx(range.from()) as u32;
+        let to = text.char_to_byte_idx(range.to()) as u32;
 
         cursor.reset_to_byte_range(from, to);
 
         motion(cursor);
 
         let node = cursor.node();
-        let from = text.byte_to_char(node.start_byte() as usize);
-        let to = text.byte_to_char(node.end_byte() as usize);
+        let from = text.byte_to_char_idx(node.start_byte() as usize);
+        let to = text.byte_to_char_idx(node.end_byte() as usize);
 
         Range::new(from, to).with_direction(direction.unwrap_or_else(|| range.direction()))
     })
 }
 
 pub fn range_from_node(node: Node, text: RopeSlice, direction: Direction) -> Range {
-    let from = text.byte_to_char(node.start_byte() as usize);
-    let to = text.byte_to_char(node.end_byte() as usize);
+    let from = text.byte_to_char_idx(node.start_byte() as usize);
+    let to = text.byte_to_char_idx(node.end_byte() as usize);
     Range::new(from, to).with_direction(direction)
 }

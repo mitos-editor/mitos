@@ -5,6 +5,7 @@ use arc_swap::ArcSwap;
 use language::syntax;
 use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
+use stdx::rope::RopeExt as _;
 use tui::buffer::Buffer as Surface;
 use tui::layout::Constraint;
 use tui::text::Span;
@@ -700,7 +701,7 @@ impl Prompt {
                         1,
                         false,
                     );
-                    let line = text.slice(range.from()..range.to()).to_string();
+                    let line = text.slice_chars(range.from()..range.to()).to_string();
                     if !line.is_empty() {
                         self.insert_str(line.as_str(), cx.editor);
                         (self.callback_fn)(cx, &self.line, PromptEvent::Update);

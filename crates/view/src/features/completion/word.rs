@@ -1,4 +1,5 @@
 use std::{borrow::Cow, sync::Arc};
+use stdx::rope::RopeExt as _;
 
 use crate::{document::SavePoint, features::completion::ResponseContext, Document, Editor, ViewId};
 use editor_core::{chars::char_is_word, movement, Transaction};
@@ -43,7 +44,7 @@ pub(super) fn completion(
     }
     if trigger.kind != TriggerKind::Manual
         && text
-            .slice(cursor.head..)
+            .slice_chars(cursor.head..)
             .graphemes()
             .take(trigger_length)
             .take_while(|g| g.chars().all(char_is_word))
@@ -54,9 +55,9 @@ pub(super) fn completion(
     }
 
     let typed_word_range = cursor.head..pos;
-    let typed_word = text.slice(typed_word_range.clone());
+    let typed_word = text.slice_chars(typed_word_range.clone());
     let edit_diff = if typed_word
-        .char(typed_word.len_chars().saturating_sub(1))
+        .char_at(typed_word.len_chars().saturating_sub(1))
         .is_whitespace()
     {
         0
@@ -70,7 +71,7 @@ pub(super) fn completion(
 
     let future = move || {
         let text = rope.slice(..);
-        let typed_word: Cow<_> = text.slice(typed_word_range).into();
+        let typed_word: Cow<_> = text.slice_chars(typed_word_range).into();
         let items = word_index
             .matches(&typed_word)
             .into_iter()
@@ -115,7 +116,7 @@ pub(super) fn retain_valid_completions(
     let text = doc.text().slice(..);
     let cursor = doc.selection(view_id).primary().cursor(text);
     if text
-        .get_char(cursor.saturating_sub(1))
+        .get_char_at(cursor.saturating_sub(1))
         .is_some_and(|ch| ch.is_whitespace())
     {
         items.retain(|item| !matches!(item, CompletionItem::Word(_)));

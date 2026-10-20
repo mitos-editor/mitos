@@ -1,6 +1,7 @@
 //! Editor state and coordination. Document/view lifecycle and filesystem operations
 //! live in private implementation modules behind the same public `Editor` API.
 
+use stdx::rope::RopeExt as _;
 mod config;
 mod document_settings;
 mod document_store;
@@ -967,14 +968,16 @@ impl Editor {
                     let doc = doc_mut!(self, &doc_id);
                     let text = doc.text();
 
-                    if *line_start >= text.len_lines() {
+                    if *line_start >= text.len_lines(stdx::rope::LINE_TYPE) {
                         self.set_error(|| {
                             "The quicklist entry no longer points to a valid line in the file."
                         });
                         return false;
                     }
-                    let start = text.line_to_char(*line_start);
-                    let end = text.line_to_char((*line_end + 1).min(text.len_lines()));
+                    let start = text.line_to_char_idx(*line_start);
+                    let end = text.line_to_char_idx(
+                        (*line_end + 1).min(text.len_lines(stdx::rope::LINE_TYPE)),
+                    );
                     (start, end)
                 };
 
@@ -1002,15 +1005,19 @@ impl Editor {
                     let doc = doc_mut!(self, &doc_id);
                     let text = doc.text();
 
-                    if *start_line >= text.len_lines() || *end_line >= text.len_lines() {
+                    if *start_line >= text.len_lines(stdx::rope::LINE_TYPE)
+                        || *end_line >= text.len_lines(stdx::rope::LINE_TYPE)
+                    {
                         self.set_error(|| {
                             "The quicklist entry no longer points to a valid location in the file."
                         });
                         return false;
                     }
 
-                    let start = text.line_to_char(*start_line).saturating_add(*start_col);
-                    let end = text.line_to_char(*end_line).saturating_add(*end_col);
+                    let start = text
+                        .line_to_char_idx(*start_line)
+                        .saturating_add(*start_col);
+                    let end = text.line_to_char_idx(*end_line).saturating_add(*end_col);
                     Selection::single(start, end).ensure_invariants(text.slice(..))
                 };
 

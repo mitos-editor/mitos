@@ -1,5 +1,6 @@
 use ropey::RopeSlice;
 use smallvec::SmallVec;
+use stdx::rope::{RopeExt as _, RopeMutExt as _};
 
 use crate::{chars::char_is_word, Range, Rope, Selection, Tendril};
 use std::{borrow::Cow, iter::once};
@@ -410,7 +411,7 @@ impl ChangeSet {
                     pos += n;
                 }
                 Delete(n) => {
-                    let text = Cow::from(original_doc.slice(pos..pos + *n));
+                    let text = Cow::from(original_doc.slice_chars(pos..pos + *n));
                     changes.insert(Tendril::from(text.as_ref()));
                     pos += n;
                 }
@@ -439,11 +440,11 @@ impl ChangeSet {
                     pos += n;
                 }
                 Delete(n) => {
-                    text.remove(pos..pos + *n);
+                    text.remove_chars(pos..pos + *n);
                     // pos += n;
                 }
                 Insert(s) => {
-                    text.insert(pos, s);
+                    text.insert_chars(pos, s);
                     pos += s.chars().count();
                 }
             }

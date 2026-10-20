@@ -15,7 +15,7 @@ fn assert_scope(language: &str, text: &str, checked: &[&str], skipped: &[&str]) 
     let syntax =
         Syntax::new_with_timeout(source.slice(..), language, &LOADER, Duration::from_secs(10))
             .unwrap();
-    let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len_bytes());
+    let regions = syntax.spell_regions(source.slice(..), &LOADER, 0..source.len());
     let prose: Vec<_> = regions.iter().map(|range| &text[range.clone()]).collect();
 
     for needle in checked {

@@ -79,7 +79,7 @@ enum CompletedStage {
         edits: Vec<WorkspaceEdit>,
     },
     Formatting {
-        snapshot: FormatSnapshot,
+        snapshot: Box<FormatSnapshot>,
         result: Result<Transaction, FormatterError>,
     },
 }
@@ -150,7 +150,7 @@ impl SaveOperation {
         if self.request.auto_format
             && let Some(format) = doc.auto_format_for_view(editor, self.request.origin)
         {
-            let snapshot = FormatSnapshot::new(editor, doc);
+            let snapshot = Box::new(FormatSnapshot::new(editor, doc));
             return Ok(SaveProgress::Pending(SaveTask(
                 async move {
                     let result = format.await;

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use stdx::rope::RopeExt as _;
 
 use super::CompletionProvider;
 use crate::document::{Mode, SavePoint};
@@ -204,7 +205,7 @@ pub(super) fn request_completions(
     let doc = doc_mut!(editor, &doc.id());
     let savepoint = doc.savepoint(view);
     let text = doc.text();
-    let trigger_text = text.slice(..cursor);
+    let trigger_text = text.slice_chars(..cursor);
 
     let mut seen_language_servers = HashSet::new();
     let language_servers: Vec<_> = doc

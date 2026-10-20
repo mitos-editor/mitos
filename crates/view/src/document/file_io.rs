@@ -43,6 +43,7 @@ pub(super) fn read_file(
 mod tests {
     use super::*;
     use ::text_io::to_writer;
+    use stdx::rope::RopeMutExt;
 
     #[test]
     fn detect_utf8_with_split_cjk_character() {
@@ -66,7 +67,7 @@ mod tests {
 
         // Saving and reopening must also preserve pasted CJK text.
         let pasted = "粘贴した텍스트";
-        rope.insert(rope.len_chars(), pasted);
+        rope.insert_chars(rope.len_chars(), pasted);
         text.push_str(pasted);
         let mut saved = Vec::new();
         lsp_client::block_on(to_writer(&mut saved, (encoding, has_bom), &rope)).unwrap();

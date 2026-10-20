@@ -1,6 +1,7 @@
 //! Protocol conversion, runtime resolution, and bounded display labels.
 
 use std::{collections::BTreeMap, ops::Range};
+use stdx::rope::RopeExt as _;
 
 use dap::{requests, RequestSender};
 use editor_core::{
@@ -64,7 +65,7 @@ pub(super) fn from_lsp(
             let range = lsp_client::util::lsp_range_to_range(text, range, encoding)?;
             let source = || {
                 (range.len() <= MAX_SOURCE_LENGTH)
-                    .then(|| text.slice(range.from()..range.to()).to_string())
+                    .then(|| text.slice_chars(range.from()..range.to()).to_string())
             };
             let value = match value {
                 lsp::InlineValue::Text(value) => Value::Text(value.text),
@@ -77,7 +78,7 @@ pub(super) fn from_lsp(
                 }
             };
             Some(Candidate {
-                line: text.char_to_line(range.from()),
+                line: text.char_to_line_idx(range.from()),
                 value,
             })
         })

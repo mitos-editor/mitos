@@ -1,6 +1,7 @@
 //! Runtime values share the formatter's wrapping, clipping, and decoration offsets.
 
 use editor_core::{line_ending::line_end_char_index, Rope};
+use stdx::rope::RopeExt as _;
 use text_layout::{doc_formatter::FormattedGrapheme, DisplayPosition};
 use theme::Style;
 use view::debugger::DebuggerInlineValue;
@@ -44,7 +45,7 @@ impl<'a> DebugValues<'a> {
 impl Decoration for DebugValues<'_> {
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.ready = None;
-        let line = self.text.char_to_line(pos.min(self.text.len_chars()));
+        let line = self.text.char_to_line_idx(pos.min(self.text.len_chars()));
         self.index = self.values.partition_point(|value| value.line < line);
         self.next_anchor()
     }

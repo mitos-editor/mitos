@@ -57,7 +57,14 @@ pub mod unicode {
 mod rope_reader;
 
 pub use rope_reader::RopeReader;
-pub use ropey::{self, str_utils, Rope, RopeBuilder, RopeSlice};
+pub use ropey::{self, Rope, RopeBuilder, RopeSlice};
+
+/// Byte/character conversions for contiguous UTF-8 text.
+pub mod str_utils {
+    pub use str_indices::chars::{
+        from_byte_idx as byte_to_char_idx, to_byte_idx as char_to_byte_idx,
+    };
+}
 
 // pub use tendril::StrTendril as Tendril;
 pub use smartstring::SmartString;

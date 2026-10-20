@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use stdx::path;
+use stdx::rope::RopeExt as _;
 use theme::icons::ICONS;
 use theme::Style;
 use tui::text::Span;
@@ -281,8 +282,8 @@ fn diagnostic_file_location<'a>(
         DiagnosticLocation::Document { doc_id, range, .. } => {
             let text = editor.documents.get(doc_id)?.text();
             let len = text.len_chars();
-            let start = text.char_to_line(range.start.min(len));
-            let end = text.char_to_line(range.end.min(len));
+            let start = text.char_to_line_idx(range.start.min(len));
+            let end = text.char_to_line_idx(range.end.min(len));
             Some(((*doc_id).into(), Some((start, end))))
         }
     }

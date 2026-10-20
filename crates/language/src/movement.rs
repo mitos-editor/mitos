@@ -19,7 +19,7 @@ pub fn goto_treesitter_object(
     count: usize,
 ) -> Range {
     let get_range = move |range: Range| -> Option<Range> {
-        let byte_pos = slice.char_to_byte(range.cursor(slice));
+        let byte_pos = slice.char_to_byte_idx(range.cursor(slice));
 
         // Walk the layer at the cursor with that language's own tree and textobject query.
         // Resolved per step so the motion can cross into and out of injected regions.
@@ -49,15 +49,15 @@ pub fn goto_treesitter_object(
                 .max_by_key(|n| (n.end_byte(), Reverse(n.start_byte())))?,
         };
 
-        let len = slice.len_bytes();
+        let len = slice.len();
         let start_byte = node.start_byte();
         let end_byte = node.end_byte();
         if start_byte >= len || end_byte >= len {
             return None;
         }
 
-        let start_char = slice.byte_to_char(start_byte);
-        let end_char = slice.byte_to_char(end_byte);
+        let start_char = slice.byte_to_char_idx(start_byte);
+        let end_char = slice.byte_to_char_idx(end_byte);
 
         // head of range should be at beginning
         Some(Range::new(start_char, end_char))
@@ -91,8 +91,8 @@ pub fn move_parent_node_end(
     movement: Movement,
 ) -> Selection {
     selection.transform(|range| {
-        let start_from = text.char_to_byte(range.from()) as u32;
-        let start_to = text.char_to_byte(range.to()) as u32;
+        let start_from = text.char_to_byte_idx(range.from()) as u32;
+        let start_to = text.char_to_byte_idx(range.to()) as u32;
 
         let mut node = match syntax.named_descendant_for_byte_range(start_from, start_to) {
             Some(node) => node,
@@ -110,18 +110,18 @@ pub fn move_parent_node_end(
             // moving forward, we always want to move one past the end of the
             // current node, so use the end byte of the current node, which is an exclusive
             // end of the range
-            Direction::Forward => text.byte_to_char(node.end_byte() as usize),
+            Direction::Forward => text.byte_to_char_idx(node.end_byte() as usize),
 
             // moving backward, we want the cursor to land on the start char of
             // the current node, or if it is already at the start of a node, to traverse up to
             // the parent
             Direction::Backward => {
-                let end_head = text.byte_to_char(node.start_byte() as usize);
+                let end_head = text.byte_to_char_idx(node.start_byte() as usize);
 
                 // if we're already on the beginning, look up to the parent
                 if end_head == range.cursor(text) {
                     node = find_parent_start(&node).unwrap_or(node);
-                    text.byte_to_char(node.start_byte() as usize)
+                    text.byte_to_char_idx(node.start_byte() as usize)
                 } else {
                     end_head
                 }

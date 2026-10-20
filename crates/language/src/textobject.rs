@@ -70,7 +70,7 @@ pub fn textobject_treesitter(
     loader: &syntax::Loader,
     _count: usize,
 ) -> Range {
-    let byte_pos = slice.char_to_byte(range.cursor(slice));
+    let byte_pos = slice.char_to_byte_idx(range.cursor(slice));
     let layer = syntax.layer_for_byte_range(byte_pos as u32, byte_pos as u32);
     let root = syntax
         .tree_for_byte_range(byte_pos as u32, byte_pos as u32)
@@ -83,15 +83,15 @@ pub fn textobject_treesitter(
             .filter(|node| node.byte_range().contains(&byte_pos))
             .min_by_key(|node| node.byte_range().len())?;
 
-        let len = slice.len_bytes();
+        let len = slice.len();
         let start_byte = node.start_byte();
         let end_byte = node.end_byte();
         if start_byte >= len || end_byte >= len {
             return None;
         }
 
-        let start_char = slice.byte_to_char(start_byte);
-        let end_char = slice.byte_to_char(end_byte);
+        let start_char = slice.byte_to_char_idx(start_byte);
+        let end_char = slice.byte_to_char_idx(end_byte);
 
         Some(Range::new(start_char, end_char))
     };
@@ -112,8 +112,8 @@ pub fn textobject_treesitter_ranges(
         return SmallVec::new();
     };
 
-    let from = text.char_to_byte(range.from()) as u32;
-    let to = text.char_to_byte(range.to()) as u32;
+    let from = text.char_to_byte_idx(range.from()) as u32;
+    let to = text.char_to_byte_idx(range.to()) as u32;
     // Syntax layer ranges use an inclusive end while editor ranges use an exclusive end.
     let end = if to > from { to - 1 } else { to };
     let layer = syntax.layer_for_byte_range(from, end);
@@ -132,13 +132,15 @@ pub fn textobject_treesitter_ranges(
         .filter_map(|node| {
             let start_byte = node.start_byte();
             let end_byte = node.end_byte();
-            if start_byte > text.len_bytes() || end_byte > text.len_bytes() {
+            if start_byte > text.len() || end_byte > text.len() {
                 return None;
             }
 
-            let object_range =
-                Range::new(text.byte_to_char(start_byte), text.byte_to_char(end_byte))
-                    .with_direction(range.direction());
+            let object_range = Range::new(
+                text.byte_to_char_idx(start_byte),
+                text.byte_to_char_idx(end_byte),
+            )
+            .with_direction(range.direction());
 
             range.contains_range(&object_range).then_some(object_range)
         })

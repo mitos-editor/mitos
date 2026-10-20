@@ -11,6 +11,9 @@ categories.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+unicode-lines = ["ropey/metric_lines_unicode"]
+
 [dependencies]
 dunce.workspace = true
 etcetera.workspace = true

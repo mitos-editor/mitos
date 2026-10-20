@@ -1,5 +1,6 @@
 use crate::match_brackets::{find_matching_bracket, find_matching_bracket_fuzzy};
 use std::fmt::Display;
+use stdx::rope::RopeExt as _;
 
 use crate::Syntax;
 use editor_core::{
@@ -97,7 +98,7 @@ fn find_nth_closest_pairs_plain(
     let pos = range.from();
     let mut close_pos = pos.saturating_sub(1);
 
-    for ch in text.chars_at(pos) {
+    for ch in text.chars_at_char(pos) {
         close_pos += 1;
 
         if is_open_bracket(ch) {
@@ -174,7 +175,7 @@ pub fn find_nth_pairs_pos(
     let pos = range.cursor(text);
 
     let (open, close) = if open == close {
-        if Some(open) == text.get_char(pos) {
+        if Some(open) == text.get_char_at(pos) {
             // Cursor is directly on match character for which the opening and closing pairs are the same. For instance: ", ', `
             //
             // This is potentially ambiguous, because there's no way to know which side of the char we should be searching on.
@@ -222,7 +223,7 @@ fn find_nth_open_pair(
         return None;
     }
 
-    let mut chars = text.chars_at(pos + 1);
+    let mut chars = text.chars_at_char(pos + 1);
 
     // Adjusts pos for the first iteration, and handles the case of the
     // cursor being *on* the close character which will get falsely stepped over
@@ -265,7 +266,7 @@ fn find_nth_close_pair(
         return None;
     }
 
-    let mut chars = text.chars_at(pos);
+    let mut chars = text.chars_at_char(pos);
 
     if chars.next()? == close {
         return Some(pos);

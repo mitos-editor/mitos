@@ -1,6 +1,7 @@
 //! Terminal gutter glyphs, styles, and marker precedence.
 
 use std::fmt::Write;
+use stdx::rope::RopeExt as _;
 use view::gutter::width;
 
 use editor_config::GutterType;
@@ -98,12 +99,12 @@ fn code_lens<'doc>(editor: &'doc Editor, doc: &'doc Document, theme: &Theme) -> 
         if !enabled || !first_visual_line {
             return None;
         }
-        let start = doc.text().try_line_to_char(line).ok()?;
+        let start = doc.text().try_line_to_char_idx(line).ok()?;
         let lenses = doc.code_lenses();
         let index = lenses.partition_point(|lens| lens.char_idx < start);
         if lenses
             .get(index)
-            .is_some_and(|lens| doc.text().char_to_line(lens.char_idx) == line)
+            .is_some_and(|lens| doc.text().char_to_line_idx(lens.char_idx) == line)
         {
             out.push('▶');
             Some(info)
@@ -179,14 +180,14 @@ fn line_numbers<'doc>(
 
     // Whether to draw the line number for the last line of the
     // document or not.  We only draw it if it's not an empty line.
-    let draw_last = text.line_to_byte(last_line_in_view) < text.len_bytes();
+    let draw_last = text.line_to_byte_idx(last_line_in_view, stdx::rope::LINE_TYPE) < text.len();
 
     let linenr = theme.get("ui.linenr");
     let linenr_select = theme.get("ui.linenr.selected");
 
     let current_line = doc
         .text()
-        .char_to_line(doc.selection(view.id).primary().cursor(text));
+        .char_to_line_idx(doc.selection(view.id).primary().cursor(text));
 
     let line_number = editor.config().line_number;
     let wrap_indicator = editor
@@ -351,7 +352,7 @@ fn code_action_hint<'doc>(
     let show_hint = doc.code_action_hints(view.id);
     let current_line = doc
         .text()
-        .char_to_line(doc.selection(view.id).primary().cursor(text));
+        .char_to_line_idx(doc.selection(view.id).primary().cursor(text));
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {

@@ -1,3 +1,4 @@
+use stdx::rope::RopeExt as _;
 #[path = "debugger_shutdown.rs"]
 mod shutdown;
 #[path = "debugger_startup.rs"]
@@ -2300,7 +2301,7 @@ async fn stack_navigation_selects_unicode_source_ranges_and_ignores_unknown_line
             doc.selection(view.id),
             &editor_core::Selection::single(1, 2)
         );
-        assert_eq!(doc.text().slice(1..2).to_string(), "😀");
+        assert_eq!(doc.text().slice_chars(1..2).to_string(), "😀");
         frame.column = usize::MAX;
         frame.end_column = None;
         view::handlers::dap::jump_to_stack_frame(&mut f.editor, &frame);

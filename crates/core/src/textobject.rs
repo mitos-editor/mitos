@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use stdx::rope::RopeExt as _;
 
 use ropey::RopeSlice;
 
@@ -12,19 +13,15 @@ fn find_word_boundary(slice: RopeSlice, mut pos: usize, direction: Direction, lo
     use CharCategory::{Eol, Whitespace};
 
     let iter = match direction {
-        Direction::Forward => slice.chars_at(pos),
-        Direction::Backward => {
-            let mut iter = slice.chars_at(pos);
-            iter.reverse();
-            iter
-        }
+        Direction::Forward => slice.chars_at_char(pos),
+        Direction::Backward => slice.chars_at_char(pos).reversed(),
     };
 
     let mut prev_category = match direction {
         Direction::Forward if pos == 0 => Whitespace,
-        Direction::Forward => categorize_char(slice.char(pos - 1)),
+        Direction::Forward => categorize_char(slice.char_at(pos - 1)),
         Direction::Backward if pos == slice.len_chars() => Whitespace,
-        Direction::Backward => categorize_char(slice.char(pos)),
+        Direction::Backward => categorize_char(slice.char_at(pos)),
     };
 
     for ch in iter {
@@ -76,7 +73,7 @@ pub fn textobject_word(
     let pos = range.cursor(slice);
 
     let word_start = find_word_boundary(slice, pos, Direction::Backward, long);
-    let word_end = match slice.get_char(pos).map(categorize_char) {
+    let word_end = match slice.get_char_at(pos).map(categorize_char) {
         None | Some(CharCategory::Whitespace | CharCategory::Eol) => pos,
         _ => find_word_boundary(slice, pos + 1, Direction::Forward, long),
     };
@@ -90,7 +87,7 @@ pub fn textobject_word(
         TextObject::Inside => Range::new(word_start, word_end),
         TextObject::Around => {
             let whitespace_count_right = slice
-                .chars_at(word_end)
+                .chars_at_char(word_end)
                 .take_while(|c| char_is_whitespace(*c))
                 .count();
 
@@ -98,8 +95,7 @@ pub fn textobject_word(
                 Range::new(word_start, word_end + whitespace_count_right)
             } else {
                 let whitespace_count_left = {
-                    let mut iter = slice.chars_at(word_start);
-                    iter.reverse();
+                    let iter = slice.chars_at_char(word_start).reversed();
                     iter.take_while(|c| char_is_whitespace(*c)).count()
                 };
                 Range::new(word_start - whitespace_count_left, word_end)
@@ -116,12 +112,13 @@ pub fn textobject_paragraph(
     count: usize,
 ) -> Range {
     let mut line = range.cursor_line(slice);
-    let prev_line_empty = rope_is_line_ending(slice.line(line.saturating_sub(1)));
-    let curr_line_empty = rope_is_line_ending(slice.line(line));
-    let next_line_empty =
-        line + 1 >= slice.len_lines() || rope_is_line_ending(slice.line(line + 1));
+    let prev_line_empty =
+        rope_is_line_ending(slice.line(line.saturating_sub(1), stdx::rope::LINE_TYPE));
+    let curr_line_empty = rope_is_line_ending(slice.line(line, stdx::rope::LINE_TYPE));
+    let next_line_empty = line + 1 >= slice.len_lines(stdx::rope::LINE_TYPE)
+        || rope_is_line_ending(slice.line(line + 1, stdx::rope::LINE_TYPE));
     let last_char =
-        prev_grapheme_boundary(slice, slice.line_to_char(line + 1)) == range.cursor(slice);
+        prev_grapheme_boundary(slice, slice.line_to_char_idx(line + 1)) == range.cursor(slice);
     let prev_empty_to_line = prev_line_empty && !curr_line_empty;
     let curr_empty_to_line = curr_line_empty && !next_line_empty;
 
@@ -132,8 +129,7 @@ pub fn textobject_paragraph(
     }
     // do not include current paragraph on paragraph end (include next)
     if !(curr_empty_to_line && last_char) {
-        let mut lines = slice.lines_at(line_back);
-        lines.reverse();
+        let lines = slice.lines_at(line_back, stdx::rope::LINE_TYPE).reversed();
         let mut lines = lines.map(rope_is_line_ending).peekable();
         while lines.next_if(|&e| e).is_some() {
             line_back -= 1;
@@ -147,7 +143,10 @@ pub fn textobject_paragraph(
     if curr_empty_to_line && last_char {
         line += 1;
     }
-    let mut lines = slice.lines_at(line).map(rope_is_line_ending).peekable();
+    let mut lines = slice
+        .lines_at(line, stdx::rope::LINE_TYPE)
+        .map(rope_is_line_ending)
+        .peekable();
     let mut count_done = 0; // count how many non-whitespace paragraphs done
     for _ in 0..count {
         let mut done = false;
@@ -165,8 +164,7 @@ pub fn textobject_paragraph(
     // makes `map` at the end of the paragraph with trailing newlines useful
     let last_paragraph = count_done != count && lines.peek().is_none();
     if last_paragraph {
-        let mut lines = slice.lines_at(line_back);
-        lines.reverse();
+        let lines = slice.lines_at(line_back, stdx::rope::LINE_TYPE).reversed();
         let mut lines = lines.map(rope_is_line_ending).peekable();
         while lines.next_if(|&e| e).is_some() {
             line_back -= 1;
@@ -181,8 +179,7 @@ pub fn textobject_paragraph(
         TextObject::Around => {}
         TextObject::Inside => {
             // remove last whitespace paragraph
-            let mut lines = slice.lines_at(line);
-            lines.reverse();
+            let lines = slice.lines_at(line, stdx::rope::LINE_TYPE).reversed();
             let mut lines = lines.map(rope_is_line_ending).peekable();
             while lines.next_if(|&e| e).is_some() {
                 line -= 1;
@@ -191,8 +188,8 @@ pub fn textobject_paragraph(
         TextObject::Movement => unreachable!(),
     }
 
-    let anchor = slice.line_to_char(line_back);
-    let head = slice.line_to_char(line);
+    let anchor = slice.line_to_char_idx(line_back);
+    let head = slice.line_to_char_idx(line);
     Range::new(anchor, head)
 }
 

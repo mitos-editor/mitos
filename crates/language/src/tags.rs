@@ -5,6 +5,7 @@ use crate::{
 };
 use editor_core::RopeSlice;
 use std::iter;
+use stdx::rope::RopeExt as _;
 use stdx::rope::{self, RopeSliceExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -116,18 +117,18 @@ pub fn tags<'a>(
             continue;
         }
 
-        let name_start = text.byte_to_char(name_byte_range.start as usize);
-        let name_end = text.byte_to_char(name_byte_range.end as usize);
-        let def_start = text.byte_to_char(def_byte_range.start as usize);
-        let def_end = text.byte_to_char(def_byte_range.end as usize);
+        let name_start = text.byte_to_char_idx(name_byte_range.start as usize);
+        let name_end = text.byte_to_char_idx(name_byte_range.end as usize);
+        let def_start = text.byte_to_char_idx(def_byte_range.start as usize);
+        let def_end = text.byte_to_char_idx(def_byte_range.end as usize);
 
         return Some(Tag {
             kind,
-            name: text.slice(name_start..name_end).to_string(),
+            name: text.slice_chars(name_start..name_end).to_string(),
             start: def_start,
             end: def_end,
-            start_line: text.char_to_line(def_start),
-            end_line: text.char_to_line(def_end),
+            start_line: text.char_to_line_idx(def_start),
+            end_line: text.char_to_line_idx(def_end),
         });
     })
 }

@@ -1,5 +1,6 @@
 use crate::{Rope, RopeSlice};
 use std::{borrow::Cow, sync::LazyLock};
+use stdx::rope::RopeExt as _;
 
 /// Normalize CRLF, bare CR, and LF sequences to the requested line ending.
 /// Other Unicode line separators and text are left unchanged.
@@ -137,7 +138,7 @@ pub fn rope_is_line_ending(r: RopeSlice) -> bool {
 pub fn auto_detect_line_ending(doc: &Rope) -> Option<LineEnding> {
     // Return first matched line ending. Not all possible line endings
     // are being matched, as they might be special-use only
-    for line in doc.lines().take(100) {
+    for line in doc.lines(stdx::rope::LINE_TYPE).take(100) {
         match get_line_ending(&line) {
             None => {}
             #[cfg(feature = "unicode-lines")]
@@ -152,7 +153,7 @@ pub fn auto_detect_line_ending(doc: &Rope) -> Option<LineEnding> {
 pub fn get_line_ending(line: &RopeSlice) -> Option<LineEnding> {
     // Last character as str.
     let g1 = line
-        .slice(line.len_chars().saturating_sub(1)..)
+        .slice_chars(line.len_chars().saturating_sub(1)..)
         .as_str()
         .unwrap();
 
@@ -160,7 +161,7 @@ pub fn get_line_ending(line: &RopeSlice) -> Option<LineEnding> {
     // It's fine to punt on the non-contiguous case, because Ropey guarantees
     // that CRLF is always contiguous.
     let g2 = line
-        .slice(line.len_chars().saturating_sub(2)..)
+        .slice_chars(line.len_chars().saturating_sub(2)..)
         .as_str()
         .unwrap_or("");
 
@@ -206,24 +207,24 @@ pub fn get_line_ending_of_str(line: &str) -> Option<LineEnding> {
 
 /// Returns the char index of the end of the given line, not including its line ending.
 pub fn line_end_char_index(slice: &RopeSlice, line: usize) -> usize {
-    slice.line_to_char(line + 1)
-        - get_line_ending(&slice.line(line))
+    slice.line_to_char_idx(line + 1)
+        - get_line_ending(&slice.line(line, stdx::rope::LINE_TYPE))
             .map(|le| le.len_chars())
             .unwrap_or(0)
 }
 
 pub fn line_end_byte_index(slice: &RopeSlice, line: usize) -> usize {
-    slice.line_to_byte(line + 1)
-        - get_line_ending(&slice.line(line))
+    slice.line_to_byte_idx(line + 1, stdx::rope::LINE_TYPE)
+        - get_line_ending(&slice.line(line, stdx::rope::LINE_TYPE))
             .map(|le| le.as_str().len())
             .unwrap_or(0)
 }
 
 /// Fetches line `line_idx` from the passed rope slice, sans any line ending.
 pub fn line_without_line_ending<'a>(slice: &'a RopeSlice, line_idx: usize) -> RopeSlice<'a> {
-    let start = slice.line_to_char(line_idx);
+    let start = slice.line_to_char_idx(line_idx);
     let end = line_end_char_index(slice, line_idx);
-    slice.slice(start..end)
+    slice.slice_chars(start..end)
 }
 
 /// Returns the char index of the end of the given RopeSlice, not including
@@ -298,15 +299,15 @@ mod line_ending_tests {
         let r = Rope::from_str("hello\r\n");
         #[cfg(feature = "unicode-lines")]
         assert_eq!(
-            LineEnding::from_rope_slice(&r.slice(5..6)),
+            LineEnding::from_rope_slice(&r.slice_chars(5..6)),
             Some(LineEnding::CR)
         );
         assert_eq!(
-            LineEnding::from_rope_slice(&r.slice(6..7)),
+            LineEnding::from_rope_slice(&r.slice_chars(6..7)),
             Some(LineEnding::LF)
         );
         assert_eq!(
-            LineEnding::from_rope_slice(&r.slice(5..7)),
+            LineEnding::from_rope_slice(&r.slice_chars(5..7)),
             Some(LineEnding::Crlf)
         );
         assert_eq!(LineEnding::from_rope_slice(&r.slice(..)), None);
@@ -316,9 +317,12 @@ mod line_ending_tests {
     fn get_line_ending_rope_slice() {
         let r = Rope::from_str("Hello\rworld\nhow\r\nare you?");
         #[cfg(feature = "unicode-lines")]
-        assert_eq!(get_line_ending(&r.slice(..6)), Some(LineEnding::CR));
-        assert_eq!(get_line_ending(&r.slice(..12)), Some(LineEnding::LF));
-        assert_eq!(get_line_ending(&r.slice(..17)), Some(LineEnding::Crlf));
+        assert_eq!(get_line_ending(&r.slice_chars(..6)), Some(LineEnding::CR));
+        assert_eq!(get_line_ending(&r.slice_chars(..12)), Some(LineEnding::LF));
+        assert_eq!(
+            get_line_ending(&r.slice_chars(..17)),
+            Some(LineEnding::Crlf)
+        );
         assert_eq!(get_line_ending(&r.slice(..)), None);
     }
 

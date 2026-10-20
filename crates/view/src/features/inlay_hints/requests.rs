@@ -1,6 +1,7 @@
 //! Request selection, stale-response checks, and LSP annotation conversion.
 
 use std::sync::{Arc, Weak};
+use stdx::rope::RopeExt as _;
 
 use event::cancelable_future;
 use language_config::LanguageServerFeature;
@@ -21,12 +22,13 @@ struct Request {
 fn viewport(view: &View, doc: &Document) -> DocumentInlayHintsId {
     let text = doc.text();
     let height = view.inner_height(doc);
-    let first_visible = text.char_to_line(doc.view_offset(view.id).anchor.min(text.len_chars()));
+    let first_visible =
+        text.char_to_line_idx(doc.view_offset(view.id).anchor.min(text.len_chars()));
     DocumentInlayHintsId {
         first_line: first_visible.saturating_sub(height),
         last_line: first_visible
             .saturating_add(height.saturating_mul(2))
-            .min(text.len_lines()),
+            .min(text.len_lines(stdx::rope::LINE_TYPE)),
     }
 }
 
@@ -82,8 +84,8 @@ pub fn refresh(editor: &mut Editor) {
         let range = lsp_client::util::range_to_lsp_range(
             text,
             editor_core::Range::new(
-                text.line_to_char(key.viewport.first_line),
-                text.line_to_char(key.viewport.last_line),
+                text.line_to_char_idx(key.viewport.first_line),
+                text.line_to_char_idx(key.viewport.last_line),
             ),
             server.offset_encoding(),
         );

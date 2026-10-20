@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
+use stdx::rope::RopeExt as _;
 
 use event::{
     cancelable_future, register_hook, send_blocking, AsyncHook, TaskController, TaskHandle,
@@ -387,7 +388,7 @@ pub fn post_insert_char(editor: &Editor) {
     if triggers.is_some_and(|triggers| {
         triggers
             .iter()
-            .any(|trigger| text.slice(..cursor).ends_with(trigger))
+            .any(|trigger| text.slice_chars(..cursor).ends_with(trigger))
     }) {
         editor
             .handlers

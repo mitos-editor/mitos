@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -19,10 +20,11 @@ pub(super) struct DiffWorker {
     pub diff: Arc<RwLock<DiffInner>>,
     pub diff_finished_notify: Arc<Notify>,
     pub redraw: event::Redraw,
+    pub pending_updates: Arc<AtomicUsize>,
 }
 
 impl DiffWorker {
-    async fn accumulate_events(&mut self, event: Event) -> (Option<Rope>, Option<Rope>) {
+    async fn accumulate_events(&mut self, event: Event) -> (Option<Rope>, Option<Rope>, usize) {
         let mut accumulator = EventAccumulator::new();
         accumulator.handle_event(event).await;
         accumulator
@@ -32,14 +34,14 @@ impl DiffWorker {
                 self.redraw.clone(),
             )
             .await;
-        (accumulator.doc, accumulator.diff_base)
+        (accumulator.doc, accumulator.diff_base, accumulator.updates)
     }
 
     pub async fn run(mut self, diff_base: Rope, doc: Rope) {
         let mut diff = LineDiff::new(diff_base, doc);
-        self.apply_hunks(&diff);
+        self.apply_hunks(&diff, 1);
         while let Some(event) = self.channel.recv().await {
-            let (doc, diff_base) = self.accumulate_events(event).await;
+            let (doc, diff_base, updates) = self.accumulate_events(event).await;
 
             let process_accumulated_events = || diff.update(diff_base, doc);
 
@@ -51,17 +53,18 @@ impl DiffWorker {
             #[cfg(not(test))]
             tokio::task::block_in_place(process_accumulated_events);
 
-            self.apply_hunks(&diff);
+            self.apply_hunks(&diff, updates);
         }
     }
 
     /// Publish the computed snapshots and hunks under one write lock.
-    fn apply_hunks(&mut self, computed: &LineDiff) {
+    fn apply_hunks(&mut self, computed: &LineDiff, updates: usize) {
         let mut diff = self.diff.write();
         diff.diff_base = computed.base();
         diff.doc = computed.document();
         diff.hunks.clear();
         diff.hunks.extend(computed.hunks());
+        self.pending_updates.fetch_sub(updates, Ordering::Release);
         drop(diff);
         self.diff_finished_notify.notify_waiters();
     }
@@ -71,6 +74,7 @@ struct EventAccumulator {
     diff_base: Option<Rope>,
     doc: Option<Rope>,
     render_lock: Option<RenderLock>,
+    updates: usize,
 }
 
 impl EventAccumulator {
@@ -79,10 +83,12 @@ impl EventAccumulator {
             diff_base: None,
             doc: None,
             render_lock: None,
+            updates: 0,
         }
     }
 
     async fn handle_event(&mut self, event: Event) {
+        self.updates += 1;
         let dst = if event.is_base {
             &mut self.diff_base
         } else {

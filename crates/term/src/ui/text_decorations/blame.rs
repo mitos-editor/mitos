@@ -49,7 +49,7 @@ impl Decoration for InlineBlame<'_> {
             || self
                 .doc
                 .text()
-                .line(pos.doc_line)
+                .line(pos.doc_line, stdx::rope::LINE_TYPE)
                 .chars()
                 .all(char::is_whitespace)
         {
@@ -123,13 +123,7 @@ mod tests {
         doc.refresh_vcs(&vcs::DiffProviderRegistry::default(), false);
         doc.set_file_blame(vcs::FileBlame::try_new(path.to_path_buf(), false));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while !doc
-                .diff_handle()
-                .unwrap()
-                .load()
-                .doc()
-                .is_instance(doc.text())
-            {
+            while !doc.diff_handle().unwrap().load().is_current() {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         })

@@ -4,6 +4,7 @@
 //! drive [`SaveTask`]s and apply their typed updates on the editor mutation path,
 //! retaining every stage until completion before exiting.
 
+use stdx::rope::RopeExt as _;
 mod operation;
 mod queue;
 
@@ -192,7 +193,7 @@ fn trim_trailing_whitespace(doc: &mut Document, origin: Option<ViewId>) {
     let mut pos = 0;
     let transaction = Transaction::delete(
         text,
-        text.lines().filter_map(|line| {
+        text.lines(stdx::rope::LINE_TYPE).filter_map(|line| {
             let line_end_len_chars = line_ending::get_line_ending(&line)
                 .map(|le| le.len_chars())
                 .unwrap_or_default();
@@ -223,7 +224,7 @@ fn trim_final_newlines(doc: &mut Document, origin: Option<ViewId>) {
     while let Some(line_ending) = line_ending::get_line_ending(&text) {
         total_char_len += line_ending.len_chars();
         final_char_len = line_ending.len_chars();
-        text = text.slice(..text.len_chars() - line_ending.len_chars());
+        text = text.slice_chars(..text.len_chars() - line_ending.len_chars());
     }
     let chars_to_delete = total_char_len - final_char_len;
     if chars_to_delete != 0 {

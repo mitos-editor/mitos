@@ -1,5 +1,6 @@
 //! Text transformations expressed as transactions over explicit selections.
 
+use stdx::rope::RopeExt as _;
 mod paste;
 mod selection_contents;
 pub use paste::{paste, replace_selection_contents, PastePosition};
@@ -252,14 +253,17 @@ pub fn indent(doc: &Rope, selection: &Selection, style: IndentStyle, count: usiz
     Transaction::change(
         doc,
         lines.into_iter().filter_map(|line| {
-            let is_blank = doc.line(line).chunks().all(|s| s.trim().is_empty());
+            let is_blank = doc
+                .line(line, stdx::rope::LINE_TYPE)
+                .chunks()
+                .all(|s| s.trim().is_empty());
             if is_blank {
                 return None;
             }
-            let pos = doc.line_to_char(line);
+            let pos = doc.line_to_char_idx(line);
 
             let indent = if let IndentStyle::Spaces(indent_width) = style {
-                let line = doc.line(line);
+                let line = doc.line(line, stdx::rope::LINE_TYPE);
                 let offset = line.first_non_whitespace_char().unwrap_or(0) % indent_width as usize;
                 indent.clone().split_off(offset)
             } else {
@@ -282,7 +286,7 @@ pub fn unindent(
     let mut changes = Vec::with_capacity(lines.len());
 
     for line_idx in lines {
-        let line = doc.line(line_idx);
+        let line = doc.line(line_idx, stdx::rope::LINE_TYPE);
         let mut width = 0;
         let mut pos = 0;
 
@@ -302,7 +306,7 @@ pub fn unindent(
 
         // now delete from start to first non-blank
         if pos > 0 {
-            let start = doc.line_to_char(line_idx);
+            let start = doc.line_to_char_idx(line_idx);
             changes.push((start, start + pos, None))
         }
     }

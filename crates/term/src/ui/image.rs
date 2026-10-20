@@ -469,7 +469,7 @@ mod tests {
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert!(text.contains("<Binary file — image preview unavailable>"));
         assert!(!text.contains('\x1b'));
-        assert!(doc.text().len_bytes() == 0);
+        assert!(doc.text().len() == 0);
     }
 
     #[tokio::test]
@@ -484,7 +484,7 @@ mod tests {
         doc.reload(&providers, false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.is_readonly());
-        assert_eq!(doc.text().len_bytes(), 0);
+        assert_eq!(doc.text().len(), 0);
         // Replacing it with text restores the normal editor path.
         fs::write(&path, "plain text\n").unwrap();
         doc.reload(&providers, false).unwrap();
@@ -496,7 +496,7 @@ mod tests {
         doc.reload(&providers, false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.is_readonly());
-        assert_eq!(doc.text().len_bytes(), 0);
+        assert_eq!(doc.text().len(), 0);
         let revision = doc.get_current_revision();
         assert!(!doc.undo());
         assert_eq!(doc.get_current_revision(), revision);

@@ -152,7 +152,7 @@ pub fn print(s: &str) -> (String, Selection) {
 pub fn plain<R: Into<Rope>>(s: R, selection: &Selection) -> String {
     let s = s.into();
     let primary = selection.primary_index();
-    let mut out = String::with_capacity(s.len_bytes() + 5 * selection.len());
+    let mut out = String::with_capacity(s.len() + 5 * selection.len());
     out.push_str(&s.to_string());
 
     let mut insertion: Vec<_> = selection
@@ -167,7 +167,7 @@ pub fn plain<R: Into<Rope>>(s: R, selection: &Selection) -> String {
                 (false, false) => [(range.anchor, ")#"), (range.head, "#(|")],
             }
         })
-        .map(|(char_idx, marker)| (s.char_to_byte(char_idx), marker))
+        .map(|(char_idx, marker)| (s.char_to_byte_idx(char_idx), marker))
         .collect();
 
     // insert in reverse order

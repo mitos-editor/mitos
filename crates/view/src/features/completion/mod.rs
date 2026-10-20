@@ -20,6 +20,7 @@ use std::{
     },
     time::Duration,
 };
+use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 use tokio::{sync::mpsc::Sender, task::JoinSet};
 
@@ -585,7 +586,7 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
     let (view, doc): (&crate::View, &crate::Document) = current_ref!(editor);
     let mut text = doc.text().slice(..);
     let cursor = doc.selection(view.id).primary().cursor(text);
-    text = doc.text().slice(..cursor);
+    text = doc.text().slice_chars(..cursor);
 
     let is_trigger_char = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
@@ -596,9 +597,7 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
                     }) if triggers.iter().any(|trigger| text.ends_with(trigger)))
         });
 
-    let cursor_char = text
-        .get_bytes_at(text.len_bytes())
-        .and_then(|t| t.reversed().next());
+    let cursor_char = text.bytes_at(text.len()).reversed().next();
 
     #[cfg(windows)]
     let is_path_completion_trigger = matches!(cursor_char, Some(b'/' | b'\\'));
@@ -618,7 +617,7 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
     let is_auto_trigger = !trigger_char_only
         && doc
             .text()
-            .chars_at(cursor)
+            .chars_at_char(cursor)
             .reversed()
             .take(config.completion.trigger_length as usize)
             .all(char_is_word);

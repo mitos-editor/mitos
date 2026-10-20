@@ -121,7 +121,9 @@ a new copy.
 
 The main data structure used for representing buffers is a `Rope`. We re-export
 the excellent [ropey](https://github.com/cessen/ropey) library. Ropes are cheap
-to clone, and allow us to easily make snapshots of a text state.
+to clone, and allow us to easily make snapshots of a text state. Ropey 2 uses
+byte offsets; selections and transactions use Unicode scalar value offsets.
+The helpers in `stdx::rope` convert between those coordinate systems explicitly.
 
 Multiple selections are a core editing primitive. Document selections are
 represented by a `Selection`. Each `Range` in the selection consists of a moving

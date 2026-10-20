@@ -1,5 +1,6 @@
 //! Ordered breakpoint synchronization, independent of thread and frame inspection.
 
+use stdx::rope::RopeExt as _;
 mod source;
 
 use std::{
@@ -91,9 +92,9 @@ pub(crate) fn map_breakpoint_positions(
         let position = changes
             .map_pos(position, editor_core::Assoc::After)
             .min(new.len_chars());
-        let line = new.char_to_line(position);
+        let line = new.char_to_line_idx(position);
         let column = breakpoint.column.map(|_| {
-            new.char_to_utf16_cu(position) - new.char_to_utf16_cu(new.line_to_char(line)) + 1
+            new.char_to_utf16_idx(position) - new.char_to_utf16_idx(new.line_to_char_idx(line)) + 1
         });
         (line, column)
     });

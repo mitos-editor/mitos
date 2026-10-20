@@ -7,6 +7,7 @@ use crate::{events::PostInsertChar, key};
 use editor_config::SmartTabConfig;
 use insert::LineBoundary;
 pub use insert::{CommentContinuation, Open};
+use stdx::rope::RopeExt as _;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editing::insert};
 
@@ -34,9 +35,9 @@ pub fn smart_tab(cx: &mut Context) {
     ) {
         let cursors_after_whitespace = doc.selection(view_id).ranges().iter().all(|range| {
             let cursor = range.cursor(doc.text().slice(..));
-            let current_line_num = doc.text().char_to_line(cursor);
-            let current_line_start = doc.text().line_to_char(current_line_num);
-            let left = doc.text().slice(current_line_start..cursor);
+            let current_line_num = doc.text().char_to_line_idx(cursor);
+            let current_line_start = doc.text().line_to_char_idx(current_line_num);
+            let left = doc.text().slice_chars(current_line_start..cursor);
             left.chars().all(|c| c.is_whitespace())
         });
 

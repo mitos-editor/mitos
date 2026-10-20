@@ -324,6 +324,7 @@ pub(super) mod typed {
     use ::command_line::Args;
     use anyhow::bail;
     use arc_swap::access::DynAccess;
+    use stdx::rope::RopeExt;
     use view::Editor;
 
     #[cold]
@@ -376,17 +377,17 @@ pub(super) mod typed {
         };
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
-        let byte = text.char_to_byte(cursor) as u32;
+        let byte = text.char_to_byte_idx(cursor) as u32;
         // Query the same range as the one used in syntax highlighting.
         let range = {
             // Calculate viewport byte ranges:
-            let row = text.char_to_line(doc.view_offset(view.id).anchor.min(text.len_chars()));
+            let row = text.char_to_line_idx(doc.view_offset(view.id).anchor.min(text.len_chars()));
             // Saturating subs to make it inclusive zero indexing.
-            let last_line = text.len_lines().saturating_sub(1);
+            let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
             let height = view.inner_area(doc).height;
             let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
-            let start = text.line_to_byte(row.min(last_line)) as u32;
-            let end = text.line_to_byte(last_visible_line + 1) as u32;
+            let start = text.line_to_byte_idx(row.min(last_line), stdx::rope::LINE_TYPE) as u32;
+            let end = text.line_to_byte_idx(last_visible_line + 1, stdx::rope::LINE_TYPE) as u32;
 
             start..end
         };
@@ -447,7 +448,7 @@ pub(super) mod typed {
         let loader: &language::syntax::Loader = &cx.editor.syn_loader.load();
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
-        let byte = text.char_to_byte(cursor) as u32;
+        let byte = text.char_to_byte_idx(cursor) as u32;
         let languages =
             syntax
                 .layers_for_byte_range(byte, byte)
@@ -495,8 +496,8 @@ pub(super) mod typed {
         if let Some(syntax) = doc.syntax() {
             let primary_selection = doc.selection(view.id).primary();
             let text = doc.text();
-            let from = text.char_to_byte(primary_selection.from()) as u32;
-            let to = text.char_to_byte(primary_selection.to()) as u32;
+            let from = text.char_to_byte_idx(primary_selection.from()) as u32;
+            let to = text.char_to_byte_idx(primary_selection.to()) as u32;
             if let Some(selected_node) = syntax.descendant_for_byte_range(from, to) {
                 let mut contents = String::from("```tsq\n");
                 language::syntax::pretty_print_tree(&mut contents, selected_node)?;

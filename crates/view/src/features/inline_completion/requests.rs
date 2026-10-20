@@ -1,6 +1,7 @@
 //! Editor-owned inline completions. Previews never modify the document.
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
+use stdx::rope::RopeExt as _;
 
 use editor_core::{movement::Direction, Range, Selection, Transaction};
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskController};
@@ -253,7 +254,7 @@ fn prepare(
         Some(range) => {
             if range.start.line != range.end.line
                 || range.start > range.end
-                || range.start.line as usize != text.char_to_line(cursor)
+                || range.start.line as usize != text.char_to_line_idx(cursor)
             {
                 return None;
             }
@@ -264,7 +265,7 @@ fn prepare(
     if cursor < range.from() || cursor > range.to() {
         return None;
     }
-    let replaced = text.slice(range.from()..range.to()).to_string();
+    let replaced = text.slice_chars(range.from()..range.to()).to_string();
     let filter = item
         .filter_text
         .as_deref()
@@ -273,18 +274,18 @@ fn prepare(
     if !filter.starts_with(&replaced) {
         return None;
     }
-    let prefix = text.slice(range.from()..cursor).to_string();
+    let prefix = text.slice_chars(range.from()..cursor).to_string();
     let ghost = item.insert_text.strip_prefix(&prefix)?;
     if ghost.is_empty() {
         return None;
     }
-    let line = text.char_to_line(cursor);
-    let line_end = if line + 1 < text.len_lines() {
-        text.line_to_char(line + 1)
+    let line = text.char_to_line_idx(cursor);
+    let line_end = if line + 1 < text.len_lines(stdx::rope::LINE_TYPE) {
+        text.line_to_char_idx(line + 1)
     } else {
         text.len_chars()
     };
-    let suffix = text.slice(range.to()..line_end).to_string();
+    let suffix = text.slice_chars(range.to()..line_end).to_string();
     let preview = format!("{ghost}{}", suffix.trim_end_matches(['\r', '\n']));
     Some(InlineCompletion {
         cursor,

@@ -6,6 +6,7 @@ use crate::editing::{
     EditError,
 };
 use editor_core::{graphemes, Range, Transaction};
+use stdx::rope::RopeExt as _;
 
 use crate::{document::Mode, events::ModeDidChange, features, Document, Editor, View};
 
@@ -197,7 +198,7 @@ fn try_restore_indent(doc: &mut Document, view: &mut View) -> Result<(), EditErr
 
     if inserted_a_new_blank_line(doc_changes, pos, line_end_pos) {
         // Removes tailing whitespaces for the primary selection only, preserving existing behavior
-        let line_start_pos = text.line_to_char(range.cursor_line(text));
+        let line_start_pos = text.line_to_char_idx(range.cursor_line(text));
         let transaction =
             Transaction::change(doc.text(), [(line_start_pos, pos, None)].into_iter());
         editing::try_apply(doc, &transaction, view.id)?;

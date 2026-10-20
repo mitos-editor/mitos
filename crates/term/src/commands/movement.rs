@@ -1,5 +1,6 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
+use stdx::rope::RopeExt as _;
 use view::editing::movement::{LineMotion, ScrollCursor};
 
 use editor_core::{
@@ -104,7 +105,7 @@ fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
 
     let selection = doc.selection(view.id).clone().transform(|range| {
         let line = range.cursor_line(text);
-        let line_start = text.line_to_char(line);
+        let line_start = text.line_to_char_idx(line);
 
         let pos = graphemes::prev_grapheme_boundary(text, line_end_char_index(&text, line))
             .max(line_start);
@@ -171,7 +172,7 @@ fn goto_line_start_impl(view: &mut View, doc: &mut Document, movement: Movement)
         let line = range.cursor_line(text);
 
         // adjust to start of the line
-        let pos = text.line_to_char(line);
+        let pos = text.line_to_char_idx(line);
         range.put_cursor(text, pos, movement == Movement::Extend)
     });
     doc.set_selection(view.id, selection);
@@ -222,8 +223,11 @@ fn goto_first_nonwhitespace_impl(view: &mut View, doc: &mut Document, movement: 
     let selection = doc.selection(view.id).clone().transform(|range| {
         let line = range.cursor_line(text);
 
-        if let Some(pos) = text.line(line).first_non_whitespace_char() {
-            let pos = pos + text.line_to_char(line);
+        if let Some(pos) = text
+            .line(line, stdx::rope::LINE_TYPE)
+            .first_non_whitespace_char()
+        {
+            let pos = pos + text.line_to_char_idx(line);
             range.put_cursor(text, pos, movement == Movement::Extend)
         } else {
             range
@@ -444,7 +448,7 @@ fn find_char_line_ending_motion(
                     line_end == cursor_head || line_end == cursor_anchor
                 };
                 let line = cursor_line + count - 1 + on_edge as usize;
-                if line >= text.len_lines() - 1 {
+                if line >= text.len_lines(stdx::rope::LINE_TYPE) - 1 {
                     return range;
                 }
                 line_end_char_index(&text, line) - !inclusive as usize
@@ -457,12 +461,12 @@ fn find_char_line_ending_motion(
                     }
                     line_end_char_index(&text, line as usize)
                 } else {
-                    let on_edge = text.line_to_char(cursor_line) == cursor_anchor;
+                    let on_edge = text.line_to_char_idx(cursor_line) == cursor_anchor;
                     let line = cursor_line as isize - count as isize + 1 - on_edge as isize;
                     if line <= 0 {
                         return range;
                     }
-                    text.line_to_char(line as usize)
+                    text.line_to_char_idx(line as usize)
                 }
             }
         };

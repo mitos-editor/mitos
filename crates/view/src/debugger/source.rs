@@ -1,5 +1,6 @@
 //! DAP source locations use one-based lines and UTF-16 columns.
 
+use stdx::rope::RopeExt as _;
 mod identity;
 pub use identity::DebuggerSource;
 
@@ -29,12 +30,12 @@ pub fn line_index(line: usize) -> Option<usize> {
 /// A column inside a surrogate pair resolves to that character's start.
 pub fn position_to_char(text: &Rope, line: usize, column: usize) -> Option<usize> {
     let line = line_index(line)?;
-    let content = text.get_line(line)?;
+    let content = text.get_line(line, stdx::rope::LINE_TYPE)?;
     let end =
         content.len_chars() - get_line_ending(&content).map_or(0, |ending| ending.len_chars());
-    let content = content.slice(..end);
-    let column = column.saturating_sub(1).min(content.len_utf16_cu());
-    Some(text.line_to_char(line) + content.utf16_cu_to_char(column))
+    let content = content.slice_chars(..end);
+    let column = column.saturating_sub(1).min(content.len_utf16());
+    Some(text.line_to_char_idx(line) + content.utf16_to_char_idx(column))
 }
 
 /// A stack frame's inclusive line range for source previews and gutter markers.

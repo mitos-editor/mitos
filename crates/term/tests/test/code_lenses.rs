@@ -1,4 +1,5 @@
 use std::{path::PathBuf, time::Duration};
+use stdx::rope::RopeExt as _;
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
@@ -242,7 +243,10 @@ async fn mapped_gutter_positions_follow_newlines_and_resolution_rejects_old_snap
     let (view, doc) = current!(fixture.app.editor);
     let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "\n".into());
     assert!(view::editing::apply(doc, &transaction, view.id));
-    assert_eq!(doc.text().char_to_line(doc.code_lenses()[0].char_idx), 1);
+    assert_eq!(
+        doc.text().char_to_line_idx(doc.code_lenses()[0].char_idx),
+        1
+    );
     assert!(!resolved.is_current(&fixture.app.editor));
     assert!(code_lenses::resolve_code_lenses(&mut fixture.app.editor, fixture.doc, 1).is_none());
     fixture
@@ -537,7 +541,7 @@ async fn automatic_title_resolution_follows_the_visible_lines_when_scrolling() -
     doc.set_view_offset(
         view.id,
         view::view::ViewPosition {
-            anchor: doc.text().line_to_char(100),
+            anchor: doc.text().line_to_char_idx(100),
             ..Default::default()
         },
     );

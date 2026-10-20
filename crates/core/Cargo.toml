@@ -15,13 +15,14 @@ homepage.workspace = true
 name = "editor_core"
 
 [features]
-unicode-lines = ["ropey/unicode_lines"]
+unicode-lines = ["stdx/unicode-lines"]
 integration = []
 
 [dependencies]
 stdx.workspace = true
 
 ropey.workspace = true
+str_indices.workspace = true
 smallvec.workspace = true
 smartstring.workspace = true
 unicode-segmentation.workspace = true
