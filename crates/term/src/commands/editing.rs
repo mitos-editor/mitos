@@ -7,13 +7,11 @@ use super::{
 };
 use crate::ui::{self, Prompt, PromptEvent};
 use arc_swap::access::DynAccess;
-use editor_core::{
-    increment, match_brackets, Range, Rope, Selection, SmallVec, Tendril, Transaction,
-};
-use language::surround;
+use editor_core::{increment, Range, Rope, Selection, SmallVec, Tendril, Transaction};
 use std::borrow::Cow;
 use stdx::rope::RopeSliceExt;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
+use view::editing::surround::{self, Delimiter, Replacement};
 use view::{document::Mode, info::Info, Editor};
 
 pub(super) fn align_selections(cx: &mut Context) {
@@ -284,48 +282,17 @@ static SURROUND_HELP_TEXT: [(&str, &str); 6] = [
 pub(super) fn surround_add(cx: &mut Context) {
     cx.on_next_key(move |cx, event| {
         cx.editor.autoinfo = None;
-        let (view, doc) = current!(cx.editor);
-        // surround_len is the number of new characters being added.
-        let (open, close, surround_len) = match event.char() {
-            Some(ch) => {
-                let (o, c) = match_brackets::get_pair(ch);
-                let mut open = Tendril::new();
-                open.push(o);
-                let mut close = Tendril::new();
-                close.push(c);
-                (open, close, 2)
-            }
-            None if event.code == KeyCode::Enter => (
-                doc.line_ending.as_str().into(),
-                doc.line_ending.as_str().into(),
-                2 * doc.line_ending.len_chars(),
-            ),
+        let delimiter = match event.char() {
+            Some(ch) => Delimiter::Character(ch),
+            None if event.code == KeyCode::Enter => Delimiter::LineEnding,
             None => return,
         };
-
-        let selection = doc.selection(view.id);
-        let mut changes = Vec::with_capacity(selection.len() * 2);
-        let mut ranges = SmallVec::with_capacity(selection.len());
-        let mut offs = 0;
-
-        for range in selection.iter() {
-            changes.push((range.from(), range.from(), Some(open.clone())));
-            changes.push((range.to(), range.to(), Some(close.clone())));
-
-            ranges.push(
-                Range::new(offs + range.from(), offs + range.to() + surround_len)
-                    .with_direction(range.direction()),
-            );
-
-            offs += surround_len;
+        let (view, doc) = current!(cx.editor);
+        match surround::add(doc, view.id, delimiter) {
+            Ok(()) => exit_select_mode(cx),
+            Err(err) => cx.editor.set_error(|| err.to_string()),
         }
-
-        let transaction = Transaction::change(doc.text(), changes.into_iter())
-            .with_selection(Selection::new(ranges, selection.primary_index()));
-        view::editing::apply(doc, &transaction, view.id);
-        exit_select_mode(cx);
     });
-
     cx.editor.autoinfo = Some(Info::new(
         "Surround selections with",
         &SURROUND_HELP_TEXT[1..],
@@ -336,67 +303,36 @@ pub(super) fn surround_replace(cx: &mut Context) {
     let count = cx.count();
     cx.on_next_key(move |cx, event| {
         cx.editor.autoinfo = None;
-        let surround_ch = match event.char() {
-            Some('m') => None, // m selects the closest surround pair
+        let character = match event.char() {
+            Some('m') => None,
             Some(ch) => Some(ch),
             None => return,
         };
         let (view, doc) = current!(cx.editor);
-        let text = doc.text().slice(..);
-        let selection = doc.selection(view.id);
-
-        let change_pos =
-            match surround::get_surround_pos(doc.syntax(), text, selection, surround_ch, count) {
-                Ok(c) => c,
-                Err(err) => {
-                    cx.editor.set_error(|| err.to_string());
-                    return;
-                }
-            };
-
-        let selection = selection.clone();
-        let ranges: SmallVec<[Range; 1]> = change_pos.iter().map(|&p| Range::point(p)).collect();
-        doc.set_selection(
-            view.id,
-            Selection::new(ranges, selection.primary_index() * 2),
-        );
-
+        let replacement = match Replacement::prepare(doc, view.id, character, count) {
+            Ok(replacement) => replacement,
+            Err(err) => {
+                cx.editor.set_error(|| err.to_string());
+                return;
+            }
+        };
         cx.on_next_key(move |cx, event| {
             cx.editor.autoinfo = None;
             let (view, doc) = current!(cx.editor);
-            let to = match event.char() {
-                Some(to) => to,
-                None => return doc.set_selection(view.id, selection),
+            let Some(character) = event.char() else {
+                replacement.cancel(doc, view.id);
+                return;
             };
-            let (open, close) = match_brackets::get_pair(to);
-
-            // the changeset has to be sorted to allow nested surrounds
-            let mut sorted_pos: Vec<(usize, char)> = Vec::new();
-            for p in change_pos.chunks(2) {
-                sorted_pos.push((p[0], open));
-                sorted_pos.push((p[1], close));
+            match replacement.apply(doc, view.id, character) {
+                Ok(()) => exit_select_mode(cx),
+                Err(err) => cx.editor.set_error(|| err.to_string()),
             }
-            sorted_pos.sort_unstable();
-
-            let transaction = Transaction::change(
-                doc.text(),
-                sorted_pos.iter().map(|&pos| {
-                    let mut t = Tendril::new();
-                    t.push(pos.1);
-                    (pos.0, pos.0 + 1, Some(t))
-                }),
-            );
-            doc.set_selection(view.id, selection);
-            view::editing::apply(doc, &transaction, view.id);
-            exit_select_mode(cx);
         });
-
         cx.editor.autoinfo = Some(Info::new(
             "Replace with a pair of",
             &SURROUND_HELP_TEXT[1..],
         ));
     });
-
     cx.editor.autoinfo = Some(Info::new(
         "Replace surrounding pair of",
         &SURROUND_HELP_TEXT,
@@ -407,30 +343,17 @@ pub(super) fn surround_delete(cx: &mut Context) {
     let count = cx.count();
     cx.on_next_key(move |cx, event| {
         cx.editor.autoinfo = None;
-        let surround_ch = match event.char() {
-            Some('m') => None, // m selects the closest surround pair
+        let character = match event.char() {
+            Some('m') => None,
             Some(ch) => Some(ch),
             None => return,
         };
         let (view, doc) = current!(cx.editor);
-        let text = doc.text().slice(..);
-        let selection = doc.selection(view.id);
-
-        let mut change_pos =
-            match surround::get_surround_pos(doc.syntax(), text, selection, surround_ch, count) {
-                Ok(c) => c,
-                Err(err) => {
-                    cx.editor.set_error(|| err.to_string());
-                    return;
-                }
-            };
-        change_pos.sort_unstable(); // the changeset has to be sorted to allow nested surrounds
-        let transaction =
-            Transaction::change(doc.text(), change_pos.into_iter().map(|p| (p, p + 1, None)));
-        view::editing::apply(doc, &transaction, view.id);
-        exit_select_mode(cx);
+        match surround::delete(doc, view.id, character, count) {
+            Ok(()) => exit_select_mode(cx),
+            Err(err) => cx.editor.set_error(|| err.to_string()),
+        }
     });
-
     cx.editor.autoinfo = Some(Info::new("Delete surrounding pair of", &SURROUND_HELP_TEXT));
 }
 

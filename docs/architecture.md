@@ -220,6 +220,15 @@ language refreshes, and unrelated selection changes discard it; removing a view
 drops its history. Structural operations install selection and history before
 selection observers run. Terminal commands retain prompts and motion repetition.
 
+### Surround edits
+
+`view::editing::surround` owns surround insertion, deletion, and replacement.
+Replacement previews retain the originating document/view, a buffer snapshot,
+and the original and preview selections. Applying or cancelling a preview validates
+that identity, text, and selection before using saved positions. Terminal commands
+request the delimiter keys and display help or errors. Interactive edits can return
+`EditError` through `try_apply`; boolean callers retain the existing `apply` API.
+
 ### Syntax-aware editing
 
 Document editing operations resolve indentation, comment tokens, and automatic

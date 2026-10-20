@@ -78,12 +78,21 @@ impl SelectionHistory {
 /// Apply an interactive transaction with an originating selection. Text mutation
 /// and pending undo groups use the same document path as edits without a view.
 pub fn apply(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
+    try_apply(doc, transaction, origin).is_ok()
+}
+
+/// Apply an interactive transaction, returning the reason an edit was rejected.
+pub fn try_apply(
+    doc: &mut Document,
+    transaction: &Transaction,
+    origin: ViewId,
+) -> Result<(), EditError> {
     apply_with_notifications(doc, transaction, origin, true)
 }
 
 /// Apply a completion preview without sending its temporary text to language servers.
 pub fn apply_temporary(doc: &mut Document, transaction: &Transaction, origin: ViewId) -> bool {
-    apply_with_notifications(doc, transaction, origin, false)
+    apply_with_notifications(doc, transaction, origin, false).is_ok()
 }
 
 pub(crate) fn apply_with_notifications(
@@ -91,14 +100,12 @@ pub(crate) fn apply_with_notifications(
     transaction: &Transaction,
     origin: ViewId,
     notify: bool,
-) -> bool {
-    if doc.validate_changes(transaction.changes()).is_err() {
-        return false;
-    }
+) -> Result<(), EditError> {
+    doc.validate_changes(transaction.changes())?;
     if doc.changes().is_empty() && !transaction.changes().is_empty() {
         doc.selection_history.pending = Some((origin, doc.selection(origin).clone()));
     }
-    doc.apply_inner(transaction, Some(origin), notify).is_ok()
+    doc.apply_inner(transaction, Some(origin), notify)
 }
 
 /// End an interactive undo group and synchronize this split's navigation state.
@@ -290,7 +297,7 @@ mod tests {
         assert_eq!(last_edit_pos(&mut doc), Some(7));
     }
 
-    fn document_and_view(input: &str) -> (Document, View) {
+    pub(super) fn document_and_view(input: &str) -> (Document, View) {
         let (text, selection) = test::print(input);
         let mut doc = Document::from(
             Rope::from(text),
@@ -497,6 +504,7 @@ mod tests {
 
 pub mod insert;
 pub mod movement;
+pub mod surround;
 pub mod syntax;
 
 mod transform;

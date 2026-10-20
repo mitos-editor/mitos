@@ -586,7 +586,8 @@ impl Document {
 
         let savepoint_ref = self.savepoints.remove(savepoint_idx);
         let mut revert = savepoint.revert.lock();
-        crate::editing::apply_with_notifications(self, &revert, view.id, emit_lsp_notification);
+        let _ =
+            crate::editing::apply_with_notifications(self, &revert, view.id, emit_lsp_notification);
         *revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
         self.savepoints.push(savepoint_ref)
     }
