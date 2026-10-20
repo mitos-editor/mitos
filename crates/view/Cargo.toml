@@ -84,7 +84,3 @@ event = { workspace = true, features = ["integration_test"] }
 criterion.workspace = true
 quickcheck.workspace = true
 
-[[bench]]
-name = "ropey"
-harness = false
-

@@ -149,9 +149,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 regex-automata = "0.4.14"
 # Match tree-house's cursor revision so both forks share one implementation.
-# This has the same source tree as the regex-cursor fork's merged master.
-regex-cursor = { git = "https://github.com/mitos-editor/regex-cursor", rev = "c67264c986709dc45e9ee4efc680813d199c6954" }
-tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "b86f9b379c52ff415f591cd82b009a290e47932a", default-features = false }
+regex-cursor = { git = "https://github.com/mitos-editor/regex-cursor", rev = "4db0a68e0c518af353126f0528f0db52c85bc6a0" }
+tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "08c2a7b35d8b15a3fa94c184ecaae7081186a629", default-features = false }
 
 # Serialization and configuration
 serde = { version = "1.0.228", features = ["derive"] }
