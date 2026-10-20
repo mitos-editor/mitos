@@ -1071,7 +1071,7 @@ impl CursorCache {
 
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
-        let res = view.screen_coords_at_pos(doc, text, cursor);
+        let res = view.screen_coords_at_pos(doc, cursor);
         self.set(res);
         res
     }

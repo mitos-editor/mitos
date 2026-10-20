@@ -88,9 +88,10 @@ pub enum Align {
 /// Alignment is measured in soft-wrapped visual rows, not document lines. The
 /// bottom row is reduced by one to account for zero-based visual offsets.
 pub fn align_view(doc: &mut Document, view: &View, align: Align) {
-    let doc_text = doc.text().slice(..);
+    let layout = view.layout(doc, None);
+    let doc_text = layout.text;
     let cursor = doc.selection(view.id).primary().cursor(doc_text);
-    let viewport = view.inner_area(doc);
+    let viewport = layout.viewport;
     let last_line_height = viewport.height.saturating_sub(1);
     let mut view_offset = doc.view_offset(view.id);
 
@@ -100,15 +101,15 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
         Align::Bottom => last_line_height,
     };
 
-    let text_fmt = doc.text_format(viewport.width, None);
     (view_offset.anchor, view_offset.vertical_offset) = char_idx_at_visual_offset(
         doc_text,
         cursor,
         -(relative as isize),
         0,
-        &text_fmt,
-        &view.text_annotations(doc, None),
+        &layout.format,
+        &layout.annotations,
     );
+    drop(layout);
     doc.set_view_offset(view.id, view_offset);
 }
 

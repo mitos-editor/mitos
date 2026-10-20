@@ -151,6 +151,12 @@ highlighter adapts parser output to those shared IDs without allocation.
 
 ## Text layout
 
+`View::layout` prepares a `ViewLayout` for one operation: text, viewport, scroll
+offset, format, and annotations. Drawing, visible-position queries, hit testing,
+and alignment use this context. It borrows its document and is discarded before
+mutation; it is not a persistent cache. Previews supply explicit layout values
+without creating a document/view binding.
+
 `view::annotations` prepares diagnostic and inline-completion layout from borrowed
 values. Diagnostic accumulation takes a diagnostic slice; completion row layout
 takes preview lines and formatter settings. These algorithms do not borrow a

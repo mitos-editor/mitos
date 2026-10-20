@@ -661,10 +661,14 @@ pub(super) fn render_preview_content(
 
     render_document(
         surface,
-        inner,
         doc,
-        offset,
-        &TextAnnotations::default(),
+        &view::view::ViewLayout {
+            text: doc.text().slice(..),
+            viewport: inner,
+            offset,
+            format: doc.text_format(inner.width, Some(&cx.editor.theme)),
+            annotations: TextAnnotations::default(),
+        },
         syntax_highlighter,
         overlay_highlights,
         &cx.editor.theme,

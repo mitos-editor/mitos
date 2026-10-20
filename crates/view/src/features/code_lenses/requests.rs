@@ -184,24 +184,25 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         if area.width == 0 || area.height == 0 {
             continue;
         }
-        let offset = doc.view_offset(view.id);
-        let text = doc.text().slice(..);
-        let format = doc.text_format(area.width, Some(&editor.theme));
-        let annotations = view.text_annotations(doc, Some(&editor.theme));
+        let layout = view.layout(doc, Some(&editor.theme));
+        let offset = layout.offset;
+        let text = layout.text;
+        let format = &layout.format;
+        let annotations = &layout.annotations;
         let row_offset = text_layout::visual_offset_from_block(
             text,
             offset.anchor,
             offset.anchor,
-            &format,
-            &annotations,
+            format,
+            annotations,
         )
         .0
         .row + offset.vertical_offset;
         let mut visible_lines = HashSet::new();
         for grapheme in text_layout::doc_formatter::DocumentFormatter::new_at_prev_checkpoint(
             text,
-            &format,
-            &annotations,
+            format,
+            annotations,
             offset.anchor,
         ) {
             if grapheme.visual_pos.row >= row_offset + area.height as usize {

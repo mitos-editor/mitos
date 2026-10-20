@@ -2,20 +2,18 @@
 
 use super::text_decorations::DecorationManager;
 use language::syntax::Highlighter;
-use text_layout::{text_annotations::TextAnnotations, DisplayPosition};
+use text_layout::DisplayPosition;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;
-use view::{graphics::Rect, view::ViewPosition, Document};
+use view::{view::ViewLayout, Document};
 
 pub use text_render::{render_text, LinePos, RenderSettings, TextRenderer};
 
 #[allow(clippy::too_many_arguments)]
 pub fn render_document(
     surface: &mut Surface,
-    viewport: Rect,
     doc: &Document,
-    offset: ViewPosition,
-    doc_annotations: &TextAnnotations,
+    layout: &ViewLayout,
     syntax_highlighter: Option<Highlighter<'_>>,
     overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
@@ -26,16 +24,19 @@ pub fn render_document(
         surface,
         render_settings(doc, &config),
         theme,
-        DisplayPosition::new(offset.vertical_offset, offset.horizontal_offset),
-        viewport,
+        DisplayPosition::new(
+            layout.offset.vertical_offset,
+            layout.offset.horizontal_offset,
+        ),
+        layout.viewport,
     );
     render_text(
         &mut renderer,
-        doc.text().slice(..),
-        offset.anchor,
-        &doc.text_format(viewport.width, Some(theme)),
-        doc_annotations,
-        super::highlights::syntax_styles(doc.text().slice(..), syntax_highlighter, theme),
+        layout.text,
+        layout.offset.anchor,
+        &layout.format,
+        &layout.annotations,
+        super::highlights::syntax_styles(layout.text, syntax_highlighter, theme),
         overlay_highlights,
         theme,
         decorations,

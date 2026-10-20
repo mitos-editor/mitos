@@ -1,3 +1,6 @@
+mod layout;
+pub use layout::ViewLayout;
+
 use crate::{
     align_view,
     annotations::diagnostics::{prepare_inline_diagnostics, InlineDiagnostics},
@@ -10,7 +13,7 @@ use editor_config::{GutterConfig, GutterType};
 use text_layout::DisplayPosition;
 use theme::Theme;
 
-use editor_core::{RopeSlice, Selection, Transaction};
+use editor_core::{Selection, Transaction};
 use text_layout::{
     char_idx_at_visual_offset, visual_offset_from_anchor, visual_offset_from_block,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
@@ -299,11 +302,12 @@ impl View {
         scrolloff: usize,
     ) -> Option<ViewPosition> {
         let view_offset = doc.get_view_offset(self.id)?;
-        let doc_text = doc.text().slice(..);
-        let viewport = self.inner_area(doc);
+        let layout = self.layout(doc, None);
+        let doc_text = layout.text;
+        let viewport = layout.viewport;
         let vertical_viewport_end = view_offset.vertical_offset + viewport.height as usize;
-        let text_fmt = doc.text_format(viewport.width, None);
-        let annotations = self.text_annotations(doc, None);
+        let text_fmt = &layout.format;
+        let annotations = &layout.annotations;
 
         let (scrolloff_top, scrolloff_bottom) = if CENTERING {
             (0, 0)
@@ -330,8 +334,8 @@ impl View {
             doc_text,
             offset.anchor,
             cursor,
-            &text_fmt,
-            &annotations,
+            text_fmt,
+            annotations,
             vertical_viewport_end,
         );
 
@@ -359,7 +363,7 @@ impl View {
                 viewport.height as isize - scrolloff_bottom as isize - 1
             };
             (offset.anchor, offset.vertical_offset) =
-                char_idx_at_visual_offset(doc_text, cursor, -v_off, 0, &text_fmt, &annotations);
+                char_idx_at_visual_offset(doc_text, cursor, -v_off, 0, text_fmt, annotations);
         }
 
         if text_fmt.soft_wrap {
@@ -368,13 +372,7 @@ impl View {
             // determine the current visual column of the text
             let col = off
                 .unwrap_or_else(|_| {
-                    visual_offset_from_block(
-                        doc_text,
-                        offset.anchor,
-                        cursor,
-                        &text_fmt,
-                        &annotations,
-                    )
+                    visual_offset_from_block(doc_text, offset.anchor, cursor, text_fmt, annotations)
                 })
                 .0
                 .col;
@@ -433,72 +431,26 @@ impl View {
     /// Calculates the last non-empty visual line on screen
     #[inline]
     pub fn last_visual_line(&self, doc: &Document) -> usize {
-        let doc_text = doc.text().slice(..);
-        let viewport = self.inner_area(doc);
-        let text_fmt = doc.text_format(viewport.width, None);
-        let annotations = self.text_annotations(doc, None);
-        let view_offset = doc.view_offset(self.id);
-
-        // last visual line in view is trivial to compute
-        let visual_height = doc.view_offset(self.id).vertical_offset + viewport.height as usize;
-
-        // fast path when the EOF is not visible on the screen,
-        if self.estimate_last_doc_line(doc) < doc_text.len_lines() - 1 {
-            return visual_height.saturating_sub(1);
-        }
-
-        // translate to document line
-        let pos = visual_offset_from_anchor(
-            doc_text,
-            view_offset.anchor,
-            usize::MAX,
-            &text_fmt,
-            &annotations,
-            visual_height,
-        );
-
-        match pos {
-            Ok((DisplayPosition { row, .. }, _)) => row.saturating_sub(view_offset.vertical_offset),
-            Err(PosAfterMaxRow) => visual_height.saturating_sub(1),
-            Err(PosBeforeAnchorRow) => 0,
-        }
+        self.layout(doc, None).last_visual_line()
     }
 
-    /// Translates a document position to an absolute position in the terminal.
-    /// Returns a (line, col) position if the position is visible on screen.
-    // TODO: Could return width as well for the character width at cursor.
-    pub fn screen_coords_at_pos(
-        &self,
-        doc: &Document,
-        text: RopeSlice,
-        pos: usize,
-    ) -> Option<DisplayPosition> {
-        let view_offset = doc.view_offset(self.id);
+    /// Translate a document character position to a visible position relative to the text viewport.
+    pub fn screen_coords_at_pos(&self, doc: &Document, pos: usize) -> Option<DisplayPosition> {
+        self.layout(doc, None).display_position_at_pos(pos)
+    }
 
+    /// Prepare geometry, text formatting, and feature annotations once for an operation.
+    pub fn layout<'a>(&self, doc: &'a Document, theme: Option<&Theme>) -> ViewLayout<'a> {
         let viewport = self.inner_area(doc);
-        let text_fmt = doc.text_format(viewport.width, None);
-        let annotations = self.text_annotations(doc, None);
-
-        let mut pos = visual_offset_from_anchor(
-            text,
-            view_offset.anchor,
-            pos,
-            &text_fmt,
-            &annotations,
-            viewport.height as usize,
-        )
-        .ok()?
-        .0;
-        if pos.row < view_offset.vertical_offset {
-            return None;
+        let format = doc.text_format(viewport.width, theme);
+        let annotations = self.prepare_text_annotations(doc, theme, &format, viewport.width);
+        ViewLayout {
+            text: doc.text().slice(..),
+            viewport,
+            offset: doc.view_offset(self.id),
+            format,
+            annotations,
         }
-        pos.row -= view_offset.vertical_offset;
-        if pos.row >= viewport.height as usize {
-            return None;
-        }
-        pos.col = pos.col.saturating_sub(view_offset.horizontal_offset);
-
-        Some(pos)
     }
 
     /// Get the text annotations to display in the current view for the given document and theme.
@@ -506,6 +458,17 @@ impl View {
         &self,
         doc: &'a Document,
         theme: Option<&Theme>,
+    ) -> TextAnnotations<'a> {
+        let width = self.inner_width(doc);
+        self.prepare_text_annotations(doc, theme, &doc.text_format(width, theme), width)
+    }
+
+    fn prepare_text_annotations<'a>(
+        &self,
+        doc: &'a Document,
+        theme: Option<&Theme>,
+        format: &TextFormat,
+        width: u16,
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
 
@@ -563,12 +526,11 @@ impl View {
                 crate::annotations::inline_completion::InlineCompletionLines::new(
                     completion.cursor,
                     &completion.lines,
-                    doc.text_format(self.inner_width(doc), theme),
+                    format.clone(),
                     line_end,
                 ),
             ));
         }
-        let width = self.inner_width(doc);
         let enable_cursor_line = self
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, self.id);
@@ -591,68 +553,6 @@ impl View {
         text_annotations
     }
 
-    pub fn text_pos_at_screen_coords(
-        &self,
-        doc: &Document,
-        row: u16,
-        column: u16,
-        fmt: TextFormat,
-        annotations: &TextAnnotations,
-        ignore_virtual_text: bool,
-    ) -> Option<usize> {
-        let inner = self.inner_area(doc);
-        // 1 for status
-        if row < inner.top() || row >= inner.bottom() {
-            return None;
-        }
-
-        if column < inner.left() || column > inner.right() {
-            return None;
-        }
-
-        self.text_pos_at_visual_coords(
-            doc,
-            row - inner.y,
-            column - inner.x,
-            fmt,
-            annotations,
-            ignore_virtual_text,
-        )
-    }
-
-    pub fn text_pos_at_visual_coords(
-        &self,
-        doc: &Document,
-        row: u16,
-        column: u16,
-        text_fmt: TextFormat,
-        annotations: &TextAnnotations,
-        ignore_virtual_text: bool,
-    ) -> Option<usize> {
-        let text = doc.text().slice(..);
-        let view_offset = doc.view_offset(self.id);
-
-        let text_row = row as usize + view_offset.vertical_offset;
-        let text_col = column as usize + view_offset.horizontal_offset;
-
-        let (char_idx, virt_lines) = char_idx_at_visual_offset(
-            text,
-            view_offset.anchor,
-            text_row as isize,
-            text_col,
-            &text_fmt,
-            annotations,
-        );
-
-        // if the cursor is on a line with only virtual text return None
-        if virt_lines != 0 && ignore_virtual_text {
-            return None;
-        }
-        Some(char_idx)
-    }
-
-    /// Translates a screen position to position in the text document.
-    /// Returns a usize typed position in bounds of the text if found in this view, None if out of view.
     pub fn pos_at_screen_coords(
         &self,
         doc: &Document,
@@ -660,14 +560,8 @@ impl View {
         column: u16,
         ignore_virtual_text: bool,
     ) -> Option<usize> {
-        self.text_pos_at_screen_coords(
-            doc,
-            row,
-            column,
-            doc.text_format(self.inner_width(doc), None),
-            &self.text_annotations(doc, None),
-            ignore_virtual_text,
-        )
+        self.layout(doc, None)
+            .position_at_screen_coords(row, column, ignore_virtual_text)
     }
 
     pub fn pos_at_visual_coords(
@@ -677,19 +571,10 @@ impl View {
         column: u16,
         ignore_virtual_text: bool,
     ) -> Option<usize> {
-        self.text_pos_at_visual_coords(
-            doc,
-            row,
-            column,
-            doc.text_format(self.inner_width(doc), None),
-            &self.text_annotations(doc, None),
-            ignore_virtual_text,
-        )
+        self.layout(doc, None)
+            .position_at_view_coords(row, column, ignore_virtual_text)
     }
 
-    /// Translates screen coordinates into coordinates on the gutter of the view.
-    /// Returns a tuple of usize typed line and column numbers starting with 0.
-    /// Returns None if coordinates are not on the gutter.
     pub fn gutter_coords_at_screen_coords(
         &self,
         doc: &Document,
@@ -879,10 +764,7 @@ mod tests {
         assert_eq!(view.inner_height(&doc), 2);
         assert_eq!(view.pos_at_screen_coords(&doc, 7, 10, true), None);
         assert_eq!(view.gutter_coords_at_screen_coords(&doc, 7, 3), None);
-        assert_eq!(
-            view.screen_coords_at_pos(&doc, doc.text().slice(..), 13),
-            None
-        );
+        assert_eq!(view.screen_coords_at_pos(&doc, 13), None);
 
         let mut updated = (**config.load()).clone();
         updated.statusline.global = true;
@@ -897,7 +779,7 @@ mod tests {
             Some(DisplayPosition::new(2, 0))
         );
         assert_eq!(
-            view.screen_coords_at_pos(&doc, doc.text().slice(..), 13),
+            view.screen_coords_at_pos(&doc, 13),
             Some(DisplayPosition::new(2, 0))
         );
 
@@ -936,161 +818,45 @@ mod tests {
         );
         doc.ensure_view_init(view.id);
 
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                2,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
+        assert_eq!(view.pos_at_screen_coords(&doc, 40, 2, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 40, 41, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 0, 2, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 0, 49, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 0, 41, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 40, 81, true), None);
+
+        assert_eq!(view.pos_at_screen_coords(&doc, 78, 41, true), None);
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                41,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                0,
-                2,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                0,
-                49,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                0,
-                41,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                81,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                78,
-                41,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            None
-        );
-
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 3,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 3, true),
             Some(3)
         );
 
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                80,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            Some(3)
-        );
+        assert_eq!(view.pos_at_screen_coords(&doc, 40, 79, true), Some(3));
+        assert_eq!(view.pos_at_screen_coords(&doc, 40, 80, true), None);
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                41,
-                40 + DEFAULT_GUTTER_OFFSET + 1,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 41, 40 + DEFAULT_GUTTER_OFFSET + 1, true),
             Some(4)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                41,
-                40 + DEFAULT_GUTTER_OFFSET + 4,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 41, 40 + DEFAULT_GUTTER_OFFSET + 4, true),
             Some(5)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                41,
-                40 + DEFAULT_GUTTER_OFFSET + 7,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 41, 40 + DEFAULT_GUTTER_OFFSET + 7, true),
             Some(8)
         );
 
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                41,
-                80,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            Some(8)
-        );
+        assert_eq!(view.pos_at_screen_coords(&doc, 41, 79, true), Some(8));
+        assert_eq!(view.pos_at_screen_coords(&doc, 41, 80, true), None);
     }
 
     #[tokio::test]
@@ -1113,12 +879,10 @@ mod tests {
         );
         doc.ensure_view_init(view.id);
         assert_eq!(
-            view.text_pos_at_screen_coords(
+            view.pos_at_screen_coords(
                 &doc,
                 41,
                 40 + DEFAULT_GUTTER_OFFSET_ONLY_DIAGNOSTICS + 1,
-                TextFormat::default(),
-                &TextAnnotations::default(),
                 true
             ),
             Some(4)
@@ -1144,17 +908,7 @@ mod tests {
             Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
-        assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                41,
-                40 + 1,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
-            Some(4)
-        );
+        assert_eq!(view.pos_at_screen_coords(&doc, 41, 40 + 1, true), Some(4));
     }
 
     #[tokio::test]
@@ -1175,73 +929,31 @@ mod tests {
         doc.ensure_view_init(view.id);
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET, true),
             Some(0)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 4,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 4, true),
             Some(4)
         );
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 5,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 5, true),
             Some(4)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 6,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 6, true),
             Some(5)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 7,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 7, true),
             Some(5)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 8,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 8, true),
             Some(6)
         );
     }
@@ -1264,62 +976,27 @@ mod tests {
         doc.ensure_view_init(view.id);
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET, true),
             Some(0)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 1,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 1, true),
             Some(1)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 2,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 2, true),
             Some(3)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 3,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 3, true),
             Some(5)
         );
 
         assert_eq!(
-            view.text_pos_at_screen_coords(
-                &doc,
-                40,
-                40 + DEFAULT_GUTTER_OFFSET + 4,
-                TextFormat::default(),
-                &TextAnnotations::default(),
-                true
-            ),
+            view.pos_at_screen_coords(&doc, 40, 40 + DEFAULT_GUTTER_OFFSET + 4, true),
             Some(7)
         );
     }

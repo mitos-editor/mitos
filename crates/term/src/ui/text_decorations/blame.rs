@@ -154,10 +154,14 @@ mod tests {
         ));
         render_document(
             &mut surface,
-            area,
             doc,
-            offset,
-            &Default::default(),
+            &view::view::ViewLayout {
+                text: doc.text().slice(..),
+                viewport: area,
+                offset,
+                format: doc.text_format(area.width, Some(&theme)),
+                annotations: Default::default(),
+            },
             None,
             vec![],
             &theme,

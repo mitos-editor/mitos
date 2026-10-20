@@ -14,7 +14,7 @@ use crate::{
         Completion, ProgressSpinners,
     },
 };
-use text_layout::{text_annotations::TextAnnotations, DisplayPosition};
+use text_layout::DisplayPosition;
 
 use ::diagnostics::NumberOrString;
 use editor_config::{BufferLine, DiagnosticFilter};
@@ -274,14 +274,15 @@ impl EditorView {
             Self::render_view_border(editor, view, viewport, surface);
             return;
         }
-        let inner = view.inner_area(doc);
+        let layout = view.layout(doc, Some(&editor.theme));
+        let inner = layout.viewport;
         let area = view.content_area(doc);
         let theme = &editor.theme;
         let config = editor.config();
 
-        let view_offset = doc.view_offset(view.id);
+        let view_offset = layout.offset;
 
-        let text_annotations = view.text_annotations(doc, Some(theme));
+        let text_annotations = &layout.annotations;
         let mut decorations = DecorationManager::default();
 
         if doc.breadcrumb_enabled() && !area.is_empty() {
@@ -293,7 +294,7 @@ impl EditorView {
         }
 
         if is_focused && config.cursor.highlight_column {
-            Self::highlight_cursorcolumn(doc, view, surface, theme, inner, &text_annotations);
+            Self::highlight_cursorcolumn(doc, view, surface, theme, &layout);
         }
 
         // Set DAP highlights, if needed.
@@ -319,7 +320,7 @@ impl EditorView {
             doc,
             view_offset.anchor,
             inner.height,
-            &text_annotations,
+            text_annotations,
         ));
 
         if doc
@@ -402,7 +403,7 @@ impl EditorView {
                     theme
                         .try_get_exact("ui.virtual.inline-completion")
                         .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-                    doc.text_format(view.inner_width(doc), Some(theme)),
+                    layout.format.clone(),
                     line_end,
                 ),
             );
@@ -461,10 +462,8 @@ impl EditorView {
         }
         render_document(
             surface,
-            inner,
             doc,
-            view_offset,
-            &text_annotations,
+            &layout,
             syntax_highlighter,
             overlays,
             theme,
@@ -868,10 +867,9 @@ impl EditorView {
         view: &View,
         surface: &mut Surface,
         theme: &Theme,
-        viewport: Rect,
-        text_annotations: &TextAnnotations,
+        layout: &view::view::ViewLayout,
     ) {
-        let text = doc.text().slice(..);
+        let text = layout.text;
 
         // Manual fallback behaviour:
         // ui.cursorcolumn.{p/s} -> ui.cursorcolumn -> ui.cursorline.{p/s}
@@ -884,18 +882,19 @@ impl EditorView {
             .or_else(|| theme.try_get_exact("ui.cursorcolumn"))
             .unwrap_or_else(|| theme.get("ui.cursorline.secondary"));
 
-        let inner_area = view.inner_area(doc);
+        let inner_area = layout.viewport;
 
         let selection = doc.selection(view.id);
-        let view_offset = doc.view_offset(view.id);
+        let view_offset = layout.offset;
         let primary = selection.primary();
-        let text_format = doc.text_format(viewport.width, None);
+        let text_format = &layout.format;
+        let text_annotations = &layout.annotations;
         for range in selection.iter() {
             let is_primary = primary == *range;
             let cursor = range.cursor(text);
 
             let DisplayPosition { col, .. } =
-                visual_offset_from_block(text, cursor, cursor, &text_format, text_annotations).0;
+                visual_offset_from_block(text, cursor, cursor, text_format, text_annotations).0;
 
             // if the cursor is horizontally in the view
             if col >= view_offset.horizontal_offset
