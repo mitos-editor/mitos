@@ -65,11 +65,12 @@ your `~/.bashrc` or equivalent:
 export MITOS_RUNTIME=~/src/mitos/runtime
 ```
 
-Or, create a symbolic link if `~/.config/mitos/runtime` does not already exist:
+Or, create a symbolic link in the data directory if it does not already exist:
 
 ```sh
-mkdir -p ~/.config/mitos
-ln -s "$PWD/runtime" ~/.config/mitos/runtime
+mitos_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/mitos"
+mkdir -p "$mitos_data_dir"
+ln -s "$PWD/runtime" "$mitos_data_dir/runtime"
 ```
 
 Run this from the repository root. Review an existing runtime directory before
@@ -106,12 +107,19 @@ following order:
 1. The workspace's `runtime/` directory when running through Cargo.
 2. `runtime/` subdirectory of OS-dependent mitos user config directory.
 3. `$MITOS_RUNTIME`
-4. Distribution-specific fallback directory (set at build time with
+4. `runtime/` subdirectory of the user data directory: `$XDG_DATA_HOME/mitos/runtime`
+   (normally `~/.local/share/mitos/runtime`) on Linux and macOS. On Windows,
+   the data and config runtime directories are both `%AppData%\mitos\runtime`.
+5. Distribution-specific fallback directory (set at build time with
    `MITOS_DEFAULT_RUNTIME`).
-5. `runtime/` subdirectory of path to Mitos executable.
+6. `runtime/` subdirectory of path to Mitos executable.
 
 This order also sets the priority for selecting which file will be used if multiple runtime
 directories have files with the same name.
+
+Use the data runtime directory for installed runtime assets. Keep personal
+query or dictionary overrides in the config runtime directory, which takes
+priority. Custom themes can also live in the config directory's `themes/` folder.
 
 `ms --grammar fetch` and `ms --grammar build` write grammar sources and compiled
 grammars into the first runtime directory, normally the user config directory's

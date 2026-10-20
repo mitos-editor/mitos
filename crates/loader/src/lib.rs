@@ -67,16 +67,21 @@ pub fn initialize_log_file(specified_file: Option<PathBuf>) {
 ///    set at run time)
 /// 2. subdirectory of user config directory (always included)
 /// 3. `MITOS_RUNTIME` (if environment variable is set)
-/// 4. `MITOS_DEFAULT_RUNTIME` (if environment variable is set *at build time*)
-/// 5. subdirectory of path to mitos executable (always included)
+/// 4. subdirectory of user data directory (unless it is also the config directory)
+/// 5. `MITOS_DEFAULT_RUNTIME` (if environment variable is set *at build time*)
+/// 6. subdirectory of path to mitos executable (always included)
 ///
 /// Postcondition: returns at least two paths (they might not exist).
 fn prioritize_runtime_dirs() -> Vec<PathBuf> {
     let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
-    runtime_dirs_for_manifest(manifest_dir.as_deref())
+    let runtime_override = std::env::var("MITOS_RUNTIME").ok();
+    runtime_dirs_for_manifest(manifest_dir.as_deref(), runtime_override.as_deref())
 }
 
-fn runtime_dirs_for_manifest(manifest_dir: Option<&Path>) -> Vec<PathBuf> {
+fn runtime_dirs_for_manifest(
+    manifest_dir: Option<&Path>,
+    runtime_override: Option<&str>,
+) -> Vec<PathBuf> {
     const RT_DIR: &str = "runtime";
     // Adding higher priority first
     let mut rt_dirs = Vec::new();
@@ -93,11 +98,16 @@ fn runtime_dirs_for_manifest(manifest_dir: Option<&Path>) -> Vec<PathBuf> {
     }
 
     let conf_rt_dir = config_dir().join(RT_DIR);
-    rt_dirs.push(conf_rt_dir);
+    rt_dirs.push(conf_rt_dir.clone());
 
-    if let Ok(dir) = std::env::var("MITOS_RUNTIME") {
-        let dir = path::expand_tilde(Path::new(&dir));
+    if let Some(dir) = runtime_override {
+        let dir = path::expand_tilde(Path::new(dir));
         rt_dirs.push(path::normalize(dir));
+    }
+
+    let data_rt_dir = data_dir().join(RT_DIR);
+    if data_rt_dir != conf_rt_dir {
+        rt_dirs.push(data_rt_dir);
     }
 
     // If this variable is set during build time, it will always be included
@@ -333,8 +343,31 @@ fn ensure_parent_dir(path: &Path) {
 mod directory_tests {
     #[test]
     fn installed_runtime_starts_with_user_config() {
-        let directories = super::runtime_dirs_for_manifest(None);
+        let directories = super::runtime_dirs_for_manifest(None, None);
         assert_eq!(directories[0], super::config_dir().join("runtime"));
+    }
+
+    #[test]
+    fn data_runtime_follows_user_overrides_and_precedes_bundled_runtime() {
+        let runtime_override = tempfile::tempdir().unwrap();
+        let directories =
+            super::runtime_dirs_for_manifest(None, Some(runtime_override.path().to_str().unwrap()));
+        let config_runtime = super::config_dir().join("runtime");
+        let data_runtime = super::data_dir().join("runtime");
+        assert_eq!(directories[0], config_runtime);
+        assert_eq!(directories[1], runtime_override.path());
+        if data_runtime != config_runtime {
+            assert_eq!(directories[2], data_runtime);
+            assert!(directories.len() >= 4);
+        } else {
+            assert_eq!(
+                directories
+                    .iter()
+                    .filter(|dir| **dir == data_runtime)
+                    .count(),
+                1
+            );
+        }
     }
 
     #[test]
@@ -344,7 +377,7 @@ mod directory_tests {
         std::fs::create_dir(workspace.path().join("runtime")).unwrap();
         for package in ["crates/loader", "xtask", ""] {
             let manifest = workspace.path().join(package);
-            let directories = super::runtime_dirs_for_manifest(Some(&manifest));
+            let directories = super::runtime_dirs_for_manifest(Some(&manifest), None);
             assert_eq!(directories[0], workspace.path().join("runtime"));
             assert_eq!(directories[1], super::config_dir().join("runtime"));
         }
@@ -353,7 +386,7 @@ mod directory_tests {
     #[test]
     fn cargo_runtime_without_workspace_starts_with_user_config() {
         let manifest = tempfile::tempdir().unwrap();
-        let directories = super::runtime_dirs_for_manifest(Some(manifest.path()));
+        let directories = super::runtime_dirs_for_manifest(Some(manifest.path()), None);
         assert_eq!(directories[0], super::config_dir().join("runtime"));
     }
 
