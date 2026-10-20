@@ -689,3 +689,59 @@ async fn test_indent_with_spaces() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_insert_char_reports_only_accepted_input() -> anyhow::Result<()> {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use term::{
+        commands::{insert::insert_char, Context},
+        events::PostInsertChar,
+        job::Jobs,
+    };
+
+    let config = test_config();
+    let directory = tempfile::tempdir()?;
+    let binary = directory.path().join("binary.pdf");
+    std::fs::write(&binary, b"%PDF-1.7 binary fixture")?;
+    let mut app = AppBuilder::new()
+        .with_config(config.clone())
+        .with_file(&binary, None)
+        .build()?;
+    let events = Arc::new(AtomicUsize::new(0));
+    let observed = events.clone();
+    event::register_hook!(move |_event: &mut PostInsertChar<'_, '_>| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    });
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut jobs = Jobs::new();
+    let mut cx = Context {
+        config: term::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        register: None,
+        count: None,
+        editor: &mut app.editor,
+        callback: Vec::new(),
+        on_next_key_callback: None,
+        jobs: &mut jobs,
+    };
+    let before = view::doc!(cx.editor).text().clone();
+    insert_char(&mut cx, 'x');
+    assert_eq!(events.load(Ordering::Relaxed), 0);
+    assert_eq!(view::doc!(cx.editor).text(), &before);
+
+    cx.editor.new_file(view::editor::Action::Replace);
+    let expected = format!("(){}", view::doc!(cx.editor).line_ending.as_str());
+    insert_char(&mut cx, '(');
+    assert_eq!(events.load(Ordering::Relaxed), 1);
+    assert_eq!(view::doc!(cx.editor).text(), expected.as_str());
+    insert_char(&mut cx, ')');
+    assert_eq!(events.load(Ordering::Relaxed), 2);
+    assert_eq!(view::doc!(cx.editor).text(), expected.as_str());
+    Ok(())
+}

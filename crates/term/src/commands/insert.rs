@@ -14,10 +14,17 @@ use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editing::insert};
 
 pub fn insert_char(cx: &mut Context, c: char) {
+    if let Err(error) = try_insert_char(cx, c) {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+fn try_insert_char(cx: &mut Context, c: char) -> Result<(), view::editing::EditError> {
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::insert_char(doc, view.id, c, pairs);
+    insert::insert_char(doc, view.id, c, pairs)?;
     event::dispatch(PostInsertChar { c, cx }).report_to(cx.editor.status_sender());
+    Ok(())
 }
 
 pub fn smart_tab(cx: &mut Context) {
@@ -55,7 +62,9 @@ pub fn insert_tab(cx: &mut Context) {
 
 fn insert_tab_impl(cx: &mut Context, count: usize) {
     let (view, doc) = current!(cx.editor);
-    insert::insert_tab(doc, view.id, count);
+    if let Err(error) = insert::insert_tab(doc, view.id, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub fn append_char_interactive(cx: &mut Context) {
@@ -82,7 +91,10 @@ fn insert_selection_interactive(cx: &mut Context, old_mode: Mode) {
                 ..
             } => {
                 for _ in 0..count {
-                    insert_char(cx, ch)
+                    if let Err(error) = try_insert_char(cx, ch) {
+                        cx.editor.set_error(|| error.to_string());
+                        break;
+                    }
                 }
             }
             key!(Enter) => {
@@ -104,42 +116,56 @@ fn insert_selection_interactive(cx: &mut Context, old_mode: Mode) {
 pub fn insert_newline(cx: &mut Context) {
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::insert_newline(doc, view.id, pairs);
+    if let Err(error) = insert::insert_newline(doc, view.id, pairs) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub fn delete_char_backward(cx: &mut Context) {
     let count = cx.count();
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::delete_char_backward(doc, view.id, count, pairs);
+    if let Err(error) = insert::delete_char_backward(doc, view.id, count, pairs) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub fn delete_char_forward(cx: &mut Context) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    insert::delete_char_forward(doc, view.id, count);
+    if let Err(error) = insert::delete_char_forward(doc, view.id, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub fn delete_word_backward(cx: &mut Context) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    insert::delete_word_backward(doc, view.id, count);
+    if let Err(error) = insert::delete_word_backward(doc, view.id, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub fn delete_word_forward(cx: &mut Context) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    insert::delete_word_forward(doc, view.id, count);
+    if let Err(error) = insert::delete_word_forward(doc, view.id, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub(super) fn kill_to_line_start(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    insert::kill_to_line_start(doc, view.id);
+    if let Err(error) = insert::kill_to_line_start(doc, view.id) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub(super) fn kill_to_line_end(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    insert::kill_to_line_end(doc, view.id);
+    if let Err(error) = insert::kill_to_line_end(doc, view.id) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 // `I` inserts at the first nonwhitespace character of each line with a selection.
@@ -158,16 +184,22 @@ pub(super) fn insert_at_line_end(cx: &mut Context) {
 // If the line is not empty, move the cursor to the specified fallback position.
 fn insert_with_indent(cx: &mut Context, cursor_fallback: LineBoundary) {
     let extend = cx.editor.mode() == Mode::Select;
-    enter_insert_mode(cx);
     let (view, doc) = current!(cx.editor);
-    insert::insert_at_line_boundary(doc, view.id, cursor_fallback, extend);
+    if let Err(error) = insert::insert_at_line_boundary(doc, view.id, cursor_fallback, extend) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
+    enter_insert_mode(cx);
 }
 
 pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentContinuation) {
-    enter_insert_mode(cx);
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    insert::open_lines(doc, view.id, open, comment_continuation, count);
+    if let Err(error) = insert::open_lines(doc, view.id, open, comment_continuation, count) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
+    enter_insert_mode(cx);
 }
 
 // o inserts a new line after each line with a selection
@@ -191,5 +223,7 @@ pub(super) fn add_newline_below(cx: &mut Context) {
 fn add_newline_impl(cx: &mut Context, open: Open) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    insert::add_newlines(doc, view.id, open, count);
+    if let Err(error) = insert::add_newlines(doc, view.id, open, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }

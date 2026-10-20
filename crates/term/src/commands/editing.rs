@@ -18,14 +18,20 @@ pub(super) fn align_selections(cx: &mut Context) {
             .set_error(|| "align cannot work with multi line selections");
         return;
     };
-    view::editing::apply(doc, &transaction, view.id);
+    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
 fn apply_transform(cx: &mut Context, operation: fn(&Rope, &Selection) -> Transaction) {
     let (view, doc) = current!(cx.editor);
     let transaction = operation(doc.text(), doc.selection(view.id));
-    view::editing::apply(doc, &transaction, view.id);
+    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
@@ -43,18 +49,24 @@ pub(super) fn switch_to_lowercase(cx: &mut Context) {
 
 pub(super) fn join_selections(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    view::editing::join_selections(doc, view.id, false);
+    if let Err(error) = view::editing::join_selections(doc, view.id, false) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub(super) fn join_selections_space(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    view::editing::join_selections(doc, view.id, true);
+    if let Err(error) = view::editing::join_selections(doc, view.id, true) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 fn reorder_selection_contents(cx: &mut Context, strategy: editor_core::transform::ReorderStrategy) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    view::editing::reorder_selection_contents(doc, view.id, strategy, count);
+    if let Err(error) = view::editing::reorder_selection_contents(doc, view.id, strategy, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 pub(super) fn rotate_selection_contents_forward(cx: &mut Context) {
@@ -74,7 +86,10 @@ pub(super) fn indent(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let transaction =
         editor_core::transform::indent(doc.text(), doc.selection(view.id), doc.indent_style, count);
-    view::editing::apply(doc, &transaction, view.id);
+    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
@@ -87,25 +102,37 @@ pub(super) fn unindent(cx: &mut Context) {
         doc.tab_width(),
         count * doc.indent_width(),
     );
-    view::editing::apply(doc, &transaction, view.id);
+    if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
 pub(super) fn toggle_comments(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_comments(doc, view.id);
+    if let Err(error) = view::editing::toggle_comments(doc, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
 pub(super) fn toggle_line_comments(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_line_comments(doc, view.id);
+    if let Err(error) = view::editing::toggle_line_comments(doc, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 
 pub(super) fn toggle_block_comments(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_block_comments(doc, view.id);
+    if let Err(error) = view::editing::toggle_block_comments(doc, view.id) {
+        cx.editor.set_error(|| error.to_string());
+        return;
+    }
     exit_select_mode(cx);
 }
 

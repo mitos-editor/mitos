@@ -438,7 +438,7 @@ pub(super) mod typed {
         }
 
         drop(diff); // make borrow check happy
-        view::editing::apply(doc, &transaction, view.id);
+        view::editing::try_apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
         cx.editor.set_status(format!(

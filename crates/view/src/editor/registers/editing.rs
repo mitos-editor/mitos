@@ -72,7 +72,7 @@ impl Editor {
                 Open::Above,
                 CommentContinuation::Disabled,
                 count,
-            );
+            )?;
         }
         self.set_mode(Mode::Insert);
         Ok(())

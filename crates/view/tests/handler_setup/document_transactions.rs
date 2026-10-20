@@ -15,7 +15,8 @@ async fn reordering_preserves_primary_content_and_can_be_undone() -> anyhow::Res
             0,
         ),
     );
-    view::editing::reorder_selection_contents(doc, view.id, ReorderStrategy::RotateForward, 1);
+    view::editing::reorder_selection_contents(doc, view.id, ReorderStrategy::RotateForward, 1)
+        .unwrap();
     assert_eq!(doc.text().to_string(), "ccc a bb\n");
     assert_eq!(
         doc.selection(view.id)

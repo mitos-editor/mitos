@@ -260,7 +260,7 @@ mod tests {
     async fn insert_mode_paste_is_separate_from_preceding_typing() {
         let (mut doc, mut view) = document_and_view("#[|]#\n");
         doc.line_ending = LineEnding::LF;
-        insert::insert_char(&mut doc, view.id, 'a', None);
+        insert::insert_char(&mut doc, view.id, 'a', None).unwrap();
         paste(
             &mut doc,
             &mut view,
@@ -430,14 +430,14 @@ mod tests {
             "//",
         );
 
-        toggle_line_comments(&mut doc, view.id);
+        toggle_line_comments(&mut doc, view.id).unwrap();
         assert_eq!(doc.text().to_string(), "# {}");
-        toggle_line_comments(&mut doc, view.id);
+        toggle_line_comments(&mut doc, view.id).unwrap();
         doc.set_selection(view.id, Selection::point(1));
         let pairs = editor_core::auto_pairs::AutoPairs::default();
-        insert::insert_char(&mut doc, view.id, '(', Some(&pairs));
+        insert::insert_char(&mut doc, view.id, '(', Some(&pairs)).unwrap();
         assert_eq!(doc.text().to_string(), "{()}");
-        insert::delete_char_backward(&mut doc, view.id, 1, Some(&pairs));
+        insert::delete_char_backward(&mut doc, view.id, 1, Some(&pairs)).unwrap();
         assert_eq!(doc.text().to_string(), "{}");
 
         let language = replacement.language_for_name("json").unwrap();
@@ -445,7 +445,7 @@ mod tests {
             Some(replacement.language(language).config().clone()),
             &replacement,
         );
-        toggle_line_comments(&mut doc, view.id);
+        toggle_line_comments(&mut doc, view.id).unwrap();
         assert_eq!(doc.text().to_string(), "// {}");
     }
 
@@ -459,9 +459,9 @@ mod tests {
             doc.indent_style = IndentStyle::Spaces(2);
             let original_selection = doc.selection(view.id).clone();
             let pairs = AutoPairs::default();
-            insert::insert_char(&mut doc, view.id, '(', Some(&pairs));
-            insert::insert_newline(&mut doc, view.id, Some(&pairs));
-            insert::insert_char(&mut doc, view.id, '界', Some(&pairs));
+            insert::insert_char(&mut doc, view.id, '(', Some(&pairs)).unwrap();
+            insert::insert_newline(&mut doc, view.id, Some(&pairs)).unwrap();
+            insert::insert_char(&mut doc, view.id, '界', Some(&pairs)).unwrap();
             let expected = format!("({newline}  界{newline}){newline}");
             assert_eq!(doc.text(), expected.as_str());
             assert_eq!(
@@ -500,7 +500,8 @@ mod tests {
                 insert::Open::Below,
                 insert::CommentContinuation::Enabled,
                 2,
-            );
+            )
+            .unwrap();
             assert_eq!(
                 doc.text(),
                 format!("※ x{newline}※ {newline}※ {newline}").as_str()

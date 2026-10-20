@@ -6,7 +6,7 @@
 
 use super::continued_line_comment_token;
 mod delete;
-use crate::{Document, ViewId};
+use crate::{editing::EditError, Document, ViewId};
 pub use delete::{
     delete_char_backward, delete_char_forward, delete_word_backward, delete_word_forward,
     kill_to_line_end, kill_to_line_start,
@@ -42,7 +42,12 @@ pub enum CommentContinuation {
 }
 
 /// Insert a character at each cursor, respecting configured auto pairs.
-pub fn insert_char(doc: &mut Document, view_id: ViewId, c: char, global_pairs: Option<&AutoPairs>) {
+pub fn insert_char(
+    doc: &mut Document,
+    view_id: ViewId,
+    c: char,
+    global_pairs: Option<&AutoPairs>,
+) -> Result<(), EditError> {
     let text = doc.text();
     let selection = doc.selection(view_id);
 
@@ -61,11 +66,11 @@ pub fn insert_char(doc: &mut Document, view_id: ViewId, c: char, global_pairs: O
             .unwrap_or_else(|| insert_char(*range, c))
     });
 
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// Insert indentation up to the next indent stop at each cursor.
-pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) {
+pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) -> Result<(), EditError> {
     let transaction = Transaction::change(
         doc.text(),
         doc.selection(view_id).ranges().iter().map(|range| {
@@ -83,11 +88,15 @@ pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) {
             (cursor, cursor, Some(indent))
         }),
     );
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// Insert line endings with language-aware indentation and comment continuation.
-pub fn insert_newline(doc: &mut Document, view_id: ViewId, global_pairs: Option<&AutoPairs>) {
+pub fn insert_newline(
+    doc: &mut Document,
+    view_id: ViewId,
+    global_pairs: Option<&AutoPairs>,
+) -> Result<(), EditError> {
     let config = doc.config.load();
     let text = doc.text().slice(..);
     let line_ending = doc.line_ending.as_str();
@@ -233,7 +242,7 @@ pub fn insert_newline(doc: &mut Document, view_id: ViewId, global_pairs: Option<
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
     drop(config);
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// Move cursors to line boundaries and indent empty lines.
@@ -242,7 +251,7 @@ pub fn insert_at_line_boundary(
     view_id: ViewId,
     boundary: LineBoundary,
     extend: bool,
-) {
+) -> Result<(), EditError> {
     let text = doc.text().slice(..);
     let contents = doc.text();
     let selection = doc.selection(view_id);
@@ -298,7 +307,7 @@ pub fn insert_at_line_boundary(
     });
 
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// Open indented lines above or below selections.
@@ -308,7 +317,7 @@ pub fn open_lines(
     open: Open,
     comment_continuation: CommentContinuation,
     count: usize,
-) {
+) -> Result<(), EditError> {
     let config = doc.config.load();
 
     let text = doc.text().slice(..);
@@ -422,11 +431,16 @@ pub fn open_lines(
     transaction = transaction.with_selection(Selection::new(ranges, selection.primary_index()));
 
     drop(config);
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// Add blank lines above or below selections without changing editing mode.
-pub fn add_newlines(doc: &mut Document, view_id: ViewId, open: Open, count: usize) {
+pub fn add_newlines(
+    doc: &mut Document,
+    view_id: ViewId,
+    open: Open,
+    count: usize,
+) -> Result<(), EditError> {
     let selection = doc.selection(view_id);
     let text = doc.text();
     let slice = text.slice(..);
@@ -446,5 +460,68 @@ pub fn add_newlines(doc: &mut Document, view_id: ViewId, open: Open, count: usiz
     });
 
     let transaction = Transaction::change(text, changes);
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editing::{self, tests::document_and_view};
+    use editor_core::transform::ReorderStrategy;
+
+    #[tokio::test]
+    async fn rejected_interactive_edits_preserve_text_selection_and_history() {
+        type Edit = fn(&mut Document, ViewId) -> Result<(), EditError>;
+        let edits: &[Edit] = &[
+            |doc, view| insert_char(doc, view, '界', None),
+            |doc, view| insert_tab(doc, view, 1),
+            |doc, view| insert_newline(doc, view, None),
+            |doc, view| open_lines(doc, view, Open::Below, CommentContinuation::Enabled, 1),
+            |doc, view| add_newlines(doc, view, Open::Above, 1),
+            |doc, view| delete_char_backward(doc, view, 1, None),
+            |doc, view| delete_char_forward(doc, view, 1),
+            |doc, view| delete_word_backward(doc, view, 1),
+            |doc, view| delete_word_forward(doc, view, 1),
+            kill_to_line_start,
+            kill_to_line_end,
+            |doc, view| editing::join_selections(doc, view, true),
+            editing::toggle_comments,
+            editing::toggle_line_comments,
+            editing::toggle_block_comments,
+            |doc, view| {
+                editing::reorder_selection_contents(doc, view, ReorderStrategy::RotateForward, 1)
+            },
+        ];
+        for edit in edits {
+            let (doc, mut view) = document_and_view("a #[bb|]# #(ccc|)#\nnext\n");
+            let mut doc = doc.with_readonly_name("adapter source".into());
+            let text = doc.text().clone();
+            let selection = doc.selection(view.id).clone();
+            let version = doc.version();
+            assert_eq!(edit(&mut doc, view.id), Err(EditError::ReadOnlyDocument));
+            assert_eq!(doc.text(), &text);
+            assert_eq!(doc.selection(view.id), &selection);
+            assert_eq!(doc.version(), version);
+            assert!(doc.changes().is_empty());
+            editing::commit(&mut doc, &mut view);
+            assert!(!editing::undo(&mut doc, &mut view));
+        }
+    }
+
+    #[tokio::test]
+    async fn skipping_a_paired_closer_moves_selection_without_changing_text() {
+        let (mut doc, view) = document_and_view("(#[|)]#\n");
+        let pairs = AutoPairs::default();
+        let version = doc.version();
+        insert_char(&mut doc, view.id, ')', Some(&pairs)).unwrap();
+        assert_eq!(doc.text(), "()\n");
+        assert_eq!(
+            doc.selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..)),
+            2
+        );
+        assert_eq!(doc.version(), version);
+        assert!(doc.changes().is_empty());
+    }
 }

@@ -249,6 +249,10 @@ and the original and preview selections. Applying or cancelling a preview valida
 that identity, text, and selection before using saved positions. Terminal commands
 request the delimiter keys and display help or errors. Interactive edits can return
 `EditError` through `try_apply`; boolean callers retain the existing `apply` API.
+Insertion, insert-mode deletion, joining, reordering, and comment operations return
+these errors to their callers. Selection adjustments travel with transactions so
+rejected edits cannot move cursors or change undo groups. Terminal commands report
+rejections and emit successful-input events or change mode only after acceptance.
 
 ### Syntax-aware editing
 

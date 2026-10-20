@@ -1,6 +1,6 @@
 //! Language-aware joining and comment operations over documents.
 
-use crate::{Document, ViewId};
+use crate::{editing::EditError, Document, ViewId};
 use editor_core::{
     comment::{self, BlockCommentToken},
     line_ending::line_end_char_index,
@@ -13,20 +13,25 @@ pub fn reorder_selection_contents(
     view_id: ViewId,
     strategy: editor_core::transform::ReorderStrategy,
     count: usize,
-) {
+) -> Result<(), EditError> {
     if let Some((transaction, selection)) = editor_core::transform::reorder_selection_contents(
         doc.text(),
         doc.selection(view_id),
         strategy,
         count,
     ) {
-        doc.set_selection(view_id, selection);
-        super::apply(doc, &transaction, view_id);
+        let selection = selection.map(transaction.changes());
+        super::try_apply(doc, &transaction.with_selection(selection), view_id)?;
     }
+    Ok(())
 }
 
 /// Join selected lines, continuing comments across matching language layers.
-pub fn join_selections(doc: &mut Document, view_id: ViewId, select_space: bool) {
+pub fn join_selections(
+    doc: &mut Document,
+    view_id: ViewId,
+    select_space: bool,
+) -> Result<(), EditError> {
     use editor_core::movement::skip_while;
     let text = doc.text();
     let slice = text.slice(..);
@@ -76,7 +81,7 @@ pub fn join_selections(doc: &mut Document, view_id: ViewId, select_space: bool) 
 
     // nothing to do, bail out early to avoid crashes later
     if changes.is_empty() {
-        return;
+        return Ok(());
     }
 
     changes.sort_unstable_by_key(|(from, _to, _text)| *from);
@@ -109,7 +114,7 @@ pub fn join_selections(doc: &mut Document, view_id: ViewId, select_space: bool) 
         Transaction::change(text, changes.into_iter())
     };
 
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 // comments
@@ -124,7 +129,7 @@ fn toggle_comments_impl(
     doc: &mut Document,
     view_id: ViewId,
     comment_transaction: CommentTransactionFn,
-) {
+) -> Result<(), EditError> {
     let loader = doc.syntax_loader();
     let cursor = doc
         .selection(view_id)
@@ -169,7 +174,7 @@ fn toggle_comments_impl(
     let transaction =
         comment_transaction(line_token, block_tokens, doc.text(), doc.selection(view_id));
 
-    super::apply(doc, &transaction, view_id);
+    super::try_apply(doc, &transaction, view_id)
 }
 
 /// commenting behavior:
@@ -180,7 +185,7 @@ fn toggle_comments_impl(
 /// 5. no comment tokens and not block commented -> line comment
 ///
 /// Toggle the appropriate line or block comment form for the selected language.
-pub fn toggle_comments(doc: &mut Document, view_id: ViewId) {
+pub fn toggle_comments(doc: &mut Document, view_id: ViewId) -> Result<(), EditError> {
     toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
         let text = doc.slice(..);
 
@@ -239,7 +244,7 @@ pub fn toggle_comments(doc: &mut Document, view_id: ViewId) {
 }
 
 /// Toggle line comments, falling back to blocks when the language requires them.
-pub fn toggle_line_comments(doc: &mut Document, view_id: ViewId) {
+pub fn toggle_line_comments(doc: &mut Document, view_id: ViewId) -> Result<(), EditError> {
     toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
         if line_token.is_none() && block_tokens.is_some() {
             let default_block_tokens = &[BlockCommentToken::default()];
@@ -252,11 +257,11 @@ pub fn toggle_line_comments(doc: &mut Document, view_id: ViewId) {
         } else {
             comment::toggle_line_comments(doc, selection, line_token)
         }
-    });
+    })
 }
 
 /// Toggle block comments, falling back to lines when the language requires them.
-pub fn toggle_block_comments(doc: &mut Document, view_id: ViewId) {
+pub fn toggle_block_comments(doc: &mut Document, view_id: ViewId) -> Result<(), EditError> {
     toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
         if line_token.is_some() && block_tokens.is_none() {
             comment::toggle_line_comments(doc, selection, line_token)
@@ -265,7 +270,7 @@ pub fn toggle_block_comments(doc: &mut Document, view_id: ViewId) {
             let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
             comment::toggle_block_comments(doc, selection, block_comment_tokens)
         }
-    });
+    })
 }
 
 /// Find the existing comment token in the language layer containing this position.

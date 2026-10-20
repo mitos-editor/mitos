@@ -1,6 +1,6 @@
 //! Insert-mode deletion with indentation, pairing, and append-selection semantics.
 
-use crate::{Document, ViewId};
+use crate::{editing::EditError, Document, ViewId};
 use editor_core::{
     auto_pairs,
     auto_pairs::AutoPairs,
@@ -77,7 +77,7 @@ pub fn delete_char_backward(
     view_id: ViewId,
     count: usize,
     global_pairs: Option<&AutoPairs>,
-) {
+) -> Result<(), EditError> {
     let text = doc.text().slice(..);
 
     let auto_pairs = doc.auto_pairs(global_pairs, doc.selection(view_id));
@@ -105,11 +105,15 @@ pub fn delete_char_backward(
                 })
         });
 
-    super::super::apply(doc, &transaction, view_id);
+    super::super::try_apply(doc, &transaction, view_id)
 }
 
 /// Delete forward while retaining append-mode selections.
-pub fn delete_char_forward(doc: &mut Document, view_id: ViewId, count: usize) {
+pub fn delete_char_forward(
+    doc: &mut Document,
+    view_id: ViewId,
+    count: usize,
+) -> Result<(), EditError> {
     delete_by_selection_insert_mode(
         doc,
         view_id,
@@ -122,7 +126,11 @@ pub fn delete_char_forward(doc: &mut Document, view_id: ViewId, count: usize) {
 }
 
 /// Delete backward to word starts.
-pub fn delete_word_backward(doc: &mut Document, view_id: ViewId, count: usize) {
+pub fn delete_word_backward(
+    doc: &mut Document,
+    view_id: ViewId,
+    count: usize,
+) -> Result<(), EditError> {
     delete_by_selection_insert_mode(
         doc,
         view_id,
@@ -133,11 +141,15 @@ pub fn delete_word_backward(doc: &mut Document, view_id: ViewId, count: usize) {
             (range.from(), range.to())
         },
         Direction::Backward,
-    );
+    )
 }
 
 /// Delete forward to word ends while retaining append-mode selections.
-pub fn delete_word_forward(doc: &mut Document, view_id: ViewId, count: usize) {
+pub fn delete_word_forward(
+    doc: &mut Document,
+    view_id: ViewId,
+    count: usize,
+) -> Result<(), EditError> {
     delete_by_selection_insert_mode(
         doc,
         view_id,
@@ -146,7 +158,7 @@ pub fn delete_word_forward(doc: &mut Document, view_id: ViewId, count: usize) {
             (range.cursor(text), head)
         },
         Direction::Forward,
-    );
+    )
 }
 
 fn delete_by_selection_insert_mode(
@@ -154,7 +166,7 @@ fn delete_by_selection_insert_mode(
     view_id: ViewId,
     mut f: impl FnMut(RopeSlice, &Range) -> Deletion,
     direction: Direction,
-) {
+) -> Result<(), EditError> {
     let text = doc.text().slice(..);
     let mut selection = SmallVec::new();
     let mut insert_newline = false;
@@ -185,16 +197,16 @@ fn delete_by_selection_insert_mode(
     }
 
     if direction == Direction::Forward {
-        doc.set_selection(
-            view_id,
-            Selection::new(selection, doc.selection(view_id).primary_index()),
-        );
+        let selection = Selection::new(selection, doc.selection(view_id).primary_index())
+            .ensure_invariants(text)
+            .map(transaction.changes());
+        transaction = transaction.with_selection(selection);
     }
-    super::super::apply(doc, &transaction, view_id);
+    super::super::try_apply(doc, &transaction, view_id)
 }
 
 /// Delete to the first nonblank character or the previous line ending.
-pub fn kill_to_line_start(doc: &mut Document, view_id: ViewId) {
+pub fn kill_to_line_start(doc: &mut Document, view_id: ViewId) -> Result<(), EditError> {
     delete_by_selection_insert_mode(
         doc,
         view_id,
@@ -220,11 +232,11 @@ pub fn kill_to_line_start(doc: &mut Document, view_id: ViewId) {
             (head, anchor)
         },
         Direction::Backward,
-    );
+    )
 }
 
 /// Delete through the line end, joining lines when already at the line ending.
-pub fn kill_to_line_end(doc: &mut Document, view_id: ViewId) {
+pub fn kill_to_line_end(doc: &mut Document, view_id: ViewId) -> Result<(), EditError> {
     delete_by_selection_insert_mode(
         doc,
         view_id,
@@ -241,5 +253,5 @@ pub fn kill_to_line_end(doc: &mut Document, view_id: ViewId) {
             }
         },
         Direction::Forward,
-    );
+    )
 }
