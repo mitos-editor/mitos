@@ -36,7 +36,7 @@ This crate provides routines for searching **discontiguous strings** for matches
 
 It is intended as a prototype for upstream support for "streaming regex". The cursor based API in this crate is very similar to the API already exposed by `regex`/`regex-automata`. To that end a generic `Cursor` trait is provided that collections can implement.
 
-A sketch of the cursor API is shown below. The string is yielded in multiple byte chunks. Calling advance moves the cursor to the next chunk. Calling backtrack moves the cursor a chunk back. Backtracking is required by this crate. That makes it unsuitable for searching fully unbuffered streams like bytes send over a TCP connection. 
+A sketch of the cursor API is shown below. The string is yielded in multiple byte chunks. Calling advance moves the cursor to the next chunk. Calling backtrack moves the cursor a chunk back. Backtracking is required by this crate. That makes it unsuitable for searching fully unbuffered streams like bytes send over a TCP connection.
 
 ``` rust
 pub trait Cursor {
@@ -54,4 +54,3 @@ The only part of this crate that could be applied to the fully streaming case is
 * utf-8 mode can not be supported (empty matches may occur between unicode boundaries)
 
 Currently, the PikeVM implementation is not written with this use case in mind and may call backtrack unnecessarily, but that could be addressed in the future, but especially the first point is very limiting. The pikevm also does not allow the user to drive the search and would block on network calls for example (no async).
-

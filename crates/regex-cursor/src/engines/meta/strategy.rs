@@ -855,7 +855,7 @@ impl Core {
         // match bounds and not the entire haystack.
         trace!(
             "match found at {}..{} in capture search, \
-		  	 using another engine to find captures",
+             using another engine to find captures",
             m.start(),
             m.end(),
         );
@@ -1383,7 +1383,7 @@ impl ReverseAnchored {
 //         };
 //         trace!(
 //             "match found at {}..{} in capture search, \
-// 		  	 using another engine to find captures",
+//              using another engine to find captures",
 //             hm_start.offset(),
 //             input.end(),
 //         );
@@ -1754,7 +1754,7 @@ impl ReverseAnchored {
 //         };
 //         trace!(
 //             "match found at {}..{} in capture search, \
-// 		  	 using another engine to find captures",
+//              using another engine to find captures",
 //             m.start(),
 //             m.end(),
 //         );

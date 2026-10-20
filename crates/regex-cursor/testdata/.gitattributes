@@ -1,0 +1,2 @@
+# Preserve the generated upstream corpus byte for byte, including final blank lines.
+fowler/*.toml whitespace=-blank-at-eof
