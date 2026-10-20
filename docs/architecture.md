@@ -458,6 +458,11 @@ Background loads position existing destination views without borrowing the focus
 buffer's view identity. Hidden destinations retain a document-owned location that
 is mapped through edits and consumed when a view next displays the document.
 
+`term::application` retains application state, shutdown, signals, and the event
+loop. Its private modules separate startup, live configuration, editor/terminal
+event adaptation, LSP presentation and dispatch, and frame rendering. Adapter
+methods remain available through `Application`; component state stays private.
+
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
