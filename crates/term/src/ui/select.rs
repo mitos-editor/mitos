@@ -99,7 +99,7 @@ impl<T: Item> Component for Select<T> {
         let background = cx.editor.theme.get("ui.background");
         let text = cx.editor.theme.get("ui.text");
         surface.clear_with(message_box, background.patch(text));
-        let block = panel::horizontally_padded(&cx.editor.theme);
+        let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);
         let message_area = block.inner(message_box);
         block.render(message_box, surface);
         self.message.render(message_area, surface, cx);

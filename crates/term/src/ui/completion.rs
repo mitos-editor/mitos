@@ -432,7 +432,7 @@ impl Component for Completion {
         surface.clear_with(doc_area, background);
 
         use tui::widgets::Widget;
-        let block = panel::bordered(&cx.editor.theme);
+        let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
         let markdown_area = block.inner(doc_area);
         Widget::render(block, doc_area, surface);
 

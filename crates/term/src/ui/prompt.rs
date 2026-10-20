@@ -547,7 +547,7 @@ impl Prompt {
             let background = theme.get("ui.help");
             surface.clear_with(area, background);
 
-            let block = ui::panel::horizontally_padded(theme);
+            let block = ui::panel::horizontally_padded(theme, cx.editor.config().border_style);
             let inner = block.inner(area);
 
             block.render(area, surface);

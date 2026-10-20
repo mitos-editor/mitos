@@ -276,6 +276,19 @@ where
     Ok(chars)
 }
 
+/// Border glyphs used by panels, popups, menus, and separators.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BorderStyle {
+    #[default]
+    Plain,
+    Rounded,
+    Double,
+    Thick,
+    QuadrantInside,
+    QuadrantOutside,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
@@ -307,6 +320,7 @@ pub struct Config {
     pub auto_info: bool,
     /// Whether to show icons in the user interface. Defaults to false.
     pub icons: bool,
+    pub border_style: BorderStyle,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
@@ -1106,6 +1120,7 @@ impl Default for Config {
             continue_comments: true,
             auto_info: true,
             icons: false,
+            border_style: BorderStyle::default(),
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
@@ -1464,6 +1479,36 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn border_style_defaults_to_plain_and_round_trips_all_choices() {
+        assert_eq!(Config::default().border_style, BorderStyle::Plain);
+        assert_eq!(
+            toml::from_str::<Config>("").unwrap().border_style,
+            BorderStyle::Plain
+        );
+
+        for (name, expected) in [
+            ("plain", BorderStyle::Plain),
+            ("rounded", BorderStyle::Rounded),
+            ("double", BorderStyle::Double),
+            ("thick", BorderStyle::Thick),
+            ("quadrant-inside", BorderStyle::QuadrantInside),
+            ("quadrant-outside", BorderStyle::QuadrantOutside),
+        ] {
+            let config: Config = toml::from_str(&format!("border-style = '{name}'")).unwrap();
+            assert_eq!(config.border_style, expected);
+            let serialized = toml::Value::try_from(&config).unwrap();
+            assert_eq!(serialized["border-style"].as_str(), Some(name));
+        }
+    }
+
+    #[test]
+    fn border_style_rejects_unknown_values_and_wrong_types() {
+        for value in ["'invalid'", "'none'", "42", "true"] {
+            assert!(toml::from_str::<Config>(&format!("border-style = {value}")).is_err());
+        }
+    }
 
     #[test]
     fn cursor_shapes_default_each_omitted_mode() {

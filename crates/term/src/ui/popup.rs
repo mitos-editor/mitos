@@ -354,7 +354,7 @@ impl<T: Component> Component for Popup<T> {
 
         let mut inner = area;
         if render_borders {
-            let block = panel::bordered(&cx.editor.theme);
+            let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
             inner = block.inner(area);
             Widget::render(block, area, surface);
         }

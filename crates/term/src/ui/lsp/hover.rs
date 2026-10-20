@@ -93,7 +93,11 @@ impl Component for Hover {
             let header = Paragraph::new(header);
             header.render(header_area, surface);
 
-            panel::top_border(cx.editor.theme.get("ui.window")).render(separator_area, surface);
+            panel::top_border(
+                cx.editor.theme.get("ui.window"),
+                cx.editor.config().border_style,
+            )
+            .render(separator_area, surface);
             contents_area
         } else {
             area

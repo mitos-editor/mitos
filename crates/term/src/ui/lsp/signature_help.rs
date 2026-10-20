@@ -162,7 +162,11 @@ impl Component for SignatureHelp {
                 Constraint::Length(1),
             ])
             .areas(area);
-        panel::top_border(cx.editor.theme.get("ui.window")).render(separator_area, surface);
+        panel::top_border(
+            cx.editor.theme.get("ui.window"),
+            cx.editor.config().border_style,
+        )
+        .render(separator_area, surface);
 
         let sig_doc = match &signature.signature_doc {
             None => return,

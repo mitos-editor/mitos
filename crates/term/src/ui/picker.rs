@@ -816,7 +816,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = panel::bordered(&cx.editor.theme);
+        let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
         let inner = block.inner(area);
         block.render(area, surface);
 
@@ -856,7 +856,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .render(count_area, surface);
 
         let sep_style = cx.editor.theme.get("ui.background.separator");
-        panel::top_border(sep_style).render(separator_area, surface);
+        panel::top_border(sep_style, cx.editor.config().border_style)
+            .render(separator_area, surface);
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let rows = rows.max(1);
@@ -1000,7 +1001,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = panel::horizontally_padded(&cx.editor.theme);
+        let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);
         let inner = block.inner(area);
         block.render(area, surface);
 
@@ -1307,7 +1308,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         let render_preview =
             self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);
-        let area = panel::bordered(&editor.theme)
+        let area = panel::bordered(&editor.theme, editor.config().border_style)
             .inner(picker_area)
             .with_height(1)
             .clip_left(1);

@@ -2,7 +2,7 @@
 
 use crate::{
     layout::Rect,
-    widgets::{Block, Borders, Padding},
+    widgets::{Block, BorderType, Borders, Padding},
 };
 use ui_core::graphics::Style;
 
@@ -20,28 +20,25 @@ pub const PADDED_HORIZONTAL_INSET: u16 = BORDER_INSET + HORIZONTAL_INSET;
 pub const PADDED_VERTICAL_INSET: u16 = BORDER_INSET + VERTICAL_INSET;
 
 /// Creates a block with borders on every side.
-pub fn bordered(style: Style) -> Block<'static> {
-    let mut block = Block::bordered().border_style(style);
-    if let Some(border_type) = style.border_type {
-        block = block.border_type(border_type);
-    }
-
-    block
+pub fn bordered(style: Style, border_type: BorderType) -> Block<'static> {
+    Block::bordered()
+        .border_style(style)
+        .border_type(border_type)
 }
 
 /// Creates a bordered block with one cell of horizontal padding.
-pub fn horizontally_padded(style: Style) -> Block<'static> {
-    bordered(style).padding(Padding::horizontal(PADDING))
+pub fn horizontally_padded(style: Style, border_type: BorderType) -> Block<'static> {
+    bordered(style, border_type).padding(Padding::horizontal(PADDING))
 }
 
 /// Creates a bordered block with one cell of padding on every side.
-pub fn uniformly_padded(style: Style) -> Block<'static> {
-    bordered(style).padding(Padding::uniform(PADDING))
+pub fn uniformly_padded(style: Style, border_type: BorderType) -> Block<'static> {
+    bordered(style, border_type).padding(Padding::uniform(PADDING))
 }
 
 /// Creates a separator block with only a top border.
-pub fn top_border(style: Style) -> Block<'static> {
-    bordered(style).borders(Borders::TOP)
+pub fn top_border(style: Style, border_type: BorderType) -> Block<'static> {
+    bordered(style, border_type).borders(Borders::TOP)
 }
 
 /// Returns the area remaining after one cell of padding on every side.
@@ -55,28 +52,24 @@ pub fn content_area(area: Rect) -> Rect {
 mod tests {
     use super::*;
     use crate::{buffer::Buffer, widgets::Widget};
-    use ui_core::graphics::BorderType;
 
     #[test]
     fn panel_and_separator_use_the_selected_border_type() {
         for (border_type, corner, horizontal) in [
-            (None, "┌", "─"),
-            (Some(BorderType::Rounded), "╭", "─"),
-            (Some(BorderType::Double), "╔", "═"),
-            (Some(BorderType::Thick), "┏", "━"),
+            (BorderType::Plain, "┌", "─"),
+            (BorderType::Rounded, "╭", "─"),
+            (BorderType::Double, "╔", "═"),
+            (BorderType::Thick, "┏", "━"),
         ] {
-            let style = Style {
-                border_type,
-                ..Style::default()
-            };
+            let style = Style::default();
             let area = Rect::new(0, 0, 5, 3);
             let mut frame = Buffer::empty(area);
-            bordered(style).render(area, &mut frame);
+            bordered(style, border_type).render(area, &mut frame);
             assert_eq!(frame[(0, 0)].symbol(), corner);
             assert_eq!(frame[(1, 0)].symbol(), horizontal);
 
             let mut separator = Buffer::empty(area);
-            top_border(style).render(area, &mut separator);
+            top_border(style, border_type).render(area, &mut separator);
             assert_eq!(separator[(0, 0)].symbol(), horizontal);
             assert_eq!(separator[(1, 0)].symbol(), horizontal);
             assert_eq!(separator[(0, 1)].symbol(), " ");

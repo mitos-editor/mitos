@@ -1047,6 +1047,15 @@ mod tests {
     }
 
     #[test]
+    fn border_style_is_an_editor_setting_independent_of_the_theme() {
+        let config = Config::load_test("theme = 'default'\n[editor]\nborder-style = 'rounded'");
+        assert_eq!(
+            config.editor.border_style,
+            editor_config::BorderStyle::Rounded
+        );
+    }
+
+    #[test]
     fn popup_border_is_not_configurable() {
         let config = "[editor]\npopup-border = \"none\"".to_owned();
         let error = Config::load(Ok(&config), Err(ConfigLoadError::default())).unwrap_err();
