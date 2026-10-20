@@ -91,6 +91,59 @@ and unresolved index conflicts show explanatory messages. Inputs are limited to
 10 MiB and 200,000 lines per side; very large rendered diffs are truncated with a
 notice.
 
+### Syntax-aware review
+
+Line comparison is the default. To use Tree-sitter for review views, set this in
+`config.toml`:
+
+```toml
+[editor.diff]
+engine = "syntax"
+```
+
+Use `"auto"` to choose syntax comparison for files with an available grammar and
+line comparison for other files. A language can override the global choice in
+`languages.toml`:
+
+```toml
+[[language]]
+name = "rust"
+diff-engine = "syntax"
+```
+
+Press **Alt-d** in the changed-file picker or a diff popup to switch between line
+and syntax comparison for that review. The heading shows the active engine.
+Remap this with `toggle_diff_engine` under `[keys.picker]` and `toggle_engine`
+under `[keys.diff]`.
+
+Syntax comparison uses the file's existing root grammar to match node kinds and
+literal tokens across lines. Changed tokens are emphasized; matching text uses
+the normal text color. This helps distinguish an expression change from surrounding
+line wrapping. String contents, comments, and changes to syntax structure still
+participate in comparison. Embedded languages use the root grammar's representation.
+
+The original removed and added lines, source numbers, whitespace, and counts remain
+visible. A `layout only` heading means the syntax matched while the text changed.
+Diff gutters, change navigation, and `:restore-change` always use exact line hunks.
+Syntax comparison does not infer semantic equivalence or identify moved code.
+
+Missing or incompatible grammars, parse errors, and exhausted comparison budgets
+fall back to line review. A notice explains the fallback; `auto` silently chooses
+line mode for files without a language or grammar. Syntax inputs are limited to
+512 KiB per side and 30,000 tree events per side, with a checked 300 ms budget for
+the comparison. Parsing and traversal can be canceled; the bounded matching step
+finishes before its result is accepted or discarded.
+
+Toggling an open popup compares the same captured snapshots. Reopen it to pick up
+new file contents or language configuration. Line and syntax presentations are
+cached together, so switching back does not repeat matching. Picker previews reuse
+their captured text when only the engine changes; file or language changes refresh
+the comparison.
+
+The standard build includes syntax comparison. Builds made without the
+`syntax-diff` Cargo feature retain line review and report that the syntax provider
+is unavailable when explicitly requested.
+
 ## Change navigation and restoration
 
 Diff gutters compare the buffer with `HEAD`, including unsaved edits.

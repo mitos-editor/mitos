@@ -21,6 +21,7 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Buffer picker
@@ -44,6 +45,7 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Prompt
@@ -118,3 +120,4 @@
 | --- | --- |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
+| `` <A-d> `` | `` toggle_engine `` |

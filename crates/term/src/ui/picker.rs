@@ -86,6 +86,7 @@ pub enum PreviewAction {
     Previous,
     Next,
     Open,
+    ToggleEngine,
 }
 
 pub const ID: &str = "picker";
@@ -1258,6 +1259,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 | PickerAction::PreviewScrollDown
                 | PickerAction::PreviewPrevious
                 | PickerAction::PreviewNext
+                | PickerAction::ToggleDiffEngine
                 | PickerAction::OpenPreview => {
                     if let Some(preview) = &mut self.custom_preview {
                         let action = match action {
@@ -1265,6 +1267,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             PickerAction::PreviewScrollDown => PreviewAction::ScrollDown,
                             PickerAction::PreviewPrevious => PreviewAction::Previous,
                             PickerAction::PreviewNext => PreviewAction::Next,
+                            PickerAction::ToggleDiffEngine => PreviewAction::ToggleEngine,
                             _ => PreviewAction::Open,
                         };
                         let item = self
@@ -1396,6 +1399,11 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             .keys
             .lookup((self.keymap)(&ctx.config.current.component_keys), key_event)
         {
+            Lookup::Actions(actions)
+                if self.custom_preview.is_none() && actions == [PickerAction::ToggleDiffEngine] =>
+            {
+                return self.prompt_handle_event(event, ctx);
+            }
             Lookup::Actions(actions) => actions,
             Lookup::Pending => return EventResult::Consumed(None),
             Lookup::Unbound => return self.prompt_handle_event(event, ctx),

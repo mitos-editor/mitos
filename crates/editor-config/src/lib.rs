@@ -9,6 +9,7 @@ use std::{collections::HashSet, num::NonZeroU8, path::PathBuf, time::Duration};
 
 use ::diagnostics::Severity;
 use editor_core::{LineEnding, NATIVE_LINE_ENDING};
+pub use language_config::DiffEngine;
 use language_config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use workspace::trust::ImplicitTrustLevel;
@@ -23,6 +24,12 @@ pub use diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig};
 pub use watch::WatchConfig;
 
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct DiffConfig {
+    pub engine: DiffEngine,
+}
 
 fn deserialize_duration_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
 where
@@ -317,6 +324,7 @@ pub struct Config {
     pub jump_label_alphabet: Vec<char>,
     /// Show information about the commit that last changed a line.
     pub inline_blame: InlineBlameConfig,
+    pub diff: DiffConfig,
     /// Spell checking: which dictionaries to use and how to filter tokens. Off by default (no
     /// dictionaries); languages can override this in `languages.toml`.
     pub spelling: SpellingConfig,
@@ -1105,6 +1113,7 @@ impl Default for Config {
             },
             jump_label_alphabet: ('a'..='z').collect(),
             inline_blame: InlineBlameConfig::default(),
+            diff: DiffConfig::default(),
             spelling: SpellingConfig::default(),
             buffer_picker: BufferPickerConfig::default(),
             workspace_trust: WorkspaceTrustConfig::default(),
@@ -1447,6 +1456,26 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_engine_defaults_round_trip_and_reject_unknown_names() {
+        assert_eq!(Config::default().diff.engine, DiffEngine::Line);
+        for (name, engine) in [
+            ("line", DiffEngine::Line),
+            ("syntax", DiffEngine::Syntax),
+            ("auto", DiffEngine::Auto),
+        ] {
+            let config: Config = toml::from_str(&format!("[diff]\nengine = '{name}'")).unwrap();
+            assert_eq!(config.diff.engine, engine);
+            let serialized = toml::to_string(&config).unwrap();
+            assert_eq!(
+                toml::from_str::<Config>(&serialized).unwrap().diff.engine,
+                engine
+            );
+        }
+        assert!(toml::from_str::<Config>("[diff]\nengine = 'unknown'").is_err());
+        assert!(toml::from_str::<Config>("[diff]\nunknown = true").is_err());
+    }
 
     #[test]
     fn cursor_shapes_default_each_omitted_mode() {

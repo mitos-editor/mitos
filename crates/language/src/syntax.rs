@@ -264,6 +264,13 @@ pub struct Loader {
 pub type LoaderError = globset::Error;
 
 impl Loader {
+    /// Resolve a parser through this loader's runtime resources without requiring highlight queries.
+    pub fn grammar(&self, language: Language) -> Result<Option<Grammar>> {
+        let config = self.language(language).config();
+        self.resources
+            .grammar(config.grammar.as_deref().unwrap_or(&config.language_id))
+    }
+
     pub fn new(config: Configuration, resources: Resources) -> Result<Self, LoaderError> {
         let mut languages = Vec::with_capacity(config.language.len());
         let mut languages_by_extension = HashMap::new();
