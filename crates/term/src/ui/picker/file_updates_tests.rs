@@ -26,27 +26,27 @@ async fn refresh_keeps_navigation_and_viewport_until_publication() -> anyhow::Re
     }
     let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 40
+        picker.results.matcher.snapshot().item_count() == 40
     })
     .await?;
-    picker.cursor = 20;
+    picker.results.cursor = 20;
     draw(&mut picker, &mut app);
     let selected = picker.selection().unwrap().clone();
-    let old_offset = picker.offset;
+    let old_offset = picker.results.offset;
     let mut next = paths.clone();
     next.insert(0, dir.path().join("00-new.txt"));
-    picker.refresh_options(next, picker.editor_data.clone());
+    picker.refresh_options(next, picker.results.editor_data.clone());
     assert_eq!(picker.selection(), Some(&selected));
     // Moving while the new matcher runs must not be undone by publication.
     picker.move_by(1, Direction::Forward);
     let selected = picker.selection().unwrap().clone();
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 41
+        picker.results.matcher.snapshot().item_count() == 41
     })
     .await?;
     assert_eq!(picker.selection(), Some(&selected));
-    assert_eq!(picker.cursor, 22);
-    assert_eq!(picker.offset, old_offset + 2);
+    assert_eq!(picker.results.cursor, 22);
+    assert_eq!(picker.results.offset, old_offset + 2);
     Ok(())
 }
 
@@ -65,10 +65,10 @@ async fn refresh_preserves_identity_and_uses_surviving_neighbours() -> anyhow::R
     )
     .with_item_key(|item| item.0);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 4
+        picker.results.matcher.snapshot().item_count() == 4
     })
     .await?;
-    picker.cursor = 1;
+    picker.results.cursor = 1;
     picker.refresh_options(
         vec![
             (0, "zero"),
@@ -77,26 +77,29 @@ async fn refresh_preserves_identity_and_uses_surviving_neighbours() -> anyhow::R
             (3, "three"),
             (4, "four"),
         ],
-        picker.editor_data.clone(),
+        picker.results.editor_data.clone(),
     );
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 5
+        picker.results.matcher.snapshot().item_count() == 5
     })
     .await?;
     assert_eq!(picker.selection(), Some(&(2, "changed")));
     // Two removed neighbours and an insertion must not select the new row or restart at one.
     picker.refresh_options(
         vec![(0, "zero"), (1, "one"), (9, "new"), (4, "four")],
-        picker.editor_data.clone(),
+        picker.results.editor_data.clone(),
     );
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 4
+        picker.results.matcher.snapshot().item_count() == 4
     })
     .await?;
     assert_eq!(picker.selection(), Some(&(4, "four")));
-    picker.refresh_options(vec![(0, "zero"), (1, "one")], picker.editor_data.clone());
+    picker.refresh_options(
+        vec![(0, "zero"), (1, "one")],
+        picker.results.editor_data.clone(),
+    );
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 2
+        picker.results.matcher.snapshot().item_count() == 2
     })
     .await?;
     assert_eq!(picker.selection(), Some(&(1, "one")));
@@ -119,22 +122,22 @@ async fn query_edits_during_refresh_filter_the_new_rows_and_reset_selection() ->
     )
     .with_item_key(|item| item.1);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 3
+        picker.results.matcher.snapshot().item_count() == 3
     })
     .await?;
-    picker.cursor = 1;
+    picker.results.cursor = 1;
     picker.refresh_options(
         vec![(0, "new"), (1, "same"), (2, "same"), (3, "other")],
-        picker.editor_data.clone(),
+        picker.results.editor_data.clone(),
     );
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 4
+        picker.results.matcher.snapshot().item_count() == 4
     })
     .await?;
     assert_eq!(picker.selection(), Some(&(2, "same")));
     picker.refresh_options(
         vec![(1, "same"), (2, "same"), (4, "other-new")],
-        picker.editor_data.clone(),
+        picker.results.editor_data.clone(),
     );
     picker.prompt.set_line("other".into(), &app.editor);
     picker.handle_prompt_change(false);
@@ -142,8 +145,8 @@ async fn query_edits_during_refresh_filter_the_new_rows_and_reset_selection() ->
         picker.selection() == Some(&(4, "other-new"))
     })
     .await?;
-    assert_eq!(picker.cursor, 0);
-    assert_eq!(picker.matcher.snapshot().matched_item_count(), 1);
+    assert_eq!(picker.results.cursor, 0);
+    assert_eq!(picker.results.matcher.snapshot().matched_item_count(), 1);
     Ok(())
 }
 
@@ -229,7 +232,7 @@ async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> an
         },
     );
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 1
+        picker.results.matcher.snapshot().item_count() == 1
     })
     .await?;
     changed(
@@ -263,37 +266,40 @@ async fn file_refresh_keeps_the_query_and_selected_path() -> anyhow::Result<()> 
     std::fs::write(root.join("z-keep.txt"), "z")?;
     let mut picker = ui::file_picker(&app.editor, root.clone());
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 2
+        picker.results.matcher.snapshot().item_count() == 2
     })
     .await?;
     picker.prompt.set_line("keep".into(), &app.editor);
     picker.handle_prompt_change(false);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().matched_item_count() == 2
+        picker.results.matcher.snapshot().matched_item_count() == 2
     })
     .await?;
-    picker.cursor = 1;
+    picker.results.cursor = 1;
     let selected = picker.selection().unwrap().clone();
     std::fs::write(root.join("a-keep.txt"), "a")?;
     changed(&mut app.editor, &root.join("a-keep.txt"), EventType::Create);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 3
+        picker.results.matcher.snapshot().item_count() == 3
     })
     .await?;
-    let version = picker.version.load(atomic::Ordering::Relaxed);
+    let version = picker.results.version.load(atomic::Ordering::Relaxed);
     changed(&mut app.editor, &root.join("a-keep.txt"), EventType::Create);
     until(&mut picker, &mut app, |picker| {
         picker.file_updates.as_ref().unwrap().pending.is_none()
     })
     .await?;
-    assert_eq!(picker.version.load(atomic::Ordering::Relaxed), version);
+    assert_eq!(
+        picker.results.version.load(atomic::Ordering::Relaxed),
+        version
+    );
     assert_eq!(picker.primary_query().as_ref(), "keep");
     assert_eq!(picker.selection(), Some(&selected));
-    assert_eq!(picker.cursor, 2);
+    assert_eq!(picker.results.cursor, 2);
     std::fs::remove_file(&selected)?;
     changed(&mut app.editor, &selected, EventType::Delete);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 2
+        picker.results.matcher.snapshot().item_count() == 2
     })
     .await?;
     assert!(picker.selection().is_some_and(|path| path != &selected));
@@ -307,7 +313,7 @@ async fn explorer_polling_covers_hidden_ignored_files_and_external_renames() -> 
     std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
     let mut picker = ui::file_explorer(dir.path().to_owned(), &app.editor)?;
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 2
+        picker.results.matcher.snapshot().item_count() == 2
     })
     .await?;
     let hidden = dir.path().join(".hidden.txt");
@@ -315,22 +321,23 @@ async fn explorer_polling_covers_hidden_ignored_files_and_external_renames() -> 
     std::fs::write(&hidden, "hidden")?;
     std::fs::write(&ignored, "ignored")?;
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 4
+        picker.results.matcher.snapshot().item_count() == 4
     })
     .await?;
     let renamed = dir.path().join("renamed.txt");
     std::fs::rename(&hidden, &renamed)?;
     until(&mut picker, &mut app, |picker| {
         picker
+            .results
             .matcher
             .snapshot()
-            .matched_items(0..picker.matcher.snapshot().matched_item_count())
+            .matched_items(0..picker.results.matcher.snapshot().matched_item_count())
             .any(|item| item.data.0 == renamed)
     })
     .await?;
     std::fs::remove_file(&ignored)?;
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 3
+        picker.results.matcher.snapshot().item_count() == 3
     })
     .await?;
     Ok(())
@@ -376,7 +383,7 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
     let worker = tokio::time::timeout(Duration::from_secs(5), workers.recv())
         .await?
         .unwrap();
-    let started = picker.editor_data.started.clone();
+    let started = picker.results.editor_data.started.clone();
     picker.reset_options(
         vec![dir.path().join("other/old")],
         Data {
@@ -390,7 +397,10 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
         .await?
         .unwrap();
     assert!(!changed_root.is_canceled());
-    picker.version.fetch_add(1, atomic::Ordering::Relaxed);
+    picker
+        .results
+        .version
+        .fetch_add(1, atomic::Ordering::Relaxed);
     draw(&mut picker, &mut app);
     assert!(changed_root.is_canceled());
     let current_query = tokio::time::timeout(Duration::from_secs(5), workers.recv())
@@ -440,17 +450,17 @@ async fn content_refresh_preserves_the_selected_location_within_a_file() -> anyh
     )
     .refresh_on_content_changes();
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 2
+        picker.results.matcher.snapshot().item_count() == 2
     })
     .await?;
-    picker.cursor = 1;
+    picker.results.cursor = 1;
     changed(&mut app.editor, &path, EventType::Modified);
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 3
+        picker.results.matcher.snapshot().item_count() == 3
     })
     .await?;
     assert_eq!(picker.selection(), Some(&(path, 1)));
-    assert_eq!(picker.cursor, 2);
+    assert_eq!(picker.results.cursor, 2);
     Ok(())
 }
 
@@ -482,7 +492,7 @@ async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow
     )
     .refresh_on_vcs_changes();
     until(&mut picker, &mut app, |picker| {
-        picker.matcher.snapshot().item_count() == 1
+        picker.results.matcher.snapshot().item_count() == 1
     })
     .await?;
     changed(&mut app.editor, &index, EventType::Modified);

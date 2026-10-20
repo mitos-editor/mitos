@@ -4,6 +4,7 @@ mod file_updates;
 mod handlers;
 mod preview;
 mod query;
+mod results;
 #[cfg(all(test, feature = "integration"))]
 pub(crate) mod test;
 mod updates;
@@ -14,7 +15,6 @@ use crate::{
 };
 use event::AsyncHook;
 use futures_util::future::BoxFuture;
-use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Nucleo};
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -202,20 +202,14 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
     item_action_fn: Option<PickerItemCallback<T, D>>,
     columns: Arc<[Column<T, D>]>,
+    results: results::Results<T, D>,
     primary_column: usize,
-    editor_data: Arc<D>,
-    version: Arc<AtomicUsize>,
-    matcher: Nucleo<T>,
-    spare_matcher: Option<Nucleo<T>>,
     highlight_matcher: fuzzy::Matcher,
     redraw: event::Redraw,
 
     /// Current height of the completions box
     completion_height: u16,
 
-    cursor: u32,
-    offset: u32,
-    refreshing: bool,
     prompt: Prompt,
     query: PickerQuery,
 
@@ -237,8 +231,6 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dynamic_query_request: event::TaskController,
     poll: Option<PollTask>,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
-    pending_options: Option<updates::PendingOptions<T, D>>,
-    selection_resolver: Option<updates::SelectionResolver<T>>,
     editor_updates: Option<updates::EditorUpdates<T>>,
     query_updates: Option<updates::QueryUpdates<D>>,
     query_refresh: bool,
@@ -395,15 +387,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         Self {
             columns,
             primary_column: default_column,
-            matcher,
-            spare_matcher: None,
+            results: results::Results::new(matcher, editor_data, version),
             highlight_matcher: fuzzy::Matcher::default(),
             redraw,
-            editor_data,
-            version,
-            cursor: 0,
-            offset: 0,
-            refreshing: false,
             keys: KeymapState::default(),
             keymap: |maps| &maps.picker,
             item_action_fn: None,
@@ -422,8 +408,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             dynamic_query_request: event::TaskController::new(),
             poll: None,
             file_updates: None,
-            pending_options: None,
-            selection_resolver: None,
             editor_updates: None,
             query_updates: None,
             query_refresh: false,
@@ -433,11 +417,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn injector(&self) -> Injector<T, D> {
         Injector {
-            dst: self.matcher.injector(),
+            dst: self.results.matcher.injector(),
             columns: self.columns.clone(),
-            editor_data: self.editor_data.clone(),
-            version: self.version.load(atomic::Ordering::Relaxed),
-            picker_version: self.version.clone(),
+            editor_data: self.results.editor_data.clone(),
+            version: self.results.version.load(atomic::Ordering::Relaxed),
+            picker_version: self.results.version.clone(),
             redraw: self.redraw.clone(),
             _redraw: self.redraw.on_drop(),
         }
@@ -455,7 +439,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.file_fn = Some(Box::new(preview_fn));
         // assumption: if we have a preview we are matching paths... If this is ever
         // not true this could be a separate builder function
-        self.matcher.update_config(Config::DEFAULT.match_paths());
+        self.results
+            .matcher
+            .update_config(Config::DEFAULT.match_paths());
         self
     }
 
@@ -474,7 +460,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     pub fn with_initial_cursor(mut self, cursor: u32) -> Self {
-        self.cursor = cursor;
+        self.results.cursor = cursor;
         self
     }
 
@@ -484,9 +470,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         debounce_ms: Option<u64>,
         jobs: &crate::job::Jobs,
     ) -> Self {
-        let handler =
-            DynamicQueryHandler::new(callback, debounce_ms, jobs.sender(), self.version.clone())
-                .spawn();
+        let handler = DynamicQueryHandler::new(
+            callback,
+            debounce_ms,
+            jobs.sender(),
+            self.results.version.clone(),
+        )
+        .spawn();
         let event = DynamicQueryChange {
             query: self.primary_query(),
             // Treat the initial query as a paste.
@@ -515,7 +505,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
-        let len = self.matcher.snapshot().matched_item_count();
+        let len = self.results.matcher.snapshot().matched_item_count();
 
         if len == 0 {
             // No results, can't move.
@@ -524,10 +514,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         match direction {
             Direction::Forward => {
-                self.cursor = self.cursor.saturating_add(amount) % len;
+                self.results.cursor = self.results.cursor.saturating_add(amount) % len;
             }
             Direction::Backward => {
-                self.cursor = self.cursor.saturating_add(len).saturating_sub(amount) % len;
+                self.results.cursor = self
+                    .results
+                    .cursor
+                    .saturating_add(len)
+                    .saturating_sub(amount)
+                    % len;
             }
         }
     }
@@ -544,12 +539,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor to the first entry
     pub fn to_start(&mut self) {
-        self.cursor = 0;
+        self.results.cursor = 0;
     }
 
     /// Move the cursor to the last entry
     pub fn to_end(&mut self) {
-        self.cursor = self
+        self.results.cursor = self
+            .results
             .matcher
             .snapshot()
             .matched_item_count()
@@ -557,9 +553,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     pub fn selection(&self) -> Option<&T> {
-        self.matcher
+        self.results
+            .matcher
             .snapshot()
-            .get_matched_item(self.cursor)
+            .get_matched_item(self.results.cursor)
             .map(|item| item.data)
     }
 
@@ -590,9 +587,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
-        self.cursor = 0;
-        self.offset = 0;
-        self.refreshing = false;
+        self.results.cursor = 0;
+        self.results.offset = 0;
+
         self.prompt.clear(editor);
         self.handle_prompt_change(false);
         self.reset_options(options, editor_data);
@@ -602,28 +599,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some(updates) = &mut self.file_updates {
             updates.stop();
         }
-        self.pending_options = None;
+        self.results.discard_pending();
         self.reset_options_shared(options, Arc::new(editor_data));
     }
 
     fn reset_options_shared(&mut self, options: Vec<T>, editor_data: Arc<D>) {
-        // Cancel existing injectors before replacing the matcher contents.
-        self.version.fetch_add(1, atomic::Ordering::Relaxed);
-        self.matcher.restart(true);
-        self.editor_data = editor_data;
-
+        self.results.reset(options, editor_data, &self.columns);
         self.widths = visible_column_widths(&self.columns);
         self.preview.clear();
-
-        let injector = self.matcher.injector();
-        for item in options {
-            inject_nucleo_item(&injector, &self.columns, item, &self.editor_data);
-        }
     }
 
     /// Collects the picker's current matched items into quicklist entries.
     fn quicklist_entries(&self, editor: &Editor) -> Vec<QuicklistEntry> {
-        let snapshot = self.matcher.snapshot();
+        let snapshot = self.results.matcher.snapshot();
         let mut entries = Vec::with_capacity(snapshot.matched_item_count() as usize);
 
         if let Some(quicklist_fn) = &self.quicklist_fn {
@@ -696,24 +684,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             return;
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
-        self.cursor = 0;
-        self.offset = 0;
+        self.results.cursor = 0;
+        self.results.offset = 0;
         let primary_changed = &*self.primary_query()
             != old_query
                 .get(&self.columns[self.primary_column].name)
                 .map(|pattern| &**pattern)
                 .unwrap_or_default();
         if primary_changed && self.dynamic_query_handler.is_some() {
-            if self.pending_options.is_some()
+            if self.results.pending_options.is_some()
                 && let Some(updates) = &mut self.file_updates
             {
                 updates.stop();
             }
-            self.pending_options = None;
-            self.refreshing = false;
+            self.results.discard_pending();
+
             self.query_refresh = false;
             self.query_needs_refresh = false;
-        } else if let Some(pending) = &mut self.pending_options {
+        } else if let Some(pending) = &mut self.results.pending_options {
             pending.preserve_selection = false;
         }
         // Have nucleo reparse each changed column.
@@ -737,22 +725,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 continue;
             }
             let is_append = pattern.starts_with(old_pattern);
-            self.matcher.pattern.reparse(
-                i,
-                pattern,
-                CaseMatching::Smart,
-                Normalization::Smart,
-                is_append,
-            );
-            if let Some(pending) = &mut self.pending_options {
-                pending.matcher.pattern.reparse(
-                    i,
-                    pattern,
-                    CaseMatching::Smart,
-                    Normalization::Smart,
-                    is_append,
-                );
-            }
+            self.results.reparse(i, pattern, is_append);
         }
         // If this is a dynamic picker, notify the query hook that the primary
         // query might have been updated.
@@ -766,7 +739,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     updates.task.cancel();
                 }
                 self.dynamic_query_request.cancel();
-                self.version.fetch_add(1, atomic::Ordering::Relaxed);
+                self.results.invalidate();
             }
             let event = DynamicQueryChange {
                 query: self.primary_query(),
@@ -785,9 +758,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
-        let snapshot = self.matcher.snapshot();
+        let snapshot = self.results.matcher.snapshot();
         let location = snapshot
-            .get_matched_item(self.cursor)
+            .get_matched_item(self.results.cursor)
             .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
         let Some(location) = location else {
             self.preview.cancel_loads(None);
@@ -799,10 +772,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         self.publish_options();
-        let status = self.matcher.tick(10);
-        let snapshot = self.matcher.snapshot();
+        let status = self.results.matcher.tick(10);
+        let snapshot = self.results.matcher.snapshot();
         if status.changed {
-            self.cursor = self
+            self.results.cursor = self
+                .results
                 .cursor
                 .min(snapshot.matched_item_count().saturating_sub(1))
         }
@@ -831,7 +805,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let count = format!(
             "{}{}/{}",
-            if status.running || self.matcher.active_injectors() > 0 {
+            if status.running || self.results.matcher.active_injectors() > 0 {
                 "(running) "
             } else {
                 ""
@@ -861,12 +835,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let rows = rows.max(1);
-        self.offset = self.offset.min(self.cursor);
-        if self.cursor >= self.offset.saturating_add(rows) {
-            self.offset = self.cursor + 1 - rows;
+        self.results.offset = self.results.offset.min(self.results.cursor);
+        if self.results.cursor >= self.results.offset.saturating_add(rows) {
+            self.results.offset = self.results.cursor + 1 - rows;
         }
-        let offset = self.offset;
-        let cursor = self.cursor.saturating_sub(offset);
+        let offset = self.results.offset;
+        let cursor = self.results.cursor.saturating_sub(offset);
         let end = offset
             .saturating_add(rows)
             .min(snapshot.matched_item_count());
@@ -890,7 +864,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 let Some(Constraint::Length(max_width)) = widths.next() else {
                     unreachable!();
                 };
-                let mut cell = column.format(item.data, &self.editor_data);
+                let mut cell = column.format(item.data, &self.results.editor_data);
                 let width = if column.filter {
                     matcher.indices(
                         snapshot.pattern().column_pattern(matcher_index),
@@ -1021,9 +995,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
             picker.query_needs_refresh =
                 picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();
-            picker.pending_options = None;
-            picker.spare_matcher = None;
-            picker.refreshing = false;
+            picker.results.discard_pending();
+            picker.results.spare_matcher = None;
+
             picker.dynamic_query_request.cancel();
             if let Some(updates) = &mut picker.editor_updates {
                 updates.task.cancel();
@@ -1036,7 +1010,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
-                if picker.matcher.snapshot().item_count() > 1_000_000 {
+                if picker.results.matcher.snapshot().item_count() > 1_000_000 {
                     Box::new(|compositor: &mut Compositor, _ctx| {
                         // remove the layer
                         compositor.pop();
@@ -1046,7 +1020,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // be restarting the stream somehow once the picker gets
                     // reopened instead (like for an FS crawl) that would also remove the
                     // need for the special case above but that is pretty tricky
-                    picker.version.fetch_add(1, atomic::Ordering::Relaxed);
+                    picker
+                        .results
+                        .version
+                        .fetch_add(1, atomic::Ordering::Relaxed);
                     Box::new(|compositor: &mut Compositor, _ctx| {
                         // remove the layer
                         compositor.last_picker = compositor.pop();
@@ -1063,7 +1040,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         for &action in actions {
             // Keep navigation available, but do not act twice on a row that an
             // accepted callback may have removed from the replacement list.
-            if self.refreshing
+            if self.results.is_refreshing()
                 && matches!(
                     action,
                     PickerAction::Accept
@@ -1203,11 +1180,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     #[cfg(feature = "integration")]
     fn has_pending_render(&mut self) -> bool {
-        let pending = self.pending_options.as_mut().is_some_and(|pending| {
-            let status = pending.matcher.tick(0);
-            status.running || status.changed || pending.matcher.active_injectors() == 0
-        });
-        let status = self.matcher.tick(0);
+        let pending = self
+            .results
+            .pending_options
+            .as_mut()
+            .is_some_and(|pending| {
+                let status = pending.matcher.tick(0);
+                status.running || status.changed || pending.matcher.active_injectors() == 0
+            });
+        let status = self.results.matcher.tick(0);
         let pending = pending || status.running || status.changed;
         if pending {
             self.redraw.request();
@@ -1323,12 +1304,6 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
     fn id(&self) -> Option<&'static str> {
         Some(ID)
-    }
-}
-impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
-    fn drop(&mut self) {
-        // ensure we cancel any ongoing background threads streaming into the picker
-        self.version.fetch_add(1, atomic::Ordering::Relaxed);
     }
 }
 
@@ -1465,7 +1440,7 @@ mod tests {
         )
         .with_initial_cursor(2);
         tokio::time::timeout(Duration::from_secs(5), async {
-            while picker.matcher.tick(10).running {
+            while picker.results.matcher.tick(10).running {
                 tokio::task::yield_now().await;
             }
         })
@@ -1480,16 +1455,16 @@ mod tests {
             EventResult::Consumed(None)
         ));
         assert_eq!(*accepted.borrow(), [3]);
-        assert_eq!(picker.cursor, 2);
+        assert_eq!(picker.results.cursor, 2);
         let area = Rect::new(0, 0, 80, 24);
         tokio::time::timeout(Duration::from_secs(5), async {
-            while picker.refreshing {
+            while picker.results.is_refreshing() {
                 picker.render(area, &mut Surface::empty(area), &mut cx);
                 tokio::task::yield_now().await;
             }
         })
         .await?;
-        assert_eq!(picker.cursor, 1);
+        assert_eq!(picker.results.cursor, 1);
         assert!(matches!(
             picker.handle_event(&accept, &mut cx),
             EventResult::Consumed(None)

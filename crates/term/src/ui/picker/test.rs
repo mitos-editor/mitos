@@ -4,7 +4,7 @@ use super::*;
 use crate::{application::Application, config::Config as AppConfig, job::Jobs};
 
 pub(crate) fn items<T: Send + Sync, D>(picker: &Picker<T, D>) -> impl Iterator<Item = &T> {
-    let snapshot = picker.matcher.snapshot();
+    let snapshot = picker.results.matcher.snapshot();
     snapshot
         .matched_items(0..snapshot.matched_item_count())
         .map(|item| item.data)
@@ -62,7 +62,7 @@ pub(crate) async fn until<T: Send + Sync, D: Send + Sync>(
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             draw(picker, app);
-            if !picker.refreshing && ready(picker) {
+            if !picker.results.is_refreshing() && ready(picker) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;

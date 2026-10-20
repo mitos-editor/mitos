@@ -70,7 +70,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     where
         T: PartialEq,
     {
-        self.selection_resolver = Some(Box::new(|old, new, cursor| {
+        self.results.selection_resolver = Some(Box::new(|old, new, cursor| {
             let selected = old.get_matched_item(cursor)?;
             new.matched_items(0..new.matched_item_count())
                 .position(|item| item.data == selected.data)
@@ -90,7 +90,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             include_documents: false,
             documents: document_versions(
                 editor,
-                &stdx::path::canonicalize_existing(root(&self.editor_data)),
+                &stdx::path::canonicalize_existing(root(&self.results.editor_data)),
             ),
         });
         self
@@ -127,7 +127,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let Some(mut updates) = self.file_updates.take() else {
             return;
         };
-        let root = stdx::path::canonicalize_existing((updates.root)(&self.editor_data));
+        let root = stdx::path::canonicalize_existing((updates.root)(&self.results.editor_data));
         if updates.include_documents {
             let documents = document_versions(editor, &root);
             if documents != updates.documents {
@@ -160,8 +160,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
 
         if updates.pending.as_ref().is_some_and(|pending| {
-            !Arc::ptr_eq(&pending.data, &self.editor_data)
-                || pending.version != self.version.load(std::sync::atomic::Ordering::Relaxed)
+            !Arc::ptr_eq(&pending.data, &self.results.editor_data)
+                || pending.version
+                    != self
+                        .results
+                        .version
+                        .load(std::sync::atomic::Ordering::Relaxed)
         }) {
             updates.stop();
         }
@@ -174,8 +178,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // Keep dirty set so another scan follows without starving results.
                     match result {
                         Ok(options) => {
-                            self.matcher.tick(0);
-                            let snapshot = self.matcher.snapshot();
+                            self.results.matcher.tick(0);
+                            let snapshot = self.results.matcher.snapshot();
                             let same = snapshot.item_count() as usize == options.len()
                                 && options.iter().enumerate().all(|(index, item)| {
                                     snapshot
@@ -183,7 +187,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                         .is_some_and(|old| (updates.same)(old.data, item))
                                 });
                             if !same {
-                                self.refresh_options(options, self.editor_data.clone());
+                                self.refresh_options(options, self.results.editor_data.clone());
                             }
                         }
                         Err(error) => editor.status_sender().report_blocking(error),
@@ -203,23 +207,26 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         if updates.dirty
             && updates.pending.is_none()
-            && self.matcher.active_injectors() == 0
-            && !self.refreshing
+            && self.results.matcher.active_injectors() == 0
+            && !self.results.is_refreshing()
         {
             updates.dirty = false;
             updates.checked = Instant::now();
             let cancel = updates.task.restart();
-            let version = self.version.load(std::sync::atomic::Ordering::Relaxed);
+            let version = self
+                .results
+                .version
+                .load(std::sync::atomic::Ordering::Relaxed);
             let load = (updates.refresh)(
                 &self.primary_query(),
                 editor,
-                self.editor_data.clone(),
+                self.results.editor_data.clone(),
                 cancel.clone(),
             );
             let (tx, result) = oneshot::channel();
             updates.pending = Some(Pending {
                 version,
-                data: self.editor_data.clone(),
+                data: self.results.editor_data.clone(),
                 result,
             });
             let redraw = self.redraw.clone();

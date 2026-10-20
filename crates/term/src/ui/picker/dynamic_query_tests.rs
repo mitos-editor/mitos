@@ -53,7 +53,7 @@ fn handler(picker: &Picker<u8, ()>, jobs: &Jobs) -> DynamicQueryHandler<u8, ()> 
         },
         None,
         jobs.sender(),
-        picker.version.clone(),
+        picker.results.version.clone(),
     )
 }
 
@@ -83,7 +83,10 @@ async fn queued_queries_validate_picker_identity_and_generation() -> anyhow::Res
                     .find::<Overlay<Picker<u8, ()>>>()
                     .unwrap()
                     .content;
-                original.version.fetch_add(1, atomic::Ordering::Relaxed);
+                original
+                    .results
+                    .version
+                    .fetch_add(1, atomic::Ordering::Relaxed);
             }
             _ => {}
         }

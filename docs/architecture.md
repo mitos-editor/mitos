@@ -60,6 +60,10 @@ the originating picker's generation and query before restarting its provider.
 Prompt cleanup captures the prompt instances present at the focus change; queued
 cleanup cannot remove a later prompt in the same application.
 
+The private picker `results` module owns active and pending matchers, publication,
+generation invalidation, and navigation restoration. Rendering and input remain
+in the picker; provider adapters request replacements through that result owner.
+
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.
 

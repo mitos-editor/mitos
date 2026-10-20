@@ -90,8 +90,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
             else {
                 return;
             };
-            if !Arc::ptr_eq(&picker.version, &picker_version)
-                || picker.version.load(atomic::Ordering::Relaxed) != version
+            if !Arc::ptr_eq(&picker.results.version, &picker_version)
+                || picker.results.version.load(atomic::Ordering::Relaxed) != version
             {
                 return;
             }
@@ -109,12 +109,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
             let injector = if std::mem::take(&mut picker.query_refresh) {
                 picker.refresh_injector()
             } else {
-                picker.pending_options = None;
-                picker.refreshing = false;
-                picker.matcher.restart(false);
+                picker.results.discard_pending();
+
+                picker.results.matcher.restart(false);
                 picker.injector()
             };
-            let get_options = (callback)(&query, editor, picker.editor_data.clone(), &injector);
+            let get_options = (callback)(
+                &query,
+                editor,
+                picker.results.editor_data.clone(),
+                &injector,
+            );
             let cancel = picker.dynamic_query_request.restart();
             tokio::spawn(async move {
                 if let Some(Err(err)) = event::cancelable_future(get_options, &cancel).await {
