@@ -11,7 +11,7 @@ use stdx::rope::RopeSliceExt as _;
 const MIN_WORD_GRAPHEMES: usize = 3;
 /// Maximum word length allowed (in chars)
 const MAX_WORD_LEN: usize = 50;
-/// Number of words to index between checks of the cancellation handle.
+/// Number of input graphemes to scan between cancellation checks.
 const CANCEL_CHECK_INTERVAL: usize = 4096;
 
 type Word = editor_core::Tendril;
@@ -73,10 +73,7 @@ impl WordIndex {
     }
 
     pub fn add_document(&mut self, text: &Rope, should_cancel: impl Fn() -> bool) {
-        for (i, word) in words(text.slice(..)).enumerate() {
-            if i % CANCEL_CHECK_INTERVAL == 0 && should_cancel() {
-                return;
-            }
+        for word in words_cancellable(text.slice(..), &should_cancel) {
             self.insert(word);
         }
     }
@@ -88,32 +85,24 @@ impl WordIndex {
         changes: &ChangeSet,
         should_cancel: impl Fn() -> bool,
     ) {
-        // A single changed window can span the whole document, so the check is driven by a count
-        // of the words processed rather than the number of windows.
-        let mut since_check = 0;
+        if should_cancel() {
+            return;
+        }
         for (old_window, new_window) in changes.changed_ranges(MAX_WORD_LEN) {
-            for word in words(text.slice(new_window)) {
+            for word in words_cancellable(text.slice(new_window), &should_cancel) {
                 self.insert(word);
-                since_check += 1;
             }
-            for word in words(old_text.slice(old_window)) {
+            for word in words_cancellable(old_text.slice(old_window), &should_cancel) {
                 self.remove(word);
-                since_check += 1;
             }
-            if since_check >= CANCEL_CHECK_INTERVAL {
-                if should_cancel() {
-                    return;
-                }
-                since_check = 0;
+            if should_cancel() {
+                return;
             }
         }
     }
 
     pub fn remove_document(&mut self, text: &Rope, should_cancel: impl Fn() -> bool) {
-        for (i, word) in words(text.slice(..)).enumerate() {
-            if i % CANCEL_CHECK_INTERVAL == 0 && should_cancel() {
-                return;
-            }
+        for word in words_cancellable(text.slice(..), &should_cancel) {
             self.remove(word);
         }
     }
@@ -129,6 +118,15 @@ impl WordIndex {
 /// and the only rope position ever sought is the start of an emitted word, which keeps
 /// extraction roughly linear in the length of the text.
 pub fn words(text: RopeSlice) -> impl Iterator<Item = RopeSlice> {
+    words_cancellable(text, || false)
+}
+
+fn words_cancellable(
+    text: RopeSlice,
+    should_cancel: impl Fn() -> bool,
+) -> impl Iterator<Item = RopeSlice> {
+    let mut scanned = 0;
+    let mut canceled = false;
     let mut graphemes = text.grapheme_indices();
     // The in-progress word run: the byte offset of its first cluster, its length in chars, and the
     // number of graphemes it spans. `graphemes_len == 0` means we are between words.
@@ -144,6 +142,13 @@ pub fn words(text: RopeSlice) -> impl Iterator<Item = RopeSlice> {
 
     iter::from_fn(move || {
         loop {
+            // Check input progress rather than emitted words: punctuation and oversized
+            // tokens may scan the entire document without yielding a single word.
+            if canceled || (scanned == 0 && should_cancel()) {
+                canceled = true;
+                return None;
+            }
+            scanned = (scanned + 1) % CANCEL_CHECK_INTERVAL;
             let Some((byte_idx, grapheme)) = graphemes.next() else {
                 // Flush a word that runs up to the end of the text.
                 let word = qualify(start_byte, text.len_bytes(), char_len, graphemes_len);
@@ -198,6 +203,54 @@ mod tests {
         let actual = index.words_set();
         let expected: HashSet<_> = expected.into_iter().map(|i| i.to_string()).collect();
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn cancellation_before_scanning_leaves_counts_unchanged() {
+        let text = Rope::from("some_word ".repeat(100_000));
+        let empty = Rope::new();
+        let changes = compare_ropes(&empty, &text);
+        let mut index = WordIndex::default();
+        index.add_document(&text, || true);
+        assert_eq!(index.word_counts().count(), 0);
+        index.update_document(&empty, &text, changes.changes(), || true);
+        assert_eq!(index.word_counts().count(), 0);
+        index.add_document(&text, || false);
+        let counts = index.counts();
+        index.remove_document(&text, || true);
+        assert_eq!(index.counts(), counts);
+    }
+
+    #[test]
+    fn cancellation_is_checked_while_scanning_rejected_input() {
+        use std::cell::Cell;
+        for input in [". ".repeat(100_000), "a".repeat(100_000)] {
+            let text = Rope::from(input);
+            let checks = Cell::new(0);
+            let mut words = words_cancellable(text.slice(..), || {
+                checks.set(checks.get() + 1);
+                checks.get() == 2
+            });
+            assert!(words.next().is_none());
+            assert_eq!(checks.get(), 2);
+            assert!(words.next().is_none());
+        }
+    }
+
+    #[test]
+    fn cancellation_interrupts_a_single_large_changed_window() {
+        use std::cell::Cell;
+        let text = Rope::from("some_word ".repeat(100_000));
+        let empty = Rope::new();
+        let changes = compare_ropes(&empty, &text);
+        let checks = Cell::new(0);
+        let mut index = WordIndex::default();
+        index.update_document(&empty, &text, changes.changes(), || {
+            checks.set(checks.get() + 1);
+            checks.get() >= 3
+        });
+        let count = index.word_counts().next().unwrap().1;
+        assert!(count > 0 && count < 1_000, "processed {count} words");
     }
 
     #[test]
