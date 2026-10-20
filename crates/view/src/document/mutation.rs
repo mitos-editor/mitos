@@ -122,6 +122,8 @@ impl Document {
         if emit_lsp_notification && let Some(source) = &self.breakpoint_source {
             crate::debugger::map_breakpoint_positions(source, changes, old_doc, self.buffer.text());
         }
+        self.navigation
+            .map_pending_location(changes, self.buffer.text().slice(..));
         self.diagnostics.apply_changes(changes, self.buffer.text());
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);

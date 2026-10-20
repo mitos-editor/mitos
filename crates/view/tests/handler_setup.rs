@@ -16,6 +16,8 @@ mod debugger;
 mod file_navigation;
 #[path = "handler_setup/file_watching.rs"]
 mod file_watching;
+#[path = "handler_setup/server_navigation.rs"]
+mod server_navigation;
 #[path = "handler_setup/snippets.rs"]
 mod snippets;
 #[path = "handler_setup/word_completion.rs"]

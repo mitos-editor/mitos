@@ -725,3 +725,44 @@ async fn progress_tokens_are_scoped_to_servers_and_removed_on_stop() -> anyhow::
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_document_requests_respect_prompts_and_explicit_focus() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    f.initialize().await?;
+    let server = f.server("alpha");
+    let origin = current_ref!(f.app.editor).1.id();
+    let path = dir.path().join("destination.txt");
+    std::fs::write(&path, "😀 destination\n")?;
+    let uri = Uri::from(path).to_url().unwrap();
+    let expected_uri = Uri::try_from(&uri)?;
+    super::helpers::keys(&mut f.app, ":").await?;
+    for take_focus in [false, true] {
+        let call = serde_json::from_value(json!({
+            "jsonrpc": "2.0", "id": 400, "method": "window/showDocument",
+            "params": {"uri": uri, "takeFocus": take_focus,
+                "selection": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 14}}}
+        }))?;
+        f.app.handle_language_server_message(call, server).await;
+        let (view, doc) = current_ref!(f.app.editor);
+        if take_focus {
+            assert_ne!(doc.id(), origin);
+            assert_eq!(
+                doc.selection(view.id),
+                &editor_core::Selection::single(13, 2)
+            );
+        } else {
+            assert_eq!(doc.id(), origin);
+            let hidden = f
+                .app
+                .editor
+                .documents()
+                .find(|doc| doc.uri().as_ref() == Some(&expected_uri))
+                .unwrap();
+            assert_eq!(hidden.view_ids().count(), 0);
+        }
+    }
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

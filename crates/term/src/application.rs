@@ -1,8 +1,8 @@
 use arc_swap::{access::Map, ArcSwap};
-use editor_core::{pos_at_coords, Range, Selection};
+use editor_core::{pos_at_coords, Range};
 use futures_util::Stream;
 use language::syntax;
-use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId};
+use lsp_client::{lsp, LanguageServerId};
 use serde_json::json;
 use stdx::path::get_relative_path;
 use tui::backend::BackendExt;
@@ -1081,9 +1081,6 @@ impl Application {
                 return lsp::ShowDocumentResult { success: false };
             }
         };
-        // If `Uri` gets another variant other than `Path` this may not be valid.
-        let path = uri.as_path().expect("URIs are valid paths");
-
         // Determine the focus strategy based on the current UI state and LSP request:
         // 1. If there is no pop-up overlay, jump directly (Replace).
         // 2. If there is a pop-up overlay, unless the LSP forces take_focus, only load in the background (Load) to prevent interruption of input.
@@ -1097,31 +1094,18 @@ impl Application {
             }
         };
 
-        let doc_id = match self.editor.open(path, action) {
-            Ok(id) => id,
-            Err(err) => {
-                log::error!("failed to open path: {:?}: {:?}", uri, err);
-                return lsp::ShowDocumentResult { success: false };
-            }
-        };
-
-        let doc = doc_mut!(self.editor, &doc_id);
-        if let Some(range) = selection {
-            // TODO: convert inside server
-            if let Some(new_range) = lsp_range_to_range(doc.text(), range, offset_encoding) {
-                let view = view_mut!(self.editor);
-
-                // we flip the range so that the cursor sits on the start of the symbol
-                // (for example start of the function).
-                doc.set_selection(view.id, Selection::single(new_range.head, new_range.anchor));
-                if action.align_view(view, doc.id()) {
-                    align_view(doc, view, Align::Center);
+        let success =
+            match self
+                .editor
+                .open_document_location(&uri, selection, offset_encoding, action)
+            {
+                Ok(_) => true,
+                Err(err) => {
+                    log::error!("failed to open document {uri}: {err}");
+                    false
                 }
-            } else {
-                log::warn!("lsp position out of bounds - {:?}", range);
             };
-        };
-        lsp::ShowDocumentResult { success: true }
+        lsp::ShowDocumentResult { success }
     }
 
     fn restore_term(&mut self) -> std::io::Result<()> {

@@ -451,6 +451,13 @@ negotiated capabilities in `view::language_servers::capabilities`. The LSP clien
 has no language configuration dependency; individual request guards read protocol
 capabilities directly.
 
+Server-requested document navigation uses `Editor::open_document_location` for
+opening, position decoding, destination selection, and viewport alignment. The
+terminal chooses whether a popup allows focus changes and launches external URLs.
+Background loads position existing destination views without borrowing the focused
+buffer's view identity. Hidden destinations retain a document-owned location that
+is mapped through edits and consumed when a view next displays the document.
+
 `term::Application` decodes incoming notifications and calls these operations;
 exit status text, progress displays, and interactive prompts stay in the frontend.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic

@@ -508,7 +508,9 @@ impl Document {
 
     /// Initialize this document/view relationship without resetting existing state.
     pub fn ensure_view_init(&mut self, view_id: ViewId) {
-        if !self.view_states.contains_key(&view_id) {
+        if let Some(selection) = self.navigation.take_pending_location() {
+            self.set_selection(view_id, selection);
+        } else if !self.view_states.contains_key(&view_id) {
             self.reset_selection(view_id);
         }
 

@@ -1,5 +1,7 @@
 //! Manual language navigation and selection, independent of picker presentation.
 
+mod open;
+
 use std::{
     collections::HashSet,
     sync::{Arc, Weak},
@@ -140,9 +142,25 @@ fn definition_locations(response: Option<lsp::GotoDefinitionResponse>) -> Respon
 #[derive(Default)]
 pub(crate) struct NavigationState {
     request: Option<(ViewId, TaskController)>,
+    // A location requested while this document has no displayed view.
+    pending_location: Option<Selection>,
 }
 
 impl NavigationState {
+    pub(crate) fn take_pending_location(&mut self) -> Option<Selection> {
+        self.pending_location.take()
+    }
+
+    pub(crate) fn map_pending_location(
+        &mut self,
+        changes: &editor_core::ChangeSet,
+        text: editor_core::RopeSlice<'_>,
+    ) {
+        if let Some(selection) = self.pending_location.take() {
+            self.pending_location = Some(selection.map(changes).ensure_invariants(text));
+        }
+    }
+
     fn restart(&mut self, view: ViewId) -> TaskHandle {
         let (target, controller) = self
             .request
