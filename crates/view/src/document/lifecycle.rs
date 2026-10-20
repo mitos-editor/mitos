@@ -2,7 +2,7 @@
 
 use super::Document;
 use crate::ViewId;
-use editor_core::{ChangeSet, Selection};
+use editor_core::Selection;
 
 impl Document {
     /// Cancel language-dependent work before installing a new language configuration.
@@ -29,6 +29,9 @@ impl Document {
 
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
         let selection = selection.ensure_invariants(self.buffer.text().slice(..));
+        let changed = self
+            .try_selection(view)
+            .is_none_or(|current| current != &selection);
         match self.view_states.entry(view) {
             std::collections::hash_map::Entry::Occupied(mut state) => {
                 let state = state.get_mut();
@@ -41,22 +44,6 @@ impl Document {
                 state.insert(super::DocumentViewState::new(selection));
             }
         }
-        if self
-            .active_snippet
-            .as_ref()
-            .is_some_and(|snippet| !snippet.is_valid(self.selection(view)))
-        {
-            self.active_snippet = None;
-        }
-    }
-
-    pub(super) fn map_snippet(&mut self, changes: &ChangeSet) {
-        if self
-            .active_snippet
-            .as_mut()
-            .is_some_and(|snippet| snippet.map(changes))
-        {
-            self.active_snippet = None;
-        }
+        self.validate_snippet_selection(view, changed);
     }
 }

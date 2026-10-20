@@ -58,7 +58,7 @@ impl Document {
             };
             // History replay ends interactive completion and snippet sessions.
             self.accepted_completions.cancel();
-            self.active_snippet = None;
+            self.clear_snippet();
             self.publish_change(&change, selection.as_ref(), origin, true);
             applied = true;
         }

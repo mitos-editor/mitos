@@ -30,8 +30,7 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
             assert_eq!(
                 event
                     .doc
-                    .active_snippet
-                    .as_ref()
+                    .active_snippet()
                     .unwrap()
                     .tabstops()
                     .next()
@@ -64,7 +63,7 @@ async fn selection_observers_see_invalid_snippets_removed() -> anyhow::Result<()
     let observed = calls.clone();
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         if observe.load(Ordering::Relaxed) {
-            assert!(event.doc.active_snippet.is_none());
+            assert!(event.doc.active_snippet().is_none());
             observed.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())

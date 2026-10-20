@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use foldhash::HashSet;
 use ropey::Rope;
-use stdx::range::{is_exact_subset, is_subset};
+use stdx::range::is_exact_subset;
 use stdx::Range;
 
 use crate::render::{RenderedSnippet, Tabstop};
@@ -41,18 +41,38 @@ impl ActiveSnippet {
     /// Returns `None` when the render contains only the final cursor stop and
     /// therefore has nothing to navigate.
     pub fn new(snippet: RenderedSnippet) -> Option<Self> {
-        let snippet = Self {
+        let mut snippet = Self {
             ranges: snippet.ranges,
             tabstops: snippet.tabstops,
             active_tabstops: HashSet::default(),
             current_tabstop: TabstopIdx(0),
         };
-        (snippet.tabstops.len() != 1).then_some(snippet)
+        if snippet.tabstops.len() == 1 {
+            return None;
+        }
+        snippet.activate_tabstop();
+        Some(snippet)
     }
 
     /// Returns whether every selection range remains inside a snippet instance.
+    /// A cursor at the final boundary is valid; collapsed instances are not.
     pub fn is_valid(&self, new_selection: &Selection) -> bool {
-        is_subset::<false>(self.ranges.iter().copied(), new_selection.range_bounds())
+        let mut instances = self
+            .ranges
+            .iter()
+            .filter(|range| !range.is_empty())
+            .peekable();
+        new_selection.range_bounds().all(|selection| {
+            while instances.peek().is_some_and(|range| {
+                range.end < selection.start
+                    || (range.end == selection.start && !selection.is_empty())
+            }) {
+                instances.next();
+            }
+            instances
+                .peek()
+                .is_some_and(|range| range.contains(selection))
+        })
     }
 
     /// Iterates over the current render-time tabstop metadata.
