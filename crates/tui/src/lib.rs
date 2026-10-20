@@ -12,14 +12,13 @@
 pub mod backend;
 pub mod panel;
 pub mod scrollbar;
-mod surface;
 mod table;
 pub mod terminal;
 
 /// Ratatui buffer types plus editor-specific write operations.
 pub mod buffer {
-    pub use crate::surface::BufferExt;
     pub use ratatui::buffer::*;
+    pub use ui_core::buffer::BufferExt;
 }
 
 /// Ratatui layout primitives.

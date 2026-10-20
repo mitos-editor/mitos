@@ -1,5 +1,5 @@
-use ratatui::{buffer::Buffer, text::Line};
-use ui_core::graphics::Style;
+use crate::graphics::Style;
+use ratatui_core::{buffer::Buffer, text::Line};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -50,7 +50,7 @@ pub trait BufferExt {
     ) -> (u16, u16);
 
     /// Resets every cell in `area` and applies `style`.
-    fn clear_with(&mut self, area: ratatui::layout::Rect, style: Style);
+    fn clear_with(&mut self, area: ratatui_core::layout::Rect, style: Style);
 }
 
 // Match Ratatui's string rendering: control characters must never reach cells.
@@ -211,7 +211,7 @@ impl BufferExt for Buffer {
         (x_offset, y)
     }
 
-    fn clear_with(&mut self, area: ratatui::layout::Rect, style: Style) {
+    fn clear_with(&mut self, area: ratatui_core::layout::Rect, style: Style) {
         let area = self.area.intersection(area);
         for position in area.positions() {
             self[position].reset();
@@ -223,7 +223,7 @@ impl BufferExt for Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::layout::Rect;
+    use ratatui_core::layout::Rect;
 
     fn symbols(buffer: &Buffer) -> String {
         buffer.content.iter().map(|cell| cell.symbol()).collect()

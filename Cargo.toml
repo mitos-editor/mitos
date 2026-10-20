@@ -5,6 +5,7 @@ members = [
   "crates/core",
   "crates/diagnostics",
   "crates/text-layout",
+  "crates/text-render",
   "crates/buffer",
   "crates/ui-core",
   "crates/pane-layout",
@@ -65,6 +66,7 @@ command-line = { path = "crates/command-line" }
 core = { path = "crates/core" }
 diagnostics = { path = "crates/diagnostics" }
 text-layout = { path = "crates/text-layout" }
+text-render = { path = "crates/text-render" }
 buffer = { path = "crates/buffer" }
 dap = { path = "crates/dap" }
 debugger = { path = "crates/debugger" }

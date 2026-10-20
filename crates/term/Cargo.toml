@@ -62,6 +62,7 @@ editor-config.workspace = true
 language-config.workspace = true
 text-io.workspace = true
 text-layout.workspace = true
+text-render.workspace = true
 search.workspace = true
 clipboard.workspace = true
 grammar-build.workspace = true

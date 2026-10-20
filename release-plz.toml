@@ -20,7 +20,7 @@ changelog_include = [
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
   "word-index", "file-watch", "pane-layout",
-  "text-layout", "editor-config", "fuzzy", "text-diff",
+  "text-layout", "text-render", "editor-config", "fuzzy", "text-diff",
 ]
 git_release_name = "Mitos {{ version }}"
 git_release_enable = true
@@ -103,4 +103,8 @@ git_tag_name = "unreleased-{{ package }}-v{{ version }}"
 
 [[package]]
 name = "pane-layout"
+git_tag_name = "unreleased-{{ package }}-v{{ version }}"
+
+[[package]]
+name = "text-render"
 git_tag_name = "unreleased-{{ package }}-v{{ version }}"

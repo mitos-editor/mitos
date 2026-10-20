@@ -7,6 +7,7 @@ Features live with the state they change; frontends adapt input and present resu
 | --- | --- |
 | `core` | Ropes, selections, transactions, and text editing algorithms |
 | `diagnostics` | Diagnostic values, provider identities, and edit-mapped collections |
+| `text-render` | Text drawing and generic anchored decorations over Ratatui buffers |
 | `text-layout` | Display coordinates, wrapping, annotations, and visual movement |
 | `buffer` | Text state, versions, pending undo groups, and history ownership |
 | `language` | Language definitions, syntax trees, queries, resource loading, and structural editing |
@@ -16,7 +17,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `theme` | Theme interpretation, palette resolution, icons, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
 | `pane-layout` | Stable pane keys, split topology, geometry, and directional navigation |
-| `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
+| `ui-core` | Shared geometry, input, typed keymap lookup, styles, and screen-buffer writes |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
 | `loader` | Resource paths and grammar/query/theme sources |
 | `grammar-build` | Grammar source fetching and native compilation |
@@ -60,8 +61,11 @@ They reuse input types from `ui-core`; `command-line` only parses command argume
 and snippet highlight layers from explicit documents, viewports, and themes.
 Editor panes and picker previews call it directly. Parser highlights are adapted to
 a stream of character positions and resolved styles before drawing. The text
-renderer receives explicit whitespace and indentation settings instead of a document. `EditorView` owns input,
-component state, and composition of the rendered pane.
+renderer receives explicit whitespace and indentation settings instead of a
+document. `text-render` owns the drawing loop and generic decoration interface.
+Feature decorations stay in `term`; buffer writing helpers live in `ui-core` and
+are re-exported by `tui` for frontend widgets. `EditorView` owns input, component
+state, and composition of the rendered pane.
 
 Picker matching, input, and composition live in `term::ui::picker`. Its private
 `preview` module owns preview caches, loading, cancellation, asynchronous

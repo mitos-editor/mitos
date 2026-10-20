@@ -4166,6 +4166,7 @@ dependencies = [
  "termini",
  "text-io",
  "text-layout",
+ "text-render",
  "theme",
  "thiserror 2.0.21",
  "tokio",
@@ -4305,6 +4306,19 @@ dependencies = [
  "core",
  "stdx",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "text-render"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "editor-config",
+ "ratatui-core",
+ "text-layout",
+ "theme",
+ "toml",
+ "ui-core",
 ]
 
 [[package]]

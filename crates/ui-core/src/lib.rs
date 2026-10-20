@@ -4,6 +4,7 @@
 //! boundary lets terminal-only changes compile without rebuilding the editor,
 //! LSP, DAP, and VCS dependency graph.
 
+pub mod buffer;
 pub mod graphics;
 pub mod input;
 pub mod keyboard;

@@ -1,0 +1,23 @@
+[package]
+name = "text-render"
+description = "Formatted text and anchored decoration rendering into Ratatui buffers"
+include = ["src/**/*", "README.md", "LICENSE"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+core.workspace = true
+editor-config.workspace = true
+text-layout.workspace = true
+theme.workspace = true
+ui-core.workspace = true
+ratatui-core.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
