@@ -18,7 +18,6 @@ use editor_core::{
     line_ending::line_end_char_index,
     Range, Selection, SmallVec, Tendril, Transaction,
 };
-use language::syntax;
 use stdx::rope::RopeSliceExt;
 
 /// Which line boundary receives the cursor when entering insert mode.
@@ -43,17 +42,11 @@ pub enum CommentContinuation {
 }
 
 /// Insert a character at each cursor, respecting configured auto pairs.
-pub fn insert_char(
-    doc: &mut Document,
-    view_id: ViewId,
-    c: char,
-    loader: &syntax::Loader,
-    global_pairs: Option<&AutoPairs>,
-) {
+pub fn insert_char(doc: &mut Document, view_id: ViewId, c: char, global_pairs: Option<&AutoPairs>) {
     let text = doc.text();
     let selection = doc.selection(view_id);
 
-    let auto_pairs = doc.auto_pairs(global_pairs, loader, doc.selection(view_id));
+    let auto_pairs = doc.auto_pairs(global_pairs, doc.selection(view_id));
 
     let insert_char = |range: Range, ch: char| {
         let cursor = range.cursor(text.slice(..));
@@ -94,12 +87,7 @@ pub fn insert_tab(doc: &mut Document, view_id: ViewId, count: usize) {
 }
 
 /// Insert line endings with language-aware indentation and comment continuation.
-pub fn insert_newline(
-    doc: &mut Document,
-    view_id: ViewId,
-    loader: &syntax::Loader,
-    global_pairs: Option<&AutoPairs>,
-) {
+pub fn insert_newline(doc: &mut Document, view_id: ViewId, global_pairs: Option<&AutoPairs>) {
     let config = doc.config.load();
     let text = doc.text().slice(..);
     let line_ending = doc.line_ending.as_str();
@@ -112,7 +100,7 @@ pub fn insert_newline(
     let mut global_offs = 0;
     let mut new_text = String::new();
 
-    let auto_pairs = doc.auto_pairs(global_pairs, loader, selection);
+    let auto_pairs = doc.auto_pairs(global_pairs, selection);
     let mut last_pos = 0;
     let mut transaction = Transaction::change_by_selection(contents, selection, |range| {
         // Tracks the number of trailing whitespace characters deleted by this selection.
@@ -137,9 +125,7 @@ pub fn insert_newline(
             text.line(current_line)
                 .first_non_whitespace_char()
                 .map(|c| text.char_to_byte(line_start + c))
-                .and_then(|byte| {
-                    continued_line_comment_token(doc, loader, text, current_line, byte)
-                })
+                .and_then(|byte| continued_line_comment_token(doc, text, current_line, byte))
         } else {
             None
         };
@@ -154,7 +140,7 @@ pub fn insert_newline(
             let indent = match line.first_non_whitespace_char() {
                 Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
                 _ => language::indent::indent_for_newline(
-                    loader,
+                    doc.syntax_loader(),
                     doc.syntax(),
                     &config.indent.heuristic,
                     &doc.indent_style,
@@ -254,7 +240,6 @@ pub fn insert_newline(
 pub fn insert_at_line_boundary(
     doc: &mut Document,
     view_id: ViewId,
-    loader: &syntax::Loader,
     boundary: LineBoundary,
     extend: bool,
 ) {
@@ -277,7 +262,7 @@ pub fn insert_at_line_boundary(
             let line_end_index = cursor_line_start;
 
             let indent = language::indent::indent_for_newline(
-                loader,
+                doc.syntax_loader(),
                 syntax,
                 &doc.config.load().indent.heuristic,
                 &doc.indent_style,
@@ -320,7 +305,6 @@ pub fn insert_at_line_boundary(
 pub fn open_lines(
     doc: &mut Document,
     view_id: ViewId,
-    loader: &syntax::Loader,
     open: Open,
     comment_continuation: CommentContinuation,
     count: usize,
@@ -355,9 +339,7 @@ pub fn open_lines(
                 text.line(curr_line_num)
                     .first_non_whitespace_char()
                     .map(|c| text.char_to_byte(text.line_to_char(curr_line_num) + c))
-                    .and_then(|byte| {
-                        continued_line_comment_token(doc, loader, text, curr_line_num, byte)
-                    })
+                    .and_then(|byte| continued_line_comment_token(doc, text, curr_line_num, byte))
             } else {
                 None
             };
@@ -377,7 +359,7 @@ pub fn open_lines(
         let indent = match line.first_non_whitespace_char() {
             Some(pos) if continue_comment_token.is_some() => line.slice(..pos).to_string(),
             _ => language::indent::indent_for_newline(
-                loader,
+                doc.syntax_loader(),
                 doc.syntax(),
                 &config.indent.heuristic,
                 &doc.indent_style,

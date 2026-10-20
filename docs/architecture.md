@@ -203,6 +203,13 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Syntax-aware editing
+
+Document editing operations resolve indentation, comment tokens, and automatic
+pairs through the document's syntax resource snapshot. Callers do not supply a
+separate loader. The same snapshot provides configuration for injected languages
+and incremental syntax updates.
+
 ### Visual movement
 
 `view::editing::movement` owns vertical document/visual-line motion, scrolling,

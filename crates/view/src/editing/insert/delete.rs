@@ -9,7 +9,6 @@ use editor_core::{
     movement::{self as core_movement, Direction},
     Deletion, Range, RopeSlice, Selection, SmallVec, Transaction,
 };
-use language::syntax;
 use std::borrow::Cow;
 use stdx::rope::RopeSliceExt;
 
@@ -77,12 +76,11 @@ pub fn delete_char_backward(
     doc: &mut Document,
     view_id: ViewId,
     count: usize,
-    loader: &syntax::Loader,
     global_pairs: Option<&AutoPairs>,
 ) {
     let text = doc.text().slice(..);
 
-    let auto_pairs = doc.auto_pairs(global_pairs, loader, doc.selection(view_id));
+    let auto_pairs = doc.auto_pairs(global_pairs, doc.selection(view_id));
 
     let transaction =
         Transaction::delete_by_and_with_selection(doc.text(), doc.selection(view_id), |range| {

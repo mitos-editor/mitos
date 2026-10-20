@@ -237,7 +237,7 @@ mod tests {
     async fn insert_mode_paste_is_separate_from_preceding_typing() {
         let (mut doc, mut view) = document_and_view("#[|]#\n");
         doc.line_ending = LineEnding::LF;
-        insert::insert_char(&mut doc, view.id, 'a', &syntax::Loader::default(), None);
+        insert::insert_char(&mut doc, view.id, 'a', None);
         paste(
             &mut doc,
             &mut view,
@@ -370,6 +370,61 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn syntax_aware_edits_use_document_resources_until_language_refresh() {
+        event::register_event::<crate::events::DocumentDidChange>();
+        event::register_event::<crate::events::SelectionDidChange>();
+        let language_loader = |prefix: &str, token: &str| {
+            Arc::new(
+                syntax::Loader::new(
+                    toml::from_str(&format!(
+                        r#"{prefix}
+                [[language]]
+                name = "json"
+                scope = "source.json"
+                file-types = ["json"]
+                comment-tokens = ["{token}"]
+                auto-pairs = {{ '(' = ')' }}
+            "#
+                    ))
+                    .unwrap(),
+                    loader::syntax::Resources::default(),
+                )
+                .unwrap(),
+            )
+        };
+        let original = language_loader("", "#");
+        let (mut doc, view) = document_and_view("#[|{}]#");
+        let language = original.language_for_name("json").unwrap();
+        doc.set_language(
+            Some(original.language(language).config().clone()),
+            &original,
+        );
+        let replacement = language_loader(
+            "[[language]]\nname = 'text'\nscope = 'text.plain'\nfile-types = []",
+            "//",
+        );
+
+        toggle_line_comments(&mut doc, view.id);
+        assert_eq!(doc.text().to_string(), "# {}");
+        toggle_line_comments(&mut doc, view.id);
+        doc.set_selection(view.id, Selection::point(1));
+        let pairs = editor_core::auto_pairs::AutoPairs::default();
+        insert::insert_char(&mut doc, view.id, '(', Some(&pairs));
+        assert_eq!(doc.text().to_string(), "{()}");
+        insert::delete_char_backward(&mut doc, view.id, 1, Some(&pairs));
+        assert_eq!(doc.text().to_string(), "{}");
+
+        let language = replacement.language_for_name("json").unwrap();
+        doc.set_language(
+            Some(replacement.language(language).config().clone()),
+            &replacement,
+        );
+        toggle_line_comments(&mut doc, view.id);
+        assert_eq!(doc.text().to_string(), "// {}");
+    }
+
     #[tokio::test]
     async fn paired_typing_and_indented_newlines_share_an_undo_group() {
         use editor_core::{auto_pairs::AutoPairs, indent::IndentStyle};
@@ -379,11 +434,10 @@ mod tests {
             doc.line_ending = line_ending;
             doc.indent_style = IndentStyle::Spaces(2);
             let original_selection = doc.selection(view.id).clone();
-            let loader = syntax::Loader::default();
             let pairs = AutoPairs::default();
-            insert::insert_char(&mut doc, view.id, '(', &loader, Some(&pairs));
-            insert::insert_newline(&mut doc, view.id, &loader, Some(&pairs));
-            insert::insert_char(&mut doc, view.id, '界', &loader, Some(&pairs));
+            insert::insert_char(&mut doc, view.id, '(', Some(&pairs));
+            insert::insert_newline(&mut doc, view.id, Some(&pairs));
+            insert::insert_char(&mut doc, view.id, '界', Some(&pairs));
             let expected = format!("({newline}  界{newline}){newline}");
             assert_eq!(doc.text(), expected.as_str());
             assert_eq!(
@@ -419,7 +473,6 @@ mod tests {
             insert::open_lines(
                 &mut doc,
                 view.id,
-                &loader,
                 insert::Open::Below,
                 insert::CommentContinuation::Enabled,
                 2,

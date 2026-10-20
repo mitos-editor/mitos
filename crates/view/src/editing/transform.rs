@@ -26,12 +26,7 @@ pub fn reorder_selection_contents(
 }
 
 /// Join selected lines, continuing comments across matching language layers.
-pub fn join_selections(
-    doc: &mut Document,
-    view_id: ViewId,
-    loader: &language::syntax::Loader,
-    select_space: bool,
-) {
+pub fn join_selections(doc: &mut Document, view_id: ViewId, select_space: bool) {
     use editor_core::movement::skip_while;
     let text = doc.text();
     let slice = text.slice(..);
@@ -50,20 +45,15 @@ pub fn join_selections(
         let first_line_idx = slice.line_to_char(start);
         let first_line_idx = skip_while(slice, first_line_idx, |ch| matches!(ch, ' ' | '\t'))
             .unwrap_or(first_line_idx);
-        let mut current_comment_token = continued_line_comment_token(
-            doc,
-            loader,
-            slice,
-            start,
-            slice.char_to_byte(first_line_idx),
-        );
+        let mut current_comment_token =
+            continued_line_comment_token(doc, slice, start, slice.char_to_byte(first_line_idx));
 
         for line in lines {
             let start = line_end_char_index(&slice, line);
             let mut end = text.line_to_char(line + 1);
             end = skip_while(slice, end, |ch| matches!(ch, ' ' | '\t')).unwrap_or(end);
             if let Some(token) =
-                continued_line_comment_token(doc, loader, slice, line + 1, slice.char_to_byte(end))
+                continued_line_comment_token(doc, slice, line + 1, slice.char_to_byte(end))
             {
                 if Some(token) == current_comment_token {
                     end += token.chars().count();
@@ -133,9 +123,9 @@ type CommentTransactionFn = fn(
 fn toggle_comments_impl(
     doc: &mut Document,
     view_id: ViewId,
-    loader: &language::syntax::Loader,
     comment_transaction: CommentTransactionFn,
 ) {
+    let loader = doc.syntax_loader();
     let cursor = doc
         .selection(view_id)
         .primary()
@@ -190,125 +180,102 @@ fn toggle_comments_impl(
 /// 5. no comment tokens and not block commented -> line comment
 ///
 /// Toggle the appropriate line or block comment form for the selected language.
-pub fn toggle_comments(doc: &mut Document, view_id: ViewId, loader: &language::syntax::Loader) {
-    toggle_comments_impl(
-        doc,
-        view_id,
-        loader,
-        |line_token, block_tokens, doc, selection| {
-            let text = doc.slice(..);
+pub fn toggle_comments(doc: &mut Document, view_id: ViewId) {
+    toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
+        let text = doc.slice(..);
 
-            // only have line comment tokens
-            if line_token.is_some() && block_tokens.is_none() {
-                return comment::toggle_line_comments(doc, selection, line_token);
-            }
+        // only have line comment tokens
+        if line_token.is_some() && block_tokens.is_none() {
+            return comment::toggle_line_comments(doc, selection, line_token);
+        }
 
-            let split_lines = comment::split_lines_of_selection(text, selection);
+        let split_lines = comment::split_lines_of_selection(text, selection);
 
-            let default_block_tokens = &[BlockCommentToken::default()];
-            let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+        let default_block_tokens = &[BlockCommentToken::default()];
+        let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
 
-            let (line_commented, line_comment_changes) =
-                comment::find_block_comments(block_comment_tokens, text, &split_lines);
+        let (line_commented, line_comment_changes) =
+            comment::find_block_comments(block_comment_tokens, text, &split_lines);
 
-            // block commented by line would also be block commented so check this first
-            if line_commented {
-                return comment::create_block_comment_transaction(
-                    doc,
-                    &split_lines,
-                    line_commented,
-                    line_comment_changes,
-                )
-                .0;
-            }
+        // block commented by line would also be block commented so check this first
+        if line_commented {
+            return comment::create_block_comment_transaction(
+                doc,
+                &split_lines,
+                line_commented,
+                line_comment_changes,
+            )
+            .0;
+        }
 
-            let (block_commented, comment_changes) =
-                comment::find_block_comments(block_comment_tokens, text, selection);
+        let (block_commented, comment_changes) =
+            comment::find_block_comments(block_comment_tokens, text, selection);
 
-            // check if selection has block comments
-            if block_commented {
-                return comment::create_block_comment_transaction(
-                    doc,
-                    selection,
-                    block_commented,
-                    comment_changes,
-                )
-                .0;
-            }
+        // check if selection has block comments
+        if block_commented {
+            return comment::create_block_comment_transaction(
+                doc,
+                selection,
+                block_commented,
+                comment_changes,
+            )
+            .0;
+        }
 
-            // not commented and only have block comment tokens
-            if line_token.is_none() && block_tokens.is_some() {
-                return comment::create_block_comment_transaction(
-                    doc,
-                    &split_lines,
-                    line_commented,
-                    line_comment_changes,
-                )
-                .0;
-            }
+        // not commented and only have block comment tokens
+        if line_token.is_none() && block_tokens.is_some() {
+            return comment::create_block_comment_transaction(
+                doc,
+                &split_lines,
+                line_commented,
+                line_comment_changes,
+            )
+            .0;
+        }
 
-            // not block commented at all and don't have any tokens
-            comment::toggle_line_comments(doc, selection, line_token)
-        },
-    )
+        // not block commented at all and don't have any tokens
+        comment::toggle_line_comments(doc, selection, line_token)
+    })
 }
 
 /// Toggle line comments, falling back to blocks when the language requires them.
-pub fn toggle_line_comments(
-    doc: &mut Document,
-    view_id: ViewId,
-    loader: &language::syntax::Loader,
-) {
-    toggle_comments_impl(
-        doc,
-        view_id,
-        loader,
-        |line_token, block_tokens, doc, selection| {
-            if line_token.is_none() && block_tokens.is_some() {
-                let default_block_tokens = &[BlockCommentToken::default()];
-                let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
-                comment::toggle_block_comments(
-                    doc,
-                    &comment::split_lines_of_selection(doc.slice(..), selection),
-                    block_comment_tokens,
-                )
-            } else {
-                comment::toggle_line_comments(doc, selection, line_token)
-            }
-        },
-    );
+pub fn toggle_line_comments(doc: &mut Document, view_id: ViewId) {
+    toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
+        if line_token.is_none() && block_tokens.is_some() {
+            let default_block_tokens = &[BlockCommentToken::default()];
+            let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+            comment::toggle_block_comments(
+                doc,
+                &comment::split_lines_of_selection(doc.slice(..), selection),
+                block_comment_tokens,
+            )
+        } else {
+            comment::toggle_line_comments(doc, selection, line_token)
+        }
+    });
 }
 
 /// Toggle block comments, falling back to lines when the language requires them.
-pub fn toggle_block_comments(
-    doc: &mut Document,
-    view_id: ViewId,
-    loader: &language::syntax::Loader,
-) {
-    toggle_comments_impl(
-        doc,
-        view_id,
-        loader,
-        |line_token, block_tokens, doc, selection| {
-            if line_token.is_some() && block_tokens.is_none() {
-                comment::toggle_line_comments(doc, selection, line_token)
-            } else {
-                let default_block_tokens = &[BlockCommentToken::default()];
-                let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
-                comment::toggle_block_comments(doc, selection, block_comment_tokens)
-            }
-        },
-    );
+pub fn toggle_block_comments(doc: &mut Document, view_id: ViewId) {
+    toggle_comments_impl(doc, view_id, |line_token, block_tokens, doc, selection| {
+        if line_token.is_some() && block_tokens.is_none() {
+            comment::toggle_line_comments(doc, selection, line_token)
+        } else {
+            let default_block_tokens = &[BlockCommentToken::default()];
+            let block_comment_tokens = block_tokens.unwrap_or(default_block_tokens);
+            comment::toggle_block_comments(doc, selection, block_comment_tokens)
+        }
+    });
 }
 
 /// Find the existing comment token in the language layer containing this position.
 pub fn continued_line_comment_token<'a>(
     doc: &'a Document,
-    loader: &'a language::syntax::Loader,
     text: RopeSlice,
     line_num: usize,
     byte_pos: usize,
 ) -> Option<&'a str> {
+    let loader = doc.syntax_loader();
     if let Some(syntax) = doc.syntax() {
         let mut token = None;
         for layer in syntax.layers_for_byte_range(byte_pos as u32, byte_pos as u32) {

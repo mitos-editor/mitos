@@ -7,7 +7,6 @@ use super::{
     syntax::move_parent_node_end,
 };
 use crate::{events::PostInsertChar, key};
-use arc_swap::access::DynAccess;
 use editor_config::SmartTabConfig;
 use insert::LineBoundary;
 pub use insert::{CommentContinuation, Open};
@@ -15,11 +14,9 @@ use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editing::insert};
 
 pub fn insert_char(cx: &mut Context, c: char) {
-    let loader = cx.editor.syn_loader.load();
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::insert_char(doc, view.id, c, &loader, pairs);
-    drop(loader);
+    insert::insert_char(doc, view.id, c, pairs);
     event::dispatch(PostInsertChar { c, cx }).report_to(cx.editor.status_sender());
 }
 
@@ -105,18 +102,16 @@ fn insert_selection_interactive(cx: &mut Context, old_mode: Mode) {
 }
 
 pub fn insert_newline(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::insert_newline(doc, view.id, &loader, pairs);
+    insert::insert_newline(doc, view.id, pairs);
 }
 
 pub fn delete_char_backward(cx: &mut Context) {
     let count = cx.count();
-    let loader = cx.editor.syn_loader.load();
     let pairs = cx.editor.auto_pairs.as_ref();
     let (view, doc) = current!(cx.editor);
-    insert::delete_char_backward(doc, view.id, count, &loader, pairs);
+    insert::delete_char_backward(doc, view.id, count, pairs);
 }
 
 pub fn delete_char_forward(cx: &mut Context) {
@@ -164,17 +159,15 @@ pub(super) fn insert_at_line_end(cx: &mut Context) {
 fn insert_with_indent(cx: &mut Context, cursor_fallback: LineBoundary) {
     let extend = cx.editor.mode() == Mode::Select;
     enter_insert_mode(cx);
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    insert::insert_at_line_boundary(doc, view.id, &loader, cursor_fallback, extend);
+    insert::insert_at_line_boundary(doc, view.id, cursor_fallback, extend);
 }
 
 pub(super) fn open(cx: &mut Context, open: Open, comment_continuation: CommentContinuation) {
     enter_insert_mode(cx);
     let count = cx.count();
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    insert::open_lines(doc, view.id, &loader, open, comment_continuation, count);
+    insert::open_lines(doc, view.id, open, comment_continuation, count);
 }
 
 // o inserts a new line after each line with a selection

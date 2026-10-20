@@ -51,15 +51,13 @@ pub(super) fn switch_to_lowercase(cx: &mut Context) {
 }
 
 pub(super) fn join_selections(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    view::editing::join_selections(doc, view.id, &loader, false);
+    view::editing::join_selections(doc, view.id, false);
 }
 
 pub(super) fn join_selections_space(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    view::editing::join_selections(doc, view.id, &loader, true);
+    view::editing::join_selections(doc, view.id, true);
 }
 
 fn reorder_selection_contents(cx: &mut Context, strategy: editor_core::transform::ReorderStrategy) {
@@ -103,23 +101,20 @@ pub(super) fn unindent(cx: &mut Context) {
 }
 
 pub(super) fn toggle_comments(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_comments(doc, view.id, &loader);
+    view::editing::toggle_comments(doc, view.id);
     exit_select_mode(cx);
 }
 
 pub(super) fn toggle_line_comments(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_line_comments(doc, view.id, &loader);
+    view::editing::toggle_line_comments(doc, view.id);
     exit_select_mode(cx);
 }
 
 pub(super) fn toggle_block_comments(cx: &mut Context) {
-    let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
-    view::editing::toggle_block_comments(doc, view.id, &loader);
+    view::editing::toggle_block_comments(doc, view.id);
     exit_select_mode(cx);
 }
 

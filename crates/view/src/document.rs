@@ -633,11 +633,8 @@ impl Document {
     /// The language configuration of the injection layer at `byte_pos`,
     /// so language-specific behavior follows embedded languages. Falls back to the
     /// document's root language config when there is no syntax tree.
-    pub fn language_config_at<'a>(
-        &'a self,
-        loader: &'a syntax::Loader,
-        byte_pos: usize,
-    ) -> Option<&'a LanguageConfiguration> {
+    pub fn language_config_at(&self, byte_pos: usize) -> Option<&LanguageConfiguration> {
+        let loader = self.syntax_loader();
         match self.syntax() {
             Some(syntax) => {
                 let layer = syntax.layer_for_byte_range(byte_pos as u32, byte_pos as u32);
@@ -889,7 +886,6 @@ impl Document {
     pub fn auto_pairs<'a>(
         &'a self,
         global_config: Option<&'a AutoPairs>,
-        loader: &'a syntax::Loader,
         selection: &Selection,
     ) -> Option<&'a AutoPairs> {
         global_config?;
@@ -901,7 +897,10 @@ impl Document {
                 let (start, end) = selection.into_byte_range(self.text().slice(..));
                 let layer = syntax.layer_for_byte_range(start as u32, end as u32);
 
-                let lang_config = loader.language(syntax.layer(layer).language).config();
+                let lang_config = self
+                    .syntax_loader()
+                    .language(syntax.layer(layer).language)
+                    .config();
                 lang_config.auto_pairs.as_ref()
             })
             .or(global_config)
