@@ -144,6 +144,8 @@ If the runtime is missing, keep it beside the executable or set `MITOS_RUNTIME`
 to its full path. See [runtime configuration](./building-from-source.md#configuring-mitoss-runtime-files)
 for the complete search order. Older runtime files in your user configuration
 can override those bundled with a release.
+If you previously installed runtime assets there, see
+[migrating an existing config runtime](./building-from-source.md#migrating-an-existing-config-runtime).
 
 Language servers are installed separately. See [language-server setup](./lsp.md)
 to enable completion, diagnostics, and other language features.

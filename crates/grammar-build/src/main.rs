@@ -4,7 +4,7 @@ use anyhow::Result;
 fn main() -> Result<()> {
     grammar_build::fetch_grammars(
         loader::grammar::get_grammar_configs()?,
-        &loader::runtime_dirs()[0],
+        &loader::runtime_write_dir(),
         true,
     )
 }

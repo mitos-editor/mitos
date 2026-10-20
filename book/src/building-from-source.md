@@ -47,8 +47,8 @@ To skip downloading and compiling grammars during the build, set
 
 > 💡 Tree-sitter grammars can be fetched and compiled if not pre-packaged. Fetch
 > grammars with `ms --grammar fetch` and compile them with
-> `ms --grammar build`. This will install them in
-> the `runtime` directory within the user's mitos config directory (more
+> `ms --grammar build`. Installed commands write them to
+> the `runtime` directory within the user's Mitos data directory (more
 > [details below](#multiple-runtime-directories)).
 
 > 💡 If you only want to build _some_ grammars, see [`use-grammars`](./languages.md#choosing-grammars)
@@ -122,8 +122,27 @@ query or dictionary overrides in the config runtime directory, which takes
 priority. Custom themes can also live in the config directory's `themes/` folder.
 
 `ms --grammar fetch` and `ms --grammar build` write grammar sources and compiled
-grammars into the first runtime directory, normally the user config directory's
-`runtime/` subdirectory.
+grammars into the user data directory's `runtime/` subdirectory. When run through
+Cargo, they write into the current source checkout's `runtime/` instead, as do
+automatic grammar builds. `MITOS_RUNTIME` changes where assets are read, not
+where these commands write.
+
+#### Migrating an existing config runtime
+
+Existing config runtimes remain supported and take priority over the data
+runtime. Mitos does not move or delete them automatically.
+
+On Linux and macOS, you can move installed runtime assets from
+`~/.config/mitos/runtime` to `~/.local/share/mitos/runtime`, or change an existing
+runtime symlink to live there. Use the corresponding directories if you set
+`XDG_CONFIG_HOME` or `XDG_DATA_HOME`. Review both locations first and keep personal
+overrides in the config runtime. On Windows, the config and data runtime paths
+are the same, so no move is needed.
+
+If an older grammar remains in the config runtime, it will override a newly
+built grammar in the data runtime. Move or remove that older installed grammar
+when switching to the data runtime. Run `ms --health` to inspect runtime paths
+and grammar availability after migrating.
 
 #### Note to packagers
 
@@ -140,8 +159,8 @@ script could follow are:
 1. `cp target/opt/ms $BUILD_DIR/usr/bin/ms`
 
 This way the resulting `ms` binary will always look for its runtime directory in
-`/usr/lib/mitos/runtime` if the user has no custom runtime in `~/.config/mitos`
-or `MITOS_RUNTIME`.
+`/usr/lib/mitos/runtime` for files not provided by the user's config runtime,
+`MITOS_RUNTIME`, or data runtime.
 
 ### Validating the installation
 

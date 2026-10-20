@@ -111,7 +111,7 @@ FLAGS:
     if args.fetch_grammars {
         grammar_build::fetch_grammars(
             loader::grammar::get_grammar_configs()?,
-            &loader::runtime_dirs()[0],
+            &loader::runtime_write_dir(),
             args.strict,
         )?;
         return Ok(0);
@@ -120,7 +120,7 @@ FLAGS:
     if args.build_grammars {
         grammar_build::build_grammars(
             loader::grammar::get_grammar_configs()?,
-            &loader::runtime_dirs()[0],
+            &loader::runtime_write_dir(),
             None,
             args.strict,
         )?;

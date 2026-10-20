@@ -85,14 +85,7 @@ fn runtime_dirs_for_manifest(
     const RT_DIR: &str = "runtime";
     // Adding higher priority first
     let mut rt_dirs = Vec::new();
-    // Cargo supplies the manifest directory for build scripts, runs, and tests.
-    if let Some(dir) = manifest_dir.and_then(|dir| {
-        // Product crates live under `crates/`, while xtask is directly in the workspace.
-        dir.ancestors().find(|ancestor| {
-            ancestor.join("Cargo.toml").is_file() && ancestor.join(RT_DIR).is_dir()
-        })
-    }) {
-        let path = dir.join(RT_DIR);
+    if let Some(path) = workspace_runtime_dir(manifest_dir) {
         log::debug!("runtime dir: {}", path.to_string_lossy());
         rt_dirs.push(path);
     }
@@ -127,6 +120,32 @@ fn runtime_dirs_for_manifest(
         .unwrap();
     rt_dirs.push(exe_rt_dir);
     rt_dirs
+}
+
+fn workspace_runtime_dir(manifest_dir: Option<&Path>) -> Option<PathBuf> {
+    // Cargo supplies the manifest directory for build scripts, runs, and tests.
+    manifest_dir.and_then(|dir| {
+        // Product crates live under `crates/`, while xtask is directly in the workspace.
+        dir.ancestors()
+            .find(|ancestor| {
+                ancestor.join("Cargo.toml").is_file() && ancestor.join("runtime").is_dir()
+            })
+            .map(|dir| dir.join("runtime"))
+    })
+}
+
+/// Destination for fetched grammar sources and compiled grammars.
+///
+/// Cargo builds and runs write into the current workspace's runtime. Installed
+/// commands write into the user data runtime. This destination is independent
+/// of lookup precedence, including `MITOS_RUNTIME`.
+pub fn runtime_write_dir() -> PathBuf {
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
+    runtime_write_dir_for_manifest(manifest_dir.as_deref())
+}
+
+fn runtime_write_dir_for_manifest(manifest_dir: Option<&Path>) -> PathBuf {
+    workspace_runtime_dir(manifest_dir).unwrap_or_else(|| data_dir().join("runtime"))
 }
 
 /// Runtime directories ordered from highest to lowest priority
@@ -384,6 +403,10 @@ mod directory_tests {
             let directories = super::runtime_dirs_for_manifest(Some(&manifest), None);
             assert_eq!(directories[0], workspace.path().join("runtime"));
             assert_eq!(directories[1], super::config_dir().join("runtime"));
+            assert_eq!(
+                super::runtime_write_dir_for_manifest(Some(&manifest)),
+                workspace.path().join("runtime")
+            );
         }
     }
 
@@ -392,6 +415,21 @@ mod directory_tests {
         let manifest = tempfile::tempdir().unwrap();
         let directories = super::runtime_dirs_for_manifest(Some(manifest.path()), None);
         assert_eq!(directories[0], super::config_dir().join("runtime"));
+        assert_eq!(
+            super::runtime_write_dir_for_manifest(Some(manifest.path())),
+            super::data_dir().join("runtime")
+        );
+    }
+
+    #[test]
+    fn installed_grammar_output_uses_data_runtime_despite_config_precedence() {
+        let directories = super::runtime_dirs_for_manifest(None, None);
+        let destination = super::runtime_write_dir_for_manifest(None);
+        assert_eq!(destination, super::data_dir().join("runtime"));
+        assert!(directories.contains(&destination));
+        if super::config_dir() != super::data_dir() {
+            assert_ne!(destination, directories[0]);
+        }
     }
 
     #[test]
