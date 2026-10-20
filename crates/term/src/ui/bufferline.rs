@@ -1,51 +1,34 @@
-//! Terminal buffer tabs, clipped in display cells rather than Unicode scalar values.
-use editor_core::unicode::width::UnicodeWidthStr;
-use tui::{buffer::Buffer, layout::Rect, style::Style, text::Line};
+//! Scroll at tab boundaries and delegate styled text clipping to Ratatui.
+use tui::{buffer::Buffer, layout::Rect, text::Line, widgets::Widget};
 
-pub(super) fn render(titles: &[Line<'_>], active: usize, area: Rect, surface: &mut Buffer) {
+pub(super) fn render(titles: &[Line<'_>], active: usize, mut area: Rect, surface: &mut Buffer) {
     if area.is_empty() {
         return;
     }
-    let width = usize::from(area.width);
-    let total: usize = titles.iter().map(Line::width).sum();
-    let start: usize = titles.iter().take(active).map(Line::width).sum();
-    let active_width = titles.get(active).map_or(0, Line::width);
-    // Center the active tab when possible. A tab wider than the viewport starts at
-    // its beginning so the filename remains readable. Never scroll beyond the end.
-    let scroll = start
-        .saturating_sub(width.saturating_sub(active_width) / 2)
-        .min(total.saturating_sub(width));
+    let Some(active_title) = titles.get(active) else {
+        return;
+    };
+    // Include preceding tabs while the active tab still fits. An oversized active
+    // tab starts at the left edge so its filename is visible even in narrow views.
+    let mut first = active;
+    let mut width = active_title.width();
+    while first > 0 {
+        let previous = titles[first - 1].width();
+        if width.saturating_add(previous) > usize::from(area.width) {
+            break;
+        }
+        width += previous;
+        first -= 1;
+    }
 
-    let mut position = 0;
-    for title in titles {
-        let end = position + title.width();
-        if end <= scroll {
-            position = end;
-            continue;
+    for title in &titles[first..] {
+        if area.is_empty() {
+            break;
         }
-        for grapheme in title.styled_graphemes(Style::default()) {
-            let end = position + grapheme.symbol.width();
-            if end > scroll && position < scroll + width {
-                let visible_start = position.max(scroll);
-                let visible_end = end.min(scroll + width);
-                let x = area.x + (visible_start - scroll) as u16;
-                if position >= scroll && end <= scroll + width {
-                    surface.set_string(x, area.y, grapheme.symbol, grapheme.style);
-                } else {
-                    // A wide glyph crossing either edge occupies blank cells; never
-                    // shift the following grapheme or paint outside the viewport.
-                    for x in x..x + (visible_end - visible_start) as u16 {
-                        surface[(x, area.y)]
-                            .set_symbol(" ")
-                            .set_style(grapheme.style);
-                    }
-                }
-            }
-            position = end;
-            if position >= scroll + width {
-                return;
-            }
-        }
+        let width = title.width().min(usize::from(area.width)) as u16;
+        title.render(Rect { width, ..area }, surface);
+        area.x += width;
+        area.width -= width;
     }
 }
 
@@ -128,13 +111,13 @@ mod tests {
     }
 
     #[test]
-    fn wide_graphemes_crossing_either_edge_leave_blank_cells() {
+    fn scrolling_starts_at_a_tab_boundary_and_clips_wide_glyphs_on_the_right() {
         for wide in ["界", "🦀"] {
             let titles = [Line::from(format!("{wide}a")), Line::from(" b ")];
             let area = Rect::new(0, 0, 5, 1);
             let mut surface = Buffer::empty(area);
             render(&titles, 1, area, &mut surface);
-            assert_eq!(row(&surface, area), " a b ");
+            assert_eq!(row(&surface, area), " b   ");
 
             let area = Rect::new(0, 0, 1, 1);
             let mut surface = Buffer::empty(area);
@@ -144,11 +127,57 @@ mod tests {
     }
 
     #[test]
+    fn clipping_a_wide_icon_does_not_pull_later_spans_into_view() {
+        let titles = [Line::from(vec![
+            Span::styled("🦀", Style::default().fg(Color::Red)),
+            Span::raw(" filename "),
+        ])];
+        let area = Rect::new(0, 0, 1, 1);
+        let mut surface = Buffer::empty(area);
+        render(&titles, 0, area, &mut surface);
+        assert_eq!(row(&surface, area), " ");
+
+        let area = Rect::new(0, 0, 3, 1);
+        let mut surface = Buffer::empty(area);
+        render(&titles, 0, area, &mut surface);
+        assert_eq!(row(&surface, area), "🦀 ");
+        assert_eq!(surface[(0, 0)].fg, Color::Red);
+    }
+
+    #[test]
+    fn resizing_and_closing_buffers_restore_preceding_tabs() {
+        let titles: Vec<_> = [" first ", " active ", " last "]
+            .into_iter()
+            .map(Line::from)
+            .collect();
+        let area = Rect::new(0, 0, 8, 1);
+        let mut surface = Buffer::empty(area);
+        render(&titles, 1, area, &mut surface);
+        assert_eq!(row(&surface, area), " active ");
+
+        let area = Rect::new(0, 0, 24, 1);
+        let mut surface = Buffer::empty(area);
+        render(&titles, 1, area, &mut surface);
+        assert_eq!(row(&surface, area), " first  active  last    ");
+
+        let area = Rect::new(0, 0, 8, 1);
+        let mut surface = Buffer::empty(area);
+        render(&titles[1..], 0, area, &mut surface);
+        assert_eq!(row(&surface, area), " active ");
+    }
+
+    #[test]
     fn totals_larger_than_u16_do_not_overflow() {
         let titles = vec![Line::from(" buffer "); 10_000];
         let area = Rect::new(0, 0, 16, 1);
         let mut surface = Buffer::empty(area);
         render(&titles, titles.len() - 1, area, &mut surface);
         assert_eq!(row(&surface, area), " buffer  buffer ");
+
+        // Skipping a single huge title must not truncate its width to u16.
+        let titles = [Line::from("x".repeat(70_000)), Line::from(" active ")];
+        let mut surface = Buffer::empty(area);
+        render(&titles, 1, area, &mut surface);
+        assert_eq!(row(&surface, area), " active         ");
     }
 }
