@@ -64,7 +64,7 @@ impl<'a> InlineDiagnostics<'a> {
         icons: bool,
     ) -> Self {
         InlineDiagnostics {
-            state: InlineDiagnosticAccumulator::new(cursor, doc, config),
+            state: InlineDiagnosticAccumulator::new(cursor, doc.diagnostics(), config),
             styles: Styles::new(theme),
             eol_diagnostics,
             icons,
@@ -340,6 +340,6 @@ impl Decoration for InlineDiagnostics<'_> {
         grapheme: &FormattedGrapheme,
     ) -> usize {
         self.state
-            .proccess_anchor(grapheme, renderer.viewport.width, renderer.offset.col)
+            .process_anchor(grapheme, renderer.viewport.width, renderer.offset.col)
     }
 }

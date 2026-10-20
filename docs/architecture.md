@@ -151,6 +151,12 @@ highlighter adapts parser output to those shared IDs without allocation.
 
 ## Text layout
 
+`view::annotations` prepares diagnostic and inline-completion layout from borrowed
+values. Diagnostic accumulation takes a diagnostic slice; completion row layout
+takes preview lines and formatter settings. These algorithms do not borrow a
+document or completion request state. The view supplies feature visibility policy,
+while terminal decorations paint the resulting positions.
+
 `text-layout::DisplayPosition` identifies formatted rows and terminal-cell columns,
 including soft wraps and virtual lines. Formatters, visual coordinate mapping,
 annotations, cursor caches, and text rendering use this type. `core::Position`

@@ -561,7 +561,8 @@ impl View {
                 editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
             text_annotations.add_line_annotation(Box::new(
                 crate::annotations::inline_completion::InlineCompletionLines::new(
-                    completion,
+                    completion.cursor,
+                    &completion.lines,
                     doc.text_format(self.inner_width(doc), theme),
                     line_end,
                 ),
@@ -579,7 +580,7 @@ impl View {
                 .primary()
                 .cursor(doc.text().slice(..));
             text_annotations.add_line_annotation(InlineDiagnostics::new(
-                doc,
+                doc.diagnostics(),
                 cursor,
                 width,
                 doc.view_offset(self.id).horizontal_offset,

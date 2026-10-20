@@ -5,8 +5,6 @@ use text_layout::softwrapped_dimensions;
 use text_layout::text_annotations::LineAnnotation;
 use text_layout::DisplayPosition;
 
-use crate::Document;
-
 pub fn prepare_inline_diagnostics(
     config: &InlineDiagnosticsConfig,
     width: u16,
@@ -51,7 +49,7 @@ pub fn diagnostic_text_format(
 
 pub struct InlineDiagnosticAccumulator<'a> {
     idx: usize,
-    doc: &'a Document,
+    diagnostics: &'a [Diagnostic],
     pub stack: Vec<(&'a Diagnostic, u16)>,
     pub config: InlineDiagnosticsConfig,
     cursor: usize,
@@ -59,10 +57,15 @@ pub struct InlineDiagnosticAccumulator<'a> {
 }
 
 impl<'a> InlineDiagnosticAccumulator<'a> {
-    pub fn new(cursor: usize, doc: &'a Document, config: InlineDiagnosticsConfig) -> Self {
+    /// Diagnostics must be ordered by their starting character position.
+    pub fn new(
+        cursor: usize,
+        diagnostics: &'a [Diagnostic],
+        config: InlineDiagnosticsConfig,
+    ) -> Self {
         InlineDiagnosticAccumulator {
             idx: 0,
-            doc,
+            diagnostics,
             stack: Vec::new(),
             config,
             cursor,
@@ -77,7 +80,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     }
 
     pub fn skip_concealed(&mut self, conceal_end_char_idx: usize) -> usize {
-        let diagnostics = &self.doc.diagnostics()[self.idx..];
+        let diagnostics = &self.diagnostics[self.idx..];
         let idx = diagnostics.partition_point(|diag| diag.range.start < conceal_end_char_idx);
         self.idx += idx;
         self.next_anchor(conceal_end_char_idx)
@@ -85,8 +88,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
 
     pub fn next_anchor(&self, current_char_idx: usize) -> usize {
         let next_diag_start = self
-            .doc
-            .diagnostics()
+            .diagnostics
             .get(self.idx)
             .map_or(usize::MAX, |diag| diag.range.start);
         if (current_char_idx..next_diag_start).contains(&self.cursor) {
@@ -113,8 +115,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         if grapheme.char_idx == self.cursor {
             self.cursor_line = true;
             if self
-                .doc
-                .diagnostics()
+                .diagnostics
                 .get(self.idx)
                 .is_none_or(|diag| diag.range.start != grapheme.char_idx)
             {
@@ -129,7 +130,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
             return true;
         }
 
-        for diag in &self.doc.diagnostics()[self.idx..] {
+        for diag in &self.diagnostics[self.idx..] {
             if diag.range.start != grapheme.char_idx {
                 break;
             }
@@ -139,14 +140,14 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         false
     }
 
-    pub fn proccess_anchor(
+    pub fn process_anchor(
         &mut self,
         grapheme: &FormattedGrapheme,
         width: u16,
         horizontal_off: usize,
     ) -> usize {
         if self.process_anchor_impl(grapheme, width, horizontal_off) {
-            self.idx += self.doc.diagnostics()[self.idx..]
+            self.idx += self.diagnostics[self.idx..]
                 .iter()
                 .take_while(|diag| diag.range.start == grapheme.char_idx)
                 .count();
@@ -193,14 +194,14 @@ pub(crate) struct InlineDiagnostics<'a> {
 impl<'a> InlineDiagnostics<'a> {
     #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new(
-        doc: &'a Document,
+        diagnostics: &'a [Diagnostic],
         cursor: usize,
         width: u16,
         horizontal_off: usize,
         config: InlineDiagnosticsConfig,
     ) -> Box<dyn LineAnnotation + 'a> {
         Box::new(InlineDiagnostics {
-            state: InlineDiagnosticAccumulator::new(cursor, doc, config),
+            state: InlineDiagnosticAccumulator::new(cursor, diagnostics, config),
             width,
             horizontal_off,
         })
@@ -218,7 +219,7 @@ impl LineAnnotation for InlineDiagnostics<'_> {
 
     fn process_anchor(&mut self, grapheme: &FormattedGrapheme) -> usize {
         self.state
-            .proccess_anchor(grapheme, self.width, self.horizontal_off)
+            .process_anchor(grapheme, self.width, self.horizontal_off)
     }
 
     fn insert_virtual_lines(
@@ -229,7 +230,7 @@ impl LineAnnotation for InlineDiagnostics<'_> {
     ) -> DisplayPosition {
         self.state.compute_line_diagnostics();
         let multi = self.state.has_multi(self.width);
-        let diagostic_height: usize = self
+        let diagnostic_height: usize = self
             .state
             .stack
             .drain(..)
@@ -238,6 +239,68 @@ impl LineAnnotation for InlineDiagnostics<'_> {
                 softwrapped_dimensions(diag.message.trim().into(), &text_fmt).0
             })
             .sum();
-        DisplayPosition::new(multi as usize + diagostic_height, 0)
+        DisplayPosition::new(multi as usize + diagnostic_height, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diagnostics::{DiagnosticProvider, Severity};
+    use editor_core::Rope;
+    use text_layout::{doc_formatter::DocumentFormatter, text_annotations::TextAnnotations};
+
+    fn rows(cursor: usize, horizontal_off: usize, config: InlineDiagnosticsConfig) -> usize {
+        let text = Rope::from_str("ab\ncd");
+        let diagnostics = [Diagnostic {
+            range: diagnostics::Range { start: 0, end: 1 },
+            ends_at_word: false,
+            starts_at_word: false,
+            zero_width: false,
+            line: 0,
+            message: "warning".into(),
+            severity: Some(Severity::Warning),
+            code: None,
+            provider: DiagnosticProvider::Spelling,
+            tags: Vec::new(),
+            source: None,
+            data: None,
+        }];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_line_annotation(InlineDiagnostics::new(
+            &diagnostics,
+            cursor,
+            50,
+            horizontal_off,
+            config,
+        ));
+        DocumentFormatter::new_at_prev_checkpoint(
+            text.slice(..),
+            &TextFormat::default(),
+            &annotations,
+            0,
+        )
+        .last()
+        .unwrap()
+        .visual_pos
+        .row + 1
+    }
+
+    #[test]
+    fn diagnostic_rows_follow_cursor_filters_and_horizontal_visibility() {
+        let config = InlineDiagnosticsConfig {
+            cursor_line: DiagnosticFilter::Disable,
+            other_lines: DiagnosticFilter::Enable(Severity::Warning),
+            ..Default::default()
+        };
+        assert_eq!(rows(0, 0, config.clone()), 2);
+        assert_eq!(rows(3, 0, config.clone()), 3);
+        assert_eq!(rows(3, 4, config), 2);
+        let config = InlineDiagnosticsConfig {
+            cursor_line: DiagnosticFilter::Enable(Severity::Error),
+            other_lines: DiagnosticFilter::Enable(Severity::Error),
+            ..Default::default()
+        };
+        assert_eq!(rows(0, 0, config), 2);
     }
 }

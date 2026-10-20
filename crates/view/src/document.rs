@@ -11,7 +11,7 @@ use crate::features::{
     blame::DocumentBlame, code_action_hint::CodeActionHints, inline_completion::InlineCompletions,
 };
 // Retain document-facing annotation types at their established public paths.
-pub use crate::features::inline_completion::{InlineCompletion, InlineCompletionRow};
+pub use crate::features::inline_completion::InlineCompletion;
 pub use crate::features::{
     code_lenses::CodeLens,
     document_colors::DocumentColorSwatches,

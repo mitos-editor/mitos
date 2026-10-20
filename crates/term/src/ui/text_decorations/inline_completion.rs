@@ -3,7 +3,10 @@ use crate::ui::document::{LinePos, TextRenderer};
 use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::DisplayPosition;
 use theme::Style;
-use view::document::{InlineCompletion, InlineCompletionRow};
+use view::{
+    annotations::inline_completion::{layout, InlineCompletionRow},
+    document::InlineCompletion,
+};
 
 /// Paint a formatted preview while keeping the insertion cursor at its anchor.
 pub struct InlineCompletionDecoration<'a> {
@@ -116,9 +119,11 @@ impl Decoration for InlineCompletionDecoration<'_> {
         }
         if grapheme.char_idx == self.completion.cursor {
             self.anchor = Some(grapheme.visual_pos);
-            self.rows = self
-                .completion
-                .layout(&self.format, grapheme.visual_pos.col);
+            self.rows = layout(
+                &self.completion.lines,
+                &self.format,
+                grapheme.visual_pos.col,
+            );
         }
         if grapheme.char_idx >= self.line_end {
             self.end_row = Some(grapheme.visual_pos.row);
