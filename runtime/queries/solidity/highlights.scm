@@ -99,7 +99,7 @@
 )
 
 ; Structs and members
-(struct_expression type: ((expression (identifier)) @type .))
+(struct_expression type: (expression (identifier) @type))
 (struct_field_assignment name: (identifier) @variable.other.member)
 
 
