@@ -203,7 +203,7 @@ pub(super) fn request_completions(
     // is definitely necessary from our side too.
     trigger.pos = cursor;
     let doc = doc_mut!(editor, &doc.id());
-    let savepoint = doc.savepoint(view);
+    let savepoint = doc.savepoint(view.id);
     let text = doc.text();
     let trigger_text = text.slice_chars(..cursor);
 
@@ -387,7 +387,9 @@ pub fn request_incomplete_completion_list(editor: &mut Editor) {
             continue;
         };
         let (view, doc) = current!(editor);
-        let savepoint = savepoint.get_or_insert_with(|| doc.savepoint(view)).clone();
+        let savepoint = savepoint
+            .get_or_insert_with(|| doc.savepoint(view.id))
+            .clone();
         let request = request_completions_from_language_server(
             ls,
             doc,

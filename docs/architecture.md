@@ -826,9 +826,15 @@ pending typing, synchronizes displaying splits before and after the operation,
 and returns a typed rejection reason. Workspace edits and save formatting use
 this operation. Direct document edits must be built from the current text.
 Reload and save preparation also work on hidden documents; loading a buffer does
-not create a selection in the focused split. Completion savepoints deliberately
-retain their originating view and selection because they represent interactive
-preview state.
+not create a selection in the focused split. `buffer::SavePoint` tracks inverse text changes across ordinary edits, history,
+and repeated restoration. Checkpoints are bound to their buffer identity, shared
+when text is unchanged, and weakly registered so releasing callers releases their
+tracking. No savepoint lock is held while applying changes or notifying observers.
+
+Document savepoints add an originating `ViewId` and selection for interactive
+completion previews. Capturing and restoring them requires no concrete `View`;
+restoration rejects another buffer, a different view, or a removed selection.
+Text-only consumers can use buffer savepoints directly.
 
 Document mutations establish text, mapped selections, syntax, diagnostics, cached
 annotation anchors, and snippet ranges before publishing a change. An explicit

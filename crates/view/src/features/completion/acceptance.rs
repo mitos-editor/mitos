@@ -176,7 +176,13 @@ impl Editor {
                     if doc.uri() != uri || !doc.supports_language_server(server.id()) {
                         return;
                     }
-                    let changes = accepted.savepoint.changes_since(doc.text());
+                    let changes = match accepted.savepoint.changes_since(doc) {
+                        Ok(changes) => changes,
+                        Err(error) => {
+                            editor.set_error(|| error.to_string());
+                            return;
+                        }
+                    };
                     let Some(transaction) = additional_edits_transaction(
                         accepted.before.text(),
                         doc.text(),

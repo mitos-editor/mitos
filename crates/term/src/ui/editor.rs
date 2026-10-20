@@ -1040,7 +1040,7 @@ impl EditorView {
                                 let (view, doc) = current!(cxt.editor);
 
                                 if let Some(last_savepoint) = last_savepoint.as_deref()
-                                    && let Err(error) = doc.restore(view, last_savepoint, true)
+                                    && let Err(error) = doc.restore(view.id, last_savepoint, true)
                                 {
                                     cxt.editor.set_error(|| error.to_string());
                                     break 'repeat;
@@ -1091,7 +1091,7 @@ impl EditorView {
                             }
                             InsertEvent::RequestCompletion => {
                                 let (view, doc) = current!(cxt.editor);
-                                last_request_savepoint = Some(doc.savepoint(view));
+                                last_request_savepoint = Some(doc.savepoint(view.id));
                             }
                         }
                     }

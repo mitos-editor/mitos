@@ -174,7 +174,7 @@ mod tests {
         let context = ResponseContext {
             is_incomplete: false,
             priority: -2,
-            savepoint: doc.savepoint(&view),
+            savepoint: doc.savepoint(view.id),
         };
         let mut servers = SlotMap::<LanguageServerId, ()>::with_key();
         let server = servers.insert(());

@@ -48,13 +48,12 @@ use text_layout::doc_formatter::TextFormat;
 use text_layout::text_annotations::Overlay;
 use vcs::{DiffHandle, DiffProviderRegistry};
 
-use ::parking_lot::Mutex;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::str::FromStr;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use crate::{
     events::SelectionDidChange,
@@ -65,7 +64,7 @@ use crate::{
         navigation::NavigationState,
     },
     view::ViewPosition,
-    DocumentId, View, ViewId,
+    DocumentId, ViewId,
 };
 use editor_config::Config;
 use editor_core::{
@@ -148,25 +147,29 @@ impl Serialize for Mode {
         serializer.collect_str(self)
     }
 }
+/// A buffer savepoint together with the originating view's selection.
 #[derive(Debug)]
 pub struct SavePoint {
-    /// The view this savepoint is associated with
-    pub view: ViewId,
-    revert: Mutex<Transaction>,
+    view: ViewId,
+    text: Arc<buffer::SavePoint>,
+    selection: Selection,
 }
 
 impl SavePoint {
     /// Reconstruct saved text and selection without changing the live document.
-    pub(crate) fn saved_state(&self, current: &Rope) -> (Rope, Selection) {
-        let revert = self.revert.lock();
-        let mut text = current.clone();
-        revert.apply(&mut text);
-        (text, revert.selection().unwrap().clone())
+    pub(crate) fn saved_state(
+        &self,
+        doc: &Document,
+    ) -> Result<(Rope, Selection), buffer::SavePointError> {
+        Ok((self.text.saved_text(&doc.buffer)?, self.selection.clone()))
     }
 
     /// Forward changes from this savepoint to the current document text.
-    pub(crate) fn changes_since(&self, current: &editor_core::Rope) -> editor_core::ChangeSet {
-        self.revert.lock().changes().invert(current)
+    pub(crate) fn changes_since(
+        &self,
+        doc: &Document,
+    ) -> Result<editor_core::ChangeSet, buffer::SavePointError> {
+        self.text.changes_since(&doc.buffer)
     }
 }
 
@@ -232,8 +235,6 @@ pub struct Document {
 
     pub(crate) selection_history: crate::editing::SelectionHistory,
     pub config: Arc<dyn DynAccess<Config>>,
-
-    savepoints: Vec<Weak<SavePoint>>,
 
     pub(crate) modified_since_accessed: bool,
 
@@ -318,7 +319,6 @@ impl Document {
             language: None,
             selection_history: Default::default(),
             diagnostics: Default::default(),
-            savepoints: Vec::new(),
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             opened_language_servers: HashSet::new(),
@@ -537,65 +537,29 @@ impl Document {
         self.code_action_hints.remove_view(view_id);
     }
 
-    /// Creates a reference counted snapshot (called savpepoint) of the document.
-    ///
-    /// The snapshot will remain valid (and updated) idenfinitly as long as ereferences to it exist.
-    /// Restoring the snapshot will restore the selection and the contents of the document to
-    /// the state it had when this function was called.
-    pub fn savepoint(&mut self, view: &View) -> Arc<SavePoint> {
-        let revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
-        // check if there is already an existing (identical) savepoint around
-        if let Some(savepoint) = self
-            .savepoints
-            .iter()
-            .rev()
-            .find_map(|savepoint| savepoint.upgrade())
-        {
-            let transaction = savepoint.revert.lock();
-            if savepoint.view == view.id
-                && transaction.changes().is_empty()
-                && transaction.selection() == revert.selection()
-            {
-                drop(transaction);
-                return savepoint;
-            }
-        }
-        let savepoint = Arc::new(SavePoint {
-            view: view.id,
-            revert: Mutex::new(revert),
-        });
-        self.savepoints.push(Arc::downgrade(&savepoint));
-        savepoint
+    /// Capture text and the selection of an attached view. Text tracking belongs
+    /// to the buffer; this layer adds only the selection restored by the editor.
+    pub fn savepoint(&mut self, view: ViewId) -> Arc<SavePoint> {
+        Arc::new(SavePoint {
+            view,
+            selection: self.selection(view).clone(),
+            text: self.buffer.savepoint(),
+        })
     }
 
-    /// Restore saved text and selection. Rejected edits leave the savepoint reusable.
+    /// Restore saved text and selection. Rejections leave the savepoint reusable.
     pub fn restore(
         &mut self,
-        view: &mut View,
+        view: ViewId,
         savepoint: &SavePoint,
         emit_lsp_notification: bool,
     ) -> Result<(), crate::editing::EditError> {
-        assert_eq!(
-            savepoint.view, view.id,
-            "Savepoint must not be used with a different view!"
-        );
-        // search and remove savepoint using a ptr comparison
-        // this avoids a deadlock as we need to lock the mutex
-        let savepoint_idx = self
-            .savepoints
-            .iter()
-            .position(|savepoint_ref| std::ptr::eq(savepoint_ref.as_ptr(), savepoint))
-            .expect("Savepoint must belong to this document");
-
-        let savepoint_ref = self.savepoints.remove(savepoint_idx);
-        let mut revert = savepoint.revert.lock();
-        let result =
-            crate::editing::apply_with_notifications(self, &revert, view.id, emit_lsp_notification);
-        if result.is_ok() {
-            *revert = Transaction::new(self.text()).with_selection(self.selection(view.id).clone());
+        if savepoint.view != view || self.try_selection(view).is_none() {
+            return Err(crate::editing::EditError::InvalidSavepointView);
         }
-        self.savepoints.push(savepoint_ref);
-        result
+        let revert = Transaction::from(savepoint.text.revert(&self.buffer)?)
+            .with_selection(savepoint.selection.clone());
+        crate::editing::apply_with_notifications(self, &revert, view, emit_lsp_notification)
     }
 
     pub fn id(&self) -> DocumentId {
@@ -1355,18 +1319,61 @@ mod savepoint_rejection_tests {
     use editor_core::Transaction;
 
     #[tokio::test]
+    async fn restoration_requires_the_original_document_and_attached_selection() {
+        let (mut doc, view) = document_and_view("#[|a]#\n");
+        let saved = doc.savepoint(view.id);
+        let (mut other, _) = document_and_view("#[|a]#\n");
+        let mut views = slotmap::SlotMap::<crate::ViewId, ()>::with_key();
+        let other_view = views.insert(());
+        doc.ensure_view_init(other_view);
+        // The view identifier alone cannot establish document ownership.
+        other.set_selection(view.id, doc.selection(view.id).clone());
+        assert_eq!(
+            other.restore(view.id, &saved, true),
+            Err(editing::EditError::SavePoint(
+                buffer::SavePointError::WrongBuffer
+            ))
+        );
+        assert_eq!(
+            doc.restore(other_view, &saved, true),
+            Err(editing::EditError::InvalidSavepointView)
+        );
+        assert_eq!(other.text(), "a\n");
+        assert!(other.changes().is_empty());
+        doc.remove_view(view.id);
+        assert_eq!(
+            doc.restore(view.id, &saved, true),
+            Err(editing::EditError::InvalidSavepointView)
+        );
+    }
+
+    #[tokio::test]
+    async fn savepoints_restore_selection_after_edits_without_a_concrete_view() {
+        let (mut doc, view) = document_and_view("a#[|界]#\r\n");
+        let selection = doc.selection(view.id).clone();
+        let saved = doc.savepoint(view.id);
+        let edit = Transaction::change(doc.text(), [(0, 1, Some("longer".into()))].into_iter());
+        doc.apply(edit.changes()).unwrap();
+        doc.restore(view.id, &saved, true).unwrap();
+        assert_eq!(doc.text(), "a界\r\n");
+        assert_eq!(doc.selection(view.id), &selection);
+        doc.restore(view.id, &saved, true).unwrap();
+        assert_eq!(doc.selection(view.id), &selection);
+    }
+
+    #[tokio::test]
     async fn rejected_restoration_retains_the_saved_text_and_pending_history() {
-        let (mut doc, mut view) = document_and_view("#[|a]#\n");
-        let saved = doc.savepoint(&view);
+        let (mut doc, view) = document_and_view("#[|a]#\n");
+        let saved = doc.savepoint(view.id);
         let edit = Transaction::change(doc.text(), [(0, 1, Some("界".into()))].into_iter());
         editing::apply(&mut doc, &edit, view.id).unwrap();
         let mut doc = doc.with_readonly_name("adapter source".into());
         let pending = doc.changes().clone();
-        assert!(doc.restore(&mut view, &saved, true).is_err());
+        assert!(doc.restore(view.id, &saved, true).is_err());
         assert_eq!(doc.text(), "界\n");
         assert_eq!(doc.changes(), &pending);
-        assert_eq!(saved.saved_state(doc.text()).0, "a\n");
-        assert!(doc.restore(&mut view, &saved, true).is_err());
-        assert_eq!(saved.saved_state(doc.text()).0, "a\n");
+        assert_eq!(saved.saved_state(&doc).unwrap().0, "a\n");
+        assert!(doc.restore(view.id, &saved, true).is_err());
+        assert_eq!(saved.saved_state(&doc).unwrap().0, "a\n");
     }
 }

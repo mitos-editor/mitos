@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 pub mod history;
+mod savepoint;
+pub use savepoint::{SavePoint, SavePointError};
 
 use editor_core::{ChangeSet, Rope, Transaction};
 use history::{History, HistoryStep};
@@ -80,6 +82,7 @@ pub struct Buffer {
     changes: ChangeSet,
     pending_original_text: Option<Rope>,
     history: History,
+    savepoints: Vec<std::sync::Weak<SavePoint>>,
 }
 
 impl std::fmt::Debug for Buffer {
@@ -102,6 +105,7 @@ impl Buffer {
             version: 0,
             pending_original_text: None,
             history: History::default(),
+            savepoints: Vec::new(),
         }
     }
 
@@ -165,6 +169,7 @@ impl Buffer {
         }
         if !changes.is_empty() {
             self.version += 1;
+            self.map_savepoints(changes, &before);
         }
         Ok(AppliedChange {
             before,

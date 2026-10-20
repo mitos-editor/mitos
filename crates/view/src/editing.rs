@@ -21,6 +21,10 @@ pub enum EditError {
     InvalidLength { expected: usize, actual: usize },
     #[error("Cannot edit binary document text")]
     BinaryDocument,
+    #[error("Savepoint requires its original attached view")]
+    InvalidSavepointView,
+    #[error(transparent)]
+    SavePoint(#[from] buffer::SavePointError),
     #[error("Cannot edit read-only document text")]
     ReadOnlyDocument,
 }

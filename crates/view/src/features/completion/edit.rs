@@ -48,7 +48,7 @@ impl PreparedCompletion {
         {
             doc.validate_editable()?;
         }
-        let (mut text, _) = self.savepoint.saved_state(doc.text());
+        let (mut text, _) = self.savepoint.saved_state(doc)?;
         for edit in std::iter::once(&self.transaction).chain(self.additional.iter()) {
             let expected = text.len_chars();
             if edit.changes().len_before() != expected {
@@ -97,7 +97,7 @@ impl Editor {
                 let server = self.language_servers.get_by_id(item.provider)?;
                 let encoding = server.offset_encoding();
                 let doc = self.document(session.trigger.doc)?;
-                let (text, selection) = context.savepoint.saved_state(doc.text());
+                let (text, selection) = context.savepoint.saved_state(doc).ok()?;
                 let (transaction, snippet) = lsp_item_to_transaction(
                     &text,
                     &selection,
@@ -161,12 +161,12 @@ impl Editor {
         let (view, doc) = current!(self);
         if !previewing {
             self.handlers.completions.edit = Some(CompletionEdit::Preview {
-                savepoint: doc.savepoint(view),
+                savepoint: doc.savepoint(view.id),
                 document: doc.id(),
                 view: view.id,
             });
         }
-        doc.restore(view, &prepared.savepoint, false)?;
+        doc.restore(view.id, &prepared.savepoint, false)?;
         crate::editing::apply_temporary(doc, &prepared.transaction, view.id)?;
         if let Some(additional) = prepared.additional {
             crate::editing::apply_temporary(doc, &additional, view.id)?;
@@ -197,7 +197,7 @@ impl Editor {
         let trigger_offset = session.trigger.pos;
         self.restore_completion_preview()?;
         let (view, doc) = current!(self);
-        doc.restore(view, &savepoint, true)?;
+        doc.restore(view.id, &savepoint, true)?;
         crate::editing::commit(doc, view);
         let before = doc.snapshot();
         crate::editing::apply(doc, &transaction, view.id)?;
@@ -252,7 +252,7 @@ impl Editor {
             .is_some_and(|view| view.doc == document)
             && let Some(doc) = self.documents.get_mut(&document)
         {
-            doc.restore(self.tree.get_mut(view), &savepoint, false)?;
+            doc.restore(view, &savepoint, false)?;
         }
         self.handlers.completions.edit = None;
         Ok(())
@@ -429,7 +429,7 @@ mod rejection_tests {
                 view: view.id,
                 kind: TriggerKind::Manual,
             };
-            let savepoint = doc.savepoint(view);
+            let savepoint = doc.savepoint(view.id);
             let transaction = if readonly {
                 Transaction::change(doc.text(), [(0, 2, Some("alpha".into()))].into_iter())
             } else {

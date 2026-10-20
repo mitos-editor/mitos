@@ -8,7 +8,6 @@ use crate::{
 };
 use buffer::AppliedChange;
 use editor_core::{ChangeSet, Selection, Transaction};
-use std::mem;
 
 impl Document {
     /// Apply text changes without requiring a view. Call [`Self::commit_changes`]
@@ -90,21 +89,6 @@ impl Document {
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.buffer.text().slice(..));
             state.position.anchor = changes.map_pos(state.position.anchor, Assoc::Before);
-        }
-
-        // generate revert to savepoint
-        if !self.savepoints.is_empty() {
-            let revert = Transaction::from(changes.invert(old_doc));
-            self.savepoints
-                .retain_mut(|save_point| match save_point.upgrade() {
-                    Some(savepoint) => {
-                        let mut revert_to_savepoint = savepoint.revert.lock();
-                        *revert_to_savepoint =
-                            revert.clone().compose(mem::take(&mut revert_to_savepoint));
-                        true
-                    }
-                    None => false,
-                })
         }
 
         // update tree-sitter syntax tree
