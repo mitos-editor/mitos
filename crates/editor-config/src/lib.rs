@@ -902,6 +902,8 @@ pub enum WhitespaceRender {
 #[serde(rename_all = "kebab-case")]
 pub enum WhitespaceRenderValue {
     None,
+    /// Show this kind of whitespace only at the end of a document line.
+    Trailing,
     // TODO
     // Selection,
     All,

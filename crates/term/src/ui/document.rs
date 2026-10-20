@@ -4,6 +4,7 @@ use text_layout::DisplayPosition;
 use editor_config::{WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::Grapheme;
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
+use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
 use editor_core::RopeSlice;
 use language::syntax::Highlighter;
@@ -99,6 +100,8 @@ pub fn render_text(
     let mut is_in_indent_area = true;
     let mut last_line_indent_level = 0;
     let mut reached_view_top = false;
+    let mut trailing_line = usize::MAX;
+    let mut trailing_start = 0;
 
     loop {
         let Some(mut grapheme) = formatter.next() else {
@@ -171,11 +174,26 @@ pub fn render_text(
         };
         decorations.decorate_grapheme(renderer, &grapheme);
 
-        let virt = grapheme.is_virtual();
+        // Classify against the document line, not the visible row: a viewport
+        // edge or soft wrap does not turn interior whitespace into trailing text.
+        if renderer.classify_trailing && trailing_line != grapheme.line_idx {
+            trailing_line = grapheme.line_idx;
+            let line = line_without_line_ending(&text, trailing_line);
+            let count = line
+                .chars_at(line.len_chars())
+                .reversed()
+                .take_while(|ch| matches!(ch, ' ' | '\t' | '\u{00a0}' | '\u{202f}'))
+                .count();
+            trailing_start = text.line_to_char(trailing_line) + line.len_chars() - count;
+        }
+        let trailing = renderer.classify_trailing
+            && !grapheme.is_virtual()
+            && !grapheme.source.is_eof()
+            && grapheme.char_idx >= trailing_start;
         let grapheme_width = renderer.draw_grapheme(
             &grapheme,
             grapheme_style,
-            virt,
+            trailing,
             &mut last_line_indent_level,
             &mut is_in_indent_area,
             grapheme.visual_pos,
@@ -187,11 +205,55 @@ pub fn render_text(
     decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
 }
 
+// Presentation belongs to the terminal renderer; editor-config only owns policy.
+#[derive(Debug)]
+struct WhitespacePalette {
+    space: String,
+    nbsp: String,
+    nnbsp: String,
+    tab: String,
+    newline: String,
+}
+
+impl WhitespacePalette {
+    fn new(config: &WhitespaceConfig, tab_width: usize, trailing: bool) -> Self {
+        let visible = |mode| {
+            mode == WhitespaceRenderValue::All
+                || (trailing && mode == WhitespaceRenderValue::Trailing)
+        };
+        let chars = &config.characters;
+        let character = |mode, ch: char| {
+            if visible(mode) {
+                ch.to_string()
+            } else {
+                " ".into()
+            }
+        };
+        Self {
+            space: character(config.render.space(), chars.space),
+            nbsp: character(config.render.nbsp(), chars.nbsp),
+            nnbsp: character(config.render.nnbsp(), chars.nnbsp),
+            tab: if visible(config.render.tab()) {
+                std::iter::once(chars.tab)
+                    .chain(std::iter::repeat_n(chars.tabpad, tab_width - 1))
+                    .collect()
+            } else {
+                " ".repeat(tab_width)
+            },
+            // Newline markers are controlled independently; a newline is not trailing whitespace.
+            newline: character(config.render.newline(), chars.newline),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TextRenderer<'a> {
     surface: &'a mut Surface,
     pub text_style: Style,
     pub whitespace_style: Style,
+    trailing_whitespace_style: Style,
+    trailing_whitespace: WhitespacePalette,
+    classify_trailing: bool,
     pub indent_guide_char: String,
     pub indent_guide_style: Style,
     pub newline: String,
@@ -221,41 +283,10 @@ impl<'a> TextRenderer<'a> {
         viewport: Rect,
     ) -> TextRenderer<'a> {
         let editor_config = doc.config.load();
-        let WhitespaceConfig {
-            render: ws_render,
-            characters: ws_chars,
-        } = &editor_config.whitespace;
-
         let tab_width = doc.tab_width();
-        let tab = if ws_render.tab() == WhitespaceRenderValue::All {
-            std::iter::once(ws_chars.tab)
-                .chain(std::iter::repeat_n(ws_chars.tabpad, tab_width - 1))
-                .collect()
-        } else {
-            " ".repeat(tab_width)
-        };
-        let virtual_tab = " ".repeat(tab_width);
-        let newline = if ws_render.newline() == WhitespaceRenderValue::All {
-            ws_chars.newline.into()
-        } else {
-            " ".to_owned()
-        };
-
-        let space = if ws_render.space() == WhitespaceRenderValue::All {
-            ws_chars.space.into()
-        } else {
-            " ".to_owned()
-        };
-        let nbsp = if ws_render.nbsp() == WhitespaceRenderValue::All {
-            ws_chars.nbsp.into()
-        } else {
-            " ".to_owned()
-        };
-        let nnbsp = if ws_render.nnbsp() == WhitespaceRenderValue::All {
-            ws_chars.nnbsp.into()
-        } else {
-            " ".to_owned()
-        };
+        let regular = WhitespacePalette::new(&editor_config.whitespace, tab_width, false);
+        let trailing_whitespace =
+            WhitespacePalette::new(&editor_config.whitespace, tab_width, true);
 
         let text_style = theme.get("ui.text");
 
@@ -264,12 +295,25 @@ impl<'a> TextRenderer<'a> {
         TextRenderer {
             surface,
             indent_guide_char: editor_config.indent_guides.character.into(),
-            newline,
-            nbsp,
-            nnbsp,
-            space,
-            tab,
-            virtual_tab,
+            newline: regular.newline,
+            nbsp: regular.nbsp,
+            nnbsp: regular.nnbsp,
+            space: regular.space,
+            tab: regular.tab,
+            virtual_tab: " ".repeat(tab_width),
+            trailing_whitespace,
+            classify_trailing: {
+                let render = editor_config.whitespace.render;
+                let modes = [render.space(), render.tab(), render.nbsp(), render.nnbsp()];
+                modes.contains(&WhitespaceRenderValue::Trailing)
+                    || (theme
+                        .try_get_exact("ui.virtual.trailing_whitespace")
+                        .is_some()
+                        && modes.contains(&WhitespaceRenderValue::All))
+            },
+            trailing_whitespace_style: theme
+                .try_get_exact("ui.virtual.trailing_whitespace")
+                .unwrap_or_else(|| theme.get("ui.virtual.whitespace")),
             whitespace_style: theme.get("ui.virtual.whitespace"),
             indent_width,
             starting_indent: offset.col / indent_width as usize
@@ -330,7 +374,7 @@ impl<'a> TextRenderer<'a> {
         &mut self,
         grapheme: &FormattedGrapheme,
         grapheme_style: GraphemeStyle,
-        is_virtual: bool,
+        trailing: bool,
         last_indent_level: &mut usize,
         is_in_indent_area: &mut bool,
         mut position: DisplayPosition,
@@ -341,21 +385,48 @@ impl<'a> TextRenderer<'a> {
         position.row -= self.offset.row;
         let cut_off_start = self.offset.col.saturating_sub(position.col);
         let is_whitespace = grapheme.is_whitespace();
+        let is_virtual = grapheme.is_virtual();
+        let trailing = trailing && is_whitespace && !matches!(grapheme.raw, Grapheme::Newline);
 
         // TODO is it correct to apply the whitespace style to all unicode white spaces?
         let mut style = grapheme_style.syntax_style;
         if is_whitespace {
-            style = style.patch(self.whitespace_style);
+            style = style.patch(if trailing {
+                self.trailing_whitespace_style
+            } else {
+                self.whitespace_style
+            });
         }
         style = style.patch(grapheme_style.overlay_style);
 
         let width = grapheme.width();
         let mut is_tab = false;
-        let space = if is_virtual { " " } else { &self.space };
-        let nbsp = if is_virtual { " " } else { &self.nbsp };
-        let nnbsp = if is_virtual { " " } else { &self.nnbsp };
+        let palette = &self.trailing_whitespace;
+        let space = if is_virtual {
+            " "
+        } else if trailing {
+            &palette.space
+        } else {
+            &self.space
+        };
+        let nbsp = if is_virtual {
+            " "
+        } else if trailing {
+            &palette.nbsp
+        } else {
+            &self.nbsp
+        };
+        let nnbsp = if is_virtual {
+            " "
+        } else if trailing {
+            &palette.nnbsp
+        } else {
+            &self.nnbsp
+        };
         let tab = if is_virtual {
             &self.virtual_tab
+        } else if trailing {
+            &palette.tab
         } else {
             &self.tab
         };
@@ -387,6 +458,21 @@ impl<'a> TextRenderer<'a> {
                 self.surface.set_tab(x, y, grapheme, style);
             } else {
                 self.surface.set_grapheme(x, y, grapheme, width, style);
+            }
+        } else if is_tab && position.col < self.offset.col + self.viewport.width as usize {
+            // Tabs are individual cells, so either edge can clip their marker/padding.
+            let start = cut_off_start.min(width);
+            let end = width
+                .min((self.offset.col + self.viewport.width as usize).saturating_sub(position.col));
+            if start < end {
+                let from = char_to_byte_idx(grapheme, start);
+                let to = char_to_byte_idx(grapheme, end);
+                self.surface.set_tab(
+                    self.viewport.x + position.col.saturating_sub(self.offset.col) as u16,
+                    self.viewport.y + position.row as u16,
+                    &grapheme[from..to],
+                    style,
+                );
             }
         } else if cut_off_start != 0 && cut_off_start < width {
             // partially on screen
@@ -596,3 +682,156 @@ impl<'t> OverlayHighlighter<'t> {
     }
 }
 use tui::buffer::BufferExt as _;
+
+#[cfg(test)]
+mod whitespace_tests {
+    use super::*;
+    use arc_swap::ArcSwap;
+    use editor_core::Rope;
+    use std::sync::Arc;
+    use tui::style::Color;
+
+    fn render(text: &str, settings: &str, width: u16, wrap: bool, offset: usize) -> Surface {
+        render_with_annotations(text, settings, width, wrap, offset, &[])
+    }
+
+    fn render_with_annotations(
+        text: &str,
+        settings: &str,
+        width: u16,
+        wrap: bool,
+        offset: usize,
+        inline: &[text_layout::text_annotations::InlineAnnotation],
+    ) -> Surface {
+        let mut config: editor_config::Config = toml::from_str(settings).unwrap();
+        config.soft_wrap.enable = Some(wrap);
+        config.soft_wrap.wrap_indicator = Some(String::new());
+        config.soft_wrap.max_wrap = Some(0);
+        config.whitespace.characters.tabpad = '·';
+        let doc = Document::from(
+            Rope::from_str(text),
+            None,
+            Arc::new(ArcSwap::from_pointee(config)),
+            Arc::new(ArcSwap::from_pointee(language::syntax::Loader::default())),
+        );
+        let theme = Theme::from(toml::from_str::<toml::Value>(
+            "\"ui.virtual.whitespace\" = { fg = 'blue' }\n\"ui.virtual.trailing_whitespace\" = { fg = 'red' }",
+        ).unwrap());
+        let viewport = Rect::new(0, 0, width, 8);
+        let mut surface = Surface::empty(viewport);
+        let mut renderer = TextRenderer::new(
+            &mut surface,
+            &doc,
+            &theme,
+            DisplayPosition::new(0, offset),
+            viewport,
+        );
+        let mut annotations = TextAnnotations::default();
+        annotations.add_inline_annotations(inline, None);
+        render_text(
+            &mut renderer,
+            doc.text().slice(..),
+            0,
+            &doc.text_format(width, Some(&theme)),
+            &annotations,
+            None,
+            vec![],
+            &theme,
+            DecorationManager::default(),
+        );
+        surface
+    }
+
+    fn row(surface: &Surface, y: u16) -> String {
+        (0..surface.area.width)
+            .map(|x| surface[(x, y)].symbol())
+            .collect()
+    }
+
+    #[test]
+    fn trailing_spaces_and_unicode_before_crlf_and_eof() {
+        let surface = render(
+            "a b \u{00a0}\u{202f}\r\nc ",
+            "[whitespace]\nrender = 'trailing'",
+            12,
+            false,
+            0,
+        );
+        assert_eq!(row(&surface, 0), "a b·⍽␣      ");
+        assert_eq!(row(&surface, 1), "c·          ");
+        assert_eq!(surface[(1, 0)].fg, Color::Blue);
+        assert_eq!(surface[(3, 0)].fg, Color::Red);
+        // The formatter's synthetic EOF space must stay invisible.
+        assert_eq!(surface[(2, 1)].symbol(), " ");
+    }
+
+    #[test]
+    fn trailing_modes_remain_independent() {
+        let surface = render(
+            "a b\t \n",
+            "[whitespace.render]\nspace = 'all'\ntab = 'trailing'\nnewline = 'all'",
+            12,
+            false,
+            0,
+        );
+        assert_eq!(row(&surface, 0), "a·b→·⏎      ");
+        let hidden = render("a \t\u{00a0}\n", "[whitespace.render]\nspace = 'trailing'\ntab = 'none'\nnbsp = 'none'\nnewline = 'trailing'", 12, false, 0);
+        assert_eq!(row(&hidden, 0), "a·          ");
+    }
+
+    #[test]
+    fn viewport_edge_does_not_make_interior_whitespace_trailing() {
+        let surface = render("ab   z  ", "[whitespace]\nrender = 'trailing'", 5, false, 0);
+        assert_eq!(row(&surface, 0), "ab   ");
+        let scrolled = render("ab   z  ", "[whitespace]\nrender = 'trailing'", 5, false, 3);
+        assert_eq!(row(&scrolled, 0), "  z··");
+    }
+
+    #[test]
+    fn clipped_tabs_keep_their_actual_expansion_and_style() {
+        let surface = render("a\t\t", "[whitespace]\nrender = 'trailing'", 5, false, 2);
+        assert_eq!(row(&surface, 0), "··→··");
+        for x in 0..5 {
+            assert_eq!(surface[(x, 0)].fg, Color::Red);
+        }
+    }
+
+    #[test]
+    fn virtual_text_does_not_change_trailing_classification() {
+        use text_layout::text_annotations::InlineAnnotation;
+        let surface = render_with_annotations(
+            "a  ",
+            "[whitespace]\nrender = 'trailing'",
+            12,
+            false,
+            0,
+            &[InlineAnnotation::new(2, "hint ")],
+        );
+        assert_eq!(row(&surface, 0), "a·hint ·    ");
+        assert_eq!(surface[(6, 0)].symbol(), " ");
+        assert_eq!(surface[(7, 0)].fg, Color::Red);
+    }
+
+    #[test]
+    fn soft_wrap_uses_the_document_line_end() {
+        // Document::text_format enables soft wrap only for widths above ten.
+        let surface = render(
+            "abcdefghij   z  ",
+            "[whitespace]\nrender = 'trailing'",
+            12,
+            true,
+            0,
+        );
+        assert_eq!(row(&surface, 0), "abcdefghij  ");
+        assert_eq!(row(&surface, 1), " z··        ");
+        let trailing_run = render(
+            "abcdefghij    ",
+            "[whitespace]\nrender = 'trailing'",
+            12,
+            true,
+            0,
+        );
+        assert_eq!(row(&trailing_run, 0), "abcdefghij··");
+        assert_eq!(row(&trailing_run, 1), "··          ");
+    }
+}

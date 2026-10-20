@@ -142,7 +142,27 @@ tab = "→"
 tabpad = "·"
 ```
 
-Use `:set whitespace.render all` to show whitespace temporarily.
+Set `render = "trailing"` to show spaces, tabs, non-breaking spaces, and narrow
+non-breaking spaces only at the end of document lines, including the final line
+without a newline. Whitespace at a soft wrap or viewport edge is only shown if
+it also belongs to the trailing whitespace of that document line.
+
+Each kind also accepts `"trailing"` independently, for example:
+
+```toml
+[editor.whitespace.render]
+space = "trailing"
+tab = "all"
+newline = "none"
+```
+
+Newline markers use `"all"` or `"none"`; `"trailing"` leaves them hidden. The
+`ui.virtual.trailing_whitespace` theme scope styles trailing whitespace and falls
+back to `ui.virtual.whitespace`. Virtual text and wrap indicators do not count as
+trailing whitespace.
+
+Use `:set whitespace.render all` or `:set whitespace.render trailing` to change
+whitespace visibility temporarily.
 
 <span id="editorindent-guides-section"></span>
 
