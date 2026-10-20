@@ -65,25 +65,21 @@ impl Document {
                 .unwrap_or_else(stdx::env::current_working_dir);
             process.current_dir(directory);
 
-            let args = match fmt_args
-                .iter()
-                .map(|content| expansion::expand(editor, Token::expand(content), &[]))
-                .collect::<Result<Vec<_>, _>>()
-            {
-                Ok(args) => args,
-                Err(err) => {
-                    log::error!("Failed to expand formatter arguments: {err}");
-                    return None;
-                }
-            };
-
+            let expansion = expansion::Context::capture(editor, &fmt_args.join(" "));
+            let fmt_args = fmt_args.clone();
             process
-                .args(args.iter().map(AsRef::as_ref))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
             let formatting_future = async move {
+                for content in &fmt_args {
+                    let arg = expansion
+                        .expand(Token::expand(content), &[])
+                        .await
+                        .map_err(|error| FormatterError::ExpansionFailed(error.to_string()))?;
+                    process.arg(arg.as_ref());
+                }
                 let mut process = process
                     .spawn()
                     .map_err(|e| FormatterError::SpawningFailed {
@@ -165,6 +161,7 @@ impl Document {
 
 #[derive(Clone, Debug)]
 pub enum FormatterError {
+    ExpansionFailed(String),
     InvalidEdits(crate::language_servers::edits::TextEditError),
     SpawningFailed {
         command: String,
@@ -188,6 +185,9 @@ impl std::error::Error for FormatterError {
 impl Display for FormatterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ExpansionFailed(error) => {
+                write!(f, "Failed to expand formatter arguments: {error}")
+            }
             Self::InvalidEdits(error) => write!(f, "Invalid formatter edits: {error}"),
             Self::SpawningFailed { command, error } => {
                 write!(f, "Failed to spawn formatter {}: {:?}", command, error)

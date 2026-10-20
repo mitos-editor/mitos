@@ -87,7 +87,15 @@ async fn queued_queries_validate_picker_identity_and_generation() -> anyhow::Res
             }
             _ => {}
         }
-        jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(callback)));
+        jobs.handle_callback(
+            crate::config::Context {
+                current: &crate::config::Config::default(),
+                updates: &tokio::sync::mpsc::unbounded_channel().0,
+            },
+            &mut app.editor,
+            &mut compositor,
+            Ok(Some(callback)),
+        );
         assert_eq!(
             app.editor.get_status().map(|(message, _)| message.as_ref()),
             (change == "none").then_some("query: old"),
@@ -112,9 +120,25 @@ async fn only_the_latest_queued_query_starts_a_provider() -> anyhow::Result<()> 
     handler.handle_event(query("new"), None);
     let old = jobs.callbacks.recv().await.unwrap();
     let new = jobs.callbacks.recv().await.unwrap();
-    jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(old)));
+    jobs.handle_callback(
+        crate::config::Context {
+            current: &crate::config::Config::default(),
+            updates: &tokio::sync::mpsc::unbounded_channel().0,
+        },
+        &mut app.editor,
+        &mut compositor,
+        Ok(Some(old)),
+    );
     assert!(app.editor.get_status().is_none());
-    jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(new)));
+    jobs.handle_callback(
+        crate::config::Context {
+            current: &crate::config::Config::default(),
+            updates: &tokio::sync::mpsc::unbounded_channel().0,
+        },
+        &mut app.editor,
+        &mut compositor,
+        Ok(Some(new)),
+    );
     assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "query: new");
     assert!(app.close().await.is_empty());
     Ok(())
@@ -132,7 +156,15 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
     compositor.push(Box::new(overlaid(picker)));
     handler.handle_event(query("old"), None);
     let skipped = jobs.callbacks.recv().await.unwrap();
-    jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(skipped)));
+    jobs.handle_callback(
+        crate::config::Context {
+            current: &crate::config::Config::default(),
+            updates: &tokio::sync::mpsc::unbounded_channel().0,
+        },
+        &mut app.editor,
+        &mut compositor,
+        Ok(Some(skipped)),
+    );
     assert!(app.editor.get_status().is_none());
     let picker = &mut compositor
         .find::<Overlay<Picker<u8, ()>>>()
@@ -145,7 +177,15 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
         .callbacks
         .try_recv()
         .expect("revisited query is queued");
-    jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(callback)));
+    jobs.handle_callback(
+        crate::config::Context {
+            current: &crate::config::Config::default(),
+            updates: &tokio::sync::mpsc::unbounded_channel().0,
+        },
+        &mut app.editor,
+        &mut compositor,
+        Ok(Some(callback)),
+    );
     assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "query: old");
     assert!(app.close().await.is_empty());
     Ok(())
@@ -195,7 +235,15 @@ async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Res
         let callback = tokio::time::timeout(Duration::from_secs(5), jobs.callbacks.recv())
             .await?
             .unwrap();
-        jobs.handle_callback(&mut app.editor, &mut compositor, Ok(Some(callback)));
+        jobs.handle_callback(
+            crate::config::Context {
+                current: &crate::config::Config::default(),
+                updates: &tokio::sync::mpsc::unbounded_channel().0,
+            },
+            &mut app.editor,
+            &mut compositor,
+            Ok(Some(callback)),
+        );
         let done = tokio::time::timeout(Duration::from_secs(5), running.recv())
             .await?
             .unwrap();

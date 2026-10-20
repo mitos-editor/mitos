@@ -368,13 +368,13 @@ impl Application {
                     self.render().await;
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
-                    if let Some(job) = self.jobs.handle_callback(&mut self.editor, &mut self.compositor, Ok(Some(callback))) {
+                    if let Some(job) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback))) {
                         self.jobs.add(job);
                     }
                     self.render().await;
                 }
                 Some(callback) = self.jobs.wait_futures.next() => {
-                    if let Some(job) = self.jobs.handle_callback(&mut self.editor, &mut self.compositor, callback) {
+                    if let Some(job) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback) {
                         self.jobs.add(job);
                     }
                     self.render().await;
@@ -393,6 +393,7 @@ impl Application {
                         if _idle_handled
                             && !self.editor.has_pending_writes()
                             && !self.editor.has_pending_shell_filters()
+                            && !self.jobs.command_expansion.is_running()
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                             && !self.compositor.has_pending_render()
                         {

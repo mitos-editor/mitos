@@ -119,10 +119,15 @@ impl Application {
     }
 
     fn apply_callback(&mut self, callback: Callback) {
-        if let Some(job) =
-            self.jobs
-                .handle_callback(&mut self.editor, &mut self.compositor, Ok(Some(callback)))
-        {
+        if let Some(job) = self.jobs.handle_callback(
+            crate::config::Context {
+                current: &self.config.load(),
+                updates: &self.config_updates.0,
+            },
+            &mut self.editor,
+            &mut self.compositor,
+            Ok(Some(callback)),
+        ) {
             self.jobs.add(job);
         }
     }

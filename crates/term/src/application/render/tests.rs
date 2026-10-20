@@ -237,9 +237,15 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
     })
     .report_to(first.editor.status_sender());
     let callback = first.jobs.callbacks.try_recv()?;
-    first
-        .jobs
-        .handle_callback(&mut first.editor, &mut first.compositor, Ok(Some(callback)));
+    first.jobs.handle_callback(
+        crate::config::Context {
+            current: &first.config.load(),
+            updates: &first.config_updates.0,
+        },
+        &mut first.editor,
+        &mut first.compositor,
+        Ok(Some(callback)),
+    );
     assert!(first.compositor.find::<crate::ui::Prompt>().is_none());
     assert!(second.compositor.find::<crate::ui::Prompt>().is_some());
     assert!(second.jobs.callbacks.try_recv().is_err());
@@ -258,6 +264,10 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
     .report_to(second.editor.status_sender());
     let callback = second.jobs.callbacks.try_recv()?;
     second.jobs.handle_callback(
+        crate::config::Context {
+            current: &second.config.load(),
+            updates: &second.config_updates.0,
+        },
         &mut second.editor,
         &mut second.compositor,
         Ok(Some(callback)),
@@ -279,6 +289,10 @@ async fn background_job_failures_are_reported_to_the_application_that_started_th
         .await?
         .expect("job failure was not delivered");
     second.jobs.handle_callback(
+        crate::config::Context {
+            current: &second.config.load(),
+            updates: &second.config_updates.0,
+        },
         &mut second.editor,
         &mut second.compositor,
         Ok(Some(callback)),
@@ -318,8 +332,15 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
         .unwrap()
         .session()
         .clone();
-    app.jobs
-        .handle_callback(&mut app.editor, &mut app.compositor, Ok(Some(callback)));
+    app.jobs.handle_callback(
+        crate::config::Context {
+            current: &app.config.load(),
+            updates: &app.config_updates.0,
+        },
+        &mut app.editor,
+        &mut app.compositor,
+        Ok(Some(callback)),
+    );
     assert!(app
         .compositor
         .find::<crate::ui::Prompt>()

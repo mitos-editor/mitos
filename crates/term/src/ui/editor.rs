@@ -1912,6 +1912,13 @@ impl Component for EditorView {
             &Event::Key(mut key) => {
                 cx.editor.reset_idle_timer();
                 canonicalize_key(&mut key);
+                if cx.jobs.command_expansion.is_running()
+                    && matches!(key, key!(Esc) | crate::ctrl!('c'))
+                {
+                    cx.jobs.command_expansion.cancel();
+                    cx.editor.set_status("Command cancelled");
+                    return EventResult::Consumed(None);
+                }
 
                 // clear status
                 cx.editor.status_msg = None;

@@ -62,6 +62,10 @@ As mentioned above, double quotes can be used to surround arguments containing s
 
 Note that expansions are only evaluated once the Enter key is pressed in command mode.
 
+Shell expansions run without blocking the editor. Press Escape or Ctrl-c to cancel
+an expansion that is taking too long. Submitting another command replaces a pending
+expansion. If its document or selection changes while it runs, its command is discarded.
+
 ## Exceptions
 
 The following commands support expansions but otherwise pass the given argument directly to the shell program without interpreting quotes:

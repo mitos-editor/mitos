@@ -4,6 +4,8 @@ use support::Fixture;
 
 #[path = "handler_setup/clipboard.rs"]
 mod clipboard;
+#[path = "handler_setup/command_expansion.rs"]
+mod command_expansion;
 #[path = "handler_setup/completion.rs"]
 mod completion;
 #[path = "handler_setup/configuration.rs"]

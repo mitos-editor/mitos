@@ -138,6 +138,10 @@ impl Fixture {
         assert!(self
             .jobs
             .handle_callback(
+                crate::config::Context {
+                    current: &crate::config::Config::default(),
+                    updates: &tokio::sync::mpsc::unbounded_channel().0
+                },
                 &mut self.app.editor,
                 &mut self.compositor,
                 Ok(Some(callback))

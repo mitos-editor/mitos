@@ -615,3 +615,49 @@ async fn goto_preview_rolls_back_when_the_argument_becomes_invalid() -> anyhow::
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_commands_resume_in_order_after_shell_expansion() -> anyhow::Result<()> {
+    let config = config_with_custom_command(
+        "capture",
+        &[":set-register a %sh{printf first}", ":echo %reg{a}"],
+    );
+    test_key_sequence(
+        &mut AppBuilder::new().with_config(config).build()?,
+        Some(":capture<ret>"),
+        Some(&|app| {
+            assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "first");
+        }),
+        false,
+    )
+    .await
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":echo %sh{sleep 30; echo late}<ret><C-c>"),
+                Some(&|app| {
+                    assert_eq!(
+                        app.editor.get_status().unwrap().0.as_ref(),
+                        "Command cancelled"
+                    );
+                }),
+            ),
+            (
+                Some(":echo %sh{sleep 30; echo late}<ret>:echo current<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "current");
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}

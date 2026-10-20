@@ -817,6 +817,13 @@ use the same transport timeout and cancellation machinery.
 
 ## Term
 
+Command expansion captures referenced editor values before asynchronous evaluation.
+Submitted command sequences resume in order through the application's job queue;
+ordinary arguments complete immediately. A pending expansion validates its originating
+view binding, document version, and selection before executing the command. A newer
+submission or Escape/Ctrl-c cancels the pending expansion. Formatter arguments use
+the same captured expansion context inside their formatting request.
+
 The terminal frontend.
 
 The `main` function sets up a new `Application` that runs the event loop.

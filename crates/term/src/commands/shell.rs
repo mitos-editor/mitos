@@ -7,7 +7,6 @@ use crate::{
     compositor,
     ui::{self, PromptEvent},
 };
-use ::command_line::Args;
 use std::borrow::Cow;
 use view::features::shell::{run as run_shell, ShellBehavior};
 
@@ -36,10 +35,7 @@ pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: ShellBeha
     cx.editor.request_shell_filter(view, cmd, behavior);
 }
 
-fn shell_prompt<F>(cx: &mut Context, prompt: Cow<'static, str>, mut callback_fn: F)
-where
-    F: FnMut(&mut compositor::Context, Args) + 'static,
-{
+fn shell_prompt_for_behavior(cx: &mut Context, prompt: Cow<'static, str>, behavior: ShellBehavior) {
     ui::prompt(
         cx,
         prompt,
@@ -49,20 +45,11 @@ where
             if event != PromptEvent::Validate || input.is_empty() {
                 return;
             }
-            match Args::parse(input, SHELL_SIGNATURE, true, |token| {
-                view::expansion::expand(cx.editor, token, &[]).map_err(|err| err.into())
-            }) {
-                Ok(args) => callback_fn(cx, args),
-                Err(err) => cx.editor.set_error(|| err.to_string()),
+            if let Err(error) = super::command_line::execute_shell(cx, input, behavior) {
+                cx.editor.set_error(|| error.to_string());
             }
         },
     );
-}
-
-fn shell_prompt_for_behavior(cx: &mut Context, prompt: Cow<'static, str>, behavior: ShellBehavior) {
-    shell_prompt(cx, prompt, move |cx, args| {
-        shell(cx, args.join(" ").as_str(), behavior)
-    })
 }
 
 pub(super) mod typed {

@@ -33,7 +33,10 @@ impl JobSender {
     }
 }
 
+pub type ContextCallback = Box<dyn FnOnce(&mut Compositor, &mut crate::compositor::Context) + Send>;
+
 pub enum Callback {
+    Context(ContextCallback),
     EditorCompositor(EditorCompositorCallback),
     Editor(EditorCallback),
     Followup(EditorCallbackFollowup),
@@ -50,6 +53,7 @@ pub struct Job {
 pub struct Jobs {
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
+    pub(crate) command_expansion: event::TaskController,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -98,6 +102,7 @@ impl Jobs {
         Self {
             sender,
             editor_callbacks,
+            command_expansion: event::TaskController::new(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
         }
@@ -124,7 +129,8 @@ impl Jobs {
     }
 
     pub fn handle_callback(
-        &self,
+        &mut self,
+        config: crate::config::Context<'_>,
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
@@ -132,6 +138,20 @@ impl Jobs {
         match call {
             Ok(None) => None,
             Ok(Some(call)) => match call {
+                Callback::Context(call) => {
+                    call(
+                        compositor,
+                        &mut crate::compositor::Context {
+                            config,
+                            editor,
+                            jobs: self,
+                            scroll: None,
+                            image_picker: None,
+                            is_cursor_owner: false,
+                        },
+                    );
+                    None
+                }
                 Callback::EditorCompositor(call) => {
                     call(editor, compositor);
                     None
