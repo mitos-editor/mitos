@@ -7,9 +7,8 @@ use super::{
 };
 use crate::ui::{self, Prompt, PromptEvent};
 use arc_swap::access::DynAccess;
-use editor_core::{increment, Range, Rope, Selection, SmallVec, Tendril, Transaction};
+use editor_core::{Rope, Selection, Tendril, Transaction};
 use std::borrow::Cow;
-use stdx::rope::RopeSliceExt;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::editing::surround::{self, Delimiter, Replacement};
 use view::{document::Mode, info::Info, Editor};
@@ -140,22 +139,11 @@ pub(super) fn replace_char(cx: &mut Context) {
         let selection = doc.selection(view.id);
 
         if let Some(ch) = ch {
-            let transaction = Transaction::change_by_selection(doc.text(), selection, |range| {
-                if !range.is_empty() {
-                    let text: Tendril = doc
-                        .text()
-                        .slice(range.from()..range.to())
-                        .graphemes()
-                        .map(|_g| ch)
-                        .collect();
-                    (range.from(), range.to(), Some(text))
-                } else {
-                    // No change.
-                    (range.from(), range.to(), None)
-                }
-            });
-
-            view::editing::apply(doc, &transaction, view.id);
+            let transaction = editor_core::transform::replace_graphemes(doc.text(), selection, ch);
+            if let Err(error) = view::editing::try_apply(doc, &transaction, view.id) {
+                cx.editor.set_error(|| error.to_string());
+                return;
+            }
             exit_select_mode(cx);
         }
     })
@@ -379,50 +367,20 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
         IncrementDirection::Increase => 1,
         IncrementDirection::Decrease => -1,
     };
-    let mut amount = sign * cx.count() as i64;
-    // If the register is `#` then increase or decrease the `amount` by 1 per element
-    let increase_by = if cx.register == Some('#') { sign } else { 0 };
-
+    let amount = sign * i64::try_from(cx.count()).unwrap_or(i64::MAX);
+    let step = if cx.register == Some('#') { sign } else { 0 };
     let (view, doc) = current!(cx.editor);
-    let selection = doc.selection(view.id);
-    let text = doc.text().slice(..);
-
-    let mut new_selection_ranges = SmallVec::new();
-    let mut cumulative_length_diff: i128 = 0;
-    let mut changes = vec![];
-
-    for range in selection {
-        let selected_text: Cow<str> = range.fragment(text);
-        let new_from = ((range.from() as i128) + cumulative_length_diff) as usize;
-        let incremented = [increment::integer, increment::date_time]
-            .iter()
-            .find_map(|incrementor| incrementor(selected_text.as_ref(), amount));
-
-        amount += increase_by;
-
-        match incremented {
-            None => {
-                let new_range = Range::new(
-                    new_from,
-                    (range.to() as i128 + cumulative_length_diff) as usize,
-                );
-                new_selection_ranges.push(new_range);
-            }
-            Some(new_text) => {
-                let new_range = Range::new(new_from, new_from + new_text.len());
-                cumulative_length_diff += new_text.len() as i128 - selected_text.len() as i128;
-                new_selection_ranges.push(new_range);
-                changes.push((range.from(), range.to(), Some(new_text.into())));
-            }
-        }
-    }
-
-    if !changes.is_empty() {
-        let new_selection = Selection::new(new_selection_ranges, selection.primary_index());
-        let transaction = Transaction::change(doc.text(), changes.into_iter());
-        let transaction = transaction.with_selection(new_selection);
-        view::editing::apply(doc, &transaction, view.id);
-        exit_select_mode(cx);
+    let Some(transaction) = editor_core::transform::increment_selections(
+        doc.text(),
+        doc.selection(view.id),
+        amount,
+        step,
+    ) else {
+        return;
+    };
+    match view::editing::try_apply(doc, &transaction, view.id) {
+        Ok(()) => exit_select_mode(cx),
+        Err(error) => cx.editor.set_error(|| error.to_string()),
     }
 }
 
@@ -432,7 +390,6 @@ pub(super) mod typed {
     use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
     use anyhow::bail;
-    use editor_core::{Tendril, Transaction};
 
     pub(in crate::commands) fn sort(
         cx: &mut compositor::Context,
@@ -445,37 +402,15 @@ pub(super) mod typed {
 
         let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
-        let text = doc.text().slice(..);
-
-        let selection = doc.selection(view.id);
-
-        if selection.len() == 1 {
-            bail!("Sorting requires multiple selections. Hint: split selection first");
-        }
-
-        let mut fragments: Vec<_> = selection
-            .slices(text)
-            .map(|fragment| fragment.chunks().collect())
-            .collect();
-
-        fragments.sort_by(
-            match (args.has_flag("insensitive"), args.has_flag("reverse")) {
-                (true, true) => |a: &Tendril, b: &Tendril| b.to_lowercase().cmp(&a.to_lowercase()),
-                (true, false) => |a: &Tendril, b: &Tendril| a.to_lowercase().cmp(&b.to_lowercase()),
-                (false, true) => |a: &Tendril, b: &Tendril| b.cmp(a),
-                (false, false) => |a: &Tendril, b: &Tendril| a.cmp(b),
-            },
-        );
-
-        let transaction = Transaction::change(
+        let Some(transaction) = editor_core::transform::sort_selection_contents(
             doc.text(),
-            selection
-                .into_iter()
-                .zip(fragments)
-                .map(|(s, fragment)| (s.from(), s.to(), Some(fragment))),
-        );
-
-        view::editing::apply(doc, &transaction, view.id);
+            doc.selection(view.id),
+            args.has_flag("insensitive"),
+            args.has_flag("reverse"),
+        ) else {
+            bail!("Sorting requires multiple selections. Hint: split selection first");
+        };
+        view::editing::try_apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 
@@ -505,17 +440,13 @@ pub(super) mod typed {
             .transpose()?
             .unwrap_or_else(|| doc.text_width());
 
-        let rope = doc.text();
-
-        let selection = doc.selection(view.id);
-        let transaction = Transaction::change_by_selection(rope, selection, |range| {
-            let fragment = range.fragment(rope.slice(..));
-            let reflowed_text = editor_core::wrap::reflow_hard_wrap(&fragment, text_width);
-
-            (range.from(), range.to(), Some(reflowed_text))
-        });
-
-        view::editing::apply(doc, &transaction, view.id);
+        let transaction = editor_core::transform::reflow_selections(
+            doc.text(),
+            doc.selection(view.id),
+            text_width,
+            doc.line_ending,
+        );
+        view::editing::try_apply(doc, &transaction, view.id)?;
         view::editing::commit(doc, view);
         view.ensure_cursor_in_view(doc, scrolloff);
 

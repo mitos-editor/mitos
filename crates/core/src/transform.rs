@@ -1,7 +1,11 @@
 //! Text transformations expressed as transactions over explicit selections.
 
 mod paste;
+mod selection_contents;
 pub use paste::{paste, replace_selection_contents, PastePosition};
+pub use selection_contents::{
+    increment_selections, reflow_selections, replace_graphemes, sort_selection_contents,
+};
 
 use crate::{indent::IndentStyle, Rope, RopeSlice, Selection, Tendril, Transaction};
 use std::char::{ToLowercase, ToUppercase};

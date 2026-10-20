@@ -203,6 +203,15 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Text transformations
+
+`core::transform` builds transactions for selected text without editor or frontend
+state. Its selection-content helpers handle grapheme replacement, numeric/date
+increments, stable sorting, and hard reflow. Transactions preserve or map explicit
+selections; reflow receives the document's line-ending convention. Terminal
+commands resolve arguments, apply through shared editing, and retain prompts,
+mode changes, scrolling, and repeat recording.
+
 ### Text objects
 
 `core::textobject` collects contained word and paragraph ranges from text.
