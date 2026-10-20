@@ -1200,7 +1200,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                 status.running || status.changed || pending.matcher.active_injectors() == 0
             });
         let status = self.results.matcher.tick(0);
-        let pending = pending || status.running || status.changed;
+        let pending =
+            pending || status.running || status.changed || self.preview.has_pending_render();
         if pending {
             self.redraw.request();
         }

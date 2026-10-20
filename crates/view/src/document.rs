@@ -29,7 +29,9 @@ pub use file::{
     DocumentOpenError, DocumentSavedEvent, DocumentSavedEventFuture, DocumentSavedEventResult,
 };
 mod file_io;
+mod preview;
 use ::text_io::from_reader;
+pub use preview::PreparedPreview;
 
 mod syntax_initialization;
 
