@@ -428,3 +428,41 @@ async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> 
     );
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "manual release-mode retained-text probe"]
+async fn preview_cache_retention_performance() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    for i in 0..5 {
+        let name = format!("retained-{i}.txt");
+        std::fs::write(
+            fixture.dir.path().join(&name),
+            "some plain text\n".repeat(9 * 1024 * 1024 / 16),
+        )?;
+        let path = fixture.preview(&name);
+        while !fixture
+            .picker()
+            .preview
+            .preview_cache
+            .get(&path)
+            .is_some_and(|entry| matches!(entry.preview, CachedPreview::Document(_)))
+        {
+            let callback = fixture.completion().await;
+            fixture.publish(callback);
+        }
+    }
+    let cache = &fixture.picker().preview.preview_cache;
+    let bytes: usize = cache
+        .values()
+        .map(|entry| match &entry.preview {
+            CachedPreview::Document(doc) => doc.text().len_bytes(),
+            _ => 0,
+        })
+        .sum();
+    eprintln!(
+        "five 9 MiB files: {} entries; {} retained text bytes",
+        cache.len(),
+        bytes
+    );
+    Ok(())
+}
