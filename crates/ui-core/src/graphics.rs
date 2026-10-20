@@ -1,5 +1,8 @@
 use bitflags::bitflags;
-pub use ratatui::layout::{Margin, Rect};
+pub use ratatui::{
+    layout::{Margin, Rect},
+    widgets::BorderType,
+};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
@@ -511,6 +514,7 @@ pub struct Style {
     pub underline_style: Option<UnderlineStyle>,
     pub add_modifier: Modifier,
     pub sub_modifier: Modifier,
+    pub border_type: Option<BorderType>,
 }
 
 impl Default for Style {
@@ -528,6 +532,7 @@ impl Style {
             underline_style: None,
             add_modifier: Modifier::empty(),
             sub_modifier: Modifier::empty(),
+            border_type: None,
         }
     }
 
@@ -540,6 +545,7 @@ impl Style {
             underline_style: None,
             add_modifier: Modifier::empty(),
             sub_modifier: Modifier::all(),
+            border_type: None,
         }
     }
 
@@ -666,6 +672,8 @@ impl Style {
         self.add_modifier.insert(other.add_modifier);
         self.sub_modifier.remove(other.add_modifier);
         self.sub_modifier.insert(other.sub_modifier);
+
+        self.border_type = other.border_type.or(self.border_type);
 
         self
     }

@@ -21,7 +21,12 @@ pub const PADDED_VERTICAL_INSET: u16 = BORDER_INSET + VERTICAL_INSET;
 
 /// Creates a block with borders on every side.
 pub fn bordered(style: Style) -> Block<'static> {
-    Block::bordered().border_style(style)
+    let mut block = Block::bordered().border_style(style);
+    if let Some(border_type) = style.border_type {
+        block = block.border_type(border_type);
+    }
+
+    block
 }
 
 /// Creates a bordered block with one cell of horizontal padding.

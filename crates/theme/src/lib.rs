@@ -12,7 +12,7 @@ use log::warn;
 use serde::{Deserialize, Deserializer};
 use toml::{map::Map, Value};
 
-use ui_core::graphics::UnderlineStyle;
+use ui_core::graphics::{BorderType, UnderlineStyle};
 pub use ui_core::{
     graphics::{Color, Modifier, Style},
     theme::Mode,
@@ -196,13 +196,24 @@ fn build_theme_values(
             })
         })
         .unwrap_or_default();
+
+    let border_type = values.remove("border_style").and_then(|value| {
+        match ThemePalette::parse_border_type(&value) {
+            Ok(border_type) => Some(border_type),
+            Err(err) => {
+                warnings.push(err);
+                None
+            }
+        }
+    });
+
     // remove inherits from value to prevent errors
     let _ = values.remove("inherits");
     styles.reserve(values.len());
     scopes.reserve(values.len());
     highlights.reserve(values.len());
 
-    for (i, style) in values
+    for (i, mut style) in values
         .remove("rainbow")
         .and_then(|value| match palette.parse_style_array(value) {
             Ok(styles) => Some(styles),
@@ -215,6 +226,8 @@ fn build_theme_values(
         .into_iter()
         .enumerate()
     {
+        style.border_type = border_type;
+
         let name = format!("rainbow.{i}");
         styles.insert(name.clone(), style);
         scopes.push(name);
@@ -224,9 +237,12 @@ fn build_theme_values(
 
     for (name, style_value) in values {
         let mut style = Style::default();
+
         if let Err(err) = palette.parse_style(&mut style, style_value) {
             warnings.push(format!("Failed to parse style for key {name:?}. {err}"));
         }
+
+        style.border_type = border_type;
 
         // these are used both as UI and as highlights
         styles.insert(name.clone(), style);
@@ -504,6 +520,22 @@ impl ThemePalette {
 
         Ok(styles)
     }
+
+    pub fn parse_border_type(value: &Value) -> Result<BorderType, String> {
+        let value = value
+            .as_str()
+            .ok_or_else(|| format!("Border style must be a string: {value}"))?;
+
+        match value {
+            "plain" => Ok(BorderType::Plain),
+            "rounded" => Ok(BorderType::Rounded),
+            "double" => Ok(BorderType::Double),
+            "thick" => Ok(BorderType::Thick),
+            "quadrant-inside" => Ok(BorderType::QuadrantInside),
+            "quadrant-outside" => Ok(BorderType::QuadrantOutside),
+            _ => Err(format!("Invalid border style: {value}")),
+        }
+    }
 }
 
 impl TryFrom<Value> for ThemePalette {
@@ -694,5 +726,38 @@ mod tests {
     fn out_of_bounds() {
         let highlight = Highlight::new(Theme::rgb_highlight(0, 0, 0).get() - 1);
         Theme::default().highlight(highlight);
+    }
+
+    #[test]
+    fn test_parse_border_style() {
+        assert_eq!(
+            ThemePalette::parse_border_type(&Value::String("rounded".into())).unwrap(),
+            BorderType::Rounded
+        );
+
+        assert_eq!(
+            ThemePalette::parse_border_type(&Value::String("double".into())).unwrap(),
+            BorderType::Double
+        );
+
+        assert!(ThemePalette::parse_border_type(&Value::String("invalid".into())).is_err());
+    }
+
+    #[test]
+    fn theme_border_style_is_applied_to_styles() {
+        let value = toml::toml! {
+            border_style = "rounded"
+            "ui.background" = { fg = "white", bg = "black" }
+            "ui.popup" = { fg = "white" }
+        };
+
+        let (theme, warnings) = Theme::from_toml(Value::Table(value));
+
+        assert!(warnings.is_empty());
+        assert_eq!(
+            theme.get("ui.background").border_type,
+            Some(BorderType::Rounded)
+        );
+        assert_eq!(theme.get("ui.popup").border_type, Some(BorderType::Rounded));
     }
 }
