@@ -100,17 +100,16 @@ impl Document {
         }
 
         // update tree-sitter syntax tree
-        if let Some(syntax) = &mut self.syntax {
-            let loader = self.syn_loader.load();
-            if let Err(err) = syntax.update(
+        if let Some(syntax) = &mut self.syntax
+            && let Err(err) = syntax.update(
                 old_doc.slice(..),
                 self.buffer.text().slice(..),
                 changes,
-                &loader,
-            ) {
-                log::error!("TS parser failed, disabling TS for the current buffer: {err}");
-                self.syntax = None;
-            }
+                &self.syntax_loader,
+            )
+        {
+            log::error!("TS parser failed, disabling TS for the current buffer: {err}");
+            self.syntax = None;
         }
 
         // start computing the diff in parallel

@@ -262,7 +262,7 @@ mod tests {
             Rope::from("abc def\n"),
             None,
             Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         let edit = Transaction::change(
             doc.text(),
@@ -296,7 +296,7 @@ mod tests {
             Rope::from(text),
             None,
             Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         let view = View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.ensure_view_init(view.id);
@@ -410,10 +410,10 @@ mod tests {
             let newline = line_ending.as_str();
             let (mut doc, view) = document_and_view(&format!("※ #[x|]#{newline}"));
             doc.line_ending = line_ending;
-            let loader = syntax::Loader::new(
+            let loader = Arc::new(syntax::Loader::new(
                 toml::from_str("[[language]]\nname = 'comment-test'\nscope = 'source.comment-test'\nfile-types = []\ncomment-tokens = ['※']").unwrap(),
                 loader::syntax::Resources::default(),
-            ).unwrap();
+            ).unwrap());
             let language = loader.language_for_name("comment-test").unwrap();
             doc.set_language(Some(loader.language(language).config().clone()), &loader);
             insert::open_lines(

@@ -806,7 +806,7 @@ mod tests {
             Rope::from_str("first\nsecond\n"),
             None,
             Arc::new(ArcSwap::new(Arc::new(config))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.set_path(Some(Path::new("test.rs")));
 
@@ -841,7 +841,7 @@ mod tests {
             Rope::from_str("first\nsecond\n"),
             None,
             Arc::new(ArcSwap::new(Arc::new(config))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
 
         assert_eq!(view.breadcrumb_offset(&doc), 0);
@@ -869,7 +869,7 @@ mod tests {
             Rope::from_str("first\nsecond\nthird\n"),
             None,
             config.clone(),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
 
@@ -931,7 +931,7 @@ mod tests {
             rope,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
 
@@ -1108,7 +1108,7 @@ mod tests {
             rope,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
         assert_eq!(
@@ -1140,7 +1140,7 @@ mod tests {
             rope,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
         assert_eq!(
@@ -1169,7 +1169,7 @@ mod tests {
             rope,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
 
@@ -1258,7 +1258,7 @@ mod tests {
             rope,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.ensure_view_init(view.id);
 
@@ -1408,7 +1408,7 @@ mod tests {
     #[tokio::test]
     async fn jumplist_push_keeps_doc_revisions_in_sync() {
         let config = Arc::new(ArcSwap::new(Arc::new(Config::default())));
-        let loader = Arc::new(ArcSwap::from_pointee(syntax::Loader::default()));
+        let loader = Arc::new(syntax::Loader::default());
 
         // Revision 0: a short document.
         let mut doc = Document::from(Rope::from_str("ab"), None, config, loader);

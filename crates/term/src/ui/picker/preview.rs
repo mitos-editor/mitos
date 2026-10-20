@@ -353,9 +353,12 @@ impl FilePreview {
                 }
 
                 let stamp = FileStamp::read(path);
+                let loader = editor.syn_loader.load();
                 let poll = &editor.config().files.reload.poll;
                 if self.preview_cache.get(path).is_some_and(|entry| {
                     entry.stamp != stamp
+                        || matches!(&entry.preview, CachedPreview::Document(doc)
+                            if !std::ptr::eq(doc.syntax_loader(), loader.as_ref()))
                         || (matches!(entry.preview, CachedPreview::Directory(_))
                             && poll.enable
                             && entry.checked.elapsed()
@@ -433,7 +436,7 @@ impl FilePreview {
                             let doc = Document::open_for_preview(
                                 &path,
                                 editor.config.clone(),
-                                editor.syn_loader.clone(),
+                                editor.syn_loader.load_full(),
                             )
                             .or(Err(std::io::Error::new(
                                 std::io::ErrorKind::NotFound,
@@ -618,23 +621,16 @@ pub(super) fn render_preview_content(
         }
     }
 
-    let loader = cx.editor.syn_loader.load();
     let config = cx.editor.config();
 
-    let syntax_highlighter =
-        highlights::syntax_highlighter(doc, offset.anchor, area.height, &loader);
+    let syntax_highlighter = highlights::syntax_highlighter(doc, offset.anchor, area.height);
     let mut overlay_highlights = Vec::new();
     if doc
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = highlights::rainbow_highlights(
-            doc,
-            offset.anchor,
-            area.height,
-            &cx.editor.theme,
-            &loader,
-        )
+        && let Some(overlay) =
+            highlights::rainbow_highlights(doc, offset.anchor, area.height, &cx.editor.theme)
     {
         overlay_highlights.push(overlay);
     }

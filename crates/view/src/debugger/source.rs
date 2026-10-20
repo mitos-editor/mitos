@@ -264,7 +264,7 @@ impl crate::Editor {
                     Rope::from_str(&response.content),
                     None,
                     editor.config.clone(),
-                    editor.syn_loader.clone(),
+                    editor.syn_loader.load_full(),
                 )
                 .with_readonly_name(title);
                 let loader = editor.syn_loader.load_full();

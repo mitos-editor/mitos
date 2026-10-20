@@ -68,9 +68,7 @@ impl SyntaxRequest {
         if self.cancel.is_canceled() {
             return false;
         }
-        let loader = doc.syn_loader.load_full();
-        if !Arc::ptr_eq(&self.loader, &loader) {
-            doc.detect_language(&loader);
+        if !Arc::ptr_eq(&self.loader, &doc.syntax_loader) {
             return false;
         }
         if !self.snapshot.is_current(&doc.buffer) {
@@ -116,6 +114,7 @@ impl Document {
 
     pub(crate) fn initialize_syntax(&mut self, loader: Arc<syntax::Loader>) {
         self.syntax = None;
+        self.syntax_loader = loader.clone();
         self.pending_syntax = self.language.as_ref().and_then(|config| {
             let language = loader.language_for_name(config.language_id.as_str())?;
             Some(PendingSyntax {
@@ -195,7 +194,7 @@ mod tests {
             Rope::from_str("{}"),
             None,
             Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(ArcSwap::new(loader.clone())),
+            loader.clone(),
         )
     }
 
@@ -254,7 +253,6 @@ mod tests {
         let expected = current.language_for_name("json").unwrap();
         assert_ne!(json, expected);
 
-        doc.syn_loader.store(current.clone());
         doc.set_language(Some(config), &current);
         assert_eq!(doc.syntax().unwrap().root_language(), expected);
 
@@ -279,6 +277,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unregistered_documents_keep_syntax_resources_across_registry_changes() {
+        event::register_event::<DocumentDidChange>();
+        event::register_event::<SelectionDidChange>();
+        let resources = loader();
+        let registry = ArcSwap::new(resources.clone());
+        let mut doc = document(&registry.load_full());
+        detect_language(&mut doc, "json", &resources);
+        let request = doc.syntax_request().unwrap();
+
+        // Previews and standalone documents are not part of the editor's reload loop.
+        registry.store(Arc::new(syntax::Loader::default()));
+        let result = request.compute().await.unwrap();
+        assert!(request.complete(&mut doc, result));
+        assert!(std::ptr::eq(doc.syntax_loader(), resources.as_ref()));
+
+        let transaction = Transaction::change(
+            doc.text(),
+            [(1, 1, Some("\"key\": true".into()))].into_iter(),
+        );
+        doc.apply(transaction.changes()).unwrap();
+        let root = doc.syntax().unwrap().tree().root_node();
+        assert_eq!(root.kind(), "document");
+        assert_eq!(root.byte_range(), 0..doc.text().len_bytes() as u32);
+        assert_eq!(doc.text().to_string(), "{\"key\": true}");
+    }
+
+    #[tokio::test]
     async fn loader_reload_discards_a_snapshot_before_publication() {
         let old_loader = loader();
         let mut doc = document(&old_loader);
@@ -286,7 +311,7 @@ mod tests {
         let request = doc.syntax_request().unwrap();
         let result = request.compute().await.unwrap();
 
-        doc.syn_loader.store(loader());
+        doc.detect_language(&loader());
         assert!(!request.complete(&mut doc, result));
         assert!(doc.syntax().is_none());
         finish(&mut doc).await;
@@ -329,7 +354,6 @@ mod tests {
         let request = doc.syntax_request().unwrap();
         let result = request.compute().await.unwrap();
         let new_loader = loader();
-        doc.syn_loader.store(new_loader.clone());
         detect_language(&mut doc, "toml", &new_loader);
         assert!(!request.complete(&mut doc, result));
         finish(&mut doc).await;

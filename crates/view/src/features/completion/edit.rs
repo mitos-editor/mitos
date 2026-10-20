@@ -315,7 +315,7 @@ mod tests {
             Rope::from("😀 foobar\n"),
             None,
             Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
-            Arc::new(ArcSwap::from_pointee(language::syntax::Loader::default())),
+            Arc::new(language::syntax::Loader::default()),
         );
         let view = crate::View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.ensure_view_init(view.id);

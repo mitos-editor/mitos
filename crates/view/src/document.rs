@@ -254,10 +254,9 @@ pub struct Document {
     /// Whether this document owns the startup welcome screen.
     pub is_welcome: bool,
 
-    // NOTE: this field should eventually go away - we should use the Editor's syn_loader instead
-    // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
-    // `ArcSwap` directly.
-    syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    // Resource snapshot used by this document's syntax trees and pending initialization.
+    // The editor explicitly installs a new snapshot when language configuration changes.
+    syntax_loader: Arc<syntax::Loader>,
 }
 
 use std::fmt;
@@ -286,7 +285,7 @@ impl Document {
         text: Rope,
         encoding_with_bom_info: Option<(&'static Encoding, bool)>,
         config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+        syntax_loader: Arc<syntax::Loader>,
     ) -> Self {
         let (encoding, has_bom) = encoding_with_bom_info.unwrap_or((encoding::UTF_8, false));
         let line_ending = config.load().files.default_line_ending.into();
@@ -341,19 +340,16 @@ impl Document {
             code_lenses: Default::default(),
             document_symbols: Default::default(),
             workspace_symbols: Default::default(),
-            syn_loader,
+            syntax_loader,
             pull_diagnostics: Default::default(),
             is_welcome: false,
         }
     }
 
-    pub fn default(
-        config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
-    ) -> Self {
+    pub fn default(config: Arc<dyn DynAccess<Config>>, syntax_loader: Arc<syntax::Loader>) -> Self {
         let line_ending: LineEnding = config.load().files.default_line_ending.into();
         let text = Rope::from(line_ending.as_str());
-        Self::from(text, None, config, syn_loader)
+        Self::from(text, None, config, syntax_loader)
     }
 
     #[must_use]
@@ -453,9 +449,10 @@ impl Document {
     pub(crate) fn set_language(
         &mut self,
         language_config: Option<Arc<LanguageConfiguration>>,
-        loader: &syntax::Loader,
+        loader: &Arc<syntax::Loader>,
     ) {
         self.pending_syntax = None;
+        self.syntax_loader = loader.clone();
         self.invalidate_language_features();
         self.language = language_config;
         self.syntax = self.language.as_ref().and_then(|config| {
@@ -763,6 +760,11 @@ impl Document {
         self.syntax.as_ref()
     }
 
+    /// Resource snapshot matching this document's syntax trees and pending initialization.
+    pub fn syntax_loader(&self) -> &syntax::Loader {
+        &self.syntax_loader
+    }
+
     /// The width that the tab character is rendered at
     pub fn tab_width(&self) -> usize {
         self.editor_config
@@ -1026,7 +1028,7 @@ mod test {
             Rope::from("sample text"),
             None,
             Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         )
     }
 
@@ -1104,7 +1106,7 @@ mod test {
             text,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         let view = ViewId::default();
         doc.set_selection(view, Selection::single(0, 0));
@@ -1143,7 +1145,7 @@ mod test {
             text,
             None,
             Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         let view = ViewId::default();
         doc.set_selection(view, Selection::single(5, 5));
@@ -1259,7 +1261,7 @@ mod test {
         assert_eq!(
             Document::default(
                 Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-                Arc::new(ArcSwap::from_pointee(syntax::Loader::default()))
+                Arc::new(syntax::Loader::default())
             )
             .text()
             .to_string(),

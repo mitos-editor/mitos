@@ -139,7 +139,7 @@ mod tests {
             Rope::from_str(text),
             None,
             Arc::new(ArcSwap::from_pointee(config)),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         )
     }
 

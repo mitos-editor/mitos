@@ -34,7 +34,6 @@ pub(crate) fn syntax_highlighter<'editor>(
     doc: &'editor Document,
     anchor: usize,
     height: u16,
-    loader: &'editor syntax::Loader,
 ) -> Option<syntax::Highlighter<'editor>> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
@@ -42,7 +41,7 @@ pub(crate) fn syntax_highlighter<'editor>(
     let range = viewport_byte_range(text, row, height);
     let range = range.start as u32..range.end as u32;
 
-    let highlighter = syntax.highlighter(text, loader, range);
+    let highlighter = syntax.highlighter(text, doc.syntax_loader(), range);
     Some(highlighter)
 }
 
@@ -66,7 +65,6 @@ pub(crate) fn rainbow_highlights(
     anchor: usize,
     height: u16,
     theme: &Theme,
-    loader: &syntax::Loader,
 ) -> Option<OverlayHighlights> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
@@ -79,7 +77,7 @@ pub(crate) fn rainbow_highlights(
     .map_or(visible_range.start as u32, |node| node.start_byte());
     let range = start..visible_range.end as u32;
 
-    Some(syntax.rainbow_highlights(text, theme.rainbow_length(), loader, range))
+    Some(syntax.rainbow_highlights(text, theme.rainbow_length(), doc.syntax_loader(), range))
 }
 
 /// Get highlight spans for document diagnostics

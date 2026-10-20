@@ -104,7 +104,7 @@ mod tests {
             Rope::from_str(text),
             None,
             Arc::new(ArcSwap::from_pointee(config)),
-            Arc::new(ArcSwap::from_pointee(language::syntax::Loader::default())),
+            Arc::new(language::syntax::Loader::default()),
         );
         let theme = Theme::default();
         let mut surface = Buffer::empty(Rect::new(0, 0, width, 6));

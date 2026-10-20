@@ -390,3 +390,41 @@ async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyho
     assert!(fixture.document(&path).syntax().is_some());
     Ok(())
 }
+
+#[tokio::test]
+async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.preview("file.json");
+    let old_completion = fixture.completion().await;
+    let loader = syntax::Loader::new(
+        toml::from_str(
+            r#"
+            [[language]]
+            name = "text"
+            scope = "text.plain"
+            file-types = []
+            [[language]]
+            name = "json"
+            scope = "source.json"
+            file-types = ["json"]
+            "#,
+        )?,
+        loader::syntax::Resources::default(),
+    )?;
+    let expected = loader.language_for_name("json").unwrap();
+    fixture
+        .app
+        .editor
+        .apply_language_config(loader, fixture.app.editor.theme.clone())?;
+
+    fixture.preview("file.json");
+    fixture.publish(old_completion);
+    assert!(fixture.document(&path).is_syntax_pending());
+    let completion = fixture.completion().await;
+    fixture.publish(completion);
+    assert_eq!(
+        fixture.document(&path).syntax().unwrap().root_language(),
+        expected
+    );
+    Ok(())
+}

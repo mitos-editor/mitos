@@ -185,7 +185,7 @@ mod tests {
             None,
             true,
             config.clone(),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         )
         .unwrap();
         doc.set_selection(ViewId::default(), Selection::point(0));
@@ -229,7 +229,7 @@ mod tests {
             None,
             true,
             config,
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         )
         .unwrap();
         wrapped.set_selection(ViewId::default(), Selection::point(0));

@@ -180,7 +180,7 @@ mod tests {
             Rope::from_str(""),
             None,
             Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         let theme =
             theme::Theme::from(toml::from_str::<toml::Value>("\"ui.text\" = \"white\"").unwrap());

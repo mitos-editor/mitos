@@ -161,6 +161,11 @@ View methods explicitly translate layout positions into viewport coordinates.
 ## Language
 
 `language::Syntax` owns incremental syntax trees, including language injections.
+The editor owns the live language registry. Each document retains the explicit
+loader snapshot used by its syntax trees and pending initialization; edits use
+that snapshot without borrowing the editor or a view. Configuration reload
+installs new document snapshots and cancels superseded syntax work before
+publication.
 `language::Loader` resolves language metadata and lazily compiles grammar queries
 from explicit resources. Structural matching, movement, text objects, and
 query-based indentation live beside syntax analysis.

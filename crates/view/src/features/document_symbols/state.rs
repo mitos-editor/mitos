@@ -264,7 +264,7 @@ mod tests {
             text,
             None,
             Arc::new(ArcSwap::new(Arc::new(config))),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         );
         doc.set_path(Some(Path::new("test.rs")));
         let view = ViewId::default();
@@ -336,9 +336,7 @@ mod tests {
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 editor_config::Config::default(),
             )),
-            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                language::syntax::Loader::default(),
-            )),
+            std::sync::Arc::new(language::syntax::Loader::default()),
         );
         let view = crate::ViewId::default();
         doc.ensure_view_init(view);

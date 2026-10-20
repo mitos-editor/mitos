@@ -306,7 +306,7 @@ mod tests {
             None,
             true,
             Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
-            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+            Arc::new(syntax::Loader::default()),
         )
         .unwrap()
     }

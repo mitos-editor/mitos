@@ -95,9 +95,7 @@ mod tests {
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 editor_config::Config::default(),
             )),
-            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                language::syntax::Loader::default(),
-            )),
+            std::sync::Arc::new(language::syntax::Loader::default()),
         );
         let mut title_controller = TaskController::new();
         let title = title_controller.restart();

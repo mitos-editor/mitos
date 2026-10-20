@@ -278,7 +278,6 @@ impl EditorView {
         let area = view.content_area(doc);
         let theme = &editor.theme;
         let config = editor.config();
-        let loader = editor.syn_loader.load();
 
         let view_offset = doc.view_offset(view.id);
 
@@ -313,7 +312,7 @@ impl EditorView {
         }
 
         let syntax_highlighter =
-            highlights::syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
+            highlights::syntax_highlighter(doc, view_offset.anchor, inner.height);
         let mut overlays = Vec::new();
 
         overlays.push(highlights::overlay_highlights(
@@ -327,13 +326,8 @@ impl EditorView {
             .language_config()
             .and_then(|config| config.rainbow_brackets)
             .unwrap_or(config.rainbow_brackets.enable)
-            && let Some(overlay) = highlights::rainbow_highlights(
-                doc,
-                view_offset.anchor,
-                inner.height,
-                theme,
-                &loader,
-            )
+            && let Some(overlay) =
+                highlights::rainbow_highlights(doc, view_offset.anchor, inner.height, theme)
         {
             overlays.push(overlay);
         }

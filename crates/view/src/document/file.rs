@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{DocumentId, Editor};
 use anyhow::{anyhow, bail, Error};
-use arc_swap::{access::DynAccess, ArcSwap};
+use arc_swap::access::DynAccess;
 use editor_config::Config;
 use editor_core::{encoding, encoding::Encoding, Rope};
 use futures_util::future::BoxFuture;
@@ -118,10 +118,10 @@ impl Document {
     pub fn open_for_preview(
         path: &Path,
         config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+        syntax_loader: Arc<syntax::Loader>,
     ) -> Result<Self, DocumentOpenError> {
-        let mut doc = Self::open(path, None, false, config, syn_loader)?;
-        let loader = doc.syn_loader.load_full();
+        let mut doc = Self::open(path, None, false, config, syntax_loader)?;
+        let loader = doc.syntax_loader.clone();
         doc.detect_language(&loader);
         Ok(doc)
     }
@@ -148,7 +148,7 @@ impl Document {
         mut encoding: Option<&'static Encoding>,
         detect_language: bool,
         config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+        syntax_loader: Arc<syntax::Loader>,
     ) -> Result<Self, DocumentOpenError> {
         // If the path is not a regular file (e.g.: /dev/random) it should not be opened.
         if path.metadata().is_ok_and(|metadata| !metadata.is_file()) {
@@ -184,15 +184,14 @@ impl Document {
             }
         };
 
-        let loader = syn_loader.load();
-        let mut doc = Self::from(text, Some((encoding, has_bom)), config, syn_loader);
+        let mut doc = Self::from(text, Some((encoding, has_bom)), config, syntax_loader);
 
         doc.file.binary = binary;
         // set the path and try detecting the language
         doc.set_path(Some(path));
         if detect_language {
             // The editor requests syntax after assigning a stable document id.
-            doc.language = doc.detect_language_config(&loader);
+            doc.language = doc.detect_language_config(&doc.syntax_loader);
         }
 
         doc.editor_config = editor_config;
@@ -205,12 +204,12 @@ impl Document {
     pub(crate) fn open_scratch(
         path: &Path,
         config: Arc<dyn DynAccess<Config>>,
-        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+        syntax_loader: Arc<syntax::Loader>,
     ) -> Result<Self, Error> {
         if !path.metadata()?.is_file() {
             return Err(DocumentOpenError::IrregularFile.into());
         }
-        let mut doc = Self::open(path, None, true, config, syn_loader)?;
+        let mut doc = Self::open(path, None, true, config, syntax_loader)?;
         anyhow::ensure!(
             !doc.is_binary(),
             "Cannot open a binary file as scratch text"
@@ -535,7 +534,7 @@ impl Document {
             self.close_language_server_documents();
             self.language_servers.clear();
         } else if was_binary {
-            let loader = self.syn_loader.load_full();
+            let loader = self.syntax_loader.clone();
             self.detect_language(&loader);
         }
         self.reset_modified();

@@ -185,7 +185,7 @@ impl Editor {
     pub fn new_file(&mut self, action: Action) -> DocumentId {
         self.new_file_from_document(
             action,
-            Document::default(self.config.clone(), self.syn_loader.clone()),
+            Document::default(self.config.clone(), self.syn_loader.load_full()),
         )
     }
 
@@ -193,7 +193,7 @@ impl Editor {
     pub fn new_file_welcome(&mut self) -> DocumentId {
         self.new_file_from_document(
             Action::VerticalSplit,
-            Document::default(self.config.clone(), self.syn_loader.clone()).with_welcome(),
+            Document::default(self.config.clone(), self.syn_loader.load_full()).with_welcome(),
         )
     }
 
@@ -203,7 +203,7 @@ impl Editor {
             editor_core::Rope::default(),
             Some((encoding, has_bom)),
             self.config.clone(),
-            self.syn_loader.clone(),
+            self.syn_loader.load_full(),
         );
         let doc_id = self.new_file_from_document(action, doc);
         let doc = doc_mut!(self, &doc_id);
@@ -220,7 +220,7 @@ impl Editor {
     /// Open a fresh scratch copy of a text file, retaining its language and encoding.
     /// The source is never registered with language servers or filesystem watchers.
     pub fn open_scratch(&mut self, path: &Path, action: Action) -> anyhow::Result<DocumentId> {
-        let doc = Document::open_scratch(path, self.config.clone(), self.syn_loader.clone())?;
+        let doc = Document::open_scratch(path, self.config.clone(), self.syn_loader.load_full())?;
         let id = self.new_file_from_document(action, doc);
         dispatch(DocumentDidOpen {
             editor: self,
@@ -247,7 +247,7 @@ impl Editor {
                 None,
                 true,
                 self.config.clone(),
-                self.syn_loader.clone(),
+                self.syn_loader.load_full(),
             )?;
 
             let diagnostics =
@@ -382,7 +382,7 @@ impl Editor {
             let doc_id = first_document.unwrap_or_else(|| {
                 self.new_document(Document::default(
                     self.config.clone(),
-                    self.syn_loader.clone(),
+                    self.syn_loader.load_full(),
                 ))
             });
             let view = View::new(doc_id, self.config().gutters.clone(), self.redraw().clone());

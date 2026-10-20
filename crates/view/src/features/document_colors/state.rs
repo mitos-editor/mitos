@@ -69,9 +69,7 @@ mod tests {
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 editor_config::Config::default(),
             )),
-            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                language::syntax::Loader::default(),
-            )),
+            std::sync::Arc::new(language::syntax::Loader::default()),
         );
         let view = crate::ViewId::default();
         doc.ensure_view_init(view);
