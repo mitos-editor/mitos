@@ -740,7 +740,8 @@ impl EditorView {
         let gutter_selected_style_virtual = theme.get("ui.gutter.selected.virtual");
 
         for &gutter_type in view.gutters() {
-            let mut gutter = view::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
+            let mut gutter =
+                super::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
             let width = view::gutter::width(gutter_type, view, doc);
             // avoid lots of small allocations by reusing a text buffer for each line
             let mut text = String::with_capacity(width);

@@ -4,6 +4,7 @@ pub(crate) mod debugger_stack;
 pub(crate) mod debugger_variables;
 mod document;
 pub(crate) mod editor;
+mod gutter;
 pub(crate) mod highlights;
 mod icons;
 mod image;

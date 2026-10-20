@@ -170,6 +170,9 @@ query filenames and display labels to health reporting and generated language do
 `view` owns the shared editor model and operations. It can run without a terminal
 compositor; frontends supply callback delivery and presentation. Presentation-related
 model data, such as view geometry, theme styles, and gutter settings, remains shared.
+`view::gutter` supplies widths for viewport layout and hit testing.
+`term::ui::gutter` chooses glyphs, styles, and precedence from shared diagnostic,
+VCS, code-action, code-lens, and debugger state.
 
 `view::document::file` owns file identity, cached paths, encoding, saved state,
 and open/save/reload operations. File metadata stays private to that module;
