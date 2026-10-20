@@ -4,6 +4,38 @@
 
 ## [0.1.1](https://github.com/mitos-editor/mitos/compare/v0.1.0...v0.1.1) - 2026-10-20
 
+### Highlights
+
+- Pickers update as files, Git changes, diagnostics, and search results
+  change, while preserving your selection and navigation.
+- Inline Git blame shows who last changed a line. A new blame popup
+  provides full commit details, and changed-file pickers include staged files.
+- Language servers can provide inline completion suggestions and code
+  lenses, such as run and test actions beside your code.
+- Debugging gains session switching, inline runtime values, expandable
+  variables, and more reliable breakpoint tracking.
+- More UI customization: configurable statusline layouts, component
+  keybindings, menu labels, and border styles. Pickers have clearer titles,
+  and the active buffer stays visible in the buffer bar.
+- Updated language grammars and syntax queries, broader language-server
+  configuration, and support for choosing the first available server.
+- Shell commands and more language-server and debugger operations run
+  without blocking editing. Startup performance also improves.
+- Added shell and PowerShell installers, improved terminal detection,
+  and reorganized documentation.
+- Extensive internal restructuring separates editor features from the
+  terminal interface, alongside fixes to saving, formatting, completion,
+  clipboard handling, and asynchronous operations.
+
+### Upgrade notes
+
+- Configuration is now grouped by feature. Older setting names still work;
+  `:config-migrate` updates them after confirmation and creates a backup.
+- Rounded borders and visible trailing whitespace are now the defaults.
+- `Space E` opens the current folder.
+- Installed grammars now use the user data runtime directory. Existing
+  configuration runtime overrides remain supported and take priority.
+
 ### Added
 
 - *(bufferline)* keep the active buffer visible ([#543](https://github.com/mitos-editor/mitos/pull/543))
