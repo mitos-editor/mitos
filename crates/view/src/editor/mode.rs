@@ -20,7 +20,7 @@ impl Editor {
         features::navigation::mode_changed(self, old);
         let has_document = self
             .tree
-            .try_get(self.tree.focus)
+            .try_get(self.tree.focus())
             .is_some_and(|view| self.documents.contains_key(&view.doc));
         if mode == Mode::Normal && has_document {
             self.finish_insert_mode();

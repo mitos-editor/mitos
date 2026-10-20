@@ -64,7 +64,7 @@ impl Editor {
     fn prepare_document_language_change(&mut self, doc_id: DocumentId) {
         if self
             .tree
-            .try_get(self.tree.focus)
+            .try_get(self.tree.focus())
             .is_some_and(|view| view.doc == doc_id)
         {
             self.handlers.completions.invalidate();

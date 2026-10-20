@@ -182,7 +182,7 @@ pub(super) fn request_completions(
     {
         return false;
     }
-    let Some(view) = editor.tree.try_get(editor.tree.focus) else {
+    let Some(view) = editor.tree.try_get(editor.tree.focus()) else {
         return false;
     };
     let Some(doc) = editor.document(view.doc) else {

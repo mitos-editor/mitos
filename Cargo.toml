@@ -7,6 +7,7 @@ members = [
   "crates/text-layout",
   "crates/buffer",
   "crates/ui-core",
+  "crates/pane-layout",
   "crates/view",
   "crates/term",
   "crates/tui",
@@ -87,6 +88,7 @@ stdx = { path = "crates/stdx" }
 term = { path = "crates/term" }
 tui = { path = "crates/tui", default-features = false }
 ui-core = { path = "crates/ui-core" }
+pane-layout = { path = "crates/pane-layout" }
 vcs = { path = "crates/vcs" }
 view = { path = "crates/view" }
 workspace = { path = "crates/workspace" }

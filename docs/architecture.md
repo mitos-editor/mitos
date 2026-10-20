@@ -15,6 +15,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `view` | Documents, views, editor operations, configuration application, and feature coordination |
 | `theme` | Theme interpretation, palette resolution, icons, and style lookup |
 | `term` | Application composition, configuration loading, terminal input, commands, and interactive UI |
+| `pane-layout` | Stable pane keys, split topology, geometry, and directional navigation |
 | `ui-core` | Shared geometry, input, typed keymap lookup, colors, and styles |
 | `tui` | Terminal backends, capability handling, and Ratatui integration |
 | `loader` | Resource paths and grammar/query/theme sources |
@@ -223,6 +224,10 @@ still allow document refresh. Configuration-event reloads still run change hooks
 after failure, using the currently installed settings.
 
 ### Documents and views
+
+`pane-layout` owns generic split topology and geometry over caller-supplied pane
+values. `view::tree` adapts `View` values and restricts structural changes to the
+editor lifecycle; layout tests do not require documents or editor services.
 
 A `Document` ties together the `Rope`, `Selection`(s), `Syntax`, document
 `History`, language server (etc.) into a comprehensive representation of an open

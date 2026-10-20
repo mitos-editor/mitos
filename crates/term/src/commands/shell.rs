@@ -31,7 +31,7 @@ pub(super) fn shell_keep_pipe(cx: &mut Context) {
 }
 
 pub(super) fn shell(cx: &mut compositor::Context, cmd: &str, behavior: ShellBehavior) {
-    let view = cx.editor.tree.focus;
+    let view = cx.editor.tree.focus();
     cx.editor.request_shell_filter(view, cmd, behavior);
 }
 

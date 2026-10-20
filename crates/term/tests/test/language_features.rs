@@ -369,7 +369,7 @@ async fn inlay_hints_publish_for_unfocused_views_after_selection_changes() -> an
     let background = view.id;
     let document = doc.id();
     f.app.editor.switch(document, Action::HorizontalSplit);
-    let focused = f.app.editor.tree.focus;
+    let focused = f.app.editor.tree.focus();
     assert_ne!(focused, background);
     inlay_hints::refresh(&mut f.app.editor);
     let first = f.response().await?;
@@ -381,7 +381,7 @@ async fn inlay_hints_publish_for_unfocused_views_after_selection_changes() -> an
         .set_selection(background, Selection::point(4));
     first(&mut f.app.editor);
     second(&mut f.app.editor);
-    assert_eq!(f.app.editor.tree.focus, focused);
+    assert_eq!(f.app.editor.tree.focus(), focused);
     let doc = f.app.editor.document(document).unwrap();
     assert!(doc.inlay_hints(background).is_some());
     assert!(doc.inlay_hints(focused).is_some());

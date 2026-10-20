@@ -187,7 +187,7 @@ async fn hidden_document_edits_undo_without_changing_the_focused_document() -> a
     let unrelated = current_ref!(fixture.editor).1.text().clone();
     let unrelated_selection = current_ref!(fixture.editor)
         .1
-        .selection(fixture.editor.tree.focus)
+        .selection(fixture.editor.tree.focus())
         .clone();
     let doc = fixture.editor.document(id).unwrap();
     let transaction = Transaction::change(
@@ -207,7 +207,7 @@ async fn hidden_document_edits_undo_without_changing_the_focused_document() -> a
     assert_eq!(
         current_ref!(fixture.editor)
             .1
-            .selection(fixture.editor.tree.focus),
+            .selection(fixture.editor.tree.focus()),
         &unrelated_selection
     );
     fixture.editor.switch(id, Action::Replace);

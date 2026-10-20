@@ -87,7 +87,7 @@ pub(crate) fn register_hooks() {
     });
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
         let doc_id = event.doc;
-        let view_id = event.editor.tree.focus;
+        let view_id = event.editor.tree.focus();
         request_document_symbols(event.editor, doc_id);
         if let Some(doc) = event.editor.document_mut(doc_id) {
             doc.update_breadcrumbs_for_view(view_id);
@@ -119,7 +119,7 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        let view_id = event.editor.tree.focus;
+        let view_id = event.editor.tree.focus();
         if let Some(view) = event.editor.tree.try_get(view_id) {
             let doc_id = view.doc;
             request_document_symbols(event.editor, doc_id);
@@ -147,7 +147,7 @@ pub(crate) fn register_hooks() {
             return Ok(());
         }
         if !event.old.breadcrumb.enable && event.new.breadcrumb.enable {
-            let view_id = event.editor.tree.focus;
+            let view_id = event.editor.tree.focus();
             if let Some(view) = event.editor.tree.try_get(view_id) {
                 let doc_id = view.doc;
                 request_document_symbols(event.editor, doc_id);

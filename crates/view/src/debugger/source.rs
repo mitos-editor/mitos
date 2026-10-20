@@ -205,7 +205,7 @@ impl crate::Editor {
         else {
             return;
         };
-        let Some(view) = self.tree.try_get(self.tree.focus) else {
+        let Some(view) = self.tree.try_get(self.tree.focus()) else {
             return;
         };
         let Some(doc) = self.document(view.doc) else {
@@ -255,7 +255,7 @@ impl crate::Editor {
                 editor.mode() == mode
                     && navigation
                         .get(editor)
-                        .is_some_and(|(view, _)| view.id == editor.tree.focus)
+                        .is_some_and(|(view, _)| view.id == editor.tree.focus())
             },
             move |editor, response| {
                 let session = &editor.debugger.sessions[id];

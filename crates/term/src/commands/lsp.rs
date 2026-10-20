@@ -76,7 +76,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
             move |editor, compositor| {
                 let Some(mut resolved) = resolved else { return };
                 let is_current = move |editor: &Editor| {
-                    editor.tree.focus == view_id
+                    editor.tree.focus() == view_id
                         && editor
                             .tree
                             .try_get(view_id)

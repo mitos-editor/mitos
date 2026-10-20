@@ -37,7 +37,7 @@ impl Origin {
             && editor.mode() == self.mode
             && (!self.uses_lsp || editor.config().lsp.enable)
             && self.selection.get(editor).is_some_and(|(view, _)| {
-                editor.tree.focus == view.id && view.binding_revision() == self.binding_revision
+                editor.tree.focus() == view.id && view.binding_revision() == self.binding_revision
             })
     }
 }
@@ -81,7 +81,7 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
     let owner = editor.callback_sender().clone();
     let lsp_enabled = editor.config().lsp.enable;
     let mode = editor.mode();
-    let view = editor.tree.get(editor.tree.focus);
+    let view = editor.tree.get(editor.tree.focus());
     let doc = editor.documents.get_mut(&view.doc).unwrap();
     let ranges = doc.selection(view.id).ranges().to_vec();
     let mut targets = Vec::new();

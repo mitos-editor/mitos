@@ -157,7 +157,7 @@ impl Editor {
                     // Restore an unsynchronized preview before applying a real edit.
                     if editor
                         .tree
-                        .try_get(editor.tree.focus)
+                        .try_get(editor.tree.focus())
                         .is_some_and(|view| view.doc == accepted.document)
                         && crate::features::completion::has_preview(editor)
                     {

@@ -523,7 +523,7 @@ impl Editor {
     }
 
     pub fn focus(&mut self, view_id: ViewId) {
-        if self.tree.focus == view_id {
+        if self.tree.focus() == view_id {
             return;
         }
 
@@ -538,7 +538,8 @@ impl Editor {
             view.sync_changes(doc);
         }
 
-        let prev_id = std::mem::replace(&mut self.tree.focus, view_id);
+        let prev_id = self.tree.focus();
+        self.tree.set_focus(view_id);
         doc_mut!(self).mark_as_focused();
 
         let focus_lost = self.tree.get(prev_id).doc;
@@ -559,7 +560,7 @@ impl Editor {
     }
 
     pub fn focus_direction(&mut self, direction: tree::Direction) {
-        let current_view = self.tree.focus;
+        let current_view = self.tree.focus();
         if let Some(id) = self.tree.find_split_in_direction(current_view, direction) {
             self.focus(id)
         }
@@ -944,7 +945,7 @@ impl Editor {
                 let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
+                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
                     Action::Load => view_id,
                 };
                 let view = view_mut!(self, target_view_id);
@@ -978,7 +979,7 @@ impl Editor {
                 let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
+                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
                     Action::Load => view_id,
                 };
                 let view = view_mut!(self, target_view_id);
@@ -1014,7 +1015,7 @@ impl Editor {
                 let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
+                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
                     Action::Load => view_id,
                 };
                 let view = view_mut!(self, target_view_id);
@@ -1044,7 +1045,7 @@ impl Editor {
                 let scrolloff = self.config.load().scroll.padding;
                 let target_view_id = match action {
                     Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus,
+                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
                     Action::Load => view_id,
                 };
                 let view = view_mut!(self, target_view_id);

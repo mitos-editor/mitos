@@ -50,7 +50,7 @@ impl Document {
     fn focused_view(&self, editor: &Editor) -> Option<ViewId> {
         editor
             .tree
-            .try_get(editor.tree.focus)
+            .try_get(editor.tree.focus())
             .filter(|view| view.doc == self.id())
             .map(|view| view.id)
     }

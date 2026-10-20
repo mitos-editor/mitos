@@ -28,7 +28,7 @@ impl Target {
             .workspace_trust
             .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
             .is_trusted();
-        (editor.tree.focus == view.id && trust_full == self.trust_full).then_some(doc)
+        (editor.tree.focus() == view.id && trust_full == self.trust_full).then_some(doc)
     }
 }
 

@@ -197,7 +197,7 @@ impl CompletionSession {
             && belongs_to(&self.owner, editor, self.epoch)
             && editor.mode() == Mode::Insert
             && (self.trigger.kind == TriggerKind::Manual || editor.config().completion.auto_trigger)
-            && editor.tree.focus == self.trigger.view
+            && editor.tree.focus() == self.trigger.view
             && editor
                 .tree
                 .try_get(self.trigger.view)

@@ -209,7 +209,7 @@ impl Request {
             && self
                 .target
                 .get(editor)
-                .is_some_and(|(view, _)| editor.tree.focus == view.id)
+                .is_some_and(|(view, _)| editor.tree.focus() == view.id)
     }
 }
 

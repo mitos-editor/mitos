@@ -556,7 +556,7 @@ async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow:
             .0
             .id;
         goto_keys(&mut app, ":goto 3").await?;
-        app.editor.tree.focus = other_view;
+        app.editor.tree.set_focus(other_view);
         let (view, doc) = view::current!(app.editor);
         doc.set_selection(view.id, Selection::single(2, 3));
         goto_keys(&mut app, ending).await?;
@@ -579,7 +579,7 @@ async fn goto_preview_ignores_a_closed_origin_split() -> anyhow::Result<()> {
         view::editor::Action::HorizontalSplit,
     );
     goto_keys(&mut app, ":goto 3").await?;
-    app.editor.close(app.editor.tree.focus);
+    app.editor.close(app.editor.tree.focus());
     let (view, doc) = view::current!(app.editor);
     doc.set_selection(view.id, Selection::single(2, 3));
     goto_keys(&mut app, "4<ret>").await?;

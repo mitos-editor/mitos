@@ -179,7 +179,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        let view = event.editor.tree.focus;
+        let view = event.editor.tree.focus();
         if let Some(doc) = event.editor.document_mut(event.doc) {
             schedule(doc, view);
         }
@@ -222,7 +222,7 @@ pub(crate) fn register_hooks() {
                 doc.clear_all_code_action_hints();
             }
         } else if !event.old.code_action_hint() && event.new.code_action_hint() {
-            let view = event.editor.tree.focus;
+            let view = event.editor.tree.focus();
             if let Some(doc_id) = event.editor.tree.try_get(view).map(|view| view.doc)
                 && let Some(doc) = event.editor.document_mut(doc_id)
             {

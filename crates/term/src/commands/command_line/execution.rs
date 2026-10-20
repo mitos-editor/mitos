@@ -60,7 +60,7 @@ impl Target {
 
     fn is_current(&self, editor: &Editor) -> bool {
         self.owner.same_destination(editor.callback_sender())
-            && editor.tree.focus == self.view
+            && editor.tree.focus() == self.view
             && editor.tree.try_get(self.view).is_some_and(|view| {
                 view.document_id() == self.document && view.binding_revision() == self.binding
             })
@@ -122,7 +122,7 @@ impl Command {
             .map_err(|error| anyhow::anyhow!("'{}': {error}", command.name)),
             Invocation::Shell(behavior) => {
                 cx.editor
-                    .request_shell_filter(cx.editor.tree.focus, &args.join(" "), behavior);
+                    .request_shell_filter(cx.editor.tree.focus(), &args.join(" "), behavior);
                 Ok(())
             }
         }

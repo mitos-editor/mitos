@@ -62,7 +62,7 @@ impl DocumentSymbolsUpdate {
     pub fn into_symbols(self, editor: &Editor) -> Option<Vec<DocumentSymbol>> {
         if !editor.config().lsp.enable
             || !self.owner.same_destination(editor.callback_sender())
-            || editor.tree.focus != self.request.view_id()
+            || editor.tree.focus() != self.request.view_id()
             || self.request.get(editor).is_none()
         {
             return None;

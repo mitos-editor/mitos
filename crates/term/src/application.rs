@@ -228,7 +228,7 @@ impl Application {
                         // NOTE: this isn't necessarily true anymore. If
                         // `--vsplit` or `--hsplit` are used, the file which is
                         // opened last is focused on.
-                        let view_id = editor.tree.focus;
+                        let view_id = editor.tree.focus();
                         let doc = doc_mut!(editor, &doc_id);
                         let selection = pos
                             .into_iter()

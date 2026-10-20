@@ -321,7 +321,7 @@ async fn queued_highlights_follow_the_selection_and_view_document() -> anyhow::R
     let old_id = current_ref!(fixture.app.editor).1.id();
     fixture.app.editor.new_file(Action::Replace);
     fixture.apply(responses);
-    let view = fixture.app.editor.tree.focus;
+    let view = fixture.app.editor.tree.focus();
     assert!(fixture
         .app
         .editor

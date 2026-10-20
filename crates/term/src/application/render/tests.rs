@@ -229,7 +229,7 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
         )));
     }
     let doc = doc!(first.editor).id();
-    let view = first.editor.tree.focus;
+    let view = first.editor.tree.focus();
     event::dispatch(view::events::DocumentFocusLost {
         editor: &mut first.editor,
         doc,
@@ -255,7 +255,7 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
     drop(first);
     sender.send(|_, _| {}).await;
     let doc = doc!(second.editor).id();
-    let view = second.editor.tree.focus;
+    let view = second.editor.tree.focus();
     event::dispatch(view::events::DocumentFocusLost {
         editor: &mut second.editor,
         doc,
@@ -316,7 +316,7 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
     let prompt = || crate::ui::Prompt::new(":".into(), None, |_, _| Vec::new(), |_, _, _| {});
     app.compositor.push(Box::new(prompt()));
     let doc = doc!(app.editor).id();
-    let view = app.editor.tree.focus;
+    let view = app.editor.tree.focus();
     event::dispatch(view::events::DocumentFocusLost {
         editor: &mut app.editor,
         doc,

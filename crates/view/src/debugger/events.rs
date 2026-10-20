@@ -156,7 +156,7 @@ impl Editor {
         let navigation = if !context.is_active(self) || event.preserve_focus_hint.unwrap_or(false) {
             None
         } else {
-            self.tree.try_get(self.tree.focus).and_then(|view| {
+            self.tree.try_get(self.tree.focus()).and_then(|view| {
                 self.document(view.doc).map(|doc| {
                     SelectionRequest::new(doc, view.id, context.execution.clone(), Vec::new())
                 })
@@ -241,7 +241,7 @@ impl Editor {
                             .is_some_and(|selection| !selection.is_canceled())
                         && editor.mode() == mode
                         && navigation.is_some_and(|target| {
-                            editor.tree.focus == target.view_id() && target.get(editor).is_some()
+                            editor.tree.focus() == target.view_id() && target.get(editor).is_some()
                         })
                         && let Some(frame) = frame
                     {

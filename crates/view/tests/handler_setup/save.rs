@@ -55,7 +55,7 @@ async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_cl
         let unrelated = fixture.editor.document(other).unwrap().text().clone();
         let selection = current_ref!(fixture.editor)
             .1
-            .selection(fixture.editor.tree.focus)
+            .selection(fixture.editor.tree.focus())
             .clone();
 
         assert!(matches!(
@@ -68,7 +68,7 @@ async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_cl
         assert_eq!(
             current_ref!(fixture.editor)
                 .1
-                .selection(fixture.editor.tree.focus),
+                .selection(fixture.editor.tree.focus()),
             &selection
         );
         // A hidden formatted document gains no synthetic selection in the unrelated split.

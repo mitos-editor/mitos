@@ -106,7 +106,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
         items,
         PathStyleConfig::new(cx.editor),
         |cx, meta, action| {
-            let view_id = cx.editor.tree.focus;
+            let view_id = cx.editor.tree.focus();
             if cx
                 .editor
                 .activate_quicklist_entry(view_id, &meta.entry, action)
@@ -144,7 +144,7 @@ pub(super) fn goto_prev_file_quicklist(cx: &mut Context) {
 }
 
 fn goto_quicklist_impl(cx: &mut Context, direction: Direction, same_file: bool) {
-    let view_id = cx.editor.tree.focus;
+    let view_id = cx.editor.tree.focus();
     let jumped = match direction {
         Direction::Forward => cx
             .editor

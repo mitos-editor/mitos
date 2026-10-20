@@ -77,7 +77,7 @@ fn rename_range(
 impl RenameUpdate {
     pub fn into_result(self, editor: &Editor) -> Option<Result<RenameSession>> {
         if !self.context.is_current(editor)
-            || editor.tree.focus != self.view
+            || editor.tree.focus() != self.view
             || !editor
                 .tree
                 .try_get(self.view)

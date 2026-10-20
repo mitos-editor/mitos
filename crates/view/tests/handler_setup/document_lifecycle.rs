@@ -52,7 +52,11 @@ async fn replacing_an_empty_scratch_reports_closed_document_after_rebinding() ->
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
     register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        let focused = event.editor.tree.get(event.editor.tree.focus).document_id();
+        let focused = event
+            .editor
+            .tree
+            .get(event.editor.tree.focus())
+            .document_id();
         assert!(event.editor.document(focused).is_some());
         captured.lock().unwrap().push((event.doc.id(), focused));
         Ok(())

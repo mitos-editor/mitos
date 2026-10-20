@@ -22,7 +22,7 @@ macro_rules! current {
 #[macro_export]
 macro_rules! current_ref {
     ($editor:expr) => {{
-        let view = $editor.tree.get($editor.tree.focus);
+        let view = $editor.tree.get($editor.tree.focus());
         let doc = &$editor.documents[&view.document_id()];
         (view, doc)
     }};
@@ -48,7 +48,7 @@ macro_rules! view_mut {
         $editor.tree.get_mut($id)
     }};
     ($editor:expr) => {{
-        $editor.tree.get_mut($editor.tree.focus)
+        $editor.tree.get_mut($editor.tree.focus())
     }};
 }
 
@@ -60,7 +60,7 @@ macro_rules! view {
         $editor.tree.get($id)
     }};
     ($editor:expr) => {{
-        $editor.tree.get($editor.tree.focus)
+        $editor.tree.get($editor.tree.focus())
     }};
 }
 

@@ -80,7 +80,7 @@ impl SignatureHelpHandler {
         {
             return;
         }
-        let Some(view) = editor.tree.try_get(editor.tree.focus) else {
+        let Some(view) = editor.tree.try_get(editor.tree.focus()) else {
             return;
         };
         let Some(doc) = editor.document(view.doc) else {
@@ -187,7 +187,7 @@ impl Request {
                 || (editor.config().lsp.signature_help.auto_trigger
                     && editor.mode() == Mode::Insert))
             && self.target.get(editor).is_some_and(|(view, doc)| {
-                editor.tree.focus == view.id
+                editor.tree.focus() == view.id
                     && doc
                         .language_servers_with_feature(LanguageServerFeature::SignatureHelp)
                         .next()
@@ -365,7 +365,7 @@ pub fn post_insert_char(editor: &Editor) {
     if !editor.config().lsp.signature_help.auto_trigger {
         return;
     }
-    let Some(view) = editor.tree.try_get(editor.tree.focus) else {
+    let Some(view) = editor.tree.try_get(editor.tree.focus()) else {
         return;
     };
     let Some(doc) = editor.document(view.doc) else {

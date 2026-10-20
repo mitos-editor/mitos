@@ -233,11 +233,11 @@ pub(super) fn goto_last_modified_file(cx: &mut Context) {
 }
 
 pub(super) fn jump_forward(cx: &mut Context) {
-    cx.editor.jump_forward(cx.editor.tree.focus, cx.count());
+    cx.editor.jump_forward(cx.editor.tree.focus(), cx.count());
 }
 
 pub(super) fn jump_backward(cx: &mut Context) {
-    cx.editor.jump_backward(cx.editor.tree.focus, cx.count());
+    cx.editor.jump_backward(cx.editor.tree.focus(), cx.count());
 }
 
 pub(super) fn save_selection(cx: &mut Context) {
@@ -578,7 +578,7 @@ impl GotoLinePreview {
             *self = Self::Invalidated;
             return;
         }
-        if editor.tree.focus != origin.view {
+        if editor.tree.focus() != origin.view {
             *self = Self::Invalidated;
         }
         let scrolloff = editor.config().scroll.padding;
@@ -621,7 +621,7 @@ impl GotoLinePreview {
             *self = Self::Invalidated;
             return Ok(());
         }
-        if editor.tree.focus != origin.view {
+        if editor.tree.focus() != origin.view {
             self.abort(editor);
             *self = Self::Invalidated;
             return Ok(());

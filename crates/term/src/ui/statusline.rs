@@ -43,7 +43,7 @@ impl<'a> RenderContext<'a> {
     }
 
     fn is_focused(&self) -> bool {
-        self.view.id == self.editor.tree.focus
+        self.view.id == self.editor.tree.focus()
     }
 }
 

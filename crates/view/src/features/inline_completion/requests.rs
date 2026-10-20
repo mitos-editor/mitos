@@ -138,7 +138,7 @@ impl AsyncHook for Debounce {
             self.callbacks.send_blocking(move |editor| {
                 if !target.cancel.is_canceled()
                     && editor.config().inline_completion.auto_trigger
-                    && editor.tree.focus == target.view
+                    && editor.tree.focus() == target.view
                     && editor
                         .tree
                         .try_get(target.view)
@@ -210,7 +210,7 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
             .send(move |editor| {
                 if session_cancel.is_canceled()
                     || editor.mode() != Mode::Insert
-                    || editor.tree.focus != request.view_id()
+                    || editor.tree.focus() != request.view_id()
                     || request.get(editor).is_none()
                 {
                     return;
@@ -301,7 +301,10 @@ fn prepare(
 
 pub fn dismiss(editor: &mut Editor) {
     editor.handlers.inline_completions.cancel();
-    let document = editor.tree.try_get(editor.tree.focus).map(|view| view.doc);
+    let document = editor
+        .tree
+        .try_get(editor.tree.focus())
+        .map(|view| view.doc);
     if let Some(doc) = document.and_then(|id| editor.document_mut(id)) {
         doc.inline_completions.clear();
     }

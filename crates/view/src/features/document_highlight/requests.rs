@@ -180,7 +180,7 @@ fn apply_document_highlights(
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
-        let view_id = event.editor.tree.focus;
+        let view_id = event.editor.tree.focus();
         request_document_highlights(event.editor, event.doc, view_id);
         Ok(())
     });
@@ -207,7 +207,7 @@ pub(crate) fn register_hooks() {
         if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
-        let view_id = event.editor.tree.focus;
+        let view_id = event.editor.tree.focus();
         if event.editor.tree.try_get(view_id).is_none() {
             return Ok(());
         }
@@ -238,7 +238,7 @@ pub(crate) fn register_hooks() {
         if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
-        let view_id = event.editor.tree.focus;
+        let view_id = event.editor.tree.focus();
         let Some(view) = event.editor.tree.try_get(view_id) else {
             return Ok(());
         };
@@ -262,7 +262,7 @@ pub(crate) fn register_hooks() {
         if !event.old.lsp.document_highlight.auto_trigger
             && event.new.lsp.document_highlight.auto_trigger
         {
-            let view_id = event.editor.tree.focus;
+            let view_id = event.editor.tree.focus();
             let Some(view) = event.editor.tree.try_get(view_id) else {
                 return Ok(());
             };

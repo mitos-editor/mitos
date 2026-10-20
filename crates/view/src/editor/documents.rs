@@ -116,12 +116,12 @@ impl Editor {
             Action::HorizontalSplit | Action::VerticalSplit => {
                 let focus_lost = self
                     .tree
-                    .try_get(self.tree.focus)
+                    .try_get(self.tree.focus())
                     .map(|view| (view.doc, view.id));
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
-                    .try_get(self.tree.focus)
+                    .try_get(self.tree.focus())
                     .filter(|v| id == v.doc) // Different Document
                     .cloned()
                     .unwrap_or_else(|| {

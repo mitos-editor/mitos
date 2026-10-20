@@ -40,6 +40,7 @@ file-watch.workspace = true
 ignore.workspace = true
 command-line.workspace = true
 ui-core.workspace = true
+pane-layout.workspace = true
 stdx.workspace = true
 core.workspace = true
 event.workspace = true

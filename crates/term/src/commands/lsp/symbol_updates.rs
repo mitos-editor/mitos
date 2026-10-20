@@ -92,7 +92,7 @@ pub(super) fn document_updates(
             }
         }
         let state = source_state(cx.editor, document, false).filter(|_| {
-            cx.editor.tree.focus == view
+            cx.editor.tree.focus() == view
                 && cx
                     .editor
                     .tree
