@@ -68,3 +68,6 @@ mod document_settings;
 #[cfg(unix)]
 #[path = "handler_setup/shell.rs"]
 mod shell;
+
+#[path = "handler_setup/syntax_symbols.rs"]
+mod syntax_symbols;

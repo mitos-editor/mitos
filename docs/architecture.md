@@ -997,6 +997,13 @@ owns the search prompt, picker, quicklist conversion, and navigation. Picker
 invalidation stops traversal even when a query produces no matches. Buffer text
 search and selection transformations remain in `core` and editor commands.
 
+`language::tags` extracts definition kinds, names, and text spans from syntax
+queries without editor identities. `view::features::syntax_symbols` owns document
+targets, workspace queries, parsed-file caches, cancellation checks, and refresh
+decisions from document revisions and filesystem events. Queries prefer open
+buffers over disk. The terminal supplies traversal options and presents symbols
+through picker columns, previews, quicklists, and navigation actions.
+
 ## Fuzzy matching
 
 `fuzzy` owns text/path/completion scoring profiles and reusable matcher buffers.

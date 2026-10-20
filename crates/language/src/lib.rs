@@ -10,6 +10,7 @@ pub mod object;
 pub mod queries;
 pub mod surround;
 pub mod syntax;
+pub mod tags;
 pub mod textobject;
 
 pub use syntax::{Loader, LoaderError, Syntax};

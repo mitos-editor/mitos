@@ -1,5 +1,4 @@
 //! Syntax traversal, inspection, and symbol pickers.
-
 use super::Context;
 use crate::{
     commands::navigation::push_jump,
@@ -9,230 +8,42 @@ use crate::{
         Picker, PickerColumn,
     },
 };
-use dashmap::DashMap;
 use editor_core::{
     match_brackets,
     movement::{Direction, Movement},
-    Range, Rope, RopeSlice, Selection, Uri,
+    Range, RopeSlice, Selection,
 };
-use futures_util::FutureExt;
-use grep_regex::RegexMatcherBuilder;
-use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
-use ignore::{DirEntry, WalkBuilder, WalkState};
-use language::{
-    object,
-    syntax::{Loader, QueryMatchIterEvent},
-    Syntax,
-};
-use std::{
-    collections::HashSet,
-    iter,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use stdx::{
-    path,
-    rope::{self, RopeSliceExt},
-};
-use text_io::from_reader;
+use language::{object, Syntax};
+use std::{ops::ControlFlow, sync::Arc};
 use view::{
     align_view,
     document::{Mode, SCRATCH_BUFFER_NAME},
-    quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    Align, Document, DocumentId, Editor,
+    features::syntax_symbols::{document_symbols, Symbol, Target, WorkspaceSymbols},
+    Align, Editor,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum TagKind {
-    Class,
-    Constant,
-    Enum,
-    Field,
-    Function,
-    Interface,
-    Macro,
-    Module,
-    Section,
-    Struct,
-    Type,
-}
-
-impl TagKind {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Class => "class",
-            Self::Constant => "constant",
-            Self::Enum => "enum",
-            Self::Field => "field",
-            Self::Function => "function",
-            Self::Interface => "interface",
-            Self::Macro => "macro",
-            Self::Module => "module",
-            Self::Section => "section",
-            Self::Struct => "struct",
-            Self::Type => "type",
-        }
+fn target_path(target: &Target) -> Option<PathOrId<'_>> {
+    match target {
+        Target::Uri(uri) => uri.as_path().map(PathOrId::Path),
+        Target::Document(id) => Some(PathOrId::Id(*id)),
     }
-
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "class" => Some(TagKind::Class),
-            "constant" => Some(TagKind::Constant),
-            "enum" => Some(TagKind::Enum),
-            "field" => Some(TagKind::Field),
-            "function" => Some(TagKind::Function),
-            "interface" => Some(TagKind::Interface),
-            "macro" => Some(TagKind::Macro),
-            "module" => Some(TagKind::Module),
-            "section" => Some(TagKind::Section),
-            "struct" => Some(TagKind::Struct),
-            "type" => Some(TagKind::Type),
-            _ => None,
-        }
-    }
-}
-
-// NOTE: Uri is cheap to clone and DocumentId is Copy
-#[derive(Debug, Clone, PartialEq)]
-enum UriOrDocumentId {
-    Uri(Uri),
-    Id(DocumentId),
-}
-
-impl UriOrDocumentId {
-    fn path_or_id(&self) -> Option<PathOrId<'_>> {
-        match self {
-            Self::Id(id) => Some(PathOrId::Id(*id)),
-            Self::Uri(uri) => uri.as_path().map(PathOrId::Path),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-struct Tag {
-    kind: TagKind,
-    name: String,
-    start: usize,
-    end: usize,
-    start_line: usize,
-    end_line: usize,
-    doc: UriOrDocumentId,
-}
-
-fn tag_key(tag: &Tag) -> (Result<PathBuf, DocumentId>, TagKind, String) {
-    let target = match &tag.doc {
-        UriOrDocumentId::Uri(uri) => Ok(uri.as_path().unwrap().to_owned()),
-        UriOrDocumentId::Id(id) => Err(*id),
-    };
-    (target, tag.kind, tag.name.clone())
-}
-
-fn document_versions(editor: &Editor) -> Vec<(DocumentId, i32)> {
-    let mut versions: Vec<_> = editor
-        .documents()
-        .map(|doc| (doc.id(), doc.version()))
-        .collect();
-    versions.sort_unstable_by_key(|(id, _)| *id);
-    versions
-}
-
-impl Tag {
-    fn quicklist_entry(&self) -> Option<QuicklistEntry> {
-        let target = match &self.doc {
-            UriOrDocumentId::Uri(uri) => QuicklistTarget::Path(uri.as_path()?.to_path_buf()),
-            UriOrDocumentId::Id(id) => QuicklistTarget::Document(*id),
-        };
-        Some(QuicklistEntry {
-            target,
-            position: QuicklistPosition::Selection(Selection::single(self.start, self.end)),
-        })
-    }
-}
-
-fn tags_iter<'a>(
-    syntax: &'a Syntax,
-    loader: &'a Loader,
-    text: RopeSlice<'a>,
-    doc: UriOrDocumentId,
-    pattern: Option<&'a rope::Regex>,
-) -> impl Iterator<Item = Tag> + 'a {
-    let mut tags_iter = syntax.tags(text, loader, ..);
-
-    iter::from_fn(move || loop {
-        let QueryMatchIterEvent::Match(mat) = tags_iter.next()? else {
-            continue;
-        };
-        let query = &loader
-            .tag_query(tags_iter.current_language())
-            .expect("must have a tags query to emit matches")
-            .query;
-
-        // Find the @definition.* and optional @name captures in this match.
-        let mut def_capture = None::<(TagKind, std::ops::Range<u32>)>;
-        let mut name_range = None::<std::ops::Range<u32>>;
-        let name_capture = query.get_capture("name");
-
-        for node in mat.nodes.iter() {
-            let capture_name = query.capture_name(node.capture);
-            if let Some(kind) = capture_name
-                .strip_prefix("definition.")
-                .and_then(TagKind::from_name)
-            {
-                def_capture = Some((kind, node.node.byte_range()));
-            } else if name_capture == Some(node.capture) {
-                name_range = Some(node.node.byte_range());
-            }
-        }
-
-        let Some((kind, def_byte_range)) = def_capture else {
-            continue;
-        };
-        let name_byte_range = name_range.unwrap_or_else(|| def_byte_range.clone());
-
-        if pattern.is_some_and(|re| {
-            !re.is_match(
-                text.regex_input_at_bytes(
-                    name_byte_range.start as usize..name_byte_range.end as usize,
-                ),
-            )
-        }) {
-            continue;
-        }
-
-        let name_start = text.byte_to_char(name_byte_range.start as usize);
-        let name_end = text.byte_to_char(name_byte_range.end as usize);
-        let def_start = text.byte_to_char(def_byte_range.start as usize);
-        let def_end = text.byte_to_char(def_byte_range.end as usize);
-
-        return Some(Tag {
-            kind,
-            name: text.slice(name_start..name_end).to_string(),
-            start: def_start,
-            end: def_end,
-            start_line: text.char_to_line(def_start),
-            end_line: text.char_to_line(def_end),
-            doc: doc.clone(),
-        });
-    })
 }
 
 pub fn syntax_symbol_picker(cx: &mut Context) {
     let doc_id = doc!(cx.editor).id();
     cx.editor.ensure_syntax(doc_id);
     let doc = doc!(cx.editor);
-    let Some(syntax) = doc.syntax() else {
+    if doc.syntax().is_none() {
         cx.editor
             .set_error(|| "Syntax tree is not available on this buffer");
         return;
-    };
-    let text = doc.text().slice(..);
-    let loader = cx.editor.syn_loader.load();
-    let tags = tags_iter(syntax, &loader, text, UriOrDocumentId::Id(doc.id()), None);
+    }
+    let tags = document_symbols(cx.editor, doc_id);
     let mut version = doc.version();
 
     let columns = vec![
-        PickerColumn::new("kind", |tag: &Tag, _| tag.kind.as_str().into()),
-        PickerColumn::new("name", |tag: &Tag, _| tag.name.as_str().into()),
+        PickerColumn::new("kind", |tag: &Symbol, _| tag.tag.kind.as_str().into()),
+        PickerColumn::new("name", |tag: &Symbol, _| tag.tag.name.as_str().into()),
     ];
 
     let picker = Picker::new(
@@ -245,13 +56,13 @@ pub fn syntax_symbol_picker(cx: &mut Context) {
             cx.editor.switch(doc_id, action);
             let view = view_mut!(cx.editor);
             let doc = doc_mut!(cx.editor, &doc_id);
-            doc.set_selection(view.id, Selection::single(tag.start, tag.end));
+            doc.set_selection(view.id, Selection::single(tag.tag.start, tag.tag.end));
             if action.align_view(view, doc.id()) {
                 align_view(doc, view, Align::Center)
             }
         },
     )
-    .with_item_key(tag_key)
+    .with_item_key(Symbol::key)
     .with_editor_updates(move |cx| {
         let Some(doc) = cx.editor.document(doc_id) else {
             return Some(Vec::new());
@@ -260,24 +71,13 @@ pub fn syntax_symbol_picker(cx: &mut Context) {
             return None;
         }
         version = doc.version();
-        let loader = cx.editor.syn_loader.load();
-        Some(
-            doc.syntax()
-                .map(|syntax| {
-                    tags_iter(
-                        syntax,
-                        &loader,
-                        doc.text().slice(..),
-                        UriOrDocumentId::Id(doc_id),
-                        None,
-                    )
-                    .collect()
-                })
-                .unwrap_or_default(),
-        )
+        Some(document_symbols(cx.editor, doc_id))
     })
     .with_preview(|_editor, tag| {
-        Some((tag.doc.path_or_id()?, Some((tag.start_line, tag.end_line))))
+        Some((
+            target_path(&tag.target)?,
+            Some((tag.tag.start_line, tag.tag.end_line)),
+        ))
     })
     .with_quicklist(|_editor, tag| tag.quicklist_entry())
     .truncate_start(false);
@@ -286,53 +86,22 @@ pub fn syntax_symbol_picker(cx: &mut Context) {
 }
 
 pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
-    #[derive(Debug)]
-    struct SearchState {
-        searcher_builder: SearcherBuilder,
-        walk_builder: WalkBuilder,
-        regex_matcher_builder: RegexMatcherBuilder,
-        rope_regex_builder: rope::RegexBuilder,
-        search_root: PathBuf,
-        /// A cache of files that have been parsed in prior searches.
-        syntax_cache: arc_swap::ArcSwap<DashMap<PathBuf, Option<(Rope, Syntax)>>>,
-    }
-
-    let mut searcher_builder = SearcherBuilder::new();
-    searcher_builder.binary_detection(BinaryDetection::quit(b'\x00'));
-
-    // Search from the workspace that the currently focused document is within. This behaves like global
-    // search most of the time but helps when you have two projects open in splits.
-    let search_root = if let Some(path) = doc!(cx.editor).path() {
-        workspace::find_workspace_in(path).0
-    } else {
-        workspace::find_workspace().0
-    };
-
-    let config = cx.editor.config();
-    let walk_builder = crate::files::picker_options(&config.file_picker).walker(&search_root);
-
-    let mut regex_matcher_builder = RegexMatcherBuilder::new();
-    regex_matcher_builder.case_smart(config.search.smart_case);
-    let mut rope_regex_builder = rope::RegexBuilder::new();
-    rope_regex_builder.syntax(rope::Config::new().case_insensitive(config.search.smart_case));
-    let state = SearchState {
-        searcher_builder,
-        walk_builder,
-        regex_matcher_builder,
-        rope_regex_builder,
-        search_root,
-        syntax_cache: arc_swap::ArcSwap::from_pointee(DashMap::default()),
-    };
+    let state = WorkspaceSymbols::new(
+        cx.editor,
+        doc!(cx.editor).id(),
+        crate::files::picker_options(&cx.editor.config().file_picker),
+    );
     let reg = cx.register.unwrap_or('/');
     cx.editor.registers.last_search_register = reg;
     let columns = vec![
-        PickerColumn::new("kind", |tag: &Tag, _| tag.kind.as_str().into()),
-        PickerColumn::new("name", |tag: &Tag, _| tag.name.as_str().into()).without_filtering(),
-        PickerColumn::new("path", |tag: &Tag, state: &SearchState| {
-            match &tag.doc {
-                UriOrDocumentId::Uri(uri) => {
+        PickerColumn::new("kind", |tag: &Symbol, _| tag.tag.kind.as_str().into()),
+        PickerColumn::new("name", |tag: &Symbol, _| tag.tag.name.as_str().into())
+            .without_filtering(),
+        PickerColumn::new("path", |tag: &Symbol, state: &WorkspaceSymbols| {
+            match &tag.target {
+                Target::Uri(uri) => {
                     if let Some(path) = uri.as_path() {
-                        let path = if let Ok(stripped) = path.strip_prefix(&state.search_root) {
+                        let path = if let Ok(stripped) = path.strip_prefix(state.root()) {
                             stripped
                         } else {
                             path
@@ -343,165 +112,39 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
                     }
                 }
                 // This picker only uses `Id` for scratch buffers for better display.
-                UriOrDocumentId::Id(_) => SCRATCH_BUFFER_NAME.into(),
+                Target::Document(_) => SCRATCH_BUFFER_NAME.into(),
             }
         }),
     ];
 
-    let get_tags =
-        |query: &str, editor: &mut Editor, state: Arc<SearchState>, injector: &Injector<_, _>| {
-            if query.len() < 3 {
-                return async { Ok(()) }.boxed();
-            }
-            // Attempt to find the tag in any open documents.
-            let pattern = match state.rope_regex_builder.build(query) {
-                Ok(pattern) => pattern,
-                Err(err) => return async { Err(anyhow::anyhow!(err)) }.boxed(),
-            };
-            let pending: Vec<_> = editor
-                .documents()
-                .filter(|doc| doc.is_syntax_pending())
-                .map(Document::id)
-                .collect();
-            for id in pending {
-                editor.ensure_syntax(id);
-            }
-            let loader = editor.syn_loader.load();
-            for doc in editor.documents() {
-                let Some(syntax) = doc.syntax() else { continue };
-                let text = doc.text().slice(..);
-                let uri_or_id = doc
-                    .uri()
-                    .map(UriOrDocumentId::Uri)
-                    .unwrap_or_else(|| UriOrDocumentId::Id(doc.id()));
-                for tag in tags_iter(syntax, &loader, text.slice(..), uri_or_id, Some(&pattern)) {
-                    if injector.push(tag).is_err() {
-                        return async { Ok(()) }.boxed();
-                    }
+    let get_tags = |query: &str,
+                    editor: &mut Editor,
+                    state: Arc<WorkspaceSymbols>,
+                    injector: &Injector<_, _>| {
+        let sink = injector.clone();
+        let cancel = injector.clone();
+        state.query(
+            editor,
+            query,
+            move |symbol| {
+                if sink.push(symbol).is_ok() {
+                    ControlFlow::Continue(())
+                } else {
+                    ControlFlow::Break(())
                 }
-            }
-            if !state.search_root.exists() {
-                return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
-                    .boxed();
-            }
-            let matcher = match state.regex_matcher_builder.build(query) {
-                Ok(matcher) => {
-                    // Clear any "Failed to compile regex" errors out of the statusline.
-                    editor.clear_status();
-                    matcher
-                }
-                Err(err) => {
-                    log::info!(
-                        "Failed to compile search pattern in workspace symbol search: {}",
-                        err
-                    );
-                    return async { Err(anyhow::anyhow!("Failed to compile regex")) }.boxed();
-                }
-            };
-            let pattern = Arc::new(pattern);
-            let injector = injector.clone();
-            let loader = editor.syn_loader.load();
-            let syntax_cache = state.syntax_cache.load_full();
-
-            let documents: HashSet<_> = editor
-                .documents()
-                .filter_map(Document::path)
-                .map(ToOwned::to_owned)
-                .collect();
-
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    let searcher = state.searcher_builder.build();
-                    state.walk_builder.build_parallel().run(|| {
-                        let mut searcher = searcher.clone();
-                        let matcher = matcher.clone();
-                        let injector = injector.clone();
-                        let loader = loader.clone();
-                        let documents = &documents;
-                        let pattern = pattern.clone();
-                        let syntax_cache = syntax_cache.clone();
-                        Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
-                            if injector.is_shutdown() {
-                                return WalkState::Quit;
-                            }
-                            let entry = match entry {
-                                Ok(entry) => entry,
-                                Err(_) => return WalkState::Continue,
-                            };
-                            if !entry.path().is_file() {
-                                return WalkState::Continue;
-                            }
-                            let path = entry.path();
-                            // If this document is open, skip it because we've already processed it above.
-                            if documents.contains(path) {
-                                return WalkState::Continue;
-                            };
-                            let mut quit = false;
-                            let sink = sinks::UTF8(|_line, _content| {
-                                if !syntax_cache.contains_key(path) {
-                                    // Read the file into a Rope and attempt to recognize the language
-                                    // and parse it with tree-sitter. Save the Rope and Syntax for future
-                                    // queries.
-                                    syntax_cache
-                                        .insert(path.to_path_buf(), syntax_for_path(path, &loader));
-                                };
-                                let entry = syntax_cache.get(path).unwrap();
-                                let Some((text, syntax)) = entry.value() else {
-                                    // If the file couldn't be parsed, move on.
-                                    return Ok(false);
-                                };
-                                let uri = Uri::from(path::normalize(path));
-                                for tag in tags_iter(
-                                    syntax,
-                                    &loader,
-                                    text.slice(..),
-                                    UriOrDocumentId::Uri(uri),
-                                    Some(&pattern),
-                                ) {
-                                    if injector.push(tag).is_err() {
-                                        quit = true;
-                                        break;
-                                    }
-                                }
-                                // Quit after seeing the first regex match. We only care to find files
-                                // that contain the pattern and then we run the tags query within
-                                // those. The location and contents of a match are irrelevant - it's
-                                // only important _if_ a file matches.
-                                Ok(false)
-                            });
-                            if let Err(err) = searcher.search_path(&matcher, path, sink) {
-                                log::info!(
-                                    "Workspace syntax search error: {}, {}",
-                                    path.display(),
-                                    err
-                                );
-                            }
-                            if quit {
-                                WalkState::Quit
-                            } else {
-                                WalkState::Continue
-                            }
-                        })
-                    });
-                })
-                .await?;
-                Ok(())
-            }
-            .boxed()
-        };
-    let mut versions = document_versions(cx.editor);
-    let mut events = cx.editor.file_watcher.subscribe();
-    let mut checked = tokio::time::Instant::now();
-    let root = stdx::path::canonicalize_existing(&state.search_root);
+            },
+            move || cancel.is_shutdown(),
+        )
+    };
     let picker = Picker::new(cx.editor.redraw().clone(),
         columns,
         1, // name
         [],
         state,
         move |cx, tag, action| {
-            let doc_id = match &tag.doc {
-                UriOrDocumentId::Id(id) => *id,
-                UriOrDocumentId::Uri(uri) => match cx.editor.open(uri.as_path().expect(""), action) {
+            let doc_id = match &tag.target {
+                Target::Document(id) => *id,
+                Target::Uri(uri) => match cx.editor.open(uri.as_path().expect(""), action) {
                     Ok(id) => id,
                     Err(e) => {
                         cx.editor
@@ -513,71 +156,29 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
             let doc = doc_mut!(cx.editor, &doc_id);
             let view = view_mut!(cx.editor);
             let len_chars = doc.text().len_chars();
-            if tag.start >= len_chars || tag.end > len_chars {
+            if tag.tag.start >= len_chars || tag.tag.end > len_chars {
                 cx.editor.set_error(|| "The location you jumped to does not exist anymore because the file has changed.");
                 return;
             }
-            doc.set_selection(view.id, Selection::single(tag.start, tag.end));
+            doc.set_selection(view.id, Selection::single(tag.tag.start, tag.tag.end));
             if action.align_view(view, doc.id()) {
                 align_view(doc, view, Align::Center)
             }
         },
     )
     .with_dynamic_query(get_tags, Some(275), cx.jobs)
-    .with_item_key(tag_key)
-    .with_query_updates(move |editor, state| {
-        use tokio::sync::broadcast::error::TryRecvError;
-        let next = document_versions(editor);
-        let mut changed = next != versions;
-        versions = next;
-        loop {
-            match events.try_recv() {
-                Ok(events) => changed |= events.iter().any(|event| {
-                    event.ty != view::file_watcher::EventType::Tempfile
-                        && event.path.as_std_path().starts_with(&root)
-                }),
-                Err(TryRecvError::Lagged(_)) => changed = true,
-                Err(TryRecvError::Closed) => {
-                    events = editor.file_watcher.subscribe();
-                    changed = true;
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-            }
-        }
-        let poll = &editor.config().files.reload.poll;
-        changed |= poll.enable && !editor.file_watcher.is_watching(&root)
-            && checked.elapsed() >= std::time::Duration::from_millis(poll.interval.max(100));
-        if changed {
-            checked = tokio::time::Instant::now();
-            // Old workers retain their old cache and cannot repopulate the new one.
-            state.syntax_cache.store(Arc::new(DashMap::default()));
-        }
-        changed
-    })
+    .with_item_key(Symbol::key)
+    .with_query_updates(|editor, state| state.refresh(editor))
     .with_preview(move |_editor, tag| {
         Some((
-            tag.doc.path_or_id()?,
-            Some((tag.start_line, tag.end_line)),
+            target_path(&tag.target)?,
+            Some((tag.tag.start_line, tag.tag.end_line)),
         ))
     })
     .with_quicklist(|_editor, tag| tag.quicklist_entry())
     .with_history_register(Some(reg))
     .truncate_start(false);
     cx.push_layer(Box::new(overlaid(picker)));
-}
-
-/// Create a Rope and language config for a given existing path without creating a full Document.
-fn syntax_for_path(path: &Path, loader: &Loader) -> Option<(Rope, Syntax)> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let (rope, _encoding, _has_bom) = from_reader(&mut file, None).ok()?;
-    let text = rope.slice(..);
-    let language = loader
-        .language_for_filename(path)
-        .or_else(|| loader.language_for_shebang(text))?;
-    Syntax::new(text, language, loader)
-        .ok()
-        .map(|syntax| (rope, syntax))
 }
 
 // tree sitter node selection
