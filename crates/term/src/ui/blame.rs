@@ -6,13 +6,13 @@ use tui::{
     text::{Line, Span, Text},
     widgets::Widget,
 };
-use ui_core::keymap::{Binding, Keymap, KeymapState, Lookup};
+use ui_core::keymap::{KeymapState, Lookup};
 use vcs::LineBlame;
 use view::{features::blame::BlameDetailsUpdate, graphics::Rect, Editor};
 
 use crate::{
     compositor::{Component, Compositor, Context, Event, EventResult},
-    keymap::component::{BlameAction, PopupAction},
+    keymap::component::{action_hint, BlameAction, PopupAction},
     ui::{panel, text, Popup},
 };
 
@@ -91,29 +91,6 @@ impl BlameDetails {
         }
         Text::from(lines)
     }
-}
-
-fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
-    keys.0
-        .iter()
-        .filter_map(|(key, binding)| {
-            let suffix = match binding {
-                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
-                    String::new()
-                }
-                Binding::Keys(keys) => {
-                    let hint = action_hint(keys, action);
-                    if hint == "unbound" {
-                        return None;
-                    }
-                    hint
-                }
-                _ => return None,
-            };
-            Some(format!("{}{suffix}", key.key_sequence_format()))
-        })
-        .min_by_key(|hint| (hint.len(), hint.clone()))
-        .unwrap_or_else(|| "unbound".into())
 }
 
 pub fn show(

@@ -44,6 +44,11 @@ pub enum PickerAction {
     AcceptHorizontalSplit,
     AcceptVerticalSplit,
     TogglePreview,
+    PreviewScrollUp,
+    PreviewScrollDown,
+    PreviewPrevious,
+    PreviewNext,
+    OpenPreview,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(skip)]
@@ -88,6 +93,13 @@ pub enum BlameAction {
     CopyMessage,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffAction {
+    ScrollLeft,
+    ScrollRight,
+}
+
 /// Terminal component maps, resolved from defaults and user configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentKeymaps {
@@ -99,6 +111,7 @@ pub struct ComponentKeymaps {
     pub hover: Keymap<PageAction>,
     pub signature_help: Keymap<PageAction>,
     pub blame: Keymap<BlameAction>,
+    pub diff: Keymap<DiffAction>,
 }
 
 fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
@@ -142,6 +155,11 @@ impl Default for ComponentKeymaps {
             ("C-s", K::AcceptHorizontalSplit),
             ("C-v", K::AcceptVerticalSplit),
             ("C-t", K::TogglePreview),
+            ("A-up", K::PreviewScrollUp),
+            ("A-down", K::PreviewScrollDown),
+            ("A-left", K::PreviewPrevious),
+            ("A-right", K::PreviewNext),
+            ("A-o", K::OpenPreview),
         ]);
         Self {
             prompt: bindings(&[
@@ -210,10 +228,37 @@ impl Default for ComponentKeymaps {
             ]),
             hover: pages.clone(),
             signature_help: pages,
+            diff: bindings(&[
+                ("left", DiffAction::ScrollLeft),
+                ("right", DiffAction::ScrollRight),
+            ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),
                 ("Y", BlameAction::CopyMessage),
             ]),
         }
     }
+}
+
+pub(crate) fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
+    keys.0
+        .iter()
+        .filter_map(|(key, binding)| {
+            let suffix = match binding {
+                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
+                    String::new()
+                }
+                Binding::Keys(keys) => {
+                    let hint = action_hint(keys, action);
+                    if hint == "unbound" {
+                        return None;
+                    }
+                    hint
+                }
+                _ => return None,
+            };
+            Some(format!("{}{suffix}", key.key_sequence_format()))
+        })
+        .min_by_key(|hint| (hint.len(), hint.clone()))
+        .unwrap_or_else(|| "unbound".into())
 }

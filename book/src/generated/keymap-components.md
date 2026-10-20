@@ -13,9 +13,14 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-right> `` | `` preview_next `` |
+| `` <A-left> `` | `` preview_previous `` |
+| `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Buffer picker
@@ -31,9 +36,14 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-right> `` | `` preview_next `` |
+| `` <A-left> `` | `` preview_previous `` |
+| `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Prompt
@@ -101,3 +111,10 @@
 | --- | --- |
 | `` y `` | `` copy_commit_id `` |
 | `` Y `` | `` copy_message `` |
+
+## Diff popup
+
+| Key | Action |
+| --- | --- |
+| `` <left> `` | `` scroll_left `` |
+| `` <right> `` | `` scroll_right `` |

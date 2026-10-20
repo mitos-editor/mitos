@@ -424,3 +424,149 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Iunsaved-<esc>").await?;
+    for keys in [":show-change<ret>", "<space>i"] {
+        press_keys(&mut app, keys).await?;
+        wait_for_review_screen(&mut app, "Current change", "− committed").await?;
+        let screen = review_screen(&app);
+        assert!(screen.contains("+ unsaved-committed"));
+        assert!(screen.contains("+1 −1"));
+        let (view, doc) = current_ref!(app.editor);
+        let selection = doc.selection(view.id).clone();
+        press_keys(&mut app, "<right><left>").await?;
+        let (view, doc) = current_ref!(app.editor);
+        assert_eq!(doc.selection(view.id), &selection);
+        assert!(review_screen(&app).contains("Current change"));
+        press_keys(&mut app, "<esc>").await?;
+    }
+    assert_eq!(std::fs::read_to_string(path)?, "committed\n");
+    git(dir.path(), &["diff", "--cached", "--exit-code"]);
+    // Drop the unsaved edit before normal shutdown.
+    press_keys(&mut app, "u").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_index(
+) -> anyhow::Result<()> {
+    let Some(root) = super::super::helpers::isolation::workspace(
+        "test::commands::vcs::changed_file_review_switches_layers_opens_deletions_and_preserves_the_index",
+    )? else { return Ok(()); };
+    let repo = root.join("workspace");
+    let path = repo.join("file.txt");
+    std::fs::write(&path, "head contents\n")?;
+    std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n")?;
+    git(&repo, &["init"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-m", "initial"]);
+    std::fs::write(&path, "staged contents\n")?;
+    git(&repo, &["add", "file.txt"]);
+    std::fs::write(&path, "working contents\n")?;
+    let index = std::fs::read(repo.join(".git/index"))?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Iunsaved-<esc><space>gfile.txt").await?;
+    wait_for_review_screen(&mut app, "Unsaved · index", "unsaved-working contents").await?;
+    press_keys(&mut app, "<A-right>").await?;
+    wait_for_review_screen(&mut app, "Staged · HEAD", "head contents").await?;
+    let screen = review_screen(&app);
+    assert!(screen.contains("staged contents"));
+    assert!(!screen.contains("working contents"));
+    press_keys(&mut app, "<A-right>").await?;
+    wait_for_review_screen(&mut app, "Unstaged · index", "working contents").await?;
+    assert!(review_screen(&app).contains("staged contents"));
+    press_keys(&mut app, "<A-o>").await?;
+    assert!(review_screen(&app).contains("Diff ·"));
+    press_keys(&mut app, "<esc><C-t><A-o>").await?;
+    wait_for_review_screen(&mut app, "Diff · Unstaged", "working contents").await?;
+    press_keys(&mut app, "<esc><C-t><esc>").await?;
+    assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
+    assert_eq!(std::fs::read_to_string(&path)?, "working contents\n");
+    // Opening a deleted row inspects its diff rather than creating an empty buffer.
+    press_keys(&mut app, "u").await?;
+    std::fs::remove_file(&path)?;
+    press_keys(&mut app, "<space>gfile.txt").await?;
+    wait_for_review_screen(&mut app, "Unstaged · index", "staged contents").await?;
+    let documents = app.editor.documents().count();
+    press_keys(&mut app, "<ret>").await?;
+    assert!(review_screen(&app).contains("Diff ·"));
+    assert_eq!(app.editor.documents().count(), documents);
+    assert!(!path.exists());
+    press_keys(&mut app, "<esc><esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+fn review_screen(app: &Application) -> String {
+    app.terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+async fn wait_for_review_screen(
+    app: &mut Application,
+    heading: &str,
+    contents: &str,
+) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let screen = review_screen(app);
+            if screen.contains(heading)
+                && screen.contains(contents)
+                && !screen.contains("Loading diff")
+                && !screen.contains("(running)")
+            {
+                break;
+            }
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Missing {heading:?} / {contents:?}: {}", review_screen(app)))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_refreshes_after_external_staging_and_edits_without_polling() -> anyhow::Result<()> {
+    let Some(root) = super::super::helpers::isolation::workspace(
+        "test::commands::vcs::review_refreshes_after_external_staging_and_edits_without_polling",
+    )?
+    else {
+        return Ok(());
+    };
+    let repo = root.join("workspace");
+    let path = repo.join("watched.txt");
+    std::fs::write(&path, "before\n")?;
+    std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n")?;
+    git(&repo, &["init"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-m", "initial"]);
+    std::fs::write(&path, "first edit\n")?;
+    let mut config = test_config();
+    config.editor.files.watch.enable = true;
+    config.editor.files.watch.watch_vcs = true;
+    config.editor.files.reload.poll.enable = false;
+    config.editor.files.reload.enable = false;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+    press_keys(&mut app, "<space>gwatched.txt").await?;
+    wait_for_review_screen(&mut app, "Unstaged · index", "first edit").await?;
+    git(&repo, &["add", "watched.txt"]);
+    wait_for_review_screen(&mut app, "Staged · HEAD", "first edit").await?;
+    std::fs::write(&path, "second edit\n")?;
+    wait_for_review_screen(&mut app, "Unstaged · index", "second edit").await?;
+    assert!(review_screen(&app).contains("first edit"));
+    assert!(review_screen(&app).contains("1/1"));
+    press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

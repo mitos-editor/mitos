@@ -48,12 +48,56 @@ Available placeholders are:
 | `{title}` / `{body}` | Commit title / body |
 | `{commit}` | Abbreviated commit ID |
 
-## Changes
+## Reviewing changes
+
+Run `:show-change`, press `Space-i`, or choose `show_change` from the command palette
+to inspect the change at the current line. The popup shows removed and added lines
+with context and source line numbers. It compares `HEAD` with the current buffer,
+including unsaved edits.
+
+Use `Ctrl-d` / `Ctrl-u` or Page Down / Page Up to scroll. Left / Right scroll
+horizontally. Close with Escape. Vertical scrolling and closing follow `[keys.popup]`;
+horizontal scrolling follows `[keys.diff]`.
+
+The changed-file picker (`Space-g`) has separate **staged** and **unstaged** columns.
+Each path appears once, including files with both kinds of changes. Staged new files
+are labeled `added`; files not yet added to Git are labeled `untracked`.
+
+The preview shows a diff rather than the file's contents. Use Alt-Left / Alt-Right
+to switch comparisons:
+
+| Comparison | Before | After |
+| --- | --- | --- |
+| Staged | `HEAD` | Git index |
+| Unstaged | Git index | File on disk |
+| Unsaved | Git index | Current buffer, including unsaved edits |
+
+For a file listed by Git, the unsaved comparison is available when it has a modified
+text buffer.
+The initial comparison shows unsaved edits when available, then unstaged changes,
+then staged changes.
+
+Alt-Up / Alt-Down scroll the preview. `Alt-o` opens the selected comparison in a
+scrollable popup, including in narrow terminals where the preview pane is hidden.
+Enter opens the file; for a deleted file, it opens the diff instead. Opening a diff
+captures a snapshot; reopen it to see subsequent changes.
+
+Picker controls can be remapped under `[keys.picker]`. Repository changes refresh
+picker rows and previews while preserving the query and selected path. File watching
+and polling follow the editor's file settings.
+
+Reviewing never saves buffers or changes Git's index. Binary files, submodules,
+and unresolved index conflicts show explanatory messages. Inputs are limited to
+10 MiB and 200,000 lines per side; very large rendered diffs are truncated with a
+notice.
+
+## Change navigation and restoration
 
 Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 
 | Command | Default keys | Action |
 | --- | --- | --- |
+| `show_change` / `:show-change` | `Space-i` | Inspect the current change |
 | `goto_next_change` / `goto_prev_change` | `]g` / `[g` | Select the next / previous change |
 | `goto_first_change` / `goto_last_change` | `[G` / `]G` | Select the first / last change |
 | `changed_file_picker` | `Space g` | Browse changed files within the workspace |
@@ -61,5 +105,3 @@ Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 | `:restore-change` | Unbound | Restore changes intersecting the selections from `HEAD` |
 
 Restoring a change replaces whole intersecting hunks in the current buffer. Use `u` to undo it. The command does not save the file or modify Git's staging area.
-
-The changed-file pickers include staged changes, unstaged changes, and untracked files. Each path appears once, including files with both staged and unstaged edits. Staged new files are labeled `added`; files not yet added to Git are labeled `untracked`.

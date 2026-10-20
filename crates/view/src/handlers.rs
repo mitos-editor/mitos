@@ -41,6 +41,8 @@ pub struct Handlers {
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
     pub blame: blame::BlameHandler,
+    pub(crate) change_review: parking_lot::Mutex<event::TaskController>,
+    pub(crate) change_review_worker: std::sync::Arc<tokio::sync::Semaphore>,
     pub auto_reload: auto_reload::AutoReloadHandler,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
@@ -81,6 +83,8 @@ impl Handlers {
             signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
             blame: blame::BlameHandler::new(callbacks.clone()),
+            change_review: parking_lot::Mutex::default(),
+            change_review_worker: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             auto_reload: auto_reload::AutoReloadHandler::new(callbacks.clone(), config),
             word_index: word_index::Handler::spawn(),
             pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler::new(callbacks.clone()),
@@ -210,6 +214,7 @@ fn register_hooks() {
         auto_reload::register_hooks();
         auto_save::register_hooks();
         blame::register_hooks();
+        crate::features::change_review::register_hooks();
         signature_help::register_hooks();
         hover::register_hooks();
         navigation::register_hooks();

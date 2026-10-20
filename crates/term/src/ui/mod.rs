@@ -1,4 +1,5 @@
 pub mod blame;
+pub mod change_review;
 mod completion;
 pub(crate) mod debugger_stack;
 pub(crate) mod debugger_variables;

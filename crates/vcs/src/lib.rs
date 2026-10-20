@@ -31,7 +31,10 @@ pub use diff::{DiffHandle, Hunk};
 
 mod status;
 
-pub use status::FileChange;
+pub use status::{FileChange, FileStatus};
+
+mod review;
+pub use review::{Comparison, ComparisonKind, MAX_REVIEW_BYTES};
 
 /// Selects which changed files a status query should return.
 #[derive(Clone)]
@@ -120,11 +123,23 @@ impl DiffProviderRegistry {
         trust_full: bool,
         f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
     ) {
+        self.for_each_file_status(scope, trust_full, move |root, status| {
+            f(root, status.map(|status| status.change().clone()))
+        });
+    }
+
+    /// Enumerate changes without discarding either the index or working-tree state.
+    pub fn for_each_file_status(
+        self,
+        scope: ChangedFileScope,
+        trust_full: bool,
+        f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
+    ) {
         tokio::task::spawn_blocking(move || {
             if self
                 .providers
                 .iter()
-                .find_map(|provider| provider.for_each_changed_file(&scope, trust_full, &f).ok())
+                .find_map(|provider| provider.for_each_file_status(&scope, trust_full, &f).ok())
                 .is_none()
             {
                 f(
@@ -133,6 +148,24 @@ impl DiffProviderRegistry {
                 );
             }
         });
+    }
+    /// Read bounded, immutable comparison inputs on the caller's blocking worker.
+    pub fn read_comparison(
+        &self,
+        status: &FileStatus,
+        kind: ComparisonKind,
+        trust_full: bool,
+    ) -> Result<Comparison> {
+        #[cfg(not(feature = "git"))]
+        let _ = (status, kind, trust_full);
+        for provider in &self.providers {
+            match provider {
+                #[cfg(feature = "git")]
+                DiffProvider::Git => return review::read_git_comparison(status, kind, trust_full),
+                DiffProvider::None => {}
+            }
+        }
+        bail!("No Git support compiled in")
     }
 }
 
@@ -181,15 +214,15 @@ impl DiffProvider {
         }
     }
 
-    fn for_each_changed_file(
+    fn for_each_file_status(
         &self,
         scope: &ChangedFileScope,
         trust_full: bool,
-        f: impl Fn(&Path, Result<FileChange>) -> bool,
+        f: impl Fn(&Path, Result<FileStatus>) -> bool,
     ) -> Result<()> {
         match self {
             #[cfg(feature = "git")]
-            Self::Git => git::for_each_changed_file(scope, trust_full, f),
+            Self::Git => git::for_each_file_status(scope, trust_full, f),
             Self::None => bail!("No diff support compiled in"),
         }
     }

@@ -305,6 +305,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "A-c" => toggle_line_comments,
             "?" => command_palette,
             "B" => toggle_inline_blame,
+            "i" => show_change,
         },
         "z" => { "View"
             "z" | "c" => align_view_center,

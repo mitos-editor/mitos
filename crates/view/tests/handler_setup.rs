@@ -64,3 +64,7 @@ mod document_settings;
 #[cfg(unix)]
 #[path = "handler_setup/shell.rs"]
 mod shell;
+
+#[cfg(feature = "git")]
+#[path = "handler_setup/change_review.rs"]
+mod change_review;

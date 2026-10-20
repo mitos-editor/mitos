@@ -1,0 +1,169 @@
+use std::sync::Arc;
+
+use editor_core::Selection;
+use vcs::{FileChange, FileStatus};
+use view::{
+    current, current_ref,
+    editor::Action,
+    features::change_review::{HunkReviewRequest, ReviewComparison, ReviewRequest},
+};
+
+use super::{
+    blame::{git, prepare},
+    Fixture,
+};
+
+#[tokio::test]
+async fn hunk_reviews_reject_changed_selection_text_focus_and_newer_requests() -> anyhow::Result<()>
+{
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    f.replace("unsaved\n");
+    let request = HunkReviewRequest::capture(&f.editor)?;
+    let review = request.compute()?;
+    assert_eq!((review.additions, review.deletions), (1, 1));
+    assert!(request.is_current(&f.editor));
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(view.id, Selection::point(2));
+    assert!(!request.is_current(&f.editor));
+    let request = HunkReviewRequest::capture(&f.editor)?;
+    let newer = HunkReviewRequest::capture(&f.editor)?;
+    assert!(!request.is_current(&f.editor));
+    assert!(newer.is_current(&f.editor));
+    f.replace("another edit\n");
+    assert!(!newer.is_current(&f.editor));
+    let request = HunkReviewRequest::capture(&f.editor)?;
+    f.editor.new_file(Action::VerticalSplit);
+    assert!(!request.is_current(&f.editor));
+    Ok(())
+}
+
+#[tokio::test]
+async fn repository_review_cache_reuses_unchanged_snapshots_and_follows_staging(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "disk edit\n")?;
+    let status = FileStatus {
+        staged: Some(FileChange::Modified { path: path.clone() }),
+        unstaged: Some(FileChange::Modified { path }),
+    };
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Staged, f.dir.path());
+    let original = request.compute_cached(None)?;
+    let cached = request.compute_cached(Some(original.clone()))?;
+    assert!(Arc::ptr_eq(&original, &cached));
+    assert_eq!(original.review.additions, 0);
+    let unstaged = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    let unstaged = unstaged.compute_cached(Some(original.clone()))?;
+    assert_eq!(unstaged.review.additions, 1);
+    assert!(unstaged
+        .review
+        .lines
+        .iter()
+        .any(|line| line.text == "disk edit"));
+    git(f.dir.path(), &["add", "-A"]);
+    let updated = request.compute_cached(Some(original.clone()))?;
+    assert!(!Arc::ptr_eq(&original, &updated));
+    assert!(updated
+        .review
+        .lines
+        .iter()
+        .any(|line| line.text == "disk edit"));
+    assert!(updated
+        .review
+        .lines
+        .iter()
+        .any(|line| line.text == "committed"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn reviews_honor_explicit_encoding_and_reject_results_after_encoding_changes(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("café\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let bytes: Vec<_> = "café\n".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    std::fs::write(&path, &bytes)?;
+    git(f.dir.path(), &["add", "-A"]);
+    git(f.dir.path(), &["commit", "-qm", "encoded"]);
+    current!(f.editor).1.set_encoding("utf-16le")?;
+    f.replace("caféteria\n");
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path: path.clone() }),
+    };
+    let buffer = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let original = buffer.compute_cached(None)?;
+    let hunk = HunkReviewRequest::capture(&f.editor)?;
+    for review in [original.review.as_ref(), &hunk.compute()?] {
+        assert_eq!((review.additions, review.deletions), (1, 1));
+        assert!(review.lines.iter().any(|line| line.text == "café"));
+        assert!(review.lines.iter().any(|line| line.text == "caféteria"));
+    }
+    let disk = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    assert_eq!(disk.compute()?.additions, 0);
+    // Encoding changes do not increment the text version.
+    current!(f.editor).1.set_encoding("utf-8")?;
+    assert!(!buffer.is_current(&f.editor));
+    assert!(!disk.is_current(&f.editor));
+    assert!(!hunk.is_current(&f.editor));
+    let updated = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    assert!(!updated.same_target(&buffer));
+    assert!(updated.compute_cached(Some(original)).is_err());
+    assert_eq!(std::fs::read(path)?, bytes);
+    Ok(())
+}
+
+#[tokio::test]
+async fn repository_attributes_invalidate_cached_worktree_conversions() -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\nsecond\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "disk edit\nsecond\n")?;
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path }),
+    };
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    let original = request.compute_cached(None)?;
+    assert_eq!(
+        (original.review.additions, original.review.deletions),
+        (1, 1)
+    );
+    let attributes = f.dir.path().join(".git/info/attributes");
+    std::fs::write(&attributes, "* text eol=crlf\n")?;
+    assert!(original.affected_by(&attributes.canonicalize()?));
+    let updated = request.compute_cached(Some(original.clone()))?;
+    assert!(!Arc::ptr_eq(&original, &updated));
+    assert_eq!((updated.review.additions, updated.review.deletions), (2, 2));
+    Ok(())
+}
+
+#[tokio::test]
+async fn buffer_review_uses_the_index_without_saving_and_invalidates_after_edits(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "staged\n")?;
+    git(f.dir.path(), &["add", "-A"]);
+    f.replace("unsaved\n");
+    let index = std::fs::read(f.dir.path().join(".git/index"))?;
+    let status = FileStatus {
+        staged: Some(FileChange::Modified { path: path.clone() }),
+        unstaged: None,
+    };
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let review = request.compute()?;
+    assert!(review.lines.iter().any(|line| line.text == "staged"));
+    assert!(review.lines.iter().any(|line| line.text == "unsaved"));
+    assert!(!review.lines.iter().any(|line| line.text == "committed"));
+    assert!(request.is_current(&f.editor));
+    f.replace("newer edit\n");
+    assert!(!request.is_current(&f.editor));
+    assert_eq!(std::fs::read_to_string(path)?, "staged\n");
+    assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
+    Ok(())
+}

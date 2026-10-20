@@ -91,6 +91,7 @@
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
 | `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
+| `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |
