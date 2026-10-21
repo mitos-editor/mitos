@@ -155,7 +155,8 @@ async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
 ) -> anyhow::Result<()> {
     let mut app = application(false)?;
     let dir = tempfile::tempdir()?;
-    let path = dir.path().join("file.txt");
+    let root = stdx::path::canonicalize(dir.path());
+    let path = root.join("file.txt");
     std::fs::write(&path, "old")?;
     let document = app.editor.open(&path, view::editor::Action::Replace)?;
     let mut picker = Picker::new(
@@ -165,7 +166,7 @@ async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
         })],
         0,
         [3],
-        dir.path().to_owned(),
+        root,
         |_, _, _| {},
     )
     .with_file_updates(

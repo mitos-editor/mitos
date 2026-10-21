@@ -162,39 +162,46 @@ async fn test_buffer_close_concurrent() -> anyhow::Result<()> {
     )
     .await?;
 
-    // verify if writes are queued up, it finishes them before closing the buffer
+    // Queue distinct snapshots without polling their writes. Closing the buffer
+    // must flush all accepted saves and leave the last snapshot on disk.
     let mut file = tempfile::NamedTempFile::new()?;
-    let mut command = String::new();
-    const RANGE: RangeInclusive<i32> = 1..=1000;
-
-    for i in RANGE {
-        let cmd = format!("%c{}<esc>:w!<ret>", i);
-        command.push_str(&cmd);
-    }
-
-    command.push_str(":buffer<minus>close<ret>");
-
     let mut app = helpers::AppBuilder::new()
         .with_file(file.path(), None)
         .build()?;
+    let document = doc!(app.editor).id();
+    const LAST_WRITE: usize = 3;
+    for i in 1..=LAST_WRITE {
+        let (view, doc) = view::current!(app.editor);
+        let text = LineFeedHandling::Native.apply(&i.to_string());
+        let edit = editor_core::Transaction::change(
+            doc.text(),
+            std::iter::once((0, doc.text().len_chars(), Some(text.into()))),
+        );
+        view::editing::apply(doc, &edit, view.id).unwrap();
+        doc.commit_changes();
+        app.editor
+            .save(document, None::<std::path::PathBuf>, true)?;
+    }
+    assert!(app.editor.has_pending_writes());
 
-    test_key_sequence(
-        &mut app,
-        Some(&command),
-        Some(&|app| {
-            assert!(!app.editor.is_err(), "error: {:?}", app.editor.get_status());
-
-            let doc = app.editor.document_by_path(file.path());
-            assert!(doc.is_none(), "found doc: {:?}", doc);
-        }),
-        false,
-    )
-    .await?;
+    // Dispatch directly so the event loop cannot drain the queue before the
+    // close command runs. Check completion before any subsequent idle wait.
+    for key in ui_core::input::parse_macro(":buffer-close<ret>")? {
+        #[cfg(windows)]
+        let event = crossterm::event::Event::Key(key.into());
+        #[cfg(not(windows))]
+        let event = termina::Event::Key(key.into());
+        app.handle_terminal_events(Ok(event)).await;
+    }
+    assert!(!app.editor.is_err(), "error: {:?}", app.editor.get_status());
+    assert!(!app.editor.has_pending_writes());
+    assert!(app.editor.document(document).is_none());
 
     helpers::assert_file_has_content(
         &mut file,
-        &LineFeedHandling::Native.apply(&RANGE.end().to_string()),
+        &LineFeedHandling::Native.apply(&LAST_WRITE.to_string()),
     )?;
+    assert!(app.close().await.is_empty());
 
     Ok(())
 }

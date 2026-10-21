@@ -432,11 +432,12 @@ mod tests {
             workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
         )?;
         let dir = tempfile::tempdir()?;
-        let path = dir.path().join("file.txt");
+        let root = stdx::path::canonicalize(dir.path());
+        let path = root.join("file.txt");
         std::fs::write(&path, "needle\nneedle\n")?;
         let config = Arc::new(GlobalSearchConfig {
             search: Arc::new(WorkspaceSearch {
-                root: dir.path().to_owned(),
+                root,
                 smart_case: true,
                 options: ::search::Options::default(),
             }),

@@ -228,7 +228,7 @@ async fn directory_previews_follow_unwatched_membership_changes() -> anyhow::Res
 #[tokio::test]
 async fn preview_keeps_the_open_buffer_authoritative() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
-    let path = fixture.dir.path().join("buffer.txt");
+    let path = stdx::path::canonicalize(fixture.dir.path().join("buffer.txt"));
     std::fs::write(&path, "buffer\n")?;
     fixture.app.editor.open(&path, Action::Load)?;
     std::fs::write(&path, "external change\n")?;

@@ -46,8 +46,9 @@ jobs:
           cache-grammars: 'true'
           grammar-cache-version: ${{ env.GRAMMAR_CACHE_VERSION }}
 
+      # Reuse dependencies across the unit, integration, and frontend test builds.
       - name: Run cargo test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --profile integration --locked
 
       - name: Run cargo integration-test
         run: cargo integration-test --locked
