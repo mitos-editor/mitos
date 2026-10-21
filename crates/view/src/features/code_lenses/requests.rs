@@ -2,10 +2,11 @@
 use stdx::rope::RopeExt as _;
 // Adapted from helix-editor/helix#5063 by Matouš Dzivjak.
 
+use crate::features::request::{collect_responses, DocumentRequest};
 use std::{collections::HashSet, future::Future, sync::Arc};
 
 use event::{cancelable_future, register_hook};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, LanguageServerId};
 use tokio::sync::Semaphore;
@@ -16,7 +17,7 @@ use crate::{
         ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
         LanguageServerExited, LanguageServerInitialized,
     },
-    features::{debounce::debounce_documents, request::DocumentRequest},
+    features::debounce::debounce_documents,
     DocumentId, Editor,
 };
 
@@ -65,7 +66,7 @@ fn request_document_code_lenses(
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
     let mut servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
+    let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::CodeLens)
         // Exit hooks run before removal from the registry.
         .filter(|server| Some(server.id()) != exited_server)
@@ -106,15 +107,8 @@ fn request_document_code_lenses(
     }
     let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
     tokio::spawn(async move {
-        let mut lenses = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(items))) => lenses.extend(items),
-                Some(Some(Err(err))) => log::error!("code lens request failed: {err}"),
-                Some(None) => break,
-                None => return,
-            }
-        }
+        let mut lenses =
+            collect_responses(futures, &request.cancel, "code lens request failed").await?;
         lenses.sort_by_key(|lens| (lens.char_idx, lens.language_server_id));
         callbacks
             .send(move |editor| {
@@ -130,6 +124,7 @@ fn request_document_code_lenses(
                 }
             })
             .await;
+        Some(())
     });
 }
 
@@ -348,7 +343,7 @@ pub fn resolve_code_lenses(
     }
     let cancel = doc.code_lenses.resolve.restart();
     let mut servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
+    let futures: FuturesUnordered<_> = doc
         .code_lenses()
         .iter()
         .enumerate()
@@ -385,16 +380,8 @@ pub fn resolve_code_lenses(
         .collect();
     let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
     Some(async move {
-        let mut items = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(Some(item)))) => items.push(item),
-                Some(Some(Ok(None))) => (),
-                Some(Some(Err(err))) => log::error!("code lens resolution failed: {err}"),
-                Some(None) => break,
-                None => return None,
-            }
-        }
+        let mut items =
+            collect_responses(futures, &request.cancel, "code lens resolution failed").await?;
         items.sort_by_key(|(index, _, _)| *index);
         let (updates, commands) = items
             .into_iter()

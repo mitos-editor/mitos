@@ -1,9 +1,28 @@
 //! Snapshot validation shared by document features.
 
 use editor_core::{Selection, Uri};
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use lsp_client::LanguageServerId;
+use std::future::Future;
 
 use crate::{Document, DocumentId, Editor, View, ViewId};
+
+/// Preserve successful provider results when another provider fails. Cancellation
+/// discards the batch; publication must still validate the originating snapshot.
+pub(crate) async fn collect_responses<T, I: IntoIterator<Item = T>>(
+    mut futures: FuturesUnordered<impl Future<Output = anyhow::Result<I>>>,
+    cancel: &event::TaskHandle,
+    context: &str,
+) -> Option<Vec<T>> {
+    let mut items = Vec::new();
+    while let Some(result) = event::cancelable_future(futures.next(), cancel).await? {
+        match result {
+            Ok(result) => items.extend(result),
+            Err(error) => log::error!("{context}: {error}"),
+        }
+    }
+    Some(items)
+}
 
 /// Snapshot identity retained until a queued document-feature response is applied.
 /// Cancellation while waiting on the server alone does not protect queued callbacks.
