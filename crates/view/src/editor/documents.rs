@@ -289,33 +289,6 @@ impl Editor {
         Ok(id)
     }
 
-    /// Reload a document without creating a selection in an unrelated split.
-    pub fn reload_document(&mut self, id: DocumentId) -> anyhow::Result<()> {
-        self.sync_document_views(id);
-        let scrolloff = self.config().scroll.padding;
-        let doc = self
-            .documents
-            .get_mut(&id)
-            .ok_or_else(|| anyhow::anyhow!("Document is closed"))?;
-        let trusted = self
-            .workspace_trust
-            .query(doc.workspace_root(), TrustQuery::Git)
-            .is_trusted();
-        doc.reload(&self.diff_providers, trusted)?;
-        doc.breakpoint_saved_text = Some(doc.text().clone());
-        let debugger_path = doc.path().map(|path| path.to_owned());
-        for (view, _) in self.tree.views_mut() {
-            if view.doc == id {
-                view.sync_changes(doc);
-                view.ensure_cursor_in_view(doc, scrolloff);
-            }
-        }
-        if let Some(path) = debugger_path {
-            self.debugger_source_saved(&path);
-        }
-        Ok(())
-    }
-
     pub fn close(&mut self, id: ViewId) {
         // Remove selections for the closed view on all documents.
         for doc in self.documents_mut() {

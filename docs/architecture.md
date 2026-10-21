@@ -436,6 +436,10 @@ Its private `editor/documents.rs` module owns document registration, loading,
 view binding, and closure. `editor/filesystem.rs` owns path operations and their
 watcher and language-server effects. Both implement the existing `Editor` API;
 callers do not coordinate these steps themselves.
+`editor/reload.rs` owns reloading text, synchronizing split history and debugger
+sources, and sending fallback LSP file notifications for explicit reloads.
+Automatic reloads reuse notifications already sent by the native watcher or poller;
+frontends only invoke the operation and report failures.
 
 Filesystem destinations use an explicit reject, ignore, or overwrite policy.
 Creates and non-replacing renames enforce that policy at the filesystem call,

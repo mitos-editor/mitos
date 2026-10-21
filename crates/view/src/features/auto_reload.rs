@@ -262,7 +262,7 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
 
 /// Use the existing reload transaction so selections, undo history, and LSPs stay in sync.
 fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()> {
-    editor.reload_document(doc_id)?;
+    editor.reload_document_after_file_change(doc_id)?;
     let display = editor.document(doc_id).unwrap().display_name().to_string();
     editor.set_status(format!("{display} reloaded (external changes)"));
     Ok(())

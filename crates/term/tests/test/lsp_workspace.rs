@@ -422,3 +422,129 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
     assert!(second.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reload_notifications_follow_the_explicit_or_automatic_change_source() -> anyhow::Result<()>
+{
+    use view::{
+        editor::ConfigEvent,
+        features::auto_reload,
+        file_watcher::{CanonicalPathBuf, Event, EventType, Events},
+    };
+
+    for source in [
+        "explicit",
+        "watched",
+        "event",
+        "poll",
+        "confirmed",
+        "failed",
+    ] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::new(dir.path(), &["alpha"])?;
+        f.initialize().await?;
+        let doc = view::current_ref!(f.app.editor).1;
+        let id = doc.id();
+        let path = stdx::path::canonicalize_existing(doc.path().unwrap());
+        let uri = lsp::Url::from_file_path(&path).unwrap();
+        let modified = doc.last_saved_time() + Duration::from_secs(2);
+        let mut config = (*f.app.editor.config()).clone();
+        config.files.reload.enable = true;
+        config.files.reload.prompt_if_modified = true;
+        config.files.reload.poll.enable = false;
+        f.app
+            .handle_config_events(ConfigEvent::Update(Box::new(config)));
+        f.app.editor.register_language_server_capabilities(
+            f.server("alpha"),
+            serde_json::from_value(json!({
+                "registrations": [registration("reload", json!([{"globPattern": "**"}]))]
+            }))?,
+        );
+        if source == "watched" {
+            f.app.editor.file_watcher.reload(&WatchConfig {
+                enable: true,
+                ..Default::default()
+            });
+            f.app.editor.file_watcher.add_root(path.parent().unwrap());
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !f.app.editor.file_watcher.is_watching(&path) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await?;
+            // An unchanged explicit reload relies on native coverage and must not
+            // manufacture another file event.
+        } else if source == "failed" {
+            std::fs::remove_file(&path)?;
+        } else {
+            if source == "confirmed" {
+                let (view, doc) = view::current!(f.app.editor);
+                let transaction = editor_core::Transaction::insert(
+                    doc.text(),
+                    doc.selection(view.id),
+                    "unsaved ".into(),
+                );
+                view::editing::apply(doc, &transaction, view.id)?;
+            }
+            std::fs::write(&path, "changed on disk\n")?;
+            std::fs::File::options()
+                .write(true)
+                .open(&path)?
+                .set_modified(modified)?;
+        }
+        match source {
+            "explicit" | "watched" => f.app.editor.reload_document(id)?,
+            "failed" => assert!(f.app.editor.reload_document(id).is_err()),
+            "event" => f.app.editor.handle_file_events(&Events::from(vec![Event {
+                path: CanonicalPathBuf::assert_canonicalized(&path),
+                ty: EventType::Modified,
+            }])),
+            "poll" | "confirmed" => {
+                auto_reload::check_unwatched(&mut f.app.editor);
+                if source == "confirmed" {
+                    let request = auto_reload::next_reload_request(&mut f.app.editor)
+                        .expect("modified document requires confirmation");
+                    auto_reload::resolve_reload(
+                        &mut f.app.editor,
+                        request,
+                        auto_reload::ReloadDecision::Reload,
+                    );
+                }
+            }
+            _ => unreachable!(),
+        }
+        let expected = if matches!(source, "watched" | "failed") {
+            0
+        } else {
+            1
+        };
+        if expected == 1 {
+            assert_eq!(
+                f.app.editor.document(id).unwrap().text(),
+                "changed on disk\n",
+                "{source}"
+            );
+        }
+        // File events share one FIFO queue. Observing a distinct trailing path
+        // proves all reload notifications have been processed without sleeps.
+        let barrier = path.parent().unwrap().join("done.barrier");
+        let barrier_uri = lsp::Url::from_file_path(&barrier).unwrap();
+        f.app.editor.handle_file_events(&Events::from(vec![Event {
+            path: CanonicalPathBuf::assert_canonicalized(&barrier),
+            ty: EventType::Modified,
+        }]));
+        let messages = logged(&f.logs[0], |message| {
+            message["params"]["changes"][0]["uri"] == barrier_uri.as_str()
+        })
+        .await?;
+        let count = messages
+            .iter()
+            .filter(|message| message["method"] == "workspace/didChangeWatchedFiles")
+            .flat_map(|message| message["params"]["changes"].as_array().unwrap())
+            .filter(|change| change["uri"] == uri.as_str())
+            .count();
+        assert_eq!(count, expected, "{source}");
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}

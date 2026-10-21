@@ -21,6 +21,7 @@ pub use input::InputKind;
 pub use search::SearchOutcome;
 pub use snippet::SnippetNavigation;
 mod registers;
+mod reload;
 #[cfg(test)]
 pub(crate) mod tests;
 use crate::{

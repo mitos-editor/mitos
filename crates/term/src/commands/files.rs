@@ -760,15 +760,6 @@ pub(super) mod typed {
 
         let id = current_ref!(cx.editor).1.id();
         cx.editor.reload_document(id)?;
-        let doc = doc!(cx.editor, &id);
-        if let Some(path) = doc.path().map(ToOwned::to_owned)
-            && !cx.editor.file_watcher.is_watching(&path)
-        {
-            cx.editor
-                .language_servers
-                .file_event_handler
-                .file_changed(path, lsp_client::lsp::FileChangeType::CHANGED);
-        }
         Ok(())
     }
 
@@ -787,14 +778,6 @@ pub(super) mod typed {
             if let Err(error) = cx.editor.reload_document(id) {
                 cx.editor.set_error(|| error.to_string());
                 continue;
-            }
-            if let Some(path) = doc!(cx.editor, &id).path().map(ToOwned::to_owned)
-                && !cx.editor.file_watcher.is_watching(&path)
-            {
-                cx.editor
-                    .language_servers
-                    .file_event_handler
-                    .file_changed(path, lsp_client::lsp::FileChangeType::CHANGED);
             }
         }
 
