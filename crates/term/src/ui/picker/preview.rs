@@ -793,11 +793,7 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
                         return;
                     };
                     if request.complete(doc, result) {
-                        let diagnostics = view::Editor::doc_diagnostics(
-                            &editor.language_servers,
-                            editor.diagnostics(),
-                            doc,
-                        );
+                        let diagnostics = editor.diagnostics_for_document(doc);
                         doc.replace_diagnostics(diagnostics, &[], None);
                     }
                 },

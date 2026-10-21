@@ -317,12 +317,7 @@ async fn exited_servers_cannot_publish_queued_reports() -> anyhow::Result<()> {
     f.initialize().await?;
     let response = f.response().await?;
     let server_id = f.server("alpha");
-    event::dispatch(view::events::LanguageServerExited {
-        editor: &mut f.app.editor,
-        server_id,
-    })
-    .report_to(f.app.editor.status_sender());
-    f.app.editor.language_servers.remove_by_id(server_id);
+    f.app.editor.handle_language_server_exit(server_id);
     response(&mut f.app.editor);
     assert!(f.messages().is_empty());
     assert!(f.app.editor.diagnostics().is_empty());

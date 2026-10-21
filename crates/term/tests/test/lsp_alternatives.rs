@@ -5,7 +5,6 @@ use anyhow::Context as _;
 use language_config::LanguageServerFeature;
 use lsp_client::{Call, LanguageServerId};
 use term::application::Application;
-use tokio_stream::StreamExt;
 use view::{current_ref, editor::Action};
 
 use super::helpers::{
@@ -86,7 +85,7 @@ language-servers = {entries}
     async fn next(&mut self) -> anyhow::Result<(LanguageServerId, Call)> {
         tokio::time::timeout(
             Duration::from_secs(10),
-            self.app.editor.language_servers.incoming.next(),
+            self.app.editor.next_language_server_message(),
         )
         .await?
         .context("server message stream closed")
@@ -137,7 +136,7 @@ async fn starts_one_alternative_and_supplements_and_preserves_feature_filters() 
     std::fs::write(&second, "second\n")?;
     f.app.editor.open(&second, Action::Replace)?;
     assert_eq!(f.active(), ["alpha", "lint"]);
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 2);
+    assert_eq!(f.app.editor.language_servers().count(), 2);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -220,7 +219,7 @@ async fn rejected_or_terminated_initialization_falls_back_for_all_attached_docum
                 ["beta"]
             );
         }
-        assert_eq!(f.app.editor.language_servers.iter_clients().count(), 1);
+        assert_eq!(f.app.editor.language_servers().count(), 1);
         assert!(f.app.close().await.is_empty());
     }
     Ok(())
@@ -244,19 +243,19 @@ async fn stop_blocks_fallback_and_restart_retries_preferences_or_explicit_choice
         .restart_language_servers(document, &["alpha", "beta"])
         .is_err());
     assert_eq!(f.active(), ["alpha"]);
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 1);
+    assert_eq!(f.app.editor.language_servers().count(), 1);
     f.app.editor.stop_language_servers(document, &["alpha"])?;
     f.app.editor.refresh_language_servers(document);
     assert!(f.active().is_empty());
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 0);
+    assert_eq!(f.app.editor.language_servers().count(), 0);
     f.app.editor.restart_language_servers(document, &[])?;
     f.until_active(&["alpha"]).await?;
     f.app.editor.restart_language_servers(document, &["beta"])?;
     f.until_active(&["beta"]).await?;
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 1);
+    assert_eq!(f.app.editor.language_servers().count(), 1);
     f.app.editor.restart_language_servers(document, &[])?;
     f.until_active(&["alpha"]).await?;
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 1);
+    assert_eq!(f.app.editor.language_servers().count(), 1);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -342,7 +341,7 @@ language-servers = [{{ alternatives = ["alpha", "beta"] }}]
     std::fs::write(&alternative, "second\n")?;
     f.app.editor.open(&alternative, Action::Replace)?;
     f.until_active(&["alpha"]).await?;
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 2);
+    assert_eq!(f.app.editor.language_servers().count(), 2);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -362,7 +361,7 @@ async fn stopping_during_initialization_does_not_start_the_next_alternative() ->
     f.gate.release()?;
     f.app.editor.refresh_language_servers(document);
     assert!(f.active().is_empty());
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 0);
+    assert_eq!(f.app.editor.language_servers().count(), 0);
     assert!(!log_path(dir.path(), "beta").exists());
     f.app.editor.restart_language_servers(document, &[])?;
     f.until_active(&["alpha"]).await?;

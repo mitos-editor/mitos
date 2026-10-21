@@ -9,6 +9,21 @@ use lsp_client::LanguageServerId;
 use workspace::trust::TrustQuery;
 
 impl Editor {
+    /// Registered clients, including those still initializing. Lifecycle changes
+    /// use the editor's stop, restart, initialization, and exit operations.
+    pub fn language_servers(&self) -> impl Iterator<Item = &std::sync::Arc<lsp_client::Client>> {
+        self.language_servers.iter_clients()
+    }
+
+    /// Receive a protocol message when the host drives LSP delivery separately.
+    /// Hosts using `wait_event` already receive these messages as editor events.
+    pub async fn next_language_server_message(
+        &mut self,
+    ) -> Option<(LanguageServerId, lsp_client::Call)> {
+        use tokio_stream::StreamExt as _;
+        self.language_servers.incoming.next().await
+    }
+
     #[inline]
     pub fn language_server_by_id(
         &self,

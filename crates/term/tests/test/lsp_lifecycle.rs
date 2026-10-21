@@ -220,6 +220,16 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
     f.app.editor.handle_language_server_exit(alpha);
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
+    assert!(f
+        .app
+        .editor
+        .language_servers()
+        .all(|client| client.id() != alpha));
+    assert!(f
+        .app
+        .editor
+        .documents()
+        .all(|doc| !doc.supports_language_server(alpha)));
     assert!(f.app.editor.language_server_by_id(beta).is_some());
     assert_eq!(f.messages(), ["beta", "spelling"]);
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));

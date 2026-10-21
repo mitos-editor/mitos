@@ -8,7 +8,6 @@ use editor_core::Transaction;
 use lsp_client::{lsp, LanguageServerId};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     action::{Action, LspActionContext},
     callbacks::EditorCallback,
@@ -116,7 +115,7 @@ impl Fixture {
         initialize.release()?;
         let (server, call) = tokio::time::timeout(
             Duration::from_secs(10),
-            editor.language_servers.incoming.next(),
+            editor.next_language_server_message(),
         )
         .await?
         .context("missing initialization")?;
@@ -125,7 +124,11 @@ impl Fixture {
         );
         editor.handle_language_server_initialized(server);
         let doc = current_ref!(editor).1.id();
-        let client = editor.language_servers.get_by_id(server).unwrap().clone();
+        let client = editor
+            .language_servers()
+            .find(|client| client.id() == server)
+            .unwrap()
+            .clone();
         Ok(Self {
             editor,
             callbacks,
@@ -357,7 +360,7 @@ async fn queued_resolution_rejects_closed_or_detached_origins() -> anyhow::Resul
                     .unwrap()
                     .remove_language_server_by_name("alpha");
             }
-            _ => f.editor.language_servers.remove_by_id(f.server),
+            _ => f.editor.handle_language_server_exit(f.server),
         }
         callback(&mut f.editor);
         assert!(f

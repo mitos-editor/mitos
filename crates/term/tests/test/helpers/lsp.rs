@@ -9,7 +9,6 @@ use anyhow::Context as _;
 use editor_core::Uri;
 use lsp_client::{Call, LanguageServerId, Notification};
 use term::application::Application;
-use tokio_stream::StreamExt;
 use view::{current_ref, editor::Action};
 use workspace::trust::WorkspaceTrust;
 
@@ -162,9 +161,7 @@ pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result
         for _ in 0..servers {
             let (server, call) = app
                 .editor
-                .language_servers
-                .incoming
-                .next()
+                .next_language_server_message()
                 .await
                 .context("LSP message stream closed during initialization")?;
             anyhow::ensure!(
@@ -252,7 +249,7 @@ impl Fixture {
     pub async fn next(&mut self) -> anyhow::Result<(LanguageServerId, Call)> {
         tokio::time::timeout(
             Duration::from_secs(10),
-            self.app.editor.language_servers.incoming.next(),
+            self.app.editor.next_language_server_message(),
         )
         .await?
         .context("LSP message stream closed")
@@ -287,8 +284,7 @@ impl Fixture {
     pub fn server(&self, name: &str) -> LanguageServerId {
         self.app
             .editor
-            .language_servers
-            .iter_clients()
+            .language_servers()
             .find(|server| server.name() == name)
             .unwrap()
             .id()

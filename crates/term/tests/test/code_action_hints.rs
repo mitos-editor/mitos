@@ -367,12 +367,7 @@ async fn detached_and_exited_servers_cannot_publish_queued_results() -> anyhow::
         .next()
         .unwrap()
         .id();
-    event::dispatch(view::events::LanguageServerExited {
-        editor: &mut f.app.editor,
-        server_id: beta,
-    })
-    .report_to(f.app.editor.status_sender());
-    f.app.editor.language_servers.remove_by_id(beta);
+    f.app.editor.handle_language_server_exit(beta);
     old(&mut f.app.editor);
     assert!(!f.hint());
     // With no live LSP providers, the scheduled refresh can still show spelling actions.
@@ -421,12 +416,7 @@ async fn server_exit_refreshes_hints_from_remaining_providers() -> anyhow::Resul
         .unwrap()
         .id();
     let count = std::fs::read_to_string(&f.log)?.lines().count();
-    event::dispatch(view::events::LanguageServerExited {
-        editor: &mut f.app.editor,
-        server_id: alpha,
-    })
-    .report_to(f.app.editor.status_sender());
-    f.app.editor.language_servers.remove_by_id(alpha);
+    f.app.editor.handle_language_server_exit(alpha);
     old(&mut f.app.editor);
     assert!(!f.hint());
     f.publish().await?;

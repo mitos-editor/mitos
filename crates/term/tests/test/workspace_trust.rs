@@ -365,7 +365,7 @@ async fn accepting_trust_launches_previously_blocked_servers_for_open_documents(
     let path = workspace.join("other.lifecycle-test");
     std::fs::write(&path, "other\n")?;
     let second = f.app.editor.open(&path, Action::Load)?;
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 0);
+    assert_eq!(f.app.editor.language_servers().count(), 0);
     let request = next_request(&mut f.app.editor).unwrap();
     assert!(next_request(&mut f.app.editor).is_none());
     assert!(resolve_request(
@@ -374,7 +374,7 @@ async fn accepting_trust_launches_previously_blocked_servers_for_open_documents(
         TrustDecision::Trust
     )?);
     f.initialize().await?;
-    assert_eq!(f.app.editor.language_servers.iter_clients().count(), 2);
+    assert_eq!(f.app.editor.language_servers().count(), 2);
     for doc in [first, second] {
         let doc = f.app.editor.document(doc).unwrap();
         assert_eq!(doc.language_servers().count(), 2);

@@ -4,7 +4,6 @@ use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
 use term::application::Application;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
@@ -121,7 +120,7 @@ impl Fixture {
             self.gates[index].release()?;
             let (server_id, call) = tokio::time::timeout(
                 Duration::from_secs(10),
-                self.app.editor.language_servers.incoming.next(),
+                self.app.editor.next_language_server_message(),
             )
             .await?
             .context("LSP message stream closed")?;
@@ -367,12 +366,7 @@ async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::
         .find(|server| server.name() == "document-feature-test")
         .unwrap()
         .id();
-    event::dispatch(view::events::LanguageServerExited {
-        editor: &mut fixture.app.editor,
-        server_id,
-    })
-    .report_to(fixture.app.editor.status_sender());
-    fixture.app.editor.language_servers.remove_by_id(server_id);
+    fixture.app.editor.handle_language_server_exit(server_id);
     fixture.apply(old);
     let responses = fixture
         .batch(&[Feature::Lenses, Feature::Colors, Feature::Links])

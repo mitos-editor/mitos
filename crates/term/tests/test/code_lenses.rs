@@ -6,7 +6,6 @@ use editor_core::{Selection, Transaction};
 use serde_json::Value;
 use term::application::Application;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use view::{
     callbacks::EditorCallback,
     current, current_ref,
@@ -164,8 +163,7 @@ async fn multiple_servers_resolve_and_cache_their_own_lenses() -> anyhow::Result
         let server = fixture
             .app
             .editor
-            .language_servers
-            .get_by_id(command.language_server_id)
+            .language_server_by_id(command.language_server_id)
             .unwrap();
         assert!(command.command.title.starts_with(server.name()));
     }
@@ -270,7 +268,7 @@ async fn refresh_requests_are_acknowledged_and_invalidate_queued_resolution() ->
     let resolved = fixture.resolve().await;
     let (server, call) = tokio::time::timeout(
         Duration::from_secs(10),
-        fixture.app.editor.language_servers.incoming.next(),
+        fixture.app.editor.next_language_server_message(),
     )
     .await?
     .unwrap();

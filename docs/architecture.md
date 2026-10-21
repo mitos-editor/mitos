@@ -432,6 +432,12 @@ like `g` and `m`. It is attached to the viewport as a whole.
 The `Editor` holds the global state: all the open documents, a tree
 representation of all the view splits, the configuration, and a registry of 
 language servers. To open or close files, interact with the editor.
+The language-server registry is private to `view`. Hosts query clients through
+`Editor::language_servers` / `language_server_by_id` and drive lifecycle changes
+through editor operations so diagnostics, readiness, and document attachments are
+updated together. Hosts with a separate protocol loop use
+`next_language_server_message`; picker previews project cached diagnostics through
+`diagnostics_for_document` without borrowing the registry.
 Its private `editor/documents.rs` module owns document registration, loading,
 view binding, and closure. `editor/filesystem.rs` owns path operations and their
 watcher and language-server effects. Both implement the existing `Editor` API;

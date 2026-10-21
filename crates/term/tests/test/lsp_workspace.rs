@@ -24,6 +24,15 @@ async fn logged(path: &Path, predicate: impl Fn(&Value) -> bool) -> anyhow::Resu
     .await?
 }
 
+fn file_changed(editor: &mut view::Editor, path: &Path) {
+    use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
+    let path = stdx::path::canonicalize_existing(path);
+    editor.handle_file_events(&Events::from(vec![Event {
+        path: CanonicalPathBuf::assert_canonicalized(&path),
+        ty: EventType::Modified,
+    }]));
+}
+
 fn edit(f: &Fixture, version: i32, text: &str) -> Value {
     json!({"textDocument": {"uri": f.uri().to_url().unwrap(), "version": version},
         "edits": [{"range": {"start": {"line": 0, "character": 3},
@@ -178,12 +187,8 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
         }
     })
     .await?;
-    let handler = &f.app.editor.language_servers.file_event_handler;
-    handler.file_changed(uri_path.join("first.watched"), lsp::FileChangeType::CHANGED);
-    handler.file_changed(
-        folder_path.join("second.watched"),
-        lsp::FileChangeType::CHANGED,
-    );
+    file_changed(&mut f.app.editor, &uri_path.join("first.watched"));
+    file_changed(&mut f.app.editor, &folder_path.join("second.watched"));
     let second = lsp::Url::from_file_path(folder_path.join("second.watched")).unwrap();
     for log in &f.logs {
         logged(log, |m| m["params"]["changes"][0]["uri"] == second.as_str()).await?;
@@ -195,9 +200,8 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
             {"id": "unsupported", "method": "textDocument/hover"}
         ]}))?,
     );
-    let handler = &f.app.editor.language_servers.file_event_handler;
-    handler.file_changed(uri_path.join("after.watched"), lsp::FileChangeType::CHANGED);
-    handler.file_changed(uri_path.join("done.barrier"), lsp::FileChangeType::CHANGED);
+    file_changed(&mut f.app.editor, &uri_path.join("after.watched"));
+    file_changed(&mut f.app.editor, &uri_path.join("done.barrier"));
     let after = lsp::Url::from_file_path(uri_path.join("after.watched")).unwrap();
     let barrier = lsp::Url::from_file_path(uri_path.join("done.barrier")).unwrap();
     // FIFO delivery to the same server makes the barrier a deterministic absence check.
@@ -377,12 +381,7 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
     let barrier = root.join("done.barrier");
     let barrier_uri = lsp::Url::from_file_path(&barrier).unwrap();
     for fixture in [&mut first, &mut second] {
-        fixture
-            .app
-            .editor
-            .language_servers
-            .file_event_handler
-            .file_changed(barrier.clone(), lsp::FileChangeType::CHANGED);
+        file_changed(&mut fixture.app.editor, &barrier);
     }
     let mut changes_by_editor = Vec::new();
     for fixture in [&first, &second] {

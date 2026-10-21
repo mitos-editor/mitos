@@ -83,13 +83,7 @@ impl Fixture {
         // A response is a FIFO barrier for earlier notifications on this transport.
         std::fs::write(self.dir.path().join("edit.json"), "null")?;
         self.gate.release()?;
-        let server = self
-            .app
-            .editor
-            .language_servers
-            .iter_clients()
-            .next()
-            .unwrap();
+        let server = self.app.editor.language_servers().next().unwrap();
         tokio::time::timeout(
             Duration::from_secs(10),
             server

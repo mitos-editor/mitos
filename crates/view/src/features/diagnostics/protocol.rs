@@ -280,8 +280,17 @@ impl Editor {
         }
     }
 
+    /// Project cached protocol diagnostics onto a supplied document, including
+    /// unregistered picker previews, using this editor's providers and settings.
+    pub fn diagnostics_for_document<'a>(
+        &'a self,
+        document: &Document,
+    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a> {
+        Self::doc_diagnostics(&self.language_servers, &self.diagnostics, document)
+    }
+
     /// Returns all supported diagnostics for the document
-    pub fn doc_diagnostics<'a>(
+    pub(crate) fn doc_diagnostics<'a>(
         language_servers: &'a crate::language_servers::Registry,
         diagnostics: &'a LspDiagnostics,
         document: &Document,
@@ -291,7 +300,7 @@ impl Editor {
 
     /// Returns all supported diagnostics for the document
     /// filtered by the raw LSP diagnostic and its provider
-    pub fn doc_diagnostics_with_filter<'a, F>(
+    pub(crate) fn doc_diagnostics_with_filter<'a, F>(
         language_servers: &'a crate::language_servers::Registry,
         diagnostics: &'a LspDiagnostics,
         document: &Document,

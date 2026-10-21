@@ -61,18 +61,18 @@ struct AlternativeGroup {
 }
 
 #[derive(Debug)]
-pub struct Registry {
+pub(crate) struct Registry {
     inner: SlotMap<LanguageServerId, Arc<Client>>,
     instances: HashMap<LanguageServerName, ServerInstances>,
     syn_loader: Arc<ArcSwap<language::syntax::Loader>>,
     unavailable: HashMap<ServerWorkspace, UnavailableReason>,
     alternative_selections: HashMap<AlternativeGroup, LanguageServerName>,
-    pub incoming: SelectAll<UnboundedReceiverStream<(LanguageServerId, Call)>>,
-    pub file_event_handler: file_event::Handler,
+    pub(crate) incoming: SelectAll<UnboundedReceiverStream<(LanguageServerId, Call)>>,
+    pub(crate) file_event_handler: file_event::Handler,
 }
 
 impl Registry {
-    pub fn new(syn_loader: Arc<ArcSwap<language::syntax::Loader>>) -> Self {
+    pub(crate) fn new(syn_loader: Arc<ArcSwap<language::syntax::Loader>>) -> Self {
         Self {
             inner: SlotMap::with_key(),
             instances: HashMap::new(),
@@ -84,11 +84,11 @@ impl Registry {
         }
     }
 
-    pub fn get_by_id(&self, id: LanguageServerId) -> Option<&Arc<Client>> {
+    pub(crate) fn get_by_id(&self, id: LanguageServerId) -> Option<&Arc<Client>> {
         self.inner.get(id)
     }
 
-    pub fn remove_by_id(&mut self, id: LanguageServerId) {
+    pub(crate) fn remove_by_id(&mut self, id: LanguageServerId) {
         let Some(client) = self.inner.remove(id) else {
             log::debug!("client was already removed");
             return;
@@ -136,7 +136,7 @@ impl Registry {
 
     /// If this method is called, all documents that have a reference to the language server have to refresh their language servers,
     /// See view::editor::Editor::refresh_language_servers
-    pub fn restart_server(
+    pub(crate) fn restart_server(
         &mut self,
         name: &str,
         language_config: &LanguageConfiguration,
@@ -192,7 +192,7 @@ impl Registry {
         Some(Ok(client))
     }
 
-    pub fn stop(&mut self, name: &str) {
+    pub(crate) fn stop(&mut self, name: &str) {
         if let Some(instances) = self.instances.get_mut(name) {
             let previous = std::mem::replace(instances, ServerInstances::Stopped);
             for client in previous.clients() {
@@ -209,7 +209,7 @@ impl Registry {
 
     /// Remember failures per workspace. A running server's exit does not cause
     /// a switch to an alternative; explicit restart clears this state.
-    pub fn record_exit(
+    pub(crate) fn record_exit(
         &mut self,
         id: LanguageServerId,
         roots: impl IntoIterator<Item = PathBuf>,
@@ -231,7 +231,7 @@ impl Registry {
     }
 
     /// Stop and reset selected definitions without starting every alternative.
-    pub fn reset(&mut self, names: &[&str]) {
+    pub(crate) fn reset(&mut self, names: &[&str]) {
         for name in names {
             self.stop(name);
             self.instances.remove(*name);
@@ -267,7 +267,7 @@ impl Registry {
             })
     }
 
-    pub fn get(
+    pub(crate) fn get(
         &mut self,
         language_config: &LanguageConfiguration,
         doc_path: Option<&Path>,
@@ -371,7 +371,7 @@ impl Registry {
         result.into_iter()
     }
 
-    pub fn iter_clients(&self) -> impl Iterator<Item = &Arc<Client>> {
+    pub(crate) fn iter_clients(&self) -> impl Iterator<Item = &Arc<Client>> {
         self.inner.values()
     }
 }

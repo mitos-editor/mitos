@@ -94,7 +94,7 @@ pub struct Editor {
     pub registers: Registers,
     pub macro_recording: Option<(char, Vec<KeyEvent>)>,
     pub macro_replaying: Vec<char>,
-    pub language_servers: crate::language_servers::Registry,
+    pub(crate) language_servers: crate::language_servers::Registry,
     initialized_language_servers: HashSet<LanguageServerId>,
     pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
