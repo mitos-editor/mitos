@@ -28,6 +28,7 @@ impl Document {
     }
 
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
+        self.last_search_match.remove(&view);
         let selection = selection.ensure_invariants(self.buffer.text().slice(..));
         let changed = self
             .try_selection(view)

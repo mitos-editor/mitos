@@ -1,5 +1,6 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
+use editor_core::search::{SearchMatch, SearchMatchLimit};
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -130,6 +131,7 @@ where
         StatusLineElementID::Spacer => render_spacer,
         StatusLineElementID::Branch => render_branch,
         StatusLineElementID::Register => render_register,
+        StatusLineElementID::SearchPosition => render_search_position,
         StatusLineElementID::CurrentWorkingDirectory => render_cwd,
         StatusLineElementID::CodeActionHint => render_code_action_hint,
         StatusLineElementID::DebugSession => render_debug_session,
@@ -711,6 +713,20 @@ where
 {
     if let Some(reg) = context.editor.selected_register {
         write(context, format!(" reg={} ", reg).into())
+    }
+}
+
+fn render_search_position<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if let Some(SearchMatch { idx, count, .. }) = context.doc.get_last_search_match(context.view.id)
+    {
+        let count_str = match count {
+            SearchMatchLimit::Limitless(count) => format!("{}", count),
+            SearchMatchLimit::Limited(max) => format!(">{}", max),
+        };
+        write(context, format!(" [{}/{}] ", idx, count_str).into());
     }
 }
 

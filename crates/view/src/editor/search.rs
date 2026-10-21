@@ -1,6 +1,7 @@
 //! Buffer search coordination without prompts or status messages.
 
 use crate::Editor;
+use editor_config::OptionToml;
 use editor_core::{
     movement::{Direction, Movement},
     search,
@@ -25,10 +26,15 @@ impl Editor {
         wrap: bool,
     ) -> SearchOutcome {
         let padding = self.config().scroll.padding;
+        let max_matches = match self.config().search.max_matches {
+            OptionToml::None => None,
+            OptionToml::Some(max) => Some(max),
+        };
         let (view, doc) = current!(self);
         let mut outcome = SearchOutcome::NotFound;
         let mut wrapped = false;
         let mut changed = false;
+        let mut last = None;
         for _ in 0..count {
             let selection = doc.selection(view.id);
             let Some(found) = search::find_regex(
@@ -37,6 +43,7 @@ impl Editor {
                 regex,
                 direction,
                 wrap,
+                max_matches,
             ) else {
                 outcome = SearchOutcome::NotFound;
                 break;
@@ -50,10 +57,15 @@ impl Editor {
             doc.set_selection(view.id, selection);
             changed = true;
             wrapped |= found.wrapped;
+            last = Some(found);
             outcome = SearchOutcome::Found { wrapped };
         }
         if changed {
             view.ensure_cursor_in_view_center(doc, padding);
+        }
+        if let Some(found) = last {
+            // Recorded after `set_selection`, which clears the view's stored match.
+            doc.set_last_search_match(view.id, found);
         }
         outcome
     }

@@ -152,6 +152,30 @@ async fn search_selection_detect_word_boundaries_at_eof() -> anyhow::Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn search_prev_from_past_last_match_without_wrap_around() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.search.wrap_around = false;
+
+    test_with_config(
+        AppBuilder::new().with_config(config),
+        (
+            indoc! {"\
+                pub one
+                #[pub|]# two
+                three"},
+            "*lllllN",
+            indoc! {"\
+                pub one
+                #[pub|]# two
+                three"},
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_selection_duplication() -> anyhow::Result<()> {
     // Forward
     test((

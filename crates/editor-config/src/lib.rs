@@ -702,6 +702,15 @@ impl Default for LspReferencesConfig {
     }
 }
 
+/// A TOML value that can either be `"none"` or a value of type `T`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub enum OptionToml<T> {
+    None,
+    #[serde(untagged)]
+    Some(T),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct SearchConfig {
@@ -709,6 +718,8 @@ pub struct SearchConfig {
     pub smart_case: bool,
     /// Whether search and change navigation wrap at document boundaries. Defaults to true.
     pub wrap_around: bool,
+    /// Maximum number of counted matches when searching in a document. `None` means no limit. Default to 100.
+    pub max_matches: OptionToml<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -842,6 +853,9 @@ pub enum StatusLineElement {
 
     /// Indicator for selected register
     Register,
+
+    /// Search index and count
+    SearchPosition,
 
     /// The base of current working directory
     CurrentWorkingDirectory,
@@ -1227,6 +1241,7 @@ impl Default for SearchConfig {
         Self {
             wrap_around: true,
             smart_case: true,
+            max_matches: OptionToml::Some(100),
         }
     }
 }
@@ -1733,5 +1748,20 @@ mod tests {
             config.diagnostics.inline.other_lines,
             DiagnosticFilter::Disable
         );
+    }
+
+    #[test]
+    fn search_max_matches_accepts_integers_and_none() {
+        let config: Config = toml::from_str("[search]\nmax-matches = 42").unwrap();
+        assert_eq!(config.search.max_matches, OptionToml::Some(42));
+
+        let config: Config = toml::from_str("[search]\nmax-matches = 'none'").unwrap();
+        assert_eq!(config.search.max_matches, OptionToml::None);
+
+        let config: Config = toml::from_str("[search]").unwrap();
+        assert_eq!(config.search.max_matches, OptionToml::Some(100));
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
     }
 }

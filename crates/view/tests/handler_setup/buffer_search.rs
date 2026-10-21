@@ -1,6 +1,7 @@
 use super::Fixture;
 use editor_core::{
     movement::{Direction, Movement},
+    search::SearchMatchLimit,
     Range, Selection,
 };
 use stdx::rope;
@@ -26,6 +27,9 @@ async fn shared_search_counts_matches_and_preserves_other_splits() -> anyhow::Re
     let (view, doc) = current_ref!(fixture.editor);
     assert_eq!(doc.selection(view.id).primary(), Range::new(8, 11));
     assert_eq!(doc.selection(other), &Selection::single(0, 1));
+    let search = doc.get_last_search_match(view.id).unwrap();
+    assert_eq!(search.idx, 3);
+    assert!(matches!(search.count, SearchMatchLimit::Limitless(3)));
     assert_eq!(
         fixture
             .editor
