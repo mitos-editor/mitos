@@ -1,17 +1,21 @@
-use super::helpers::{test_config, AppBuilder};
+use super::helpers::{keys as settled_keys, test_config, AppBuilder};
 use editor_config::BlockCursorRendering::{self, Native, Software};
 use term::application::Application;
 use theme::Theme;
 use tui::{backend::Backend, style::Color};
+use ui_core::input::parse_macro;
 use view::current_ref;
 
 #[cfg(windows)]
-use crossterm::event::Event;
+use crossterm::event::{Event, KeyEvent};
 #[cfg(not(windows))]
-use termina::event::Event;
+use termina::event::{Event, KeyEvent};
 
 async fn keys(app: &mut Application, input: &str) {
-    super::helpers::keys(app, input).await.unwrap();
+    for key in parse_macro(input).unwrap() {
+        app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+            .await;
+    }
 }
 
 fn assert_editor_cursor(app: &Application, native: bool) {
@@ -110,18 +114,25 @@ async fn native_blocks_follow_mode_changes_and_live_configuration() {
         assert_editor_cursor(&app, true);
         keys(&mut app, "<esc>v").await;
         assert_editor_cursor(&app, true);
-        keys(
+        settled_keys(
             &mut app,
             "<esc>:set-option cursor.block-rendering software<ret>",
         )
-        .await;
+        .await
+        .unwrap();
         assert_editor_cursor(&app, false);
-        keys(&mut app, ":set-option cursor.block-rendering native<ret>").await;
+        settled_keys(&mut app, ":set-option cursor.block-rendering native<ret>")
+            .await
+            .unwrap();
         assert_editor_cursor(&app, true);
         // Block rendering applies to insert and select modes too.
-        keys(&mut app, ":set-option cursor.shape.insert block<ret>i").await;
+        settled_keys(&mut app, ":set-option cursor.shape.insert block<ret>i")
+            .await
+            .unwrap();
         assert_editor_cursor(&app, true);
-        keys(&mut app, "<esc>:set-option cursor.shape.select block<ret>v").await;
+        settled_keys(&mut app, "<esc>:set-option cursor.shape.select block<ret>v")
+            .await
+            .unwrap();
         assert_editor_cursor(&app, true);
         assert!(app.close().await.is_empty());
     }

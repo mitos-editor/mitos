@@ -52,6 +52,9 @@ jobs:
       - name: Run cargo integration-test
         run: cargo integration-test --locked
 
+      - name: Run frontend unit tests with integration support
+        run: cargo test -p term --lib --features integration --profile integration --locked
+
     strategy:
       fail-fast: false
       matrix:

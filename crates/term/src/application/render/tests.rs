@@ -11,7 +11,7 @@ use view::{callbacks::EditorCallback, graphics::Rect};
 use super::Application;
 use crate::{
     args::Args,
-    compositor::{Component, Context},
+    compositor::{Component, Context, Cursor},
     config::Config,
 };
 
@@ -347,6 +347,75 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
         .unwrap()
         .session()
         .same(&current));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Result<()> {
+    use editor_config::BlockCursorRendering;
+    use view::{editor::ConfigEvent, graphics::CursorKind};
+
+    fn render_cursor(app: &mut Application) -> Cursor {
+        let area = app.compositor.size();
+        let mut buffer = tui::buffer::Buffer::empty(area);
+        let config = app.config.load();
+        app.compositor.render(
+            area,
+            &mut buffer,
+            &mut Context {
+                config: crate::config::Context {
+                    current: &config,
+                    updates: &app.config_updates.0,
+                },
+                editor: &mut app.editor,
+                jobs: &mut app.jobs,
+                scroll: None,
+                image_picker: app.image_picker.as_ref(),
+                is_cursor_owner: false,
+            },
+        )
+    }
+
+    let (mut app, _) = application(Args::default())?;
+    let mut config = (*app.editor.config()).clone();
+    config.welcome_screen = false;
+    config.cursor.shape.insert = CursorKind::Bar;
+    app.handle_config_events(ConfigEvent::Update(Box::new(config.clone())));
+    let (view, doc) = view::current_ref!(app.editor);
+    let inner = view.inner_area(doc);
+    let position = (inner.x, inner.y).into();
+    assert_eq!(render_cursor(&mut app), Cursor::Software(position));
+
+    config.cursor.block_rendering = BlockCursorRendering::Native;
+    app.handle_config_events(ConfigEvent::Update(Box::new(config)));
+    let block = Cursor::Native(position, CursorKind::Block);
+    assert_eq!(render_cursor(&mut app), block);
+
+    #[cfg(not(windows))]
+    let focus_events = [termina::Event::FocusOut, termina::Event::FocusIn];
+    #[cfg(windows)]
+    let focus_events = [
+        crossterm::event::Event::FocusLost,
+        crossterm::event::Event::FocusGained,
+    ];
+    for event in focus_events {
+        app.handle_terminal_events(Ok(event)).await;
+        assert_eq!(render_cursor(&mut app), block);
+    }
+
+    app.compositor.push(Box::new(crate::ui::Prompt::new(
+        ":".into(),
+        None,
+        |_, _| Vec::new(),
+        |_, _, _| {},
+    )));
+    assert!(matches!(
+        render_cursor(&mut app),
+        Cursor::Native(prompt_position, CursorKind::Bar) if prompt_position != position
+    ));
+    app.compositor.pop();
+    assert_eq!(render_cursor(&mut app), block);
     assert!(app.close().await.is_empty());
     Ok(())
 }
