@@ -98,8 +98,7 @@ async fn page_navigation_tracks_layout_changes_and_terminal_resizes() -> anyhow:
         (),
         |_, _, _| {},
     );
-    let mut overlay = overlaid(&app.editor, picker);
-    overlay.required_size((120, 42));
+    let mut overlay = overlaid(picker);
     let mut jobs = Jobs::new();
     let (updates, _) = tokio::sync::mpsc::unbounded_channel();
     for (layout, width, height, page_size) in [

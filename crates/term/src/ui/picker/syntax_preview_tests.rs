@@ -58,7 +58,7 @@ impl Fixture {
             |_, _, _| {},
         );
         let mut compositor = Compositor::new(Rect::new(0, 0, 100, 30));
-        compositor.push(Box::new(overlaid(&app.editor, picker)));
+        compositor.push(Box::new(overlaid(picker)));
         Ok(Self {
             app,
             jobs: Jobs::new(),

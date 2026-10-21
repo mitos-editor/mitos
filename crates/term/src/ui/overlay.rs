@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use editor_config::PickerLayout;
 use tui::buffer::Buffer;
 use view::{
@@ -11,21 +9,15 @@ use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 
 pub const FULL_OVERLAID_MAX_WIDTH: u16 = 200;
 
-/// Contains a component placed in the center of the parent component
+/// Places a component using the shared picker layout.
 pub struct Overlay<T> {
     /// Child component
     pub content: T,
-    /// Function to compute the size and position of the child component
-    pub calc_child_size: Box<dyn Fn(Rect) -> Rect>,
 }
 
 /// Place a picker according to the live layout preference, reserving two bottom rows.
-pub fn overlaid<T>(editor: &Editor, content: T) -> Overlay<T> {
-    let config = Arc::clone(&editor.config);
-    Overlay {
-        content,
-        calc_child_size: Box::new(move |rect| picker_area(rect, config.load().picker.layout)),
-    }
+pub fn overlaid<T>(content: T) -> Overlay<T> {
+    Overlay { content }
 }
 
 fn picker_area(rect: Rect, layout: PickerLayout) -> Rect {
@@ -62,24 +54,11 @@ impl<T: Component + 'static> Component for Overlay<T> {
     }
 
     fn render(&mut self, area: Rect, frame: &mut Buffer, ctx: &mut Context) {
-        let dimensions = (self.calc_child_size)(area);
+        let dimensions = picker_area(area, ctx.editor.config().picker.layout);
         // Resizing or a live layout change also changes the child's page size.
         self.content
             .required_size((dimensions.width, dimensions.height));
         self.content.render(dimensions, frame, ctx)
-    }
-
-    fn required_size(&mut self, (width, height): (u16, u16)) -> Option<(u16, u16)> {
-        let area = Rect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        };
-        let dimensions = (self.calc_child_size)(area);
-        let viewport = (dimensions.width, dimensions.height);
-        let _ = self.content.required_size(viewport)?;
-        Some((width, height))
     }
 
     fn has_pending_keys(&self) -> bool {
@@ -95,7 +74,7 @@ impl<T: Component + 'static> Component for Overlay<T> {
     }
 
     fn cursor(&self, area: Rect, ctx: &Editor) -> Cursor {
-        let dimensions = (self.calc_child_size)(area);
+        let dimensions = picker_area(area, ctx.config().picker.layout);
         self.content.cursor(dimensions, ctx)
     }
 

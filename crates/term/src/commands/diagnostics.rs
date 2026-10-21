@@ -468,12 +468,12 @@ pub fn diagnostics_picker(cx: &mut Context) {
         Some(doc!(cx.editor).id()),
         DiagnosticsFormat::HideSourcePath,
     );
-    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
+    cx.push_layer(Box::new(overlaid(picker)));
 }
 
 pub fn workspace_diagnostics_picker(cx: &mut Context) {
     let picker = diag_picker(cx.editor, None, DiagnosticsFormat::ShowSourcePath);
-    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
+    cx.push_layer(Box::new(overlaid(picker)));
 }
 
 fn diagnostic_items(editor: &Editor, document: Option<DocumentId>) -> Vec<PickerDiagnostic> {

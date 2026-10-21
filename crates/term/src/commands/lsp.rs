@@ -463,7 +463,7 @@ pub fn symbol_picker(cx: &mut Context) {
             .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.location))
             .truncate_start(false);
 
-            compositor.push(Box::new(overlaid(editor, picker)))
+            compositor.push(Box::new(overlaid(picker)))
         };
 
         Ok(Callback::EditorCompositor(Box::new(call)))
@@ -560,7 +560,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     .with_query_updates(symbol_updates::workspace_updates(cx.editor, document))
     .truncate_start(false);
 
-    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
+    cx.push_layer(Box::new(overlaid(picker)));
 }
 
 impl ui::menu::Item for CodeActionItem {
@@ -638,7 +638,7 @@ pub(crate) fn goto_impl(
             )
             .with_preview(|_editor, location| location_to_file_location(location))
             .with_title(title);
-            compositor.push(Box::new(overlaid(editor, picker)));
+            compositor.push(Box::new(overlaid(picker)));
         }
     }
 }
@@ -790,10 +790,7 @@ pub(super) mod typed {
                                 cx.editor.execute_lsp_command(command.clone(), *ls_id);
                             },
                         );
-                        compositor.push(Box::new(overlaid(
-                            editor,
-                            picker.with_title("LSP Commands"),
-                        )))
+                        compositor.push(Box::new(overlaid(picker.with_title("LSP Commands"))))
                     },
                 ));
                 Ok(call)
