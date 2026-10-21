@@ -1305,3 +1305,13 @@ source document permits reopening it from the session cache; source-change event
 and restarts invalidate that cache. Open documents remain historical snapshots
 after the session ends. Delayed replies validate the selected frame and the
 original editor location before navigating.
+
+### Workspace syntax symbols
+
+`view::features::syntax_symbols` owns editor identity, open-buffer results,
+workspace refresh policy, and worker scheduling. Its private `worker` module
+receives a loader snapshot, excluded open-file paths, compiled patterns, a result
+sink, and cancellation. It owns blocking file scanning and parsed-file caching
+without borrowing an editor or callback destination. Prepared scans retain their
+cache generation; refresh installs a new cache that old workers cannot refill.
+Stopping a result sink stops the scan across its worker threads.
