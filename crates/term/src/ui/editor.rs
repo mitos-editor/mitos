@@ -1,3 +1,4 @@
+use crate::keymap::KeyTrieNodeExt;
 mod render;
 use super::highlights::primary_cursor_is_software;
 use crate::repeat::InsertEvent;

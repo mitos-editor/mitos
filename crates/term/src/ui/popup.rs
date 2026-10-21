@@ -7,7 +7,7 @@ use crate::{
 };
 use tui::buffer::BufferExt as _;
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Widget};
-use ui_core::keymap::{Binding, KeymapState, Lookup};
+use ui_core::keymap::{KeymapState, Lookup};
 
 use text_layout::DisplayPosition;
 use ui_core::input::{MouseEvent, MouseEventKind};
@@ -287,7 +287,7 @@ impl<T: Component> Component for Popup<T> {
         if key!(Esc) == key
             && self.ignore_escape_key
             && !self.has_pending_keys()
-            && matches!(cx.config.current.component_keys.popup.0.get(&key), Some(Binding::Actions(actions)) if actions == &[PopupAction::Cancel])
+            && matches!(cx.config.current.component_keys.popup.get(&key), Some(binding) if binding.actions() == Some(&[PopupAction::Cancel]))
         {
             return EventResult::Ignored(None);
         }

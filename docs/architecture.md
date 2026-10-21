@@ -1126,7 +1126,12 @@ return through its explicit sender and reject replaced handlers, newer edits, an
 disabled autosave. `term` forwards mode changes and focus loss and renders editor
 errors. The command catalog remains static.
 
-`keymap.rs` links commands to key combinations.
+`ui-core::keymap` owns the ordered trie, configuration decoder, recursive merging,
+and prefix state used by editor modes and terminal components. Prefixes retain paths
+into the current map, including sticky prefixes, so reload cannot keep old actions
+alive. Component lookup consumes canceled prefixes; editor lookup retains canceled
+keys for insert-mode fallback. `term::keymap` supplies command validation, labels,
+autoinfo, and reverse command lookup.
 
 
 ## Terminal rendering

@@ -9,7 +9,7 @@ use view::document::Mode;
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use term::keymap::{component::ComponentKeymaps, KeyTrie};
+use term::keymap::{component::ComponentKeymaps, KeyTrie, KeyTrieExt, KeyTrieNodeExt};
 use ui_core::keymap::{Binding, Keymap};
 
 pub const TYPABLE_COMMANDS_MD_OUTPUT: &str = "typable-cmd.md";
@@ -213,7 +213,7 @@ fn keymap_table(md: &mut String, trie: &KeyTrie, prefix: &str, depth: usize) {
     for (key, binding) in node.iter() {
         let keys = key_code(&format!("{prefix}{}", key.key_sequence_format()));
         let (description, commands) = match binding {
-            KeyTrie::MappableCommand(cmd) => (table_text(cmd.doc()), command_code(cmd)),
+            KeyTrie::Action(cmd) => (table_text(cmd.doc()), command_code(cmd)),
             KeyTrie::Sequence(label, commands) => (
                 table_text(label),
                 commands
@@ -222,6 +222,7 @@ fn keymap_table(md: &mut String, trie: &KeyTrie, prefix: &str, depth: usize) {
                     .collect::<Vec<_>>()
                     .join(", "),
             ),
+            KeyTrie::Unbound => continue,
             KeyTrie::Node(child) => (
                 format!(
                     "{}{}",
@@ -291,24 +292,22 @@ fn component_table<A: serde::Serialize>(keys: &Keymap<A>) -> Result<String, DynE
         prefix: &str,
         rows: &mut BTreeMap<String, Vec<String>>,
     ) -> Result<(), DynError> {
-        for (key, binding) in &keys.0 {
+        for (key, binding) in keys.iter() {
             let prefix = format!("{prefix}{}", key.key_sequence_format());
-            match binding {
-                Binding::Actions(actions) => {
-                    let actions = actions
-                        .iter()
-                        .map(|action| {
-                            let value = serde_json::to_value(action)?;
-                            Ok(key_code(
-                                value.as_str().ok_or("expected a named component action")?,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, DynError>>()?
-                        .join(", ");
-                    rows.entry(actions).or_default().push(prefix);
-                }
-                Binding::Keys(keys) => collect(keys, &prefix, rows)?,
-                Binding::Unbound => {}
+            if let Some(actions) = binding.actions() {
+                let actions = actions
+                    .iter()
+                    .map(|action| {
+                        let value = serde_json::to_value(action)?;
+                        Ok(key_code(
+                            value.as_str().ok_or("expected a named component action")?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, DynError>>()?
+                    .join(", ");
+                rows.entry(actions).or_default().push(prefix);
+            } else if let Binding::Node(keys) = binding {
+                collect(keys, &prefix, rows)?;
             }
         }
         Ok(())

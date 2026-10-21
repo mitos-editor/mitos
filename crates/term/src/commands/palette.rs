@@ -1,5 +1,7 @@
 //! Command palette construction and reopening the last picker.
 
+use crate::keymap::KeyTrieExt;
+
 use crate::{
     commands::{catalog, context::Context, mappable::MappableCommand},
     compositor::{self, Compositor},

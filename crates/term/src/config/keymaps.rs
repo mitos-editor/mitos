@@ -12,6 +12,8 @@ use view::document::Mode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BufferPickerAction(PickerAction);
 
+impl ui_core::keymap::KeymapAction for BufferPickerAction {}
+
 impl<'de> Deserialize<'de> for BufferPickerAction {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::IntoDeserializer;

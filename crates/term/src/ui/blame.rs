@@ -94,14 +94,11 @@ impl BlameDetails {
 }
 
 fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
-    keys.0
-        .iter()
+    keys.iter()
         .filter_map(|(key, binding)| {
             let suffix = match binding {
-                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
-                    String::new()
-                }
-                Binding::Keys(keys) => {
+                binding if binding.actions() == Some(std::slice::from_ref(action)) => String::new(),
+                Binding::Node(keys) => {
                     let hint = action_hint(keys, action);
                     if hint == "unbound" {
                         return None;

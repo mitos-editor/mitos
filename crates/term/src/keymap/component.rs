@@ -105,8 +105,7 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
     let mut keys = Keymap::default();
     for &(key, action) in entries {
         assert!(
-            keys.0
-                .insert(key.parse().unwrap(), Binding::Actions(vec![action]))
+            keys.insert(key.parse().unwrap(), Binding::Action(action))
                 .is_none(),
             "duplicate default binding: {key}"
         );
@@ -217,3 +216,10 @@ impl Default for ComponentKeymaps {
         }
     }
 }
+
+impl ui_core::keymap::KeymapAction for PromptAction {}
+impl ui_core::keymap::KeymapAction for MenuAction {}
+impl ui_core::keymap::KeymapAction for PickerAction {}
+impl ui_core::keymap::KeymapAction for PopupAction {}
+impl ui_core::keymap::KeymapAction for PageAction {}
+impl ui_core::keymap::KeymapAction for BlameAction {}
