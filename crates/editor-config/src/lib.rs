@@ -96,44 +96,25 @@ fn deserialize_gutter_seq_or_struct<'de, D>(deserializer: D) -> Result<GutterCon
 where
     D: Deserializer<'de>,
 {
-    struct GutterVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for GutterVisitor {
-        type Value = GutterConfig;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                formatter,
-                "an array of gutter names or a detailed gutter configuration"
-            )
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-        where
-            S: serde::de::SeqAccess<'de>,
-        {
-            let mut gutters = Vec::new();
-            while let Some(gutter) = seq.next_element::<String>()? {
-                gutters.push(
-                    gutter
-                        .parse::<GutterType>()
-                        .map_err(serde::de::Error::custom)?,
-                )
-            }
-
-            Ok(gutters.into())
-        }
-
-        fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
-        where
-            M: serde::de::MapAccess<'de>,
-        {
-            let deserializer = serde::de::value::MapAccessDeserializer::new(map);
-            Deserialize::deserialize(deserializer)
-        }
+    #[derive(Deserialize)]
+    #[serde(
+        untagged,
+        expecting = "an array of gutter names or a detailed gutter configuration"
+    )]
+    enum Gutters {
+        Layout(Vec<String>),
+        Detailed(GutterConfig),
     }
 
-    deserializer.deserialize_any(GutterVisitor)
+    match Gutters::deserialize(deserializer)? {
+        Gutters::Layout(names) => names
+            .iter()
+            .map(|name| name.parse())
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map(Into::into)
+            .map_err(serde::de::Error::custom),
+        Gutters::Detailed(config) => Ok(config),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -855,16 +836,10 @@ impl std::str::FromStr for GutterType {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "diagnostics" => Ok(Self::Diagnostics),
-            "spacer" => Ok(Self::Spacer),
-            "line-numbers" => Ok(Self::LineNumbers),
-            "diff" => Ok(Self::Diff),
-            "code-action-hint" => Ok(Self::CodeActionHint),
-            _ => anyhow::bail!(
-                "Gutter type can only be `diagnostics`, `spacer`, `line-numbers` or `diff`."
-            ),
-        }
+        Self::deserialize(serde::de::value::StringDeserializer::<
+            serde::de::value::Error,
+        >::new(s.to_lowercase()))
+        .map_err(Into::into)
     }
 }
 
@@ -1481,6 +1456,33 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gutters_accept_both_forms_and_reject_invalid_configuration() {
+        let list: Config = toml::from_str("gutters = ['DIAGNOSTICS', 'line-numbers']").unwrap();
+        let table: Config =
+            toml::from_str("[gutters]\nlayout = ['diagnostics', 'line-numbers']").unwrap();
+        assert_eq!(list.gutters, table.gutters);
+        assert_eq!(list.gutters.line_numbers.min_width, 3);
+        let customized: Config = toml::from_str("[gutters.line-numbers]\nmin-width = 7").unwrap();
+        assert_eq!(customized.gutters.layout, GutterConfig::default().layout);
+        assert_eq!(customized.gutters.line_numbers.min_width, 7);
+        assert_eq!(
+            toml::from_str::<Config>(&toml::to_string(&customized).unwrap())
+                .unwrap()
+                .gutters,
+            customized.gutters
+        );
+        for value in [
+            "true",
+            "['invalid']",
+            "[1]",
+            "{ unknown = true }",
+            "{ line-numbers = { unknown = 1 } }",
+        ] {
+            assert!(toml::from_str::<Config>(&format!("gutters = {value}")).is_err());
+        }
+    }
 
     #[test]
     fn border_style_defaults_to_rounded_and_round_trips_all_choices() {

@@ -80,7 +80,8 @@ pub const DEFAULT_LANGUAGE_NAME: &str = "text";
 
 pub const SCRATCH_BUFFER_NAME: &str = "[scratch]";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Mode {
     Normal = 0,
     Select = 1,
@@ -134,14 +135,6 @@ impl<'de> Deserialize<'de> for Mode {
     }
 }
 
-impl Serialize for Mode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(self)
-    }
-}
 /// A buffer savepoint together with the originating view's selection.
 #[derive(Debug)]
 pub struct SavePoint {
