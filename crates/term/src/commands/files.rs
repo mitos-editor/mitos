@@ -483,8 +483,8 @@ pub(super) mod typed {
         };
 
         let style = style.context("invalid indent style")?;
-        let doc = doc_mut!(cx.editor);
-        doc.indent_style = style;
+        let id = doc!(cx.editor).id();
+        cx.editor.set_document_indent_style(id, style)?;
 
         Ok(())
     }
@@ -540,27 +540,7 @@ pub(super) mod typed {
             arg if arg.starts_with("nel") => Nel,
             _ => bail!("invalid line ending"),
         };
-        let (view, doc) = current!(cx.editor);
-
-        let mut pos = 0;
-        let transaction = Transaction::change(
-            doc.text(),
-            doc.text().lines(stdx::rope::LINE_TYPE).filter_map(|line| {
-                pos += line.len_chars();
-                match editor_core::line_ending::get_line_ending(&line) {
-                    Some(ending) if ending != line_ending => {
-                        let start = pos - ending.len_chars();
-                        let end = pos;
-                        Some((start, end, Some(line_ending.as_str().into())))
-                    }
-                    _ => None,
-                }
-            }),
-        );
-        view::editing::apply(doc, &transaction, view.id)?;
-        doc.line_ending = line_ending;
-        doc.commit_changes();
-        view.sync_changes(doc);
+        cx.editor.set_line_ending(line_ending)?;
 
         Ok(())
     }

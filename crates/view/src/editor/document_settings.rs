@@ -1,10 +1,49 @@
 //! Complete document setting changes shared by frontends and background work.
 
-use crate::{DocumentId, Editor};
+use crate::{editing, editing::EditError, DocumentId, Editor};
 use anyhow::{anyhow, Context as _, Result};
+use editor_core::{indent::IndentStyle, LineEnding, Transaction};
 use language_config::SpellingLanguage;
 
 impl Editor {
+    /// Choose the indentation used by future edits without changing existing text.
+    pub fn set_document_indent_style(
+        &mut self,
+        doc_id: DocumentId,
+        style: IndentStyle,
+    ) -> Result<()> {
+        self.document_mut(doc_id)
+            .context("document is closed")?
+            .indent_style = style;
+        Ok(())
+    }
+
+    /// Convert existing line endings and choose the default for future insertions.
+    /// Rejected edits leave the setting and pending undo group unchanged.
+    pub fn set_line_ending(&mut self, line_ending: LineEnding) -> Result<(), EditError> {
+        let (view, doc) = current!(self);
+        let mut pos = 0;
+        let transaction = Transaction::change(
+            doc.text(),
+            doc.text().lines(stdx::rope::LINE_TYPE).filter_map(|line| {
+                pos += line.len_chars();
+                match editor_core::line_ending::get_line_ending(&line) {
+                    Some(ending) if ending != line_ending => Some((
+                        pos - ending.len_chars(),
+                        pos,
+                        Some(line_ending.as_str().into()),
+                    )),
+                    _ => None,
+                }
+            }),
+        );
+        editing::apply(doc, &transaction, view.id)?;
+        doc.line_ending = line_ending;
+        doc.commit_changes();
+        view.sync_changes(doc);
+        Ok(())
+    }
+
     /// Set an explicit language, or plain text with `None`, without changing text or focus.
     pub fn set_document_language(
         &mut self,
@@ -86,5 +125,41 @@ impl Editor {
             doc: doc_id,
         })
         .report_to(self.status_sender());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::editor::Action;
+
+    #[tokio::test]
+    async fn rejected_line_ending_conversion_preserves_text_setting_and_history(
+    ) -> anyhow::Result<()> {
+        use editor_core::{LineEnding, Rope};
+        let (mut editor, _store) = crate::editor::tests::editor("#[|]#\n");
+        let doc = crate::Document::from(
+            Rope::from("readonly\n"),
+            None,
+            editor.config.clone(),
+            editor.syn_loader.load_full(),
+        )
+        .with_readonly_name("adapter source".into());
+        editor.new_file_from_document(Action::Replace, doc);
+        let before = current_ref!(editor).1.line_ending;
+        let selection = current_ref!(editor)
+            .1
+            .selection(current_ref!(editor).0.id)
+            .clone();
+        assert!(matches!(
+            editor.set_line_ending(LineEnding::Crlf),
+            Err(crate::editing::EditError::ReadOnlyDocument)
+        ));
+        let (view, doc) = current_ref!(editor);
+        assert_eq!(doc.text(), "readonly\n");
+        assert_eq!(doc.line_ending, before);
+        assert_eq!(doc.selection(view.id), &selection);
+        assert!(doc.changes().is_empty());
+        assert!(!editor.change_history(buffer::HistoryAction::Undo));
+        Ok(())
     }
 }

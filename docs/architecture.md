@@ -243,6 +243,11 @@ then synchronizes the view's jump history after a successful operation. Callers
 working with another view explicitly synchronize it at the coordination boundary.
 Viewport layout and scrolling continue to require a concrete view.
 
+`Editor::set_line_ending` owns text conversion, the insertion default, and the
+history checkpoint with view synchronization. `set_document_indent_style` changes
+future indentation without rewriting text. Terminal commands parse and report
+these settings through the shared operations.
+
 ### Text transformations
 
 `core::transform` builds transactions for selected text without editor or frontend

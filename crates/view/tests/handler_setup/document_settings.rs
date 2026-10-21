@@ -118,3 +118,52 @@ async fn dictionary_overrides_disable_and_restore_inheritance_and_invalidate_che
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn line_ending_conversion_maps_split_selections_and_has_one_undo_step() -> anyhow::Result<()>
+{
+    use buffer::HistoryAction;
+    use editor_core::{LineEnding, Selection};
+    let mut f = Fixture::new("é\r\nx\nlast")?;
+    let (view, doc) = current!(f.editor);
+    let id = doc.id();
+    let origin = view.id;
+    let original = Selection::single(3, 4);
+    doc.set_selection(origin, original.clone());
+    view.push_jump(doc, (id, Selection::point(5)));
+    f.editor.switch(id, Action::VerticalSplit);
+    let other = current_ref!(f.editor).0.id;
+    current!(f.editor)
+        .1
+        .set_selection(other, Selection::point(5));
+    f.editor.focus(origin);
+    f.editor.set_line_ending(LineEnding::LF)?;
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(doc.text(), "é\nx\nlast");
+    assert_eq!(doc.line_ending, LineEnding::LF);
+    assert_eq!(doc.selection(origin), &Selection::single(2, 3));
+    assert_eq!(doc.selection(other), &Selection::single(4, 5));
+    assert_eq!(view.jumps.iter().next_back().unwrap().1.primary().anchor, 4);
+    assert!(f.editor.change_history(HistoryAction::Undo));
+    assert_eq!(current_ref!(f.editor).1.text(), "é\r\nx\nlast");
+    assert_eq!(current_ref!(f.editor).1.selection(origin), &original);
+    assert!(!f.editor.change_history(HistoryAction::Undo));
+    assert!(f.editor.change_history(HistoryAction::Redo));
+    assert_eq!(current_ref!(f.editor).1.text(), "é\nx\nlast");
+    Ok(())
+}
+
+#[tokio::test]
+async fn indentation_choice_for_a_hidden_document_preserves_text_and_focus() -> anyhow::Result<()> {
+    let mut f = Fixture::new("a\n")?;
+    let id = current_ref!(f.editor).1.id();
+    let focused = f.editor.new_file(Action::Replace);
+    f.editor
+        .set_document_indent_style(id, editor_core::indent::IndentStyle::Spaces(2))?;
+    let doc = f.editor.document(id).unwrap();
+    assert_eq!(doc.indent_width(), 2);
+    assert_eq!(doc.text(), "a\n");
+    assert!(doc.changes().is_empty());
+    assert_eq!(current_ref!(f.editor).1.id(), focused);
+    Ok(())
+}
