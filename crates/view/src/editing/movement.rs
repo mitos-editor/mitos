@@ -1,5 +1,8 @@
 //! Visual movement and scrolling over a document's prepared view layout.
 
+mod text;
+pub use text::{move_text, LineBoundary, TextMotion, WordMotionTarget};
+
 use crate::{Align, Document, View};
 use editor_core::movement::{Direction, Movement};
 use text_layout::{char_idx_at_visual_offset, visual_offset_from_block};

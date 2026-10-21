@@ -264,6 +264,16 @@ these errors to their callers. Selection adjustments travel with transactions so
 rejected edits cannot move cursors or change undo groups. Terminal commands report
 rejections and emit successful-input events or change mode only after acceptance.
 
+### Ordinary text motions
+
+`view::editing::movement::move_text` owns character, line-boundary, word/subword,
+and paragraph selection updates through typed motions. These operations use only
+the document and its stored `ViewId`, with explicit counts and move/extend
+behavior. Word extension preserves the original anchor; line endings remain
+grapheme aligned, including CRLF. Terminal commands choose the motion, interpret
+mode, and retain paragraph-motion repetition and next-key character-find input.
+Visual movement remains separate because it requires viewport layout.
+
 ### Syntax-aware editing
 
 Document editing operations resolve indentation, comment tokens, and automatic

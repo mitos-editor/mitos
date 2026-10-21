@@ -48,54 +48,56 @@ pub fn move_horizontally(
 }
 
 pub fn move_next_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextWordStart)
+    move_word(slice, range, count, WordMotionTarget::NextWordStart)
 }
 
 pub fn move_next_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextWordEnd)
+    move_word(slice, range, count, WordMotionTarget::NextWordEnd)
 }
 
 pub fn move_prev_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevWordStart)
+    move_word(slice, range, count, WordMotionTarget::PrevWordStart)
 }
 
 pub fn move_prev_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevWordEnd)
+    move_word(slice, range, count, WordMotionTarget::PrevWordEnd)
 }
 
 pub fn move_next_long_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextLongWordStart)
+    move_word(slice, range, count, WordMotionTarget::NextLongWordStart)
 }
 
 pub fn move_next_long_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextLongWordEnd)
+    move_word(slice, range, count, WordMotionTarget::NextLongWordEnd)
 }
 
 pub fn move_prev_long_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevLongWordStart)
+    move_word(slice, range, count, WordMotionTarget::PrevLongWordStart)
 }
 
 pub fn move_prev_long_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevLongWordEnd)
+    move_word(slice, range, count, WordMotionTarget::PrevLongWordEnd)
 }
 
 pub fn move_next_sub_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextSubWordStart)
+    move_word(slice, range, count, WordMotionTarget::NextSubWordStart)
 }
 
 pub fn move_next_sub_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::NextSubWordEnd)
+    move_word(slice, range, count, WordMotionTarget::NextSubWordEnd)
 }
 
 pub fn move_prev_sub_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevSubWordStart)
+    move_word(slice, range, count, WordMotionTarget::PrevSubWordStart)
 }
 
 pub fn move_prev_sub_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevSubWordEnd)
+    move_word(slice, range, count, WordMotionTarget::PrevSubWordEnd)
 }
 
-fn word_move(slice: RopeSlice, range: Range, count: usize, target: WordMotionTarget) -> Range {
+/// Build a word selection for an explicit target, ignoring the previous anchor.
+/// The named word/subword helpers delegate to this operation.
+pub fn move_word(slice: RopeSlice, range: Range, count: usize, target: WordMotionTarget) -> Range {
     let is_prev = matches!(
         target,
         WordMotionTarget::PrevWordStart

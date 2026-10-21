@@ -1,17 +1,12 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
-use stdx::rope::RopeExt as _;
-use view::editing::movement::{LineMotion, ScrollCursor};
-
-use editor_core::{
-    graphemes,
-    line_ending::line_end_char_index,
-    movement::{self, move_horizontally, Direction, Movement},
-    Range, RopeSlice,
+use view::editing::movement::{
+    self as shared, LineBoundary, LineMotion, ScrollCursor, TextMotion, WordMotionTarget,
 };
-use stdx::rope::RopeSliceExt;
+
+use editor_core::movement::{self, Direction, Movement};
 use ui_core::keyboard::KeyCode;
-use view::{align_view, document::Mode, editor::Motion, view::View, Align, Document, Editor};
+use view::{align_view, document::Mode, editor::Motion, Align, Editor};
 
 use super::context::Context;
 
@@ -22,14 +17,13 @@ fn move_impl(cx: &mut Context, lines: LineMotion, dir: Direction, behaviour: Mov
 }
 
 fn move_char_impl(cx: &mut Context, dir: Direction, behaviour: Movement) {
+    text_motion(cx, TextMotion::Character(dir), behaviour);
+}
+
+fn text_motion(cx: &mut Context, motion: TextMotion, behaviour: Movement) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| move_horizontally(text, range, dir, count, behaviour));
-    doc.set_selection(view.id, selection);
+    shared::move_text(doc, view.id, motion, count, behaviour);
 }
 
 pub(super) fn move_char_left(cx: &mut Context) {
@@ -100,140 +94,41 @@ pub(super) fn extend_visual_line_down(cx: &mut Context) {
     move_impl(cx, LineMotion::Visual, Direction::Forward, Movement::Extend)
 }
 
-fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-        let line_start = text.line_to_char_idx(line);
-
-        let pos = graphemes::prev_grapheme_boundary(text, line_end_char_index(&text, line))
-            .max(line_start);
-
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
+fn line_boundary(cx: &mut Context, boundary: LineBoundary, extend: bool) {
+    let behaviour = if extend || cx.editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
+    };
+    text_motion(cx, TextMotion::LineBoundary(boundary), behaviour);
 }
 
 pub(super) fn goto_line_end(cx: &mut Context) {
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_impl(
-        view,
-        doc,
-        if mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
+    line_boundary(cx, LineBoundary::End, false);
 }
-
 pub(super) fn extend_to_line_end(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_impl(view, doc, Movement::Extend)
-}
-
-fn goto_line_end_newline_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-        let pos = line_end_char_index(&text, line);
-
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
+    line_boundary(cx, LineBoundary::End, true);
 }
 
 pub(super) fn goto_line_end_newline(cx: &mut Context) {
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_newline_impl(
-        view,
-        doc,
-        if mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
+    line_boundary(cx, LineBoundary::Ending, false);
 }
-
 pub(super) fn extend_to_line_end_newline(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_end_newline_impl(view, doc, Movement::Extend)
-}
-
-fn goto_line_start_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-
-        // adjust to start of the line
-        let pos = text.line_to_char_idx(line);
-        range.put_cursor(text, pos, movement == Movement::Extend)
-    });
-    doc.set_selection(view.id, selection);
+    line_boundary(cx, LineBoundary::Ending, true);
 }
 
 pub(super) fn goto_line_start(cx: &mut Context) {
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    goto_line_start_impl(
-        view,
-        doc,
-        if mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
+    line_boundary(cx, LineBoundary::Start, false);
 }
-
 pub(super) fn extend_to_line_start(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_line_start_impl(view, doc, Movement::Extend)
+    line_boundary(cx, LineBoundary::Start, true);
 }
 
 pub(super) fn goto_first_nonwhitespace(cx: &mut Context) {
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-
-    goto_first_nonwhitespace_impl(
-        view,
-        doc,
-        if mode == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        },
-    )
+    line_boundary(cx, LineBoundary::FirstNonWhitespace, false);
 }
-
 pub(super) fn extend_to_first_nonwhitespace(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    goto_first_nonwhitespace_impl(view, doc, Movement::Extend)
-}
-
-fn goto_first_nonwhitespace_impl(view: &mut View, doc: &mut Document, movement: Movement) {
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let line = range.cursor_line(text);
-
-        if let Some(pos) = text
-            .line(line, stdx::rope::LINE_TYPE)
-            .first_non_whitespace_char()
-        {
-            let pos = pos + text.line_to_char_idx(line);
-            range.put_cursor(text, pos, movement == Movement::Extend)
-        } else {
-            range
-        }
-    });
-    doc.set_selection(view.id, selection);
+    line_boundary(cx, LineBoundary::FirstNonWhitespace, true);
 }
 
 fn goto_window(cx: &mut Context, align: Align) {
@@ -260,163 +155,135 @@ pub(super) fn goto_window_bottom(cx: &mut Context) {
     goto_window(cx, Align::Bottom)
 }
 
-fn move_word_impl<F>(cx: &mut Context, move_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize) -> Range,
-{
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc
-        .selection(view.id)
-        .clone()
-        .transform(|range| move_fn(text, range, count));
-    doc.set_selection(view.id, selection);
+fn move_word_impl(cx: &mut Context, motion: WordMotionTarget) {
+    text_motion(cx, TextMotion::Word(motion), Movement::Move);
 }
 
 pub(super) fn move_next_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_word_start)
+    move_word_impl(cx, WordMotionTarget::NextWordStart)
 }
 
 pub(super) fn move_prev_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_word_start)
+    move_word_impl(cx, WordMotionTarget::PrevWordStart)
 }
 
 pub(super) fn move_prev_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_word_end)
+    move_word_impl(cx, WordMotionTarget::PrevWordEnd)
 }
 
 pub(super) fn move_next_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_word_end)
+    move_word_impl(cx, WordMotionTarget::NextWordEnd)
 }
 
 pub(super) fn move_next_long_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_long_word_start)
+    move_word_impl(cx, WordMotionTarget::NextLongWordStart)
 }
 
 pub(super) fn move_prev_long_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_long_word_start)
+    move_word_impl(cx, WordMotionTarget::PrevLongWordStart)
 }
 
 pub(super) fn move_prev_long_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_long_word_end)
+    move_word_impl(cx, WordMotionTarget::PrevLongWordEnd)
 }
 
 pub(super) fn move_next_long_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_long_word_end)
+    move_word_impl(cx, WordMotionTarget::NextLongWordEnd)
 }
 
 pub(super) fn move_next_sub_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_sub_word_start)
+    move_word_impl(cx, WordMotionTarget::NextSubWordStart)
 }
 
 pub(super) fn move_prev_sub_word_start(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_sub_word_start)
+    move_word_impl(cx, WordMotionTarget::PrevSubWordStart)
 }
 
 pub(super) fn move_prev_sub_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_prev_sub_word_end)
+    move_word_impl(cx, WordMotionTarget::PrevSubWordEnd)
 }
 
 pub(super) fn move_next_sub_word_end(cx: &mut Context) {
-    move_word_impl(cx, movement::move_next_sub_word_end)
+    move_word_impl(cx, WordMotionTarget::NextSubWordEnd)
 }
 
-fn goto_para_impl<F>(cx: &mut Context, move_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize, Movement) -> Range + 'static,
-{
+fn goto_para_impl(cx: &mut Context, direction: Direction) {
     let count = cx.count();
-    let motion = move |editor: &mut Editor| {
-        let mode = editor.mode();
-        let (view, doc) = current!(editor);
-        let text = doc.text().slice(..);
-        let behavior = if mode == Mode::Select {
+    cx.editor.apply_motion(move |editor: &mut Editor| {
+        let behaviour = if editor.mode() == Mode::Select {
             Movement::Extend
         } else {
             Movement::Move
         };
-
-        let selection = doc
-            .selection(view.id)
-            .clone()
-            .transform(|range| move_fn(text, range, count, behavior));
-        doc.set_selection(view.id, selection);
-    };
-    cx.editor.apply_motion(motion)
+        let (view, doc) = current!(editor);
+        shared::move_text(
+            doc,
+            view.id,
+            TextMotion::Paragraph(direction),
+            count,
+            behaviour,
+        );
+    });
 }
 
 pub(super) fn goto_prev_paragraph(cx: &mut Context) {
-    goto_para_impl(cx, movement::move_prev_paragraph)
+    goto_para_impl(cx, Direction::Backward)
 }
 
 pub(super) fn goto_next_paragraph(cx: &mut Context) {
-    goto_para_impl(cx, movement::move_next_paragraph)
+    goto_para_impl(cx, Direction::Forward)
 }
 
-fn extend_word_impl<F>(cx: &mut Context, extend_fn: F)
-where
-    F: Fn(RopeSlice, Range, usize) -> Range,
-{
-    let count = cx.count();
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let word = extend_fn(text, range, count);
-        let pos = word.cursor(text);
-        range.put_cursor(text, pos, true)
-    });
-    doc.set_selection(view.id, selection);
+fn extend_word_impl(cx: &mut Context, motion: WordMotionTarget) {
+    text_motion(cx, TextMotion::Word(motion), Movement::Extend);
 }
 
 pub(super) fn extend_next_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_word_start)
+    extend_word_impl(cx, WordMotionTarget::NextWordStart)
 }
 
 pub(super) fn extend_prev_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_word_start)
+    extend_word_impl(cx, WordMotionTarget::PrevWordStart)
 }
 
 pub(super) fn extend_next_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_word_end)
+    extend_word_impl(cx, WordMotionTarget::NextWordEnd)
 }
 
 pub(super) fn extend_prev_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_word_end)
+    extend_word_impl(cx, WordMotionTarget::PrevWordEnd)
 }
 
 pub(super) fn extend_next_long_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_long_word_start)
+    extend_word_impl(cx, WordMotionTarget::NextLongWordStart)
 }
 
 pub(super) fn extend_prev_long_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_long_word_start)
+    extend_word_impl(cx, WordMotionTarget::PrevLongWordStart)
 }
 
 pub(super) fn extend_prev_long_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_long_word_end)
+    extend_word_impl(cx, WordMotionTarget::PrevLongWordEnd)
 }
 
 pub(super) fn extend_next_long_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_long_word_end)
+    extend_word_impl(cx, WordMotionTarget::NextLongWordEnd)
 }
 
 pub(super) fn extend_next_sub_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_sub_word_start)
+    extend_word_impl(cx, WordMotionTarget::NextSubWordStart)
 }
 
 pub(super) fn extend_prev_sub_word_start(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_sub_word_start)
+    extend_word_impl(cx, WordMotionTarget::PrevSubWordStart)
 }
 
 pub(super) fn extend_prev_sub_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_prev_sub_word_end)
+    extend_word_impl(cx, WordMotionTarget::PrevSubWordEnd)
 }
 
 pub(super) fn extend_next_sub_word_end(cx: &mut Context) {
-    extend_word_impl(cx, movement::move_next_sub_word_end)
+    extend_word_impl(cx, WordMotionTarget::NextSubWordEnd)
 }
 
 fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
