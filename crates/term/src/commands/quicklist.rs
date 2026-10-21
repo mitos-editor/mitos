@@ -125,7 +125,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
         Some((path_or_id, quicklist_entry_line_range(editor, &meta.entry)))
     });
 
-    cx.push_layer(Box::new(overlaid(picker)));
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub(super) fn goto_next_quicklist(cx: &mut Context) {

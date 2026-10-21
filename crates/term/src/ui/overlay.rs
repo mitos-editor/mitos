@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use editor_config::PickerLayout;
 use tui::buffer::Buffer;
 use view::{
     graphics::{Rect, RectExt as _},
@@ -16,20 +19,21 @@ pub struct Overlay<T> {
     pub calc_child_size: Box<dyn Fn(Rect) -> Rect>,
 }
 
-/// Surrounds the component with a margin of 5% on each side, and an additional 2 rows at the bottom
-pub fn overlaid<T>(content: T) -> Overlay<T> {
+/// Place a picker according to the live layout preference, reserving two bottom rows.
+pub fn overlaid<T>(editor: &Editor, content: T) -> Overlay<T> {
+    let config = Arc::clone(&editor.config);
     Overlay {
         content,
-        calc_child_size: Box::new(|rect: Rect| {
-            let percentage = if rect.width < FULL_OVERLAID_MAX_WIDTH {
-                100
-            } else {
-                90
-            };
-            let content = rect.clip_bottom(2);
-            clip_rect_relative(content, percentage, percentage)
-        }),
+        calc_child_size: Box::new(move |rect| picker_area(rect, config.load().picker.layout)),
     }
+}
+
+fn picker_area(rect: Rect, layout: PickerLayout) -> Rect {
+    let percentage = match layout {
+        PickerLayout::Auto if rect.width < FULL_OVERLAID_MAX_WIDTH => 100,
+        PickerLayout::Auto | PickerLayout::Centered => 90,
+    };
+    clip_rect_relative(rect.clip_bottom(2), percentage, percentage)
 }
 
 fn clip_rect_relative(rect: Rect, percent_horizontal: u8, percent_vertical: u8) -> Rect {
@@ -59,6 +63,9 @@ impl<T: Component + 'static> Component for Overlay<T> {
 
     fn render(&mut self, area: Rect, frame: &mut Buffer, ctx: &mut Context) {
         let dimensions = (self.calc_child_size)(area);
+        // Resizing or a live layout change also changes the child's page size.
+        self.content
+            .required_size((dimensions.width, dimensions.height));
         self.content.render(dimensions, frame, ctx)
     }
 
@@ -94,5 +101,49 @@ impl<T: Component + 'static> Component for Overlay<T> {
 
     fn id(&self) -> Option<&'static str> {
         self.content.id()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_layout_switches_at_200_columns() {
+        assert_eq!(
+            picker_area(Rect::new(3, 5, 199, 42), PickerLayout::Auto),
+            Rect::new(3, 5, 199, 40)
+        );
+        assert_eq!(
+            picker_area(Rect::new(3, 5, 200, 42), PickerLayout::Auto),
+            Rect::new(13, 7, 180, 36)
+        );
+    }
+
+    #[test]
+    fn centered_layout_keeps_margins_on_narrow_and_wide_terminals() {
+        assert_eq!(
+            picker_area(Rect::new(3, 5, 80, 42), PickerLayout::Centered),
+            Rect::new(7, 7, 72, 36)
+        );
+        assert_eq!(
+            picker_area(Rect::new(3, 5, 200, 42), PickerLayout::Centered),
+            Rect::new(13, 7, 180, 36)
+        );
+    }
+
+    #[test]
+    fn layouts_stay_inside_tiny_areas_and_reserve_bottom_rows() {
+        for layout in [PickerLayout::Auto, PickerLayout::Centered] {
+            for width in [0, 1, 2, 80, 199, 200, u16::MAX - 3] {
+                for height in [0, 1, 2, 3, 42, u16::MAX - 5] {
+                    let area = Rect::new(3, 5, width, height);
+                    let content = picker_area(area, layout);
+                    assert!(content.x >= area.x && content.right() <= area.right());
+                    assert!(content.y >= area.y);
+                    assert!(content.bottom() <= area.bottom().saturating_sub(height.min(2)));
+                }
+            }
+        }
     }
 }

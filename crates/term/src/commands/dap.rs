@@ -169,7 +169,7 @@ pub fn dap_launch(cx: &mut Context) {
         |item: &DebugTemplate, _| item.name.as_str().into(),
     )];
 
-    cx.push_layer(Box::new(overlaid(Picker::new(
+    let picker = Picker::new(
         cx.editor.redraw().clone(),
         columns,
         0,
@@ -196,7 +196,8 @@ pub fn dap_launch(cx: &mut Context) {
                 cx.jobs.callback(callback);
             }
         },
-    ))));
+    );
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub fn dap_restart(cx: &mut Context) {
@@ -468,7 +469,7 @@ pub fn dap_switch_session(cx: &mut Context) {
             item.parent.as_str().into()
         }),
     ];
-    cx.push_layer(Box::new(overlaid(Picker::new(
+    let picker = Picker::new(
         cx.editor.redraw().clone(),
         columns,
         0,
@@ -479,7 +480,8 @@ pub fn dap_switch_session(cx: &mut Context) {
                 cx.editor.set_error(|| error.to_string());
             }
         },
-    ))));
+    );
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub fn dap_switch_thread(cx: &mut Context) {

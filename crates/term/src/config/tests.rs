@@ -523,6 +523,19 @@ fn border_style_is_an_editor_setting_independent_of_the_theme() {
 }
 
 #[test]
+fn picker_layout_is_shared_by_all_pickers() {
+    assert_eq!(
+        Config::load_test("").editor.picker.layout,
+        editor_config::PickerLayout::Auto
+    );
+    let config = Config::load_test("[editor.picker]\nlayout = 'centered'");
+    assert_eq!(
+        config.editor.picker.layout,
+        editor_config::PickerLayout::Centered
+    );
+}
+
+#[test]
 fn popup_border_is_not_configurable() {
     let config = "[editor]\npopup-border = \"none\"".to_owned();
     let error = Config::load(Ok(&config), Err(ConfigLoadError::default())).unwrap_err();

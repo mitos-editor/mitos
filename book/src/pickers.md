@@ -26,6 +26,21 @@ Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.m
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).
 
+## Layout
+
+By default, pickers fill the available area on terminals narrower than 200
+columns and use a centered layout on wider terminals. To keep margins around
+pickers at every terminal size, set:
+
+```toml
+[editor.picker]
+layout = "centered"
+```
+
+The centered layout uses 90% of the available width and height. Both layouts
+reserve the bottom two rows. This preference applies to all pickers, including
+the command palette. Use `layout = "auto"` to restore the default behavior.
+
 ## Filtering results
 
 Most pickers use fuzzy matching with [fzf search syntax](https://github.com/junegunn/fzf#search-syntax).

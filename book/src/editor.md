@@ -194,6 +194,7 @@ skip-levels = 1
 | <span id="terminallauncher-section"></span>Debugging terminal | [Debugging](./debugging.md#terminal-for-the-debugged-program) |
 | <span id="editorinline-blame-section"></span><span id="format"></span>Inline Git blame | [Version control](./version-control.md#inline-blame) |
 | <span id="editorfile-picker-section"></span><span id="editorfile-explorer-section"></span>File navigation and ignore rules | [Pickers](./pickers.md#hidden-and-ignored-files) |
+| <span id="editorpicker-section"></span>Picker layout | [Picker layout](./pickers.md#layout) |
 | <span id="editorbuffer-picker-section"></span>Buffer picker | [Initial selection](./configuration.md#editorbuffer-picker) |
 | <span id="editorauto-pairs-section"></span>Delimiter pairing | [Auto-pairs](./configuration.md#editorauto-pairs) |
 | <span id="editorfilesauto-save-section"></span>Saving and reloading | [Files, buffers, and splits](./files.md#changes-made-outside-mitos) |

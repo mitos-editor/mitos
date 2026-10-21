@@ -321,6 +321,7 @@ pub struct Config {
     /// Whether to show icons in the user interface. Defaults to false.
     pub icons: bool,
     pub border_style: BorderStyle,
+    pub picker: PickerConfig,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
@@ -458,6 +459,22 @@ pub enum BreadcrumbPathOptions {
     Full,
     File,
     None,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PickerConfig {
+    pub layout: PickerLayout,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PickerLayout {
+    /// Fill the available area on narrow terminals and use margins on wider ones.
+    #[default]
+    Auto,
+    /// Always center the picker with margins around it.
+    Centered,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -1123,6 +1140,7 @@ impl Default for Config {
             auto_info: true,
             icons: false,
             border_style: BorderStyle::default(),
+            picker: PickerConfig::default(),
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
@@ -1481,6 +1499,38 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picker_layout_defaults_to_auto_and_round_trips_both_choices() {
+        assert_eq!(Config::default().picker.layout, PickerLayout::Auto);
+        for source in ["", "[picker]"] {
+            assert_eq!(
+                toml::from_str::<Config>(source).unwrap().picker.layout,
+                PickerLayout::Auto
+            );
+        }
+        for (name, expected) in [
+            ("auto", PickerLayout::Auto),
+            ("centered", PickerLayout::Centered),
+        ] {
+            let config: Config = toml::from_str(&format!("[picker]\nlayout = '{name}'")).unwrap();
+            assert_eq!(config.picker.layout, expected);
+            let serialized = toml::Value::try_from(&config).unwrap();
+            assert_eq!(serialized["picker"]["layout"].as_str(), Some(name));
+        }
+    }
+
+    #[test]
+    fn picker_layout_rejects_unknown_values_fields_and_wrong_types() {
+        for source in [
+            "layout = 'fullscreen'",
+            "layout = true",
+            "layout = 90",
+            "width = 90",
+        ] {
+            assert!(toml::from_str::<Config>(&format!("[picker]\n{source}")).is_err());
+        }
+    }
 
     #[test]
     fn border_style_defaults_to_rounded_and_round_trips_all_choices() {

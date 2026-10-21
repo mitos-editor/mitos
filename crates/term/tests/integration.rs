@@ -45,6 +45,7 @@ mod test {
     mod lsp_workspace;
     mod movement;
     mod navigation;
+    mod picker_layout;
     mod pull_diagnostics;
     mod rename;
     mod signature_help;

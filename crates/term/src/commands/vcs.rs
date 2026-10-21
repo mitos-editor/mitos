@@ -274,7 +274,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             }
         },
     );
-    cx.push_layer(Box::new(overlaid(picker)));
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub(super) fn goto_first_change(cx: &mut Context) {

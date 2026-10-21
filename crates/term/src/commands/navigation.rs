@@ -355,7 +355,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
             position: QuicklistPosition::Selection(meta.selection.clone()),
         })
     });
-    cx.push_layer(Box::new(overlaid(picker)));
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub(super) fn goto_word(cx: &mut Context) {

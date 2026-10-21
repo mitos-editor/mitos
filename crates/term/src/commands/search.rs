@@ -369,7 +369,7 @@ pub(super) fn global_search(cx: &mut Context) {
     .refresh_on_content_changes()
     .refresh_on_document_changes();
 
-    cx.push_layer(Box::new(overlaid(picker)));
+    cx.push_layer(Box::new(overlaid(cx.editor, picker)));
 }
 
 pub(super) fn selection_for_global_search_match(
