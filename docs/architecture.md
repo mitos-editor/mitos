@@ -221,6 +221,14 @@ pending replacement intact. Explicit selection movement cancels replacement;
 focus changes and history replay end the session. Term only translates navigation
 outcomes into messages; no next-key callback owns placeholder deletion.
 
+Accepted menu completions carry an opaque replay record containing their complete
+primary edits, adjacent receiver deletions, resulting selection, and rendered snippet metadata. Repeat
+validates and rebases this record together with checkpoint restoration before
+changing text, then installs the snippet session for subsequent recorded input.
+The record describes the original cursor arrangement; incompatible arrangements
+are rejected. Other server additional edits, such as imports, remain part of acceptance rather
+than being repeated as local insertion edits.
+
 ### Register-backed editing
 
 The editor coordinates yanking, register paste/replacement, and delete/change

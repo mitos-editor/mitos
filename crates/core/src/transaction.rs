@@ -131,6 +131,11 @@ impl ChangeSet {
         self.len
     }
 
+    /// Number of Unicode scalar values in the document after applying changes.
+    pub fn len_after(&self) -> usize {
+        self.len_after
+    }
+
     // TODO: from iter
 
     #[doc(hidden)] // used by lsp to convert to LSP changes

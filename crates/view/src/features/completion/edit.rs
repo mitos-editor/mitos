@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use editor_core::{Change, Rope, Selection, Transaction};
 use lsp_client::{lsp, util, OffsetEncoding};
-use snippets::{RenderedSnippet, Snippet, SnippetRenderCtx};
+use snippets::{ActiveSnippet, RenderedSnippet, Snippet, SnippetRenderCtx};
 
 use super::{
     additional_edits_transaction, trigger_auto_completion, AcceptedCompletion, CompletionItem,
@@ -13,9 +13,74 @@ use super::{
 use crate::{document::SavePoint, editing::EditError, Document, DocumentId, Editor, ViewId};
 
 /// Accepted edit information a frontend can record for insert-mode repetition.
+#[derive(Debug, Clone)]
 pub struct CompletionApply {
-    pub trigger_offset: usize,
-    pub changes: Vec<Change>,
+    pub(crate) trigger_offset: usize,
+    pub(crate) cursors: Vec<usize>,
+    pub(crate) changes: Vec<Change>,
+    pub(crate) selection: Selection,
+    pub(crate) snippet: Option<RenderedSnippet>,
+}
+
+impl CompletionApply {
+    fn new(
+        trigger_offset: usize,
+        text: &Rope,
+        selection: &Selection,
+        primary: &Transaction,
+        snippet: Option<&RenderedSnippet>,
+        additional: Option<&Transaction>,
+    ) -> Self {
+        let mut after_primary = text.clone();
+        primary.apply(&mut after_primary);
+        // Postfix completions can delete their receiver in an additional edit.
+        // Include deletions adjoining the primary replacement in the local edit;
+        // file-wide additional edits such as imports are not insertion repetition.
+        let ranges: Vec<_> = primary
+            .changes_iter()
+            .map(|(from, to, _)| {
+                (
+                    primary.changes().map_pos(from, editor_core::Assoc::Before),
+                    primary.changes().map_pos(to, editor_core::Assoc::After),
+                )
+            })
+            .collect();
+        let local = Transaction::change(
+            &after_primary,
+            additional
+                .into_iter()
+                .flat_map(|edit| edit.changes_iter())
+                .filter_map(|(from, to, _)| {
+                    (from < to
+                        && ranges
+                            .iter()
+                            .any(|&(start, end)| to == start || from == end))
+                    .then_some((from, to, None))
+                }),
+        );
+        let snippet = snippet
+            .cloned()
+            .and_then(ActiveSnippet::new)
+            .and_then(|mut snippet| {
+                (!snippet.map(local.changes())).then(|| snippet.into_rendered())
+            });
+        let resulting_selection = primary
+            .selection()
+            .cloned()
+            .unwrap_or_else(|| selection.clone().map(primary.changes()))
+            .map(local.changes());
+        let transaction = primary.clone().compose(local);
+        Self {
+            trigger_offset,
+            cursors: selection
+                .iter()
+                .map(|range| range.cursor(text.slice(..)))
+                .collect(),
+            changes: transaction.changes_iter().collect(),
+            selection: resulting_selection,
+            snippet,
+        }
+    }
 }
 
 pub(super) enum CompletionEdit {
@@ -200,17 +265,19 @@ impl Editor {
         doc.commit_changes();
         view.sync_changes(doc);
         let before = doc.snapshot();
+        let applied = CompletionApply::new(
+            trigger_offset,
+            doc.text(),
+            doc.selection(view.id),
+            &transaction,
+            snippet.as_ref(),
+            additional.as_ref(),
+        );
         crate::editing::apply(doc, &transaction, view.id)?;
         if let Some(snippet) = snippet {
             doc.install_snippet(view.id, snippet);
         }
-        self.handlers.completions.edit = Some(CompletionEdit::Applied(CompletionApply {
-            trigger_offset,
-            changes: transaction
-                .changes_iter()
-                .filter(|(start, end, _)| (*start..=*end).contains(&trigger_offset))
-                .collect(),
-        }));
+        self.handlers.completions.edit = Some(CompletionEdit::Applied(applied));
 
         if let Some(additional) = additional {
             crate::editing::apply(doc, &additional, view.id)?;
@@ -346,6 +413,67 @@ mod tests {
     use super::*;
     use crate::Document;
     use arc_swap::ArcSwap;
+
+    #[tokio::test]
+    async fn snippet_replay_preserves_multiple_cursors_after_a_unicode_prefix_shift() {
+        use editor_core::Range;
+        let (mut doc, view) = crate::editing::tests::document_and_view("#[|]#\n\n");
+        doc.set_selection(
+            view.id,
+            Selection::new(vec![Range::point(0), Range::point(1)].into(), 1),
+        );
+        let source = doc.selection(view.id).clone();
+        let (primary, _, snippet) = Snippet::parse("${1:one}$0").unwrap().render(
+            doc.text(),
+            &source,
+            |range| {
+                let cursor = range.cursor(doc.text().slice(..));
+                (cursor, cursor)
+            },
+            &mut doc.snippet_ctx(),
+        );
+        let primary = primary
+            .with_selection(snippet.first_selection(editor_core::movement::Direction::Forward, 1));
+        let applied = CompletionApply::new(1, doc.text(), &source, &primary, Some(&snippet), None);
+        let prefix = Transaction::change(doc.text(), [(0, 0, Some("界\n".into()))].into_iter());
+        crate::editing::apply(&mut doc, &prefix, view.id).unwrap();
+        crate::editing::replay::completion(&mut doc, view.id, None, &applied).unwrap();
+        assert_eq!(doc.text(), "界\none\none\n");
+        assert_eq!(doc.selection(view.id).primary_index(), 1);
+        crate::editing::insert::insert_char(&mut doc, view.id, 'é', None).unwrap();
+        assert_eq!(doc.text(), "界\né\né\n");
+    }
+
+    #[tokio::test]
+    async fn snippet_replay_removes_the_receiver_without_repeating_a_combined_import_edit() {
+        let (mut doc, view) = crate::editing::tests::document_and_view("x.f#[|]#\n");
+        let source = doc.selection(view.id).clone();
+        let (primary, _, snippet) = Snippet::parse("call(${1:arg})$0").unwrap().render(
+            doc.text(),
+            &source,
+            |_| (2, 3),
+            &mut doc.snippet_ctx(),
+        );
+        let primary = primary
+            .with_selection(snippet.first_selection(editor_core::movement::Direction::Forward, 0));
+        let mut text = doc.text().clone();
+        primary.apply(&mut text);
+        let additional =
+            Transaction::change(&text, [(0, 2, Some("use fruit;\n".into()))].into_iter());
+        let applied = CompletionApply::new(
+            3,
+            doc.text(),
+            &source,
+            &primary,
+            Some(&snippet),
+            Some(&additional),
+        );
+        crate::editing::replay::completion(&mut doc, view.id, None, &applied).unwrap();
+        assert_eq!(doc.text(), "call(arg)\n");
+        assert!(doc.active_snippet().is_some());
+        crate::editing::insert::insert_char(&mut doc, view.id, '界', None).unwrap();
+        assert_eq!(doc.text(), "call(界)\n");
+    }
 
     #[tokio::test]
     async fn insert_and_replace_ranges_honor_utf16_positions_and_replace_mode() {

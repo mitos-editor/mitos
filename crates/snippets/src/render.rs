@@ -23,7 +23,7 @@ pub enum TabstopKind {
     Transform(Arc<Transform>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 /// All rendered document ranges belonging to one logical tabstop.
 pub struct Tabstop {
     /// Ranges are grouped by rendered snippet instance and stored in document
@@ -70,7 +70,7 @@ impl Tabstop {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 /// Output metadata accumulated while inserting a snippet at one or more cursors.
 pub struct RenderedSnippet {
     /// Tabstops in navigation order, including the final stop.

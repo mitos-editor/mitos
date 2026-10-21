@@ -231,15 +231,7 @@ impl EditorView {
     pub fn clear_completion(&mut self, editor: &mut Editor) {
         self.completion = None;
         match editor.finish_completion() {
-            Ok(Some(view::features::completion::CompletionApply {
-                trigger_offset,
-                changes,
-            })) => {
-                self.record_insert_event(InsertEvent::CompletionApply {
-                    trigger_offset,
-                    changes,
-                });
-            }
+            Ok(Some(applied)) => self.record_insert_event(InsertEvent::CompletionApply(applied)),
             Ok(None) => {}
             Err(error) => editor.set_error(|| error.to_string()),
         }

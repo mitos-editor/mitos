@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use editor_core::{Change, Tendril};
+use editor_core::Tendril;
 use ui_core::input::KeyEvent;
 use view::{
     document::{Mode, SavePoint},
@@ -20,10 +20,7 @@ pub(crate) enum RepeatPlan {
 #[derive(Debug, Clone)]
 pub(crate) enum InsertEvent {
     Key(KeyEvent),
-    CompletionApply {
-        trigger_offset: usize,
-        changes: Vec<Change>,
-    },
+    CompletionApply(view::features::completion::CompletionApply),
     InlineCompletionApply(view::features::inline_completion::AppliedInlineCompletion),
     TriggerCompletion,
     RequestCompletion,
@@ -103,18 +100,9 @@ impl RepeatPlan {
                                 replay::validate_target(current_ref!(cx.editor).1)?;
                                 insert_key(cx, *key)?;
                             }
-                            InsertEvent::CompletionApply {
-                                trigger_offset,
-                                changes,
-                            } => {
+                            InsertEvent::CompletionApply(applied) => {
                                 let (view, doc) = current!(cx.editor);
-                                replay::completion(
-                                    doc,
-                                    view.id,
-                                    checkpoint.as_deref(),
-                                    *trigger_offset,
-                                    changes,
-                                )?;
+                                replay::completion(doc, view.id, checkpoint.as_deref(), applied)?;
                             }
                             InsertEvent::InlineCompletionApply(applied) => {
                                 let (view, doc) = current!(cx.editor);

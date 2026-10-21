@@ -918,3 +918,46 @@ async fn postfix_snippets_accept_without_preview_and_preserve_typing_on_cancel(
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeating_postfix_snippets_preserves_receiver_edits_tabstops_and_undo(
+) -> anyhow::Result<()> {
+    for ending in ["\n", "\r\n"] {
+        let dir = tempfile::tempdir()?;
+        let prefix = format!("// postfix{ending}");
+        let line = format!("/* 😀 */ x.f{ending}");
+        let original = format!("{prefix}{line}{line}");
+        let expanded = "/* 😀 */ for idx, value := range x {\n\t\n}\n".replace('\n', ending);
+        let mut f = Fixture::new(dir.path(), &original, &["alpha"]).await?;
+        f.app.editor.set_mode(Mode::Normal);
+        let (view, doc) = current!(f.app.editor);
+        doc.set_selection(
+            view.id,
+            Selection::point(original.chars().count() - ending.chars().count() - 1),
+        );
+        f.key("a").await?;
+        f.show().await?;
+        f.key("<tab>").await?;
+        f.key("<tab>").await?;
+        f.key("<ret>").await?;
+        for key in ["i", "d", "x", "<tab>", "v", "a", "l", "u", "e"] {
+            f.key(key).await?;
+        }
+        f.key("<esc>").await?;
+        assert_eq!(f.text(), format!("{prefix}{line}{expanded}"));
+        let (view, doc) = current!(f.app.editor);
+        let cursor = original[..original.find("x.f").unwrap() + 2]
+            .chars()
+            .count();
+        doc.set_selection(view.id, Selection::point(cursor));
+        f.key(".").await?;
+        assert_eq!(f.text(), format!("{prefix}{expanded}{expanded}"));
+        f.key("u").await?;
+        assert_eq!(f.text(), format!("{prefix}{line}{expanded}"));
+        assert!(current_ref!(f.app.editor).1.active_snippet().is_none());
+        f.key("U").await?;
+        assert_eq!(f.text(), format!("{prefix}{expanded}{expanded}"));
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}

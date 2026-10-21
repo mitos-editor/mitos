@@ -2,7 +2,7 @@
 
 use editor_core::{Change, Rope, Selection, Transaction};
 
-use crate::{document::SavePoint, Document, ViewId};
+use crate::{document::SavePoint, features::completion::CompletionApply, Document, ViewId};
 
 use super::EditError;
 
@@ -12,6 +12,8 @@ pub enum ReplayError {
     InvalidEdit,
     #[error("Recorded cursor is outside the resulting text")]
     InvalidSelection,
+    #[error("Cannot repeat completion with a different cursor arrangement")]
+    IncompatibleSelections,
     #[error(transparent)]
     Edit(#[from] EditError),
 }
@@ -78,8 +80,7 @@ pub fn completion(
     doc: &mut Document,
     view: ViewId,
     savepoint: Option<&SavePoint>,
-    recorded_cursor: usize,
-    changes: &[Change],
+    applied: &CompletionApply,
 ) -> Result<(), ReplayError> {
     let revert = savepoint
         .map(|saved| doc.savepoint_transaction(view, saved))
@@ -92,12 +93,65 @@ pub fn completion(
         doc.selection(view)
     };
     let cursor = selection.primary().cursor(text.slice(..));
-    let replay = transaction(&text, recorded_cursor, cursor, changes, None)?;
+    // The record describes the whole accepted edit, including all rendered
+    // snippet instances. Reject a different cursor layout before touching text.
+    if applied.cursors.len() != selection.len()
+        || applied
+            .cursors
+            .iter()
+            .zip(selection)
+            .any(|(&recorded, range)| {
+                shift(recorded, applied.trigger_offset, cursor)
+                    != Some(range.cursor(text.slice(..)))
+            })
+    {
+        return Err(ReplayError::IncompatibleSelections);
+    }
+    let replay = transaction(
+        &text,
+        applied.trigger_offset,
+        cursor,
+        &applied.changes,
+        None,
+    )?;
+    let result_len = replay.changes().len_after();
+    let position = |pos| {
+        shift(pos, applied.trigger_offset, cursor)
+            .filter(|&pos| pos <= result_len)
+            .ok_or(ReplayError::InvalidSelection)
+    };
+    let ranges = applied
+        .selection
+        .iter()
+        .map(|range| {
+            Ok(editor_core::Range::new(
+                position(range.anchor)?,
+                position(range.head)?,
+            ))
+        })
+        .collect::<Result<_, ReplayError>>()?;
+    let selection = Selection::new(ranges, applied.selection.primary_index());
+    let mut snippet = applied.snippet.clone();
+    if let Some(snippet) = &mut snippet {
+        for range in snippet.ranges.iter_mut().chain(
+            snippet
+                .tabstops
+                .iter_mut()
+                .flat_map(|tabstop| &mut tabstop.ranges),
+        ) {
+            range.start = position(range.start)?;
+            range.end = position(range.end)?;
+        }
+    }
+    let replay = replay.with_selection(selection);
     let transaction = match revert {
         Some(revert) => revert.compose(replay),
         None => replay,
     };
     super::apply(doc, &transaction, view)?;
+    if let Some(snippet) = snippet {
+        doc.install_snippet(view, snippet);
+    }
     Ok(())
 }
 
@@ -178,7 +232,18 @@ mod tests {
         let version = doc.version();
         let pending = doc.changes().clone();
         assert_eq!(
-            completion(&mut doc, view.id, Some(&saved), 2, &[(0, 99, None)]),
+            completion(
+                &mut doc,
+                view.id,
+                Some(&saved),
+                &CompletionApply {
+                    trigger_offset: 2,
+                    cursors: vec![2],
+                    changes: vec![(0, 99, None)],
+                    selection: Selection::point(2),
+                    snippet: None,
+                }
+            ),
             Err(ReplayError::InvalidEdit)
         );
         assert_eq!(doc.text(), &before);
@@ -189,12 +254,41 @@ mod tests {
             &mut doc,
             view.id,
             Some(&saved),
-            2,
-            &[(0, 2, Some("done".into()))],
+            &CompletionApply {
+                trigger_offset: 2,
+                cursors: vec![2],
+                changes: vec![(0, 2, Some("done".into()))],
+                selection: Selection::point(4),
+                snippet: None,
+            },
         )
         .unwrap();
         assert_eq!(doc.text(), "donec\n");
         assert_eq!(saved.saved_state(&doc).unwrap().0, "abc\n");
+    }
+
+    #[tokio::test]
+    async fn completion_rejects_changed_cursor_arrangements_without_restoring_its_checkpoint() {
+        let (mut doc, view) = document_and_view("#[|a]#b\n");
+        let saved = doc.savepoint(view.id);
+        editing::insert::insert_char(&mut doc, view.id, '界', None).unwrap();
+        let before = doc.text().clone();
+        let selection = doc.selection(view.id).clone();
+        let pending = doc.changes().clone();
+        let applied = CompletionApply {
+            trigger_offset: 0,
+            cursors: vec![0, 2],
+            changes: vec![(0, 1, Some("x".into()))],
+            selection: Selection::point(1),
+            snippet: None,
+        };
+        assert_eq!(
+            completion(&mut doc, view.id, Some(&saved), &applied),
+            Err(ReplayError::IncompatibleSelections)
+        );
+        assert_eq!(doc.text(), &before);
+        assert_eq!(doc.selection(view.id), &selection);
+        assert_eq!(doc.changes(), &pending);
     }
 
     #[tokio::test]

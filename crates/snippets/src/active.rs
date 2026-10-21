@@ -75,6 +75,14 @@ impl ActiveSnippet {
         })
     }
 
+    /// Recover render metadata after mapping a newly created session through edits.
+    pub fn into_rendered(self) -> RenderedSnippet {
+        RenderedSnippet {
+            ranges: self.ranges,
+            tabstops: self.tabstops,
+        }
+    }
+
     /// Iterates over the current render-time tabstop metadata.
     pub fn tabstops(&self) -> impl Iterator<Item = &Tabstop> {
         self.tabstops.iter()
