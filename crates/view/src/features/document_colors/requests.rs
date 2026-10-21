@@ -159,15 +159,10 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Avoid re-requesting document colors if the change is a ghost transaction (completion)
-        // because the language server will not know about the updates to the document and will
-        // give out-of-date locations.
-        if !event.ghost_transaction {
-            // Cancel the ongoing request, if present.
-            event.doc.document_colors.request.cancel();
-            if let Some(handler) = &event.doc.document_colors.handler {
-                event::send_blocking(&handler.events, event.doc.id());
-            }
+        // Cancel the ongoing request, if present.
+        event.doc.document_colors.request.cancel();
+        if let Some(handler) = &event.doc.document_colors.handler {
+            event::send_blocking(&handler.events, event.doc.id());
         }
 
         Ok(())

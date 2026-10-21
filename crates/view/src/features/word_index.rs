@@ -315,8 +315,7 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if !event.ghost_transaction
-            && event.doc.word_completion_enabled()
+        if event.doc.word_completion_enabled()
             && let Some(trigger) = &event.doc.word_index_trigger
         {
             trigger.event(Event::Update(

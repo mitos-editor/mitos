@@ -88,7 +88,7 @@ impl PaneRenderer {
             Self::render_view(
                 editor,
                 options,
-                doc,
+                editor.completion_presentation(doc),
                 view,
                 options.area,
                 surface,
@@ -444,7 +444,9 @@ impl PaneRenderer {
         };
         decorations.add_decoration(text_decorations::debug_values::DebugValues::new(
             doc.text(),
-            editor.debugger_inline_values(view.id),
+            editor
+                .debugger_frame_in_document(doc)
+                .map_or(&[], |_| editor.debugger_inline_values(view.id)),
             theme
                 .try_get_exact("ui.virtual.debug-value")
                 .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),

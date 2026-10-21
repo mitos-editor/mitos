@@ -50,7 +50,7 @@ pub enum DocumentOpenError {
     IoError(#[from] io::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct FileState {
     path: Option<PathBuf>,
     relative_path: OnceLock<Option<PathBuf>>,

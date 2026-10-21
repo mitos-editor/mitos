@@ -600,6 +600,7 @@ impl Editor {
     pub fn cursor(&self) -> (Option<DisplayPosition>, CursorKind) {
         let config = self.config();
         let (view, doc) = current_ref!(self);
+        let doc = self.completion_presentation(doc);
         if let Some(mut pos) = self.cursor_cache.get(view, doc) {
             let inner = view.inner_area(doc);
             pos.col += inner.x as usize;

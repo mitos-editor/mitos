@@ -14,6 +14,13 @@ pub(crate) struct CodeActionHints {
 }
 
 impl CodeActionHints {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: CodeActionHintHandler) {
         self.handler = Some(handler);
     }

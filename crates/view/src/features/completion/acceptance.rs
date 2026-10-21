@@ -154,21 +154,15 @@ impl Editor {
                     else {
                         return;
                     };
-                    // Restore an unsynchronized preview before applying a real edit.
+                    // A newer menu was built before these imports. Retire its provider
+                    // savepoints before publishing edits it must not later overwrite.
                     if editor
                         .tree
                         .try_get(editor.tree.focus())
                         .is_some_and(|view| view.doc == accepted.document)
-                        && crate::features::completion::has_preview(editor)
+                        && super::has_preview(editor)
                     {
-                        if let Err(error) = editor.restore_completion_preview() {
-                            editor.set_error(|| error.to_string());
-                            return;
-                        }
-                        editor
-                            .handlers
-                            .completions
-                            .event(super::CompletionEvent::Cancel);
+                        super::invalidate(editor);
                     }
                     let Some(doc) = editor.document(accepted.document) else {
                         return;

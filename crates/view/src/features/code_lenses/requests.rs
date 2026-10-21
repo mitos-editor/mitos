@@ -57,11 +57,6 @@ fn request_document_code_lenses(
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
-    // A debounce callback or server refresh may arrive during a completion preview.
-    // Its ranges would describe the server's text rather than the displayed buffer.
-    if doc.code_lenses.preview_base.is_some() {
-        return;
-    }
     doc.code_lenses.cancel_requests();
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
@@ -169,7 +164,6 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         };
         if doc.code_lenses.version != Some(doc.version())
             || doc.code_lenses.uri != doc.uri()
-            || doc.code_lenses.preview_base.is_some()
             || !doc.code_lenses().iter().enumerate().any(|(index, lens)| {
                 lens.lens.command.is_none() && !doc.code_lenses.titles.contains_key(&index)
             })
@@ -402,9 +396,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if event.doc.code_lenses.preview_base.is_none()
-            && let Some(handler) = &event.doc.code_lenses.handler
-        {
+        if let Some(handler) = &event.doc.code_lenses.handler {
             event::send_blocking(&handler.events, event.doc.id());
         }
         Ok(())

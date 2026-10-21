@@ -1,6 +1,6 @@
 //! Document-owned code lens cache and request lifetimes.
 
-use editor_core::{Assoc, ChangeSet, Rope};
+use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 use std::collections::HashMap;
@@ -13,8 +13,6 @@ pub(crate) struct DocumentCodeLenses {
     pub(super) cache: Vec<CodeLens>,
     pub(super) version: Option<i32>,
     pub(super) uri: Option<editor_core::Uri>,
-    /// Server-visible text while temporary transactions preview a different buffer.
-    pub(super) preview_base: Option<editor_core::Rope>,
     pub(super) request: TaskController,
     pub(super) resolve: TaskController,
     /// One automatic attempt per lens and cache generation, including failures.
@@ -24,32 +22,27 @@ pub(crate) struct DocumentCodeLenses {
 }
 
 impl DocumentCodeLenses {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            version: self.version,
+            uri: self.uri.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: DocumentCodeLensesHandler) {
         self.handler = Some(handler);
     }
 
-    /// Keep cached anchors and preview ownership consistent before observers run.
-    pub(crate) fn apply_changes(
-        &mut self,
-        changes: &ChangeSet,
-        old_text: &Rope,
-        text: &Rope,
-        temporary: bool,
-    ) {
+    /// Keep cached anchors consistent before observers run.
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
         changes.update_positions(
             self.cache
                 .iter_mut()
                 .map(|lens| (&mut lens.char_idx, Assoc::After)),
         );
         self.cancel_requests();
-        if temporary {
-            self.preview_base.get_or_insert_with(|| old_text.clone());
-            if self.preview_base.as_ref().is_some_and(|base| base == text) {
-                self.preview_base = None;
-            }
-        } else {
-            self.preview_base = None;
-        }
     }
 
     /// Cancel both requests and queued publications, retaining mapped positions.
@@ -90,7 +83,7 @@ mod tests {
     #[tokio::test]
     async fn dropping_a_document_cancels_fetch_resolution_and_title_requests() {
         let mut doc = Document::from(
-            Rope::from("sample text"),
+            "sample text".into(),
             None,
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                 editor_config::Config::default(),

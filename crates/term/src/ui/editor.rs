@@ -230,10 +230,8 @@ impl EditorView {
 
     pub fn clear_completion(&mut self, editor: &mut Editor) {
         self.completion = None;
-        match editor.finish_completion() {
-            Ok(Some(applied)) => self.record_insert_event(InsertEvent::CompletionApply(applied)),
-            Ok(None) => {}
-            Err(error) => editor.set_error(|| error.to_string()),
+        if let Some(applied) = editor.finish_completion() {
+            self.record_insert_event(InsertEvent::CompletionApply(applied));
         }
     }
 
