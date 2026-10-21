@@ -1,49 +1,23 @@
 //! Shared coordination for LSP document colors results.
 
-use crate::features::request::{collect_responses, DocumentRequest};
-use std::collections::HashSet;
-
-use event::register_hook;
+use super::DocumentColorSwatches;
+use crate::{
+    features::request::{collect_responses, DocumentRequest},
+    DocumentId, Editor,
+};
 use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
+use std::collections::HashSet;
 use text_layout::text_annotations::InlineAnnotation;
-
-use crate::{
-    callbacks::EditorCallbackSender,
-    events::{
-        DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange, LanguageServerExited,
-        LanguageServerInitialized,
-    },
-    features::debounce::debounce_documents,
-    DocumentId, Editor,
-};
 use theme::Theme;
 
-use super::DocumentColorSwatches;
-
-/// Scheduling handle attached to documents owned by this editor.
-#[derive(Clone)]
-pub struct DocumentColorsHandler {
-    callbacks: EditorCallbackSender,
-    events: tokio::sync::mpsc::Sender<DocumentId>,
-}
-
-impl DocumentColorsHandler {
-    pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let events = debounce_documents(callbacks.clone(), |editor, doc| {
-            request_document_colors(editor, doc, None);
-        });
-        Self { callbacks, events }
-    }
-}
-
-fn request_document_colors(
+pub(crate) fn request_document_colors(
     editor: &mut Editor,
     doc_id: DocumentId,
     exited_server: Option<lsp_client::LanguageServerId>,
 ) {
-    let callbacks = editor.handlers.document_colors.callbacks.clone();
+    let callbacks = editor.handlers.document_refresh.callbacks.clone();
     if !editor.config().lsp.color_swatches.enable {
         return;
     }
@@ -143,55 +117,5 @@ fn attach_document_colors(
         color_swatches,
         colors,
         color_swatches_padding,
-    });
-}
-
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
-        request_document_colors(event.editor, event.doc, None);
-        Ok(())
-    });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        // when a document is initially opened, request colors for it
-        request_document_colors(event.editor, event.doc, None);
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Cancel the ongoing request, if present.
-        event.doc.document_colors.request.cancel();
-        if let Some(handler) = &event.doc.document_colors.handler {
-            event::send_blocking(&handler.events, event.doc.id());
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_colors(event.editor, doc_id, None);
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        // Clear and re-request all color swatches when a server exits.
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.document_colors.clear_cache();
-            }
-        }
-
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_colors(event.editor, doc_id, Some(event.server_id));
-        }
-
-        Ok(())
     });
 }

@@ -4,14 +4,12 @@ use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use text_layout::text_annotations::InlineAnnotation;
 
-use super::DocumentColorsHandler;
 use crate::Document;
 
 #[derive(Default)]
 pub(crate) struct DocumentColors {
     pub(super) cache: Option<DocumentColorSwatches>,
     pub(super) request: TaskController,
-    pub(super) handler: Option<DocumentColorsHandler>,
 }
 
 impl DocumentColors {
@@ -22,13 +20,13 @@ impl DocumentColors {
         }
     }
 
+    pub(crate) fn cancel_refresh(&mut self) {
+        self.request.cancel();
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.clear_cache();
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentColorsHandler) {
-        self.handler = Some(handler);
     }
 
     /// Keep cached anchors consistent before document-change observers run.
@@ -45,7 +43,7 @@ impl DocumentColors {
     }
 
     /// Clear rendered annotations without interrupting a replacement request.
-    pub(super) fn clear_cache(&mut self) {
+    pub(crate) fn clear_cache(&mut self) {
         self.cache = None;
     }
 }

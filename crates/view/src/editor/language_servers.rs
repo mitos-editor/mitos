@@ -22,7 +22,7 @@ impl Editor {
     /// Refreshes the language server for a given document
     pub fn refresh_language_servers(&mut self, doc_id: DocumentId) {
         self.launch_language_servers(doc_id);
-        crate::features::code_lenses::refresh_document(self, doc_id);
+        crate::features::document_refresh::refresh_document(self, doc_id);
     }
 
     /// Launch a language server for a given document

@@ -53,8 +53,8 @@ async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<Fixture> {
         .with_handler_setup(move |handlers, config| {
             *handlers = Handlers::new(config, sender);
             handlers.syntax = view::features::syntax::SyntaxHandler::new(background.clone());
-            handlers.document_links =
-                view::features::document_links::DocumentLinksHandler::new(background);
+            handlers.document_refresh =
+                view::features::document_refresh::DocumentRefreshHandler::new(background);
         })
         .with_lang_loader(lsp::syntax_loader(
             "rename",

@@ -5,7 +5,6 @@ use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 use std::collections::HashMap;
 
-use super::DocumentCodeLensesHandler;
 use crate::Document;
 
 #[derive(Default)]
@@ -18,7 +17,6 @@ pub(crate) struct DocumentCodeLenses {
     /// One automatic attempt per lens and cache generation, including failures.
     /// Dropping these controllers cancels queued requests and publications.
     pub(super) titles: HashMap<usize, TaskController>,
-    pub(super) handler: Option<DocumentCodeLensesHandler>,
 }
 
 impl DocumentCodeLenses {
@@ -29,10 +27,6 @@ impl DocumentCodeLenses {
             uri: self.uri.clone(),
             ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentCodeLensesHandler) {
-        self.handler = Some(handler);
     }
 
     /// Keep cached anchors consistent before observers run.
@@ -46,10 +40,15 @@ impl DocumentCodeLenses {
     }
 
     /// Cancel both requests and queued publications, retaining mapped positions.
-    pub(super) fn cancel_requests(&mut self) {
+    pub(crate) fn cancel_requests(&mut self) {
         self.request.cancel();
         self.resolve.cancel();
         self.titles.clear();
+    }
+
+    pub(crate) fn remove_server(&mut self, server: LanguageServerId) {
+        self.cancel_requests();
+        self.cache.retain(|lens| lens.language_server_id != server);
     }
 
     pub(crate) fn clear(&mut self) {

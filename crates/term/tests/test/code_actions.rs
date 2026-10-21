@@ -14,7 +14,7 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action as OpenAction,
-    features::{document_links::DocumentLinksHandler, syntax::SyntaxHandler},
+    features::{document_refresh::DocumentRefreshHandler, syntax::SyntaxHandler},
     graphics::Rect,
     handlers::Handlers,
     DocumentId, Editor,
@@ -99,7 +99,7 @@ impl Fixture {
         // Links and syntax publish empty async results even without a provider.
         // Keep their destination separate so this queue contains only action replies.
         let (background, _background_callbacks) = callbacks::channel();
-        handlers.document_links = DocumentLinksHandler::new(background.clone());
+        handlers.document_refresh = DocumentRefreshHandler::new(background.clone());
         handlers.syntax = SyntaxHandler::new(background);
         let mut editor = Editor::new(
             Rect::new(0, 0, 80, 24),

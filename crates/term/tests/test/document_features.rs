@@ -10,8 +10,7 @@ use view::{
     current, current_ref,
     editor::Action,
     features::{
-        code_lenses::DocumentCodeLensesHandler, document_colors::DocumentColorsHandler,
-        document_highlight::DocumentHighlightHandler, document_links::DocumentLinksHandler,
+        document_highlight::DocumentHighlightHandler, document_refresh::DocumentRefreshHandler,
         document_symbols::DocumentSymbolsHandler,
     },
 };
@@ -21,10 +20,8 @@ use super::helpers::{test_config, AppBuilder};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Feature {
-    Lenses,
-    Colors,
+    Cached,
     Highlights,
-    Links,
     Symbols,
 }
 
@@ -90,16 +87,15 @@ impl Fixture {
             &server_config,
         );
         let (tx, callbacks) = mpsc::channel(64);
-        // Use independent queues so publication can be held while the editor changes.
+        // Hold shared cache publications while the editor changes.
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
-                handlers.document_colors = DocumentColorsHandler::new(sender(Feature::Colors, &tx));
-                handlers.code_lenses = DocumentCodeLensesHandler::new(sender(Feature::Lenses, &tx));
+                handlers.document_refresh =
+                    DocumentRefreshHandler::new(sender(Feature::Cached, &tx));
                 handlers.document_highlight =
                     DocumentHighlightHandler::new(sender(Feature::Highlights, &tx));
-                handlers.document_links = DocumentLinksHandler::new(sender(Feature::Links, &tx));
                 handlers.document_symbols =
                     DocumentSymbolsHandler::new(sender(Feature::Symbols, &tx));
             })
@@ -215,12 +211,28 @@ impl Fixture {
 }
 
 const ALL: &[Feature] = &[
-    Feature::Lenses,
-    Feature::Colors,
+    Feature::Cached,
+    Feature::Cached,
+    Feature::Cached,
     Feature::Highlights,
-    Feature::Links,
     Feature::Symbols,
 ];
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_bursts_publish_document_features_for_the_latest_text() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("burst.feature-test"), "😀 original\n")?;
+    let initial = fixture.initialize().await?;
+    fixture.apply(initial);
+    fixture.edit("first");
+    fixture.edit("second");
+    fixture.edit("latest");
+    let responses = fixture.batch(ALL).await?;
+    fixture.apply(responses);
+    fixture.assert_features("😀 latest");
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn requests_events_and_results_stay_with_each_editor() -> anyhow::Result<()> {
@@ -375,7 +387,7 @@ async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::
     fixture.app.editor.language_servers.remove_by_id(server_id);
     fixture.apply(old);
     let responses = fixture
-        .batch(&[Feature::Lenses, Feature::Colors, Feature::Links])
+        .batch(&[Feature::Cached, Feature::Cached, Feature::Cached])
         .await?;
     fixture.apply(responses);
     let (_, doc) = current_ref!(fixture.app.editor);

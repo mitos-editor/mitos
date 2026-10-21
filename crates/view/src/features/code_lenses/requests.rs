@@ -1,51 +1,20 @@
 //! Shared code lens requests, lazy resolution, and lifecycle hooks.
-use stdx::rope::RopeExt as _;
 // Adapted from helix-editor/helix#5063 by Matouš Dzivjak.
 
-use crate::features::request::{collect_responses, DocumentRequest};
-use std::{collections::HashSet, future::Future, sync::Arc};
-
-use event::{cancelable_future, register_hook};
+use super::CodeLens;
+use crate::{
+    features::request::{collect_responses, DocumentRequest},
+    DocumentId, Editor,
+};
+use event::cancelable_future;
 use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, LanguageServerId};
+use std::{collections::HashSet, future::Future, sync::Arc};
+use stdx::rope::RopeExt as _;
 use tokio::sync::Semaphore;
 
-use crate::{
-    callbacks::EditorCallbackSender,
-    events::{
-        ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
-        LanguageServerExited, LanguageServerInitialized,
-    },
-    features::debounce::debounce_documents,
-    DocumentId, Editor,
-};
-
-use super::CodeLens;
-
-const MAX_CONCURRENT_RESOLUTIONS: usize = 4;
-
-#[derive(Clone)]
-pub struct DocumentCodeLensesHandler {
-    callbacks: EditorCallbackSender,
-    events: tokio::sync::mpsc::Sender<DocumentId>,
-    resolution_slots: Arc<Semaphore>,
-}
-
-impl DocumentCodeLensesHandler {
-    pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let events = debounce_documents(callbacks.clone(), |editor, doc| {
-            request_document_code_lenses(editor, doc, None);
-        });
-        Self {
-            callbacks,
-            events,
-            resolution_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_RESOLUTIONS)),
-        }
-    }
-}
-
-fn request_document_code_lenses(
+pub(crate) fn request_document_code_lenses(
     editor: &mut Editor,
     doc_id: DocumentId,
     exited_server: Option<LanguageServerId>,
@@ -53,7 +22,7 @@ fn request_document_code_lenses(
     if !editor.config().lsp.enable || !editor.config().lsp.code_lenses.enable {
         return;
     }
-    let callbacks = editor.handlers.code_lenses.callbacks.clone();
+    let callbacks = editor.handlers.document_refresh.callbacks.clone();
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
@@ -231,15 +200,16 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
             pending.push((doc.id(), index, lens.lens.clone(), server.clone()));
         }
     }
-    let handler = editor.handlers.code_lenses.clone();
+    let slots = editor.handlers.code_lens_resolution_slots.clone();
+    let callbacks = editor.handlers.document_refresh.callbacks.clone();
     for (doc_id, index, lens, server) in pending {
         let doc = editor.document_mut(doc_id).unwrap();
         let mut controller = event::TaskController::new();
         let cancel = controller.restart();
         doc.code_lenses.titles.insert(index, controller);
         let request = DocumentRequest::new(doc, cancel, vec![server.id()]);
-        let slots = handler.resolution_slots.clone();
-        let callbacks = handler.callbacks.clone();
+        let slots = slots.clone();
+        let callbacks = callbacks.clone();
         tokio::spawn(async move {
             let Some(result) =
                 cancelable_future(resolve_lens(server, lens, slots), &request.cancel).await
@@ -328,7 +298,7 @@ pub fn resolve_code_lenses(
     if !editor.config().lsp.enable || !editor.config().lsp.code_lenses.enable {
         return None;
     }
-    let slots = editor.handlers.code_lenses.resolution_slots.clone();
+    let slots = editor.handlers.code_lens_resolution_slots.clone();
     let doc = editor.document_mut(doc_id)?;
     // Mapped gutter positions remain useful during debounce, but protocol ranges
     // and commands still belong to the snapshot that produced the cache.
@@ -388,52 +358,4 @@ pub fn resolve_code_lenses(
             commands,
         })
     })
-}
-
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        request_document_code_lenses(event.editor, event.doc, None);
-        Ok(())
-    });
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.code_lenses.handler {
-            event::send_blocking(&handler.events, event.doc.id());
-        }
-        Ok(())
-    });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        event.doc.code_lenses.cancel_requests();
-        Ok(())
-    });
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        refresh_for_language_server(event.editor, event.server_id);
-        Ok(())
-    });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        let docs: Vec<_> = event
-            .editor
-            .documents_mut()
-            .filter(|doc| doc.supports_language_server(event.server_id))
-            .map(|doc| {
-                doc.code_lenses
-                    .cache
-                    .retain(|lens| lens.language_server_id != event.server_id);
-                doc.id()
-            })
-            .collect();
-        for doc in docs {
-            request_document_code_lenses(event.editor, doc, Some(event.server_id));
-        }
-        Ok(())
-    });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        for doc in event.editor.documents_mut() {
-            doc.code_lenses.clear();
-        }
-        let docs: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-        for doc in docs {
-            request_document_code_lenses(event.editor, doc, None);
-        }
-        Ok(())
-    });
 }

@@ -4,7 +4,6 @@ use editor_core::{Assoc, ChangeSet};
 use event::{TaskController, TaskHandle};
 use lsp_client::{lsp, LanguageServerId};
 
-use super::DocumentLinksHandler;
 use crate::{Document, ViewId};
 
 #[derive(Default)]
@@ -14,7 +13,6 @@ pub(crate) struct DocumentLinks {
     /// An explicit follow operation has a separate lifetime from cache refreshes.
     follow: TaskController,
     follow_view: Option<ViewId>,
-    pub(super) handler: Option<DocumentLinksHandler>,
 }
 
 impl DocumentLinks {
@@ -25,15 +23,14 @@ impl DocumentLinks {
         }
     }
 
+    pub(crate) fn cancel_refresh(&mut self) {
+        self.request.cancel();
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.cancel_navigation();
         self.clear_cache();
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentLinksHandler) {
-        self.cancel_navigation();
-        self.handler = Some(handler);
     }
 
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
@@ -61,7 +58,7 @@ impl DocumentLinks {
     }
 
     /// Clear cached navigation targets without interrupting a replacement request.
-    pub(super) fn clear_cache(&mut self) {
+    pub(crate) fn clear_cache(&mut self) {
         self.cache.clear();
     }
 }

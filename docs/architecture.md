@@ -579,9 +579,9 @@ and background checks. Document events and callbacks stay with the owning editor
 cancellation, version/language validation, diagnostic publication, and applying
 corrections remain in `view`. Spelling commands and suggestion menus live in `term`.
 
-`view::handlers::{document_symbols, document_highlight, document_colors,
-document_links}` own the corresponding LSP requests, debounce queues, event
-hooks, and publication. Each document receives its editor's feature handles;
+`view::features` owns LSP requests and publication. Document symbols and highlights
+keep their own scheduling policies; colors, links, and lenses share automatic refresh
+coordination. Each document receives its editor's feature handles;
 hook registration happens once, and document events use those handles rather
 than a captured application queue. Request snapshots validate cancellation,
 document version and URI, and server attachment when queued results are applied.
@@ -609,9 +609,11 @@ document drops its request controllers. Cache-only clearing preserves replacemen
 requests for colors, links, highlights, and symbols. Clearing code-action hints
 also invalidates their requests. Each feature makes that distinction explicit.
 
-Colors, links, and pull diagnostics share the internal `features::debounce` helper.
-Each keeps its own queue and request policy; inter-file diagnostic refresh retains
-its separate timing. `DocumentRequest` validates cancellation, document version,
+`features::document_refresh` owns one debounce queue and common open/edit/server
+lifecycle hooks for colors, links, and code lenses. Each document receives one
+scheduling handle. Features retain conversion, caching, validation, and interactive
+request lifetimes. Server transitions visit affected documents once. Pull diagnostics
+and blame retain their own scheduling policies through `features::debounce`. `DocumentRequest` validates cancellation, document version,
 URI, and server attachment before queued results mutate editor state.
 
 Language-server attachment lives in `editor/language_servers.rs`. Transport

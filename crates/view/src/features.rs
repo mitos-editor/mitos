@@ -15,6 +15,7 @@ pub mod diagnostics;
 pub mod document_colors;
 pub mod document_highlight;
 pub mod document_links;
+pub mod document_refresh;
 pub mod document_symbols;
 pub mod formatting;
 pub mod hover;

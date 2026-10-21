@@ -11,7 +11,10 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
-    features::code_lenses::{self, DocumentCodeLensesHandler, ResolvedCodeLenses},
+    features::{
+        code_lenses::{self, ResolvedCodeLenses},
+        document_refresh::DocumentRefreshHandler,
+    },
     DocumentId,
 };
 
@@ -54,7 +57,7 @@ impl Fixture {
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
-                handlers.code_lenses = DocumentCodeLensesHandler::new(sender);
+                handlers.document_refresh = DocumentRefreshHandler::new(sender);
             })
             .build()?;
         let path = dir.path().join("document.lens-test");

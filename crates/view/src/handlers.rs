@@ -2,9 +2,9 @@ use crate::{
     callbacks::EditorCallbackSender,
     events::ConfigDidChange,
     features::{
-        auto_reload, auto_save, blame, code_action_hint, code_actions, code_lenses,
+        auto_reload, auto_save, blame, code_action_hint, code_actions,
         completion::{self, CompletionEvent, CompletionHandler},
-        diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
+        diagnostics, document_highlight, document_links, document_refresh, document_symbols, hover,
         inlay_hints, inline_completion, navigation, rename,
         signature_help::{self, SignatureHelpInvoked},
         spelling::{self, SpellingHandler},
@@ -28,11 +28,10 @@ pub struct Handlers {
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
     pub(crate) status_messages: tokio::sync::mpsc::Receiver<event::status::StatusMessage>,
+    pub(crate) code_lens_resolution_slots: std::sync::Arc<tokio::sync::Semaphore>,
+    pub document_refresh: document_refresh::DocumentRefreshHandler,
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
     pub document_highlight: document_highlight::DocumentHighlightHandler,
-    pub document_links: document_links::DocumentLinksHandler,
-    pub document_colors: document_colors::DocumentColorsHandler,
-    pub code_lenses: code_lenses::DocumentCodeLensesHandler,
     pub syntax: syntax::SyntaxHandler,
     pub completions: CompletionHandler,
     pub inline_completions: inline_completion::InlineCompletionHandler,
@@ -67,13 +66,12 @@ impl Handlers {
             lsp_progress: Default::default(),
             status,
             status_messages,
+            code_lens_resolution_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
+            document_refresh: document_refresh::DocumentRefreshHandler::new(callbacks.clone()),
             document_symbols: document_symbols::DocumentSymbolsHandler::new(callbacks.clone()),
             document_highlight: document_highlight::DocumentHighlightHandler::new(
                 callbacks.clone(),
             ),
-            document_links: document_links::DocumentLinksHandler::new(callbacks.clone()),
-            document_colors: document_colors::DocumentColorsHandler::new(callbacks.clone()),
-            code_lenses: code_lenses::DocumentCodeLensesHandler::new(callbacks.clone()),
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
@@ -96,10 +94,7 @@ impl Handlers {
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
-        doc.document_colors
-            .bind_handler(self.document_colors.clone());
-        doc.code_lenses.bind_handler(self.code_lenses.clone());
-        doc.document_links.bind_handler(self.document_links.clone());
+        doc.document_refresh = Some(self.document_refresh.clone());
         doc.document_highlights
             .bind_handler(self.document_highlight.clone());
         doc.document_symbols
@@ -233,8 +228,7 @@ fn register_hooks() {
         document_symbols::register_hooks();
         diagnostics::pull::register_hooks();
         snippet::register_hooks();
-        document_colors::register_hooks();
-        code_lenses::register_hooks();
+        document_refresh::register_hooks();
         document_links::register_hooks();
         inline_completion::register_hooks();
         spelling::register_hooks();
