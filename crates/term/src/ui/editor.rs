@@ -393,24 +393,27 @@ impl EditorView {
             }
 
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                let current_view = cxt.editor.tree.focus();
-
                 let direction = match event.kind {
                     MouseEventKind::ScrollUp => Direction::Backward,
                     MouseEventKind::ScrollDown => Direction::Forward,
                     _ => unreachable!(),
                 };
 
-                match pos_and_view(cxt.editor, row, column, false) {
-                    Some((_, view_id)) => cxt.editor.tree.set_focus(view_id),
-                    None => return EventResult::Ignored(None),
-                }
-
-                let offset = config.scroll.wheel_lines.unsigned_abs();
-                commands::scroll(cxt, offset, direction, false);
-
-                cxt.editor.tree.set_focus(current_view);
-                cxt.editor.ensure_cursor_in_view(current_view);
+                let Some((_, view_id)) = pos_and_view(cxt.editor, row, column, false) else {
+                    return EventResult::Ignored(None);
+                };
+                let behaviour = if cxt.editor.mode() == Mode::Select {
+                    editor_core::movement::Movement::Extend
+                } else {
+                    editor_core::movement::Movement::Move
+                };
+                cxt.editor.scroll_view(
+                    view_id,
+                    config.scroll.wheel_lines.unsigned_abs(),
+                    direction,
+                    view::editing::movement::ScrollCursor::KeepVisible,
+                    behaviour,
+                );
 
                 EventResult::Consumed(None)
             }

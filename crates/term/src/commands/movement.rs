@@ -355,7 +355,6 @@ pub(super) fn repeat_last_motion(cx: &mut Context) {
 }
 
 pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
-    let padding = cx.editor.config().scroll.padding;
     let behaviour = if cx.editor.mode() == Mode::Select {
         Movement::Extend
     } else {
@@ -366,8 +365,8 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
     } else {
         ScrollCursor::KeepVisible
     };
-    let (view, doc) = current!(cx.editor);
-    view::editing::movement::scroll(doc, view, offset, direction, cursor, behaviour, padding);
+    cx.editor
+        .scroll_view(cx.editor.tree.focus(), offset, direction, cursor, behaviour);
 }
 
 pub(super) fn page_up(cx: &mut Context) {

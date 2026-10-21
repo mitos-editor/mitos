@@ -82,3 +82,6 @@ mod syntax_symbols;
 
 #[path = "handler_setup/buffer_search.rs"]
 mod buffer_search;
+
+#[path = "handler_setup/panes.rs"]
+mod panes;

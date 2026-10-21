@@ -559,7 +559,7 @@ async fn goto_preview_cancellation_restores_only_its_original_split() -> anyhow:
             .0
             .id;
         goto_keys(&mut app, ":goto 3").await?;
-        app.editor.tree.set_focus(other_view);
+        app.editor.focus(other_view);
         let (view, doc) = view::current!(app.editor);
         doc.set_selection(view.id, Selection::single(2, 3));
         goto_keys(&mut app, ending).await?;

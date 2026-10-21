@@ -23,6 +23,7 @@ pub use snippet::SnippetNavigation;
 mod registers;
 #[cfg(test)]
 pub(crate) mod tests;
+mod viewport;
 use crate::{
     document::{DocumentSavedEventResult, Mode},
     events::DocumentFocusLost,

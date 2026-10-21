@@ -31,7 +31,7 @@ impl Tree {
     pub fn focus(&self) -> ViewId {
         self.layout.focus()
     }
-    pub fn set_focus(&mut self, id: ViewId) {
+    pub(crate) fn set_focus(&mut self, id: ViewId) {
         self.layout.set_focus(id);
     }
     pub(crate) fn insert(&mut self, view: View) -> ViewId {

@@ -261,3 +261,46 @@ async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyhow::Result<()> {
+    #[cfg(windows)]
+    use crossterm::event::{Event, MouseEvent, MouseEventKind};
+    #[cfg(not(windows))]
+    use termina::event::{Event, MouseEvent, MouseEventKind};
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "line\n".repeat(100))?;
+    let mut app = helpers::AppBuilder::new()
+        .with_file(file.path(), None)
+        .build()?;
+    let (view, doc) = view::current_ref!(app.editor);
+    let (first, id) = (view.id, doc.id());
+    app.editor.switch(id, view::editor::Action::VerticalSplit);
+    app.editor.enter_insert_mode();
+    helpers::run_event_loop_until_idle(&mut app).await;
+    let focused = app.editor.tree.focus();
+    let doc = app.editor.document(id).unwrap();
+    let area = app.editor.tree.get(first).inner_area(doc);
+    let selection = doc.selection(focused).clone();
+    let offset = doc.view_offset(focused);
+    #[cfg(not(windows))]
+    let modifiers = termina::event::Modifiers::empty();
+    #[cfg(windows)]
+    let modifiers = crossterm::event::KeyModifiers::empty();
+    app.handle_terminal_events(Ok(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: area.x + 1,
+        row: area.y + 1,
+        modifiers,
+    })))
+    .await;
+    assert_eq!(app.editor.tree.focus(), focused);
+    assert_eq!(app.editor.mode(), view::document::Mode::Insert);
+    let doc = app.editor.document(id).unwrap();
+    assert!(doc.view_offset(first).anchor > 0);
+    assert_eq!(doc.selection(focused), &selection);
+    assert_eq!(doc.view_offset(focused), offset);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

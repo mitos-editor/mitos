@@ -250,6 +250,9 @@ focused replacement, literal/register paste, history replay, and checkpoints,
 then synchronizes the view's jump history after a successful operation. Callers
 working with another view explicitly synchronize it at the coordination boundary.
 Viewport layout and scrolling continue to require a concrete view.
+`Editor::scroll_view` targets a split by ID without temporarily changing focus.
+Splitting the current document initializes its selection and viewport in the shared
+switch operation; frontends do not repair the new split after lifecycle observers run.
 
 `Editor::set_line_ending` owns text conversion, the insertion default, and the
 history checkpoint with view synchronization. `set_document_indent_style` changes

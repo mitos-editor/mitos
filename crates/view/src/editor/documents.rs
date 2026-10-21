@@ -119,15 +119,20 @@ impl Editor {
                     .tree
                     .try_get(self.tree.focus())
                     .map(|view| (view.doc, view.id));
-                // copy the current view, unless there is no view yet
-                let view = self
+                // Copy only persistent selection/viewport state. Feature sessions and
+                // transient overlays continue to belong to the originating view.
+                let source = self
                     .tree
                     .try_get(self.tree.focus())
-                    .filter(|v| id == v.doc) // Different Document
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        View::new(id, self.config().gutters.clone(), self.redraw().clone())
-                    });
+                    .filter(|view| view.doc == id);
+                let state = source.map(|view| {
+                    let doc = &self.documents[&id];
+                    (doc.selection(view.id).clone(), doc.view_offset(view.id))
+                });
+                // copy the current view, unless there is no view yet
+                let view = source.cloned().unwrap_or_else(|| {
+                    View::new(id, self.config().gutters.clone(), self.redraw().clone())
+                });
                 let view_id = self.tree.split(
                     view,
                     match action {
@@ -136,8 +141,12 @@ impl Editor {
                         _ => unreachable!(),
                     },
                 );
-                // initialize selection for view
                 let doc = doc_mut!(self, &id);
+                if let Some((selection, offset)) = state {
+                    // Install the viewport before selection observers inspect the new split.
+                    doc.set_view_offset(view_id, offset);
+                    doc.set_selection(view_id, selection);
+                }
                 doc.ensure_view_init(view_id);
                 doc.mark_as_focused();
                 focus_lost

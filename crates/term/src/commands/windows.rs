@@ -54,19 +54,8 @@ pub(super) fn transpose_view(cx: &mut Context) {
 ///
 /// Maintain the current view (both the cursor's position and view in document).
 fn split(editor: &mut Editor, action: Action) {
-    let (view, doc) = current!(editor);
-    let id = doc.id();
-    let selection = doc.selection(view.id).clone();
-    let offset = doc.view_offset(view.id);
-
+    let id = current_ref!(editor).1.id();
     editor.switch(id, action);
-
-    // match the selection in the previous view
-    let (view, doc) = current!(editor);
-    doc.set_selection(view.id, selection);
-    // match the view scroll offset (switch doesn't handle this fully
-    // since the selection is only matched after the split)
-    doc.set_view_offset(view.id, offset);
 }
 
 pub(super) fn hsplit(cx: &mut Context) {
