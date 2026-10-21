@@ -10,7 +10,7 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use editor_core::{Rope, RopeSlice, Selection, Uri};
 use futures_util::{future::BoxFuture, FutureExt};
-use grep_regex::RegexMatcherBuilder;
+use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use language::{
@@ -97,8 +97,7 @@ pub struct WorkspaceSymbols {
     owner: EditorCallbackSender,
     searcher_builder: SearcherBuilder,
     walk_builder: WalkBuilder,
-    regex_matcher_builder: RegexMatcherBuilder,
-    rope_regex_builder: rope::RegexBuilder,
+    smart_case: bool,
     search_root: PathBuf,
     syntax_cache: ArcSwap<DashMap<PathBuf, Option<(Rope, Syntax)>>>,
     refresh: Mutex<WorkspaceChanges>,
@@ -113,11 +112,6 @@ impl WorkspaceSymbols {
             .unwrap_or_else(|| workspace::find_workspace().0);
         let mut searcher_builder = SearcherBuilder::new();
         searcher_builder.binary_detection(BinaryDetection::quit(b'\x00'));
-        let mut regex_matcher_builder = RegexMatcherBuilder::new();
-        regex_matcher_builder.case_smart(editor.config().search.smart_case);
-        let mut rope_regex_builder = rope::RegexBuilder::new();
-        rope_regex_builder
-            .syntax(rope::Config::new().case_insensitive(editor.config().search.smart_case));
         let refresh = Mutex::new(WorkspaceChanges::new(
             editor,
             &search_root,
@@ -133,8 +127,7 @@ impl WorkspaceSymbols {
             owner: editor.callback_sender().clone(),
             searcher_builder,
             walk_builder: options.walker(&search_root),
-            regex_matcher_builder,
-            rope_regex_builder,
+            smart_case: editor.config().search.smart_case,
             search_root,
             syntax_cache: ArcSwap::from_pointee(DashMap::default()),
             refresh,
@@ -165,10 +158,11 @@ impl WorkspaceSymbols {
             return async { Ok(()) }.boxed();
         }
         // Attempt to find the tag in any open documents.
-        let pattern = match state.rope_regex_builder.build(query) {
-            Ok(pattern) => pattern,
-            Err(err) => return async { Err(anyhow::anyhow!(err)) }.boxed(),
+        let (pattern, matcher) = match query_patterns(query, state.smart_case) {
+            Ok(patterns) => patterns,
+            Err(err) => return async { Err(err) }.boxed(),
         };
+        editor.clear_status();
         let pending: Vec<_> = editor
             .documents()
             .filter(|doc| doc.is_syntax_pending())
@@ -195,20 +189,6 @@ impl WorkspaceSymbols {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
         }
-        let matcher = match state.regex_matcher_builder.build(query) {
-            Ok(matcher) => {
-                // Clear any "Failed to compile regex" errors out of the statusline.
-                editor.clear_status();
-                matcher
-            }
-            Err(err) => {
-                log::info!(
-                    "Failed to compile search pattern in workspace symbol search: {}",
-                    err
-                );
-                return async { Err(anyhow::anyhow!("Failed to compile regex")) }.boxed();
-            }
-        };
         let pattern = Arc::new(pattern);
 
         let loader = editor.syn_loader.load();
@@ -330,4 +310,17 @@ fn syntax_for_path(path: &Path, loader: &Loader) -> Option<(Rope, Syntax)> {
     Syntax::new(text, language, loader)
         .ok()
         .map(|syntax| (rope, syntax))
+}
+
+// Apply the same case policy to tag matching and the on-disk file prefilter.
+// As with buffer search, explicit regex flags can override this default.
+fn query_patterns(query: &str, smart_case: bool) -> Result<(rope::Regex, RegexMatcher)> {
+    let case_insensitive = smart_case && !query.chars().any(char::is_uppercase);
+    let pattern = rope::RegexBuilder::new()
+        .syntax(rope::Config::new().case_insensitive(case_insensitive))
+        .build(query)?;
+    let matcher = RegexMatcherBuilder::new()
+        .case_insensitive(case_insensitive)
+        .build(query)?;
+    Ok((pattern, matcher))
 }
