@@ -155,20 +155,12 @@ impl CompletionItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
-    use arc_swap::ArcSwap;
-    use editor_core::Rope;
     use slotmap::SlotMap;
 
     #[tokio::test]
     async fn completion_batches_preserve_provider_priority_and_append_order() {
-        let mut doc = crate::Document::from(
-            Rope::new(),
-            None,
-            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
-            Arc::new(language::syntax::Loader::default()),
-        );
+        let mut doc = crate::document::test_document("");
         let view = crate::View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.ensure_view_init(view.id);
         let context = ResponseContext {

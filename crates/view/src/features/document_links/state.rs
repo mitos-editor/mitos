@@ -77,18 +77,10 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[tokio::test]
     async fn requests_outlive_views_and_cache_clears_but_not_the_document() {
-        let mut doc = Document::from(
-            editor_core::Rope::from("sample text"),
-            None,
-            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                editor_config::Config::default(),
-            )),
-            std::sync::Arc::new(language::syntax::Loader::default()),
-        );
+        let mut doc = crate::document::test_document("sample text");
         let view = crate::ViewId::default();
         doc.ensure_view_init(view);
         let request = doc.document_links.request.restart();

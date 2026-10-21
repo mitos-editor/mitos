@@ -89,14 +89,7 @@ mod tests {
 
     #[tokio::test]
     async fn dropping_a_document_cancels_fetch_resolution_and_title_requests() {
-        let mut doc = Document::from(
-            Rope::from("sample text"),
-            None,
-            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-                editor_config::Config::default(),
-            )),
-            std::sync::Arc::new(language::syntax::Loader::default()),
-        );
+        let mut doc = crate::document::test_document("sample text");
         let mut title_controller = TaskController::new();
         let title = title_controller.restart();
         doc.code_lenses.titles.insert(0, title_controller);

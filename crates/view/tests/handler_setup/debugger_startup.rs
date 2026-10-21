@@ -29,20 +29,10 @@ impl Adapter {
             tokio::spawn(async move {
                 let mut read = BufReader::new(read);
                 loop {
-                    let mut line = String::new();
-                    if read.read_line(&mut line).await? == 0 {
+                    let Some(message) = read_adapter_message(&mut read).await? else {
                         return anyhow::Ok(());
-                    }
-                    let length: usize = line
-                        .trim()
-                        .strip_prefix("Content-Length: ")
-                        .context("missing length")?
-                        .parse()?;
-                    line.clear();
-                    read.read_line(&mut line).await?;
-                    let mut bytes = vec![0; length];
-                    read.read_exact(&mut bytes).await?;
-                    if wire_tx.send(serde_json::from_slice(&bytes)?).is_err() {
+                    };
+                    if wire_tx.send(message).is_err() {
                         return Ok(());
                     }
                 }

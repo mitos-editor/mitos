@@ -411,8 +411,6 @@ fn lsp_item_to_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Document;
-    use arc_swap::ArcSwap;
 
     #[tokio::test]
     async fn snippet_replay_preserves_multiple_cursors_after_a_unicode_prefix_shift() {
@@ -477,12 +475,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_and_replace_ranges_honor_utf16_positions_and_replace_mode() {
-        let mut doc = Document::from(
-            Rope::from("😀 foobar\n"),
-            None,
-            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
-            Arc::new(language::syntax::Loader::default()),
-        );
+        let mut doc = crate::document::test_document("😀 foobar\n");
         let view = crate::View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.ensure_view_init(view.id);
         doc.set_selection(view.id, Selection::point(4));

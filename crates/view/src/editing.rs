@@ -303,12 +303,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn text_edits_and_history_work_without_any_view() {
-        let mut doc = Document::from(
-            Rope::from("abc def\n"),
-            None,
-            Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(syntax::Loader::default()),
-        );
+        let mut doc = crate::document::test_document("abc def\n");
         let edit = Transaction::change(
             doc.text(),
             [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),

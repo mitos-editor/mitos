@@ -836,23 +836,24 @@ impl Document {
 }
 
 #[cfg(test)]
+pub(crate) fn test_document(text: &str) -> Document {
+    Document::from(
+        Rope::from(text),
+        None,
+        Arc::new(ArcSwap::from_pointee(Config::default())),
+        Arc::new(syntax::Loader::default()),
+    )
+}
+
+#[cfg(test)]
 mod test {
     use arc_swap::ArcSwap;
 
     use super::*;
 
-    fn feature_document() -> Document {
-        Document::from(
-            Rope::from("sample text"),
-            None,
-            Arc::new(ArcSwap::from_pointee(Config::default())),
-            Arc::new(syntax::Loader::default()),
-        )
-    }
-
     #[tokio::test]
     async fn removing_a_view_cancels_only_its_feature_requests() {
-        let mut doc = feature_document();
+        let mut doc = test_document("sample text");
         let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
         let first = views.insert(());
         let second = views.insert(());
@@ -888,7 +889,7 @@ mod test {
 
     #[tokio::test]
     async fn clearing_render_caches_keeps_replacement_requests_alive() {
-        let mut doc = feature_document();
+        let mut doc = test_document("sample text");
         let view = ViewId::default();
         doc.set_document_highlights(view, std::iter::once(0..2).collect());
         let highlight = doc.document_highlight_controller(view).restart();
@@ -906,7 +907,7 @@ mod test {
 
     #[tokio::test]
     async fn dropping_a_document_cancels_view_feature_requests() {
-        let mut doc = feature_document();
+        let mut doc = test_document("sample text");
         let view = ViewId::default();
         let requests = [
             doc.document_highlight_controller(view).restart(),
@@ -1088,7 +1089,7 @@ mod test {
     }
     #[tokio::test]
     async fn document_view_state_is_preserved_on_init_and_removed_together() {
-        let mut doc = feature_document();
+        let mut doc = test_document("sample text");
         let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
         let first = views.insert(());
         let second = views.insert(());
@@ -1125,7 +1126,7 @@ mod test {
 
     #[tokio::test]
     async fn document_edits_map_each_views_selection_and_viewport_anchor() {
-        let mut doc = feature_document();
+        let mut doc = test_document("sample text");
         let mut views = slotmap::SlotMap::<ViewId, ()>::with_key();
         let first = views.insert(());
         let second = views.insert(());
