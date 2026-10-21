@@ -3,7 +3,7 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use editor_core::{Rope, Transaction};
+use editor_core::Rope;
 use word_index::{words as extract_words, WordIndex};
 
 /// See `texts/README`. These texts are used in unicode-segmentation's benchmarks.
@@ -64,16 +64,11 @@ fn cancellation(c: &mut Criterion) {
     ] {
         let text = Rope::from(body.repeat(1_000_000));
         let empty = Rope::new();
-        let edit = Transaction::change(
-            &empty,
-            std::iter::once((0, 0, Some(text.to_string().into()))),
-        );
         group.bench_function(name, |b| {
             b.iter(|| {
-                WordIndex::default().update_document(
-                    black_box(&empty),
-                    black_box(&text),
-                    black_box(edit.changes()),
+                WordIndex::default().replace_words(
+                    black_box(empty.slice(..)),
+                    black_box(text.slice(..)),
                     || black_box(true),
                 );
             })

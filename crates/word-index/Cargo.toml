@@ -17,7 +17,6 @@ fuzzy.workspace = true
 foldhash.workspace = true
 
 [dev-dependencies]
-text-diff.workspace = true
 quickcheck.workspace = true
 criterion.workspace = true
 

@@ -1357,3 +1357,10 @@ Completion previews use `Editor::completion_presentation` for pane drawing and c
 placement. Their source snapshot prevents rendering after a real edit. Statuslines,
 commands, protocol synchronization, and background features read the live document;
 there is no temporary-edit event or rollback on dismissal.
+
+`view::features::word_index` has one event queue and one coordinator. Edits coalesce
+by document ID while one blocking worker owns the last indexed snapshots. Opens,
+closes, resets, and significant edits bypass the typing debounce. `word-index::changed_words`
+finds cancellable replacement windows outside the shared index lock; no text-edit
+diff or intermediate changeset is needed. Dropping the handler closes its queue
+and cancels scans; document triggers retain only weak senders.

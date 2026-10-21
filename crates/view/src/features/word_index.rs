@@ -1,214 +1,207 @@
-//! Indexing of words from open buffers.
-//!
-//! This provides an eventually consistent set of words used in any open buffers. This set is
-//! later used for lexical completion.
+//! Eventually consistent lexical completion from the latest snapshot of each open document.
 
-use std::{sync::Arc, time::Duration};
-
+use crate::{
+    events::{
+        ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
+        DocumentLanguageDidChange,
+    },
+    DocumentId,
+};
 use editor_core::{ChangeSet, Rope};
 use event::{register_hook, TaskController, TaskHandle};
 use foldhash::HashMap;
 use parking_lot::{Mutex, RwLock};
-use text_diff::compare_ropes;
-use tokio::{sync::mpsc, time::Instant};
-
-use crate::{
-    events::{ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen},
-    DocumentId,
-};
-
-#[derive(Debug)]
-struct Change {
-    old_text: Rope,
-    text: Rope,
-    changes: ChangeSet,
-    /// Whether `changes` is stale and must be recomputed from `old_text`/`text` before use.
-    ///
-    /// Set when this change is the result of coalescing several observed changes (see
-    /// [`Hook::handle_event`]). The observed changesets cannot be reliably chained, so the
-    /// coalesced changeset is recomputed once, lazily, at [`Hook::finish_debounce`].
-    dirty: bool,
-}
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::mpsc, task::JoinHandle, time::Instant};
 
 #[derive(Debug)]
 enum Event {
-    Insert(Rope),
-    Update(DocumentId, Change),
-    Delete(DocumentId, Rope),
-    /// Clear the entire word index.
-    /// This is used to clear memory when the feature is turned off.
-    Clear,
-}
-
-/// Sends an event to the coordinator task (lossy).
-///
-/// The coordinator stops when its [`Handler`] is dropped. A closed channel means that index is no
-/// longer in use, so dropping the event is harmless.
-fn send(coordinator: &mpsc::UnboundedSender<Event>, event: Event) {
-    let _ = coordinator.send(event);
+    Open(DocumentId, Rope),
+    Edit {
+        document: DocumentId,
+        text: Rope,
+        significant: bool,
+    },
+    Close(DocumentId),
+    Reset,
 }
 
 #[derive(Debug)]
 pub struct Handler {
     index: WordIndex,
-    /// A sender into an async hook which debounces updates to the index.
-    hook: mpsc::UnboundedSender<Event>,
-    /// Cancels in-flight indexing when the handler is dropped.
-    ///
-    /// Indexing a large document runs on a blocking task which cannot be preempted. Without this,
-    /// dropping the tokio runtime on shutdown would block until that task finishes, keeping the
-    /// process alive and unresponsive. The indexing task holds a [TaskHandle] from this
-    /// controller and checks it periodically.
+    events: mpsc::UnboundedSender<Event>,
+    // Blocking scans check this token so dropping an editor cannot hold up shutdown.
     _cancel: TaskController,
 }
-
 impl Handler {
     pub(crate) fn index(&self) -> &WordIndex {
         &self.index
     }
-
     pub fn spawn() -> Self {
         let index = WordIndex::default();
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (events, rx) = mpsc::unbounded_channel();
         let mut cancel = TaskController::new();
-        tokio::spawn(index.clone().run(rx, cancel.restart()));
-        // Opening documents and rebuilding configuration must not drop events when
-        // a frontend processes a batch without yielding. Debounce all events in order.
-        let (hook, events) = mpsc::unbounded_channel();
-        tokio::spawn(
-            Hook {
-                changes: HashMap::default(),
-                coordinator: tx,
-            }
-            .run(events),
-        );
+        tokio::spawn(coordinate(index.clone(), rx, cancel.restart()));
         Self {
-            hook,
             index,
+            events,
             _cancel: cancel,
         }
     }
-
     pub(crate) fn document_trigger(&self) -> WordIndexTrigger {
         WordIndexTrigger {
-            events: self.hook.downgrade(),
+            events: self.events.downgrade(),
         }
     }
-
     fn event(&self, event: Event) {
-        send(&self.hook, event);
+        let _ = self.events.send(event);
     }
 }
 
-/// Documents can schedule indexing without keeping a dropped editor's worker alive.
+/// Documents do not keep a dropped editor's worker alive.
 pub(crate) struct WordIndexTrigger {
     events: mpsc::WeakUnboundedSender<Event>,
 }
-
 impl WordIndexTrigger {
     fn event(&self, event: Event) {
         if let Some(events) = self.events.upgrade() {
-            send(&events, event);
+            let _ = events.send(event);
         }
     }
 }
 
-#[derive(Debug)]
-struct Hook {
-    changes: HashMap<DocumentId, Change>,
-    coordinator: mpsc::UnboundedSender<Event>,
+#[derive(Debug, Default)]
+struct Pending {
+    documents: HashMap<DocumentId, Option<Rope>>,
+    reset: bool,
+}
+impl Pending {
+    /// Control events and large changes bypass the typing debounce.
+    fn push(&mut self, event: Event) -> bool {
+        match event {
+            Event::Open(id, text) => {
+                self.documents.insert(id, Some(text));
+                true
+            }
+            Event::Edit {
+                document,
+                text,
+                significant,
+            } => {
+                self.documents.insert(document, Some(text));
+                significant
+            }
+            Event::Close(id) => {
+                self.documents.insert(id, None);
+                true
+            }
+            Event::Reset => {
+                self.documents.clear();
+                self.reset = true;
+                true
+            }
+        }
+    }
 }
 
 const DEBOUNCE: Duration = Duration::from_secs(1);
 
-impl Hook {
-    async fn run(mut self, mut events: mpsc::UnboundedReceiver<Event>) {
-        let mut deadline = None;
-        loop {
-            let event = match deadline {
-                Some(at) => match tokio::time::timeout_at(at, events.recv()).await {
-                    Ok(event) => event,
-                    Err(_) => {
-                        self.finish_debounce();
-                        deadline = None;
-                        continue;
-                    }
-                },
-                None => events.recv().await,
-            };
-            let Some(event) = event else {
-                return;
-            };
-            deadline = self.handle_event(event, deadline);
+async fn coordinate(
+    index: WordIndex,
+    mut events: mpsc::UnboundedReceiver<Event>,
+    cancel: TaskHandle,
+) {
+    let mut indexed = Some(IndexedDocuments {
+        index,
+        documents: HashMap::default(),
+    });
+    let mut worker: Option<JoinHandle<IndexedDocuments>> = None;
+    let mut pending = Pending::default();
+    let mut deadline = None;
+    let mut ready = false;
+    loop {
+        if cancel.is_canceled() {
+            return;
         }
-    }
-
-    fn handle_event(&mut self, event: Event, timeout: Option<Instant>) -> Option<Instant> {
-        match event {
-            Event::Insert(text) => {
-                send(&self.coordinator, Event::Insert(text));
-                timeout
-            }
-            Event::Update(doc, change) => {
-                if let Some(pending_change) = self.changes.get_mut(&doc) {
-                    // There is already a change waiting for this document. Coalesce: keep the
-                    // original `old_text` and advance to the latest `text`.
-                    //
-                    // We deliberately do NOT chain the observed changesets here. The index skips
-                    // ghost transactions (see `register_hooks`), so a ghost edit may have altered
-                    // the document between these two observed changes, which may leave them
-                    // non-contiguous in ways a cheap check can't catch. Instead, mark the change
-                    // dirty and recompute the changeset from the real ropes at `finish_debounce`,
-                    // i.e.  once per debounce window rather than once per keystroke.
-                    pending_change.text = change.text;
-                    pending_change.dirty = true;
-                    Some(Instant::now() + DEBOUNCE)
-                } else if !is_changeset_significant(&change.changes) {
-                    // The change is small: debounce so a burst of edits coalesces before the
-                    // index updates.
-                    self.changes.insert(doc, change);
-                    Some(Instant::now() + DEBOUNCE)
-                } else {
-                    // The change is large: update the index immediately rather than waiting out
-                    // the debounce.
-                    send(&self.coordinator, Event::Update(doc, change));
-                    timeout
+        if ready && worker.is_none() {
+            let state = indexed.take().expect("idle worker owns its snapshots");
+            let changes = std::mem::take(&mut pending);
+            let cancel = cancel.clone();
+            worker = Some(tokio::task::spawn_blocking(move || {
+                state.apply(changes, &cancel)
+            }));
+            ready = false;
+        }
+        tokio::select! {
+            event = events.recv() => {
+                let Some(event) = event else { return; };
+                if pending.push(event) {
+                    ready = true;
+                    deadline = None;
+                } else if !ready {
+                    deadline = Some(Instant::now() + DEBOUNCE);
                 }
             }
-            Event::Delete(doc, text) => {
-                // If there are pending changes that haven't been indexed since the last debounce,
-                // forget them and delete the old text.
-                match self.changes.remove(&doc) {
-                    Some(change) => {
-                        send(&self.coordinator, Event::Delete(doc, change.old_text));
-                    }
-                    _ => {
-                        send(&self.coordinator, Event::Delete(doc, text));
-                    }
-                }
-                timeout
+            result = async { worker.as_mut().unwrap().await }, if worker.is_some() => {
+                indexed = Some(result.expect("word indexing worker panicked"));
+                worker = None;
             }
-            Event::Clear => {
-                // A reset must also discard edits still waiting for their debounce deadline.
-                self.changes.clear();
-                send(&self.coordinator, Event::Clear);
-                None
+            _ = tokio::time::sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
+                deadline = None;
+                ready = true;
             }
         }
     }
+}
 
-    fn finish_debounce(&mut self) {
-        for (doc, mut change) in self.changes.drain() {
-            // A coalesced change carries a stale changeset; recompute it from the real endpoints.
-            // This diff is valid regardless of any ghost edits skipped between observed changes.
-            if change.dirty {
-                change.changes = compare_ropes(&change.old_text, &change.text)
-                    .changes()
-                    .clone();
-                change.dirty = false;
-            }
-            send(&self.coordinator, Event::Update(doc, change));
+/// The worker alone owns the text represented by the published word counts.
+struct IndexedDocuments {
+    index: WordIndex,
+    documents: HashMap<DocumentId, Rope>,
+}
+impl IndexedDocuments {
+    fn apply(mut self, pending: Pending, cancel: &TaskHandle) -> Self {
+        if cancel.is_canceled() {
+            return self;
         }
+        if pending.reset {
+            self.index.inner.write().clear();
+            self.documents.clear();
+        }
+        for (id, text) in pending.documents {
+            if cancel.is_canceled() {
+                break;
+            }
+            match (self.documents.remove(&id), text) {
+                (Some(old), Some(text)) => {
+                    if let Some((old_words, new_words)) =
+                        word_index::changed_words(old.slice(..), text.slice(..), || {
+                            cancel.is_canceled()
+                        })
+                    {
+                        self.index
+                            .inner
+                            .write()
+                            .replace_words(old_words, new_words, || cancel.is_canceled());
+                    }
+                    self.documents.insert(id, text);
+                }
+                (None, Some(text)) => {
+                    self.index
+                        .inner
+                        .write()
+                        .add_document(&text, || cancel.is_canceled());
+                    self.documents.insert(id, text);
+                }
+                (Some(old), None) => self
+                    .index
+                    .inner
+                    .write()
+                    .remove_document(&old, || cancel.is_canceled()),
+                (None, None) => {}
+            }
+        }
+        self
     }
 }
 
@@ -217,71 +210,9 @@ pub struct WordIndex {
     inner: Arc<RwLock<word_index::WordIndex>>,
     matcher: Arc<Mutex<fuzzy::Matcher>>,
 }
-
 impl WordIndex {
     pub fn matches(&self, pattern: &str) -> Vec<String> {
         self.inner.read().matches(pattern, &mut self.matcher.lock())
-    }
-
-    fn add_document(&self, text: &Rope, cancel: &TaskHandle) {
-        self.inner
-            .write()
-            .add_document(text, || cancel.is_canceled());
-    }
-
-    fn update_document(&self, old: &Rope, text: &Rope, changes: &ChangeSet, cancel: &TaskHandle) {
-        self.inner
-            .write()
-            .update_document(old, text, changes, || cancel.is_canceled());
-    }
-
-    fn remove_document(&self, text: &Rope, cancel: &TaskHandle) {
-        self.inner
-            .write()
-            .remove_document(text, || cancel.is_canceled());
-    }
-
-    fn clear(&self) {
-        self.inner.write().clear();
-    }
-
-    /// Coordinate the indexing of documents.
-    ///
-    /// This task wraps a MPSC queue and spawns blocking tasks which update the index. Updates
-    /// are applied one-by-one to ensure that changes to the index are **serialized**:
-    /// updates to each document must be applied in-order.
-    async fn run(self, mut events: mpsc::UnboundedReceiver<Event>, cancel: TaskHandle) {
-        while let Some(event) = events.recv().await {
-            if cancel.is_canceled() {
-                return;
-            }
-            let this = self.clone();
-            let cancel = cancel.clone();
-            tokio::task::spawn_blocking(move || match event {
-                Event::Insert(text) => {
-                    this.add_document(&text, &cancel);
-                }
-                Event::Update(
-                    _doc,
-                    Change {
-                        old_text,
-                        text,
-                        changes,
-                        ..
-                    },
-                ) => {
-                    this.update_document(&old_text, &text, &changes, &cancel);
-                }
-                Event::Delete(_doc, text) => {
-                    this.remove_document(&text, &cancel);
-                }
-                Event::Clear => {
-                    this.clear();
-                }
-            })
-            .await
-            .unwrap();
-        }
     }
 }
 
@@ -309,7 +240,19 @@ pub(crate) fn register_hooks() {
                 .editor
                 .handlers
                 .word_index
-                .event(Event::Insert(doc.text().clone()));
+                .event(Event::Open(doc.id(), doc.text().clone()));
+        }
+        Ok(())
+    });
+
+    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+        if let Some(doc) = event.editor.document(event.doc) {
+            let handler = &event.editor.handlers.word_index;
+            handler.event(if doc.word_completion_enabled() {
+                Event::Open(doc.id(), doc.text().clone())
+            } else {
+                Event::Close(doc.id())
+            });
         }
         Ok(())
     });
@@ -318,24 +261,18 @@ pub(crate) fn register_hooks() {
         if event.doc.word_completion_enabled()
             && let Some(trigger) = &event.doc.word_index_trigger
         {
-            trigger.event(Event::Update(
-                event.doc.id(),
-                Change {
-                    old_text: event.old_text.clone(),
-                    text: event.doc.text().clone(),
-                    changes: event.changes.clone(),
-                    dirty: false,
-                },
-            ));
+            trigger.event(Event::Edit {
+                document: event.doc.id(),
+                text: event.doc.text().clone(),
+                significant: is_changeset_significant(event.changes),
+            });
         }
         Ok(())
     });
 
     register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        if event.doc.word_completion_enabled()
-            && let Some(trigger) = &event.doc.word_index_trigger
-        {
-            trigger.event(Event::Delete(event.doc.id(), event.doc.text().clone()));
+        if let Some(trigger) = &event.doc.word_index_trigger {
+            trigger.event(Event::Close(event.doc.id()));
         }
         Ok(())
     });
@@ -345,13 +282,13 @@ pub(crate) fn register_hooks() {
             let handler = &event.editor.handlers.word_index;
             // Rebuild from current document settings, including language overrides.
             // Route the reset and inserts through the edit queue to preserve their order.
-            handler.event(Event::Clear);
+            handler.event(Event::Reset);
             for doc in event
                 .editor
                 .documents()
                 .filter(|doc| doc.word_completion_enabled())
             {
-                handler.event(Event::Insert(doc.text().clone()));
+                handler.event(Event::Open(doc.id(), doc.text().clone()));
             }
         }
         Ok(())
@@ -360,9 +297,7 @@ pub(crate) fn register_hooks() {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use quickcheck::{Arbitrary, Gen};
 
     impl WordIndex {
         fn counts(&self) -> std::collections::HashMap<String, u32> {
@@ -374,216 +309,124 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn batched_control_events_are_lossless_without_yielding() {
-        let handler = Handler::spawn();
-        for i in 0..140 {
-            handler.event(Event::Insert(Rope::from_str(&format!("stale{i:03}"))));
-        }
-        handler.event(Event::Clear);
-        let expected: Vec<_> = (0..140).map(|i| format!("word{i:03}")).collect();
-        for word in &expected {
-            handler.event(Event::Insert(Rope::from_str(word)));
-        }
+    async fn expect_words(handler: &Handler, expected: &[String]) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let mut words = handler.index.matches("");
-                words.sort();
-                if words == expected {
-                    break;
+                let mut actual = handler.index.matches("");
+                actual.sort();
+                if actual == expected {
+                    return;
                 }
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(2)).await;
             }
         })
         .await
-        .unwrap();
+        .expect("word index converges");
+    }
+
+    #[tokio::test]
+    async fn batched_opens_resets_and_closes_are_lossless_without_yielding() {
+        let handler = Handler::spawn();
+        for i in 0..140 {
+            handler.event(Event::Open(
+                DocumentId::new(i + 1),
+                Rope::from(format!("stale{i:03}")),
+            ));
+        }
+        handler.event(Event::Reset);
+        let expected: Vec<_> = (0..140).map(|i| format!("word{i:03}")).collect();
         for (i, word) in expected.iter().enumerate() {
-            handler.event(Event::Delete(DocumentId::new(i + 1), Rope::from_str(word)));
+            handler.event(Event::Open(
+                DocumentId::new(i + 1),
+                Rope::from(word.as_str()),
+            ));
         }
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !handler.index.matches("").is_empty() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        expect_words(&handler, &expected).await;
+        for i in 0..140 {
+            handler.event(Event::Close(DocumentId::new(i + 1)));
+        }
+        expect_words(&handler, &[]).await;
     }
 
-    fn build_change(old: &str, new: &str) -> Change {
-        let old_text = Rope::from_str(old);
-        let text = Rope::from_str(new);
-        let changes = compare_ropes(&old_text, &text).changes().clone();
-        Change {
-            old_text,
-            text,
-            changes,
-            dirty: false,
-        }
+    #[tokio::test]
+    async fn typing_publishes_the_latest_snapshot_after_the_debounce() {
+        let handler = Handler::spawn();
+        let id = DocumentId::new(1);
+        handler.event(Event::Open(id, Rope::from("original")));
+        expect_words(&handler, &["original".into()]).await;
+        handler.event(Event::Edit {
+            document: id,
+            text: Rope::from("intermediate"),
+            significant: false,
+        });
+        handler.event(Event::Edit {
+            document: id,
+            text: Rope::from("latest"),
+            significant: false,
+        });
+        expect_words(&handler, &["latest".into()]).await;
     }
 
-    /// Drives a [`Hook`] through a sequence of observed `(old_text, new_text)` changes to a single
-    /// document, flushes the debounce, and returns the change the hook hands to the indexer (with
-    /// its changeset recomputed if the observed changes were coalesced). Returns `None` if no
-    /// change was emitted.
-    fn coalesce<'a>(observations: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<Change> {
-        let (coordinator, mut rx) = mpsc::unbounded_channel();
-        let mut hook = Hook {
-            changes: HashMap::default(),
-            coordinator,
-        };
-        let doc = DocumentId::default();
-        for (old, new) in observations {
-            hook.handle_event(Event::Update(doc, build_change(old, new)), None);
-        }
-        hook.finish_debounce();
-        match rx.try_recv() {
-            Ok(Event::Update(_, change)) => Some(change),
-            _ => None,
-        }
-    }
-
-    #[track_caller]
-    fn assert_coalesces(observations: &[(&str, &str)]) {
-        let change = coalesce(observations.iter().copied())
-            .expect("a coalesced change should have been emitted");
-        let first = observations.first().unwrap();
-        let last = observations.last().unwrap();
-
-        // The coalesced change spans from the first text observed to the last.
-        assert_eq!(change.old_text, Rope::from_str(first.0));
-        assert_eq!(change.text, Rope::from_str(last.1));
-
-        // Its changeset must faithfully map `old_text` -> `text`; `update_document` relies on this
-        // to locate the windows it reindexes.
-        let mut applied = change.old_text.clone();
-        assert!(change.changes.apply(&mut applied));
-        assert_eq!(applied, change.text);
-
-        // Reindexing must converge onto exactly the word multiset of the final text (words and
-        // refcounts) matching a fresh index built from scratch.
-        let mut cancel = TaskController::new();
-        let handle = cancel.restart();
+    #[test]
+    fn closing_a_document_removes_its_indexed_text_and_discards_pending_edits() {
+        let mut controller = TaskController::new();
+        let cancel = controller.restart();
         let index = WordIndex::default();
-        index.add_document(&change.old_text, &handle);
-        index.update_document(&change.old_text, &change.text, &change.changes, &handle);
-
-        let fresh = WordIndex::default();
-        fresh.add_document(&change.text, &handle);
-
-        assert_eq!(index.counts(), fresh.counts());
-    }
-
-    #[test]
-    fn hook_coalesces_contiguous_changes() {
-        // Two real edits that chain cleanly: the text after the first edit is the text before the
-        // second, so the changesets compose directly.
-        assert_coalesces(&[
-            ("the quick brown fox", "the slowish brown fox"),
-            ("the slowish brown fox", "the slowish green fox"),
-        ]);
-    }
-
-    #[test]
-    fn hook_coalesces_across_skipped_ghost_edit() {
-        // A ghost transaction edited the document between the two real edits and was not reported
-        // to the index, so the text before the second edit no longer matches the text after the
-        // first. Here it is longer, which would make a chained `ChangeSet::compose` panic on its
-        // `len_after == len` precondition.
-        assert_coalesces(&[
-            ("the quick brown fox", "the quick brown foxes"),
-            ("the quick brown foxes jumped over", "the lazy brown foxes"),
-        ]);
-    }
-
-    #[test]
-    fn hook_coalesces_across_length_preserving_ghost_edit() {
-        // The subtle case: a ghost edit changes content without changing length, in a region the
-        // next real edit leaves untouched. The two observed changes then have matching lengths
-        // but different contents, so a length check alone cannot tell they are non-contiguous.
-        let p = ".".repeat(60);
-        assert_coalesces(&[
-            (&format!("aaa{p}ggg"), &format!("bbb{p}ggg")),
-            (&format!("bbb{p}hhh"), &format!("ccc{p}hhh")),
-        ]);
-    }
-
-    fn sample_text(g: &mut Gen) -> String {
-        g.choose(&[
-            "the quick brown fox",
-            "one two three",
-            "αβγ café",
-            "",
-            "word\nnext",
-            "ábc xyz",
-        ])
-        .unwrap()
-        .to_string()
-    }
-
-    fn random_edit(g: &mut Gen, text: &str) -> String {
-        let chars: Vec<_> = text.chars().collect();
-        let start = usize::arbitrary(g) % (chars.len() + 1);
-        let end = start + usize::arbitrary(g) % (chars.len() - start + 1);
-        let mut result = chars[..start].iter().collect::<String>();
-        result.push_str(&sample_text(g));
-        result.extend(&chars[end..]);
-        result
-    }
-
-    /// A sequence of `(old_text, new_text)` changes as the hook observes them. Some steps leave
-    /// a gap (the next change's `old_text` differs from the previous `new_text`) modelling an
-    /// unobserved ghost edit applied to the document between two real ones.
-    #[derive(Clone, Debug)]
-    struct Observations(Vec<(String, String)>);
-
-    impl Arbitrary for Observations {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let steps = usize::arbitrary(g) % 5 + 1;
-            let mut current = sample_text(g);
-            let mut observations = Vec::with_capacity(steps);
-            for _ in 0..steps {
-                let observed_old = if bool::arbitrary(g) {
-                    // A ghost edit perturbed the document before this real edit, so the observed
-                    // `old_text` no longer matches the previous `new_text`.
-                    random_edit(g, &current)
-                } else {
-                    current.clone()
-                };
-                let new = random_edit(g, &observed_old);
-                observations.push((observed_old, new.clone()));
-                current = new;
-            }
-            Observations(observations)
-        }
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(Observations))
-        }
+        let mut state = IndexedDocuments {
+            index: index.clone(),
+            documents: HashMap::default(),
+        };
+        let first = DocumentId::new(1);
+        let second = DocumentId::new(2);
+        let mut pending = Pending::default();
+        pending.push(Event::Open(first, Rope::from("shared alpha")));
+        pending.push(Event::Open(second, Rope::from("shared beta")));
+        state = state.apply(pending, &cancel);
+        assert_eq!(index.counts()["shared"], 2);
+        let mut pending = Pending::default();
+        pending.push(Event::Edit {
+            document: first,
+            text: Rope::from("pending gamma"),
+            significant: false,
+        });
+        pending.push(Event::Close(first));
+        state = state.apply(pending, &cancel);
+        assert_eq!(
+            index.counts(),
+            std::collections::HashMap::from([("shared".into(), 1), ("beta".into(), 1)])
+        );
+        let mut pending = Pending::default();
+        pending.push(Event::Open(first, Rope::from("shared delta")));
+        state.apply(pending, &cancel);
+        assert_eq!(index.counts()["shared"], 2);
+        assert_eq!(index.counts()["delta"], 1);
     }
 
     quickcheck::quickcheck! {
-        /// Coalescing a sequence of observed changes (gaps and all) and flushing yields a change
-        /// that maps its `old_text` to its `text` and drives the index to the same multiset as a
-        /// fresh index of the final text.
-        fn prop_hook_coalescing_matches_fresh(obs: Observations) -> bool {
-            let Some(change) = coalesce(obs.0.iter().map(|(o, n)| (o.as_str(), n.as_str()))) else {
-                return true;
-            };
-
-            let mut applied = change.old_text.clone();
-            if !change.changes.apply(&mut applied) || applied != change.text {
-                return false;
+        fn coalesced_snapshots_match_fresh_word_counts(events: Vec<(u8, Option<String>)>) -> bool {
+            let mut controller = TaskController::new();
+            let cancel = controller.restart();
+            let index = WordIndex::default();
+            let mut state = IndexedDocuments { index: index.clone(), documents: HashMap::default() };
+            let mut expected = HashMap::default();
+            let mut pending = Pending::default();
+            for (key, text) in events {
+                let id = DocumentId::new(usize::from(key % 4) + 1);
+                match (key, text) {
+                    (255, _) => { expected.clear(); pending.push(Event::Reset); }
+                    (_, Some(text)) => {
+                        let text = Rope::from(text);
+                        expected.insert(id, text.clone());
+                        pending.push(Event::Edit { document: id, text, significant: false });
+                    }
+                    (_, None) => { expected.remove(&id); pending.push(Event::Close(id)); }
+                }
+                if key % 3 == 0 { state = state.apply(std::mem::take(&mut pending), &cancel); }
             }
-
-            let mut cancel = TaskController::new();
-            let handle = cancel.restart();
-            let incremental = WordIndex::default();
-            incremental.add_document(&change.old_text, &handle);
-            incremental.update_document(&change.old_text, &change.text, &change.changes, &handle);
-
-            let fresh = WordIndex::default();
-            fresh.add_document(&change.text, &handle);
-
-            incremental.counts() == fresh.counts()
+            state.apply(pending, &cancel);
+            let mut fresh = word_index::WordIndex::default();
+            for text in expected.values() { fresh.add_document(text, || false); }
+            index.counts() == fresh.word_counts().map(|(word, count)| (word.to_owned(), count)).collect()
         }
     }
 }

@@ -5422,7 +5422,6 @@ dependencies = [
  "fuzzy",
  "quickcheck",
  "stdx",
- "text-diff",
 ]
 
 [[package]]

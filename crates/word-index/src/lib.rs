@@ -2,7 +2,7 @@
 //! Callers own document identities, worker scheduling, and cancellation policy.
 //! A canceled update may leave partial counts; discard that index on cancellation.
 
-use editor_core::{chars::char_is_word, ChangeSet, Rope, RopeSlice};
+use editor_core::{chars::char_is_word, Rope, RopeSlice};
 use foldhash::HashMap;
 use std::{borrow::Cow, iter};
 use stdx::rope::RopeExt as _;
@@ -79,26 +79,18 @@ impl WordIndex {
         }
     }
 
-    pub fn update_document(
+    /// Replace indexed word windows, such as the pair returned by [`changed_words`].
+    pub fn replace_words(
         &mut self,
-        old_text: &Rope,
-        text: &Rope,
-        changes: &ChangeSet,
+        old: RopeSlice,
+        text: RopeSlice,
         should_cancel: impl Fn() -> bool,
     ) {
-        if should_cancel() {
-            return;
+        for word in words_cancellable(text, &should_cancel) {
+            self.insert(word);
         }
-        for (old_window, new_window) in changes.changed_ranges(MAX_WORD_LEN) {
-            for word in words_cancellable(text.slice_chars(new_window), &should_cancel) {
-                self.insert(word);
-            }
-            for word in words_cancellable(old_text.slice_chars(old_window), &should_cancel) {
-                self.remove(word);
-            }
-            if should_cancel() {
-                return;
-            }
+        for word in words_cancellable(old, &should_cancel) {
+            self.remove(word);
         }
     }
 
@@ -107,6 +99,52 @@ impl WordIndex {
             self.remove(word);
         }
     }
+}
+
+/// Word windows changed between two snapshots, including enough unchanged context
+/// to handle words crossing edit boundaries. Returns `None` for equal text or cancellation.
+/// Call before locking an index; scanning large unchanged prefixes remains cancellable.
+pub fn changed_words<'a>(
+    old: RopeSlice<'a>,
+    text: RopeSlice<'a>,
+    should_cancel: impl Fn() -> bool,
+) -> Option<(RopeSlice<'a>, RopeSlice<'a>)> {
+    fn common_prefix(
+        before: impl Iterator<Item = char>,
+        after: impl Iterator<Item = char>,
+        cancel: &impl Fn() -> bool,
+    ) -> Option<usize> {
+        let mut count = 0;
+        for (a, b) in before.zip(after) {
+            if count % CANCEL_CHECK_INTERVAL == 0 && cancel() {
+                return None;
+            }
+            if a != b {
+                break;
+            }
+            count += 1;
+        }
+        Some(count)
+    }
+    let prefix = common_prefix(old.chars(), text.chars(), &should_cancel)?;
+    if prefix == old.len_chars() && prefix == text.len_chars() {
+        return None;
+    }
+    let suffix = common_prefix(
+        old.slice_chars(prefix..).chars().reversed(),
+        text.slice_chars(prefix..).chars().reversed(),
+        &should_cancel,
+    )?;
+    if should_cancel() {
+        return None;
+    }
+    let start = prefix.saturating_sub(MAX_WORD_LEN);
+    let old_end = (old.len_chars() - suffix + MAX_WORD_LEN).min(old.len_chars());
+    let end = (text.len_chars() - suffix + MAX_WORD_LEN).min(text.len_chars());
+    Some((
+        old.slice_chars(start..old_end),
+        text.slice_chars(start..end),
+    ))
 }
 
 /// Extracts indexable words from a rope slice.
@@ -182,9 +220,15 @@ mod tests {
 
     use super::*;
     use quickcheck::{Arbitrary, Gen};
-    use text_diff::compare_ropes;
 
     impl WordIndex {
+        fn update(&mut self, old: &Rope, text: &Rope, cancel: impl Fn() -> bool) {
+            if let Some((old_words, new_words)) =
+                changed_words(old.slice(..), text.slice(..), &cancel)
+            {
+                self.replace_words(old_words, new_words, cancel);
+            }
+        }
         fn words_set(&self) -> HashSet<String> {
             self.words.keys().map(ToString::to_string).collect()
         }
@@ -207,14 +251,63 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_windows_preserve_word_counts_across_unicode_and_distant_edits() {
+        fn check(before: &str, after: &str) {
+            let old = Rope::from(before);
+            let text = Rope::from(after);
+            let mut incremental = WordIndex::default();
+            incremental.add_document(&old, || false);
+            if let Some((old_words, new_words)) =
+                changed_words(old.slice(..), text.slice(..), || false)
+            {
+                incremental.replace_words(old_words, new_words, || false);
+            }
+            let mut fresh = WordIndex::default();
+            fresh.add_document(&text, || false);
+            assert_eq!(incremental.counts(), fresh.counts());
+        }
+        check("", "αβγ café ábc");
+        check("αβγ café ábc", "");
+        check("one éclair three", "one èclair three");
+        check(
+            &format!(
+                "{} start middle end {}",
+                "long".repeat(30),
+                "word".repeat(30)
+            ),
+            &format!(
+                "{} first middle last {}",
+                "long".repeat(30),
+                "word".repeat(30)
+            ),
+        );
+        check(
+            &format!("prefix {} aaa", ".".repeat(200)),
+            &format!("changed {} bbb", ".".repeat(200)),
+        );
+    }
+
+    #[test]
+    fn snapshot_window_scanning_checks_cancellation_inside_unchanged_text() {
+        let before = Rope::from(format!("{} old", "unchanged ".repeat(2000)));
+        let after = Rope::from(format!("{} new", "unchanged ".repeat(2000)));
+        let checks = std::cell::Cell::new(0);
+        let windows = changed_words(before.slice(..), after.slice(..), || {
+            checks.set(checks.get() + 1);
+            checks.get() == 2
+        });
+        assert!(windows.is_none());
+        assert_eq!(checks.get(), 2);
+    }
+
+    #[test]
     fn cancellation_before_scanning_leaves_counts_unchanged() {
         let text = Rope::from("some_word ".repeat(100_000));
         let empty = Rope::new();
-        let changes = compare_ropes(&empty, &text);
         let mut index = WordIndex::default();
         index.add_document(&text, || true);
         assert_eq!(index.word_counts().count(), 0);
-        index.update_document(&empty, &text, changes.changes(), || true);
+        index.update(&empty, &text, || true);
         assert_eq!(index.word_counts().count(), 0);
         index.add_document(&text, || false);
         let counts = index.counts();
@@ -243,10 +336,9 @@ mod tests {
         use std::cell::Cell;
         let text = Rope::from("some_word ".repeat(100_000));
         let empty = Rope::new();
-        let changes = compare_ropes(&empty, &text);
         let checks = Cell::new(0);
         let mut index = WordIndex::default();
-        index.update_document(&empty, &text, changes.changes(), || {
+        index.update(&empty, &text, || {
             checks.set(checks.get() + 1);
             checks.get() >= 3
         });
@@ -269,7 +361,6 @@ mod tests {
     {
         let before = Rope::from_str(before);
         let after = Rope::from_str(after);
-        let diff = compare_ropes(&before, &after);
         let expect_removed: HashSet<_> =
             expect_removed.into_iter().map(|i| i.to_string()).collect();
         let expect_inserted: HashSet<_> =
@@ -279,7 +370,7 @@ mod tests {
 
         index.add_document(&before, || false);
         let words_before = index.words_set();
-        index.update_document(&before, &after, diff.changes(), || false);
+        index.update(&before, &after, || false);
         let words_after = index.words_set();
 
         let actual_removed = words_before.difference(&words_after).cloned().collect();
@@ -493,14 +584,13 @@ mod tests {
 
         /// Incrementally updating across one edit lands on exactly the same word multiset (words
         /// and refcounts) as reindexing the new text from scratch.
-        fn prop_update_document_matches_fresh(pair: EditPair) -> bool {
+        fn prop_snapshot_updates_match_fresh(pair: EditPair) -> bool {
             let old = Rope::from_str(&pair.old);
             let new = Rope::from_str(&pair.new);
-            let changes = compare_ropes(&old, &new).changes().clone();
 
             let mut incremental = WordIndex::default();
             incremental.add_document(&old, || false);
-            incremental.update_document(&old, &new, &changes, || false);
+            incremental.update(&old, &new, || false);
 
             let mut fresh = WordIndex::default();
             fresh.add_document(&new, || false);
