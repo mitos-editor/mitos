@@ -64,8 +64,11 @@ a stream of character positions and resolved styles before drawing. The text
 renderer receives explicit whitespace and indentation settings instead of a
 document. `text-render` owns the drawing loop and generic decoration interface.
 Feature decorations stay in `term`; buffer writing helpers live in `ui-core` and
-are re-exported by `tui` for frontend widgets. `EditorView` owns input, component
-state, and composition of the rendered pane.
+are re-exported by `tui` for frontend widgets. `EditorView` owns input, popup presentation, and frame preparation. Its private
+`PaneRenderer` owns pane drawing, image caches, and progress spinners. Frame
+preparation performs resize and debugger refresh effects before drawing; the
+renderer receives an immutable editor plus explicit focus, cursor-ownership,
+color, and area inputs. Drawing does not receive a mutable compositor context.
 
 Picker matching, input, and composition live in `term::ui::picker`. Its private
 `preview` module owns preview caches, loading, cancellation, asynchronous
