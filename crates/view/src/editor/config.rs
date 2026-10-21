@@ -37,8 +37,8 @@ impl Editor {
         let theme_result = self.set_theme(theme);
         let loader = self.syn_loader.load();
         for document in self.documents.values_mut() {
-            document.detect_editor_config();
             document.detect_language(&loader);
+            document.refresh_settings();
             let diagnostics =
                 Self::doc_diagnostics(&self.language_servers, &self.diagnostics, document);
             document.replace_diagnostics(diagnostics, &[], None);
@@ -51,6 +51,13 @@ impl Editor {
     pub fn refresh_config(&mut self, old_config: &Config) {
         let config = self.config();
         self.auto_pairs = (&config.auto_pairs).into();
+        // Apply path-based settings before layout and feature observers read them.
+        // Other live settings are read through the installed configuration snapshot.
+        if old_config.files.editor_config != config.files.editor_config {
+            for document in self.documents.values_mut() {
+                document.refresh_settings();
+            }
+        }
         self.reset_idle_timer();
         self._refresh();
         event::dispatch(ConfigDidChange {

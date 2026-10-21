@@ -95,8 +95,7 @@ impl Editor {
         self.prepare_document_language_change(doc_id);
         let doc = self.documents.get_mut(&doc_id).unwrap();
         doc.detect_language(&loader);
-        doc.detect_editor_config();
-        doc.detect_indent_and_line_ending();
+        doc.refresh_settings();
         self.refresh_document_language_services(doc_id);
     }
 

@@ -215,8 +215,7 @@ impl Document {
             "Cannot open a binary file as scratch text"
         );
         doc.set_path(None);
-        doc.editor_config = EditorConfig::default();
-        doc.detect_indent_and_line_ending();
+        doc.refresh_settings();
         Ok(doc)
     }
 
@@ -539,7 +538,7 @@ impl Document {
         }
         self.reset_modified();
         self.pickup_last_saved_time();
-        self.detect_indent_and_line_ending();
+        self.refresh_settings();
 
         self.refresh_vcs(provider_registry, trust_full);
 

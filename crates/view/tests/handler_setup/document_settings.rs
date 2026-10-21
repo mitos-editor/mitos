@@ -1,7 +1,11 @@
 use super::Fixture;
 use ::diagnostics::{Diagnostic, DiagnosticProvider, Range};
 use std::sync::{Arc, Mutex};
-use view::{current, current_ref, editor::Action, events::DocumentLanguageDidChange};
+use view::{
+    current, current_ref,
+    editor::Action,
+    events::{ConfigDidChange, DocumentLanguageDidChange},
+};
 
 const LANGUAGES: &str = r#"
 [[language]]
@@ -165,5 +169,118 @@ async fn indentation_choice_for_a_hidden_document_preserves_text_and_focus() -> 
     assert_eq!(doc.text(), "a\n");
     assert!(doc.changes().is_empty());
     assert_eq!(current_ref!(f.editor).1.id(), focused);
+    Ok(())
+}
+
+#[tokio::test]
+async fn editorconfig_toggle_refreshes_hidden_documents_before_config_observers(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::with_config(
+        "word\n",
+        LANGUAGES,
+        loader::syntax::Resources::default(),
+        |config| {
+            config.text_width = 88;
+            config.files.save.insert_final_newline = true;
+            config.files.save.trim_trailing_whitespace = true;
+        },
+    )?;
+    std::fs::write(f.dir.path().join(".editorconfig"), "root = true\n[*]\nindent_style = space\nindent_size = 6\nend_of_line = crlf\nmax_line_length = 42\ninsert_final_newline = false\ntrim_trailing_whitespace = false\n")?;
+    let id = current_ref!(f.editor).1.id();
+    f.editor.refresh_doc_language(id);
+    let snapshot = f.editor.document(id).unwrap().snapshot();
+    let focused = f.editor.new_file(Action::Replace);
+    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
+        let doc = event.editor.document(id).unwrap();
+        assert_eq!(
+            doc.text_width(),
+            if event.new.files.editor_config {
+                42
+            } else {
+                88
+            }
+        );
+        Ok(())
+    });
+    for enabled in [false, true] {
+        f.configure(|config| config.files.editor_config = enabled);
+        let doc = f.editor.document(id).unwrap();
+        assert_eq!(doc.indent_width(), if enabled { 6 } else { 2 });
+        assert_eq!(doc.tab_width(), if enabled { 6 } else { 2 });
+        assert_eq!(
+            doc.line_ending,
+            if enabled {
+                editor_core::LineEnding::Crlf
+            } else {
+                editor_core::LineEnding::LF
+            }
+        );
+        assert_eq!(doc.insert_final_newline(), !enabled);
+        assert_eq!(doc.trim_trailing_whitespace(), !enabled);
+        assert_eq!(doc.text(), snapshot.text());
+        assert_eq!(doc.version(), snapshot.version());
+        assert_eq!(current_ref!(f.editor).1.id(), focused);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn language_reload_resolves_current_editorconfig_and_language_settings() -> anyhow::Result<()>
+{
+    let mut f = Fixture::with_languages("word\n", LANGUAGES)?;
+    let path = f.dir.path().join(".editorconfig");
+    let id = current_ref!(f.editor).1.id();
+    std::fs::write(
+        &path,
+        "root = true\n[*]\nindent_style = space\nindent_size = 6\nmax_line_length = 42\n",
+    )?;
+    f.editor.refresh_doc_language(id);
+    assert_eq!(f.editor.document(id).unwrap().indent_width(), 6);
+    let languages = LANGUAGES.replace(
+        "tab-width = 2, unit = \"  \"",
+        "tab-width = 3, unit = \"   \"",
+    );
+    for (contents, width, indent) in [
+        (
+            "root = true\n[*]\nindent_style = space\nindent_size = 4\nmax_line_length = 60\n",
+            60,
+            4,
+        ),
+        ("root = true\n", f.editor.config().text_width, 3),
+    ] {
+        std::fs::write(&path, contents)?;
+        let loader = language::syntax::Loader::new(
+            toml::from_str(&languages)?,
+            loader::syntax::Resources::default(),
+        )?;
+        let theme = f.editor.theme.clone();
+        f.editor.apply_language_config(loader, theme)?;
+        let doc = f.editor.document(id).unwrap();
+        assert_eq!(doc.text_width(), width);
+        assert_eq!(doc.indent_width(), indent);
+        assert_eq!(doc.text(), "word\n");
+        assert!(!doc.is_modified());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn path_changes_replace_editorconfig_and_unrelated_config_keeps_manual_indentation(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::with_languages("word\n", LANGUAGES)?;
+    std::fs::write(f.dir.path().join(".editorconfig"), "root = true\n[*.words]\nindent_style = space\nindent_size = 6\nmax_line_length = 42\n[*.other]\nmax_line_length = 72\n")?;
+    let id = current_ref!(f.editor).1.id();
+    f.editor.refresh_doc_language(id);
+    f.editor
+        .set_doc_path(id, &f.dir.path().join("renamed.other"));
+    let doc = f.editor.document(id).unwrap();
+    assert_eq!(doc.text_width(), 72);
+    assert_eq!(doc.indent_width(), 4);
+    f.editor
+        .set_document_indent_style(id, editor_core::indent::IndentStyle::Spaces(7))?;
+    f.configure(|config| config.text_width = 99);
+    assert_eq!(f.editor.document(id).unwrap().indent_width(), 7);
+    assert_eq!(f.editor.document(id).unwrap().text_width(), 72);
+    assert_eq!(f.editor.document(id).unwrap().text(), "word\n");
     Ok(())
 }

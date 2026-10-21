@@ -367,6 +367,13 @@ replay uses the same validation without requesting another server response.
 
 ### Document settings
 
+The private `document::settings` module resolves EditorConfig, language defaults,
+indentation, line endings, spelling, save policy, and text formatting. Disabling
+EditorConfig or removing a filesystem identity clears cached path-based values.
+Configuration changes apply this refresh before layout and feature observers;
+language reloads, path changes, and file reloads use the same resolution path.
+Unrelated live setting changes preserve manual indentation choices.
+
 `Editor::set_document_language` and `set_document_spelling_languages` apply complete
 setting changes by document ID. Language changes cancel dependent feature work,
 reopen protocol documents even when the client is reused, and refresh diagnostics
