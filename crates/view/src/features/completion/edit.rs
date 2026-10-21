@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use editor_core::{Change, Rope, Selection, Transaction};
 use lsp_client::{lsp, util, OffsetEncoding};
-use snippets::{ActiveSnippet, RenderedSnippet, Snippet, SnippetRenderCtx};
+use snippets::{RenderedSnippet, Snippet, SnippetRenderCtx};
 
 use super::{
     additional_edits_transaction, trigger_auto_completion, AcceptedCompletion, CompletionItem,
@@ -16,7 +16,6 @@ use crate::{document::SavePoint, editing::EditError, Document, DocumentId, Edito
 pub struct CompletionApply {
     pub trigger_offset: usize,
     pub changes: Vec<Change>,
-    pub placeholder: bool,
 }
 
 pub(super) enum CompletionEdit {
@@ -201,12 +200,8 @@ impl Editor {
         crate::editing::commit(doc, view);
         let before = doc.snapshot();
         crate::editing::apply(doc, &transaction, view.id)?;
-        let placeholder = snippet.is_some();
         if let Some(snippet) = snippet {
-            doc.active_snippet = match doc.active_snippet.take() {
-                Some(active) => active.insert_subsnippet(snippet),
-                None => ActiveSnippet::new(snippet),
-            };
+            doc.install_snippet(view.id, snippet);
         }
         self.handlers.completions.edit = Some(CompletionEdit::Applied(CompletionApply {
             trigger_offset,
@@ -214,7 +209,6 @@ impl Editor {
                 .changes_iter()
                 .filter(|(start, end, _)| (*start..=*end).contains(&trigger_offset))
                 .collect(),
-            placeholder,
         }));
 
         if let Some(additional) = additional {
@@ -474,7 +468,7 @@ mod rejection_tests {
             assert_eq!(doc.selection(view.id), &before.1);
             assert_eq!(doc.changes(), &before.2);
             assert_eq!(doc.version(), before.3);
-            assert!(doc.active_snippet.is_none());
+            assert!(doc.active_snippet().is_none());
         }
     }
 }

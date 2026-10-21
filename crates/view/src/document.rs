@@ -3,6 +3,8 @@ use stdx::rope::RopeExt as _;
 pub(crate) mod history;
 mod language_servers;
 mod lifecycle;
+mod snippet;
+use snippet::SnippetSession;
 mod mutation;
 mod view_state;
 use view_state::DocumentViewState;
@@ -43,7 +45,7 @@ use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::encoding::Encoding;
 use language_config::LanguageServerFeature;
-use snippets::{ActiveSnippet, SnippetRenderCtx};
+use snippets::SnippetRenderCtx;
 use text_layout::doc_formatter::TextFormat;
 use text_layout::text_annotations::Overlay;
 use vcs::{DiffHandle, DiffProviderRegistry};
@@ -179,7 +181,7 @@ pub struct Document {
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
     view_states: HashMap<ViewId, DocumentViewState>,
-    pub active_snippet: Option<ActiveSnippet>,
+    snippet: Option<SnippetSession>,
     pub(crate) breakpoint_saved_text: Option<Rope>,
     pub(crate) breakpoint_source: Option<::debugger::SourceBreakpoints>,
 
@@ -291,7 +293,7 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
-            active_snippet: None,
+            snippet: None,
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
             view_states: HashMap::default(),

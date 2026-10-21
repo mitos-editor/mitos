@@ -208,6 +208,19 @@ and open/save/reload operations. File metadata stays private to that module;
 renames invalidate path caches and external-change state together. Text and undo
 history continue to belong to `buffer`.
 
+### Snippet sessions
+
+`Editor::insert_snippet` and `move_snippet_tabstop` own snippet insertion and
+navigation. The document keeps a private session associated with its originating
+view and exposes tabstops read-only for rendering. Moving backward at the first
+tabstop preserves the session; reaching the final stop ends it.
+
+The first character typed at a placeholder replaces its contents in one
+transaction, including auto-pair insertion. Rejected input leaves both text and
+pending replacement intact. Explicit selection movement cancels replacement;
+focus changes and history replay end the session. Term only translates navigation
+outcomes into messages; no next-key callback owns placeholder deletion.
+
 ### Register-backed editing
 
 The editor coordinates yanking, register paste/replacement, and delete/change

@@ -1,46 +1,16 @@
-//! Navigation between snippet placeholders.
-
-use crate::commands::{context::Context, insert::insert_char};
+//! Frontend messages for shared snippet navigation.
+use crate::commands::context::Context;
 use editor_core::movement::Direction;
-use view::document::Mode;
+use view::editor::SnippetNavigation;
 
 pub(super) fn goto_next_tabstop(cx: &mut Context) {
-    goto_next_tabstop_impl(cx, Direction::Forward)
+    navigate(cx, Direction::Forward);
 }
-
 pub(super) fn goto_prev_tabstop(cx: &mut Context) {
-    goto_next_tabstop_impl(cx, Direction::Backward)
+    navigate(cx, Direction::Backward);
 }
-
-fn goto_next_tabstop_impl(cx: &mut Context, direction: Direction) {
-    let (view, doc) = current!(cx.editor);
-    let view_id = view.id;
-    let Some(mut snippet) = doc.active_snippet.take() else {
+fn navigate(cx: &mut Context, direction: Direction) {
+    if cx.editor.move_snippet_tabstop(direction) == SnippetNavigation::Inactive {
         cx.editor.set_error(|| "no snippet is currently active");
-        return;
-    };
-    let tabstop = match direction {
-        Direction::Forward => Some(snippet.next_tabstop(doc.selection(view_id))),
-        Direction::Backward => snippet
-            .prev_tabstop(doc.selection(view_id))
-            .map(|selection| (selection, false)),
-    };
-    let Some((selection, last_tabstop)) = tabstop else {
-        return;
-    };
-    doc.set_selection(view_id, selection);
-    if !last_tabstop {
-        doc.active_snippet = Some(snippet)
-    }
-    if cx.editor.mode() == Mode::Insert {
-        cx.on_next_key_fallback(|cx, key| {
-            if let Some(c) = key.char() {
-                if let Err(error) = cx.editor.clear_snippet_placeholder() {
-                    cx.editor.set_error(|| error.to_string());
-                    return;
-                }
-                insert_char(cx, c);
-            }
-        })
     }
 }

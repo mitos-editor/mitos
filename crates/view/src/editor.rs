@@ -14,7 +14,9 @@ pub use filesystem::FileOperation;
 mod input;
 mod language_servers;
 mod mode;
+mod snippet;
 pub use input::InputKind;
+pub use snippet::SnippetNavigation;
 mod registers;
 #[cfg(test)]
 pub(crate) mod tests;

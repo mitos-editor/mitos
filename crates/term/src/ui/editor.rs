@@ -228,37 +228,21 @@ impl EditorView {
         Some(area)
     }
 
-    pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
+    pub fn clear_completion(&mut self, editor: &mut Editor) {
         self.completion = None;
-        let mut on_next_key: Option<OnKeyCallback> = None;
-        let applied = match editor.finish_completion() {
-            Ok(applied) => applied,
-            Err(error) => {
-                editor.set_error(|| error.to_string());
-                return None;
-            }
-        };
-        if let Some(view::features::completion::CompletionApply {
-            trigger_offset,
-            changes,
-            placeholder,
-        }) = applied
-        {
-            self.record_insert_event(InsertEvent::CompletionApply {
+        match editor.finish_completion() {
+            Ok(Some(view::features::completion::CompletionApply {
                 trigger_offset,
                 changes,
-            });
-            on_next_key = placeholder.then_some(Box::new(|cx, key| {
-                if let Some(c) = key.char() {
-                    if let Err(error) = cx.editor.clear_snippet_placeholder() {
-                        cx.editor.set_error(|| error.to_string());
-                        return;
-                    }
-                    commands::insert::insert_char(cx, c);
-                }
-            }))
+            })) => {
+                self.record_insert_event(InsertEvent::CompletionApply {
+                    trigger_offset,
+                    changes,
+                });
+            }
+            Ok(None) => {}
+            Err(error) => editor.set_error(|| error.to_string()),
         }
-        on_next_key
     }
 
     pub fn handle_idle_timeout(&mut self, cx: &mut commands::Context) -> EventResult {
@@ -650,15 +634,7 @@ impl Component for EditorView {
                                     && callback.is_some()
                                 {
                                     // assume close_fn
-                                    if let Some(cb) = self.clear_completion(cx.editor) {
-                                        if consumed {
-                                            cx.on_next_key_callback =
-                                                Some((cb, OnKeyCallbackKind::Fallback))
-                                        } else {
-                                            self.on_next_key =
-                                                Some((cb, OnKeyCallbackKind::Fallback));
-                                        }
-                                    }
+                                    self.clear_completion(cx.editor);
                                 }
                             }
 

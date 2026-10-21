@@ -81,6 +81,8 @@ impl Editor {
     }
 
     fn input_applied(&mut self, kind: InputKind) {
+        let (view, doc) = current!(self);
+        doc.snippet_input_applied(view.id);
         features::completion::input_applied(self, kind);
         if matches!(kind, InputKind::Character(_)) {
             features::signature_help::post_insert_char(self);
