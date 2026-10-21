@@ -15,7 +15,7 @@
 "ui.gutter" = { fg = "lotusInk1", bg = "lotusWhite1" }
 
 "ui.virtual" = "lotusInk1"
-"ui.virtual.ruler" = { bg = "lotusWhite1" }
+"ui.virtual.ruler" = { fg = "lotusWhite1" }
 "ui.virtual.inlay-hint" = "lotusInk2"
 "ui.virtual.jump-label" = { fg = "lotusRed", modifiers = ["bold"] }
 "ui.virtual.whitespace" = { fg = "lotusWhite2" }

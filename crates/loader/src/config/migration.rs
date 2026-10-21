@@ -94,6 +94,7 @@ pub fn editor_path(path: &str) -> String {
     match path {
         "mouse" => "mouse.enable",
         "bufferline" => "bufferline.show",
+        "rulers" => "rulers.columns",
         "rainbow-brackets" => "rainbow-brackets.enable",
         "auto-pairs" => "auto-pairs.enable",
         "true-color" => "terminal.true-color",
@@ -234,6 +235,7 @@ fn editor_moves(value: &mut Value, moves: &mut Moves) -> Result<(), toml::de::Er
         rename(value, old, new, moves)?;
     }
     scalar(value, "bufferline", "show", moves)?;
+    scalar(value, "rulers", "columns", moves)?;
     scalar(value, "rainbow-brackets", "enable", moves)?;
     auto_pairs(value, moves)?;
     if value.get("gutters").is_some_and(Value::is_array) {

@@ -354,7 +354,7 @@ These scopes are used for theming the editor interface:
 | `ui.text.info`                    | The key: command text in `ui.popup.info` boxes                                                 |
 | `ui.text.directory`               | Directory names in prompt completion                                                           |
 | `ui.text.symlink`                 | Symlink names in prompt completion                                                             |
-| `ui.virtual.ruler`                | Ruler columns (see the [`editor.rulers` config][editor-section])                               |
+| `ui.virtual.ruler`                | Ruler glyph foreground (see the [`editor.rulers` config][editor-section])                     |
 | `ui.virtual.trailing_whitespace`  | Trailing whitespace; falls back to `ui.virtual.whitespace`                                      |
 | `ui.virtual.whitespace`           | Visible whitespace characters                                                                  |
 | `ui.virtual.indent-guide`         | Vertical indent width guides                                                                   |

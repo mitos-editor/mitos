@@ -504,10 +504,11 @@ impl PaneRenderer {
         surface: &mut Surface,
         theme: &Theme,
     ) {
-        let editor_rulers = &editor.config().rulers;
+        let config = editor.config();
+        let editor_rulers = &config.rulers.columns;
         let ruler_theme = theme
             .try_get("ui.virtual.ruler")
-            .unwrap_or_else(|| Style::default().bg(Color::Red));
+            .unwrap_or_else(|| Style::default().fg(Color::Red));
 
         let rulers = doc
             .language_config()
@@ -516,14 +517,25 @@ impl PaneRenderer {
 
         let view_offset = doc.view_offset(view.id);
 
-        rulers
+        let mut character = [0; 4];
+        let character: &str = config.rulers.character.encode_utf8(&mut character);
+        let ruler_cols = rulers
             .iter()
-            // View might be horizontally scrolled, convert from absolute distance
-            // from the 1st column to relative distance from left of viewport
-            .filter_map(|ruler| ruler.checked_sub(1 + view_offset.horizontal_offset as u16))
-            .filter(|ruler| ruler < &viewport.width)
-            .map(|ruler| viewport.clip_left(ruler).with_width(1))
-            .for_each(|area| surface.set_style(area, ruler_theme))
+            // Convert one-based document columns to viewport columns without
+            // truncating large horizontal offsets to u16.
+            .filter_map(|&ruler| {
+                usize::from(ruler)
+                    .checked_sub(1)?
+                    .checked_sub(view_offset.horizontal_offset)
+            })
+            .filter(|&ruler| ruler < usize::from(viewport.width))
+            .map(|ruler| viewport.x + ruler as u16);
+
+        for col in ruler_cols {
+            for y in viewport.top()..viewport.bottom() {
+                surface.set_stringn(col, y, character, 1, ruler_theme);
+            }
+        }
     }
 
     fn render_bufferline(editor: &Editor, viewport: Rect, surface: &mut Surface) {

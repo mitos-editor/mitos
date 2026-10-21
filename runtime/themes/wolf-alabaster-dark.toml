@@ -75,7 +75,7 @@ diagnostic = { underline = { style = "curl" } }
 # Virtual text (inlay hints, etc.) - dimmed type color
 "ui.virtual" = { fg = "inlay-hint" }
 "ui.virtual.inlay-hint" = { fg = "inlay-hint" }
-"ui.virtual.ruler" = { bg = "cursorline" }
+"ui.virtual.ruler" = { fg = "cursorline" }
 
 # LSP diagnostic inline/expanded text
 "diagnostic.error" = { underline = { color = "error-red", style = "curl" } }

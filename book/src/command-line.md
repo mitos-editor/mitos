@@ -84,7 +84,7 @@ The `:set-option` and `:toggle-option` commands use regular parsing for the firs
 
 * Booleans: only the config option name should be provided. For example `:toggle-option format.on-save` will flip the `format.on-save` option.
 * Strings: the rest of the command line is parsed with regular quoting rules. For example `:toggle-option indent.heuristic hybrid tree-sitter simple` cycles through "hybrid", "tree-sitter" and "simple" values on each invocation of the command.
-* Numbers, arrays and objects: the rest of the command line is parsed as a stream of JSON values. For example `:toggle-option rulers [81] [51, 73]` cycles through `[81]` and `[51, 73]`.
+* Numbers, arrays and objects: the rest of the command line is parsed as a stream of JSON values. For example `:toggle-option rulers.columns [81] [51, 73]` cycles through `[81]` and `[51, 73]`.
 
 When providing multiple values to `:toggle-option` there should be no duplicates. `:toggle-option indent.heuristic hybrid simple tree-sitter simple` for example would only toggle between "hybrid" and "tree-sitter" values.
 

@@ -161,7 +161,7 @@
 "ui.text.directory" = { fg = "func" }
 
 "ui.virtual" = { fg = "fg-gutter" }
-"ui.virtual.ruler" = { bg = "bg-highlight" }
+"ui.virtual.ruler" = { fg = "bg-highlight" }
 "ui.virtual.whitespace" = { fg = "fg-gutter" }
 "ui.virtual.indent-guide" = { fg = "fg-gutter" }
 "ui.virtual.inlay-hint" = { fg = "fg-gutter" }

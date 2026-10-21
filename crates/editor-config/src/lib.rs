@@ -24,6 +24,39 @@ pub use watch::WatchConfig;
 
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 
+/// Vertical guides at configured, one-based document columns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct RulersConfig {
+    pub columns: Vec<u16>,
+    #[serde(deserialize_with = "deserialize_ruler_character")]
+    pub character: char,
+}
+
+impl Default for RulersConfig {
+    fn default() -> Self {
+        Self {
+            columns: Vec::new(),
+            character: '┊',
+        }
+    }
+}
+
+fn deserialize_ruler_character<'de, D>(deserializer: D) -> Result<char, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use editor_core::unicode::width::UnicodeWidthChar;
+
+    let character = char::deserialize(deserializer)?;
+    if character.width() != Some(1) {
+        return Err(serde::de::Error::custom(
+            "ruler character must occupy exactly one terminal column",
+        ));
+    }
+    Ok(character)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct DebuggerConfig {
@@ -331,8 +364,8 @@ pub struct Config {
     pub search: SearchConfig,
     pub lsp: LspConfig,
     pub debugger: DebuggerConfig,
-    /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
-    pub rulers: Vec<u16>,
+    /// Ruler columns and the character used to draw them.
+    pub rulers: RulersConfig,
     #[serde(default)]
     pub whitespace: WhitespaceConfig,
     /// Persistently display breadcrumb along the top of each view, below any bufferline.
@@ -1147,7 +1180,7 @@ impl Default for Config {
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
             debugger: DebuggerConfig::default(),
-            rulers: Vec::new(),
+            rulers: RulersConfig::default(),
             whitespace: WhitespaceConfig::default(),
             breadcrumb: BreadcrumbConfig::default(),
             indent_guides: IndentGuidesConfig::default(),
@@ -1499,6 +1532,40 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rulers_default_and_round_trip_single_column_characters() {
+        let defaults = RulersConfig::default();
+        assert!(defaults.columns.is_empty());
+        assert_eq!(defaults.character, '┊');
+        assert_eq!(toml::from_str::<RulersConfig>("").unwrap(), defaults);
+        for character in ['│', '|', ' '] {
+            let config: RulersConfig =
+                toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
+            assert_eq!(config.character, character);
+            assert_eq!(config.columns, [80, 120]);
+            assert_eq!(
+                toml::from_str::<RulersConfig>(&toml::to_string(&config).unwrap()).unwrap(),
+                config
+            );
+        }
+    }
+
+    #[test]
+    fn rulers_reject_invalid_characters_and_unknown_fields() {
+        for source in [
+            "character = ''",
+            "character = 'ab'",
+            "character = '界'",
+            "character = '\u{0301}'",
+            "character = '\u{200b}'",
+            r#"character = "\n""#,
+            "character = 1",
+            "char = '|'",
+        ] {
+            assert!(toml::from_str::<RulersConfig>(source).is_err(), "{source}");
+        }
+    }
 
     #[test]
     fn picker_layout_defaults_to_auto_and_round_trips_both_choices() {

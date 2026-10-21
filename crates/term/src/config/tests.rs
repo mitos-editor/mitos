@@ -764,7 +764,7 @@ fn mixed_spellings_respect_precedence_deep_inheritance_and_array_replacement() {
     assert_eq!(config.editor.files.auto_save.after_delay.timeout, 900);
     assert!(!config.editor.files.reload.poll.enable);
     assert_eq!(config.editor.files.reload.poll.interval, 4000);
-    assert!(config.editor.rulers.is_empty());
+    assert!(config.editor.rulers.columns.is_empty());
     assert!(config.terminal.true_color);
     assert_eq!(config.terminal.launcher.unwrap().command, "tmux");
 }
@@ -793,4 +793,33 @@ fn duplicate_aliases_and_unknown_nested_settings_are_rejected() {
         "[editor]\nword-completion = {}\n[editor.completion.word]\nenable = false",
     );
     assert!(!config.editor.completion.word.enable);
+}
+
+#[test]
+fn rulers_normalize_legacy_arrays_before_layering() {
+    for (user, project, expected) in [
+        (
+            "[editor]\nrulers = [80, 120]",
+            "[editor.rulers]\ncharacter = '|'",
+            vec![80, 120],
+        ),
+        (
+            "[editor.rulers]\ncolumns = [80, 120]\ncharacter = '|'",
+            "[editor]\nrulers = []",
+            vec![],
+        ),
+        (
+            "[editor]\nrulers = [80]",
+            "[editor.rulers]\ncolumns = [40]\ncharacter = '|'",
+            vec![40],
+        ),
+    ] {
+        let config = Config::load(Ok(&user.to_owned()), Ok(project.to_owned())).unwrap();
+        assert_eq!(config.editor.rulers.columns, expected);
+        assert_eq!(config.editor.rulers.character, '|');
+        let serialized = serde_json::to_value(config.editor_settings()).unwrap();
+        assert_eq!(serialized["rulers"]["character"], "|");
+    }
+    assert!(Config::load_test_result("[editor.rulers]\nchar = '|'").is_err());
+    assert!(Config::load_test_result("[editor]\nrulers = [80]\nrulers.columns = [40]").is_err());
 }

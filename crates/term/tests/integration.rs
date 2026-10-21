@@ -48,6 +48,7 @@ mod test {
     mod picker_layout;
     mod pull_diagnostics;
     mod rename;
+    mod rulers;
     mod signature_help;
     mod spelling;
     mod splits;

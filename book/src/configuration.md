@@ -120,7 +120,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `search` | table | See below | Search matching and wrap behavior. See [`[editor.search]`](#editorsearch). |
 | `lsp` | table | See below | Global LSP behavior. See [`[editor.lsp]`](#editorlsp). |
 | `debugger` | table | See below | Runtime value display. See [`[editor.debugger]`](#editordebugger). |
-| `rulers` | array of integers | `[]` | Columns at which to draw rulers; a language may override this. |
+| `rulers` | table | See below | Guide columns and glyph. See [`[editor.rulers]`](#editorrulers). |
 | `whitespace` | table | See below | Visible whitespace rendering. See [`[editor.whitespace]`](#editorwhitespace). |
 | `breadcrumb` | table | See below | Breadcrumb navigation bar. See [`[editor.breadcrumb]`](#editorbreadcrumb). |
 | `indent-guides` | table | See below | Vertical indentation guides. See [`[editor.indent-guides]`](#editorindent-guides). |
@@ -539,6 +539,28 @@ enable delayed saving.
 | --- | --- | --- | --- |
 | `smart-case` | boolean | `true` | Search case-insensitively unless the pattern contains an uppercase character. |
 | `wrap-around` | boolean | `true` | Continue at the other end of the document after the last match. |
+
+### `[editor.rulers]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `columns` | array of integers | `[]` | One-based columns at which to draw rulers. A language's `rulers` array overrides these columns. |
+| `character` | single character occupying one terminal column | `"┊"` | Glyph used to draw rulers. |
+
+```toml
+[editor.rulers]
+columns = [81, 121]
+character = "│"
+```
+
+Rulers appear behind document text and use the `ui.virtual.ruler` theme style.
+Themes should set its foreground color. For the previous background-column
+appearance, set `character = " "` and give `ui.virtual.ruler` a background color
+in your theme.
+
+The legacy `editor.rulers = [81, 121]` array remains accepted as
+`editor.rulers.columns`. Runtime commands accept `rulers.columns` and
+`rulers.character`; the old `rulers` path remains an alias for `rulers.columns`.
 
 ### `[editor.whitespace]`
 

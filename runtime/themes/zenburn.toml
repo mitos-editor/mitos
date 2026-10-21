@@ -135,7 +135,7 @@
 "ui.text.focus" = { modifiers = ["bold"] }
 # "ui.text.inactive"
 "ui.text.info" = { fg = "zb-pmenu-fg", bg = "zb-pmenu-bg" }
-"ui.virtual.ruler" = { bg = "zb-colorcolumn-bg" }
+"ui.virtual.ruler" = { fg = "zb-colorcolumn-bg" }
 "ui.virtual.whitespace" = { fg = "zb-nontext-fg", modifiers = ["bold"] }
 "ui.virtual.indent-guide" = { fg = "zb-colorcolumn-bg" }
 # "ui.virtual.inlay-hint"

@@ -251,6 +251,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migrates_ruler_arrays_losslessly() {
+        let input = "[editor]\n# Guide columns\nrulers = [80, 120] # Keep guides\n";
+        let output = source(input).unwrap().unwrap();
+        assert!(output.contains("# Guide columns"));
+        assert!(output.contains("# Keep guides"));
+        let value: toml::Value = toml::from_str(&output).unwrap();
+        assert_eq!(
+            value["editor"]["rulers"]["columns"],
+            toml::Value::Array(vec![80.into(), 120.into()])
+        );
+        assert!(source(&output).unwrap().is_none());
+        assert_eq!(super::super::editor_path("rulers"), "rulers.columns");
+        assert_eq!(
+            super::super::editor_path("rulers.character"),
+            "rulers.character"
+        );
+    }
+
+    #[test]
     fn preserves_comments_keybindings_and_custom_commands() {
         let input = r#"# My settings
 theme = 'onedark'
