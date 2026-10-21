@@ -8,97 +8,56 @@ use anyhow::{anyhow, ensure, Result};
 use crate::{Document, Editor};
 use editor_core::Selection;
 
-/// Variables that can be expanded in the command mode (`:`) via the expansion syntax.
-///
-/// For example `%{cursor_line}`.
-//
-// To add a new variable follow these steps:
-//
-// * Add the new enum member to `Variable` below.
-// * Add an item to the `VARIANTS` constant - this enables completion.
-// * Add a branch in `Variable::as_str`, converting the name from TitleCase to snake_case.
-// * Add a branch in `Variable::from_name` with the reverse association.
-// * Add a branch in the `expand_variable` function to read the value from the editor.
-// * Add the new variable to the documentation in `book/src/command-line.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Variable {
+macro_rules! variables {
+    ($( $(#[$doc:meta])* $variant:ident => $name:literal, )*) => {
+        /// Variables available to command-line expansion and completion.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum Variable { $( $(#[$doc])* $variant, )* }
+
+        impl Variable {
+            pub const VARIANTS: &'static [Self] = &[$(Self::$variant,)*];
+
+            pub const fn as_str(&self) -> &'static str {
+                match self { $(Self::$variant => $name,)* }
+            }
+
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name { $($name => Some(Self::$variant),)* _ => None }
+            }
+        }
+    };
+}
+
+// Keep variable names and completion order together. Values are resolved by expand_variable.
+variables! {
     /// The one-indexed line number of the primary cursor in the currently focused document.
-    CursorLine,
+    CursorLine => "cursor_line",
     /// The one-indexed column number of the primary cursor in the currently focused document.
     ///
     /// Note that this is the count of grapheme clusters from the start of the line (regardless of
     /// softwrap) - the same as the `position` element in the statusline.
-    CursorColumn,
+    CursorColumn => "cursor_column",
     /// The display name of the currently focused document.
     ///
     /// This corresponds to `crate::Document::display_name`.
-    BufferName,
+    BufferName => "buffer_name",
     /// The absolute path of the currently focused document. For scratch buffers this will default
     /// to the current working directory.
-    FilePathAbsolute,
+    FilePathAbsolute => "file_path_absolute",
     /// A string containing the line-ending of the currently focused document.
-    LineEnding,
-    /// Curreng working directory
-    CurrentWorkingDirectory,
+    LineEnding => "line_ending",
+    /// Current working directory
+    CurrentWorkingDirectory => "current_working_directory",
     /// Nearest ancestor directory of the current working directory that contains `.git`, `.svn`, `jj` or `.mitos`
-    WorkspaceDirectory,
+    WorkspaceDirectory => "workspace_directory",
     // The name of current buffers language as set in `languages.toml`
-    Language,
+    Language => "language",
     // Primary selection
-    Selection,
+    Selection => "selection",
     // The one-indexed line number of the start of the primary selection in the currently focused document.
-    SelectionLineStart,
+    SelectionLineStart => "selection_line_start",
     // The one-indexed line number of the end of the primary selection in the currently focused document.
-    SelectionLineEnd,
-}
-
-impl Variable {
-    pub const VARIANTS: &'static [Self] = &[
-        Self::CursorLine,
-        Self::CursorColumn,
-        Self::BufferName,
-        Self::FilePathAbsolute,
-        Self::LineEnding,
-        Self::CurrentWorkingDirectory,
-        Self::WorkspaceDirectory,
-        Self::Language,
-        Self::Selection,
-        Self::SelectionLineStart,
-        Self::SelectionLineEnd,
-    ];
-
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::CursorLine => "cursor_line",
-            Self::CursorColumn => "cursor_column",
-            Self::BufferName => "buffer_name",
-            Self::FilePathAbsolute => "file_path_absolute",
-            Self::LineEnding => "line_ending",
-            Self::CurrentWorkingDirectory => "current_working_directory",
-            Self::WorkspaceDirectory => "workspace_directory",
-            Self::Language => "language",
-            Self::Selection => "selection",
-            Self::SelectionLineStart => "selection_line_start",
-            Self::SelectionLineEnd => "selection_line_end",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        match s {
-            "cursor_line" => Some(Self::CursorLine),
-            "cursor_column" => Some(Self::CursorColumn),
-            "buffer_name" => Some(Self::BufferName),
-            "file_path_absolute" => Some(Self::FilePathAbsolute),
-            "line_ending" => Some(Self::LineEnding),
-            "workspace_directory" => Some(Self::WorkspaceDirectory),
-            "current_working_directory" => Some(Self::CurrentWorkingDirectory),
-            "language" => Some(Self::Language),
-            "selection" => Some(Self::Selection),
-            "selection_line_start" => Some(Self::SelectionLineStart),
-            "selection_line_end" => Some(Self::SelectionLineEnd),
-            _ => None,
-        }
-    }
+    SelectionLineEnd => "selection_line_end",
 }
 
 /// Editor values captured before asynchronous command evaluation.
