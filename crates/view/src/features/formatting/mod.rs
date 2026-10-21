@@ -121,7 +121,8 @@ impl FormattingUpdate {
         crate::editing::apply(doc, &transaction, view)?;
         if matches!(kind, FormatKind::Document) {
             let view = view_mut!(editor, view);
-            crate::editing::commit(doc, view);
+            doc.commit_changes();
+            view.sync_changes(doc);
             doc.detect_indent_and_line_ending();
             view.ensure_cursor_in_view(doc, scrolloff);
         }

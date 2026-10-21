@@ -46,7 +46,8 @@ fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
         [(start, end, Some(replacement.into()))].into_iter(),
     );
     view::editing::apply(doc, &tx, view.id).unwrap();
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
 }
 
 async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {

@@ -64,10 +64,10 @@ async fn piping_preserves_selection_direction_primary_and_one_undo_group() -> an
         doc.selection(view.id),
         &Selection::new(vec![Range::new(3, 0), Range::new(4, 7)].into(), 1)
     );
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "éa bb\n");
     assert_eq!(doc.selection(view.id), &selection);
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 
@@ -147,7 +147,7 @@ async fn piping_without_replacement_writes_each_fragment_without_editing() -> an
     assert_eq!(std::fs::read_to_string(output)?, "aabb");
     assert_eq!(doc.text().to_string(), "aa bb\n");
     assert_eq!(doc.selection(view.id), &selection);
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 

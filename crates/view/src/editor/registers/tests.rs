@@ -42,7 +42,7 @@ async fn failed_register_writes_leave_text_selections_mode_and_history_alone() {
         assert_eq!(editor.mode(), Mode::Select);
         assert_text(&editor, "#[|abc]#\n");
         let (view, doc) = current!(editor);
-        assert!(!editing::undo(doc, view));
+        assert!(!editing::undo(doc, view.id));
     }
 }
 
@@ -72,7 +72,7 @@ async fn rejected_edits_do_not_overwrite_registers_or_change_mode() {
     assert_eq!(editor.mode(), Mode::Select);
     assert_text(&editor, "#[|abc]#\n");
     let (view, doc) = current!(editor);
-    assert!(!editing::undo(doc, view));
+    assert!(!editing::undo(doc, view.id));
 }
 
 #[tokio::test]
@@ -90,13 +90,14 @@ async fn linewise_change_and_its_yank_share_one_undo_group() {
             Some(format!("one{newline}two{newline}").as_str())
         );
         let (view, doc) = current!(editor);
-        editing::commit(doc, view);
-        assert!(editing::undo(doc, view));
+        doc.commit_changes();
+        view.sync_changes(doc);
+        assert!(editing::undo(doc, view.id));
         assert_eq!(
             doc.text(),
             format!("one{newline}two{newline}three{newline}").as_str()
         );
-        assert!(!editing::undo(doc, view));
+        assert!(!editing::undo(doc, view.id));
     }
 }
 
@@ -120,9 +121,9 @@ async fn contextual_register_paste_and_replacement_work_without_a_frontend() {
     assert!(editor.replace_from_register('a', 2).unwrap());
     assert_text(&editor, "é#[|界界]#\n");
     let (view, doc) = current!(editor);
-    assert!(editing::undo(doc, view));
+    assert!(editing::undo(doc, view.id));
     assert_eq!(doc.text(), "éé\n");
-    assert!(editing::undo(doc, view));
+    assert!(editing::undo(doc, view.id));
     assert_eq!(doc.text(), "é\n");
 }
 
@@ -141,9 +142,9 @@ async fn absent_and_empty_registers_leave_pending_typing_uncommitted() {
     let (view, doc) = current!(editor);
     let edit = Transaction::change(doc.text(), [(0, 1, Some("b".into()))].into_iter());
     editing::apply(doc, &edit, view.id).unwrap();
-    assert!(editing::undo(doc, view));
+    assert!(editing::undo(doc, view.id));
     assert_eq!(doc.text(), "x\n");
-    assert!(!editing::undo(doc, view));
+    assert!(!editing::undo(doc, view.id));
 }
 
 struct FailingClipboard;

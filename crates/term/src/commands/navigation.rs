@@ -102,7 +102,8 @@ fn goto_file_end_impl(cx: &mut Context, movement: Movement) {
 
 // Store a jump on the jumplist.
 pub(super) fn push_jump(view: &mut View, doc: &mut Document) {
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
     let jump = (doc.id(), doc.selection(view.id).clone());
     view.push_jump(doc, jump);
 }

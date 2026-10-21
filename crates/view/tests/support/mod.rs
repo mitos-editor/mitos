@@ -133,7 +133,7 @@ impl Fixture {
     pub fn replace_and_commit(&mut self, text: &str) {
         let (view, doc) = current!(self.editor);
         doc.set_selection(view.id, Selection::single(0, doc.text().len_chars()));
-        view::editing::replace_selections(doc, view, text).unwrap();
+        view::editing::replace_selections(doc, view.id, text).unwrap();
     }
 
     pub fn close_current(&mut self) -> anyhow::Result<()> {

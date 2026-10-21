@@ -409,7 +409,8 @@ fn goto_preview_app() -> anyhow::Result<term::application::Application> {
         .build()?;
     let (view, doc) = view::current!(app.editor);
     doc.set_selection(view.id, Selection::single(1, 2));
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
     Ok(app)
 }
 
@@ -477,7 +478,8 @@ async fn goto_keybinding_records_a_jump_without_a_prompt() -> anyhow::Result<()>
         .build()?;
     let (view, doc) = view::current!(app.editor);
     doc.set_selection(view.id, Selection::single(1, 2));
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
     goto_keys(&mut app, "+<C-o>").await?;
     assert_goto_cursor(&app, 1);
     assert!(app.close().await.is_empty());

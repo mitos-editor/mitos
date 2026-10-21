@@ -169,7 +169,7 @@ impl Replacement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::{commit, tests::document_and_view, undo};
+    use crate::editing::{tests::document_and_view, undo};
     use editor_core::{test, LineEnding};
 
     #[tokio::test]
@@ -189,8 +189,9 @@ mod tests {
             let (text, selection) = test::print(expected);
             assert_eq!(doc.text(), text.as_str());
             assert_eq!(doc.selection(view.id), &selection);
-            commit(&mut doc, &mut view);
-            assert!(undo(&mut doc, &mut view));
+            doc.commit_changes();
+            view.sync_changes(&mut doc);
+            assert!(undo(&mut doc, view.id));
             assert_eq!(doc.selection(view.id), &original);
         }
     }
@@ -205,8 +206,9 @@ mod tests {
         let replacement = Replacement::prepare(&mut doc, view.id, Some('('), 1).unwrap();
         replacement.apply(&mut doc, view.id, '[').unwrap();
         assert_eq!(doc.text(), "[é]\n");
-        commit(&mut doc, &mut view);
-        assert!(undo(&mut doc, &mut view));
+        doc.commit_changes();
+        view.sync_changes(&mut doc);
+        assert!(undo(&mut doc, view.id));
         assert_eq!(doc.text(), "(é)\n");
         assert_eq!(doc.selection(view.id), &original);
     }
@@ -275,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejected_replacements_restore_the_selection_without_recording_an_edit() {
-        let (doc, mut view) = document_and_view("(#[|a]#)\n");
+        let (doc, view) = document_and_view("(#[|a]#)\n");
         let mut doc = doc.with_readonly_name("adapter source".into());
         let original = doc.selection(view.id).clone();
         let replacement = Replacement::prepare(&mut doc, view.id, None, 1).unwrap();
@@ -285,7 +287,7 @@ mod tests {
         );
         assert_eq!(doc.selection(view.id), &original);
         assert_eq!(doc.text(), "(a)\n");
-        assert!(!undo(&mut doc, &mut view));
+        assert!(!undo(&mut doc, view.id));
     }
 
     #[tokio::test]

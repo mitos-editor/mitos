@@ -31,8 +31,9 @@ async fn append_at_eof_restores_graphemes_and_keeps_typing_in_one_undo_group() {
                 .cursor(doc.text().slice(..)),
             3
         );
-        editing::commit(doc, view);
-        assert!(editing::undo(doc, view));
+        doc.commit_changes();
+        view.sync_changes(doc);
+        assert!(editing::undo(doc, view.id));
         assert_eq!(doc.text(), "👩‍💻");
         assert_eq!(doc.selection(view.id), &original);
     }
@@ -61,7 +62,7 @@ async fn rejected_mode_entry_preserves_mode_selection_and_undo() {
     let (view, doc) = current!(editor);
     assert_eq!(doc.text(), "界");
     assert_eq!(doc.selection(view.id), &selection);
-    assert!(!editing::undo(doc, view));
+    assert!(!editing::undo(doc, view.id));
 }
 
 #[tokio::test]

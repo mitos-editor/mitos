@@ -123,7 +123,11 @@ impl Editor {
         let values: Vec<_> = values.map(Cow::into_owned).collect();
         let mode = self.mode();
         let (view, doc) = current!(self);
-        Ok(editing::paste(doc, view, &values, position, count, mode)?)
+        let changed = editing::paste(doc, view.id, &values, position, count, mode)?;
+        if changed {
+            view.sync_changes(doc);
+        }
+        Ok(changed)
     }
 
     /// Replace selected contents from a register as one undo group.
@@ -133,8 +137,10 @@ impl Editor {
         };
         let values: Vec<_> = values.map(Cow::into_owned).collect();
         let (view, doc) = current!(self);
-        Ok(editing::replace_selection_contents(
-            doc, view, &values, count,
-        )?)
+        let changed = editing::replace_selection_contents(doc, view.id, &values, count)?;
+        if changed {
+            view.sync_changes(doc);
+        }
+        Ok(changed)
     }
 }

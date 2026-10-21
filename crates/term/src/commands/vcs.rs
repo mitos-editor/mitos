@@ -441,7 +441,8 @@ pub(super) mod typed {
 
         drop(diff); // make borrow check happy
         view::editing::apply(doc, &transaction, view.id)?;
-        view::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
         cx.editor.set_status(format!(
             "Restored {changes} change{}",

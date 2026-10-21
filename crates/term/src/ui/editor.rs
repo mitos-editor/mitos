@@ -575,7 +575,7 @@ impl Component for EditorView {
                 // Store a history state if not in insert mode. Otherwise wait till we exit insert
                 // to include any edits to the paste in the history state.
                 if mode != Mode::Insert {
-                    view::editing::commit(doc, view);
+                    cx.editor.commit_changes();
                 }
 
                 EventResult::Consumed(None)
@@ -674,7 +674,7 @@ impl Component for EditorView {
                 // Store a history state if not in insert mode. This also takes care of
                 // committing changes when leaving insert mode.
                 if mode != Mode::Insert {
-                    view::editing::commit(doc, view);
+                    cx.editor.commit_changes();
                 }
                 let callback = if callbacks.is_empty() {
                     None

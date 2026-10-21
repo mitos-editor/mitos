@@ -72,7 +72,7 @@ async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() ->
         "alpha alphabet alp\n"
     );
     let (view, doc) = current!(f.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
     Ok(())
 }
@@ -106,9 +106,9 @@ async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyho
     assert!(current_ref!(f.editor).1.active_snippet().is_none());
     assert!(f.editor.finish_completion().unwrap().is_none());
     let (view, doc) = current!(f.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "alpha alphabet alphabet\n");
     Ok(())
 }

@@ -8,7 +8,7 @@ use editor_core::{
     line_ending::normalize_line_endings, Assoc, Range, Selection, Tendril, Transaction,
 };
 
-use crate::{Document, DocumentId, View, ViewId};
+use crate::{Document, DocumentId, ViewId};
 use buffer::history::{HistoryDirection, HistoryStep, UndoKind};
 use buffer::HistoryAction;
 
@@ -113,34 +113,24 @@ pub(crate) fn apply_with_notifications(
     doc.apply_inner(transaction, Some(origin), notify)
 }
 
-/// End an interactive undo group and synchronize this split's navigation state.
-pub fn commit(doc: &mut Document, view: &mut View) {
-    doc.commit_changes();
-    view.sync_changes(doc);
+fn change_history(doc: &mut Document, origin: ViewId, action: HistoryAction) -> bool {
+    doc.change_history(action, Some(origin))
 }
 
-fn change_history(doc: &mut Document, view: &mut View, action: HistoryAction) -> bool {
-    let applied = doc.change_history(action, Some(view.id));
-    if applied {
-        view.sync_changes(doc);
-    }
-    applied
+pub fn undo(doc: &mut Document, origin: ViewId) -> bool {
+    change_history(doc, origin, HistoryAction::Undo)
 }
 
-pub fn undo(doc: &mut Document, view: &mut View) -> bool {
-    change_history(doc, view, HistoryAction::Undo)
+pub fn redo(doc: &mut Document, origin: ViewId) -> bool {
+    change_history(doc, origin, HistoryAction::Redo)
 }
 
-pub fn redo(doc: &mut Document, view: &mut View) -> bool {
-    change_history(doc, view, HistoryAction::Redo)
+pub fn earlier(doc: &mut Document, origin: ViewId, kind: UndoKind) -> bool {
+    change_history(doc, origin, HistoryAction::Earlier(kind))
 }
 
-pub fn earlier(doc: &mut Document, view: &mut View, kind: UndoKind) -> bool {
-    change_history(doc, view, HistoryAction::Earlier(kind))
-}
-
-pub fn later(doc: &mut Document, view: &mut View, kind: UndoKind) -> bool {
-    change_history(doc, view, HistoryAction::Later(kind))
+pub fn later(doc: &mut Document, origin: ViewId, kind: UndoKind) -> bool {
+    change_history(doc, origin, HistoryAction::Later(kind))
 }
 
 /// Prefer the last edit at the original cursor, falling back to the first change
@@ -165,18 +155,18 @@ pub fn last_edit_pos(doc: &mut Document) -> Option<usize> {
 ///
 /// Normalizes replacement line endings to the document's convention and selects
 /// each inserted range, preserving selection direction and the primary selection.
-/// Positions are character indices. The view must display this document and have
-/// an initialized selection. Mode changes, scrolling, prompts, and repeat recording
+/// Positions are character indices. The originating view ID must have an initialized
+/// selection in this document. Mode changes, scrolling, prompts, and repeat recording
 /// belong to the caller.
 pub fn replace_selections(
     doc: &mut Document,
-    view: &mut View,
+    origin: ViewId,
     replacement: &str,
 ) -> Result<(), EditError> {
     let replacement = Tendril::from(normalize_line_endings(replacement, doc.line_ending).as_ref());
     let len = replacement.chars().count();
     let transaction =
-        Transaction::change_by_and_with_selection(doc.text(), doc.selection(view.id), |range| {
+        Transaction::change_by_and_with_selection(doc.text(), doc.selection(origin), |range| {
             let selection =
                 Range::new(range.from(), range.from() + len).with_direction(range.direction());
             (
@@ -184,8 +174,8 @@ pub fn replace_selections(
                 Some(selection),
             )
         });
-    apply(doc, &transaction, view.id)?;
-    commit(doc, view);
+    apply(doc, &transaction, origin)?;
+    doc.commit_changes();
     Ok(())
 }
 
@@ -194,7 +184,7 @@ pub fn replace_selections(
 /// edits leave pending history untouched; empty pastes return `Ok(false)`.
 pub fn paste<T: AsRef<str>>(
     doc: &mut Document,
-    view: &mut View,
+    origin: ViewId,
     values: &[T],
     position: editor_core::transform::PastePosition,
     count: usize,
@@ -202,7 +192,7 @@ pub fn paste<T: AsRef<str>>(
 ) -> Result<bool, EditError> {
     let Some((mut transaction, inserted)) = editor_core::transform::paste(
         doc.text(),
-        doc.selection(view.id),
+        doc.selection(origin),
         values,
         position,
         count,
@@ -215,13 +205,13 @@ pub fn paste<T: AsRef<str>>(
     }
     doc.validate_changes(transaction.changes())?;
     if mode == crate::document::Mode::Insert {
-        commit(doc, view);
+        doc.commit_changes();
     }
     if mode == crate::document::Mode::Normal {
         transaction = transaction.with_selection(inserted);
     }
-    apply(doc, &transaction, view.id)?;
-    commit(doc, view);
+    apply(doc, &transaction, origin)?;
+    doc.commit_changes();
     Ok(true)
 }
 
@@ -229,13 +219,13 @@ pub fn paste<T: AsRef<str>>(
 /// Returns `Ok(false)` when no replacement is available or no text would change.
 pub fn replace_selection_contents<T: AsRef<str>>(
     doc: &mut Document,
-    view: &mut View,
+    origin: ViewId,
     values: &[T],
     count: usize,
 ) -> Result<bool, EditError> {
     let Some(transaction) = editor_core::transform::replace_selection_contents(
         doc.text(),
-        doc.selection(view.id),
+        doc.selection(origin),
         values,
         count,
         doc.line_ending,
@@ -245,8 +235,8 @@ pub fn replace_selection_contents<T: AsRef<str>>(
     if transaction.changes().is_empty() {
         return Ok(false);
     }
-    apply(doc, &transaction, view.id)?;
-    commit(doc, view);
+    apply(doc, &transaction, origin)?;
+    doc.commit_changes();
     Ok(true)
 }
 
@@ -259,16 +249,42 @@ pub(crate) mod tests {
     use language::syntax;
 
     use super::*;
+    use crate::View;
     use editor_config::Config;
 
     #[tokio::test]
+    async fn selection_edits_and_history_require_only_a_stored_view_identity() {
+        let (mut doc, view) = document_and_view("#[|a]#b\r\n");
+        let origin = view.id;
+        drop(view);
+        let selection = doc.selection(origin).clone();
+        replace_selections(&mut doc, origin, "界é").unwrap();
+        assert_eq!(doc.text(), "界éb\r\n");
+        assert!(undo(&mut doc, origin));
+        assert_eq!(doc.text(), "ab\r\n");
+        assert_eq!(doc.selection(origin), &selection);
+        assert!(redo(&mut doc, origin));
+        assert!(paste(
+            &mut doc,
+            origin,
+            &["x"],
+            editor_core::transform::PastePosition::Before,
+            1,
+            crate::document::Mode::Normal
+        )
+        .unwrap());
+        assert!(undo(&mut doc, origin));
+        assert_eq!(doc.text(), "界éb\r\n");
+    }
+
+    #[tokio::test]
     async fn insert_mode_paste_is_separate_from_preceding_typing() {
-        let (mut doc, mut view) = document_and_view("#[|]#\n");
+        let (mut doc, view) = document_and_view("#[|]#\n");
         doc.line_ending = LineEnding::LF;
         insert::insert_char(&mut doc, view.id, 'a', None).unwrap();
         paste(
             &mut doc,
-            &mut view,
+            view.id,
             &["界"],
             editor_core::transform::PastePosition::Cursor,
             1,
@@ -276,12 +292,12 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert_eq!(doc.text(), "a界\n");
-        assert!(undo(&mut doc, &mut view));
+        assert!(undo(&mut doc, view.id));
         assert_eq!(doc.text(), "a\n");
-        assert!(undo(&mut doc, &mut view));
+        assert!(undo(&mut doc, view.id));
         assert_eq!(doc.text(), "\n");
-        assert!(redo(&mut doc, &mut view));
-        assert!(redo(&mut doc, &mut view));
+        assert!(redo(&mut doc, view.id));
+        assert!(redo(&mut doc, view.id));
         assert_eq!(doc.text(), "a界\n");
     }
 
@@ -315,7 +331,8 @@ pub(crate) mod tests {
             [(0, 1, Some("XY".into())), (4, 5, Some("ZZ".into()))].into_iter(),
         );
         apply(&mut doc, &edit, view.id).unwrap();
-        commit(&mut doc, &mut view);
+        doc.commit_changes();
+        view.sync_changes(&mut doc);
         assert_eq!(last_edit_pos(&mut doc), Some(7));
     }
 
@@ -352,24 +369,24 @@ pub(crate) mod tests {
             ("#[abc|]#\n", "", LineEnding::LF, "#[\n|]#"),
             ("#[|]#", "界", LineEnding::LF, "#[界|]#"),
         ] {
-            let (mut doc, mut view) = document_and_view(input);
+            let (mut doc, view) = document_and_view(input);
             doc.line_ending = line_ending;
             let original_text = doc.text().clone();
             let original_selection = doc.selection(view.id).clone();
             let version = doc.version();
 
-            replace_selections(&mut doc, &mut view, replacement).unwrap();
+            replace_selections(&mut doc, view.id, replacement).unwrap();
 
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
             );
             assert_eq!(doc.version(), version + 1);
-            assert!(crate::editing::undo(&mut doc, &mut view));
+            assert!(crate::editing::undo(&mut doc, view.id));
             assert_eq!(doc.text(), &original_text);
             assert_eq!(doc.selection(view.id), &original_selection);
-            assert!(!crate::editing::undo(&mut doc, &mut view));
-            assert!(crate::editing::redo(&mut doc, &mut view));
+            assert!(!crate::editing::undo(&mut doc, view.id));
+            assert!(crate::editing::redo(&mut doc, view.id));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
@@ -379,20 +396,20 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn successive_replacements_have_separate_history_checkpoints() {
-        let (mut doc, mut view) = document_and_view("#[original|]#\n");
+        let (mut doc, view) = document_and_view("#[original|]#\n");
 
-        replace_selections(&mut doc, &mut view, "first").unwrap();
-        replace_selections(&mut doc, &mut view, "second").unwrap();
+        replace_selections(&mut doc, view.id, "first").unwrap();
+        replace_selections(&mut doc, view.id, "second").unwrap();
 
         for expected in ["#[first|]#\n", "#[original|]#\n"] {
-            assert!(crate::editing::undo(&mut doc, &mut view));
+            assert!(crate::editing::undo(&mut doc, view.id));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
             );
         }
         for expected in ["#[first|]#\n", "#[second|]#\n"] {
-            assert!(crate::editing::redo(&mut doc, &mut view));
+            assert!(crate::editing::redo(&mut doc, view.id));
             assert_eq!(
                 test::plain(doc.text().slice(..), doc.selection(view.id)),
                 expected
@@ -475,11 +492,12 @@ pub(crate) mod tests {
                     .cursor(doc.text().slice(..)),
                 cursor
             );
-            commit(&mut doc, &mut view);
-            assert!(undo(&mut doc, &mut view));
+            doc.commit_changes();
+            view.sync_changes(&mut doc);
+            assert!(undo(&mut doc, view.id));
             assert_eq!(doc.text(), newline);
             assert_eq!(doc.selection(view.id), &original_selection);
-            assert!(redo(&mut doc, &mut view));
+            assert!(redo(&mut doc, view.id));
             assert_eq!(doc.text(), expected.as_str());
         }
     }

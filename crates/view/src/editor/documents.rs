@@ -63,7 +63,8 @@ impl Editor {
                 let old_doc_id = doc.id();
 
                 // Append any outstanding changes to history in the old document.
-                crate::editing::commit(doc, view);
+                doc.commit_changes();
+                view.sync_changes(doc);
 
                 let closed = if remove_empty_scratch {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable
@@ -213,7 +214,8 @@ impl Editor {
             editor_core::Transaction::insert(doc.text(), doc.selection(view.id), stdin.into())
                 .with_selection(Selection::point(0));
         crate::editing::apply(doc, &transaction, view.id)?;
-        crate::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         Ok(doc_id)
     }
 

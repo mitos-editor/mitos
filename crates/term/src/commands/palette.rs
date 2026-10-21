@@ -114,7 +114,8 @@ pub fn command_palette(cx: &mut Context) {
                         view.ensure_cursor_in_view(doc, config.scroll.padding);
 
                         if mode != Mode::Insert {
-                            view::editing::commit(doc, view);
+                            doc.commit_changes();
+                            view.sync_changes(doc);
                         }
                     }
                     let next_key = ctx.on_next_key_callback.take();

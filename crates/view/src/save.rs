@@ -289,7 +289,7 @@ mod tests {
             assert!(matches!(result, Err(EditError::ReadOnlyDocument)));
             assert_eq!(editor.document(id).unwrap().text(), &before);
             let (view, doc) = current!(editor);
-            assert!(!editing::undo(doc, view));
+            assert!(!editing::undo(doc, view.id));
         }
     }
 }

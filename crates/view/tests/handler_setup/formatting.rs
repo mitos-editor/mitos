@@ -18,9 +18,9 @@ async fn formatting_commits_one_undo_revision_without_a_frontend() -> anyhow::Re
     assert!(update(&fixture).await?.apply(&mut fixture.editor)?);
     let (view, doc) = current!(fixture.editor);
     assert_eq!(doc.text().to_string(), "formatted\n");
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "original\n");
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 

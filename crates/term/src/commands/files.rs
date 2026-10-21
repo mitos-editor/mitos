@@ -559,7 +559,8 @@ pub(super) mod typed {
         );
         view::editing::apply(doc, &transaction, view.id)?;
         doc.line_ending = line_ending;
-        view::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
 
         Ok(())
     }
@@ -992,7 +993,8 @@ pub(super) mod typed {
         let selection = doc.selection(view.id);
         let transaction = Transaction::insert(doc.text(), selection, contents);
         view::editing::apply(doc, &transaction, view.id)?;
-        view::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())

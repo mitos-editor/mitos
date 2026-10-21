@@ -1,13 +1,12 @@
 //! Edit-history commands: count adaptation, history limits, and explicit checkpoints.
 
 use super::context::Context;
-use buffer::history::UndoKind;
+use buffer::{history::UndoKind, HistoryAction};
 
 pub(super) fn undo(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
     for _ in 0..count {
-        if !view::editing::undo(doc, view) {
+        if !cx.editor.change_history(HistoryAction::Undo) {
             cx.editor.set_status("Already at oldest change");
             break;
         }
@@ -16,9 +15,8 @@ pub(super) fn undo(cx: &mut Context) {
 
 pub(super) fn redo(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
     for _ in 0..count {
-        if !view::editing::redo(doc, view) {
+        if !cx.editor.change_history(HistoryAction::Redo) {
             cx.editor.set_status("Already at newest change");
             break;
         }
@@ -27,10 +25,12 @@ pub(super) fn redo(cx: &mut Context) {
 
 pub(super) fn earlier(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
     for _ in 0..count {
         // rather than doing in batch we do this so get error halfway
-        if !view::editing::earlier(doc, view, UndoKind::Steps(1)) {
+        if !cx
+            .editor
+            .change_history(HistoryAction::Earlier(UndoKind::Steps(1)))
+        {
             cx.editor.set_status("Already at oldest change");
             break;
         }
@@ -39,10 +39,12 @@ pub(super) fn earlier(cx: &mut Context) {
 
 pub(super) fn later(cx: &mut Context) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
     for _ in 0..count {
         // rather than doing in batch we do this so get error halfway
-        if !view::editing::later(doc, view, UndoKind::Steps(1)) {
+        if !cx
+            .editor
+            .change_history(HistoryAction::Later(UndoKind::Steps(1)))
+        {
             cx.editor.set_status("Already at newest change");
             break;
         }
@@ -50,8 +52,7 @@ pub(super) fn later(cx: &mut Context) {
 }
 
 pub(super) fn commit_undo_checkpoint(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    view::editing::commit(doc, view);
+    cx.editor.commit_changes();
 }
 
 pub(super) mod typed {
@@ -60,7 +61,7 @@ pub(super) mod typed {
     use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
     use anyhow::anyhow;
-    use buffer::history::UndoKind;
+    use buffer::{history::UndoKind, HistoryAction};
 
     #[cold]
     pub(in crate::commands) fn earlier(
@@ -74,8 +75,7 @@ pub(super) mod typed {
 
         let uk = args.join(" ").parse::<UndoKind>().map_err(|s| anyhow!(s))?;
 
-        let (view, doc) = current!(cx.editor);
-        let success = view::editing::earlier(doc, view, uk);
+        let success = cx.editor.change_history(HistoryAction::Earlier(uk));
         if !success {
             cx.editor.set_status("Already at oldest change");
         }
@@ -94,8 +94,7 @@ pub(super) mod typed {
         }
 
         let uk = args.join(" ").parse::<UndoKind>().map_err(|s| anyhow!(s))?;
-        let (view, doc) = current!(cx.editor);
-        let success = view::editing::later(doc, view, uk);
+        let success = cx.editor.change_history(HistoryAction::Later(uk));
         if !success {
             cx.editor.set_status("Already at newest change");
         }

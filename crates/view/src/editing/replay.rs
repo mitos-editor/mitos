@@ -199,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejected_inline_replay_preserves_text_selection_and_history() {
-        let (doc, mut view) = document_and_view("a#[|b]#\n");
+        let (doc, view) = document_and_view("a#[|b]#\n");
         let mut doc = doc.with_readonly_name("adapter source".into());
         let before = doc.text().clone();
         let selection = doc.selection(view.id).clone();
@@ -214,6 +214,6 @@ mod tests {
         );
         assert_eq!(doc.text(), &before);
         assert_eq!(doc.selection(view.id), &selection);
-        assert!(!editing::undo(&mut doc, &mut view));
+        assert!(!editing::undo(&mut doc, view.id));
     }
 }

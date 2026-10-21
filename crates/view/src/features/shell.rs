@@ -92,7 +92,8 @@ impl Editor {
                                 editor.set_error(|| error.to_string());
                                 return;
                             }
-                            crate::editing::commit(doc, view);
+                            doc.commit_changes();
+                            view.sync_changes(doc);
                         }
                         Ok(FilterResult::Selection(selection)) => {
                             doc.set_selection(view.id, selection);

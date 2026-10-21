@@ -26,10 +26,11 @@ async fn reordering_preserves_primary_content_and_can_be_undone() -> anyhow::Res
         "a"
     );
 
-    view::editing::commit(doc, view);
-    assert!(view::editing::undo(doc, view));
+    doc.commit_changes();
+    view.sync_changes(doc);
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "a bb ccc\n");
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "ccc a bb\n");
     assert_eq!(
         doc.selection(view.id)
@@ -63,9 +64,9 @@ async fn same_length_stale_edits_preserve_pending_typing() -> anyhow::Result<()>
     assert_eq!(doc.text().to_string(), "Abc\n");
     let second = Transaction::change(doc.text(), [(2, 3, Some("C".into()))].into_iter());
     view::editing::apply(doc, &second, view.id).unwrap();
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "abc\n");
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 
@@ -160,21 +161,24 @@ async fn branching_history_restores_each_revisions_selection() -> anyhow::Result
     let first = Transaction::change(doc.text(), [(0, 1, Some("A".into()))].into_iter())
         .with_selection(Selection::single(1, 2));
     view::editing::apply(doc, &first, view.id).unwrap();
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
     let second = Transaction::change(doc.text(), [(1, 2, Some("B".into()))].into_iter())
         .with_selection(Selection::single(2, 3));
     view::editing::apply(doc, &second, view.id).unwrap();
-    view::editing::commit(doc, view);
-    assert!(view::editing::undo(doc, view));
+    doc.commit_changes();
+    view.sync_changes(doc);
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.selection(view.id), &Selection::single(1, 2));
     let alternative = Transaction::change(doc.text(), [(1, 2, Some("Z".into()))].into_iter())
         .with_selection(Selection::single(0, 1));
     view::editing::apply(doc, &alternative, view.id).unwrap();
-    view::editing::commit(doc, view);
-    assert!(view::editing::earlier(doc, view, UndoKind::Steps(1)));
+    doc.commit_changes();
+    view.sync_changes(doc);
+    assert!(view::editing::earlier(doc, view.id, UndoKind::Steps(1)));
     assert_eq!(doc.text().to_string(), "ABc\n");
     assert_eq!(doc.selection(view.id), &Selection::single(2, 3));
-    assert!(view::editing::later(doc, view, UndoKind::Steps(1)));
+    assert!(view::editing::later(doc, view.id, UndoKind::Steps(1)));
     assert_eq!(doc.text().to_string(), "AZc\n");
     assert_eq!(doc.selection(view.id), &Selection::single(0, 1));
     Ok(())
@@ -213,10 +217,10 @@ async fn hidden_document_edits_undo_without_changing_the_focused_document() -> a
     );
     fixture.editor.switch(id, Action::Replace);
     let (view, doc) = current!(fixture.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "ßéx\n");
-    assert!(!view::editing::undo(doc, view));
-    assert!(view::editing::redo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "SSÉXX\n");
     Ok(())
 }
@@ -244,14 +248,14 @@ async fn document_edits_preserve_pending_native_undo_groups_and_map_every_split(
     assert_eq!(doc.selection(second), &Selection::single(4, 5));
     assert_eq!(doc.selection(first), &Selection::single(2, 3));
     let (view, doc) = current!(fixture.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "Nabc\n");
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "abc\n");
     assert_eq!(doc.selection(view.id), &Selection::single(2, 3));
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "Nabc\n");
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "DNabc\n");
     Ok(())
 }
@@ -291,9 +295,9 @@ async fn rejected_transactions_preserve_pending_native_undo_groups() -> anyhow::
     let (view, doc) = current!(fixture.editor);
     let second = Transaction::change(doc.text(), [(0, 0, Some("B".into()))].into_iter());
     view::editing::apply(doc, &second, view.id).unwrap();
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "abc\n");
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 
@@ -315,9 +319,9 @@ async fn empty_transactions_preserve_pending_native_undo_groups() -> anyhow::Res
     assert_eq!(doc.version(), version);
     let second = Transaction::change(doc.text(), [(0, 0, Some("B".into()))].into_iter());
     view::editing::apply(doc, &second, view.id).unwrap();
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "abc\n");
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 
@@ -342,14 +346,14 @@ async fn closing_the_originating_split_preserves_pending_edit_undo_selection() -
         transaction.changes(),
     )?;
     let (view, doc) = current!(fixture.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "Nabc\n");
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "abc\n");
     assert_eq!(doc.selection(view.id), &Selection::single(2, 3));
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "Nabc\n");
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "DNabc\n");
     Ok(())
 }
@@ -367,7 +371,8 @@ async fn document_edits_synchronize_stale_split_jump_lists() -> anyhow::Result<(
     view.push_jump(doc, (id, Selection::single(2, 3)));
     let committed = Transaction::change(doc.text(), [(0, 0, Some("C".into()))].into_iter());
     view::editing::apply(doc, &committed, view.id).unwrap();
-    view::editing::commit(doc, view);
+    doc.commit_changes();
+    view.sync_changes(doc);
     let pending = Transaction::change(doc.text(), [(0, 0, Some("P".into()))].into_iter());
     view::editing::apply(doc, &pending, view.id).unwrap();
     let transaction = Transaction::change(doc.text(), [(0, 0, Some("D".into()))].into_iter());
@@ -399,7 +404,7 @@ async fn empty_undo_groups_do_not_supply_cursors_to_later_document_edits() -> an
     doc.apply(edit.changes())?;
     doc.commit_changes();
     doc.set_selection(view.id, Selection::single(2, 3));
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text(), "abc\n");
     assert_eq!(doc.selection(view.id), &Selection::single(2, 3));
     Ok(())

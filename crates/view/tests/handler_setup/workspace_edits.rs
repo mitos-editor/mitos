@@ -52,9 +52,9 @@ async fn stale_workspace_edits_preserve_the_rejection_and_pending_undo_group() -
     let (view, doc) = current!(fixture.editor);
     let typing = Transaction::change(doc.text(), [(0, 0, Some("second".into()))].into_iter());
     view::editing::apply(doc, &typing, view.id).unwrap();
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text(), "abc\n");
-    assert!(!view::editing::undo(doc, view));
+    assert!(!view::editing::undo(doc, view.id));
     Ok(())
 }
 
@@ -96,7 +96,7 @@ async fn workspace_edits_stop_at_binary_rejection_and_keep_completed_changes() -
     assert_eq!(current_ref!(fixture.editor).1.text(), "prefixabc\n");
     assert_eq!(std::fs::read(binary)?, bytes);
     let (view, doc) = current!(fixture.editor);
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text(), "abc\n");
     Ok(())
 }
@@ -166,7 +166,7 @@ async fn malformed_document_edits_fail_without_applying_a_subset() -> anyhow::Re
             let (view, doc) = current!(fixture.editor);
             assert_eq!(doc.text(), "abcdef\n");
             assert_eq!(doc.version(), version);
-            assert!(!view::editing::undo(doc, view));
+            assert!(!view::editing::undo(doc, view.id));
         }
     }
     Ok(())

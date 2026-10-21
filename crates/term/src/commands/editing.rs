@@ -201,8 +201,8 @@ pub(crate) fn replace_selections(
     replacement: &str,
 ) -> Result<(), view::editing::EditError> {
     let scrolloff = editor.config().scroll.padding;
+    editor.replace_selections(replacement)?;
     let (view, doc) = current!(editor);
-    view::editing::replace_selections(doc, view, replacement)?;
     view.ensure_cursor_in_view(doc, scrolloff);
     if editor.mode() == Mode::Select {
         editor.set_mode(Mode::Normal);
@@ -403,7 +403,8 @@ pub(super) mod typed {
             bail!("Sorting requires multiple selections. Hint: split selection first");
         };
         view::editing::apply(doc, &transaction, view.id)?;
-        view::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())
@@ -439,7 +440,8 @@ pub(super) mod typed {
             doc.line_ending,
         );
         view::editing::apply(doc, &transaction, view.id)?;
-        view::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())

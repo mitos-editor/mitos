@@ -83,9 +83,9 @@ async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_cl
         }
         fixture.editor.switch(id, Action::Replace);
         let (view, doc) = current!(fixture.editor);
-        assert!(view::editing::undo(doc, view));
+        assert!(view::editing::undo(doc, view.id));
         assert_eq!(doc.text().to_string(), "original\n");
-        assert!(view::editing::redo(doc, view));
+        assert!(view::editing::redo(doc, view.id));
         assert_eq!(doc.text().to_string(), "formatted\n");
     }
     Ok(())

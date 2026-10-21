@@ -197,7 +197,8 @@ impl Editor {
         self.restore_completion_preview()?;
         let (view, doc) = current!(self);
         doc.restore(view.id, &savepoint, true)?;
-        crate::editing::commit(doc, view);
+        doc.commit_changes();
+        view.sync_changes(doc);
         let before = doc.snapshot();
         crate::editing::apply(doc, &transaction, view.id)?;
         if let Some(snippet) = snippet {

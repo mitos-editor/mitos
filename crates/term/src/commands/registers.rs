@@ -115,9 +115,7 @@ pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
         Mode::Insert | Mode::Select => PastePosition::Cursor,
         Mode::Normal => PastePosition::Before,
     };
-    let mode = cx.editor.mode();
-    let (view, doc) = current!(cx.editor);
-    match view::editing::paste(doc, view, &[contents], paste, count, mode) {
+    match cx.editor.paste_text(&contents, paste, count) {
         Ok(true) => exit_select_mode(cx),
         Ok(false) => (),
         Err(error) => cx.editor.set_error(|| error.to_string()),

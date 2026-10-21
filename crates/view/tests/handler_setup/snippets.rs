@@ -66,7 +66,7 @@ async fn typing_replaces_each_placeholder_once_and_shares_the_insert_undo_group(
             format!("界é two{ending}")
         );
         let (view, doc) = current!(f.editor);
-        assert!(view::editing::undo(doc, view));
+        assert!(view::editing::undo(doc, view.id));
         assert_eq!(doc.text().to_string(), ending);
     }
     Ok(())
@@ -138,10 +138,10 @@ async fn history_replay_ends_the_active_snippet_session() -> anyhow::Result<()> 
     insert_snippet(&mut f.editor)?;
     let (view, doc) = current!(f.editor);
     assert!(doc.active_snippet().is_some());
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "\n");
     assert!(doc.active_snippet().is_none());
-    assert!(view::editing::redo(doc, view));
+    assert!(view::editing::redo(doc, view.id));
     assert_eq!(doc.text().to_string(), "one two\n");
     assert!(doc.active_snippet().is_none());
     Ok(())

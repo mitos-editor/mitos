@@ -95,7 +95,7 @@ async fn workspace_edits_validate_server_use_utf16_and_report_partial_failure() 
     assert_eq!(response.failed_change, None);
     let (view, doc) = current!(f.app.editor);
     assert_eq!(doc.text().to_string(), "😀 updated!\n");
-    assert!(view::editing::undo(doc, view));
+    assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "😀 original\n");
     let version = doc.version();
     // Existing edits are not transactional: retain the first edit when the second is stale.

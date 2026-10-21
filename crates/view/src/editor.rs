@@ -8,6 +8,7 @@ mod document_store;
 mod documents;
 use document_store::Documents;
 pub use text_layout::DisplayPosition;
+mod editing;
 mod filesystem;
 pub(crate) use filesystem::ExistingTarget;
 pub use filesystem::FileOperation;
@@ -536,8 +537,7 @@ impl Editor {
 
         // Reset mode to normal and ensure any pending changes are committed in the old document.
         self.enter_normal_mode();
-        let (view, doc) = current!(self);
-        crate::editing::commit(doc, view);
+        self.commit_changes();
         self.ensure_cursor_in_view(view_id);
         // Update jumplist selections with new document changes.
         for (view, _focused) in self.tree.views_mut() {

@@ -233,6 +233,16 @@ Empty paste operations do not create undo boundaries. Terminal adapters resolve
 register keys and command arguments, display messages, and manage viewport and
 selection-mode presentation for yank/paste commands.
 
+### Text edits and view synchronization
+
+Selection edits and interactive history in `view::editing` take a document and a
+`ViewId`; committing text uses `Document::commit_changes`. These operations do not
+need a concrete view or synchronize its navigation state. `Editor` coordinates
+focused replacement, literal/register paste, history replay, and checkpoints,
+then synchronizes the view's jump history after a successful operation. Callers
+working with another view explicitly synchronize it at the coordination boundary.
+Viewport layout and scrolling continue to require a concrete view.
+
 ### Text transformations
 
 `core::transform` builds transactions for selected text without editor or frontend
