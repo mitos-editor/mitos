@@ -49,25 +49,33 @@ pub fn insert_char(
     c: char,
     global_pairs: Option<&AutoPairs>,
 ) -> Result<(), EditError> {
-    let text = doc.text();
-    let selection = doc.selection(view_id);
-
     let auto_pairs = doc.auto_pairs(global_pairs, doc.selection(view_id));
-
-    let insert_char = |range: Range, ch: char| {
-        let cursor = range.cursor(text.slice(..));
-        let t = Tendril::from_iter([ch]);
-        ((cursor, cursor, Some(t)), None)
+    let insert = |text: &editor_core::Rope, selection: &Selection| {
+        Transaction::change_by_and_with_selection(text, selection, |range| {
+            auto_pairs
+                .and_then(|pairs| auto_pairs::hook_insert(text, range, c, pairs))
+                .map(|(change, range)| (change, Some(range)))
+                .unwrap_or_else(|| {
+                    let cursor = range.cursor(text.slice(..));
+                    ((cursor, cursor, Some(Tendril::from_iter([c]))), None)
+                })
+        })
     };
-
-    let transaction = Transaction::change_by_and_with_selection(text, selection, |range| {
-        auto_pairs
-            .and_then(|pairs| auto_pairs::hook_insert(text, range, c, pairs))
-            .map(|(change, range)| (change, Some(range)))
-            .unwrap_or_else(|| insert_char(*range, c))
-    });
-
-    super::apply(doc, &transaction, view_id)
+    let transaction = if let Some(replacement) = doc.pending_snippet_placeholder(view_id) {
+        let mut text = doc.text().clone();
+        replacement.apply(&mut text);
+        let selection = doc
+            .selection(view_id)
+            .clone()
+            .map(replacement.changes())
+            .ensure_invariants(text.slice(..));
+        replacement.compose(insert(&text, &selection))
+    } else {
+        insert(doc.text(), doc.selection(view_id))
+    };
+    super::apply(doc, &transaction, view_id)?;
+    doc.snippet_input_applied(view_id);
+    Ok(())
 }
 
 /// Insert indentation up to the next indent stop at each cursor.
@@ -526,5 +534,32 @@ mod tests {
         );
         assert_eq!(doc.version(), version);
         assert!(doc.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_placeholder_replacement_preserves_the_session_and_pending_input() {
+        let (mut doc, view) = document_and_view("#[|]#\n");
+        let snippet = snippets::Snippet::parse("${1:one} ${2:two}$0").unwrap();
+        let (transaction, selection, rendered) = snippet.render(
+            doc.text(),
+            doc.selection(view.id),
+            |_| (0, 0),
+            &mut doc.snippet_ctx(),
+        );
+        editing::apply(&mut doc, &transaction.with_selection(selection), view.id).unwrap();
+        doc.install_snippet(view.id, rendered);
+        let mut doc = doc.with_readonly_name("adapter source".into());
+        let before = doc.text().clone();
+        let selection = doc.selection(view.id).clone();
+        let version = doc.version();
+        assert_eq!(
+            insert_char(&mut doc, view.id, '界', None),
+            Err(EditError::ReadOnlyDocument)
+        );
+        assert_eq!(doc.text(), &before);
+        assert_eq!(doc.selection(view.id), &selection);
+        assert_eq!(doc.version(), version);
+        assert!(doc.active_snippet().is_some());
+        assert!(doc.pending_snippet_placeholder(view.id).is_some());
     }
 }

@@ -395,7 +395,7 @@ pub(crate) fn matching_bracket_highlight(
 }
 
 pub(crate) fn tabstop_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
-    let snippet = doc.active_snippet.as_ref()?;
+    let snippet = doc.active_snippet()?;
     let highlight = theme.find_highlight_exact("tabstop")?;
     let mut ranges = Vec::new();
     for tabstop in snippet.tabstops() {

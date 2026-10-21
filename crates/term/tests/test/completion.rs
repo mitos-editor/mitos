@@ -435,7 +435,7 @@ async fn resolved_imports_preserve_edited_snippet_placeholders() -> anyhow::Resu
     std::fs::write(dir.path().join("alpha-resolve-ready"), "ready")?;
     f.response().await?(&mut f.app.editor);
     assert_eq!(f.text(), "use fruit;\nimports snippet apricot(x)\n");
-    assert!(current_ref!(f.app.editor).1.active_snippet.is_some());
+    assert!(current_ref!(f.app.editor).1.active_snippet().is_some());
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -864,7 +864,7 @@ async fn postfix_snippet_previews_switch_cancel_accept_and_undo() -> anyhow::Res
     assert_eq!(f.text(), expanded);
     f.key("<C-c>").await?;
     assert_eq!(f.text(), original);
-    assert!(current_ref!(f.app.editor).1.active_snippet.is_none());
+    assert!(current_ref!(f.app.editor).1.active_snippet().is_none());
 
     f.show().await?;
     f.key("<tab>").await?;
@@ -913,7 +913,7 @@ async fn postfix_snippets_accept_without_preview_and_preserve_typing_on_cancel(
         f.key("<esc>").await?;
         f.key("u").await?;
         assert_eq!(f.text(), "// postfix\nx.fo\n");
-        assert!(current_ref!(f.app.editor).1.active_snippet.is_none());
+        assert!(current_ref!(f.app.editor).1.active_snippet().is_none());
         assert!(f.app.close().await.is_empty());
     }
     Ok(())

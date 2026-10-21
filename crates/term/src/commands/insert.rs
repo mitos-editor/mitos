@@ -40,7 +40,7 @@ pub fn smart_tab(cx: &mut Context) {
         });
 
         if !cursors_after_whitespace {
-            if doc.active_snippet.is_some() {
+            if doc.active_snippet().is_some() {
                 goto_next_tabstop(cx);
             } else {
                 move_parent_node_end(cx);

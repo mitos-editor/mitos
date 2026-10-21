@@ -103,7 +103,7 @@ async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyho
     let accepted = f.editor.finish_completion().unwrap().unwrap();
     assert_eq!(accepted.trigger_offset, trigger);
     assert_eq!(accepted.changes, vec![(15, 17, Some("alphabet".into()))]);
-    assert!(!accepted.placeholder);
+    assert!(current_ref!(f.editor).1.active_snippet().is_none());
     assert!(f.editor.finish_completion().unwrap().is_none());
     let (view, doc) = current!(f.editor);
     assert!(view::editing::undo(doc, view));
