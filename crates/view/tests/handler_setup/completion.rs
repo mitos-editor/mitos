@@ -47,8 +47,7 @@ async fn request_words(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() -> anyhow::Result<()>
-{
+async fn completion_previews_preserve_document_text_and_undo() -> anyhow::Result<()> {
     let mut f = Fixture::new("alpha alphabet al\n")?;
     let (items, session, trigger) = request_words(&mut f).await?;
     let item = items
@@ -62,11 +61,13 @@ async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() ->
     );
     view::editing::apply(doc, &typing, view.id).unwrap();
     assert!(f.editor.preview_completion(&session, item).unwrap());
+    let doc = current_ref!(f.editor).1;
+    assert_eq!(doc.text(), "alpha alphabet alp\n");
     assert_eq!(
-        current_ref!(f.editor).1.text().to_string(),
+        f.editor.completion_presentation(doc).text(),
         "alpha alphabet alpha\n"
     );
-    assert!(f.editor.finish_completion().unwrap().is_none());
+    assert!(f.editor.finish_completion().is_none());
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alp\n"
@@ -78,7 +79,7 @@ async fn preview_cancellation_restores_typing_without_creating_an_undo_edit() ->
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyhow::Result<()> {
+async fn completion_acceptance_preserves_undo_and_repeat_metadata() -> anyhow::Result<()> {
     let mut f = Fixture::new("alpha alphabet al\n")?;
     let (items, session, _) = request_words(&mut f).await?;
     assert!(f.editor.begin_completion(&session));
@@ -100,9 +101,9 @@ async fn acceptance_owns_preview_restoration_undo_and_repeat_metadata() -> anyho
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alphabet\n"
     );
-    assert!(f.editor.finish_completion().unwrap().is_some());
+    assert!(f.editor.finish_completion().is_some());
     assert!(current_ref!(f.editor).1.active_snippet().is_none());
-    assert!(f.editor.finish_completion().unwrap().is_none());
+    assert!(f.editor.finish_completion().is_none());
     let (view, doc) = current!(f.editor);
     assert!(view::editing::undo(doc, view.id));
     assert_eq!(doc.text().to_string(), "alpha alphabet al\n");
@@ -124,7 +125,7 @@ async fn expired_completion_items_cannot_preview_or_edit_another_document() -> a
     assert!(!f.editor.begin_completion(&session));
     assert!(!f.editor.preview_completion(&session, item).unwrap());
     assert!(!f.editor.accept_completion(&session, item).unwrap());
-    assert!(f.editor.finish_completion().unwrap().is_none());
+    assert!(f.editor.finish_completion().is_none());
     assert_eq!(current_ref!(f.editor).1.text(), &before);
     Ok(())
 }
@@ -153,7 +154,7 @@ async fn replaced_sessions_reject_old_items_from_the_same_provider() -> anyhow::
         current_ref!(f.editor).1.text().to_string(),
         "alpha alphabet alphabet\n"
     );
-    assert!(f.editor.finish_completion().unwrap().is_some());
+    assert!(f.editor.finish_completion().is_some());
     Ok(())
 }
 
@@ -214,5 +215,41 @@ async fn shared_typing_starts_and_filters_completions_without_terminal_hooks() -
     let stale = completion::next_update(&mut f.editor).expect("queued input filter update");
     f.editor.new_file(view::editor::Action::Replace);
     assert!(stale.apply(&mut f.editor).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn completion_previews_preserve_split_selections_and_expire_after_real_edits(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("alpha alphabet al\n")?;
+    let first = current_ref!(f.editor).0.id;
+    let document = current_ref!(f.editor).1.id();
+    f.editor
+        .switch(document, view::editor::Action::VerticalSplit);
+    let (items, session, _) = request_words(&mut f).await?;
+    assert!(f.editor.begin_completion(&session));
+    let (second, doc) = current_ref!(f.editor);
+    let second = second.id;
+    let selections = (doc.selection(first).clone(), doc.selection(second).clone());
+    let version = doc.version();
+    let item = items
+        .iter()
+        .find(|item| item.filter_text() == "alpha")
+        .unwrap();
+    assert!(f.editor.preview_completion(&session, item)?);
+    let doc = current_ref!(f.editor).1;
+    let presentation = f.editor.completion_presentation(doc);
+    assert_eq!(presentation.text(), "alpha alphabet alpha\n");
+    assert_ne!(presentation.selection(second), &selections.1);
+    assert_eq!(doc.text(), "alpha alphabet al\n");
+    assert_eq!(
+        (doc.selection(first), doc.selection(second)),
+        (&selections.0, &selections.1)
+    );
+    assert_eq!(doc.version(), version);
+    f.editor.insert_char('p')?;
+    let doc = current_ref!(f.editor).1;
+    assert_eq!(doc.text(), "alpha alphabet alp\n");
+    assert!(std::ptr::eq(doc, f.editor.completion_presentation(doc)));
     Ok(())
 }

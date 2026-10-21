@@ -21,8 +21,7 @@ events! {
         // Document-only edits have no originating view, even when the document is visible.
         view: Option<ViewId>,
         old_text: &'a Rope,
-        changes: &'a ChangeSet,
-        ghost_transaction: bool
+        changes: &'a ChangeSet
     }
     DocumentDidClose<'a> {
         editor: &'a mut Editor,

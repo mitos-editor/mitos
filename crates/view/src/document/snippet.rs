@@ -5,6 +5,7 @@ use crate::{editor::SnippetNavigation, ViewId};
 use editor_core::{movement::Direction, ChangeSet, Transaction};
 use snippets::{ActiveSnippet, RenderedSnippet};
 
+#[derive(Clone)]
 pub(super) struct SnippetSession {
     active: ActiveSnippet,
     view: ViewId,

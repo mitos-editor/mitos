@@ -96,25 +96,24 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if !event.ghost_transaction {
-            // Cancel the ongoing request, if present.
-            event.doc.document_symbols.request.cancel();
-            event.doc.document_symbols.picker.cancel();
-            let view_id = event.view;
-            let doc_id = event.doc.id();
-            // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
-            // feedback. If insert-mode latency regresses, debounce this request path.
-            if let Some(handler) = &event.doc.document_symbols.handler {
-                handler.callbacks.send_blocking(move |editor| {
-                    request_document_symbols(editor, doc_id);
-                    if let Some(view_id) = view_id
-                        && let Some(doc) = editor.document_mut(doc_id)
-                    {
-                        doc.update_breadcrumbs_for_view(view_id);
-                    }
-                });
-            }
+        // Cancel the ongoing request, if present.
+        event.doc.document_symbols.request.cancel();
+        event.doc.document_symbols.picker.cancel();
+        let view_id = event.view;
+        let doc_id = event.doc.id();
+        // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
+        // feedback. If insert-mode latency regresses, debounce this request path.
+        if let Some(handler) = &event.doc.document_symbols.handler {
+            handler.callbacks.send_blocking(move |editor| {
+                request_document_symbols(editor, doc_id);
+                if let Some(view_id) = view_id
+                    && let Some(doc) = editor.document_mut(doc_id)
+                {
+                    doc.update_breadcrumbs_for_view(view_id);
+                }
+            });
         }
+
         Ok(())
     });
 

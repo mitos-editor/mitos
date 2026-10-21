@@ -365,9 +365,7 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        // Mirror the word index: ignore synthetic edits so they don't churn the diagnostics.
-        if !event.ghost_transaction
-            && !event.doc.spelling_languages.is_empty()
+        if !event.doc.spelling_languages.is_empty()
             && let Some(tx) = &event.doc.spelling_events
         {
             send_blocking(

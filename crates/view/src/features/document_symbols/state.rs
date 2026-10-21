@@ -20,6 +20,14 @@ pub(crate) struct DocumentSymbols {
 }
 
 impl DocumentSymbols {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            breadcrumbs: self.breadcrumbs.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: DocumentSymbolsHandler) {
         self.handler = Some(handler);
     }
@@ -41,6 +49,7 @@ impl DocumentSymbols {
     }
 }
 
+#[derive(Clone)]
 struct DocumentSymbolCache {
     tree: Vec<ThinDocumentSymbol>,
     offset_encoding: OffsetEncoding,

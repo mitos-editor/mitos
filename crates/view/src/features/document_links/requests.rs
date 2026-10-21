@@ -152,11 +152,9 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if !event.ghost_transaction {
-            event.doc.document_links.request.cancel();
-            if let Some(handler) = &event.doc.document_links.handler {
-                event::send_blocking(&handler.events, event.doc.id());
-            }
+        event.doc.document_links.request.cancel();
+        if let Some(handler) = &event.doc.document_links.handler {
+            event::send_blocking(&handler.events, event.doc.id());
         }
 
         Ok(())

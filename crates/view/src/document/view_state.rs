@@ -4,7 +4,7 @@ use crate::view::ViewPosition;
 use editor_core::Selection;
 use text_layout::text_annotations::Overlay;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct DocumentViewState {
     pub selection: Selection,
     pub position: ViewPosition,

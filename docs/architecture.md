@@ -604,7 +604,9 @@ View and selection snapshots return validated references for feature policy chec
 they also provide the target IDs and cancellation handle used by publication.
 Focus, mode, provider choice, handler ownership, and viewport coverage stay in the
 feature. Ordinary completion retains its savepoint-based session, which remains
-valid across typing and temporary previews.
+valid across typing. Menu previews own isolated rendering documents: text, syntax,
+selections, and mapped caches are copied without live services. Acceptance alone
+changes the live document.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
 have state modules under `view/src/features/`. Each groups its cache, request
@@ -830,7 +832,7 @@ The terminal presents and applies these items; `core` owns only the text edits.
 request debouncing, batching, incomplete-list refreshes, resolution, and
 cancellation. Editor-owned callbacks publish typed `EditorEvent::Completion`
 updates that validate their session again before presentation. Sessions retain
-provider savepoints across normal typing and ghost previews; cancellation,
+provider savepoints across normal typing; cancellation,
 replacement, focus changes, and stale targets prevent old results from being
 applied. Shared `Editor` input operations trigger completion and signature help only after
 acceptance, then publish `InputApplied`. Completion emits typed menu-filter updates;
@@ -944,8 +946,8 @@ transaction selection is installed before observers inspect the new state.
 with an explicit selection; selection-only transactions publish only selection changes.
 
 LSP synchronization is a required step on the mutation path. Normal edits queue
-`didChange` before observers may request results; temporary completion previews
-skip protocol synchronization. Server initialization queues configuration and
+`didChange` before observers may request results. Completion presentation copies
+do not enter the live mutation path or send protocol notifications. Server initialization queues configuration and
 `didOpen` before feature observers run. Closing a document queues `didClose`
 before close observers run. These guarantees do not depend on hook registration order.
 
@@ -1350,3 +1352,8 @@ Callers run the scan with a result sink and cancellation. The crate does not bor
 an editor or callback destination. Prepared scans retain their
 cache generation; refresh installs a new cache that old workers cannot refill.
 Stopping a result sink stops the scan across its worker threads.
+
+Completion previews use `Editor::completion_presentation` for pane drawing and cursor
+placement. Their source snapshot prevents rendering after a real edit. Statuslines,
+commands, protocol synchronization, and background features read the live document;
+there is no temporary-edit event or rollback on dismissal.

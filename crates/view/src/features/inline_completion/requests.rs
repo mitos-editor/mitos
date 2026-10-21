@@ -375,13 +375,12 @@ pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if (event.ghost_transaction || event.view.is_none())
+        if event.view.is_none()
             && let Some(trigger) = &event.doc.inline_completions.trigger
         {
             trigger.cancel_document(event.doc.id());
         }
-        if !event.ghost_transaction
-            && event.doc.config.load().inline_completion.auto_trigger
+        if event.doc.config.load().inline_completion.auto_trigger
             && let Some(view) = event.view
             && let Some(tx) = &event.doc.inline_completions.trigger
         {

@@ -1,3 +1,4 @@
+mod presentation;
 pub use crate::features::formatting::FormatterError;
 use stdx::rope::RopeExt as _;
 pub(crate) mod history;
@@ -483,10 +484,9 @@ impl Document {
         &mut self,
         view: ViewId,
         savepoint: &SavePoint,
-        emit_lsp_notification: bool,
     ) -> Result<(), crate::editing::EditError> {
         let revert = self.savepoint_transaction(view, savepoint)?;
-        crate::editing::apply_with_notifications(self, &revert, view, emit_lsp_notification)
+        crate::editing::apply(self, &revert, view)
     }
 
     pub(crate) fn savepoint_transaction(
@@ -1174,20 +1174,20 @@ mod savepoint_rejection_tests {
         // The view identifier alone cannot establish document ownership.
         other.set_selection(view.id, doc.selection(view.id).clone());
         assert_eq!(
-            other.restore(view.id, &saved, true),
+            other.restore(view.id, &saved),
             Err(editing::EditError::SavePoint(
                 buffer::SavePointError::WrongBuffer
             ))
         );
         assert_eq!(
-            doc.restore(other_view, &saved, true),
+            doc.restore(other_view, &saved),
             Err(editing::EditError::InvalidSavepointView)
         );
         assert_eq!(other.text(), "a\n");
         assert!(other.changes().is_empty());
         doc.remove_view(view.id);
         assert_eq!(
-            doc.restore(view.id, &saved, true),
+            doc.restore(view.id, &saved),
             Err(editing::EditError::InvalidSavepointView)
         );
     }
@@ -1199,10 +1199,10 @@ mod savepoint_rejection_tests {
         let saved = doc.savepoint(view.id);
         let edit = Transaction::change(doc.text(), [(0, 1, Some("longer".into()))].into_iter());
         doc.apply(edit.changes()).unwrap();
-        doc.restore(view.id, &saved, true).unwrap();
+        doc.restore(view.id, &saved).unwrap();
         assert_eq!(doc.text(), "a界\r\n");
         assert_eq!(doc.selection(view.id), &selection);
-        doc.restore(view.id, &saved, true).unwrap();
+        doc.restore(view.id, &saved).unwrap();
         assert_eq!(doc.selection(view.id), &selection);
     }
 
@@ -1214,11 +1214,11 @@ mod savepoint_rejection_tests {
         editing::apply(&mut doc, &edit, view.id).unwrap();
         let mut doc = doc.with_readonly_name("adapter source".into());
         let pending = doc.changes().clone();
-        assert!(doc.restore(view.id, &saved, true).is_err());
+        assert!(doc.restore(view.id, &saved).is_err());
         assert_eq!(doc.text(), "界\n");
         assert_eq!(doc.changes(), &pending);
         assert_eq!(saved.saved_state(&doc).unwrap().0, "a\n");
-        assert!(doc.restore(view.id, &saved, true).is_err());
+        assert!(doc.restore(view.id, &saved).is_err());
         assert_eq!(saved.saved_state(&doc).unwrap().0, "a\n");
     }
 }

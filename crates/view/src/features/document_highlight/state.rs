@@ -15,6 +15,13 @@ pub(crate) struct DocumentHighlightsState {
 }
 
 impl DocumentHighlightsState {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: DocumentHighlightHandler) {
         self.handler = Some(handler);
     }

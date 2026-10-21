@@ -101,6 +101,24 @@ pub(crate) struct InlayHintsState {
 }
 
 impl InlayHintsState {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            views: self
+                .views
+                .iter()
+                .map(|(&id, state)| {
+                    (
+                        id,
+                        ViewState {
+                            cache: state.cache.clone(),
+                            request: RequestState::default(),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
     pub(crate) fn get(&self, view: ViewId) -> Option<&DocumentInlayHints> {
         self.views.get(&view)?.cache.as_ref()
     }

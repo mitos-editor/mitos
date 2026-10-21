@@ -26,7 +26,7 @@ use editor_core::{
 };
 
 /// Configuration declared for a path in `.editorconfig` files.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct EditorConfig {
     pub(super) indent_style: Option<IndentStyle>,
     pub(super) tab_width: Option<NonZeroU8>,

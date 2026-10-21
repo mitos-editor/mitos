@@ -88,29 +88,11 @@ pub fn apply(
     transaction: &Transaction,
     origin: ViewId,
 ) -> Result<(), EditError> {
-    apply_with_notifications(doc, transaction, origin, true)
-}
-
-/// Apply a completion preview without sending its temporary text to language servers.
-pub fn apply_temporary(
-    doc: &mut Document,
-    transaction: &Transaction,
-    origin: ViewId,
-) -> Result<(), EditError> {
-    apply_with_notifications(doc, transaction, origin, false)
-}
-
-pub(crate) fn apply_with_notifications(
-    doc: &mut Document,
-    transaction: &Transaction,
-    origin: ViewId,
-    notify: bool,
-) -> Result<(), EditError> {
     doc.validate_changes(transaction.changes())?;
     if doc.changes().is_empty() && !transaction.changes().is_empty() {
         doc.selection_history.pending = Some((origin, doc.selection(origin).clone()));
     }
-    doc.apply_inner(transaction, Some(origin), notify)
+    doc.apply_inner(transaction, Some(origin))
 }
 
 fn change_history(doc: &mut Document, origin: ViewId, action: HistoryAction) -> bool {

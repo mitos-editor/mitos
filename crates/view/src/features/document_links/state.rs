@@ -18,6 +18,13 @@ pub(crate) struct DocumentLinks {
 }
 
 impl DocumentLinks {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.cancel_navigation();

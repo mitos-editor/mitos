@@ -217,7 +217,6 @@ pub(crate) fn register_hooks() {
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event.doc.config.load().lsp.document_highlight.auto_trigger
-            && !event.ghost_transaction
             && let Some(view_id) = event.view
             && event
                 .doc

@@ -166,20 +166,35 @@ impl Fixture {
         count: usize,
     ) -> anyhow::Result<(Vec<CompletionItem>, completion::CompletionSession)> {
         tokio::time::timeout(Duration::from_secs(5), async {
+            let mut items = Vec::new();
+            let mut session = None;
             loop {
                 match self.update().await?.apply(&mut self.app.editor) {
-                    Some(CompletionChange::Show { items, session }) if items.len() == count => {
-                        return Ok((items, session))
+                    Some(CompletionChange::Show {
+                        items: initial,
+                        session: shown,
+                    }) => {
+                        // Later providers can publish only after the initial menu is shown.
+                        assert!(self.app.editor.begin_completion(&shown));
+                        items = initial;
+                        session = Some(shown);
+                    }
+                    Some(CompletionChange::Provider {
+                        mut response,
+                        is_incomplete,
+                    }) => {
+                        if is_incomplete {
+                            items.retain(|item| item.provider() != response.provider());
+                        }
+                        response.take_items(&mut items);
                     }
                     // Cancellation and a new request can leave lifecycle updates or
                     // stale replies ahead of the next valid provider result.
-                    Some(
-                        CompletionChange::Show { .. }
-                        | CompletionChange::Started
-                        | CompletionChange::Hide,
-                    )
-                    | None => {}
+                    Some(CompletionChange::Started | CompletionChange::Hide) | None => continue,
                     _ => anyhow::bail!("expected completion items"),
+                }
+                if items.len() == count {
+                    return Ok((items, session.context("completion session missing")?));
                 }
             }
         })
@@ -198,6 +213,15 @@ impl Fixture {
 
     fn text(&self) -> String {
         current_ref!(self.app.editor).1.text().to_string()
+    }
+
+    fn presentation_text(&self) -> String {
+        let doc = current_ref!(self.app.editor).1;
+        self.app
+            .editor
+            .completion_presentation(doc)
+            .text()
+            .to_string()
     }
 
     async fn show(&mut self) -> anyhow::Result<()> {
@@ -224,8 +248,7 @@ async fn shared_providers_preserve_protocol_ordering_and_incomplete_refresh() ->
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 incomplete ap\n", &["alpha", "beta"]).await?;
     f.trigger();
-    let (items, session) = f.completion_with_count(4).await?;
-    assert!(f.app.editor.begin_completion(&session));
+    let (items, _) = f.completion_with_count(4).await?;
     assert_eq!(items.len(), 4);
     for (priority, name) in [(0, "alpha"), (-1, "beta")] {
         let items: Vec<_> = items
@@ -341,12 +364,29 @@ async fn editor_ownership_and_handler_replacement_reject_queued_work() -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn terminal_preview_abort_accept_and_undo_keep_savepoints() -> anyhow::Result<()> {
+async fn completion_preview_preserves_text_history_and_protocol_updates() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
     f.show().await?;
+    let before = current_ref!(f.app.editor).1.snapshot();
     f.key("<C-n>").await?;
-    assert_eq!(f.text(), "😀 apricot\n");
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
+    assert_eq!(f.text(), "😀 ap\n");
+    assert_eq!(
+        current_ref!(f.app.editor).1.snapshot().version(),
+        before.version()
+    );
+    super::helpers::run_event_loop_until_idle(&mut f.app).await;
+    let rendered: String = f
+        .app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(rendered.contains("apricot"));
+    assert_eq!(f.text(), "😀 ap\n");
     f.key("<C-c>").await?;
     assert_eq!(f.text(), "😀 ap\n");
     f.show().await?;
@@ -387,7 +427,7 @@ async fn accepted_completions_resolve_imports_without_blocking_typing_or_resurre
             f.key(" ").await?;
             f.show().await?;
             f.key("<C-n>").await?;
-            assert_ne!(f.text(), "imports 😀 apricot \n");
+            assert_ne!(f.presentation_text(), "imports 😀 apricot \n");
         }
         if action == "undo" {
             f.key("<esc>").await?;
@@ -411,7 +451,10 @@ async fn accepted_completions_resolve_imports_without_blocking_typing_or_resurre
                 f.key("u").await?;
                 assert_eq!(f.text(), "imports 😀 ap\n");
             }
-            "preview" => assert_eq!(f.text(), "use fruit;\nimports 😀 apricot \n"),
+            "preview" => {
+                assert_eq!(f.text(), "use fruit;\nimports 😀 apricot \n");
+                assert!(!completion::is_active(&f.app.editor));
+            }
             "undo" | "reload" => assert_eq!(f.text(), "imports 😀 ap\n"),
             "close" => assert!(!f.text().contains("use fruit")),
             _ => unreachable!(),
@@ -679,7 +722,7 @@ async fn replacing_completion_dismisses_presented_menu_and_restores_preview() ->
     let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
     f.show().await?;
     f.key("<C-n>").await?;
-    assert_eq!(f.text(), "😀 apricot\n");
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
     f.app
         .editor
         .replace_completion_handler(CompletionHandler::new(
@@ -707,7 +750,7 @@ async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyho
         let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
         f.show().await?;
         f.key("<C-n>").await?;
-        assert_eq!(f.text(), "😀 apricot\n");
+        assert_eq!(f.presentation_text(), "😀 apricot\n");
         f.app
             .editor
             .replace_completion_handler(CompletionHandler::new(
@@ -745,9 +788,9 @@ async fn component_keymaps_completion_acceptance_does_not_synthesize_remapped_en
     f.initialize().await?;
     f.show().await?;
     f.key("<C-j>").await?;
-    assert_eq!(f.text(), "😀 apricot\n");
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
     f.key("<ret>").await?;
-    assert_eq!(f.text(), "😀 apricot\n");
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
     // A character passing through the menu accepts the preview before editing.
     // Acceptance used to send a fake Enter, which is now disabled by this config.
     f.key("x").await?;
@@ -805,7 +848,7 @@ async fn empty_snippet_completions_preserve_typing_and_existing_previews() -> an
         assert_eq!(f.text(), before);
         assert_eq!(current_ref!(f.app.editor).1.version(), version);
     }
-    assert!(f.app.editor.finish_completion().unwrap().is_none());
+    assert!(f.app.editor.finish_completion().is_none());
     assert_eq!(f.text(), "😀 app\n");
     assert!(f.app.close().await.is_empty());
     Ok(())
@@ -837,7 +880,7 @@ async fn accepting_a_trigger_character_preserves_the_next_completion_request() -
     f.app
         .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
     assert!(f.app.editor.accept_completion(&session, &item).unwrap());
-    assert!(f.app.editor.finish_completion().unwrap().is_some());
+    assert!(f.app.editor.finish_completion().is_some());
     assert_eq!(f.text(), "😀 apricot.\n");
     assert!(matches!(
         f.update().await?.apply(&mut f.app.editor),
@@ -858,10 +901,14 @@ async fn postfix_snippet_previews_switch_cancel_accept_and_undo() -> anyhow::Res
     let mut f = Fixture::new(dir.path(), original, &["alpha"]).await?;
     f.show().await?;
     f.key("<tab>").await?;
-    assert_eq!(f.text(), "// postfix\n/* 😀 */ for i := range x {\n\t\n}\n");
+    assert_eq!(
+        f.presentation_text(),
+        "// postfix\n/* 😀 */ for i := range x {\n\t\n}\n"
+    );
     f.key("<tab>").await?;
     let expanded = "// postfix\n/* 😀 */ for i, v := range x {\n\t\n}\n";
-    assert_eq!(f.text(), expanded);
+    assert_eq!(f.presentation_text(), expanded);
+    assert_eq!(f.text(), original);
     f.key("<C-c>").await?;
     assert_eq!(f.text(), original);
     assert!(current_ref!(f.app.editor).1.active_snippet().is_none());

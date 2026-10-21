@@ -245,9 +245,6 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if event.ghost_transaction {
-            return Ok(());
-        }
         for controller in event.doc.pull_diagnostics.requests.values_mut() {
             controller.cancel();
         }

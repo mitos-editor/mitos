@@ -399,9 +399,7 @@ pub fn post_insert_char(editor: &Editor) {
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if !event.ghost_transaction
-            && let Some(trigger) = &event.doc.signature_help_trigger
-        {
+        if let Some(trigger) = &event.doc.signature_help_trigger {
             trigger.retrigger(event.doc, None);
         }
         Ok(())

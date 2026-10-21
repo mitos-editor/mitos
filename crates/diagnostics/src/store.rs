@@ -4,7 +4,7 @@ use crate::{Diagnostic, DiagnosticProvider, LanguageServerId};
 use editor_core::{Assoc, ChangeSet, Rope};
 use stdx::rope::RopeExt as _;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DiagnosticStore {
     entries: Vec<Diagnostic>,
 }

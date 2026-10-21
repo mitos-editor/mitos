@@ -378,52 +378,6 @@ async fn renaming_document_invalidates_resolution_and_refreshes_its_lenses() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn queued_debounce_does_not_request_server_ranges_for_temporary_text() -> anyhow::Result<()> {
-    let mut fixture = Fixture::new(&["alpha"], &[]).await?;
-    fixture.edit("😀 changed\n");
-    // Hold the debounce dispatch until a completion preview changes the local text.
-    let (blocking, schedule) =
-        tokio::time::timeout(Duration::from_secs(10), fixture.callbacks.recv())
-            .await?
-            .unwrap();
-    assert!(blocking);
-    let (view, doc) = current!(fixture.app.editor);
-    let original = doc.text().clone();
-    let transaction = Transaction::insert(doc.text(), doc.selection(view.id), "preview".into());
-    view::editing::apply_temporary(doc, &transaction, view.id).unwrap();
-    schedule(&mut fixture.app.editor);
-    assert!(fixture.callbacks.try_recv().is_err());
-    assert_eq!(
-        fixture
-            .messages(0)
-            .iter()
-            .filter(|msg| msg["method"] == "textDocument/codeLens")
-            .count(),
-        1
-    );
-    // Restoring server-visible text schedules a fresh request, without didChange.
-    let (view, doc) = current!(fixture.app.editor);
-    let restore = Transaction::change(
-        doc.text(),
-        [(0, doc.text().len_chars(), Some(original.to_string().into()))].into_iter(),
-    );
-    view::editing::apply_temporary(doc, &restore, view.id).unwrap();
-    let fresh = fixture.response().await?;
-    fresh(&mut fixture.app.editor);
-    assert_eq!(fixture.resolve().await.commands.len(), 2);
-    assert_eq!(
-        fixture
-            .messages(0)
-            .iter()
-            .filter(|msg| msg["method"] == "textDocument/didChange")
-            .count(),
-        1
-    );
-    assert!(fixture.app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn space_l_menu_executes_commands_on_the_selected_server() -> anyhow::Result<()> {
     let mut fixture = Fixture::new(&["alpha", "beta"], &[]).await?;
     fixture.keys("<space>l").await?;

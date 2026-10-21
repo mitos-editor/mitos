@@ -143,6 +143,9 @@ impl CompletionHandler {
 
     /// Cancel pending and displayed work and notify the frontend to dismiss its menu.
     pub(crate) fn invalidate(&mut self) {
+        if matches!(self.edit, Some(CompletionEdit::Preview { .. })) {
+            self.edit = None;
+        }
         self.event(CompletionEvent::Cancel);
         self.dismiss();
         self.updates.clear();
@@ -167,7 +170,7 @@ fn belongs_to(owner: &Weak<Shared>, editor: &Editor, epoch: u64) -> bool {
             == epoch
 }
 
-/// A completion session deliberately survives typing and ghost previews: its savepoints
+/// A completion session deliberately survives typing: its savepoints
 /// map provider edits back to the request snapshot. Explicit cancellation ends that lifetime.
 /// Frontends retain the opaque token delivered with their menu to reject stale input.
 #[derive(Clone)]
@@ -208,9 +211,7 @@ impl CompletionSession {
                     && doc
                         .try_selection(self.trigger.view)
                         .is_some_and(|selection| {
-                            has_preview(editor)
-                                || selection.primary().cursor(doc.text().slice(..))
-                                    >= self.trigger.pos
+                            selection.primary().cursor(doc.text().slice(..)) >= self.trigger.pos
                         })
             })
     }
@@ -449,7 +450,7 @@ pub fn is_shown(editor: &Editor) -> bool {
     editor.handlers.completions.edit.is_some()
 }
 
-/// Whether the document currently contains an unaccepted completion preview.
+/// Whether the menu has an unaccepted presentation preview.
 pub fn has_preview(editor: &Editor) -> bool {
     matches!(
         editor.handlers.completions.edit,
@@ -545,15 +546,10 @@ async fn replace_completions(
     }
 }
 
-// Invalidation can precede frontend delivery. Restore ghost text in its original
-// document now, so clearing the menu cannot apply that savepoint to the new document.
+// Invalidation can precede frontend delivery. Discard presentation state immediately.
 pub(crate) fn invalidate(editor: &mut Editor) {
     let handler = &editor.handlers.completions;
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
-        return;
-    }
-    if let Err(error) = editor.restore_completion_preview() {
-        editor.set_error(|| error.to_string());
         return;
     }
     editor.handlers.completions.invalidate();

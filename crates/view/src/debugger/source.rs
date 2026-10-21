@@ -168,6 +168,10 @@ impl super::DebuggerState {
 impl crate::Editor {
     /// The paused location belongs to the resolved document, never to a coincidental path.
     pub fn debugger_frame_in_document(&self, doc: &crate::Document) -> Option<&StackFrame> {
+        // Runtime locations belong to live text, not completion presentation copies.
+        if !std::ptr::eq(self.document(doc.id())?, doc) {
+            return None;
+        }
         let session = self.debugger.get_active_session()?;
         let frame = session.current_stack_frame()?;
         let source = self.debugger_source(doc.id())?;

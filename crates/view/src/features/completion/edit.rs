@@ -10,7 +10,7 @@ use super::{
     additional_edits_transaction, trigger_auto_completion, AcceptedCompletion, CompletionItem,
     CompletionSession, TextCompletion,
 };
-use crate::{document::SavePoint, editing::EditError, Document, DocumentId, Editor, ViewId};
+use crate::{document::SavePoint, editing::EditError, Document, Editor};
 
 /// Accepted edit information a frontend can record for insert-mode repetition.
 #[derive(Debug, Clone)]
@@ -86,9 +86,8 @@ impl CompletionApply {
 pub(super) enum CompletionEdit {
     Shown,
     Preview {
-        savepoint: Arc<SavePoint>,
-        document: DocumentId,
-        view: ViewId,
+        source: buffer::Snapshot,
+        document: Box<Document>,
     },
     Applied(CompletionApply),
 }
@@ -101,7 +100,7 @@ struct PreparedCompletion {
 }
 
 impl PreparedCompletion {
-    // Check the whole edit against its saved text before restoring previews or
+    // Check the whole edit against its saved text before previewing or
     // committing typing. Additional edits use the primary edit's resulting text.
     fn validate(&self, doc: &Document) -> Result<(), EditError> {
         if !self.transaction.changes().is_empty()
@@ -206,9 +205,7 @@ impl Editor {
         })
     }
 
-    /// Show an unsynchronized edit. Restore it before applying real changes, so
-    /// incremental language-server updates always start from synchronized text.
-    /// Returns `Ok(false)` for an expired provider or session, or the edit's rejection.
+    /// Render a proposed edit without changing text, history, or live feature state.
     pub fn preview_completion(
         &mut self,
         session: &CompletionSession,
@@ -217,25 +214,46 @@ impl Editor {
         let Some(prepared) = self.prepare_completion(session, item) else {
             return Ok(false);
         };
-        prepared.validate(
-            self.document(session.trigger.doc)
-                .expect("validated session"),
-        )?;
-        let previewing = super::has_preview(self);
-        let (view, doc) = current!(self);
-        if !previewing {
-            self.handlers.completions.edit = Some(CompletionEdit::Preview {
-                savepoint: doc.savepoint(view.id),
-                document: doc.id(),
-                view: view.id,
-            });
-        }
-        doc.restore(view.id, &prepared.savepoint, false)?;
-        crate::editing::apply_temporary(doc, &prepared.transaction, view.id)?;
+        let doc = self
+            .document(session.trigger.doc)
+            .expect("validated session");
+        prepared.validate(doc)?;
+        let (_, selection) = prepared.savepoint.saved_state(doc)?;
+        let mut selection = prepared
+            .transaction
+            .selection()
+            .cloned()
+            .unwrap_or_else(|| selection.map(prepared.transaction.changes()));
+        let mut changes = doc
+            .savepoint_transaction(session.trigger.view, &prepared.savepoint)?
+            .changes()
+            .clone()
+            .compose(prepared.transaction.changes().clone());
         if let Some(additional) = prepared.additional {
-            crate::editing::apply_temporary(doc, &additional, view.id)?;
+            selection = selection.map(additional.changes());
+            changes = changes.compose(additional.changes().clone());
         }
+        let transaction = Transaction::from(changes).with_selection(selection);
+        let document = Box::new(doc.presentation(&transaction, session.trigger.view));
+        self.handlers.completions.edit = Some(CompletionEdit::Preview {
+            source: doc.snapshot(),
+            document,
+        });
         Ok(true)
+    }
+
+    /// Read-only text and mapped rendering state while a completion preview is current.
+    pub fn completion_presentation<'a>(&'a self, doc: &'a Document) -> &'a Document {
+        match &self.handlers.completions.edit {
+            Some(CompletionEdit::Preview { source, document })
+                if document.id() == doc.id()
+                    && source.is_current(&doc.buffer)
+                    && super::is_active(self) =>
+            {
+                document
+            }
+            _ => doc,
+        }
     }
 
     /// Insert the selected text and snippet, then apply or resolve additional
@@ -259,9 +277,8 @@ impl Editor {
             additional,
         } = prepared;
         let trigger_offset = session.trigger.pos;
-        self.restore_completion_preview()?;
         let (view, doc) = current!(self);
-        doc.restore(view.id, &savepoint, true)?;
+        doc.restore(view.id, &savepoint)?;
         doc.commit_changes();
         view.sync_changes(doc);
         let before = doc.snapshot();
@@ -298,37 +315,13 @@ impl Editor {
         Ok(true)
     }
 
-    pub(super) fn restore_completion_preview(&mut self) -> Result<(), EditError> {
-        let Some(CompletionEdit::Preview {
-            savepoint,
-            document,
-            view,
-        }) = &self.handlers.completions.edit
-        else {
-            return Ok(());
-        };
-        let (savepoint, document, view) = (savepoint.clone(), *document, *view);
-        if self
-            .tree
-            .try_get(view)
-            .is_some_and(|view| view.doc == document)
-            && let Some(doc) = self.documents.get_mut(&document)
-        {
-            doc.restore(view, &savepoint, false)?;
-        }
-        self.handlers.completions.edit = None;
-        Ok(())
-    }
-
-    /// Dismiss a menu, restoring an unaccepted preview and returning only accepted
-    /// edit metadata. A newly scheduled completion trigger remains intact.
-    pub fn finish_completion(&mut self) -> Result<Option<CompletionApply>, EditError> {
-        self.restore_completion_preview()?;
+    /// Dismiss a menu and return accepted edit metadata, preserving a newly scheduled trigger.
+    pub fn finish_completion(&mut self) -> Option<CompletionApply> {
         self.handlers.completions.dismiss();
-        Ok(match self.handlers.completions.edit.take() {
+        match self.handlers.completions.edit.take() {
             Some(CompletionEdit::Applied(applied)) => Some(applied),
             _ => None,
-        })
+        }
     }
 }
 
@@ -584,7 +577,7 @@ mod rejection_tests {
             assert!(editor.begin_completion(&session));
             assert!(editor.preview_completion(&session, &item).is_err());
             assert!(editor.accept_completion(&session, &item).is_err());
-            assert!(editor.finish_completion().unwrap().is_none());
+            assert!(editor.finish_completion().is_none());
             let (view, doc) = current!(editor);
             assert_eq!(doc.text(), &before.0);
             assert_eq!(doc.selection(view.id), &before.1);

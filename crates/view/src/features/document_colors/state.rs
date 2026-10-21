@@ -15,6 +15,13 @@ pub(crate) struct DocumentColors {
 }
 
 impl DocumentColors {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.clear_cache();

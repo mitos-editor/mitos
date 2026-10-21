@@ -23,6 +23,21 @@ pub(crate) struct DocumentBlame {
 }
 
 impl DocumentBlame {
+    pub(crate) fn presentation(&self) -> Self {
+        Self {
+            cache: self
+                .cache
+                .as_ref()
+                .and_then(|cache| cache.as_ref().ok())
+                .cloned()
+                .map(Ok),
+            retained: self.retained.clone(),
+            trust_full: self.trust_full,
+            status_line: self.status_line,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn bind_handler(&mut self, handler: BlameHandler) {
         self.handler = Some(handler);
     }

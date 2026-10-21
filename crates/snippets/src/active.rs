@@ -15,6 +15,7 @@ use editor_core::{Assoc, ChangeSet, Selection, Transaction};
 /// The state maps tabstop ranges through subsequent [`ChangeSet`]s and builds
 /// selections for forward/backward tabstop navigation. One instance may cover
 /// multiple rendered snippets created by a multi-cursor insertion.
+#[derive(Clone)]
 pub struct ActiveSnippet {
     ranges: Vec<Range>,
     active_tabstops: HashSet<TabstopIdx>,
