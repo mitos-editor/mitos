@@ -1,0 +1,30 @@
+[package]
+name = "syntax-symbols"
+description = "Workspace syntax-symbol queries and parsed-file caching for Mitos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+core.workspace = true
+stdx.workspace = true
+language.workspace = true
+search.workspace = true
+text-io.workspace = true
+arc-swap.workspace = true
+dashmap.workspace = true
+grep-regex.workspace = true
+grep-searcher.workspace = true
+ignore.workspace = true
+log.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+loader.workspace = true
+tempfile.workspace = true
+toml.workspace = true

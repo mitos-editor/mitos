@@ -21,9 +21,7 @@ unicode-lines = ["editor-config/unicode-lines"]
 
 [dependencies]
 search.workspace = true
-grep-searcher.workspace = true
-grep-regex.workspace = true
-dashmap.workspace = true
+syntax-symbols.workspace = true
 diagnostics.workspace = true
 editor-config.workspace = true
 language-config.workspace = true
@@ -37,7 +35,6 @@ theme.workspace = true
 workspace.workspace = true
 globset.workspace = true
 file-watch.workspace = true
-ignore.workspace = true
 command-line.workspace = true
 ui-core.workspace = true
 pane-layout.workspace = true

@@ -1,5 +1,4 @@
 //! Editor-facing syntax-symbol queries and workspace refresh ownership.
-mod worker;
 use super::workspace_changes::{Documents, Policy, Polling, WorkspaceChanges};
 use crate::{
     callbacks::EditorCallbackSender,
@@ -9,7 +8,6 @@ use crate::{
 use anyhow::Result;
 use editor_core::{RopeSlice, Selection, Uri};
 use futures_util::{future::BoxFuture, FutureExt};
-use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use language::{
     syntax::Loader,
     tags::{Tag, TagKind},
@@ -90,7 +88,7 @@ pub fn document_symbols(editor: &Editor, document: DocumentId) -> Vec<Symbol> {
 
 pub struct WorkspaceSymbols {
     owner: EditorCallbackSender,
-    worker: worker::Worker,
+    index: syntax_symbols::Index,
     smart_case: bool,
     refresh: Mutex<WorkspaceChanges>,
 }
@@ -115,14 +113,14 @@ impl WorkspaceSymbols {
         ));
         Self {
             owner: editor.callback_sender().clone(),
-            worker: worker::Worker::new(search_root, options),
+            index: syntax_symbols::Index::new(search_root, options),
             smart_case: editor.config().search.smart_case,
             refresh,
         }
     }
 
     pub fn root(&self) -> &Path {
-        self.worker.root()
+        self.index.root()
     }
 
     /// Emit open-buffer symbols now, then scan remaining files on a blocking worker.
@@ -142,8 +140,8 @@ impl WorkspaceSymbols {
             return async { Ok(()) }.boxed();
         }
         // Attempt to find the tag in any open documents.
-        let (pattern, matcher) = match query_patterns(query, self.smart_case) {
-            Ok(patterns) => patterns,
+        let query = match syntax_symbols::Query::new(query, self.smart_case) {
+            Ok(query) => query,
             Err(err) => return async { Err(err) }.boxed(),
         };
         editor.clear_status();
@@ -163,13 +161,19 @@ impl WorkspaceSymbols {
                 .uri()
                 .map(Target::Uri)
                 .unwrap_or_else(|| Target::Document(doc.id()));
-            for tag in tags_iter(syntax, &loader, text.slice(..), uri_or_id, Some(&pattern)) {
+            for tag in tags_iter(
+                syntax,
+                &loader,
+                text.slice(..),
+                uri_or_id,
+                Some(query.pattern()),
+            ) {
                 if cancelled() || emit(tag).is_break() {
                     return async { Ok(()) }.boxed();
                 }
             }
         }
-        if !self.worker.root().exists() {
+        if !self.index.root().exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
         }
@@ -182,7 +186,7 @@ impl WorkspaceSymbols {
             .map(ToOwned::to_owned)
             .collect();
 
-        let scan = self.worker.prepare(loader, documents, pattern, matcher);
+        let scan = self.index.prepare(loader, documents, query);
         async move {
             tokio::task::spawn_blocking(move || {
                 scan.run(
@@ -207,24 +211,11 @@ impl WorkspaceSymbols {
             return false;
         }
         let mut refresh = self.refresh.lock();
-        let changed = refresh.changed(editor, self.worker.root()) || refresh.poll_due(editor);
+        let changed = refresh.changed(editor, self.index.root()) || refresh.poll_due(editor);
         if changed {
             refresh.mark_refreshed();
-            self.worker.invalidate();
+            self.index.invalidate();
         }
         changed
     }
-}
-
-// Apply the same case policy to tag matching and the on-disk file prefilter.
-// As with buffer search, explicit regex flags can override this default.
-fn query_patterns(query: &str, smart_case: bool) -> Result<(rope::Regex, RegexMatcher)> {
-    let case_insensitive = smart_case && !query.chars().any(char::is_uppercase);
-    let pattern = rope::RegexBuilder::new()
-        .syntax(rope::Config::new().case_insensitive(case_insensitive))
-        .build(query)?;
-    let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(case_insensitive)
-        .build(query)?;
-    Ok((pattern, matcher))
 }

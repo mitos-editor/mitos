@@ -23,6 +23,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `grammar-build` | Grammar source fetching and native compilation |
 | `clipboard` | Clipboard provider settings and native backends |
 | `word-index` | Unicode word counts, incremental updates, and lexical matching |
+| `syntax-symbols` | Workspace syntax-symbol queries, blocking scans, and parsed-file caching |
 | `search` | Workspace traversal and text matches over files or unsaved snapshots |
 | `fuzzy` | Reusable fuzzy scoring, matching profiles, and highlight indices |
 | `text-diff` | Text-to-transaction comparison and reusable line differencing |
@@ -1322,9 +1323,10 @@ original editor location before navigating.
 ### Workspace syntax symbols
 
 `view::features::syntax_symbols` owns editor identity, open-buffer results,
-workspace refresh policy, and worker scheduling. Its private `worker` module
-receives a loader snapshot, excluded open-file paths, compiled patterns, a result
-sink, and cancellation. It owns blocking file scanning and parsed-file caching
-without borrowing an editor or callback destination. Prepared scans retain their
+workspace refresh policy, and worker scheduling. `syntax-symbols` owns query
+compilation, blocking scanning, and parsed-file caching. Its `Index` prepares owned
+`Scan` inputs from a loader snapshot, excluded open-file paths, and a `Query`.
+Callers run the scan with a result sink and cancellation. The crate does not borrow
+an editor or callback destination. Prepared scans retain their
 cache generation; refresh installs a new cache that old workers cannot refill.
 Stopping a result sink stops the scan across its worker threads.

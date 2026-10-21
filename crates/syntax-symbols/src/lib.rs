@@ -1,10 +1,14 @@
-//! Blocking workspace scanning over explicit inputs and a replaceable cache.
+//! Workspace syntax-symbol search over explicit resources and a replaceable parsed-file cache.
 //!
-//! No editor, callback destination, or asynchronous scheduling belongs here.
+//! [`Query`] compiles consistent smart-case matching for source text and symbol names.
+//! [`Index`] owns traversal policy and cache generations; prepared [`Scan`]s own their
+//! snapshots and run synchronously. Applications supply roots, language resources,
+//! excluded open-file paths, cancellation, and result delivery, and choose the worker
+//! on which to run scans. This crate has no editor, frontend, event, or protocol state.
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use editor_core::Rope;
-use grep_regex::RegexMatcher;
+use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use language::{syntax::Loader, tags::Tag, Syntax};
@@ -20,16 +24,45 @@ use std::{
 use stdx::rope;
 use text_io::from_reader;
 
+/// Regex query with one case policy for symbol matching and on-disk filtering.
+pub struct Query {
+    pattern: rope::Regex,
+    prefilter: RegexMatcher,
+}
+
+impl Query {
+    /// Compile both patterns before any results are emitted. Uppercase queries are
+    /// case sensitive; lowercase queries ignore case when `smart_case` is enabled.
+    /// Explicit regex flags can override this default, as in buffer text search.
+    pub fn new(query: &str, smart_case: bool) -> anyhow::Result<Self> {
+        let case_insensitive = smart_case && !query.chars().any(char::is_uppercase);
+        let pattern = rope::RegexBuilder::new()
+            .syntax(rope::Config::new().case_insensitive(case_insensitive))
+            .build(query)?;
+        let prefilter = RegexMatcherBuilder::new()
+            .case_insensitive(case_insensitive)
+            .build(query)?;
+        Ok(Self { pattern, prefilter })
+    }
+
+    /// Pattern for matching symbols from caller-owned syntax trees and unsaved text.
+    pub fn pattern(&self) -> &rope::Regex {
+        &self.pattern
+    }
+}
+
 type SyntaxCache = DashMap<PathBuf, Option<(Rope, Syntax)>>;
 
-pub(super) struct Worker {
+/// Workspace root, traversal policy, and parsed-file cache shared across queries.
+pub struct Index {
     root: PathBuf,
     walker: WalkBuilder,
     cache: ArcSwap<SyntaxCache>,
 }
 
-impl Worker {
-    pub(super) fn new(root: PathBuf, options: search::Options) -> Self {
+impl Index {
+    /// Create an index without reading files or loading syntax resources.
+    pub fn new(root: PathBuf, options: search::Options) -> Self {
         Self {
             walker: options.walker(&root),
             root,
@@ -37,44 +70,44 @@ impl Worker {
         }
     }
 
-    pub(super) fn root(&self) -> &Path {
+    /// Root directory used for traversal.
+    pub fn root(&self) -> &Path {
         &self.root
     }
 
-    pub(super) fn invalidate(&self) {
+    /// Replace cached syntax. Previously prepared scans retain their old generation.
+    pub fn invalidate(&self) {
         // Prepared scans retain their old cache and cannot refill the replacement.
         self.cache.store(Arc::new(DashMap::default()));
     }
 
-    pub(super) fn prepare(
-        &self,
-        loader: Arc<Loader>,
-        documents: HashSet<PathBuf>,
-        pattern: rope::Regex,
-        matcher: RegexMatcher,
-    ) -> Scan {
+    /// Capture a language loader, open paths to exclude, a query, and a cache generation.
+    /// The scan borrows nothing from this index and can be sent to a blocking worker.
+    pub fn prepare(&self, loader: Arc<Loader>, documents: HashSet<PathBuf>, query: Query) -> Scan {
         Scan {
             walker: self.walker.clone(),
             cache: self.cache.load_full(),
             loader,
             documents,
-            pattern,
-            matcher,
+            query,
         }
     }
 }
 
-pub(super) struct Scan {
+/// Owned scan inputs. Preparing a scan does not start filesystem work.
+pub struct Scan {
     walker: WalkBuilder,
     cache: Arc<SyntaxCache>,
     loader: Arc<Loader>,
     documents: HashSet<PathBuf>,
-    pattern: rope::Regex,
-    matcher: RegexMatcher,
+    query: Query,
 }
 
 impl Scan {
-    pub(super) fn run(
+    /// Stream symbol tags with their source paths. Observe cancellation during traversal
+    /// and tag publication; a sink returning `Break` stops the scan. In-flight callbacks
+    /// on other threads may already be running. Unreadable or unparseable files are skipped.
+    pub fn run(
         self,
         emit: impl Fn(Tag, &Path) -> ControlFlow<()> + Sync,
         is_cancelled: impl Fn() -> bool + Sync,
@@ -86,14 +119,14 @@ impl Scan {
             .build();
         self.walker.build_parallel().run(|| {
             let mut searcher = searcher.clone();
-            let matcher = &self.matcher;
+            let matcher = &self.query.prefilter;
             let emit = &emit;
             let cancelled = &cancelled;
             let stopped = &stopped;
 
             let loader = self.loader.clone();
             let documents = &self.documents;
-            let pattern = &self.pattern;
+            let pattern = &self.query.pattern;
             let syntax_cache = self.cache.clone();
             Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
                 if cancelled() {
@@ -191,9 +224,12 @@ roots = []
         )
     }
 
-    fn prepare(worker: &Worker) -> Scan {
-        let (pattern, matcher) = super::super::query_patterns("sample", true).unwrap();
-        worker.prepare(loader(), HashSet::new(), pattern, matcher)
+    fn prepare(worker: &Index) -> Scan {
+        worker.prepare(
+            loader(),
+            HashSet::new(),
+            Query::new("sample", true).unwrap(),
+        )
     }
 
     fn names(scan: Scan) -> Vec<String> {
@@ -213,7 +249,7 @@ roots = []
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("source.rs");
         std::fs::write(&path, "fn sample_old() {}\n").unwrap();
-        let worker = Worker::new(dir.path().to_owned(), search::Options::default());
+        let worker = Index::new(dir.path().to_owned(), search::Options::default());
         let old = prepare(&worker);
         worker.invalidate();
         assert_eq!(names(old), ["sample_old"]);
@@ -227,7 +263,7 @@ roots = []
         for i in 0..10 {
             std::fs::write(dir.path().join(format!("{i}.rs")), "fn sample_name() {}\n").unwrap();
         }
-        let mut worker = Worker::new(dir.path().to_owned(), search::Options::default());
+        let mut worker = Index::new(dir.path().to_owned(), search::Options::default());
         worker.walker.threads(1);
         let emitted = std::sync::atomic::AtomicUsize::new(0);
         prepare(&worker).run(

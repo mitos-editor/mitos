@@ -4101,6 +4101,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "syntax-symbols"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "core",
+ "dashmap",
+ "grep-regex",
+ "grep-searcher",
+ "ignore",
+ "language",
+ "loader",
+ "log",
+ "search",
+ "stdx",
+ "tempfile",
+ "text-io",
+ "toml",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4740,7 +4761,6 @@ dependencies = [
  "core",
  "criterion",
  "dap",
- "dashmap",
  "debugger",
  "diagnostics",
  "editor-config",
@@ -4750,9 +4770,6 @@ dependencies = [
  "futures-util",
  "fuzzy",
  "globset",
- "grep-regex",
- "grep-searcher",
- "ignore",
  "language",
  "language-config",
  "libc",
@@ -4769,6 +4786,7 @@ dependencies = [
  "snippets",
  "spelling",
  "stdx",
+ "syntax-symbols",
  "tempfile",
  "text-diff",
  "text-io",
