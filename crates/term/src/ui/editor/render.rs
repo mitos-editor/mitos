@@ -353,7 +353,7 @@ impl PaneRenderer {
                 doc,
                 view,
                 theme,
-                &config.cursor.shape,
+                &config.cursor,
                 options.terminal_focused,
                 options.is_cursor_owner,
             ));

@@ -1,5 +1,5 @@
 mod render;
-use super::highlights::primary_cursor_is_software;
+use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
@@ -22,7 +22,7 @@ use ui_core::{
 use view::{
     document::Mode,
     features::completion::CompletionItem,
-    graphics::{CursorKind, Modifier, Rect},
+    graphics::{Modifier, Rect},
     Editor,
 };
 
@@ -844,16 +844,15 @@ impl Component for EditorView {
             return Cursor::Hidden;
         };
         let pos = (pos.col as u16, pos.row as u16).into();
-        if primary_cursor_is_software(kind, self.terminal_focused, true) {
-            Cursor::Software(pos)
-        } else {
-            // Let the terminal provide its unfocused cursor appearance.
-            let kind = if kind == CursorKind::Block {
-                CursorKind::Underline
-            } else {
-                kind
-            };
+        if let Some(kind) = primary_native_cursor_kind(
+            kind,
+            editor.config().cursor.block_rendering,
+            self.terminal_focused,
+            true,
+        ) {
             Cursor::Native(pos, kind)
+        } else {
+            Cursor::Software(pos)
         }
     }
 }

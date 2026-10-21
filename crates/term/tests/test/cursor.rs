@@ -1,20 +1,17 @@
 use super::helpers::{test_config, AppBuilder};
+use editor_config::BlockCursorRendering::{self, Native, Software};
 use term::application::Application;
 use theme::Theme;
 use tui::{backend::Backend, style::Color};
-use ui_core::input::parse_macro;
 use view::current_ref;
 
 #[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
+use crossterm::event::Event;
 #[cfg(not(windows))]
-use termina::event::{Event, KeyEvent};
+use termina::event::Event;
 
 async fn keys(app: &mut Application, input: &str) {
-    for key in parse_macro(input).unwrap() {
-        app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
-            .await;
-    }
+    super::helpers::keys(app, input).await.unwrap();
 }
 
 fn assert_editor_cursor(app: &Application, native: bool) {
@@ -28,15 +25,27 @@ fn assert_editor_cursor(app: &Application, native: bool) {
         app.editor.mode()
     );
     let cell = &backend.buffer()[(pos.col as u16, pos.row as u16)];
-    if !native {
+    if native {
+        assert_ne!(
+            cell.bg,
+            Color::Yellow,
+            "native cursor has a software marker"
+        );
+    } else {
         assert_eq!(cell.bg, Color::Yellow);
         assert_eq!(cell.fg, Color::Black);
     }
 }
 
-fn cursor_app(cursorline: bool, normal: &str, text: &str) -> Application {
+fn cursor_app(
+    cursorline: bool,
+    normal: &str,
+    block_rendering: BlockCursorRendering,
+    text: &str,
+) -> Application {
     let mut config = test_config();
     config.editor.cursor.highlight_line = cursorline;
+    config.editor.cursor.block_rendering = block_rendering;
     config.editor.cursor.shape = toml::from_str(&format!(
         "normal = '{normal}'\ninsert = 'bar'\nselect = 'underline'"
     ))
@@ -64,7 +73,7 @@ fn cursor_app(cursorline: bool, normal: &str, text: &str) -> Application {
 #[tokio::test]
 async fn cursor_modes_preserve_the_theme_and_input_method_position() {
     for cursorline in [false, true] {
-        let mut app = cursor_app(cursorline, "block", "#[a|]#界b\n");
+        let mut app = cursor_app(cursorline, "block", Software, "#[a|]#界b\n");
         keys(&mut app, "<esc>").await;
         assert_editor_cursor(&app, false);
         keys(&mut app, "l").await;
@@ -85,9 +94,72 @@ async fn cursor_modes_preserve_the_theme_and_input_method_position() {
 }
 
 #[tokio::test]
+async fn native_blocks_follow_mode_changes_and_live_configuration() {
+    for cursorline in [false, true] {
+        let mut app = cursor_app(cursorline, "block", Native, "#[a|]#界b\n");
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        keys(&mut app, "l").await;
+        assert_editor_cursor(&app, true);
+        let pos = app.editor.cursor().0.unwrap();
+        assert_eq!(
+            app.terminal_backend().buffer()[(pos.col as u16, pos.row as u16)].symbol(),
+            "界"
+        );
+        keys(&mut app, "i").await;
+        assert_editor_cursor(&app, true);
+        keys(&mut app, "<esc>v").await;
+        assert_editor_cursor(&app, true);
+        keys(
+            &mut app,
+            "<esc>:set-option cursor.block-rendering software<ret>",
+        )
+        .await;
+        assert_editor_cursor(&app, false);
+        keys(&mut app, ":set-option cursor.block-rendering native<ret>").await;
+        assert_editor_cursor(&app, true);
+        // Block rendering applies to insert and select modes too.
+        keys(&mut app, ":set-option cursor.shape.insert block<ret>i").await;
+        assert_editor_cursor(&app, true);
+        keys(&mut app, "<esc>:set-option cursor.shape.select block<ret>v").await;
+        assert_editor_cursor(&app, true);
+        assert!(app.close().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn native_blocks_preserve_forward_and_reverse_selection_boundaries() {
+    for text in ["#[ab|]#c\n", "#[|ab]#c\n"] {
+        let mut app = cursor_app(true, "block", Native, text);
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        let (view, doc) = current_ref!(app.editor);
+        let inner = view.inner_area(doc);
+        let cells = app.terminal_backend().buffer();
+        let forward =
+            doc.selection(view.id).primary().head > doc.selection(view.id).primary().anchor;
+        assert_eq!(
+            cells[(inner.x, inner.y)].bg,
+            if forward { Color::Green } else { Color::Blue }
+        );
+        assert_eq!(
+            cells[(inner.x + 1, inner.y)].bg,
+            if forward { Color::Blue } else { Color::Green }
+        );
+        assert_eq!(cells[(inner.x + 2, inner.y)].bg, Color::Blue);
+        assert!(app.close().await.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn prompts_and_pickers_own_the_cursor_without_erasing_the_editor_marker() {
-    for shape in ["block", "bar", "underline"] {
-        let mut app = cursor_app(true, shape, "#[a|]#界b\n");
+    for (shape, block_rendering) in [
+        ("block", Software),
+        ("block", Native),
+        ("bar", Software),
+        ("underline", Software),
+    ] {
+        let mut app = cursor_app(true, shape, block_rendering, "#[a|]#界b\n");
         keys(&mut app, "<esc>").await;
         for open in ["/", ":", "<space>b"] {
             keys(&mut app, open).await;
@@ -104,7 +176,7 @@ async fn prompts_and_pickers_own_the_cursor_without_erasing_the_editor_marker() 
                 );
             }
             keys(&mut app, "<esc>").await;
-            assert_editor_cursor(&app, shape != "block");
+            assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         }
         assert!(app.close().await.is_empty());
     }
@@ -112,42 +184,49 @@ async fn prompts_and_pickers_own_the_cursor_without_erasing_the_editor_marker() 
 
 #[tokio::test]
 async fn terminal_focus_transfers_the_primary_cursor_but_keeps_secondary_markers() {
-    let mut app = cursor_app(true, "block", "#[a|]#界b\n");
-    {
-        let (view, doc) = view::current!(app.editor);
-        doc.set_selection(
-            view.id,
-            editor_core::Selection::new(
-                vec![editor_core::Range::point(0), editor_core::Range::point(2)].into(),
-                0,
-            ),
+    for block_rendering in [Software, Native] {
+        let mut app = cursor_app(true, "block", block_rendering, "#[a|]#界b\n");
+        {
+            let (view, doc) = view::current!(app.editor);
+            doc.set_selection(
+                view.id,
+                editor_core::Selection::new(
+                    vec![editor_core::Range::point(0), editor_core::Range::point(2)].into(),
+                    0,
+                ),
+            );
+        }
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, block_rendering == Native);
+        #[cfg(not(windows))]
+        let (lost, gained) = (Event::FocusOut, Event::FocusIn);
+        #[cfg(windows)]
+        let (lost, gained) = (Event::FocusLost, Event::FocusGained);
+        app.handle_terminal_events(Ok(lost)).await;
+        assert_editor_cursor(&app, true);
+        let (view, doc) = current_ref!(app.editor);
+        let inner = view.inner_area(doc);
+        assert_eq!(
+            app.terminal_backend().buffer()[(inner.x + 3, inner.y)].bg,
+            Color::Yellow
         );
+        app.handle_terminal_events(Ok(gained)).await;
+        assert_editor_cursor(&app, block_rendering == Native);
+        assert!(app.close().await.is_empty());
     }
-    keys(&mut app, "<esc>").await;
-    assert_editor_cursor(&app, false);
-    #[cfg(not(windows))]
-    let (lost, gained) = (Event::FocusOut, Event::FocusIn);
-    #[cfg(windows)]
-    let (lost, gained) = (Event::FocusLost, Event::FocusGained);
-    app.handle_terminal_events(Ok(lost)).await;
-    assert_editor_cursor(&app, true);
-    let (view, doc) = current_ref!(app.editor);
-    let inner = view.inner_area(doc);
-    assert_eq!(
-        app.terminal_backend().buffer()[(inner.x + 3, inner.y)].bg,
-        Color::Yellow
-    );
-    app.handle_terminal_events(Ok(gained)).await;
-    assert_editor_cursor(&app, false);
-    assert!(app.close().await.is_empty());
 }
 
 #[tokio::test]
 async fn eof_cursor_remains_visible_when_a_prompt_takes_focus() {
-    for shape in ["block", "bar", "underline"] {
-        let mut app = cursor_app(true, shape, "#[|]#");
+    for (shape, block_rendering) in [
+        ("block", Software),
+        ("block", Native),
+        ("bar", Software),
+        ("underline", Software),
+    ] {
+        let mut app = cursor_app(true, shape, block_rendering, "#[|]#");
         keys(&mut app, "<esc>").await;
-        assert_editor_cursor(&app, shape != "block");
+        assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         keys(&mut app, "/").await;
         let pos = app.editor.cursor().0.unwrap();
         assert_eq!(
@@ -155,7 +234,7 @@ async fn eof_cursor_remains_visible_when_a_prompt_takes_focus() {
             Color::Yellow
         );
         keys(&mut app, "<esc>").await;
-        assert_editor_cursor(&app, shape != "block");
+        assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         assert!(app.close().await.is_empty());
     }
 }
@@ -165,8 +244,8 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
     use text_layout::text_annotations::InlineAnnotation;
     use view::document::{DocumentInlayHints, DocumentInlayHintsId};
 
-    for shape in ["block", "bar"] {
-        let mut app = cursor_app(true, shape, "#[a|]#b\n");
+    for (shape, block_rendering) in [("block", Software), ("block", Native), ("bar", Software)] {
+        let mut app = cursor_app(true, shape, block_rendering, "#[a|]#b\n");
         keys(&mut app, "<esc>").await;
         let (view, doc) = view::current!(app.editor);
         let mut hints = DocumentInlayHints::empty_with_id(DocumentInlayHintsId {
@@ -182,7 +261,7 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
         #[cfg(windows)]
         let focus = Event::FocusGained;
         app.handle_terminal_events(Ok(focus)).await;
-        assert_editor_cursor(&app, shape != "block");
+        assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         let pos = app
             .terminal_backend()
             .clone()
@@ -195,19 +274,21 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
 
 #[tokio::test]
 async fn selection_dialog_hides_the_editor_native_cursor() {
-    let mut app = cursor_app(true, "bar", "#[a|]#b\n");
-    keys(&mut app, "<esc>").await;
-    assert_editor_cursor(&app, true);
-    let request = serde_json::from_value(serde_json::json!({
-        "jsonrpc": "2.0", "id": 1, "method": "window/showMessageRequest",
-        "params": {"type": 3, "message": "Choose", "actions": [{"title": "OK"}]}
-    }))
-    .unwrap();
-    app.handle_language_server_message(request, Default::default())
-        .await;
-    keys(&mut app, "<down>").await;
-    assert!(!app.terminal_backend().cursor_visible());
-    keys(&mut app, "<esc>").await;
-    assert_editor_cursor(&app, true);
-    assert!(app.close().await.is_empty());
+    for (shape, block_rendering) in [("bar", Software), ("block", Native)] {
+        let mut app = cursor_app(true, shape, block_rendering, "#[a|]#b\n");
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        let request = serde_json::from_value(serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "window/showMessageRequest",
+            "params": {"type": 3, "message": "Choose", "actions": [{"title": "OK"}]}
+        }))
+        .unwrap();
+        app.handle_language_server_message(request, Default::default())
+            .await;
+        keys(&mut app, "<down>").await;
+        assert!(!app.terminal_backend().cursor_visible());
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        assert!(app.close().await.is_empty());
+    }
 }

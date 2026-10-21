@@ -1,7 +1,7 @@
 //! Document highlight layers shared by editor panes and picker previews.
 //! Inputs describe the document and viewport; no editor component or compositor is required.
 
-use editor_config::CursorShapeConfig;
+use editor_config::{BlockCursorRendering, CursorConfig};
 use editor_core::{
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
     highlight::OverlayHighlights,
@@ -281,7 +281,7 @@ pub(crate) fn selection_highlights(
     doc: &Document,
     view: &View,
     theme: &Theme,
-    cursor_shape_config: &CursorShapeConfig,
+    cursor_config: &CursorConfig,
     is_terminal_focused: bool,
     is_cursor_owner: bool,
 ) -> OverlayHighlights {
@@ -289,9 +289,15 @@ pub(crate) fn selection_highlights(
     let selection = doc.selection(view.id);
     let primary_idx = selection.primary_index();
 
-    let cursorkind = mode.cursor_shape(cursor_shape_config);
+    let cursorkind = mode.cursor_shape(&cursor_config.shape);
     let cursor_is_block = cursorkind == CursorKind::Block || !is_cursor_owner;
-    let draw_primary = primary_cursor_is_software(cursorkind, is_terminal_focused, is_cursor_owner);
+    let draw_primary = primary_native_cursor_kind(
+        cursorkind,
+        cursor_config.block_rendering,
+        is_terminal_focused,
+        is_cursor_owner,
+    )
+    .is_none();
 
     let selection_scope = theme
         .find_highlight_exact("ui.selection")
@@ -404,13 +410,22 @@ pub(crate) fn tabstop_highlights(doc: &Document, theme: &Theme) -> Option<Overla
     Some(OverlayHighlights::Homogeneous { highlight, ranges })
 }
 
-/// Render bufferline at the top
-pub(super) fn primary_cursor_is_software(
+/// The terminal shape for the primary cursor, or `None` for a software marker.
+/// Inactive editor markers remain visible when another component owns the cursor.
+pub(super) fn primary_native_cursor_kind(
     kind: CursorKind,
+    block_rendering: BlockCursorRendering,
     terminal_focused: bool,
     is_owner: bool,
-) -> bool {
-    !is_owner || (kind == CursorKind::Block && terminal_focused)
+) -> Option<CursorKind> {
+    if !is_owner {
+        return None;
+    }
+    if kind == CursorKind::Block && block_rendering == BlockCursorRendering::Software {
+        // Preserve the terminal's unfocused cursor appearance for software blocks.
+        return (!terminal_focused).then_some(CursorKind::Underline);
+    }
+    Some(kind)
 }
 
 /// Adapt parser highlight events to character-indexed, fully resolved styles.
@@ -440,4 +455,59 @@ pub(crate) fn syntax_styles(
         style = highlights.fold(base, |acc, highlight| acc.patch(theme.highlight(highlight)));
         Some((position, style))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use BlockCursorRendering::{Native, Software};
+    use CursorKind::{Bar, Block, Underline};
+
+    #[test]
+    fn native_blocks_keep_their_shape_when_focus_changes() {
+        for focused in [false, true] {
+            assert_eq!(
+                primary_native_cursor_kind(Block, Native, focused, true),
+                Some(Block)
+            );
+            assert_eq!(
+                primary_native_cursor_kind(Block, Native, focused, false),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn software_blocks_preserve_the_existing_unfocused_cursor() {
+        assert_eq!(
+            primary_native_cursor_kind(Block, Software, true, true),
+            None
+        );
+        assert_eq!(
+            primary_native_cursor_kind(Block, Software, false, true),
+            Some(Underline)
+        );
+        assert_eq!(
+            primary_native_cursor_kind(Block, Software, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn non_block_cursors_only_use_the_terminal_while_they_own_it() {
+        for kind in [Bar, Underline] {
+            for rendering in [Software, Native] {
+                for focused in [false, true] {
+                    assert_eq!(
+                        primary_native_cursor_kind(kind, rendering, focused, true),
+                        Some(kind)
+                    );
+                    assert_eq!(
+                        primary_native_cursor_kind(kind, rendering, focused, false),
+                        None
+                    );
+                }
+            }
+        }
+    }
 }

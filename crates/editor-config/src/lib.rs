@@ -1253,8 +1253,20 @@ pub struct CursorConfig {
     pub highlight_line: bool,
     /// Highlight the columns cursors are currently on. Defaults to false.
     pub highlight_column: bool,
+    /// How to render the active primary block cursor. Defaults to software.
+    pub block_rendering: BlockCursorRendering,
     /// Shape for cursor in each mode
     pub shape: CursorShapeConfig,
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BlockCursorRendering {
+    /// Draw the block with the editor theme's cursor colors.
+    #[default]
+    Software,
+    /// Use the terminal's block cursor and cursor colors.
+    Native,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1524,6 +1536,30 @@ mod tests {
             shapes
         );
         assert!(toml::from_str::<CursorShapeConfig>("unknown = 'bar'").is_err());
+    }
+
+    #[test]
+    fn block_cursor_rendering_is_opt_in_and_round_trips() {
+        assert_eq!(
+            CursorConfig::default().block_rendering,
+            BlockCursorRendering::Software
+        );
+        assert_eq!(
+            toml::from_str::<CursorConfig>("").unwrap().block_rendering,
+            BlockCursorRendering::Software
+        );
+        let config: CursorConfig =
+            toml::from_str("block-rendering = 'native'\n[shape]\ninsert = 'bar'").unwrap();
+        assert_eq!(config.block_rendering, BlockCursorRendering::Native);
+        assert_eq!(config.shape.normal, CursorKind::Block);
+        assert_eq!(config.shape.insert, CursorKind::Bar);
+        assert_eq!(
+            toml::from_str::<CursorConfig>(&toml::to_string(&config).unwrap()).unwrap(),
+            config
+        );
+        for value in ["'invalid'", "true", "42"] {
+            assert!(toml::from_str::<CursorConfig>(&format!("block-rendering = {value}")).is_err());
+        }
     }
 
     #[test]

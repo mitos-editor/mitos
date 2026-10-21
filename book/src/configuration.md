@@ -168,6 +168,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | --- | --- | --- | --- |
 | `highlight-line` | boolean | `false` | Highlight every line containing a cursor. |
 | `highlight-column` | boolean | `false` | Highlight every column containing a cursor. |
+| `block-rendering` | `"software"`, `"native"` | `"software"` | Render the active primary block cursor with the editor theme or the terminal's cursor appearance. |
 | `shape` | table | All modes `"block"` | Cursor shape by mode. See [`[editor.cursor.shape]`](#editorcursorshape). |
 
 ### `[editor.completion]`
@@ -381,9 +382,21 @@ length-limit = 40
 
 ### `[editor.cursor.shape]`
 
-`normal`, `insert`, and `select` each accept `"block"`, `"bar"`,
-`"underline"`, or `"hidden"`; all default to `"block"`. Terminals can change
+`normal`, `insert`, and `select` each accept `"block"`, `"bar"`, or
+`"underline"`; all default to `"block"`. Terminals can change
 only the primary cursor's shape.
+
+To use the terminal's block cursor and cursor colors:
+
+```toml
+[editor.cursor]
+block-rendering = "native"
+```
+
+This applies to modes whose shape is `"block"`. Secondary cursors and editor
+markers shown while a prompt owns the cursor still use the editor theme.
+Native cursors use a steady shape; cursor trails depend on terminal settings,
+and animated blinking is not enabled.
 
 <span id="editorauto-reload"></span>
 

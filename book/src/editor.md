@@ -53,7 +53,7 @@ Older setting names are accepted without rewriting files. See
 
 Use `line-number = "relative"` under `[editor]` to show distances from the
 current line. Insert mode and unfocused views still use absolute numbers.
-Choose `block`, `bar`, `underline`, or `hidden` for each mode's cursor:
+Choose `block`, `bar`, or `underline` for each mode's cursor:
 
 ```toml
 [editor.cursor.shape]
@@ -63,6 +63,10 @@ select = "underline"
 ```
 
 Only the primary cursor can change shape in a terminal.
+
+To use the terminal's block cursor and cursor colors, set
+`block-rendering = "native"` under `[editor.cursor]`. The default, `"software"`,
+uses the editor theme. Secondary cursors remain software blocks.
 
 <span id="editorstatusline-section"></span>
 
