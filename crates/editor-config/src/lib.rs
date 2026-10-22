@@ -37,7 +37,7 @@ impl Default for RulersConfig {
     fn default() -> Self {
         Self {
             columns: Vec::new(),
-            character: '┊',
+            character: ' ',
         }
     }
 }
@@ -1549,9 +1549,11 @@ mod tests {
     fn rulers_default_and_round_trip_single_column_characters() {
         let defaults = RulersConfig::default();
         assert!(defaults.columns.is_empty());
-        assert_eq!(defaults.character, '┊');
+        assert_eq!(defaults.character, ' ');
         assert_eq!(toml::from_str::<RulersConfig>("").unwrap(), defaults);
-        for character in ['│', '|', ' '] {
+        let columns_only: RulersConfig = toml::from_str("columns = [51, 73]").unwrap();
+        assert_eq!(columns_only.character, ' ');
+        for character in ['┊', '│', '|', ' '] {
             let config: RulersConfig =
                 toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
             assert_eq!(config.character, character);

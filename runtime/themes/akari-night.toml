@@ -50,7 +50,7 @@
 "ui.menu.selected" = { fg = "selection-fg", bg = "selection-bg" }
 "ui.menu.scroll" = { fg = "bright-black", bg = "raised" }
 
-"ui.virtual.ruler" = { fg = "surface" }
+"ui.virtual.ruler" = { bg = "surface" }
 "ui.virtual.whitespace" = { fg = "bright-black" }
 "ui.virtual.indent-guide" = { fg = "bright-black" }
 "ui.virtual.inlay-hint" = { fg = "comment" }

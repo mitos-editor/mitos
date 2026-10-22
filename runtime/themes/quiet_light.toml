@@ -176,7 +176,7 @@
 "ui.highlight" = { bg = "line-hl" }
 "ui.highlight.frameline" = { bg = "line-hl" }
 
-"ui.virtual.ruler" = { fg = "ruler" }
+"ui.virtual.ruler" = { bg = "ruler" }
 "ui.virtual.whitespace" = { fg = "muted" }
 "ui.virtual.indent-guide" = { fg = "indent-guide" }
 "ui.virtual.inlay-hint" = { fg = "muted", bg = "inlay-bg" }

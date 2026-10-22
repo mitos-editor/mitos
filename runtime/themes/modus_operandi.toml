@@ -95,7 +95,7 @@ punctuation = "fg-dim"
 "ui.text.inactive" = { fg = "fg-dim" }
 "ui.text.info" = { fg = "blue-warmer" }
 "ui.virtual" = "bg-active"
-"ui.virtual.ruler" = { fg = "bg-dim" }
+"ui.virtual.ruler" = { bg = "bg-dim" }
 "ui.virtual.inlay-hint" = { fg = "fg-dim", modifiers = ["italic"] }
 "ui.virtual.inlay-hint.parameter" = { fg = "fg-dim", modifiers = ["italic"] }
 "ui.virtual.inlay-hint.type" = { fg = "fg-dim", modifiers = ["italic"] }

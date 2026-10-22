@@ -86,7 +86,7 @@
 "ui.help" = { fg = "light_4", bg = "libadwaita_dark_alt" }
 "ui.text" = "light_4"
 "ui.virtual" = "dark_1"
-"ui.virtual.ruler" = { fg = "libadwaita_popup"}
+"ui.virtual.ruler" = { bg = "libadwaita_popup"}
 "ui.virtual.jump-label" = { fg = "libadwaita_dark", bg = "light_4" }
 "ui.menu" = { fg = "light_4", bg = "libadwaita_popup" }
 "ui.menu.selected" = { fg = "light_4", bg = "blue_5" }

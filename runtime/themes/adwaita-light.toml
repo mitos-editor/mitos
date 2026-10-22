@@ -85,7 +85,7 @@ inherits="adwaita-dark"
 "ui.help" = { fg = "dark_4", bg = "light_3" }
 "ui.text" = "dark_4"
 "ui.virtual" = "light_5"
-"ui.virtual.ruler" = { fg = "light_5"}
+"ui.virtual.ruler" = { bg = "light_5"}
 "ui.virtual.jump-label" = { fg = "light_1", bg = "dark_4" }
 "ui.menu" = { fg = "dark_4", bg = "light_3" }
 "ui.menu.selected" = { fg = "dark_4", bg = "blue_1" }

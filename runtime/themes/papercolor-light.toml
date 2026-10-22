@@ -26,7 +26,7 @@
 "ui.virtual" = { fg = "cursorlinenr_fg" }
 "ui.virtual.whitespace" = { fg = "regular5" }
 "ui.virtual.indent-guide" = { fg = "bright0" }
-"ui.virtual.ruler" = { fg = "regular4" }
+"ui.virtual.ruler" = { bg = "cursorline_secondary_bg", fg = "regular4" }
 "ui.virtual.inlay-hint" = { fg = "regular5", modifiers = ["italic"] }
 "ui.virtual.inlay-hint.parameter" = { fg = "regular5", modifiers = ["italic"] }
 "ui.virtual.inlay-hint.type" = { fg = "regular5", modifiers = ["bold", "italic"] }

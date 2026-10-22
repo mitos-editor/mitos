@@ -34,7 +34,7 @@
 "ui.text.inactive" = { fg = "muted" }
 "ui.text.info" = { fg = "foreground" }
 
-"ui.virtual.ruler" = { fg = "line_highlight" }
+"ui.virtual.ruler" = { bg = "line_highlight" }
 "ui.virtual.whitespace" = { fg = "muted" }
 "ui.virtual.indent-guide" = { fg = "muted" }
 "ui.virtual.inlay-hint" = { fg = "hint" }

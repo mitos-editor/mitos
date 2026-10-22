@@ -558,7 +558,7 @@ enable delayed saving.
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `columns` | array of integers | `[]` | One-based columns at which to draw rulers. A language's `rulers` array overrides these columns. |
-| `character` | single character occupying one terminal column | `"┊"` | Glyph used to draw rulers. |
+| `character` | single character occupying one terminal column | `" "` (space) | Glyph used to draw rulers. |
 
 ```toml
 [editor.rulers]
@@ -567,9 +567,9 @@ character = "│"
 ```
 
 Rulers appear behind document text and use the `ui.virtual.ruler` theme style.
-Themes should set its foreground color. For the previous background-column
-appearance, set `character = " "` and give `ui.virtual.ruler` a background color
-in your theme.
+By default, a space character and the theme's background color highlight ruler
+columns. To draw visible glyphs instead, set `character` as above and give
+`ui.virtual.ruler` a foreground color in your theme.
 
 The legacy `editor.rulers = [81, 121]` array remains accepted as
 `editor.rulers.columns`. Runtime commands accept `rulers.columns` and

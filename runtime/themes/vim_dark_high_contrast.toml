@@ -20,7 +20,7 @@
 "ui.text.focus" = { fg = "yellow" }
 "ui.virtual.wrap" = { fg = "dark-blue" }
 "ui.virtual.indent-guide" = { fg = "dark-blue" }
-"ui.virtual.ruler" = { fg = "dark-white" }
+"ui.virtual.ruler" = { bg = "dark-white" }
 "ui.virtual.jump-label" = { fg = "light-yellow", modifiers = ["bold"] }
 "ui.window" = { bg = "dark-white" }
 

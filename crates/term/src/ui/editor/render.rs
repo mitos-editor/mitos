@@ -508,9 +508,13 @@ impl PaneRenderer {
     ) {
         let config = editor.config();
         let editor_rulers = &config.rulers.columns;
-        let ruler_theme = theme
-            .try_get("ui.virtual.ruler")
-            .unwrap_or_else(|| Style::default().fg(Color::Red));
+        let ruler_theme = theme.try_get("ui.virtual.ruler").unwrap_or_else(|| {
+            if config.rulers.character == ' ' {
+                Style::default().bg(Color::Red)
+            } else {
+                Style::default().fg(Color::Red)
+            }
+        });
 
         let rulers = doc
             .language_config()

@@ -91,7 +91,7 @@
 "ui.window"                       = { fg = "foreground"                                                     }
 "ui.virtual.whitespace"           = { fg = "current_line"                                                   }
 "ui.virtual.wrap"                 = { fg = "current_line"                                                   }
-"ui.virtual.ruler"                = {                            fg = "black"                               }
+"ui.virtual.ruler"                = {                            bg = "black"                               }
 "ui.virtual.indent-guide"         = { fg = "indent"                                                         }
 "ui.virtual.inlay-hint"           = { fg = "cyan"                                                           }
 "ui.virtual.inlay-hint.parameter" = { fg = "cyan",               modifiers = ["italic", "dim"]              }

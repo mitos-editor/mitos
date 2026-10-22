@@ -57,7 +57,7 @@
 "ui.text.directory" = { fg = "blue" }
 
 "ui.virtual" = "gray"
-"ui.virtual.ruler" = { fg = "gray" }
+"ui.virtual.ruler" = { bg = "gray" }
 "ui.virtual.indent-guide" = "gray"
 "ui.virtual.inlay-hint" = { fg = "white", bg = "gray" }
 "ui.virtual.jump-label" = { fg = "white", modifiers = ["bold"] }
