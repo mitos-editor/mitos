@@ -1,4 +1,4 @@
-use editor_config::BufferLine;
+use editor_config::{BufferLine, RulerStyle};
 use term::application::Application;
 use theme::Theme;
 use tui::style::Color;
@@ -10,10 +10,11 @@ fn ruler_theme() -> Theme {
     Theme::from(
         toml::from_str::<toml::Value>(
             r#"
+        "ui.background" = { bg = "black" }
         "ui.text" = { fg = "white" }
         "ui.selection" = { bg = "green" }
         "ui.cursor" = { bg = "yellow" }
-        "ui.virtual.ruler" = { fg = "red" }
+        "ui.virtual.ruler" = { fg = "red", bg = "blue" }
         "#,
         )
         .unwrap(),
@@ -48,6 +49,7 @@ fn assert_rulers(app: &Application, columns: &[u16], character: &str) {
                     "at ({x}, {y}) in {area:?}"
                 );
                 assert_eq!(buffer[(x, y)].fg, Color::Red);
+                assert_eq!(buffer[(x, y)].bg, Color::Black);
                 count += 1;
             }
         }
@@ -72,7 +74,7 @@ async fn rulers_cover_split_content_and_preserve_text() -> anyhow::Result<()> {
             ] {
                 let mut config = test_config();
                 config.editor.rulers.columns = vec![0, 3, u16::MAX];
-                config.editor.rulers.character = '┊';
+                config.editor.rulers.style = RulerStyle::Glyph;
                 config.editor.bufferline.show = bufferline.clone();
                 config.editor.statusline.global = global;
                 let mut app = AppBuilder::new()
@@ -112,12 +114,29 @@ async fn ruler_runtime_updates_keep_legacy_column_commands() -> anyhow::Result<(
         .with_lang_loader(language::syntax::Loader::default())
         .build()?;
     app.editor.theme = ruler_theme();
+    keys(&mut app, ":set rulers.style glyph<ret>").await?;
+    assert_rulers(&app, &[3], "┊");
     keys(&mut app, ":set rulers.character |<ret>").await?;
     keys(&mut app, ":set rulers [4]<ret>").await?;
     assert_eq!(app.editor.config().rulers.character, '|');
     assert_eq!(app.editor.config().rulers.columns, [4]);
     assert_rulers(&app, &[4], "|");
     keys(&mut app, ":toggle rulers.columns [4] [5]<ret>").await?;
+    assert_rulers(&app, &[5], "|");
+    keys(&mut app, ":set rulers.style background<ret>").await?;
+    assert_eq!(app.editor.config().rulers.style, RulerStyle::Background);
+    let (view, doc) = current_ref!(app.editor);
+    let area = view.inner_area(doc);
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    assert_eq!(buffer[(area.x + 4, area.y)].symbol(), "e");
+    assert_eq!(buffer[(area.x + 4, area.y)].fg, Color::White);
+    assert_eq!(buffer[(area.x + 4, area.y)].bg, Color::Blue);
+    assert_eq!(buffer[(area.x + 4, area.bottom() - 1)].symbol(), " ");
+    keys(&mut app, ":set rulers.style glyph<ret>").await?;
+    assert_rulers(&app, &[5], "|");
+    keys(&mut app, ":set rulers.style line<ret>").await?;
+    assert_eq!(app.editor.config().rulers.style, RulerStyle::Glyph);
     assert_rulers(&app, &[5], "|");
     keys(&mut app, ":set rulers.character 界<ret>").await?;
     assert_eq!(app.editor.config().rulers.character, '|');
@@ -143,7 +162,7 @@ async fn language_rulers_override_editor_columns_including_empty_lists() -> anyh
         )));
         let mut config = test_config();
         config.editor.rulers.columns = vec![3];
-        config.editor.rulers.character = '┊';
+        config.editor.rulers.style = RulerStyle::Glyph;
         let mut app = AppBuilder::new()
             .with_config(config)
             .with_file(file, None)
@@ -163,7 +182,7 @@ async fn rulers_follow_horizontal_scrolls_without_offset_truncation() -> anyhow:
     for length in [150, 70_000] {
         let mut config = test_config();
         config.editor.rulers.columns = vec![0, 1, 80, 100, u16::MAX];
-        config.editor.rulers.character = '┊';
+        config.editor.rulers.style = RulerStyle::Glyph;
         let input = format!("{}#[x|]#\n", "x".repeat(length));
         let mut app = AppBuilder::new()
             .with_config(config)
@@ -187,7 +206,11 @@ async fn rulers_follow_horizontal_scrolls_without_offset_truncation() -> anyhow:
 
 #[tokio::test(flavor = "multi_thread")]
 async fn default_rulers_preserve_background_styling_across_text() -> anyhow::Result<()> {
-    for ruler_style in ["", r#""ui.virtual.ruler" = { bg = "red" }"#] {
+    for ruler_style in [
+        "",
+        r#""ui.virtual.ruler" = { bg = "red" }"#,
+        r#""ui.virtual.ruler" = { bg = "red", fg = "blue", modifiers = ["bold"] }"#,
+    ] {
         let mut config = test_config();
         config.editor.rulers.columns = vec![3];
         let mut app = AppBuilder::new()
@@ -212,7 +235,50 @@ async fn default_rulers_preserve_background_styling_across_text() -> anyhow::Res
             assert_eq!(buffer[(area.x + 2, y)].bg, Color::Red);
         }
         assert_eq!(buffer[(area.x + 2, area.y)].symbol(), "c");
+        assert_eq!(buffer[(area.x + 2, area.y)].fg, Color::White);
+        assert!(!buffer[(area.x + 2, area.y)]
+            .modifier
+            .contains(tui::style::Modifier::BOLD));
         assert_eq!(buffer[(area.x + 2, area.bottom() - 1)].symbol(), " ");
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn glyph_rulers_use_foreground_with_background_and_default_fallbacks() -> anyhow::Result<()> {
+    for ruler_style in [
+        "",
+        r#""ui.virtual.ruler" = { bg = "red" }"#,
+        r#""ui.virtual.ruler" = { fg = "red" }"#,
+        r#""ui.virtual.ruler" = { fg = "red", bg = "blue" }"#,
+    ] {
+        let mut config = test_config();
+        config.editor.rulers.columns = vec![3];
+        config.editor.rulers.style = RulerStyle::Glyph;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_input_text("#[a|]#bcdef\n")
+            .with_lang_loader(language::syntax::Loader::default())
+            .build()?;
+        app.editor.theme = Theme::from(toml::from_str::<toml::Value>(&format!(
+            r#"
+            "ui.background" = {{ bg = "black" }}
+            "ui.text" = {{ fg = "white" }}
+            "ui.selection" = {{ bg = "green" }}
+            "ui.cursor" = {{ bg = "yellow" }}
+            {ruler_style}
+        "#,
+        ))?);
+        keys(&mut app, "<esc>").await?;
+        assert_rulers(&app, &[3], "┊");
+        let (view, doc) = current_ref!(app.editor);
+        let area = view.inner_area(doc);
+        let backend = app.terminal_backend();
+        let buffer = backend.buffer();
+        assert_eq!(buffer[(area.x + 2, area.y)].symbol(), "c");
+        assert_eq!(buffer[(area.x + 2, area.y)].fg, Color::White);
+        assert_eq!(buffer[(area.x + 2, area.y)].bg, Color::Black);
         assert!(app.close().await.is_empty());
     }
     Ok(())

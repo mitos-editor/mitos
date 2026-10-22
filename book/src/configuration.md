@@ -558,22 +558,34 @@ enable delayed saving.
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `columns` | array of integers | `[]` | One-based columns at which to draw rulers. A language's `rulers` array overrides these columns. |
-| `character` | single character occupying one terminal column | `" "` (space) | Glyph used to draw rulers. |
+| `style` | `"background"`, `"glyph"` | `"background"` | Highlight ruler columns or draw visible glyphs. |
+| `character` | single character occupying one terminal column | `"┊"` | Character drawn when `style = "glyph"`; ignored for background rulers. |
 
 ```toml
 [editor.rulers]
 columns = [81, 121]
+style = "glyph"
 character = "│"
 ```
 
 Rulers appear behind document text and use the `ui.virtual.ruler` theme style.
-By default, a space character and the theme's background color highlight ruler
-columns. To draw visible glyphs instead, set `character` as above and give
-`ui.virtual.ruler` a foreground color in your theme.
+The default `"background"` style uses only its background color, preserving
+document text colors. The `"glyph"` style uses only its foreground color,
+preserving document backgrounds. If no foreground is defined, glyph rulers
+use the ruler background color as their foreground. If the required color is
+missing, rulers fall back to red.
+
+Themes can supply both colors through the same key:
+
+```toml
+"ui.virtual.ruler" = { bg = "#313244", fg = "#6c7086" }
+```
 
 The legacy `editor.rulers = [81, 121]` array remains accepted as
-`editor.rulers.columns`. Runtime commands accept `rulers.columns` and
-`rulers.character`; the old `rulers` path remains an alias for `rulers.columns`.
+`editor.rulers.columns`. Runtime commands accept `rulers.columns`,
+`rulers.style`, and `rulers.character`; the old `rulers` path remains an alias
+for `rulers.columns`. Use `:set rulers.style glyph` to switch to glyph rulers
+or `:set rulers.style background` to restore background rulers.
 
 ### `[editor.whitespace]`
 

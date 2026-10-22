@@ -10,7 +10,7 @@ use super::super::{
     ProgressSpinners,
 };
 use diagnostics::NumberOrString;
-use editor_config::DiagnosticFilter;
+use editor_config::{DiagnosticFilter, RulerStyle};
 use editor_core::unicode::width::UnicodeWidthStr;
 use loader::VERSION_AND_GIT_HASH;
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::LazyLock};
@@ -508,13 +508,17 @@ impl PaneRenderer {
     ) {
         let config = editor.config();
         let editor_rulers = &config.rulers.columns;
-        let ruler_theme = theme.try_get("ui.virtual.ruler").unwrap_or_else(|| {
-            if config.rulers.character == ' ' {
-                Style::default().bg(Color::Red)
-            } else {
-                Style::default().fg(Color::Red)
-            }
-        });
+        let ruler_theme = theme.get("ui.virtual.ruler");
+        let (character, ruler_style) = match config.rulers.style {
+            RulerStyle::Background => (
+                ' ',
+                Style::default().bg(ruler_theme.bg.unwrap_or(Color::Red)),
+            ),
+            RulerStyle::Glyph => (
+                config.rulers.character,
+                Style::default().fg(ruler_theme.fg.or(ruler_theme.bg).unwrap_or(Color::Red)),
+            ),
+        };
 
         let rulers = doc
             .language_config()
@@ -523,8 +527,8 @@ impl PaneRenderer {
 
         let view_offset = doc.view_offset(view.id);
 
-        let mut character = [0; 4];
-        let character: &str = config.rulers.character.encode_utf8(&mut character);
+        let mut character_buffer = [0; 4];
+        let character: &str = character.encode_utf8(&mut character_buffer);
         let ruler_cols = rulers
             .iter()
             // Convert one-based document columns to viewport columns without
@@ -539,7 +543,7 @@ impl PaneRenderer {
 
         for col in ruler_cols {
             for y in viewport.top()..viewport.bottom() {
-                surface.set_stringn(col, y, character, 1, ruler_theme);
+                surface.set_stringn(col, y, character, 1, ruler_style);
             }
         }
     }

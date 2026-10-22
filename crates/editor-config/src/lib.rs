@@ -29,6 +29,7 @@ pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct RulersConfig {
     pub columns: Vec<u16>,
+    pub style: RulerStyle,
     #[serde(deserialize_with = "deserialize_ruler_character")]
     pub character: char,
 }
@@ -37,9 +38,19 @@ impl Default for RulersConfig {
     fn default() -> Self {
         Self {
             columns: Vec::new(),
-            character: ' ',
+            style: RulerStyle::default(),
+            character: '┊',
         }
     }
+}
+
+/// Whether rulers highlight columns or draw visible glyphs.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RulerStyle {
+    #[default]
+    Background,
+    Glyph,
 }
 
 fn deserialize_ruler_character<'de, D>(deserializer: D) -> Result<char, D::Error>
@@ -1549,15 +1560,33 @@ mod tests {
     fn rulers_default_and_round_trip_single_column_characters() {
         let defaults = RulersConfig::default();
         assert!(defaults.columns.is_empty());
-        assert_eq!(defaults.character, ' ');
+        assert_eq!(defaults.style, RulerStyle::Background);
+        assert_eq!(defaults.character, '┊');
         assert_eq!(toml::from_str::<RulersConfig>("").unwrap(), defaults);
         let columns_only: RulersConfig = toml::from_str("columns = [51, 73]").unwrap();
-        assert_eq!(columns_only.character, ' ');
+        assert_eq!(columns_only.style, RulerStyle::Background);
+        assert_eq!(columns_only.character, '┊');
         for character in ['┊', '│', '|', ' '] {
             let config: RulersConfig =
                 toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
             assert_eq!(config.character, character);
             assert_eq!(config.columns, [80, 120]);
+            assert_eq!(
+                toml::from_str::<RulersConfig>(&toml::to_string(&config).unwrap()).unwrap(),
+                config
+            );
+        }
+    }
+
+    #[test]
+    fn rulers_round_trip_rendering_styles() {
+        for (name, expected) in [
+            ("background", RulerStyle::Background),
+            ("glyph", RulerStyle::Glyph),
+        ] {
+            let config: RulersConfig = toml::from_str(&format!("style = '{name}'")).unwrap();
+            assert_eq!(config.style, expected);
+            assert_eq!(config.character, '┊');
             assert_eq!(
                 toml::from_str::<RulersConfig>(&toml::to_string(&config).unwrap()).unwrap(),
                 config
@@ -1576,6 +1605,8 @@ mod tests {
             r#"character = "\n""#,
             "character = 1",
             "char = '|'",
+            "style = 'line'",
+            "style = 1",
         ] {
             assert!(toml::from_str::<RulersConfig>(source).is_err(), "{source}");
         }

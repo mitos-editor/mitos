@@ -800,25 +800,27 @@ fn rulers_normalize_legacy_arrays_before_layering() {
     for (user, project, expected) in [
         (
             "[editor]\nrulers = [80, 120]",
-            "[editor.rulers]\ncharacter = '|'",
+            "[editor.rulers]\nstyle = 'glyph'\ncharacter = '|'",
             vec![80, 120],
         ),
         (
-            "[editor.rulers]\ncolumns = [80, 120]\ncharacter = '|'",
+            "[editor.rulers]\ncolumns = [80, 120]\nstyle = 'glyph'\ncharacter = '|'",
             "[editor]\nrulers = []",
             vec![],
         ),
         (
             "[editor]\nrulers = [80]",
-            "[editor.rulers]\ncolumns = [40]\ncharacter = '|'",
+            "[editor.rulers]\ncolumns = [40]\nstyle = 'glyph'\ncharacter = '|'",
             vec![40],
         ),
     ] {
         let config = Config::load(Ok(&user.to_owned()), Ok(project.to_owned())).unwrap();
         assert_eq!(config.editor.rulers.columns, expected);
         assert_eq!(config.editor.rulers.character, '|');
+        assert_eq!(config.editor.rulers.style, editor_config::RulerStyle::Glyph);
         let serialized = serde_json::to_value(config.editor_settings()).unwrap();
         assert_eq!(serialized["rulers"]["character"], "|");
+        assert_eq!(serialized["rulers"]["style"], "glyph");
     }
     assert!(Config::load_test_result("[editor.rulers]\nchar = '|'").is_err());
     assert!(Config::load_test_result("[editor]\nrulers = [80]\nrulers.columns = [40]").is_err());
