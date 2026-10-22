@@ -82,7 +82,8 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
                 || item.label.as_str().into(),
                 |path| config.stylize(Some(path), None),
             )
-        }),
+        })
+        .with_prefix(|item, config| config.icon(item.path.as_deref())),
         ui::PickerColumn::new("line", |item: &QuicklistMeta, _| {
             item.line
                 .map_or_else(String::new, |line| line.to_string())

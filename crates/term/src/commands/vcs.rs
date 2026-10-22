@@ -123,51 +123,36 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
     }
 
     fn change_column<'a>(entry: &'a ChangedFileEntry, data: &FileChangeData) -> Cell<'a> {
+        let (label, style) = match &entry.change {
+            FileChange::Untracked { .. } => ("untracked", data.style_untracked),
+            FileChange::Added { .. } => ("added", data.style_untracked),
+            FileChange::Modified { .. } => ("modified", data.style_modified),
+            FileChange::Conflict { .. } => ("conflict", data.style_conflict),
+            FileChange::Deleted { .. } => ("deleted", data.style_deleted),
+            FileChange::Renamed { .. } => ("renamed", data.style_renamed),
+        };
+        Span::styled(label, style).into()
+    }
+
+    fn change_prefix<'a>(
+        entry: &'a ChangedFileEntry,
+        data: &'a FileChangeData,
+    ) -> Option<Span<'a>> {
         let icons = ICONS.load();
-        let (plain, icon, label, style) = match &entry.change {
-            FileChange::Untracked { .. } => (
-                "+ untracked",
-                icons.vcs().added(),
-                "untracked",
-                data.style_untracked,
-            ),
-            FileChange::Added { .. } => (
-                "+ added",
-                icons.vcs().added(),
-                "added",
-                data.style_untracked,
-            ),
-            FileChange::Modified { .. } => (
-                "~ modified",
-                icons.vcs().modified(),
-                "modified",
-                data.style_modified,
-            ),
-            FileChange::Conflict { .. } => (
-                "x conflict",
-                icons.vcs().conflict(),
-                "conflict",
-                data.style_conflict,
-            ),
-            FileChange::Deleted { .. } => (
-                "- deleted",
-                icons.vcs().removed(),
-                "deleted",
-                data.style_deleted,
-            ),
-            FileChange::Renamed { .. } => (
-                "> renamed",
-                icons.vcs().renamed(),
-                "renamed",
-                data.style_renamed,
-            ),
+        let (plain, icon, style) = match &entry.change {
+            FileChange::Untracked { .. } | FileChange::Added { .. } => {
+                ("+ ", icons.vcs().added(), data.style_untracked)
+            }
+            FileChange::Modified { .. } => ("~ ", icons.vcs().modified(), data.style_modified),
+            FileChange::Conflict { .. } => ("x ", icons.vcs().conflict(), data.style_conflict),
+            FileChange::Deleted { .. } => ("- ", icons.vcs().removed(), data.style_deleted),
+            FileChange::Renamed { .. } => ("> ", icons.vcs().renamed(), data.style_renamed),
         };
-        let content = if data.icons {
-            icon.map_or_else(|| label.to_string(), |icon| format!("{icon}{label}"))
+        if data.icons {
+            icon.map(|icon| Span::styled(icon.to_string(), style))
         } else {
-            plain.to_string()
-        };
-        Span::styled(content, style).into()
+            Some(Span::styled(plain, style))
+        }
     }
 
     fn path_column<'a>(entry: &'a ChangedFileEntry, _data: &FileChangeData) -> Cell<'a> {
@@ -192,7 +177,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
     let renamed = cx.editor.theme.get("diff.delta.moved");
 
     let columns = [
-        PickerColumn::new("change", change_column),
+        PickerColumn::new("change", change_column).with_prefix(change_prefix),
         PickerColumn::new("path", path_column),
     ];
 

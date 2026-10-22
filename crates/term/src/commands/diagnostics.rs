@@ -334,45 +334,30 @@ fn diag_picker(
         ui::PickerColumn::new(
             "severity",
             |item: &PickerDiagnostic, styles: &DiagnosticStyles| {
-                let icons = ICONS.load();
                 match item.severity {
-                    Some(Severity::Hint) => Span::styled(
-                        if styles.icons {
-                            format!("{}HINT", icons.diagnostic().hint())
-                        } else {
-                            "HINT".to_string()
-                        },
-                        styles.hint,
-                    ),
-                    Some(Severity::Info) => Span::styled(
-                        if styles.icons {
-                            format!("{}INFO", icons.diagnostic().info())
-                        } else {
-                            "INFO".to_string()
-                        },
-                        styles.info,
-                    ),
-                    Some(Severity::Warning) => Span::styled(
-                        if styles.icons {
-                            format!("{}WARN", icons.diagnostic().warning())
-                        } else {
-                            "WARN".to_string()
-                        },
-                        styles.warning,
-                    ),
-                    Some(Severity::Error) => Span::styled(
-                        if styles.icons {
-                            format!("{}ERROR", icons.diagnostic().error())
-                        } else {
-                            "ERROR".to_string()
-                        },
-                        styles.error,
-                    ),
+                    Some(Severity::Hint) => Span::styled("HINT", styles.hint),
+                    Some(Severity::Info) => Span::styled("INFO", styles.info),
+                    Some(Severity::Warning) => Span::styled("WARN", styles.warning),
+                    Some(Severity::Error) => Span::styled("ERROR", styles.error),
                     _ => Span::raw(""),
                 }
                 .into()
             },
-        ),
+        )
+        .with_prefix(|item, styles| {
+            if !styles.icons {
+                return None;
+            }
+            let icons = ICONS.load();
+            let (icon, style) = match item.severity {
+                Some(Severity::Hint) => (icons.diagnostic().hint(), styles.hint),
+                Some(Severity::Info) => (icons.diagnostic().info(), styles.info),
+                Some(Severity::Warning) => (icons.diagnostic().warning(), styles.warning),
+                Some(Severity::Error) => (icons.diagnostic().error(), styles.error),
+                _ => return None,
+            };
+            Some(Span::styled(icon.to_string(), style))
+        }),
         ui::PickerColumn::new("source", |item: &PickerDiagnostic, _| {
             item.source.as_deref().unwrap_or("").into()
         }),

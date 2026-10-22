@@ -230,18 +230,25 @@ fn display_symbol_kind(kind: lsp::SymbolKind) -> &'static str {
 }
 
 fn symbol_kind_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
-    let mut spans = Vec::with_capacity(2);
-    if data.show_icons {
-        let icons = ICONS.load();
-        if let Some(icon) = icons.kind().get(item.symbol.kind.as_str()) {
-            spans.push(ui::icon_span(icon));
-        }
-    }
-    spans.push(Span::styled(
+    Span::styled(
         display_symbol_kind(item.symbol.kind),
         data.theme.get("ui.text.inactive"),
-    ));
-    Line::from(spans).into()
+    )
+    .into()
+}
+
+fn symbol_kind_icon(
+    item: &SymbolInformationItem,
+    data: &SymbolPickerData,
+) -> Option<Span<'static>> {
+    if !data.show_icons {
+        return None;
+    }
+    ICONS
+        .load()
+        .kind()
+        .get(item.symbol.kind.as_str())
+        .map(ui::icon_span)
 }
 
 fn symbol_name_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
@@ -439,7 +446,7 @@ pub fn symbol_picker(cx: &mut Context) {
                 nested_symbol_to_flat(&mut items, symbol, "", None);
             }
             let columns = [
-                ui::PickerColumn::new("kind", symbol_kind_cell),
+                ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
                 // Nested document symbols include their fully expanded tree guide in
                 // the name column. Legacy flat responses remain unprefixed.
                 ui::PickerColumn::new("name", symbol_name_cell),
@@ -518,7 +525,8 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     let columns = [
         ui::PickerColumn::new("kind", |item, data: &WorkspaceSymbolPickerData| {
             symbol_kind_cell(item, &data.style)
-        }),
+        })
+        .with_prefix(|item, data| symbol_kind_icon(item, &data.style)),
         ui::PickerColumn::new("name", |item, data: &WorkspaceSymbolPickerData| {
             symbol_name_cell(item, &data.style)
         })

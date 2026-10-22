@@ -284,7 +284,8 @@ pub(super) fn global_search(cx: &mut Context) {
             config
                 .style
                 .stylize(Some(&item.path), Some(item.line_start))
-        }),
+        })
+        .with_prefix(|item, config| config.style.icon(Some(&item.path))),
         PickerColumn::hidden("contents"),
     ];
 

@@ -261,19 +261,11 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     };
     let files = file_picker_paths(&root, &config.file_picker);
 
-    let columns = [PickerColumn::new(
-        "path",
-        |item: &PathBuf, data: &FilePickerData| {
+    let columns = [
+        PickerColumn::new("path", |item: &PathBuf, data: &FilePickerData| {
             let theme = data.theme.as_ref();
             let path = item.strip_prefix(&data.root).unwrap_or(item);
             let mut spans = Vec::with_capacity(4);
-
-            if data.icons {
-                let icons = ICONS.load();
-                if let Some(file) = icons.fs().file() {
-                    spans.push(icon_span(file.get_with_style_or_default(item, theme)));
-                }
-            }
 
             if let Some(dirs) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                 let directory_style = theme.get("ui.text.directory");
@@ -288,8 +280,14 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
                 .to_string_lossy();
             spans.push(Span::raw(filename));
             Line::from(spans).into()
-        },
-    )];
+        })
+        .with_prefix(|item, data| {
+            data.icons
+                .then(|| ICONS.load().fs().file())
+                .flatten()
+                .map(|file| icon_span(file.get_with_style_or_default(item, &data.theme)))
+        }),
+    ];
     let picker = Picker::new(
         editor.redraw().clone(),
         columns,
@@ -344,41 +342,42 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
 
     let columns = [PickerColumn::new(
         "path",
-        |(path, is_dir): &(PathBuf, bool),
-         (_root, theme, show_icons): &(PathBuf, Arc<Theme>, bool)| {
+        |(path, is_dir): &(PathBuf, bool), (_root, theme, _): &(PathBuf, Arc<Theme>, bool)| {
             let name = path.file_name();
-            let is_open = name.is_none() && *is_dir;
             let name = name.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
             let directory_style = theme.get("ui.text.directory");
 
             if *is_dir {
-                let mut spans = Vec::with_capacity(2);
-                if *show_icons {
-                    let icons = ICONS.load();
-                    if let Some(directory) = icons.fs().directory() {
-                        spans.push(icon_span(directory.get_with_style_or_default(
-                            &name,
-                            is_open,
-                            theme,
-                            directory_style,
-                        )));
-                    }
-                }
-                spans.push(Span::styled(format!("{name}/"), directory_style));
-                Line::from(spans).into()
+                Span::styled(format!("{name}/"), directory_style).into()
             } else {
-                let mut spans = Vec::with_capacity(2);
-                if *show_icons {
-                    let icons = ICONS.load();
-                    if let Some(file) = icons.fs().file() {
-                        spans.push(icon_span(file.get_with_style_or_default(path, theme)));
-                    }
-                }
-                spans.push(Span::raw(name.into_owned()));
-                Line::from(spans).into()
+                name.into_owned().into()
             }
         },
-    )];
+    )
+    .with_prefix(|(path, is_dir), (_, theme, show_icons)| {
+        if !show_icons {
+            return None;
+        }
+        let icons = ICONS.load();
+        if *is_dir {
+            let name = path.file_name();
+            let is_open = name.is_none();
+            let name = name.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
+            icons.fs().directory().map(|directory| {
+                icon_span(directory.get_with_style_or_default(
+                    &name,
+                    is_open,
+                    theme,
+                    theme.get("ui.text.directory"),
+                ))
+            })
+        } else {
+            icons
+                .fs()
+                .file()
+                .map(|file| icon_span(file.get_with_style_or_default(path, theme)))
+        }
+    })];
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         columns,

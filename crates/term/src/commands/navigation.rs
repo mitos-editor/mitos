@@ -306,7 +306,8 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
         ui::PickerColumn::new("id", |item: &JumpMeta, _| item.id.to_string().into()),
         ui::PickerColumn::new("path", |item: &JumpMeta, config: &PathStyleConfig| {
             config.stylize(item.path.as_deref(), Some(item.line_start))
-        }),
+        })
+        .with_prefix(|item, config| config.icon(item.path.as_deref())),
         ui::PickerColumn::new("flags", |item: &JumpMeta, _| {
             let mut flags = Vec::new();
             if item.is_current {

@@ -2,6 +2,8 @@ use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction}
 use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod file_updates;
 mod handlers;
+#[cfg(all(test, feature = "integration"))]
+mod matching_tests;
 mod preview;
 mod query;
 mod results;
@@ -136,10 +138,12 @@ impl<T, D> Injector<T, D> {
 }
 
 type ColumnFormatFn<T, D> = for<'a> fn(&'a T, &'a D) -> Cell<'a>;
+type ColumnPrefixFn<T, D> = for<'a> fn(&'a T, &'a D) -> Option<Span<'a>>;
 
 pub struct Column<T, D> {
     name: Arc<str>,
     format: ColumnFormatFn<T, D>,
+    prefix: ColumnPrefixFn<T, D>,
     /// Whether the column should be passed to nucleo for matching and filtering.
     /// `DynamicPicker` uses this so that the dynamic column (for example regex in
     /// global search) is not used for filtering twice.
@@ -152,6 +156,7 @@ impl<T, D> Column<T, D> {
         Self {
             name: name.into(),
             format,
+            prefix: |_, _| None,
             filter: true,
             hidden: false,
         }
@@ -164,6 +169,7 @@ impl<T, D> Column<T, D> {
         Self {
             name: name.into(),
             format,
+            prefix: |_, _| None,
             filter: false,
             hidden: true,
         }
@@ -171,6 +177,12 @@ impl<T, D> Column<T, D> {
 
     pub fn without_filtering(mut self) -> Self {
         self.filter = false;
+        self
+    }
+
+    /// Add a decorative prefix without including it in fuzzy matching or highlights.
+    pub fn with_prefix(mut self, prefix: ColumnPrefixFn<T, D>) -> Self {
+        self.prefix = prefix;
         self
     }
 
@@ -876,7 +888,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     unreachable!();
                 };
                 let mut cell = column.format(item.data, &self.results.editor_data);
-                let width = if column.filter {
+                let mut width = if column.filter {
                     matcher.indices(
                         snapshot.pattern().column_pattern(matcher_index),
                         item.matcher_columns[matcher_index].slice(..),
@@ -934,6 +946,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         .map(|line| line.width())
                         .unwrap_or_default()
                 };
+
+                if let Some(prefix) = (column.prefix)(item.data, &self.results.editor_data) {
+                    width += prefix.width();
+                    if let Some(line) = cell.content.lines.first_mut() {
+                        line.spans.insert(0, prefix);
+                    }
+                }
 
                 if width as u16 > *max_width {
                     *max_width = width as u16;

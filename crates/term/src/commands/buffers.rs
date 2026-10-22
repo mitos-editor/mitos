@@ -92,7 +92,8 @@ fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConf
             } else {
                 config.stylize(meta.path.as_deref(), None)
             }
-        }),
+        })
+        .with_prefix(|meta, config| config.icon(meta.path.as_deref())),
     ];
 
     let initial_cursor =

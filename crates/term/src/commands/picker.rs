@@ -33,14 +33,6 @@ impl PathStyleConfig {
     pub(super) fn stylize<'a>(&self, path: Option<&'a Path>, line: Option<usize>) -> Cell<'a> {
         let mut spans = Vec::new();
         if let Some(path) = path {
-            if self.icons {
-                let icons = ICONS.load();
-                if let Some(file) = icons.fs().file() {
-                    spans.push(icon_span(
-                        file.get_with_style_or_default(path, self.theme.as_ref()),
-                    ));
-                }
-            }
             let directories = path
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
@@ -62,5 +54,17 @@ impl PathStyleConfig {
         }
 
         Cell::from(Line::from(spans))
+    }
+
+    pub(super) fn icon(&self, path: Option<&Path>) -> Option<Span<'static>> {
+        let path = path?;
+        if !self.icons {
+            return None;
+        }
+        ICONS
+            .load()
+            .fs()
+            .file()
+            .map(|file| icon_span(file.get_with_style_or_default(path, self.theme.as_ref())))
     }
 }
