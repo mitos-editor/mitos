@@ -163,7 +163,7 @@ async fn test_buffer_close_concurrent() -> anyhow::Result<()> {
     .await?;
 
     // Queue distinct snapshots without polling their writes. Closing the buffer
-    // must flush all accepted saves and leave the last snapshot on disk.
+    // must wait for all accepted saves and leave the last snapshot on disk.
     let mut file = tempfile::NamedTempFile::new()?;
     let mut app = helpers::AppBuilder::new()
         .with_file(file.path(), None)
@@ -185,7 +185,7 @@ async fn test_buffer_close_concurrent() -> anyhow::Result<()> {
     assert!(app.editor.has_pending_writes());
 
     // Dispatch directly so the event loop cannot drain the queue before the
-    // close command runs. Check completion before any subsequent idle wait.
+    // close command runs. The close must remain deferred until the writes finish.
     for key in ui_core::input::parse_macro(":buffer-close<ret>")? {
         #[cfg(windows)]
         let event = crossterm::event::Event::Key(key.into());
@@ -193,6 +193,13 @@ async fn test_buffer_close_concurrent() -> anyhow::Result<()> {
         let event = termina::Event::Key(key.into());
         app.handle_terminal_events(Ok(event)).await;
     }
+    assert!(app.editor.has_pending_writes());
+    assert!(app.editor.document(document).is_some());
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        helpers::run_event_loop_until_idle(&mut app),
+    )
+    .await?;
     assert!(!app.editor.is_err(), "error: {:?}", app.editor.get_status());
     assert!(!app.editor.has_pending_writes());
     assert!(app.editor.document(document).is_none());
