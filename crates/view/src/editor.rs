@@ -836,6 +836,20 @@ impl Editor {
         self.quicklist.replace(entries);
     }
 
+    /// Appends a view's location, preserving its exact selection.
+    pub fn add_to_quicklist(&mut self, view_id: ViewId) {
+        let view = self.tree.get(view_id);
+        let doc = &self.documents[&view.doc];
+        let target = doc.path().map_or_else(
+            || QuicklistTarget::Document(doc.id()),
+            |path| QuicklistTarget::Path(path.to_owned()),
+        );
+        self.quicklist.push(QuicklistEntry {
+            target,
+            position: QuicklistPosition::Selection(doc.selection(view_id).clone()),
+        });
+    }
+
     pub fn jump_next_quicklist(&mut self, view_id: ViewId, count: usize, same_file: bool) -> bool {
         self.jump_quicklist(view_id, Direction::Forward, count, same_file)
     }

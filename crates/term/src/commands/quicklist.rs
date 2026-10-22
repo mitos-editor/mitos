@@ -1,8 +1,9 @@
-//! Quicklist traversal and picker commands.
+//! Quicklist capture, traversal, and picker commands.
 
 use crate::{
     commands::{context::Context, picker::PathStyleConfig},
-    ui::{self, overlay::overlaid, Picker},
+    keymap::component::PickerItemAction,
+    ui::{self, overlay::overlaid, picker::PickerCallbackResult, Picker},
 };
 use editor_core::movement::Direction;
 use std::{borrow::Cow, path::PathBuf};
@@ -23,24 +24,25 @@ fn quicklist_entry_line_range(editor: &Editor, entry: &QuicklistEntry) -> Option
     entry.position.line_range(text)
 }
 
-pub(super) fn quicklist_picker(cx: &mut Context) {
-    #[derive(Clone)]
-    struct QuicklistMeta {
-        index: usize,
-        entry: QuicklistEntry,
-        path: Option<PathBuf>,
-        label: String,
-        line: Option<usize>,
-        is_current: bool,
-    }
+#[derive(Clone, PartialEq)]
+struct QuicklistMeta {
+    index: usize,
+    entry: QuicklistEntry,
+    path: Option<PathBuf>,
+    label: String,
+    line: Option<usize>,
+    is_current: bool,
+}
 
-    let entries = cx.editor.quicklist.entries();
-    if entries.is_empty() {
-        cx.editor.set_error(|| "No quicklist entries available");
-        return;
-    }
+pub(super) fn add_to_quicklist(cx: &mut Context) {
+    cx.editor.add_to_quicklist(cx.editor.tree.focus());
+    cx.editor.set_status("Current location added to quicklist");
+}
 
-    let items = entries
+fn quicklist_items(editor: &Editor) -> Vec<QuicklistMeta> {
+    editor
+        .quicklist
+        .entries()
         .iter()
         .cloned()
         .enumerate()
@@ -49,8 +51,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
                 QuicklistTarget::Path(path) => {
                     Some(stdx::path::get_relative_path(path).into_owned())
                 }
-                QuicklistTarget::Document(id) => cx
-                    .editor
+                QuicklistTarget::Document(id) => editor
                     .documents
                     .get(id)
                     .and_then(|doc| doc.path())
@@ -69,12 +70,26 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
                 index,
                 path,
                 label,
-                line: quicklist_entry_line_range(cx.editor, &entry).map(|(start, _)| start + 1),
-                is_current: cx.editor.quicklist.current() == Some(index),
+                line: quicklist_entry_line_range(editor, &entry).map(|(start, _)| start + 1),
+                is_current: editor.quicklist.current() == Some(index),
                 entry,
             }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn refreshed_quicklist(editor: &Editor) -> PickerCallbackResult<QuicklistMeta, PathStyleConfig> {
+    PickerCallbackResult::Refresh {
+        options: quicklist_items(editor),
+        editor_data: PathStyleConfig::new(editor),
+    }
+}
+
+pub(super) fn quicklist_picker(cx: &mut Context) {
+    if cx.editor.quicklist.entries().is_empty() {
+        cx.editor.set_error(|| "No quicklist entries available");
+        return;
+    }
 
     let columns = [
         ui::PickerColumn::new("path", |item: &QuicklistMeta, config: &PathStyleConfig| {
@@ -99,14 +114,19 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
     ];
 
     let initial_cursor = cx.editor.quicklist.current().unwrap_or(0) as u32;
+    let mut revision = cx.editor.quicklist.revision();
 
-    let picker = Picker::new(
+    let picker = Picker::new_with_callback_result(
         cx.editor.redraw().clone(),
         columns,
         0,
-        items,
+        quicklist_items(cx.editor),
         PathStyleConfig::new(cx.editor),
         |cx, meta, action| {
+            // A resumed picker or a replaced quicklist may still have an old row.
+            if cx.editor.quicklist.entries().get(meta.index) != Some(&meta.entry) {
+                return refreshed_quicklist(cx.editor);
+            }
             let view_id = cx.editor.tree.focus();
             if cx
                 .editor
@@ -114,10 +134,31 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
             {
                 cx.editor.quicklist.set_current(Some(meta.index));
             }
+            PickerCallbackResult::Close
         },
     )
     .with_title("Quicklist")
+    .with_editor_updates(move |cx| {
+        let current = cx.editor.quicklist.revision();
+        if !cx.resumed && current == revision {
+            return None;
+        }
+        revision = current;
+        Some(quicklist_items(cx.editor))
+    })
+    .with_item_actions(
+        |maps| &maps.quicklist_picker,
+        |cx, meta, action| {
+            if action == PickerItemAction::RemoveQuicklistEntry
+                && cx.editor.quicklist.entries().get(meta.index) == Some(&meta.entry)
+            {
+                cx.editor.quicklist.remove(meta.index);
+            }
+            refreshed_quicklist(cx.editor)
+        },
+    )
     .with_initial_cursor(initial_cursor)
+    .with_quicklist(|_, meta| Some(meta.entry.clone()))
     .with_preview(|editor, meta| {
         let path_or_id = match &meta.entry.target {
             QuicklistTarget::Path(path) => path.as_path().into(),

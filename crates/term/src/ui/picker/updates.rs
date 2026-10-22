@@ -12,6 +12,8 @@ pub(crate) struct UpdateContext<'a, T> {
     pub editor: &'a mut Editor,
     pub selected: Option<&'a T>,
     pub task: &'a mut event::TaskController,
+    /// A cached picker was restored and may have discarded an unpublished refresh.
+    pub resumed: bool,
 }
 
 type EditorRefresh<T> = Box<dyn FnMut(UpdateContext<'_, T>) -> Option<Vec<T>>>;
@@ -20,6 +22,7 @@ pub(super) struct EditorUpdates<T> {
     refresh: EditorRefresh<T>,
     same: fn(&T, &T) -> bool,
     pub task: event::TaskController,
+    pub resumed: bool,
 }
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
@@ -81,6 +84,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             refresh: Box::new(refresh),
             same: T::eq,
             task: event::TaskController::new(),
+            resumed: false,
         });
         self
     }
@@ -95,10 +99,12 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         let Some(mut updates) = self.editor_updates.take() else {
             return;
         };
+        let resumed = std::mem::take(&mut updates.resumed);
         if let Some(options) = (updates.refresh)(UpdateContext {
             editor,
             selected: self.selection(),
             task: &mut updates.task,
+            resumed,
         }) {
             let snapshot = self.results.matcher.snapshot();
             let unchanged = snapshot.item_count() as usize == options.len()

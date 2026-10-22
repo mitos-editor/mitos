@@ -108,6 +108,7 @@
 | `buffer_picker` | Open buffer picker | normal: `` <space>b ``, select: `` <space>b `` |
 | `jumplist_picker` | Open jumplist picker | normal: `` <space>j ``, select: `` <space>j `` |
 | `quicklist_picker` | Open quicklist picker | normal: `` <space>q ``, select: `` <space>q `` |
+| `add_to_quicklist` | Add current location to quicklist | normal: `` <A-q> ``, select: `` <A-q> `` |
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |

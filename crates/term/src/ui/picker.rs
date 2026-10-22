@@ -1031,6 +1031,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             picker.dynamic_query_request.cancel();
             if let Some(updates) = &mut picker.editor_updates {
                 updates.task.cancel();
+                updates.resumed = true;
             }
             picker.poll = None;
             if let Some(updates) = &mut picker.file_updates {
@@ -1067,6 +1068,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             })))
         };
 
+        // A restored picker can receive input before its first redraw.
+        self.refresh_from_editor(ctx.editor);
         for &action in actions {
             // Keep navigation available, but do not act twice on a row that an
             // accepted callback may have removed from the replacement list.
@@ -1077,6 +1080,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         | PickerAction::AcceptKeepOpen
                         | PickerAction::AcceptHorizontalSplit
                         | PickerAction::AcceptVerticalSplit
+                        | PickerAction::Item(_)
+                        | PickerAction::PopulateQuicklist
                 )
             {
                 return EventResult::Consumed(None);
@@ -1415,7 +1420,7 @@ mod tests {
 
     #[cfg(feature = "integration")]
     #[tokio::test(flavor = "multi_thread")]
-    async fn refresh_preserves_cursor_and_blocks_acceptance_until_matching_finishes(
+    async fn refresh_preserves_cursor_and_blocks_row_actions_until_matching_finishes(
     ) -> anyhow::Result<()> {
         use super::*;
         use crate::{application::Application, config::Config as AppConfig, job::Jobs};
@@ -1452,6 +1457,8 @@ mod tests {
         };
         let accepted = Rc::new(RefCell::new(Vec::new()));
         let recorded = accepted.clone();
+        let removed = Rc::new(RefCell::new(Vec::new()));
+        let removed_items = removed.clone();
         let mut picker = Picker::new_with_callback_result(
             cx.editor.redraw().clone(),
             [Column::new("name", |item: &u8, _: &()| {
@@ -1468,7 +1475,21 @@ mod tests {
                 }
             },
         )
-        .with_initial_cursor(2);
+        .with_initial_cursor(2)
+        .with_item_actions(
+            |maps| &maps.quicklist_picker,
+            move |_, item, action| {
+                assert_eq!(action, PickerItemAction::RemoveQuicklistEntry);
+                removed_items.borrow_mut().push(*item);
+                PickerCallbackResult::KeepOpen
+            },
+        )
+        .with_quicklist(|_, item| {
+            Some(QuicklistEntry {
+                target: QuicklistTarget::Path(std::path::PathBuf::from(format!("{item}.txt"))),
+                position: QuicklistPosition::None,
+            })
+        });
         tokio::time::timeout(Duration::from_secs(5), async {
             while picker.results.matcher.tick(10).running {
                 tokio::task::yield_now().await;
@@ -1480,13 +1501,29 @@ mod tests {
             picker.handle_event(&accept, &mut cx),
             EventResult::Consumed(None)
         ));
-        assert!(matches!(
-            picker.handle_event(&accept, &mut cx),
-            EventResult::Consumed(None)
-        ));
-        assert_eq!(*accepted.borrow(), [3]);
-        assert_eq!(picker.results.cursor, 2);
+        // Keep the replacement unpublished regardless of matcher scheduling.
+        let pending_injector = picker
+            .results
+            .pending_options
+            .as_ref()
+            .unwrap()
+            .matcher
+            .injector();
         let area = Rect::new(0, 0, 80, 24);
+        picker.render(area, &mut Surface::empty(area), &mut cx);
+        let remove = Event::Key("C-x".parse().unwrap());
+        let populate = Event::Key("C-q".parse().unwrap());
+        for event in [&accept, &remove, &populate] {
+            assert!(matches!(
+                picker.handle_event(event, &mut cx),
+                EventResult::Consumed(None)
+            ));
+        }
+        assert_eq!(*accepted.borrow(), [3]);
+        assert!(removed.borrow().is_empty());
+        assert!(cx.editor.quicklist.entries().is_empty());
+        assert_eq!(picker.results.cursor, 2);
+        drop(pending_injector);
         tokio::time::timeout(Duration::from_secs(5), async {
             while picker.results.is_refreshing() {
                 picker.render(area, &mut Surface::empty(area), &mut cx);
@@ -1495,6 +1532,16 @@ mod tests {
         })
         .await?;
         assert_eq!(picker.results.cursor, 1);
+        assert!(matches!(
+            picker.handle_event(&remove, &mut cx),
+            EventResult::Consumed(None)
+        ));
+        assert_eq!(*removed.borrow(), [2]);
+        assert!(matches!(
+            picker.handle_event(&populate, &mut cx),
+            EventResult::Consumed(None)
+        ));
+        assert_eq!(cx.editor.quicklist.entries().len(), 2);
         assert!(matches!(
             picker.handle_event(&accept, &mut cx),
             EventResult::Consumed(None)

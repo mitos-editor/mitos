@@ -36,6 +36,25 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
+## Quicklist picker
+
+| Key | Action |
+| --- | --- |
+| `` <ret> `` | `` accept `` |
+| `` <C-s> `` | `` accept_horizontal_split `` |
+| `` <A-ret> `` | `` accept_keep_open `` |
+| `` <C-v> `` | `` accept_vertical_split `` |
+| `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
+| `` <end> `` | `` move_end `` |
+| `` <home> `` | `` move_start `` |
+| `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-q> `` | `` populate_quicklist `` |
+| `` <C-x> `` | `` remove_entry `` |
+| `` <C-t> `` | `` toggle_preview `` |
+
 ## Prompt
 
 | Key | Action |

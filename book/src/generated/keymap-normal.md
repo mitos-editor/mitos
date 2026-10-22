@@ -33,6 +33,7 @@
 | `` G `` | Goto line | `` goto_line `` |
 | `` g `` | Goto | Prefix |
 | `` : `` | Enter command mode | `` command_mode `` |
+| `` <A-q> `` | Add current location to quicklist | `` add_to_quicklist `` |
 | `` i `` | Insert before selection | `` insert_mode `` |
 | `` I `` | Insert at start of line | `` insert_at_line_start `` |
 | `` a `` | Append after selection | `` append_mode `` |

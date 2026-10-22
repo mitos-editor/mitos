@@ -142,6 +142,7 @@ impl MappableCommand {
         buffer_picker => super::buffers::buffer_picker, "Open buffer picker",
         jumplist_picker => super::navigation::jumplist_picker, "Open jumplist picker",
         quicklist_picker => super::quicklist::quicklist_picker, "Open quicklist picker",
+        add_to_quicklist => super::quicklist::add_to_quicklist, "Add current location to quicklist",
         symbol_picker => super::lsp::symbol_picker, "Open symbol picker",
         syntax_symbol_picker => super::syntax::syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",

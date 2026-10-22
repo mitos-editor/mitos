@@ -341,6 +341,7 @@ pub fn component_keymaps() -> Result<String, DynError> {
     }
     section!("Picker", picker);
     section!("Buffer picker", buffer_picker);
+    section!("Quicklist picker", quicklist_picker);
     section!("Prompt", prompt);
     section!("Completion menu", menu);
     section!("Popup", popup);

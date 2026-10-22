@@ -63,6 +63,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "w" => goto_word,
         },
         ":" => command_mode,
+        "A-q" => add_to_quicklist,
 
         "i" => insert_mode,
         "I" => insert_at_line_start,

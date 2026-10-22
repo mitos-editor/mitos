@@ -47,6 +47,7 @@ mod test {
     mod navigation;
     mod picker_layout;
     mod pull_diagnostics;
+    mod quicklist;
     mod rename;
     mod rulers;
     mod signature_help;

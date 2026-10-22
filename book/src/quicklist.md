@@ -12,6 +12,15 @@ For example, you can filter global-search, diagnostics, or symbol results and ca
 The quicklist is editor-global and temporary.
 Capturing entries from another picker replaces its contents; capturing a picker with no matching locations clears it.
 
+## Adding the current location
+
+Press `Alt-q` in normal or select mode to append the current file and selection.
+The `add_to_quicklist` command is also available in the command palette (`Space ?`).
+Existing entries and the current quicklist position are kept.
+Unsaved buffers are supported too; their entries remain usable while the buffer is open.
+
+Locations are snapshots of the selection when captured; they do not track later edits.
+
 ## Navigating entries
 
 | Key | Action |
@@ -27,6 +36,24 @@ Quicklist jumps are added to the jumplist, allowing `Ctrl-o` to return to the lo
 
 The quicklist picker shows every captured entry and marks the current one with `*`.
 Selecting an entry opens it and makes it the current quicklist position.
+
+## Removing entries
+
+In the quicklist picker (`Space q`), press `Ctrl-x` to remove the highlighted entry.
+The picker stays open, keeps its filter, and selects a nearby row. This removes
+only the list entry; it does not change or close the file or buffer.
+
+Removing the current quicklist entry leaves the editor cursor in place. After
+closing the picker, `]q` visits the following remaining entry and `[q` visits the
+preceding one, wrapping as usual.
+
+To change the deletion binding, use the picker-specific `remove_entry` action:
+
+```toml
+[keys.quicklist-picker]
+C-x = "unbound"
+C-r = "remove_entry"
+```
 
 ## Typical workflow
 

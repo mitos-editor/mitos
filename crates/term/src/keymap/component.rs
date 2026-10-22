@@ -46,13 +46,16 @@ pub enum PickerAction {
     TogglePreview,
     PopulateQuicklist,
     /// Item actions are supplied only by the schema for a specific picker.
-    #[serde(skip)]
+    #[serde(untagged, skip_deserializing)]
     Item(PickerItemAction),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PickerItemAction {
     CloseBuffer,
+    #[serde(rename = "remove_entry")]
+    RemoveQuicklistEntry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -94,6 +97,7 @@ pub struct ComponentKeymaps {
     pub prompt: Keymap<PromptAction>,
     pub picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
+    pub quicklist_picker: Keymap<PickerAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -111,6 +115,15 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
             "duplicate default binding: {key}"
         );
     }
+    keys
+}
+
+pub(crate) fn quicklist_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<PickerAction> {
+    let mut keys = picker.clone();
+    keys.merge(bindings(&[(
+        "C-x",
+        PickerAction::Item(PickerItemAction::RemoveQuicklistEntry),
+    )]));
     keys
 }
 
@@ -184,6 +197,7 @@ impl Default for ComponentKeymaps {
                 ("C-r", P::InsertRegister),
             ]),
             buffer_picker: picker.clone(),
+            quicklist_picker: quicklist_picker_keymap(&picker),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),

@@ -1,6 +1,6 @@
 //! Quicklist state and traversal helpers.
 //!
-//! The quicklist is an editor-global list of locations collected from pickers.
+//! The quicklist is an editor-global list of locations captured from pickers or views.
 //! It is intended for workflows where a picker already shows a useful set of
 //! files or file locations and the user wants to keep traversing that set after
 //! the picker is closed.
@@ -92,11 +92,19 @@ pub struct QuicklistEntry {
     pub position: QuicklistPosition,
 }
 
-/// An editor-global list of locations collected from pickers.
+/// An editor-global list of explicitly captured locations.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Quicklist {
     entries: Vec<QuicklistEntry>,
-    current: Option<usize>,
+    cursor: Option<QuicklistCursor>,
+    revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuicklistCursor {
+    Entry(usize),
+    /// The gap left by a removed current entry, before the entry at this index.
+    Gap(usize),
 }
 
 pub(crate) struct QuicklistMatch<'a> {
@@ -108,7 +116,36 @@ impl Quicklist {
     /// Replaces the quicklist contents and clears the current position.
     pub fn replace(&mut self, entries: Vec<QuicklistEntry>) {
         self.entries = entries;
-        self.current = None;
+        self.cursor = None;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Appends a location without changing the current navigation position.
+    pub fn push(&mut self, entry: QuicklistEntry) {
+        self.entries.push(entry);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Removes an entry without moving the editor's selection. Navigation from a
+    /// removed current entry continues on either side of the resulting gap.
+    pub fn remove(&mut self, index: usize) -> Option<QuicklistEntry> {
+        if index >= self.entries.len() {
+            return None;
+        }
+        let entry = self.entries.remove(index);
+        self.revision = self.revision.wrapping_add(1);
+        self.cursor = if self.entries.is_empty() {
+            None
+        } else {
+            self.cursor.map(|cursor| match cursor {
+                QuicklistCursor::Entry(current) if current == index => QuicklistCursor::Gap(index),
+                QuicklistCursor::Entry(current) => {
+                    QuicklistCursor::Entry(current - usize::from(index < current))
+                }
+                QuicklistCursor::Gap(gap) => QuicklistCursor::Gap(gap - usize::from(index < gap)),
+            })
+        };
+        Some(entry)
     }
 
     /// Returns the stored quicklist entries.
@@ -116,14 +153,28 @@ impl Quicklist {
         &self.entries
     }
 
+    /// Changes whenever entries or the current navigation position change.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Returns the current quicklist position, if one has been visited.
     pub fn current(&self) -> Option<usize> {
-        self.current
+        match self.cursor {
+            Some(QuicklistCursor::Entry(index)) => Some(index),
+            _ => None,
+        }
     }
 
     /// Sets the current quicklist position.
     pub fn set_current(&mut self, current: Option<usize>) {
-        self.current = current;
+        let cursor = current
+            .filter(|&index| index < self.entries.len())
+            .map(QuicklistCursor::Entry);
+        if self.cursor != cursor {
+            self.cursor = cursor;
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
 
     pub(crate) fn next_entry(
@@ -185,10 +236,11 @@ impl Quicklist {
         }
 
         let len = self.entries.len();
-        let mut index = match (direction, self.current) {
-            (Direction::Forward, Some(current)) => current,
+        let mut index = match (direction, self.cursor) {
+            (_, Some(QuicklistCursor::Entry(current))) => current,
+            (Direction::Forward, Some(QuicklistCursor::Gap(gap))) => (gap + len - 1) % len,
+            (Direction::Backward, Some(QuicklistCursor::Gap(gap))) => gap % len,
             (Direction::Forward, None) => len - 1,
-            (Direction::Backward, Some(current)) => current,
             (Direction::Backward, None) => 0,
         };
 
@@ -246,6 +298,156 @@ mod tests {
         let position = QuicklistPosition::Selection(Selection::single(6, 10));
 
         assert_eq!(position.line_range(Some(text.slice(..))), Some((1, 1)));
+    }
+
+    #[test]
+    fn appending_preserves_entries_and_current_position() {
+        let mut quicklist = Quicklist::default();
+        quicklist.push(entry("a.rs", 0));
+        assert_eq!(quicklist.current(), None);
+        quicklist.set_current(Some(0));
+        quicklist.push(entry("b.rs", 1));
+        assert_eq!(quicklist.entries(), &[entry("a.rs", 0), entry("b.rs", 1)]);
+        assert_eq!(quicklist.current(), Some(0));
+        assert_eq!(
+            quicklist
+                .next_entry(1, DocumentId::default(), None, false)
+                .unwrap()
+                .entry,
+            &entry("b.rs", 1)
+        );
+    }
+
+    #[test]
+    fn removing_current_continues_from_the_gap_in_both_directions() {
+        for (removed, next, prev) in [(0, 1, 3), (1, 2, 0), (2, 3, 1), (3, 0, 2)] {
+            let mut quicklist = Quicklist::default();
+            quicklist.replace((0..4).map(|line| entry("a.rs", line)).collect());
+            quicklist.set_current(Some(removed));
+            assert_eq!(quicklist.remove(removed), Some(entry("a.rs", removed)));
+            assert_eq!(quicklist.current(), None);
+            assert_eq!(
+                quicklist
+                    .next_entry(1, DocumentId::default(), None, false)
+                    .unwrap()
+                    .entry,
+                &entry("a.rs", next)
+            );
+            assert_eq!(
+                quicklist
+                    .prev_entry(1, DocumentId::default(), None, false)
+                    .unwrap()
+                    .entry,
+                &entry("a.rs", prev)
+            );
+        }
+    }
+
+    #[test]
+    fn removal_preserves_a_surviving_current_entry() {
+        for (removed, current) in [(0, 0), (2, 1), (3, 1)] {
+            let mut quicklist = Quicklist::default();
+            quicklist.replace((0..4).map(|line| entry("a.rs", line)).collect());
+            quicklist.set_current(Some(1));
+            quicklist.remove(removed);
+            assert_eq!(quicklist.current(), Some(current));
+            assert_eq!(quicklist.entries()[current], entry("a.rs", 1));
+        }
+    }
+
+    #[test]
+    fn removing_neighbours_preserves_the_navigation_gap() {
+        let mut quicklist = Quicklist::default();
+        quicklist.replace((0..5).map(|line| entry("a.rs", line)).collect());
+        quicklist.set_current(Some(2));
+        quicklist.remove(2);
+        quicklist.remove(0);
+        quicklist.remove(2);
+        assert_eq!(
+            quicklist
+                .next_entry(1, DocumentId::default(), None, false)
+                .unwrap()
+                .entry,
+            &entry("a.rs", 3)
+        );
+        assert_eq!(
+            quicklist
+                .prev_entry(1, DocumentId::default(), None, false)
+                .unwrap()
+                .entry,
+            &entry("a.rs", 1)
+        );
+        quicklist.push(entry("b.rs", 0));
+        assert_eq!(
+            quicklist
+                .next_entry(2, DocumentId::default(), None, false)
+                .unwrap()
+                .entry,
+            &entry("b.rs", 0)
+        );
+    }
+
+    #[test]
+    fn gap_navigation_respects_file_filtering_and_counts() {
+        let mut quicklist = Quicklist::default();
+        quicklist.replace(vec![
+            entry("a.rs", 0),
+            entry("b.rs", 1),
+            entry("a.rs", 2),
+            entry("a.rs", 3),
+        ]);
+        quicklist.set_current(Some(2));
+        quicklist.remove(2);
+        let path = PathBuf::from("a.rs");
+        assert_eq!(
+            quicklist
+                .next_entry(2, DocumentId::default(), Some(&path), true)
+                .unwrap()
+                .entry,
+            &entry("a.rs", 0)
+        );
+        assert_eq!(
+            quicklist
+                .prev_entry(1, DocumentId::default(), Some(&path), true)
+                .unwrap()
+                .entry,
+            &entry("a.rs", 0)
+        );
+    }
+
+    #[test]
+    fn removing_final_entry_and_replacing_reset_navigation() {
+        let mut quicklist = Quicklist::default();
+        assert_eq!(quicklist.remove(0), None);
+        quicklist.push(entry("a.rs", 0));
+        quicklist.set_current(Some(0));
+        assert_eq!(quicklist.remove(1), None);
+        assert_eq!(quicklist.current(), Some(0));
+        quicklist.remove(0);
+        assert!(quicklist.entries().is_empty());
+        assert_eq!(quicklist.current(), None);
+        assert!(quicklist
+            .next_entry(1, DocumentId::default(), None, false)
+            .is_none());
+        quicklist.push(entry("b.rs", 0));
+        assert_eq!(
+            quicklist
+                .next_entry(1, DocumentId::default(), None, false)
+                .unwrap()
+                .index,
+            0
+        );
+        quicklist.set_current(Some(0));
+        quicklist.push(entry("c.rs", 0));
+        quicklist.remove(0);
+        quicklist.replace(vec![entry("d.rs", 0), entry("e.rs", 0)]);
+        assert_eq!(
+            quicklist
+                .next_entry(1, DocumentId::default(), None, false)
+                .unwrap()
+                .entry,
+            &entry("d.rs", 0)
+        );
     }
 
     #[test]

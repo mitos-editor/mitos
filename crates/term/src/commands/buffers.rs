@@ -64,6 +64,7 @@ fn close_selected_buffer(
                 editor_data: PathStyleConfig::new(cx.editor),
             }
         }
+        PickerItemAction::RemoveQuicklistEntry => PickerCallbackResult::KeepOpen,
     }
 }
 

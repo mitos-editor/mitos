@@ -331,6 +331,9 @@ fn component_keys_reject_invalid_actions_shapes_and_contexts() {
         "[keys.picker]\nC-x = 'close_buffer'",
         "[keys.menu]\nC-x = 'close_buffer'",
         "[keys.buffer-picker]\nC-x = 'scroll_down'",
+        "[keys.picker]\nC-x = 'remove_entry'",
+        "[keys.buffer-picker]\nC-x = 'remove_entry'",
+        "[keys.quicklist-picker]\nC-x = 'close_buffer'",
         "[keys.prompt]\nj = 'move_down'",
         "[keys.menu]\nj = ':write'",
         "[keys.popup]\nj = '@abc'",
@@ -399,6 +402,59 @@ fn buffer_picker_keys_inherit_shared_bindings_with_specific_overrides() {
     );
     let defaults = Config::default().component_keys;
     assert_eq!(defaults.buffer_picker, defaults.picker);
+}
+
+#[test]
+fn quicklist_picker_keys_inherit_shared_bindings_with_specific_overrides() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction};
+    use ui_core::keymap::{KeymapState, Lookup};
+
+    let global = r#"
+        [keys.picker]
+        C-j = 'move_down'
+        [keys.quicklist-picker]
+        C-j = 'move_up'
+        C-x = 'unbound'
+        C-r = ['move_down', 'remove_entry']
+    "#
+    .to_owned();
+    let local =
+        "[keys.picker]\nC-j = 'move_start'\n[keys.quicklist-picker]\nC-n = 'no_op'".to_owned();
+    let config = Config::load(Ok(&global), Ok(local)).unwrap();
+    let mut state = KeymapState::default();
+    let keys = &config.component_keys.quicklist_picker;
+    assert_eq!(
+        state.lookup(keys, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::MoveUp])
+    );
+    assert_eq!(state.lookup(keys, "C-x".parse().unwrap()), Lookup::Unbound);
+    assert_eq!(
+        state.lookup(keys, "C-n".parse().unwrap()),
+        Lookup::Actions(&[])
+    );
+    assert_eq!(
+        state.lookup(keys, "tab".parse().unwrap()),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    assert_eq!(
+        state.lookup(keys, "C-r".parse().unwrap()),
+        Lookup::Actions(&[P::MoveDown, P::Item(PickerItemAction::RemoveQuicklistEntry)])
+    );
+    assert_eq!(
+        state.lookup(&config.component_keys.picker, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::MoveStart])
+    );
+    assert_eq!(
+        state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(
+            &Config::default().component_keys.quicklist_picker,
+            "C-x".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::Item(PickerItemAction::RemoveQuicklistEntry)])
+    );
 }
 
 #[test]
