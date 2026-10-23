@@ -70,9 +70,9 @@ pub fn initialize_log_file(specified_file: Option<PathBuf>) {
 /// 3. `MITOS_RUNTIME` (if environment variable is set)
 /// 4. subdirectory of user data directory (unless it is also the config directory)
 /// 5. `MITOS_DEFAULT_RUNTIME` (if environment variable is set *at build time*)
-/// 6. subdirectory of path to mitos executable (always included)
+/// 6. subdirectory of path to mitos executable, when available
 ///
-/// Postcondition: returns at least two paths (they might not exist).
+/// Always includes the user configuration runtime (paths might not exist).
 fn prioritize_runtime_dirs() -> Vec<PathBuf> {
     let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
     let runtime_override = std::env::var("MITOS_RUNTIME").ok();
@@ -114,13 +114,20 @@ fn runtime_dirs_for_manifest(
 
     // fallback to location of the executable being run
     // canonicalize the path in case the executable is symlinked
-    let exe_rt_dir = std::env::current_exe()
+    if let Some(exe_rt_dir) = std::env::current_exe()
         .ok()
-        .and_then(|path| std::fs::canonicalize(path).ok())
-        .and_then(|path| path.parent().map(|path| path.to_path_buf().join(RT_DIR)))
-        .unwrap();
-    rt_dirs.push(exe_rt_dir);
+        .and_then(executable_runtime_dir)
+    {
+        rt_dirs.push(exe_rt_dir);
+    }
     rt_dirs
+}
+
+fn executable_runtime_dir(executable: PathBuf) -> Option<PathBuf> {
+    let executable = std::fs::canonicalize(&executable).unwrap_or(executable);
+    executable
+        .parent()
+        .map(|directory| directory.join("runtime"))
 }
 
 fn workspace_runtime_dir(manifest_dir: Option<&Path>) -> Option<PathBuf> {
@@ -361,6 +368,21 @@ fn ensure_parent_dir(path: &Path) {
 
 #[cfg(test)]
 mod directory_tests {
+    #[test]
+    fn executable_runtime_survives_an_unresolvable_executable_path() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("missing-directory").join("ms");
+        assert!(!executable.exists());
+        assert_eq!(
+            super::executable_runtime_dir(executable),
+            Some(root.path().join("missing-directory/runtime"))
+        );
+        assert_eq!(
+            super::executable_runtime_dir(std::path::PathBuf::from("/")),
+            None
+        );
+    }
+
     #[test]
     fn installed_runtime_starts_with_user_config() {
         let directories = super::runtime_dirs_for_manifest(None, None);
