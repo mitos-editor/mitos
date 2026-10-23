@@ -194,7 +194,9 @@ mod tests {
             let env = ["TMUX", "WEZTERM_UNIX_SOCKET", "WAYLAND_DISPLAY", "DISPLAY"];
             check(&programs, &env, "termux");
             check(&programs[2..], &env, "tmux");
-            check(&programs[3..], &env, "termcode");
+            check(&programs[3..], &env, "wayland");
+            check(&["wezterm", "xclip"], &env, "x-clip");
+            check(&["wezterm"], &env, "termcode");
             check(&programs[4..], &env, "wayland");
             check(&programs[6..], &env, "x-clip");
             check(&programs[7..], &env, "x-sel");

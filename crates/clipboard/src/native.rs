@@ -10,7 +10,7 @@ use std::borrow::Cow;
 pub struct NativeClipboard;
 
 #[cfg(windows)]
-pub(super) fn default_provider(_osc52_available: bool) -> ClipboardProvider {
+pub(super) fn default_provider() -> ClipboardProvider {
     use stdx::env::binary_exists;
 
     if binary_exists("win32yank.exe") {
@@ -21,7 +21,7 @@ pub(super) fn default_provider(_osc52_available: bool) -> ClipboardProvider {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn default_provider(_osc52_available: bool) -> ClipboardProvider {
+pub(super) fn default_provider() -> ClipboardProvider {
     use stdx::env::{binary_exists, env_var_is_set};
 
     if env_var_is_set("TMUX") && binary_exists("tmux") {
@@ -34,7 +34,7 @@ pub(super) fn default_provider(_osc52_available: bool) -> ClipboardProvider {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub(super) fn default_provider(osc52_available: bool) -> ClipboardProvider {
+pub(super) fn default_provider() -> ClipboardProvider {
     use stdx::env::{binary_exists, env_var_is_set};
 
     fn is_exit_success(program: &str, args: &[&str]) -> bool {
@@ -50,8 +50,6 @@ pub(super) fn default_provider(osc52_available: bool) -> ClipboardProvider {
         ClipboardProvider::Termux
     } else if env_var_is_set("TMUX") && binary_exists("tmux") {
         ClipboardProvider::Tmux
-    } else if osc52_available && env_var_is_set("WEZTERM_UNIX_SOCKET") && binary_exists("wezterm") {
-        ClipboardProvider::Termcode
     } else if env_var_is_set("WAYLAND_DISPLAY")
         && binary_exists("wl-copy")
         && binary_exists("wl-paste")
