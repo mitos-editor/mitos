@@ -1272,3 +1272,48 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod extend_newline_tests {
+    use super::*;
+    #[test]
+    fn incomplete_offside_constructs_indent_the_new_line() {
+        let loader = crate::loader::default_lang_loader(loader::syntax::Resources::default());
+        for (name, source, line, expected) in [
+            ("yaml", "hello:\n", 0, "  "),
+            ("yaml", "top:\n  hello:\n", 1, "    "),
+            ("python", "def foo():\n", 0, "    "),
+            (
+                "go",
+                "package main\nfunc f() {\n\tswitch x {\n\tcase 1:\n",
+                3,
+                "\t\t",
+            ),
+        ] {
+            let text = editor_core::Rope::from(source);
+            let language = loader.language_for_name(name).unwrap();
+            let syntax = Syntax::new_with_timeout(
+                text.slice(..),
+                language,
+                &loader,
+                std::time::Duration::from_secs(5),
+            )
+            .unwrap();
+            let config = loader.language(language).config();
+            let indent = config.indent.as_ref().unwrap();
+            let pos = editor_core::line_ending::line_end_char_index(&text.slice(..), line);
+            let result = indent_for_newline(
+                &loader,
+                Some(&syntax),
+                &IndentationHeuristic::TreeSitter,
+                &IndentStyle::from_str(&indent.unit),
+                indent.tab_width,
+                text.slice(..),
+                line,
+                pos,
+                line,
+            );
+            assert_eq!(result, expected, "{name}: {source}");
+        }
+    }
+}

@@ -142,3 +142,8 @@ type (
 		Read() error
 	}
 )
+
+// The last case is intentionally incomplete: Enter opens its missing body.
+func incompleteSwitch(value int) {
+	switch value {
+	case 1:

@@ -54,3 +54,11 @@
 
 ; Raw string literals (backticks) span lines and are literal content.
 (raw_string_literal) @opaque
+
+; A case without statements still opens its body on the newly typed line.
+[
+  (expression_case)
+  (default_case)
+  (type_case)
+  (communication_case)
+] @extend
