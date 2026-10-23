@@ -204,7 +204,7 @@ async fn file_variables_and_transforms_follow_the_document_identity() -> anyhow:
     f.editor.insert_snippet(&snippets::Snippet::parse(
         "$TM_FILENAME|$TM_FILENAME_BASE|${TM_FILENAME/(.*)\\..+$/${1:/upcase}/}|$TM_DIRECTORY|$TM_FILEPATH"
     )?)?;
-    let expected_path = f.dir.path().canonicalize()?.join("document.words");
+    let expected_path = stdx::path::normalize(f.dir.path().canonicalize()?).join("document.words");
     assert_eq!(
         current_ref!(f.editor).1.text().to_string(),
         format!(
