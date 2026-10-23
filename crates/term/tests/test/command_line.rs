@@ -664,3 +664,56 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn buffer_directory_opens_a_neighbor_with_spaces() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let parent = dir.path().join("source's %u{41} directory");
+    std::fs::create_dir(&parent)?;
+    let file = parent.join("renderer.txt");
+    let neighbor = parent.join("shader file.glsl");
+    std::fs::write(&file, "renderer")?;
+    std::fs::write(&neighbor, "shader")?;
+    let expected = stdx::path::canonicalize(&neighbor);
+    test_key_sequence(
+        &mut AppBuilder::new().with_file(file, None).build()?,
+        Some(r#":open "%{buffer_directory}/shader file.glsl"<ret>"#),
+        Some(&|app| {
+            helpers::assert_status_not_error(&app.editor);
+            assert_eq!(view::doc!(app.editor).path(), Some(expected.as_path()));
+        }),
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn buffer_directory_expansion_uses_working_directory_for_scratch() -> anyhow::Result<()> {
+    test_statusline(
+        ":echo %{buffer_directory}",
+        &stdx::env::current_working_dir().to_string_lossy(),
+        Severity::Info,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_path_expansion_preserves_paths_outside_the_workspace() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("outside.rs");
+    std::fs::write(&file, "outside")?;
+    let file = stdx::path::canonicalize(file);
+    let mut app = AppBuilder::new().with_file(&file, None).build()?;
+    test_key_sequence(
+        &mut app,
+        Some(":echo %{workspace_path}<ret>"),
+        Some(&|app| {
+            assert_eq!(
+                app.editor.get_status().unwrap().0.as_ref(),
+                file.to_string_lossy()
+            );
+        }),
+        false,
+    )
+    .await
+}
