@@ -19,6 +19,11 @@ Command flags are optional switches that can be used to alter the behavior of a 
 
 The `--` flag specifies the end of flags. All arguments after `--` are treated as positional arguments: `:open -- -a.txt` opens a file called `-a.txt`.
 
+Use Up and Down to browse history matching the text already entered. Moving past
+the newest match restores that input. When the prompt is empty, Right accepts the
+history suggestion so you can edit it before running it. Repeated commands keep
+their most recent position in command history.
+
 ## Expansions
 
 Expansions are patterns that Mitos recognizes and replaces within the command line. Mitos recognizes anything starting with a percent token (`%`) as an expansion, for example `%sh{echo hi!}`. Expansions are particularly useful when used in commands like `:echo` or `:noop` for executing simple scripts. For example:
