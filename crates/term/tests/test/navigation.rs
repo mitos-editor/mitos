@@ -415,3 +415,42 @@ async fn navigation_events_jump_to_the_resolved_symbol() -> anyhow::Result<()> {
     assert_eq!(selection.cursor(doc.text().slice(..)), 2);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn global_search_finds_workspace_siblings_from_a_subdirectory() -> anyhow::Result<()> {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::navigation::global_search_finds_workspace_siblings_from_a_subdirectory",
+    )?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    let nested = workspace.join("nested");
+    std::fs::create_dir(&nested)?;
+    let found = workspace.join("sibling.txt");
+    std::fs::write(&found, "unique_workspace_needle\n")?;
+    stdx::env::set_current_working_dir(&nested)?;
+    let mut config = super::helpers::test_config();
+    config.editor.idle_timeout = std::time::Duration::from_millis(400);
+    let mut app = super::helpers::AppBuilder::new()
+        .with_config(config)
+        .build()?;
+    super::helpers::test_key_sequences(
+        &mut app,
+        vec![
+            (Some(" /unique_workspace_needle"), None),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        view::current_ref!(app.editor).1.path(),
+                        Some(found.as_path())
+                    );
+                }),
+            ),
+        ],
+        false,
+    )
+    .await?;
+    Ok(())
+}

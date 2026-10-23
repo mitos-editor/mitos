@@ -51,3 +51,7 @@ Press `Ctrl-q` in the results to collect their locations in the
 [quicklist](./quicklist.md). After closing the picker, use `]q` and `[q` to
 visit each result and edit it. The selection replacement workflow above
 operates within the current buffer.
+
+Global search uses the workspace root, like the workspace file picker. Starting
+it from a project subdirectory includes sibling directories. Search results
+show paths relative to that root.
