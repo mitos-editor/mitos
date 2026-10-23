@@ -84,6 +84,9 @@ impl EditorView {
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
+            if cxt.editor.should_close() {
+                return false;
+            }
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
@@ -104,6 +107,7 @@ impl EditorView {
             }
 
             last_mode = current_mode;
+            true
         };
 
         match &key_result {
@@ -113,7 +117,9 @@ impl EditorView {
             KeymapResult::Pending(node) => cxt.editor.autoinfo = Some(node.infobox()),
             KeymapResult::MatchedSequence(commands) => {
                 for command in commands {
-                    execute_command(command);
+                    if !execute_command(command) {
+                        break;
+                    }
                 }
             }
             KeymapResult::NotFound | KeymapResult::Cancelled(_) => return Some(key_result),
