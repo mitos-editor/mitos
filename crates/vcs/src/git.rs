@@ -1,10 +1,10 @@
 use anyhow::{bail, Context, Result};
 use arc_swap::ArcSwap;
 use gix::filter::plumbing::driver::apply::Delay;
-use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use gix::bstr::{BString, ByteSlice, ByteVec};
 use gix::diff::{index::Change as IndexChange, Rewrites};
@@ -53,8 +53,8 @@ pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
     // drivers defined in untrusted (repository-local) config, so those external programs are not
     // executed unless the workspace was explicitly trusted. This relies on `open_repo` forcing the
     // trust level instead of letting gix re-derive it from `.git` ownership; see the note there.
-    if let Some(work_dir) = repo.workdir() {
-        let rela_path = file.strip_prefix(work_dir)?;
+    if let Some(work_dir) = repo_workdir(&repo) {
+        let rela_path = file.strip_prefix(work_dir.as_ref())?;
         let rela_path = gix::path::try_into_bstr(rela_path)?;
         let (mut pipeline, _) = repo.filter_pipeline(None)?;
         let mut worktree_outcome =
@@ -172,10 +172,10 @@ fn status(
     scope: &ChangedFileScope,
     f: impl Fn(&Path, Result<FileChange>) -> bool,
 ) -> Result<()> {
-    let work_dir = repo
-        .workdir()
-        .ok_or_else(|| anyhow::anyhow!("working tree not found"))?
-        .to_path_buf();
+    let work_dir = stdx::path::normalize(
+        repo.workdir()
+            .ok_or_else(|| anyhow::anyhow!("working tree not found"))?,
+    );
 
     let rewrites = Rewrites {
         copies: None,
@@ -326,10 +326,18 @@ fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BStr
     }
 }
 
+fn repo_workdir(repo: &Repository) -> Option<Cow<'_, Path>> {
+    let work_dir = repo.workdir()?;
+    Some(match gix::path::realpath(work_dir) {
+        Ok(path) => Cow::Owned(path),
+        Err(_) => Cow::Borrowed(work_dir),
+    })
+}
+
 /// Finds the object that contains the contents of a file at a specific commit.
 fn find_file_in_commit(repo: &Repository, commit: &Commit, file: &Path) -> Result<ObjectId> {
-    let repo_dir = repo.workdir().context("repo has no worktree")?;
-    let rel_path = file.strip_prefix(repo_dir)?;
+    let repo_dir = repo_workdir(repo).context("repo has no worktree")?;
+    let rel_path = file.strip_prefix(repo_dir.as_ref())?;
     let tree = commit.tree()?;
     let tree_entry = tree
         .lookup_entry_by_path(rel_path)?
