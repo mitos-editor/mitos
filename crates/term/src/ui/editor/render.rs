@@ -280,9 +280,6 @@ impl PaneRenderer {
         let theme = &editor.theme;
         let config = editor.config();
 
-        let view_offset = layout.offset;
-
-        let text_annotations = &layout.annotations;
         let mut decorations = DecorationManager::default();
 
         if doc.breadcrumb_enabled() && !area.is_empty() {
@@ -312,23 +309,15 @@ impl PaneRenderer {
             decorations.add_decoration(line_decoration);
         }
 
-        let syntax_highlighter =
-            highlights::syntax_highlighter(doc, view_offset.anchor, inner.height);
         let mut overlays = Vec::new();
 
-        overlays.push(highlights::overlay_highlights(
-            doc,
-            view_offset.anchor,
-            inner.height,
-            text_annotations,
-        ));
+        overlays.push(highlights::overlay_highlights(&layout));
 
         if doc
             .language_config()
             .and_then(|config| config.rainbow_brackets)
             .unwrap_or(config.rainbow_brackets.enable)
-            && let Some(overlay) =
-                highlights::rainbow_highlights(doc, view_offset.anchor, inner.height, theme)
+            && let Some(overlay) = highlights::rainbow_highlights(doc, &layout, theme)
         {
             overlays.push(overlay);
         }
@@ -462,15 +451,7 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        render_document(
-            surface,
-            doc,
-            &layout,
-            syntax_highlighter,
-            overlays,
-            theme,
-            decorations,
-        );
+        render_document(surface, doc, &layout, overlays, theme, decorations);
 
         if editor.config().welcome_screen && doc.version() == 0 && doc.is_welcome {
             Self::render_welcome(theme, inner, surface, options.true_color);

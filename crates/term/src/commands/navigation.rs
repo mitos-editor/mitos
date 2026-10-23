@@ -471,6 +471,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
     let mut words = Vec::with_capacity(jump_label_limit);
     let (view, doc) = current_ref!(cx.editor);
     let text = doc.text().slice(..);
+    let layout = view.layout(doc, None);
 
     // This is not necessarily exact if there is virtual text like soft wrap.
     // It's ok though because the extra jump labels will not be rendered.
@@ -496,6 +497,10 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
         let mut changed = false;
         while cursor_fwd.head < end {
             cursor_fwd = core_movement::move_next_word_end(text, cursor_fwd, 1);
+            if let Some(conceal) = layout.annotations.conceal_at(cursor_fwd.cursor(text)) {
+                cursor_fwd = Range::point(conceal.range.end);
+                continue;
+            }
             // The cursor is on a word that is atleast two graphemes long and
             // madeup of word characters. The latter condition is needed because
             // move_next_word_end simply treats a sequence of characters from
@@ -524,6 +529,10 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
         }
         while cursor_rev.head > start {
             cursor_rev = core_movement::move_prev_word_start(text, cursor_rev, 1);
+            if let Some(conceal) = layout.annotations.conceal_at(cursor_rev.cursor(text)) {
+                cursor_rev = Range::point(conceal.range.start);
+                continue;
+            }
             // The cursor is on a word that is atleast two graphemes long and
             // madeup of word characters. The latter condition is needed because
             // move_prev_word_start simply treats a sequence of characters from
@@ -554,6 +563,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             break;
         }
     }
+    drop(layout);
     jump_to_label(cx, words, behaviour)
 }
 

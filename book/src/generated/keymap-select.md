@@ -371,6 +371,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` zf `` | Folding | Prefix |
 | `` zz `` | Align view center | `` align_view_center `` |
 | `` zc `` | Align view center | `` align_view_center `` |
 | `` zt `` | Align view top | `` align_view_top `` |
@@ -393,10 +394,22 @@
 | `` zn `` | Select next search match | `` search_next `` |
 | `` zN `` | Select previous search match | `` search_prev `` |
 
+#### `` zf `` — Folding
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` zfc `` | Close the innermost syntax fold | `` fold_close `` |
+| `` zfo `` | Open the fold at each cursor | `` fold_open `` |
+| `` zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` zfs `` | Fold selected lines | `` fold_selection `` |
+| `` zfm `` | Close all syntax folds | `` fold_all `` |
+| `` zfr `` | Open all folds | `` unfold_all `` |
+
 ### `` Z `` — View
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` Zf `` | Folding | Prefix |
 | `` Zz `` | Align view center | `` align_view_center `` |
 | `` Zc `` | Align view center | `` align_view_center `` |
 | `` Zt `` | Align view top | `` align_view_top `` |
@@ -418,3 +431,14 @@
 | `` Z? `` | Reverse search for regex pattern | `` rsearch `` |
 | `` Zn `` | Select next search match | `` search_next `` |
 | `` ZN `` | Select previous search match | `` search_prev `` |
+
+#### `` Zf `` — Folding
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` Zfc `` | Close the innermost syntax fold | `` fold_close `` |
+| `` Zfo `` | Open the fold at each cursor | `` fold_open `` |
+| `` Zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` Zfs `` | Fold selected lines | `` fold_selection `` |
+| `` Zfm `` | Close all syntax folds | `` fold_all `` |
+| `` Zfr `` | Open all folds | `` unfold_all `` |

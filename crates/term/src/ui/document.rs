@@ -1,7 +1,6 @@
 //! Editor adapters for the document-independent text renderer.
 
 use super::text_decorations::DecorationManager;
-use language::syntax::Highlighter;
 use text_layout::DisplayPosition;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;
@@ -14,7 +13,6 @@ pub fn render_document(
     surface: &mut Surface,
     doc: &Document,
     layout: &ViewLayout,
-    syntax_highlighter: Option<Highlighter<'_>>,
     overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
@@ -36,7 +34,7 @@ pub fn render_document(
         layout.offset.anchor,
         &layout.format,
         &layout.annotations,
-        super::highlights::syntax_styles(layout.text, syntax_highlighter, theme),
+        super::highlights::document_syntax_styles(doc, layout, theme),
         overlay_highlights,
         theme,
         decorations,

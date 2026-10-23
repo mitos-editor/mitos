@@ -8,77 +8,63 @@ use editor_core::{
 };
 use language::syntax;
 use std::ops;
-use stdx::rope::RopeExt as _;
-use text_layout::text_annotations::TextAnnotations;
 use theme::Theme;
 use view::{document::Mode, graphics::CursorKind, Document, View};
 
-fn viewport_byte_range(
-    text: editor_core::RopeSlice,
-    row: usize,
-    height: u16,
-) -> std::ops::Range<usize> {
-    // Calculate viewport byte ranges:
-    // Saturating subs to make it inclusive zero indexing.
-    let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
-    let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
-    let start = text.line_to_byte_idx(row.min(last_line), stdx::rope::LINE_TYPE);
-    let end = text.line_to_byte_idx(last_visible_line + 1, stdx::rope::LINE_TYPE);
-
-    start..end
+/// Resolve styles only for visible source ranges. Starting a fresh highlighter
+/// after each fold restores enclosing syntax scopes without visiting its body.
+pub(crate) fn document_syntax_styles<'a>(
+    doc: &'a Document,
+    layout: &view::view::ViewLayout,
+    theme: &'a Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
+    let ranges = layout.visible_byte_ranges();
+    ranges.into_iter().flat_map(move |range| {
+        let highlighter = doc.syntax().map(|syntax| {
+            syntax.highlighter(
+                doc.text().slice(..),
+                doc.syntax_loader(),
+                range.start as u32..range.end as u32,
+            )
+        });
+        let start = doc.text().byte_to_char_idx(range.start);
+        let end = doc.text().byte_to_char_idx(range.end);
+        // Captured nodes can extend beyond the queried range. Clamp starts and
+        // stop at its end so concatenated segments remain monotonically ordered.
+        std::iter::once((start, theme.get("ui.text"))).chain(
+            syntax_styles(doc.text().slice(..), highlighter, theme)
+                .map(move |(pos, style)| (pos.max(start), style))
+                .take_while(move |(pos, _)| *pos < end),
+        )
+    })
 }
 
-/// Get the syntax highlighter for a document in a view represented by the first line
-/// and column (`offset`) and the last line. This is done instead of using a view
-/// directly to enable rendering syntax highlighted docs anywhere (eg. picker preview)
-pub(crate) fn syntax_highlighter<'editor>(
-    doc: &'editor Document,
-    anchor: usize,
-    height: u16,
-) -> Option<syntax::Highlighter<'editor>> {
-    let syntax = doc.syntax()?;
-    let text = doc.text().slice(..);
-    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
-    let range = viewport_byte_range(text, row, height);
-    let range = range.start as u32..range.end as u32;
-
-    let highlighter = syntax.highlighter(text, doc.syntax_loader(), range);
-    Some(highlighter)
-}
-
-pub(crate) fn overlay_highlights(
-    doc: &Document,
-    anchor: usize,
-    height: u16,
-    text_annotations: &TextAnnotations,
-) -> OverlayHighlights {
-    let text = doc.text().slice(..);
-    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
-
-    let mut range = viewport_byte_range(text, row, height);
-    range = text.byte_to_char_idx(range.start)..text.byte_to_char_idx(range.end);
-
-    text_annotations.collect_overlay_highlights(range)
+pub(crate) fn overlay_highlights(layout: &view::view::ViewLayout) -> OverlayHighlights {
+    let range = layout.visible_byte_range();
+    layout.annotations.collect_overlay_highlights(
+        layout.text.byte_to_char_idx(range.start)..layout.text.byte_to_char_idx(range.end),
+    )
 }
 
 pub(crate) fn rainbow_highlights(
     doc: &Document,
-    anchor: usize,
-    height: u16,
+    layout: &view::view::ViewLayout,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
-    let row = text.char_to_line_idx(anchor.min(text.len_chars()));
-    let visible_range = viewport_byte_range(text, row, height);
+    let visible_range = layout.visible_byte_range();
     let start = syntax::child_for_byte_range(
         &syntax.tree().root_node(),
         visible_range.start as u32..visible_range.end as u32,
     )
     .map_or(visible_range.start as u32, |node| node.start_byte());
-    let range = start..visible_range.end as u32;
-
-    Some(syntax.rainbow_highlights(text, theme.rainbow_length(), doc.syntax_loader(), range))
+    Some(syntax.rainbow_highlights(
+        text,
+        theme.rainbow_length(),
+        doc.syntax_loader(),
+        start..visible_range.end as u32,
+    ))
 }
 
 /// Get highlight spans for document diagnostics

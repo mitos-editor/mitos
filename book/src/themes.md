@@ -361,6 +361,7 @@ These scopes are used for theming the editor interface:
 | `ui.virtual.inlay-hint`           | Default style for inlay hints of all kinds                                                     |
 | `ui.virtual.inlay-hint.parameter` | Style for inlay hints of kind `parameter` (language servers are not required to set a kind)    |
 | `ui.virtual.inlay-hint.type`      | Style for inlay hints of kind `type` (language servers are not required to set a kind)         |
+| `ui.virtual.fold`                 | Ellipsis representing folded text |
 | `ui.virtual.wrap`                 | Soft-wrap indicator (see the [`editor.soft-wrap` config][editor-section])                      |
 | `ui.virtual.jump-label`           | Style for virtual jump labels                                                                  |
 | `ui.virtual.inline-completion`    | LSP ghost text; falls back to `ui.virtual.inlay-hint` |
