@@ -135,13 +135,27 @@ impl Document {
         self.pending_syntax.is_some()
     }
 
+    pub(super) fn parse_syntax(&self, loader: &syntax::Loader) -> Option<Syntax> {
+        let config = self.language.as_ref()?;
+        let language = loader.language_for_name(config.language_id.as_str())?;
+        Syntax::new(self.buffer.text().slice(..), language, loader)
+            .map_err(|err| {
+                if err != syntax::HighlighterError::NoRootConfig {
+                    log::warn!("Error building syntax for '{}': {err}", self.display_name());
+                }
+            })
+            .ok()
+    }
+
     /// Finish initialization on demand for commands that require a syntax tree.
     pub(crate) fn finish_syntax_initialization(&mut self) -> bool {
         let Some(mut pending) = self.pending_syntax.take() else {
             return false;
         };
         pending.controller.cancel();
-        self.set_language(self.language.clone(), &pending.loader);
+        // Completing the same language snapshot must preserve view features
+        // created while initialization was pending (for example manual folds).
+        self.syntax = self.parse_syntax(&pending.loader);
         pending.loader.refresh_highlights();
         true
     }

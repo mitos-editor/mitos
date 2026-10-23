@@ -19,7 +19,7 @@ mod test;
 
 use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
-use stdx::rope::{RopeGraphemes, RopeSliceExt};
+use stdx::rope::{RopeExt as _, RopeGraphemes, RopeSliceExt};
 
 use crate::text_annotations::TextAnnotations;
 use crate::DisplayPosition;
@@ -30,7 +30,7 @@ use editor_core::RopeSlice;
 #[derive(Debug, Clone, Copy)]
 pub enum GraphemeSource {
     Document {
-        codepoints: u32,
+        codepoints: usize,
     },
     /// Inline virtual text can not be highlighted with a `Highlight` iterator
     /// because it's not part of the document. Instead the `Highlight`
@@ -53,7 +53,7 @@ impl GraphemeSource {
 
     pub fn doc_chars(self) -> usize {
         match self {
-            GraphemeSource::Document { codepoints } => codepoints as usize,
+            GraphemeSource::Document { codepoints } => codepoints,
             GraphemeSource::VirtualText { .. } => 0,
         }
     }
@@ -66,6 +66,9 @@ pub struct FormattedGrapheme<'a> {
     pub visual_pos: DisplayPosition,
     /// Document line at the start of the grapheme
     pub line_idx: usize,
+    /// Source line that begins this display block. A folded suffix can belong
+    /// to a later document line while sharing the header's wrapped display rows.
+    pub block_line_idx: usize,
     /// Document char position at the start of the grapheme
     pub char_idx: usize,
 }
@@ -96,6 +99,7 @@ impl FormattedGrapheme<'_> {
 struct GraphemeWithSource<'a> {
     grapheme: Grapheme<'a>,
     source: GraphemeSource,
+    concealed_lines: usize,
 }
 
 impl<'a> GraphemeWithSource<'a> {
@@ -108,12 +112,14 @@ impl<'a> GraphemeWithSource<'a> {
         GraphemeWithSource {
             grapheme: Grapheme::new(g, visual_x, tab_width),
             source,
+            concealed_lines: 0,
         }
     }
     fn placeholder() -> Self {
         GraphemeWithSource {
             grapheme: Grapheme::Other { g: " ".into() },
             source: GraphemeSource::Document { codepoints: 0 },
+            concealed_lines: 0,
         }
     }
 
@@ -175,6 +181,7 @@ impl Default for TextFormat {
 
 #[derive(Debug)]
 pub struct DocumentFormatter<'t> {
+    text: RopeSlice<'t>,
     text_fmt: &'t TextFormat,
     annotations: &'t TextAnnotations<'t>,
 
@@ -185,6 +192,7 @@ pub struct DocumentFormatter<'t> {
     char_pos: usize,
     /// The line pos of the `graphemes` iter used for inserting annotations
     line_pos: usize,
+    block_line_pos: usize,
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
@@ -216,13 +224,16 @@ impl<'t> DocumentFormatter<'t> {
         char_idx: usize,
     ) -> Self {
         // TODO divide long lines into blocks to avoid bad performance for long lines
-        let byte_idx = text.char_to_byte_idx(char_idx.min(text.len_chars()));
+        let char_idx = char_idx.min(text.len_chars());
+        let char_idx = annotations.checkpoint_anchor(text, char_idx);
+        let byte_idx = text.char_to_byte_idx(char_idx);
         let block_line_idx = text.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
         let block_byte_idx = text.line_to_byte_idx(block_line_idx, stdx::rope::LINE_TYPE);
         let block_char_idx = text.byte_to_char_idx(block_byte_idx);
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
+            text,
             text_fmt,
             annotations,
             visual_pos: DisplayPosition { row: 0, col: 0 },
@@ -234,6 +245,7 @@ impl<'t> DocumentFormatter<'t> {
             word_buf: Vec::with_capacity(64),
             word_i: 0,
             line_pos: block_line_idx,
+            block_line_pos: block_line_idx,
             inline_annotation_graphemes: None,
         }
     }
@@ -264,11 +276,24 @@ impl<'t> DocumentFormatter<'t> {
     }
 
     fn advance_grapheme(&mut self, col: usize, char_pos: usize) -> Option<GraphemeWithSource<'t>> {
+        if let Some(conceal) = self.annotations.conceal_at(char_pos) {
+            let end = conceal.range.end;
+            self.graphemes = self.text.slice_chars(end..).graphemes();
+            self.annotations.skip_concealed(end);
+            return Some(GraphemeWithSource {
+                grapheme: Grapheme::Other { g: "…".into() },
+                source: GraphemeSource::Document {
+                    codepoints: end - char_pos,
+                },
+                concealed_lines: self.text.char_to_line_idx(end)
+                    - self.text.char_to_line_idx(char_pos),
+            });
+        }
         let (grapheme, source) =
             if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {
                 (grapheme.into(), GraphemeSource::VirtualText { highlight })
             } else if let Some(grapheme) = self.graphemes.next() {
-                let codepoints = grapheme.len_chars() as u32;
+                let codepoints = grapheme.len_chars();
 
                 let overlay = self.annotations.overlay_at(char_pos);
                 let grapheme = match overlay {
@@ -287,6 +312,7 @@ impl<'t> DocumentFormatter<'t> {
                 return Some(GraphemeWithSource {
                     grapheme: Grapheme::Other { g: " ".into() },
                     source: GraphemeSource::Document { codepoints: 0 },
+                    concealed_lines: 0,
                 });
             };
 
@@ -436,11 +462,13 @@ impl<'t> Iterator for DocumentFormatter<'t> {
             self.advance_grapheme(self.visual_pos.col, self.char_pos)?
         };
 
+        let concealed_lines = grapheme.concealed_lines;
         let grapheme = FormattedGrapheme {
             raw: grapheme.grapheme,
             source: grapheme.source,
             visual_pos: self.visual_pos,
             line_idx: self.line_pos,
+            block_line_idx: self.block_line_pos,
             char_idx: self.char_pos,
         };
 
@@ -448,6 +476,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
         if !grapheme.is_virtual() {
             self.annotations.process_virtual_text_anchors(&grapheme);
         }
+        self.line_pos += concealed_lines;
         if grapheme.raw == Grapheme::Newline {
             // move to end of newline char
             self.visual_pos.col += 1;
@@ -458,6 +487,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
             self.visual_pos.col = 0;
             if !grapheme.is_virtual() {
                 self.line_pos += 1;
+                self.block_line_pos = self.line_pos;
             }
         } else {
             self.visual_pos.col += grapheme.width();

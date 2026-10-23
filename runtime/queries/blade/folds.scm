@@ -1,9 +1,6 @@
 ; inherits: html
 
-((directive_start) @start
-    (directive_end) @end.after
-    (#set! role block))
-
-((bracket_start) @start
-    (bracket_end) @end
-    (#set! role block))
+; Capture the containing directive, including its body and closing directive.
+(_
+  (directive_start)
+  (directive_end)) @fold

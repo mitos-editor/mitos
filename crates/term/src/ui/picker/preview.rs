@@ -497,7 +497,6 @@ impl FilePreview {
 pub(super) fn render_preview_content(
     mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
-    area: Rect,
     inner: Rect,
     surface: &mut Surface,
     cx: &Context,
@@ -636,14 +635,19 @@ pub(super) fn render_preview_content(
 
     let config = cx.editor.config();
 
-    let syntax_highlighter = highlights::syntax_highlighter(doc, offset.anchor, area.height);
+    let layout = view::view::ViewLayout {
+        text: doc.text().slice(..),
+        viewport: inner,
+        offset,
+        format: doc.text_format(inner.width, Some(&cx.editor.theme)),
+        annotations: TextAnnotations::default(),
+    };
     let mut overlay_highlights = Vec::new();
     if doc
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) =
-            highlights::rainbow_highlights(doc, offset.anchor, area.height, &cx.editor.theme)
+        && let Some(overlay) = highlights::rainbow_highlights(doc, &layout, &cx.editor.theme)
     {
         overlay_highlights.push(overlay);
     }
@@ -675,14 +679,7 @@ pub(super) fn render_preview_content(
     render_document(
         surface,
         doc,
-        &view::view::ViewLayout {
-            text: doc.text().slice(..),
-            viewport: inner,
-            offset,
-            format: doc.text_format(inner.width, Some(&cx.editor.theme)),
-            annotations: TextAnnotations::default(),
-        },
-        syntax_highlighter,
+        &layout,
         overlay_highlights,
         &cx.editor.theme,
         decorations,

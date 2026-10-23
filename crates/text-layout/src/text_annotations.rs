@@ -7,7 +7,8 @@ use std::ptr::NonNull;
 use crate::doc_formatter::FormattedGrapheme;
 use crate::DisplayPosition;
 use editor_core::highlight::{Highlight, OverlayHighlights};
-use editor_core::Tendril;
+use editor_core::{line_ending::line_end_char_index, RopeSlice, Tendril};
+use stdx::rope::RopeExt as _;
 
 /// An inline annotation is continuous text shown
 /// on the screen before the grapheme that starts at
@@ -78,6 +79,14 @@ impl Overlay {
             grapheme: grapheme.into(),
         }
     }
+}
+
+/// A character range replaced by a single selectable ellipsis. Ranges must be
+/// nonempty, disjoint, sorted, and aligned to grapheme boundaries. Text after the
+/// range, including retained closing tokens and line endings, stays in the stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conceal {
+    pub range: Range<usize>,
 }
 
 /// Line annotations allow inserting virtual text lines between normal text
@@ -279,6 +288,7 @@ impl<T: ?Sized> Drop for RawBox<T> {
 pub struct TextAnnotations<'a> {
     inline_annotations: Vec<Layer<'a, InlineAnnotation, Option<Highlight>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
+    conceals: &'a [Conceal],
     line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
 }
 
@@ -292,6 +302,56 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    /// Install disjoint conceal ranges shared by rendering and positioning.
+    pub fn set_conceals(&mut self, conceals: &'a [Conceal]) {
+        self.conceals = conceals;
+    }
+
+    pub fn conceals(&self) -> &[Conceal] {
+        self.conceals
+    }
+
+    /// The replacement anchor for a position inside concealed text.
+    pub fn conceal_at(&self, char_idx: usize) -> Option<&Conceal> {
+        let index = self.conceals.partition_point(|c| c.range.end <= char_idx);
+        self.conceals
+            .get(index)
+            .filter(|c| c.range.start <= char_idx)
+    }
+
+    /// Find the source checkpoint for a display block. The visible suffix of a
+    /// folded region shares its header's block, including chained folds on that
+    /// suffix (for example `} else {`).
+    pub fn checkpoint_anchor(&self, text: RopeSlice, mut char_idx: usize) -> usize {
+        loop {
+            let index = self.conceals.partition_point(|c| c.range.start < char_idx);
+            let Some(previous) = self.conceals[..index].last() else {
+                return char_idx;
+            };
+            let line_start = text.line_to_char_idx(text.char_to_line_idx(char_idx));
+            if previous.range.end < line_start {
+                return char_idx;
+            }
+            char_idx = previous.range.start;
+        }
+    }
+
+    /// End of the last source line joined into a display block by concealment.
+    pub fn block_end(&self, text: RopeSlice, char_idx: usize) -> usize {
+        let mut end = line_end_char_index(&text, text.char_to_line_idx(char_idx));
+        while let Some(conceal) = self.conceal_at(end) {
+            end = line_end_char_index(&text, text.char_to_line_idx(conceal.range.end));
+        }
+        end
+    }
+
+    /// Skip inline text and overlays hidden by a conceal without resetting line
+    /// annotations, whose pending anchors are handled by `skip_concealed_anchors`.
+    pub(crate) fn skip_concealed(&self, end: usize) {
+        reset_pos(&self.inline_annotations, end, |annot| annot.char_idx);
+        reset_pos(&self.overlays, end, |annot| annot.char_idx);
+    }
+
     /// Prepare the TextAnnotations for iteration starting at char_idx
     pub fn reset_pos(&self, char_idx: usize) {
         reset_pos(&self.inline_annotations, char_idx, |annot| annot.char_idx);
@@ -304,13 +364,20 @@ impl<'a> TextAnnotations<'a> {
     pub fn collect_overlay_highlights(&self, char_range: Range<usize>) -> OverlayHighlights {
         let mut highlights = Vec::new();
         self.reset_pos(char_range.start);
-        for char_idx in char_range {
+        let mut char_idx = char_range.start;
+        while char_idx < char_range.end {
+            if let Some(conceal) = self.conceal_at(char_idx) {
+                char_idx = conceal.range.end;
+                reset_pos(&self.overlays, char_idx, |annot| annot.char_idx);
+                continue;
+            }
             if let Some((_, Some(highlight))) = self.overlay_at(char_idx) {
                 // we don't know the number of chars the original grapheme takes
                 // however it doesn't matter as highlight boundaries are automatically
                 // aligned to grapheme boundaries in the rendering code
                 highlights.push((highlight, char_idx..char_idx + 1));
             }
+            char_idx += 1;
         }
 
         OverlayHighlights::Heterogenous { highlights }

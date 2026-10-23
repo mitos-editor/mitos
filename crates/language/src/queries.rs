@@ -4,7 +4,9 @@
 mod features;
 use crate::{
     indent::IndentQuery,
-    syntax::{reconfigure_highlights, RainbowQuery, SpellcheckQuery, TagQuery, TextObjectQuery},
+    syntax::{
+        reconfigure_highlights, FoldQuery, RainbowQuery, SpellcheckQuery, TagQuery, TextObjectQuery,
+    },
 };
 use anyhow::{Context, Result};
 pub use features::QueryFeature;
@@ -101,4 +103,14 @@ pub fn compile_spellcheck_query(
     let spellcheck_query = SpellcheckQuery::new(grammar, text)
         .with_context(|| format!("Failed to compile spellcheck.scm query for '{name}'"))?;
     Ok(Some(spellcheck_query))
+}
+
+/// Compile folds.scm. Each `@fold` capture supplies a foldable syntax region.
+pub fn compile_fold_query(grammar: Grammar, name: &str, text: &str) -> Result<Option<FoldQuery>> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    FoldQuery::new(grammar, text)
+        .with_context(|| format!("Failed to compile folds.scm query for '{name}'"))
+        .map(Some)
 }
