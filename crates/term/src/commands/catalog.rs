@@ -156,7 +156,7 @@ impl MappableCommand {
         lsp_or_syntax_workspace_symbol_picker => super::symbols::lsp_or_syntax_workspace_symbol_picker, "Open workspace symbol picker from LSP or syntax information",
         diagnostics_picker => super::diagnostics::diagnostics_picker, "Open diagnostic picker",
         workspace_diagnostics_picker => super::diagnostics::workspace_diagnostics_picker, "Open workspace diagnostic picker",
-        last_picker => super::palette::last_picker, "Open last picker",
+        last_picker => super::palette::last_picker, "Open last picker, preserving selected entry",
         insert_at_line_start => super::insert::insert_at_line_start, "Insert at start of line",
         insert_at_line_end => super::insert::insert_at_line_end, "Insert at end of line",
         open_below => super::insert::open_below, "Open new line below selection",

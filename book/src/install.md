@@ -149,3 +149,26 @@ If you previously installed runtime assets there, see
 
 Language servers are installed separately. See [language-server setup](./lsp.md)
 to enable completion, diagnostics, and other language features.
+
+## Desktop integration and shell completions
+
+The source tree includes an optional desktop entry and shell completions under
+`contrib/`. For an XDG desktop menu, install `contrib/Mitos.desktop` and the icon
+as described in [Configure the desktop shortcut](./building-from-source.md#configure-the-desktop-shortcut).
+The Debian package already installs these files.
+
+Completions for Bash, Elvish, Fish, Nushell, and Zsh are in `contrib/completion/`.
+For common shell layouts, run these commands from the source checkout:
+
+```sh
+mkdir -p ~/.local/share/bash-completion/completions
+cp contrib/completion/ms.bash ~/.local/share/bash-completion/completions/ms
+
+mkdir -p ~/.config/fish/completions
+cp contrib/completion/ms.fish ~/.config/fish/completions/ms.fish
+
+mkdir -p ~/.zfunc
+cp contrib/completion/ms.zsh ~/.zfunc/_ms
+```
+
+For Zsh, add `~/.zfunc` to `fpath` before `compinit` runs.
