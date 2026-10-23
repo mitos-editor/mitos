@@ -162,6 +162,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn missing_grammars_are_optional_but_invalid_libraries_are_errors() {
         let dir = tempfile::tempdir().unwrap();
