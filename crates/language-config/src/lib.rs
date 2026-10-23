@@ -537,7 +537,9 @@ pub struct IndentationConfiguration {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum IndentationHeuristic {
-    /// Just copy the indentation of the line that the cursor is currently on.
+    /// Copy the current line's leading whitespace character for character.
+    Verbatim,
+    /// Match the current line's indentation width using the selected indentation style.
     Simple,
     /// Use tree-sitter indent queries to compute the expected absolute indentation level of the new line.
     TreeSitter,

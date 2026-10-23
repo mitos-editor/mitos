@@ -1095,6 +1095,14 @@ pub fn indent_for_newline(
     line_before_end_pos: usize,
     current_line: usize,
 ) -> String {
+    if *indent_heuristic == IndentationHeuristic::Verbatim {
+        let line = text.line(current_line, stdx::rope::LINE_TYPE);
+        let end = line
+            .chars()
+            .take_while(|ch| ch.is_whitespace() && *ch != '\n' && *ch != '\r')
+            .count();
+        return line.slice_chars(..end).to_string();
+    }
     let indent_width = indent_style.indent_width(tab_width);
     if let (
         IndentationHeuristic::TreeSitter | IndentationHeuristic::Hybrid,
@@ -1270,5 +1278,34 @@ mod tests {
             ),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod verbatim_tests {
+    use super::*;
+    #[test]
+    fn verbatim_copies_mixed_and_unicode_whitespace_without_line_endings() {
+        let loader = syntax::Loader::default();
+        for (text, expected) in [
+            ("  \t \u{2003}code\r\n", "  \t \u{2003}"),
+            ("\t  \r\n", "\t  "),
+            ("plain\n", ""),
+        ] {
+            assert_eq!(
+                indent_for_newline(
+                    &loader,
+                    None,
+                    &IndentationHeuristic::Verbatim,
+                    &IndentStyle::Spaces(4),
+                    4,
+                    text.into(),
+                    0,
+                    0,
+                    0
+                ),
+                expected
+            );
+        }
     }
 }
