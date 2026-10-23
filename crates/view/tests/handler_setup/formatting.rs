@@ -253,3 +253,42 @@ async fn hidden_document_formatters_report_missing_selection_context() -> anyhow
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn formatter_and_shell_expansions_use_workspace_or_document_parent() -> anyhow::Result<()> {
+    for workspace in [true, false] {
+        let script = "cat formatter.conf; echo \"$1\"";
+        let mut fixture = Fixture::with_languages(
+            "original\n",
+            &format!(
+                r#"
+                [[language]]
+                name = "words"
+                scope = "text.words"
+                roots = []
+                file-types = ["words"]
+                formatter = {{ command = "bash", args = ["-c", {script:?}, "formatter", "%sh{{cat formatter.conf}}"] }}
+                "#
+            ),
+        )?;
+        let root = stdx::path::normalize(fixture.dir.path().canonicalize()?);
+        let nested = root.join("nested");
+        std::fs::create_dir(&nested)?;
+        if workspace {
+            std::fs::create_dir(root.join(".mitos"))?;
+        }
+        std::fs::write(root.join("formatter.conf"), "workspace")?;
+        std::fs::write(nested.join("formatter.conf"), "parent")?;
+        let path = nested.join("document.words");
+        std::fs::write(&path, "original\n")?;
+        fixture.editor.open(&path, Action::Replace)?;
+        assert!(update(&fixture).await?.apply(&mut fixture.editor)?);
+        let expected = if workspace {
+            "workspaceworkspace\n"
+        } else {
+            "parentparent\n"
+        };
+        assert_eq!(current_ref!(fixture.editor).1.text().to_string(), expected);
+    }
+    Ok(())
+}
