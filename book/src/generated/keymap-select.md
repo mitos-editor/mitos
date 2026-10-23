@@ -29,7 +29,7 @@
 | `` W `` | Extend to start of next long word | `` extend_next_long_word_start `` |
 | `` B `` | Extend to start of previous long word | `` extend_prev_long_word_start `` |
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
-| `` v `` | Enter normal mode | `` normal_mode `` |
+| `` v `` | Exit selection mode | `` exit_select_mode `` |
 | `` G `` | Goto line | `` goto_line `` |
 | `` g `` | Goto | Prefix |
 | `` : `` | Enter command mode | `` command_mode `` |

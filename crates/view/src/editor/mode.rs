@@ -17,6 +17,9 @@ impl Editor {
         if self.mode == mode {
             return;
         }
+        if matches!(mode, Mode::Normal | Mode::Debug) {
+            self.command_mode = mode;
+        }
         let old = self.mode;
         self.mode = mode;
         if old == Mode::Insert {
@@ -64,11 +67,10 @@ impl Editor {
         self.set_mode(Mode::Debug);
     }
 
-    /// Finish a document's editing mode before moving focus, retaining debugger controls.
-    pub(super) fn leave_editing_mode(&mut self) {
-        if self.mode != Mode::Debug {
-            self.enter_normal_mode();
-        }
+    /// Finish insert or select mode and resume the normal or debug command mode.
+    /// Explicit normal/debug transitions replace this destination; temporary modes retain it.
+    pub fn leave_editing_mode(&mut self) {
+        self.set_mode(self.command_mode);
     }
 
     /// Insert at the start of each selection, retaining its extent while typing.
