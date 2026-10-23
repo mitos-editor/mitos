@@ -213,6 +213,7 @@
 | openscad | ✓ |  |  |  |  |  | `openscad-lsp` |
 | org | ✓ |  |  |  |  |  |  |
 | p | ✓ |  |  |  |  |  |  |
+| packer | ✓ | ✓ | ✓ |  | ✓ |  |  |
 | pascal | ✓ | ✓ |  |  |  |  | `pasls` |
 | passwd | ✓ |  |  |  |  |  |  |
 | pem | ✓ |  |  |  |  |  |  |
