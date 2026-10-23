@@ -9,8 +9,8 @@ use stdx::rope::RopeExt as _;
 mod delete;
 use crate::{editing::EditError, Document, ViewId};
 pub use delete::{
-    delete_char_backward, delete_char_forward, delete_word_backward, delete_word_forward,
-    kill_to_line_end, kill_to_line_start,
+    delete_char_backward, delete_char_forward, delete_sub_word_backward, delete_sub_word_forward,
+    delete_word_backward, delete_word_forward, kill_to_line_end, kill_to_line_start,
 };
 use editor_core::{
     auto_pairs::{self, AutoPairs},
@@ -478,7 +478,35 @@ pub fn add_newlines(
 mod tests {
     use super::*;
     use crate::editing::{self, tests::document_and_view};
+    use editor_core::test;
     use editor_core::transform::ReorderStrategy;
+
+    #[tokio::test]
+    async fn subword_deletion_preserves_insert_cursor_and_supports_counts() {
+        for (input, forward, count, expected) in [
+            ("foo#[|B]#arBaz\n", true, 1, "foo#[|B]#az\n"),
+            ("fooBar#[|B]#az\n", false, 1, "foo#[|B]#az\n"),
+            ("foo#[|B]#arBaz\n", true, 2, "foo#[|\n]#"),
+            ("fooBar#[|B]#az\n", false, 2, "#[|B]#az\n"),
+        ] {
+            let (mut doc, view) = document_and_view(input);
+            if forward {
+                delete_sub_word_forward(&mut doc, view.id, count)
+            } else {
+                delete_sub_word_backward(&mut doc, view.id, count)
+            }
+            .unwrap();
+            let (text, selection) = test::print(expected);
+            assert_eq!(doc.text(), text.as_str(), "{input}");
+            assert_eq!(
+                doc.selection(view.id)
+                    .primary()
+                    .cursor(doc.text().slice(..)),
+                selection.primary().cursor(doc.text().slice(..)),
+                "{input}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn rejected_interactive_edits_preserve_text_selection_and_history() {
@@ -493,6 +521,8 @@ mod tests {
             |doc, view| delete_char_forward(doc, view, 1),
             |doc, view| delete_word_backward(doc, view, 1),
             |doc, view| delete_word_forward(doc, view, 1),
+            |doc, view| delete_sub_word_backward(doc, view, 1),
+            |doc, view| delete_sub_word_forward(doc, view, 1),
             kill_to_line_start,
             kill_to_line_end,
             |doc, view| editing::join_selections(doc, view, true),
