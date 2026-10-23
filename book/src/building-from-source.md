@@ -237,3 +237,30 @@ The default uses the release profile. To package an already built
 
 The package is written to `target/debian/`. It includes the executable, runtime,
 shell completions, desktop entry, and launcher.
+
+## Using Mitos as a Nix flake input
+
+With flakes enabled, add Mitos to your flake inputs and use its default package:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    mitos.url = "github:mitos-editor/mitos/main";
+    mitos.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { nixpkgs, ... } @ inputs:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [ inputs.mitos.packages.${system}.default ];
+      };
+    };
+}
+```
+
+Replace `system` with your target platform. The same package can be included in
+Home Manager's `home.packages` or NixOS's `environment.systemPackages`.
