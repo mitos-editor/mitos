@@ -197,5 +197,25 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     assert_eq!(icon.fg, tui::style::Color::Red);
     assert!(!icon.modifier.contains(tui::style::Modifier::BOLD));
     assert!(!row[start + 4].modifier.contains(tui::style::Modifier::BOLD));
+
+    let path = PathBuf::from("a/very/long/directory/path/café.txt");
+    picker
+        .results
+        .reset(vec![path], Arc::new(()), &picker.columns);
+    picker.results.reparse(0, "café", false);
+    settle(&mut picker).await;
+    for width in [28, 70, 28] {
+        let area = Rect::new(0, 0, width, 20);
+        let mut surface = Surface::empty(area);
+        picker.render(area, &mut surface, &mut cx);
+        let row = surface
+            .content
+            .chunks(width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .find(|row| row.contains("café.txt"))
+            .expect("filename stays visible after resizing");
+        assert!(row.contains('🦀') && row.contains(" icon "));
+        assert_eq!(row.contains('…'), width == 28);
+    }
     Ok(())
 }

@@ -949,9 +949,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
                 if let Some(prefix) = (column.prefix)(item.data, &self.results.editor_data) {
                     width += prefix.width();
-                    if let Some(line) = cell.content.lines.first_mut() {
-                        line.spans.insert(0, prefix);
-                    }
+                    cell = cell.with_prefix(prefix);
                 }
 
                 if width as u16 > *max_width {

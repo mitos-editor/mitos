@@ -1,14 +1,14 @@
 //! Table wrapper for editor-specific truncation behavior.
 //!
 //! Ratatui's table is still used for layout and rendering. This wrapper keeps
-//! the historical Mitos API and can truncate fixed-width cells from the start,
+//! the historical Mitos API and can truncate overflowing cells from the start,
 //! preserving filenames and other useful suffixes.
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Flex, Rect},
+    layout::{Constraint, Flex, Layout, Rect},
     style::Style,
-    text::{Span, Text},
+    text::{Line, Span, Text},
     widgets::{
         Cell as RatatuiCell, Row as RatatuiRow, StatefulWidget, Table as RatatuiTable, TableState,
     },
@@ -21,6 +21,15 @@ use unicode_width::UnicodeWidthStr;
 pub struct Cell<'a> {
     /// Cell contents; line height is determined by Ratatui during rendering.
     pub content: Text<'a>,
+    prefix: Option<Span<'a>>,
+}
+
+impl<'a> Cell<'a> {
+    /// Adds a decorative prefix that stays visible when the text is truncated.
+    pub fn with_prefix(mut self, prefix: Span<'a>) -> Self {
+        self.prefix = Some(prefix);
+        self
+    }
 }
 
 impl<'a, T> From<T> for Cell<'a>
@@ -30,6 +39,7 @@ where
     fn from(content: T) -> Self {
         Self {
             content: content.into(),
+            prefix: None,
         }
     }
 }
@@ -135,10 +145,8 @@ impl<'a> Table<'a> {
 
     /// Renders the table and updates `state` through Ratatui.
     ///
-    /// When `truncate_start` is true, cells whose columns use
-    /// [`Constraint::Length`] keep their suffix and receive a leading ellipsis.
-    /// Other constraint kinds are left to Ratatui unchanged because their final
-    /// width is not known here.
+    /// When `truncate_start` is true, overflowing cells keep their suffix and
+    /// receive a leading ellipsis within their allocated column width.
     pub fn render_table(
         self,
         area: Rect,
@@ -146,7 +154,33 @@ impl<'a> Table<'a> {
         state: &mut TableState,
         truncate_start: bool,
     ) {
-        let widths = self.widths.clone();
+        // Match Ratatui's layout, including the selection marker and spacing,
+        // before truncating. Requested widths may exceed the available area.
+        let selection_width = if state.selected().is_some() {
+            self.highlight_symbol
+                .map_or(0, |symbol| symbol.width() as u16)
+        } else {
+            0
+        };
+        let column_count = self
+            .rows
+            .iter()
+            .chain(self.header.iter())
+            .map(|row| row.cells.len())
+            .max()
+            .unwrap_or_default();
+        let constraints = if self.widths.is_empty() {
+            vec![Constraint::Length(area.width / column_count.max(1) as u16); column_count]
+        } else {
+            self.widths.clone()
+        };
+        let [_, columns_area] =
+            Layout::horizontal([Constraint::Length(selection_width), Constraint::Fill(0)])
+                .areas(area);
+        let widths = Layout::horizontal(constraints)
+            .flex(Flex::Legacy)
+            .spacing(self.column_spacing)
+            .split(columns_area);
         let rows = self
             .rows
             .into_iter()
@@ -168,10 +202,22 @@ impl<'a> Table<'a> {
 }
 
 impl<'a> Row<'a> {
-    fn into_ratatui(self, widths: &[Constraint], truncate_start: bool) -> RatatuiRow<'a> {
+    fn into_ratatui(self, widths: &[Rect], truncate_start: bool) -> RatatuiRow<'a> {
         let cells = self.cells.into_iter().enumerate().map(|(index, mut cell)| {
-            if truncate_start && let Some(Constraint::Length(width)) = widths.get(index) {
-                truncate_text_start(&mut cell.content, *width as usize);
+            if truncate_start && let Some(area) = widths.get(index) {
+                for (line_index, line) in cell.content.lines.iter_mut().enumerate() {
+                    let prefix_width = if line_index == 0 {
+                        cell.prefix.as_ref().map_or(0, Span::width)
+                    } else {
+                        0
+                    };
+                    truncate_line_start(line, (area.width as usize).saturating_sub(prefix_width));
+                }
+            }
+            if let Some(prefix) = cell.prefix
+                && let Some(line) = cell.content.lines.first_mut()
+            {
+                line.spans.insert(0, prefix);
             }
             RatatuiCell::new(cell.content)
         });
@@ -179,35 +225,39 @@ impl<'a> Row<'a> {
     }
 }
 
-fn truncate_text_start(text: &mut Text<'_>, width: usize) {
-    for line in &mut text.lines {
-        if line.width() <= width || width == 0 {
-            continue;
-        }
+fn truncate_line_start(line: &mut Line<'_>, width: usize) {
+    if line.width() <= width {
+        return;
+    }
+    if width == 0 {
+        line.spans.clear();
+        return;
+    }
 
-        let mut remaining = width.saturating_sub(1);
-        let mut spans = Vec::new();
-        for span in line.spans.iter().rev() {
-            let mut content = String::new();
-            for grapheme in span.content.graphemes(true).rev() {
-                let grapheme_width = grapheme.width();
-                if grapheme_width > remaining {
-                    break;
-                }
-                content.insert_str(0, grapheme);
-                remaining -= grapheme_width;
-            }
-            if !content.is_empty() {
-                spans.push(Span::styled(content, span.style));
-            }
-            if remaining == 0 {
+    let mut remaining = width.saturating_sub(1);
+    let mut spans = Vec::new();
+    let mut exhausted = false;
+    for span in line.spans.iter().rev() {
+        let mut content = String::new();
+        for grapheme in span.content.graphemes(true).rev() {
+            let grapheme_width = grapheme.width();
+            if grapheme_width > remaining {
+                exhausted = true;
                 break;
             }
+            content.insert_str(0, grapheme);
+            remaining -= grapheme_width;
         }
-        spans.reverse();
-        spans.insert(0, Span::raw("…"));
-        line.spans = spans;
+        if !content.is_empty() {
+            spans.push(Span::styled(content, span.style));
+        }
+        if remaining == 0 || exhausted {
+            break;
+        }
     }
+    spans.reverse();
+    spans.insert(0, Span::raw("…"));
+    line.spans = spans;
 }
 
 #[cfg(test)]
@@ -238,5 +288,93 @@ mod tests {
 
         let rendered: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert_eq!(rendered, "abcde");
+    }
+
+    #[test]
+    fn start_truncation_uses_available_width_and_keeps_short_rows_left_aligned() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 13, 2));
+        let mut state = TableState::default().with_selected(Some(0));
+        let table = Table::new([Row::new(["long/path/to/file.rs"]), Row::new(["main.rs"])])
+            .widths(&[Constraint::Length(20)])
+            .highlight_symbol(" > ");
+
+        table.render_table(buffer.area, &mut buffer, &mut state, true);
+
+        assert_eq!(
+            buffer,
+            Buffer::with_lines([" > …o/file.rs", "   main.rs   "])
+        );
+    }
+
+    #[test]
+    fn start_truncation_uses_allocated_width_for_each_column() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 13, 1));
+        let mut state = TableState::default();
+        let table = Table::new([Row::new(["abcdefghij", "0123456789"])])
+            .widths(&[Constraint::Percentage(50), Constraint::Percentage(50)])
+            .column_spacing(1);
+
+        table.render_table(buffer.area, &mut buffer, &mut state, true);
+
+        assert_eq!(buffer, Buffer::with_lines(["…efghij …6789"]));
+    }
+
+    #[test]
+    fn start_truncation_preserves_prefix_and_grapheme_styles() {
+        use ratatui::style::{Color, Modifier};
+
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 1));
+        let mut state = TableState::default().with_selected(Some(0));
+        let highlight = Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD);
+        let icon_style = Style::default().fg(Color::Red);
+        let text = Line::from(vec![
+            Span::raw("long/path/"),
+            Span::styled("界e\u{301}", highlight),
+            Span::raw(".rs"),
+        ]);
+        let cell = Cell::from(text).with_prefix(Span::styled("🦀", icon_style));
+        let table = Table::new([Row::new([cell])])
+            .widths(&[Constraint::Length(30)])
+            .highlight_symbol(" > ");
+
+        table.render_table(buffer.area, &mut buffer, &mut state, true);
+
+        let expected = Line::from(vec![
+            Span::raw(" > "),
+            Span::styled("🦀", icon_style),
+            Span::raw("…"),
+            Span::styled("e\u{301}", highlight),
+            Span::raw(".rs"),
+        ]);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[test]
+    fn start_truncation_does_not_skip_wide_graphemes_between_spans() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+        let mut state = TableState::default();
+        let text = Line::from(vec![Span::raw("ab"), Span::raw("界"), Span::raw("rs")]);
+        let table = Table::new([Row::new([Cell::from(text)])]).widths(&[Constraint::Length(6)]);
+
+        table.render_table(buffer.area, &mut buffer, &mut state, true);
+
+        assert_eq!(buffer, Buffer::with_lines(["…rs "]));
+    }
+
+    #[test]
+    fn truncation_handles_zero_width_columns() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 0, 1));
+        let mut state = TableState::default().with_selected(Some(0));
+        let table = Table::new([Row::new([
+            Cell::from("long/path/file.rs").with_prefix(Span::raw("🦀"))
+        ])])
+        .widths(&[Constraint::Length(20)])
+        .highlight_symbol(" > ");
+
+        table.render_table(buffer.area, &mut buffer, &mut state, true);
+
+        assert!(buffer.content.is_empty());
     }
 }
