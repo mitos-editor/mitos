@@ -69,6 +69,12 @@ pub(crate) fn load_language(name: &str, library_path: &Path) -> Result<Option<Gr
     if !library_path.exists() {
         return Ok(None);
     }
+    // SAFETY: The library must export a valid Tree-sitter grammar. Loading it executes
+    // native code; neither this call nor the parser can verify its memory safety.
+    // Runtime directories and grammars must therefore be trusted by the user.
+    // Built-in grammar sources are pinned in languages.toml. Custom grammar builds
+    // require trusted configuration (see get_grammar_configs), and runtime files may
+    // also be installed manually. We do not authenticate shared libraries at load time.
     let grammar = unsafe { Grammar::new(name, library_path) }?;
     Ok(Some(grammar))
 }
