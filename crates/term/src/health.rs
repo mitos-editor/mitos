@@ -300,15 +300,19 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     )?;
 
     probe_protocol(
+        &mut stdout,
         "debug adapter",
-        lang.debugger.as_ref().map(|dap| dap.command.to_string()),
+        lang.debugger
+            .as_ref()
+            .map(|dap| (dap.command.as_str(), &[][..])),
     )?;
 
     probe_protocol(
+        &mut stdout,
         "formatter",
         lang.formatter
             .as_ref()
-            .map(|formatter| formatter.command.to_string()),
+            .map(|formatter| (formatter.command.as_str(), formatter.args.as_slice())),
     )?;
 
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
@@ -368,6 +372,9 @@ fn probe_language_servers(
                         "    ✘ {}: '{}' not found in $PATH",
                         server.name, definition.command
                     )?;
+                    if !definition.args.is_empty() {
+                        writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+                    }
                     continue;
                 }
             };
@@ -401,18 +408,22 @@ fn probe_language_servers(
             };
             selected = true;
             writeln!(stdout, "    ✓ {}: {} ({role})", server.name, path.display())?;
+            if !definition.args.is_empty() {
+                writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+            }
         }
     }
     Ok(())
 }
 
 /// Display diagnostics about LSP and DAP.
-fn probe_protocol(protocol_name: &str, server_cmd: Option<String>) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
+fn probe_protocol(
+    stdout: &mut impl Write,
+    protocol_name: &str,
+    server_cmd: Option<(&str, &[String])>,
+) -> std::io::Result<()> {
     write!(stdout, "Configured {}:", protocol_name)?;
-    let Some(cmd) = server_cmd else {
+    let Some((cmd, args)) = server_cmd else {
         writeln!(stdout, "{}", " None".yellow())?;
         return Ok(());
     };
@@ -423,6 +434,9 @@ fn probe_protocol(protocol_name: &str, server_cmd: Option<String>) -> std::io::R
         Err(_) => (format!("'{}' not found in $PATH", cmd).red(), "✘".red()),
     };
     writeln!(stdout, "  {} {}", icon, diag)?;
+    if !args.is_empty() {
+        writeln!(stdout, "    Arguments: {args:?}")?;
+    }
 
     Ok(())
 }
@@ -539,5 +553,43 @@ mod runtime_warning_tests {
         )));
         assert!(output.contains(&format!("Runtime directory is empty: {}", empty.display())));
         assert!(!output.contains(&populated.to_string_lossy().to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn language_server_health_includes_configured_arguments() {
+        let language = toml::from_str(
+            "name = 'health-test'\nscope = 'source.health-test'\nfile-types = []\nlanguage-servers = ['wrapper']",
+        )
+        .unwrap();
+        let definitions = toml::from_str(
+            "[wrapper]\ncommand = 'missing-mitos-health-tool'\nargs = ['run', 'server', '--stdio']",
+        )
+        .unwrap();
+        let mut output = Vec::new();
+        super::probe_language_servers(&mut output, &language, &definitions, &[]).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("wrapper"));
+        assert!(output.contains("Arguments: [\"run\", \"server\", \"--stdio\"]"));
+    }
+
+    #[test]
+    fn formatter_health_includes_literal_wrapper_arguments() {
+        let args = vec![
+            "run".to_owned(),
+            "black".to_owned(),
+            "%{buffer_name}".to_owned(),
+        ];
+        let mut output = Vec::new();
+        super::probe_protocol(
+            &mut output,
+            "formatter",
+            Some(("missing-mitos-health-tool", &args)),
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Arguments: [\"run\", \"black\", \"%{buffer_name}\"]"));
     }
 }
