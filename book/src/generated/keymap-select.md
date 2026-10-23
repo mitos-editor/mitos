@@ -219,6 +219,7 @@
 | --- | --- | --- |
 | `` <C-w><C-w> `` | Goto next window | `` rotate_view `` |
 | `` <C-w>w `` | Goto next window | `` rotate_view `` |
+| `` <C-w>W `` | Goto previous window | `` rotate_view_reverse `` |
 | `` <C-w><C-s> `` | Horizontal bottom split | `` hsplit `` |
 | `` <C-w>s `` | Horizontal bottom split | `` hsplit `` |
 | `` <C-w><C-v> `` | Vertical right split | `` vsplit `` |
@@ -328,6 +329,7 @@
 | --- | --- | --- |
 | `` <space>w<C-w> `` | Goto next window | `` rotate_view `` |
 | `` <space>ww `` | Goto next window | `` rotate_view `` |
+| `` <space>wW `` | Goto previous window | `` rotate_view_reverse `` |
 | `` <space>w<C-s> `` | Horizontal bottom split | `` hsplit `` |
 | `` <space>ws `` | Horizontal bottom split | `` hsplit `` |
 | `` <space>w<C-v> `` | Vertical right split | `` vsplit `` |

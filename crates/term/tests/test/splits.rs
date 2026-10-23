@@ -304,3 +304,43 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+async fn assert_rotate_view_reverse_binding(
+    keys: &str,
+    expected_line: usize,
+) -> anyhow::Result<()> {
+    let file = helpers::temp_file_with_contents("one\ntwo\nthree\n")?;
+    let mut app = helpers::AppBuilder::new()
+        .with_file(file.path(), None)
+        .build()?;
+
+    test_key_sequence(
+        &mut app,
+        Some(keys),
+        Some(&|app| {
+            let (view, doc) = view::current_ref!(app.editor);
+            let line = doc
+                .selection(view.id)
+                .primary()
+                .cursor_line(doc.text().slice(..));
+
+            assert_eq!(expected_line, line);
+            helpers::assert_status_not_error(&app.editor);
+            assert_eq!(1, app.editor.tree.views().count());
+        }),
+        false,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rotate_view_reverse_ctrl_w_binding() -> anyhow::Result<()> {
+    assert_rotate_view_reverse_binding("<C-w>vj<C-w>vj<C-w>W<C-w>W<C-w>o", 0).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rotate_view_reverse_space_w_binding() -> anyhow::Result<()> {
+    assert_rotate_view_reverse_binding("<C-w>vj<C-w>v<space>wW<C-w>o", 1).await
+}
