@@ -5,7 +5,10 @@ use view::{current_ref, editor::Action};
 #[tokio::test(flavor = "multi_thread")]
 async fn manual_folds_render_navigate_hit_test_and_reveal_search_results() -> anyhow::Result<()> {
     for newline in ["\n", "\r\n"] {
+        let mut config = super::helpers::test_config();
+        config.editor.line_number = editor_config::LineNumber::Relative;
         let mut app = AppBuilder::new()
+            .with_config(config)
             .with_input_text(format!(
                 "#[header{newline}hidden{newline}end|]#{newline}next{newline}"
             ))
@@ -18,6 +21,10 @@ async fn manual_folds_render_navigate_hit_test_and_reveal_search_results() -> an
         let backend = app.terminal_backend();
         assert_eq!(backend.buffer()[(area.x + 6, area.y)].symbol(), "…");
         assert_eq!(backend.buffer()[(area.x, area.y + 1)].symbol(), "n");
+        let number: String = (view.area.x..area.x)
+            .map(|x| backend.buffer()[(x, area.y + 1)].symbol())
+            .collect();
+        assert_eq!(number.trim(), "1");
         assert_eq!(
             view.pos_at_screen_coords(doc, area.y, area.x + 10, true),
             Some(doc.folded_ranges(view.id)[0].range.start),
@@ -35,6 +42,11 @@ async fn manual_folds_render_navigate_hit_test_and_reveal_search_results() -> an
                 .cursor(doc.text().slice(..)),
             next
         );
+        let backend = app.terminal_backend();
+        let number: String = (view.area.x..area.x)
+            .map(|x| backend.buffer()[(x, area.y)].symbol())
+            .collect();
+        assert_eq!(number.trim(), "1");
         keys(&mut app, "k/hidden<ret>").await?;
         let (view, doc) = current_ref!(app.editor);
         assert!(doc.folded_ranges(view.id).is_empty());

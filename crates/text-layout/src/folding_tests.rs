@@ -102,6 +102,14 @@ fn motions_count_fold_headers_and_preserve_columns_in_both_directions() {
     let rope = Rope::from_str("abcdefghijklm\nhidden\n}\nnext line\nlast\n}");
     let text = rope.slice(..);
     let folds = [fold(text, 0, 2), fold(text, 4, 5)];
+    for (from_index, from) in [0, 3, 4].into_iter().enumerate() {
+        for (to_index, to) in [0, 3, 4].into_iter().enumerate() {
+            assert_eq!(
+                crate::movement::document_line_distance(text, from, to, &folds),
+                from_index.abs_diff(to_index),
+            );
+        }
+    }
     for soft_wrap in [false, true] {
         let format = TextFormat {
             soft_wrap,

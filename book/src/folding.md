@@ -25,7 +25,8 @@ a selection must cover at least two lines. Crossing fold regions are ignored so
 folds remain properly nested.
 
 `j` and `k` count visible document lines; wrapped-line motions count visual rows.
-Scrolling and mouse positioning follow the folded layout. Searching, jumping,
+Relative line numbers count visible lines too. Scrolling and mouse positioning
+follow the folded layout. Searching, jumping,
 or otherwise moving a cursor into hidden text opens the folds covering its
 destination. An edit that touches concealed text opens the affected folds in
 all splits. Other edits, including undo and redo, move folds with their text.

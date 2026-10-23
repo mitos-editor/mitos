@@ -13,6 +13,25 @@ use editor_core::{
 };
 use stdx::rope::RopeExt as _;
 
+/// Distance between visible document lines, excluding folded bodies.
+pub fn document_line_distance(
+    slice: RopeSlice,
+    from: usize,
+    to: usize,
+    conceals: &[Conceal],
+) -> usize {
+    let (start, end) = (from.min(to), from.max(to));
+    let hidden: usize = conceals
+        .iter()
+        .map(|conceal| {
+            let fold_start = slice.char_to_line_idx(conceal.range.start);
+            let fold_end = slice.char_to_line_idx(conceal.range.end);
+            fold_end.min(end).saturating_sub(fold_start.max(start))
+        })
+        .sum();
+    end - start - hidden
+}
+
 /// Move by visible document lines, counting a closed region as its header.
 /// Unlike visual motion, wrapped rows and virtual diagnostic rows do not count.
 pub fn document_line_at_offset(

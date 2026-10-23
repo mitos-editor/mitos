@@ -190,6 +190,7 @@ fn line_numbers<'doc>(
         .char_to_line_idx(doc.selection(view.id).primary().cursor(text));
 
     let line_number = editor.config().line_number;
+    let folds = doc.folded_ranges(view.id);
     let wrap_indicator = editor
         .config()
         .soft_wrap
@@ -216,7 +217,7 @@ fn line_numbers<'doc>(
                     && current_line != line;
 
                 let display_num = if relative {
-                    current_line.abs_diff(line)
+                    text_layout::movement::document_line_distance(text, current_line, line, folds)
                 } else {
                     line + 1
                 };
