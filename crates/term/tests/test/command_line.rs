@@ -664,3 +664,33 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn modified_indicator_uses_configured_text_and_reserves_display_width() -> anyhow::Result<()>
+{
+    use editor_config::StatusLineElement as E;
+    let mut config = test_config();
+    config.editor.file_modification_indicator = "界".into();
+    config.editor.statusline.left = vec![E::FileModificationIndicator, E::Position];
+    config.editor.statusline.right.clear();
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    keys(&mut app, "<esc>").await?;
+    let backend = app.terminal_backend();
+    let text: String = backend
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("   1:1 "));
+    keys(&mut app, "iX<esc>").await?;
+    let backend = app.terminal_backend();
+    let text: String = backend
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("界  1:2 "), "{text:?}");
+    Ok(())
+}
