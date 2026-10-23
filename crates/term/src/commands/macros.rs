@@ -69,9 +69,13 @@ pub(super) fn replay_macro(cx: &mut Context) {
 
     let count = cx.count();
     cx.callback.push(Box::new(move |compositor, cx| {
+        let outermost = cx.editor.macro_replaying.len() == 1;
         for _ in 0..count {
             for &key in keys.iter() {
                 compositor.handle_event(&compositor::Event::Key(key), cx);
+            }
+            if outermost {
+                cx.editor.count = None;
             }
         }
         // The macro under replay is cleared at the end of the callback, not in the
