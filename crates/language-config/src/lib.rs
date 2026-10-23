@@ -23,6 +23,10 @@ use std::{
     str::FromStr,
 };
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Configuration {
@@ -96,6 +100,10 @@ pub struct LanguageConfiguration {
     pub language_servers: Vec<LanguageServerFeatures>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indent: Option<IndentationConfiguration>,
+
+    /// Detect indentation from document text before falling back to language settings.
+    #[serde(default = "default_true")]
+    pub auto_detect_indent: bool,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debugger: Option<DebugAdapterConfig>,
