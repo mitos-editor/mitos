@@ -210,9 +210,8 @@ fn line_numbers<'doc>(
                 use editor_config::LineNumber;
                 use view::document::Mode;
 
-                let relative = line_number == LineNumber::Relative
-                    && mode != Mode::Insert
-                    && is_focused
+                let relative = (line_number == LineNumber::AlwaysRelative
+                    || (line_number == LineNumber::Relative && mode != Mode::Insert && is_focused))
                     && current_line != line;
 
                 let display_num = if relative {
