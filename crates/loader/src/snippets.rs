@@ -162,7 +162,7 @@ mod collection_tests {
         let temporary = tempfile::tempdir()?;
         let base = temporary.path().join("snippets.toml");
         write(&directory(&base).join("z.toml"), "Z")?;
-        write(&directory(&base).join("team/a.toml"), "A")?;
+        write(&directory(&base).join("team").join("a.toml"), "A")?;
         std::fs::write(directory(&base).join("notes.txt"), "not TOML")?;
         let catalog = load(&base)?;
         assert_eq!(
@@ -178,7 +178,8 @@ mod collection_tests {
             first.source.as_deref(),
             Some(
                 directory(&base)
-                    .join("team/a.toml")
+                    .join("team")
+                    .join("a.toml")
                     .to_string_lossy()
                     .as_ref()
             )
