@@ -948,3 +948,32 @@ async fn match_bracket() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn select_character_is_literal_and_accepts_unicode_and_special_keys() -> anyhow::Result<()> {
+    for (input, keys, expected) in [
+        (
+            "#[a.界.a|]#\n",
+            "<space>?select_character<ret>.",
+            "a#[.|]#界#(.|)#a\n",
+        ),
+        (
+            "#[a界a界|]#\n",
+            "<space>?select_character<ret>界",
+            "a#[界|]#a#(界|)#\n",
+        ),
+        (
+            "#[a\tb\t|]#\n",
+            "<space>?select_character<ret><tab>",
+            "a#[\t|]#b#(\t|)#\n",
+        ),
+        (
+            "#[a\nb\n|]#",
+            "<space>?select_character<ret><ret>",
+            "a#[\n|]#b#(\n|)#",
+        ),
+    ] {
+        test((input, keys, expected)).await?;
+    }
+    Ok(())
+}
