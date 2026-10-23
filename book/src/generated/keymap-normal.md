@@ -101,8 +101,8 @@
 | `` _ `` | Trim whitespace from selections | `` trim_selections `` |
 | `` ( `` | Rotate selections backward | `` rotate_selections_backward `` |
 | `` ) `` | Rotate selections forward | `` rotate_selections_forward `` |
-| `` <A-(> `` | Rotate selections contents backward | `` rotate_selection_contents_backward `` |
-| `` <A-)> `` | Rotate selection contents forward | `` rotate_selection_contents_forward `` |
+| `` <A-(> `` | Rotate selections contents backward (count sets group size) | `` rotate_selection_contents_backward `` |
+| `` <A-)> `` | Rotate selection contents forward (count sets group size) | `` rotate_selection_contents_forward `` |
 | `` <A-:> `` | Ensure all selections face forward | `` ensure_selections_forward `` |
 | `` <esc> `` | Enter normal mode | `` normal_mode `` |
 | `` <C-b> `` | Move page up | `` page_up `` |

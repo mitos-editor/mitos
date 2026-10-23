@@ -62,7 +62,7 @@ pub(super) fn join_selections_space(cx: &mut Context) {
 }
 
 fn reorder_selection_contents(cx: &mut Context, strategy: editor_core::transform::ReorderStrategy) {
-    let count = cx.count();
+    let count = cx.count.map_or(usize::MAX, |count| count.get());
     let (view, doc) = current!(cx.editor);
     if let Err(error) = view::editing::reorder_selection_contents(doc, view.id, strategy, count) {
         cx.editor.set_error(|| error.to_string());
