@@ -803,6 +803,7 @@ applies to `config.toml` for now.
 | `grammar` | string; defaults to `name` | Tree-sitter grammar name. |
 | `injection-regex` | regex string; unset | Match this language at tree-sitter injection sites. |
 | `language-servers` | array; `[]` | Server names, `{ name = "...", only-features = [...], except-features = [...] }` entries, or `{ alternatives = [...] }` groups that start one candidate in order. Alternatives accept names or feature-filtered entries. |
+| `auto-detect-indent` | boolean; `true` | Detect indentation from document text before using the language’s `indent` setting. Disable it to use configured indentation. EditorConfig takes precedence. |
 | `indent` | table; unset | Requires `tab-width` from `1` through `16` and `unit`, the inserted indentation string. |
 | `debugger` | table; unset | Debug adapter definition. See below. |
 | `auto-pairs` | boolean or character map; inherits editor | Language-specific delimiter pairs. |

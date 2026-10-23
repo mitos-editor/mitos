@@ -26,11 +26,15 @@ impl Document {
         self.indent_style = if let Some(indent_style) = self.editor_config.indent_style {
             indent_style
         } else {
-            auto_detect_indent_style(self.buffer.text()).unwrap_or_else(|| {
-                self.language_config()
-                    .and_then(|config| config.indent.as_ref())
-                    .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
-            })
+            self.language_config()
+                .is_none_or(|config| config.auto_detect_indent)
+                .then(|| auto_detect_indent_style(self.buffer.text()))
+                .flatten()
+                .unwrap_or_else(|| {
+                    self.language_config()
+                        .and_then(|config| config.indent.as_ref())
+                        .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
+                })
         };
         if let Some(line_ending) = self
             .editor_config
@@ -174,6 +178,31 @@ impl Document {
             wrap_indicator_highlight: theme
                 .and_then(|theme| theme.find_highlight("ui.virtual.wrap")),
             soft_wrap_at_text_width,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::editing::tests::document_and_view;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn indent_detection_opt_out_keeps_editorconfig_precedence() {
+        for setting in ["", "auto-detect-indent = false"] {
+            let loader = Arc::new(language::syntax::Loader::new(toml::from_str(&format!("[[language]]\nname = 'test'\nscope = 'source.test'\nfile-types = []\nindent = {{ unit = '    ', tab-width = 4 }}\n{setting}")).unwrap(), loader::syntax::Resources::default()).unwrap());
+            let (mut doc, _) = document_and_view("#[|a]#\n  b\n    c\n  d\n");
+            let lang = loader.language_for_name("test").unwrap();
+            doc.set_language(Some(loader.language(lang).config().clone()), &loader);
+            doc.detect_indent_and_line_ending();
+            assert_eq!(
+                doc.indent_style,
+                IndentStyle::Spaces(if setting.is_empty() { 2 } else { 4 })
+            );
+            doc.editor_config.indent_style = Some(IndentStyle::Tabs);
+            doc.detect_indent_and_line_ending();
+            assert_eq!(doc.indent_style, IndentStyle::Tabs);
         }
     }
 }
