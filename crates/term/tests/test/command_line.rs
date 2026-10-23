@@ -664,3 +664,21 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cycle_completion_after_quoted_completion() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    std::fs::write(dir.path().join("a b"), "")?;
+    std::fs::write(dir.path().join("c"), "")?;
+    let expected = stdx::path::canonicalize(dir.path().join("c"));
+    test_key_sequence(
+        &mut AppBuilder::new().build()?,
+        Some(&format!(":o {}/<tab><tab><ret>", dir.path().display())),
+        Some(&|app| {
+            assert!(!app.editor.is_err(), "{:?}", app.editor.get_status());
+            assert_eq!(Some(expected.as_path()), view::doc!(app.editor).path());
+        }),
+        false,
+    )
+    .await
+}

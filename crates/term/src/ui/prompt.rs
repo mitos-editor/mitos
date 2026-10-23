@@ -52,6 +52,7 @@ pub struct Prompt {
     truncate_end: bool,
     // ---
     completion: Vec<Completion>,
+    completion_line: String,
     selection: Option<usize>,
     history_register: Option<char>,
     history_pos: Option<usize>,
@@ -141,6 +142,7 @@ impl Prompt {
             truncate_start: false,
             truncate_end: false,
             completion: Vec::new(),
+            completion_line: String::new(),
             selection: None,
             history_register,
             history_pos: None,
@@ -206,8 +208,17 @@ impl Prompt {
     }
 
     pub fn recalculate_completion(&mut self, editor: &Editor) {
+        self.clamp_view();
         self.exit_selection();
         self.completion = (self.completion_fn)(editor, &self.line);
+        self.completion_line.clone_from(&self.line);
+    }
+
+    fn clamp_view(&mut self) {
+        self.cursor = self
+            .line
+            .floor_char_boundary(self.cursor.min(self.line.len()));
+        self.anchor = self.line.floor_char_boundary(self.anchor.min(self.cursor));
     }
 
     /// Compute the cursor position after applying movement
@@ -439,9 +450,11 @@ impl Prompt {
 
         let (range, item) = &self.completion[index];
 
+        self.line.clone_from(&self.completion_line);
         self.line.replace_range(range.clone(), &item.content);
 
         self.move_end();
+        self.clamp_view();
     }
 
     pub fn exit_selection(&mut self) {
@@ -565,6 +578,8 @@ impl Prompt {
             .clip_top(line)
             .clip_right(2);
 
+        self.clamp_view();
+
         if self.line.is_empty() {
             self.anchor = 0;
             // Show the most recently entered value as a suggestion.
@@ -613,6 +628,20 @@ impl Prompt {
                         }
                     })
                     .unwrap();
+            }
+
+            // Fill space exposed by deleting text or widening the terminal.
+            if self.anchor > 0 && self.line[self.anchor..].width() < line_width {
+                let mut width = 0;
+                self.anchor = self
+                    .line
+                    .grapheme_indices(true)
+                    .rev()
+                    .find_map(|(idx, g)| {
+                        width += g.width();
+                        (width > line_width).then_some(idx + g.len())
+                    })
+                    .unwrap_or_default();
             }
 
             self.truncate_start = self.anchor > 0;
@@ -865,17 +894,19 @@ impl Component for Prompt {
             .clip_left(self.prompt.len() as u16)
             .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
 
-        let mut col = area.left() as usize + self.line[self.anchor..self.cursor].width();
+        let cursor = self
+            .line
+            .floor_char_boundary(self.cursor.min(self.line.len()));
+        let anchor = self.line.floor_char_boundary(self.anchor.min(cursor));
+        let mut col = area.left() as usize + self.line[anchor..cursor].width();
 
         // ensure the cursor does not go beyond elipses
-        if self.truncate_end
-            && self.line[self.anchor..self.cursor].width() >= self.line_area.width as usize
-        {
-            col -= 1;
+        if self.truncate_end && self.line[anchor..cursor].width() >= self.line_area.width as usize {
+            col = col.saturating_sub(1);
         }
 
-        if self.truncate_start && self.cursor == self.anchor {
-            col += self.line[self.cursor..]
+        if self.truncate_start && cursor == anchor {
+            col += self.line[cursor..]
                 .graphemes(true)
                 .next()
                 .map_or(0, |g| g.width());
@@ -891,3 +922,23 @@ impl Component for Prompt {
 }
 use tui::buffer::BufferExt as _;
 use view::graphics::RectExt as _;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortened_prompt_clamps_scroll_and_cursor_to_character_boundaries() {
+        let mut prompt = Prompt::new(":".into(), None, |_, _| Vec::new(), |_, _, _| {});
+        prompt.anchor = 30;
+        prompt.cursor = 40;
+        prompt.clamp_view();
+        assert_eq!((prompt.anchor, prompt.cursor), (0, 0));
+
+        prompt.line = "界界".into();
+        prompt.anchor = 4;
+        prompt.cursor = 6;
+        prompt.clamp_view();
+        assert_eq!((prompt.anchor, prompt.cursor), (3, 6));
+    }
+}
