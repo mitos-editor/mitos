@@ -122,7 +122,7 @@
 | haskell-literate | ✓ |  |  |  |  | `haskell-language-server-wrapper` |
 | haskell-persistent | ✓ |  |  |  |  |  |
 | haxe | ✓ |  |  | ✓ |  | `haxe-language-server` |
-| hcl | ✓ | ✓ | ✓ |  | ✓ | `terraform-ls` |
+| hcl | ✓ | ✓ | ✓ |  | ✓ | first available: `terraform-ls` → `tofu-ls` |
 | hdl | ✓ |  |  |  |  | `hdls` |
 | heex | ✓ | ✓ |  |  |  | first available: `elixir-ls` → `expert` |
 | helm | ✓ |  |  |  |  | `helm_ls` |
@@ -159,7 +159,7 @@
 | just | ✓ | ✓ | ✓ | ✓ |  | `just-lsp` |
 | kcl | ✓ |  |  |  |  | `kcl-language-server` |
 | kconfig | ✓ |  | ✓ |  |  |  |
-| kdl | ✓ | ✓ | ✓ | ✓ | ✓ |  |
+| kdl | ✓ | ✓ | ✓ | ✓ | ✓ | `kdl-lsp` |
 | klog | ✓ |  |  |  |  |  |
 | koka | ✓ |  | ✓ |  |  | `koka` |
 | kotlin | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `kotlin-lsp` → `kotlin-language-server` |
@@ -247,7 +247,7 @@
 | r | ✓ | ✓ | ✓ | ✓ | ✓ | `R` |
 | racket | ✓ |  | ✓ |  | ✓ | `racket` |
 | regex | ✓ |  |  |  | ✓ |  |
-| rego | ✓ |  |  |  |  | `regols` |
+| rego | ✓ |  |  |  |  | first available: `regols` → `regal` |
 | rescript | ✓ | ✓ |  |  |  | `rescript-language-server` |
 | ripple | ✓ |  |  | ✓ | ✓ | `ripple-language-server` |
 | rmarkdown | ✓ |  | ✓ |  |  | `R` |

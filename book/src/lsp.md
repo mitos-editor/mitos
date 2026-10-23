@@ -15,6 +15,21 @@ Some languages list alternatives. Mitos tries them in order and uses the
 first one that starts successfully for your project. Separately listed tools
 can run alongside it, for example Ruff for Python checking and formatting.
 
+## Additional server choices
+
+- For KDL, install [`kdl-lsp`](https://github.com/kdl-org/kdl-rs/tree/main/tools/kdl-lsp)
+  and put the executable on `PATH`.
+- For OpenTofu files, install [`tofu-ls`](https://github.com/opentofu/tofu-ls).
+  Mitos tries `terraform-ls` first and falls back to `tofu-ls`; reorder the
+  alternatives in `languages.toml` to prefer OpenTofu.
+- For Rego, install [`regal`](https://www.openpolicyagent.org/projects/regal).
+  Mitos tries `regols` first, then `regal language-server` with formatting
+  enabled. Reorder the alternatives to prefer Regal. Project roots can contain
+  `.regal/config.yaml` or `.regal.yaml`.
+
+Run `ms --health kdl`, `ms --health hcl`, or `ms --health rego` to check the
+configured executables, then `:lsp-restart` after installing a server.
+
 ## Common actions
 
 Available features depend on the server.

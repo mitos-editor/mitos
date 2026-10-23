@@ -82,6 +82,7 @@ jq-lsp = { command = "jq-lsp" }
 jsonnet-language-server = { command = "jsonnet-language-server", args= ["-t", "--lint"] }
 julia = { command = "julia", timeout = 60, args = [ "--startup-file=no", "--history-file=no", "--quiet", "-e", "using LanguageServer; runserver()", ] }
 just-lsp = { command = "just-lsp" }
+kdl-lsp = { command = "kdl-lsp" }
 koka = { command = "koka", args = ["--language-server", "--lsstdio"] }
 koto-ls = { command = "koto-ls" }
 kotlin-lsp = { command = "kotlin-lsp", args = ["--stdio"] }
@@ -171,6 +172,7 @@ terraform-ls = { command = "terraform-ls", args = ["serve"] }
 texlab = { command = "texlab" }
 thrift-ls = { command = "thrift-ls" }
 tilt = { command = "tilt", args = ["lsp", "start"] }
+tofu-ls = { command = "tofu-ls", args = ["serve"] }
 tombi = { command = "tombi", args = ["lsp"] }
 ty = { command = "ty", args = ["server"] }
 typespec = { command = "tsp-server", args = ["--stdio"] }
@@ -249,6 +251,11 @@ command = "golangci-lint-langserver"
 
 [language-server.golangci-lint-lsp.config]
 command = ["golangci-lint", "run", "--output.json.path=stdout", "--show-stats=false", "--issues-exit-code=1"]
+
+[language-server.regal]
+command = "regal"
+args = ["language-server"]
+config = { provideFormatter = true }
 
 [language-server.rust-analyzer]
 command = "rust-analyzer"
@@ -2510,13 +2517,13 @@ source = { git = "https://github.com/fwcd/tree-sitter-kotlin", rev = "1852ea17b7
 [[language]]
 name = "hcl"
 scope = "source.hcl"
-injection-regex = "(hcl|tf|nomad)"
+injection-regex = "(hcl|tf|tofu|nomad)"
 language-id = "terraform"
-file-types = ["hcl", "tf", "nomad"]
+file-types = ["hcl", "tf", "tofu", "nomad"]
 comment-token = "#"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 2, unit = "  " }
-language-servers = [ "terraform-ls" ]
+language-servers = [{ alternatives = ["terraform-ls", "tofu-ls"] }]
 auto-format = true
 
 [[grammar]]
@@ -3343,6 +3350,7 @@ comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 injection-regex = "kdl"
 formatter = { command = "kdlfmt", args = ["format", "-"] }
+language-servers = ["kdl-lsp"]
 
 [[grammar]]
 name = "kdl"
@@ -3876,11 +3884,12 @@ source = { git = "https://github.com/jpt13653903/tree-sitter-vhdl", rev = "9be8e
 [[language]]
 name = "rego"
 scope = "source.rego"
+roots = [".regal/config.yaml", ".regal.yaml"]
 injection-regex = "rego"
 file-types = ["rego"]
 auto-format = true
 comment-token = "#"
-language-servers = [ "regols" ]
+language-servers = [{ alternatives = ["regols", "regal"] }]
 grammar = "rego"
 
 [[grammar]]
