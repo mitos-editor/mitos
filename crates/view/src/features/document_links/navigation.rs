@@ -1,11 +1,14 @@
 //! Follow cached links and literal paths as one selection-bound navigation operation.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use editor_core::Range;
 use event::cancelable_future;
 use futures_util::{future::BoxFuture, FutureExt};
-use lsp_client::{lsp, LanguageServerId};
+use lsp_client::LanguageServerId;
 use stdx::{path::find_paths, rope::RopeSliceExt, Url};
 
 use crate::{callbacks::EditorCallbackSender, features::request::SelectionRequest, Editor};
@@ -85,13 +88,16 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
     let doc = editor.documents.get_mut(&view.doc).unwrap();
     let ranges = doc.selection(view.id).ranges().to_vec();
     let mut targets = Vec::new();
-    let mut seen_links = HashSet::new();
+    let mut seen_links = HashMap::new();
+    let mut groups = Vec::new();
     let mut servers = HashSet::<LanguageServerId>::new();
     let mut resolves = Vec::new();
     let mut fallback = Vec::new();
 
     for selection in ranges {
         let mut matched = false;
+        let mut ready = false;
+        let mut indices = Vec::new();
         for link in doc
             .document_links()
             .iter()
@@ -103,21 +109,34 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
             matched = true;
             servers.insert(link.language_server_id);
             if let Some(url) = &link.link.target {
+                ready = true;
                 targets.push(NavigationTarget::Url(url.clone()));
-            } else if seen_links.insert((link.start, link.end, link.language_server_id)) {
-                let Some(server) = doc
-                    .language_servers()
-                    .find(|server| server.id() == link.language_server_id)
-                else {
-                    continue;
+            } else {
+                let key = (link.start, link.end, link.language_server_id);
+                let index = if let Some(index) = seen_links.get(&key) {
+                    *index
+                } else {
+                    let request = doc
+                        .language_servers()
+                        .find(|server| server.id() == link.language_server_id)
+                        .and_then(|server| server.resolve_document_link(link.link.clone()));
+                    let index = request.map(|request| {
+                        let index = resolves.len();
+                        resolves.push(request);
+                        index
+                    });
+                    seen_links.insert(key, index);
+                    index
                 };
-                if let Some(resolve) = server.resolve_document_link(link.link.clone()) {
-                    resolves.push(resolve);
+                if let Some(index) = index {
+                    indices.push(index);
                 }
             }
         }
         if !matched {
             fallback.push(selection);
+        } else if !ready {
+            groups.push((indices, literal_targets(doc, &[selection])));
         }
     }
     targets.extend(literal_targets(doc, &fallback));
@@ -130,24 +149,48 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
         mode,
     };
     if resolves.is_empty() {
-        deduplicate(&mut targets);
+        let targets = finish_navigation(&[], groups, targets);
         return FileNavigation::Ready(FileNavigationUpdate { origin, targets });
     }
     let future = async move {
-        for response in futures_util::future::join_all(resolves).await {
-            match response {
-                Ok(lsp::DocumentLink {
-                    target: Some(url), ..
-                }) => targets.push(NavigationTarget::Url(url)),
-                Ok(_) => {}
-                Err(error) => log::warn!("Failed to resolve document link: {error}"),
-            }
-        }
-        deduplicate(&mut targets);
-        targets
+        let resolved: Vec<_> = futures_util::future::join_all(resolves)
+            .await
+            .into_iter()
+            .map(|response| match response {
+                Ok(link) => link.target,
+                Err(error) => {
+                    log::warn!("Failed to resolve document link: {error}");
+                    None
+                }
+            })
+            .collect();
+        finish_navigation(&resolved, groups, targets)
     }
     .boxed();
     FileNavigation::Pending(FileNavigationTask { origin, future })
+}
+
+fn finish_navigation(
+    resolved: &[Option<Url>],
+    groups: Vec<(Vec<usize>, Vec<NavigationTarget>)>,
+    mut targets: Vec<NavigationTarget>,
+) -> Vec<NavigationTarget> {
+    targets.extend(
+        resolved
+            .iter()
+            .filter_map(|url| url.clone())
+            .map(NavigationTarget::Url),
+    );
+    for (indices, fallback) in groups {
+        let found = indices
+            .into_iter()
+            .any(|index| resolved.get(index).is_some_and(Option::is_some));
+        if !found {
+            targets.extend(fallback);
+        }
+    }
+    deduplicate(&mut targets);
+    targets
 }
 
 fn deduplicate(targets: &mut Vec<NavigationTarget>) {
@@ -209,4 +252,29 @@ fn literal_targets(doc: &crate::Document, ranges: &[Range]) -> Vec<NavigationTar
             NavigationTarget::Path(directory.join(stdx::path::expand(&path)))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+    #[test]
+    fn unresolved_groups_fall_back_independently_and_shared_resolves_are_deduplicated() {
+        let url = Url::parse("https://example.com/resolved").unwrap();
+        let literal = NavigationTarget::Path("literal.txt".into());
+        let unsupported = NavigationTarget::Path("unsupported.txt".into());
+        let targets = finish_navigation(
+            &[Some(url.clone()), None],
+            vec![
+                (vec![0], vec![literal.clone()]),
+                (vec![0], vec![literal.clone()]),
+                (vec![1], vec![literal.clone()]),
+                (vec![], vec![unsupported.clone()]),
+            ],
+            vec![],
+        );
+        assert_eq!(
+            targets,
+            vec![NavigationTarget::Url(url), literal, unsupported]
+        );
+    }
 }
