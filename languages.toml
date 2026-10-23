@@ -658,9 +658,9 @@ file-types = [
   { glob = ".babelrc" },
   { glob = ".bowerrc" },
   { glob = ".jscrc" },
-  "js.map",
-  "ts.map",
-  "css.map",
+  { glob = "*.js.map" },
+  { glob = "*.ts.map" },
+  { glob = "*.css.map" },
   { glob = ".jslintrc" },
   "jsonl",
   { glob = ".vuerc" },
@@ -682,7 +682,6 @@ file-types = [
   "sublime-settings",
   "sublime-theme",
   "sublime-workspace",
-  "code-workspace",
   { glob = ".pytest_cache/v/cache/*" }, # https://docs.pytest.org/en/latest/reference/reference.html#confval-cache_dir
   { glob = "devenv.lock" }, # https://devenv.sh/
   { glob = "devbox.lock" }, # https://www.jetify.com/docs/devbox/
@@ -710,6 +709,7 @@ file-types = [
   { glob = ".devcontainer.json" },
   { glob = "devcontainer.json" },
   { glob = ".vscode/*.json" },
+  "code-workspace",
 ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
@@ -1150,6 +1150,7 @@ name = "scss"
 scope = "source.scss"
 injection-regex = "scss"
 file-types = ["scss"]
+comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 language-servers = [ "vscode-css-language-server" ]
 auto-format = true
@@ -1164,6 +1165,7 @@ name = "less"
 scope = "source.less"
 injection-regex = "less"
 file-types = ["less"]
+comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 language-servers = [ "vscode-css-language-server" ]
 auto-format = true
@@ -1351,6 +1353,7 @@ injection-regex = "(shell|bash|zsh|sh)"
 file-types = [
   "sh",
   "bash",
+  "bats",
   "ash",
   "dash",
   "ksh",
@@ -1672,7 +1675,7 @@ formatter = { command = "dune", args = ["format-dune-file"] }
 name = "lua"
 injection-regex = "lua"
 scope = "source.lua"
-file-types = ["lua", "rockspec"]
+file-types = ["lua", "rockspec", "nse"]
 shebangs = ["lua", "luajit"]
 roots = [".luarc.json", ".luacheckrc", ".stylua.toml", "selene.toml", ".git"]
 comment-tokens = ["--", "---"]
@@ -2512,7 +2515,7 @@ name = "hcl"
 scope = "source.hcl"
 injection-regex = "(hcl|tf|nomad)"
 language-id = "terraform"
-file-types = ["hcl", "tf", "nomad"]
+file-types = ["hcl", "tf", "tofu", "nomad"]
 comment-token = "#"
 block-comment-tokens = { start = "/*", end = "*/" }
 indent = { tab-width = 2, unit = "  " }
@@ -2970,7 +2973,10 @@ source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev =
 [[language]]
 name = "edoc"
 scope = "source.edoc"
-file-types = ["edoc", "edoc.in"]
+file-types = [
+  "edoc",
+  { glob = "*.edoc.in" },
+]
 injection-regex = "edoc"
 indent = { tab-width = 4, unit = "    " }
 
@@ -3361,7 +3367,7 @@ file-types = [
   "checkstyle",
   "cpt",
   "csl",
-  "csproj.user",
+  { glob = "*.csproj.user" },
   "dita",
   "ditamap",
   "dtml",
@@ -3394,7 +3400,7 @@ file-types = [
   "pt",
   "publishsettings",
   "pubxml",
-  "pubxml.user",
+  { glob = "*.pubxml.user" },
   "rbxlx",
   "rbxmx",
   "resx",
@@ -3409,9 +3415,9 @@ file-types = [
   "tld",
   "tmx",
   "ui",
-  "vbproj.user",
+  { glob = "*.vbproj.user" },
   "vcxproj",
-  "vcxproj.filters",
+  { glob = "*.vcxproj.filters" },
   "wixproj",
   "wsdl",
   "wxi",
@@ -3567,6 +3573,10 @@ file-types = [
   { glob = "/etc/buckconfig" },
   { glob = "/etc/buckconfig.d/*" },
   { glob = "aerc/*.conf" }, # https://aerc-mail.org/
+  { glob = "litecli/config" }, # https://litecli.com/config/
+  { glob = ".myclirc" }, # https://www.mycli.net/config
+  { glob = "mycli/myclirc" },
+  { glob = "pgcli/config" }, # https://www.pgcli.com/config
 ]
 injection-regex = "ini"
 comment-token = "#"
@@ -5238,7 +5248,7 @@ source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-requiremen
 
 [[language]]
 name = "kconfig"
-file-types = ["Kconfig", { glob = "Kconfig.*" }]
+file-types = ["Kconfig", { glob = "Kconfig.*" }, { glob = "Kconfig" }]
 scope = "source.kconfig"
 
 [[grammar]]
@@ -5471,7 +5481,7 @@ source = { git = "https://github.com/lykahb/tree-sitter-sgf", rev = "b7e0fb713b2
 [[language]]
 name = "ripple"
 scope = "source.ripple"
-file-types = [ "ripple" ]
+file-types = [ "tsrx", "ripple" ]
 roots = [ "package.json" ]
 comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
