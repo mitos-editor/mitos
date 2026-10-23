@@ -7,7 +7,6 @@ use crate::{
     visual_offset_from_block,
 };
 use editor_core::{
-    graphemes::prev_grapheme_boundary,
     movement::{Direction, Movement},
     Range, RopeSlice,
 };
@@ -69,14 +68,13 @@ pub fn document_line_at_offset(
     }
 
     new_line_idx = new_line_idx.min(slice.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1));
-    // Clamping at EOF can land inside the final folded region.
-    for conceal in conceals {
-        let start = slice.char_to_line_idx(conceal.range.start);
-        if start < new_line_idx && new_line_idx <= slice.char_to_line_idx(conceal.range.end) {
-            return start;
-        }
-    }
-    new_line_idx
+    // Clamping at EOF can land inside the final folded block, including a
+    // suffix that is itself joined to a previous fold's header.
+    let mut annotations = TextAnnotations::default();
+    annotations.set_conceals(conceals);
+    slice.char_to_line_idx(
+        annotations.checkpoint_anchor(slice, slice.line_to_char_idx(new_line_idx)),
+    )
 }
 
 pub fn move_vertically_visual(
@@ -130,7 +128,6 @@ pub fn move_vertically_visual(
         return range;
     }
 
-    let new_pos = annotations.checkpoint_anchor(new_pos);
     let mut new_range = range.put_cursor(slice, new_pos, behaviour == Movement::Extend);
     new_range.old_visual_position = Some((0, new_col));
     new_range
@@ -147,7 +144,7 @@ pub fn move_vertically(
 ) -> Range {
     annotations.clear_line_annotations();
     let pos = range.cursor(slice);
-    let line_idx = slice.char_to_line_idx(annotations.checkpoint_anchor(pos));
+    let line_idx = slice.char_to_line_idx(annotations.checkpoint_anchor(slice, pos));
     let line_start = slice.line_to_char_idx(line_idx);
 
     // Compute the current position's 2d coordinates.
@@ -169,11 +166,7 @@ pub fn move_vertically(
         // char_idx_at_visual_block_offset returns a one-past-the-end index
         // in case it reaches the end of the slice
         // to avoid moving to the nextline in that case the line terminator is removed from the line
-        let mut new_line_end =
-            prev_grapheme_boundary(slice, slice.line_to_char_idx(new_line_idx + 1));
-        if let Some(conceal) = annotations.conceal_at(new_line_end) {
-            new_line_end = conceal.range.end;
-        }
+        let new_line_end = annotations.block_end(slice, slice.line_to_char_idx(new_line_idx));
         slice.slice_chars(..new_line_end)
     };
 
@@ -195,7 +188,6 @@ pub fn move_vertically(
         return range;
     }
 
-    let new_pos = annotations.checkpoint_anchor(new_pos);
     let mut new_range = range.put_cursor(slice, new_pos, behaviour == Movement::Extend);
     new_range.old_visual_position = Some((new_row, new_col));
     new_range

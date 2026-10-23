@@ -66,6 +66,9 @@ pub struct FormattedGrapheme<'a> {
     pub visual_pos: DisplayPosition,
     /// Document line at the start of the grapheme
     pub line_idx: usize,
+    /// Source line that begins this display block. A folded suffix can belong
+    /// to a later document line while sharing the header's wrapped display rows.
+    pub block_line_idx: usize,
     /// Document char position at the start of the grapheme
     pub char_idx: usize,
 }
@@ -189,6 +192,7 @@ pub struct DocumentFormatter<'t> {
     char_pos: usize,
     /// The line pos of the `graphemes` iter used for inserting annotations
     line_pos: usize,
+    block_line_pos: usize,
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
@@ -221,7 +225,7 @@ impl<'t> DocumentFormatter<'t> {
     ) -> Self {
         // TODO divide long lines into blocks to avoid bad performance for long lines
         let char_idx = char_idx.min(text.len_chars());
-        let char_idx = annotations.checkpoint_anchor(char_idx);
+        let char_idx = annotations.checkpoint_anchor(text, char_idx);
         let byte_idx = text.char_to_byte_idx(char_idx);
         let block_line_idx = text.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
         let block_byte_idx = text.line_to_byte_idx(block_line_idx, stdx::rope::LINE_TYPE);
@@ -241,6 +245,7 @@ impl<'t> DocumentFormatter<'t> {
             word_buf: Vec::with_capacity(64),
             word_i: 0,
             line_pos: block_line_idx,
+            block_line_pos: block_line_idx,
             inline_annotation_graphemes: None,
         }
     }
@@ -472,6 +477,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
             source: grapheme.source,
             visual_pos: self.visual_pos,
             line_idx: self.line_pos,
+            block_line_idx: self.block_line_pos,
             char_idx: self.char_pos,
         };
 
@@ -490,6 +496,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
             self.visual_pos.col = 0;
             if !grapheme.is_virtual() {
                 self.line_pos += 1;
+                self.block_line_pos = self.line_pos;
             }
         } else {
             self.visual_pos.col += grapheme.width();

@@ -134,11 +134,7 @@ pub fn scroll(
                 let primary = selection.primary_index();
                 selection.replace(
                     primary,
-                    range.put_cursor(
-                        layout.text,
-                        layout.annotations.checkpoint_anchor(head),
-                        behaviour == Movement::Extend,
-                    ),
+                    range.put_cursor(layout.text, head, behaviour == Movement::Extend),
                 )
             })
         }

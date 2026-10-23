@@ -7,7 +7,8 @@ use std::ptr::NonNull;
 use crate::doc_formatter::FormattedGrapheme;
 use crate::DisplayPosition;
 use editor_core::highlight::{Highlight, OverlayHighlights};
-use editor_core::Tendril;
+use editor_core::{line_ending::line_end_char_index, RopeSlice, Tendril};
+use stdx::rope::RopeExt as _;
 
 /// An inline annotation is continuous text shown
 /// on the screen before the grapheme that starts at
@@ -81,8 +82,8 @@ impl Overlay {
 }
 
 /// A character range replaced by a single selectable ellipsis. Ranges must be
-/// nonempty, disjoint, sorted, and aligned to grapheme boundaries. The original
-/// line ending after a folded region remains in the document stream.
+/// nonempty, disjoint, sorted, and aligned to grapheme boundaries. Text after the
+/// range, including retained closing tokens and line endings, stays in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conceal {
     pub range: Range<usize>,
@@ -318,13 +319,30 @@ impl<'a> TextAnnotations<'a> {
             .filter(|c| c.range.start <= char_idx)
     }
 
-    /// The final line ending belongs to the visible folded header as well.
-    pub fn checkpoint_anchor(&self, char_idx: usize) -> usize {
-        let index = self.conceals.partition_point(|c| c.range.end < char_idx);
-        self.conceals
-            .get(index)
-            .filter(|c| c.range.start <= char_idx)
-            .map_or(char_idx, |c| c.range.start)
+    /// Find the source checkpoint for a display block. The visible suffix of a
+    /// folded region shares its header's block, including chained folds on that
+    /// suffix (for example `} else {`).
+    pub fn checkpoint_anchor(&self, text: RopeSlice, mut char_idx: usize) -> usize {
+        loop {
+            let index = self.conceals.partition_point(|c| c.range.start < char_idx);
+            let Some(previous) = self.conceals[..index].last() else {
+                return char_idx;
+            };
+            let line_start = text.line_to_char_idx(text.char_to_line_idx(char_idx));
+            if previous.range.end < line_start {
+                return char_idx;
+            }
+            char_idx = previous.range.start;
+        }
+    }
+
+    /// End of the last source line joined into a display block by concealment.
+    pub fn block_end(&self, text: RopeSlice, char_idx: usize) -> usize {
+        let mut end = line_end_char_index(&text, text.char_to_line_idx(char_idx));
+        while let Some(conceal) = self.conceal_at(end) {
+            end = line_end_char_index(&text, text.char_to_line_idx(conceal.range.end));
+        }
+        end
     }
 
     /// Skip inline text and overlays hidden by a conceal without resetting line

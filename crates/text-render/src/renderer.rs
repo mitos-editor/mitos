@@ -25,7 +25,8 @@ pub struct LinePos {
     /// Indicates whether the given visual line
     /// is the first visual line of the given document line
     pub first_visual_line: bool,
-    /// The line index of the document line that contains the given visual line
+    /// Source line beginning the display block. Folded closing-line suffixes
+    /// share the header's line number, including when they wrap.
     pub doc_line: usize,
     /// Vertical offset from the top of the inner view area
     pub visual_line: u16,
@@ -87,13 +88,13 @@ pub fn render_text(
 
         // if the end of the viewport is reached stop rendering
         if grapheme.visual_pos.row as u16 >= renderer.viewport.height + renderer.offset.row as u16 {
-            last_line_pos.is_last_visual_line = last_line_pos.doc_line != grapheme.line_idx;
+            last_line_pos.is_last_visual_line = last_line_pos.doc_line != grapheme.block_line_idx;
             break;
         }
 
         // apply decorations before rendering a new line
         if grapheme.visual_pos.row as u16 != last_line_pos.visual_line {
-            if last_line_pos.doc_line == grapheme.line_idx {
+            if last_line_pos.doc_line == grapheme.block_line_idx {
                 last_line_pos.is_last_visual_line = false;
             }
 
@@ -108,8 +109,8 @@ pub fn render_text(
                 decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
             }
             last_line_pos = LinePos {
-                first_visual_line: grapheme.line_idx != last_line_pos.doc_line,
-                doc_line: grapheme.line_idx,
+                first_visual_line: grapheme.block_line_idx != last_line_pos.doc_line,
+                doc_line: grapheme.block_line_idx,
                 visual_line: grapheme.visual_pos.row as u16,
                 is_last_visual_line: true,
             };

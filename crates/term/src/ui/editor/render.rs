@@ -295,7 +295,7 @@ impl PaneRenderer {
         }
 
         if is_focused && config.cursor.highlight_line {
-            decorations.add_decoration(Self::cursorline(doc, view, theme));
+            decorations.add_decoration(Self::cursorline(doc, view, theme, &layout));
         }
 
         if is_focused && config.cursor.highlight_column {
@@ -373,8 +373,8 @@ impl PaneRenderer {
                 editor,
                 doc,
                 view,
-                area,
                 theme,
+                &layout,
                 is_focused & options.terminal_focused,
                 &mut decorations,
             );
@@ -713,16 +713,17 @@ impl PaneRenderer {
         editor: &'d Editor,
         doc: &'d Document,
         view: &View,
-        viewport: Rect,
         theme: &Theme,
+        layout: &view::view::ViewLayout,
         is_focused: bool,
         decoration_manager: &mut DecorationManager<'d>,
     ) {
+        let viewport = view.content_area(doc);
         let text = doc.text().slice(..);
         let cursors: Rc<[_]> = doc
             .selection(view.id)
             .iter()
-            .map(|range| range.cursor_line(text))
+            .map(|range| layout.block_line_at_pos(range.cursor(text)))
             .collect();
 
         let mut offset = 0;
@@ -839,10 +840,15 @@ impl PaneRenderer {
     }
 
     /// Apply the highlighting on the lines where a cursor is active
-    fn cursorline(doc: &Document, view: &View, theme: &Theme) -> impl Decoration + use<> {
+    fn cursorline(
+        doc: &Document,
+        view: &View,
+        theme: &Theme,
+        layout: &view::view::ViewLayout,
+    ) -> impl Decoration + use<> {
         let text = doc.text().slice(..);
         // TODO only highlight the visual line that contains the cursor instead of the full visual line
-        let primary_line = doc.selection(view.id).primary().cursor_line(text);
+        let primary_line = layout.block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
         // The secondary_lines do contain the primary_line, it doesn't matter
         // as the else-if clause in the loop later won't test for the
@@ -853,7 +859,7 @@ impl PaneRenderer {
         let secondary_lines: Vec<_> = doc
             .selection(view.id)
             .iter()
-            .map(|range| range.cursor_line(text))
+            .map(|range| layout.block_line_at_pos(range.cursor(text)))
             .collect();
 
         let primary_style = theme.get("ui.cursorline.primary");
