@@ -48,7 +48,7 @@ pub fn increment(selected_text: &str, amount: i64) -> Option<String> {
             (true, false) => number.len() - 1,
             (false, true) => number.len() + 1,
             _ => number.len(),
-        } - separator_rtl_indexes.len();
+        };
 
         if number.starts_with('0') || number.starts_with("-0") {
             format!("{:01$}", new_value, format_length)
@@ -58,8 +58,11 @@ pub fn increment(selected_text: &str, amount: i64) -> Option<String> {
     } else {
         let number = &word[2..];
         let value = u128::from_str_radix(number, radix).ok()?;
-        let new_value = (value as i128).saturating_add(amount as i128);
-        let new_value = if new_value < 0 { 0 } else { new_value };
+        let new_value = if amount >= 0 {
+            value.saturating_add(amount as u128)
+        } else {
+            value.saturating_sub(amount.unsigned_abs() as u128)
+        };
         let format_length = selected_text.len() - 2 - separator_rtl_indexes.len();
 
         match radix {
@@ -83,11 +86,17 @@ pub fn increment(selected_text: &str, amount: i64) -> Option<String> {
         }
     };
 
+    let prefix_length = if radix == 10 {
+        usize::from(new_text.starts_with('-'))
+    } else {
+        2
+    };
+
     // Add separators from original number.
     for &rtl_index in &separator_rtl_indexes {
         if rtl_index < new_text.len() {
             let new_index = new_text.len().saturating_sub(rtl_index);
-            if new_index > 0 {
+            if new_index > prefix_length {
                 new_text.insert(new_index, SEPARATOR);
             }
         }
@@ -100,8 +109,9 @@ pub fn increment(selected_text: &str, amount: i64) -> Option<String> {
             _ => separator_rtl_indexes[0],
         };
 
-        let prefix_length = if radix == 10 { 0 } else { 2 };
-        if let Some(mut index) = new_text.find(SEPARATOR) {
+        if spacing > 0
+            && let Some(mut index) = new_text.find(SEPARATOR)
+        {
             while index - prefix_length > spacing {
                 index -= spacing;
                 new_text.insert(index, SEPARATOR);
@@ -231,5 +241,32 @@ mod test {
         assert_eq!(increment("9_", 1), None);
         assert_eq!(increment("_9", 1), None);
         assert_eq!(increment("_9_", 1), None);
+    }
+
+    #[test]
+    fn increment_preserves_separators_and_unsigned_values() {
+        for (input, amount, expected) in [
+            ("9__99", 1, "10__00"),
+            ("1_00_000", 1, "1_00_001"),
+            ("-1_000", 1, "-999"),
+            ("000_000_001", 1, "000_000_002"),
+            (
+                "0xffffffffffffffffffffffffffffffff",
+                -1,
+                "0xfffffffffffffffffffffffffffffffe",
+            ),
+            (
+                "0xffffffffffffffffffffffffffffffff",
+                1,
+                "0xffffffffffffffffffffffffffffffff",
+            ),
+            ("0x0005", -10, "0x0000"),
+        ] {
+            assert_eq!(
+                increment(input, amount).as_deref(),
+                Some(expected),
+                "{input}"
+            );
+        }
     }
 }
