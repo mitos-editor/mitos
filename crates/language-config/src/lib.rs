@@ -228,6 +228,11 @@ impl<'de> Deserialize<'de> for FileType {
             {
                 match map.next_entry::<String, String>()? {
                     Some((key, mut glob)) if key == "glob" => {
+                        // GNU Stow's --dotfiles mode replaces a leading period with "dot-".
+                        if let Some(rest) = glob.strip_prefix('.') {
+                            glob = format!("{{.,dot-}}{rest}");
+                        }
+
                         // If the glob isn't an absolute path or already starts
                         // with a glob pattern, add a leading glob so we
                         // properly match relative paths.

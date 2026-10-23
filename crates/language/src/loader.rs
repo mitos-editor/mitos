@@ -229,6 +229,12 @@ language-servers = {entries}
         }
         let loader = default_lang_loader(Resources::new(Vec::new()));
         for (path, expected) in [
+            ("/project/.bashrc", "bash"),
+            ("/project/dot-bashrc", "bash"),
+            ("/project/.git/config", "git-config"),
+            ("/project/dot-git/config", "git-config"),
+            ("/project/.config/fish/config.fish", "fish"),
+            ("/project/dot-config/fish/config.fish", "fish"),
             ("/project/docs/page.mdx", "mdx"),
             ("/project/docs/page.md", "markdown"),
             ("/project/config.yaml", "yaml"),
