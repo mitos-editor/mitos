@@ -19,6 +19,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
     let mut fail_variables = false;
     let mut child_request = None;
     let mut stack_count = 1;
+    let mut stack_frames: Option<Vec<Value>> = None;
     let mut adapter_source = false;
     let mut source_path = Value::Null;
     let mut nested_value = "nested value";
@@ -58,6 +59,7 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
             hold_variables = message["arguments"]["holdVariables"] == true;
             fail_variables = message["arguments"]["failVariables"] == true;
             source_path = message["arguments"]["sourcePath"].clone();
+            stack_frames = message["arguments"]["stackFrames"].as_array().cloned();
         }
         if hold_variables && command == "variables" {
             hold_variables = false;
@@ -84,6 +86,15 @@ fn serve(mut input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> 
                 json!({"result":"updated","variablesReference":0})
             }
             "threads" => json!({"threads":[{"id":1,"name":"main"}]}),
+            "stackTrace" if stack_frames.is_some() => {
+                let frames = stack_frames.as_ref().unwrap();
+                let start = (message["arguments"]["startFrame"].as_u64().unwrap_or(0) as usize)
+                    .min(frames.len());
+                let levels = message["arguments"]["levels"]
+                    .as_u64()
+                    .unwrap_or(frames.len() as u64) as usize;
+                json!({"stackFrames":frames[start..frames.len().min(start.saturating_add(levels))],"totalFrames":frames.len()})
+            }
             "stackTrace" => {
                 let start = message["arguments"]["startFrame"].as_u64().unwrap_or(0) as usize;
                 let levels = message["arguments"]["levels"]

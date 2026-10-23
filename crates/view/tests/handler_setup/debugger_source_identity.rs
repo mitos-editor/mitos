@@ -22,6 +22,7 @@ async fn adapter_file_paths_use_the_same_identity_as_opened_documents() -> anyho
     .await?;
     let doc = f.editor.document(document).unwrap();
     assert!(f.editor.debugger_frame_in_document(doc).is_some());
+    assert_eq!(f.editor.debugger_execution_line(doc), Some(0));
     Ok(())
 }
 
@@ -68,6 +69,11 @@ async fn adapter_changes_revoke_source_handles_without_destroying_historical_doc
     let source = f.editor.debugger_source(document).unwrap();
     assert!(source.is_current(&f.editor));
     assert!(source.local_path().is_none());
+    assert_eq!(
+        f.editor
+            .debugger_execution_line(f.editor.document(document).unwrap()),
+        Some(0)
+    );
     assert!(!source.is_current(&Fixture::new("")?.editor));
     f.editor
         .handle_debugger_message(
@@ -80,6 +86,10 @@ async fn adapter_changes_revoke_source_handles_without_destroying_historical_doc
         .await;
     assert!(!source.is_current(&f.editor));
     assert!(f.editor.debugger_source(document).is_none());
+    assert!(f
+        .editor
+        .debugger_execution_line(f.editor.document(document).unwrap())
+        .is_none());
     assert_eq!(f.editor.document(document).unwrap().text(), "snapshot");
     let frames = f.editor.debugger_stack_frames()?;
     f.editor.select_debugger_frame(&frames.context, 0)?;
@@ -100,5 +110,29 @@ async fn adapter_changes_revoke_source_handles_without_destroying_historical_doc
         .await;
     assert!(!refreshed.is_current(&f.editor));
     assert_eq!(f.editor.document(document).unwrap().text(), "snapshot");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn execution_lines_reject_unknown_and_out_of_bounds_adapter_locations() -> anyhow::Result<()>
+{
+    for line in [0, 2, usize::MAX] {
+        let mut f = Fixture::new("answer")?;
+        let document = current_ref!(f.editor).1.id();
+        let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+        paused_adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                stack_source: Some(path),
+                stack_line: Some(line),
+                ..Default::default()
+            },
+        )
+        .await?;
+        assert!(f
+            .editor
+            .debugger_execution_line(f.editor.document(document).unwrap())
+            .is_none());
+    }
     Ok(())
 }

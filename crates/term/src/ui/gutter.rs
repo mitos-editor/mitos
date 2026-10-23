@@ -377,16 +377,13 @@ fn execution_pause_indicator<'doc>(
     editor: &'doc Editor,
     doc: PresentedDocument<'doc>,
     theme: &Theme,
-    is_focused: bool,
 ) -> GutterFn<'doc> {
     let style = theme.get("ui.debug.active");
-    let frame_line = editor
-        .debugger_frame_in_document(doc.source())
-        .and_then(|frame| view::debugger::source::line_index(frame.line));
+    let frame_line = editor.debugger_execution_line(doc.source());
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
-            if !first_visual_line || !is_focused || line != frame_line? {
+            if !first_visual_line || line != frame_line? {
                 return None;
             }
 
@@ -406,7 +403,7 @@ fn diagnostics_or_breakpoints<'doc>(
 ) -> GutterFn<'doc> {
     let mut diagnostics = diagnostic(editor, doc, view, theme, is_focused);
     let mut breakpoints = breakpoints(editor, doc, view, theme, is_focused);
-    let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
+    let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme);
     let mut lenses = code_lens(editor, doc, theme);
 
     Box::new(move |line, selected, first_visual_line: bool, out| {

@@ -178,6 +178,20 @@ impl crate::Editor {
         source.matches_frame(session.id(), frame).then_some(frame)
     }
 
+    /// A paused frame's visible source line. Unsaved edits have no reliable
+    /// correspondence with the adapter's source coordinates.
+    pub fn debugger_execution_line(&self, doc: &crate::Document) -> Option<usize> {
+        if doc.is_modified()
+            || self.debugger.get_active_session()?.status() != super::DebugSessionStatus::Stopped
+        {
+            return None;
+        }
+        let line = line_index(self.debugger_frame_in_document(doc)?.line)?;
+        doc.text()
+            .get_line(line, stdx::rope::LINE_TYPE)
+            .map(|_| line)
+    }
+
     pub(crate) fn navigate_debugger_frame(&mut self, id: dap::DebugAdapterId, frame: &StackFrame) {
         if !self
             .debugger
