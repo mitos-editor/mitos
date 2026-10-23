@@ -617,11 +617,20 @@ impl Default for LspMessagesConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PopupPosition {
+    #[default]
+    Above,
+    Below,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspSignatureHelpConfig {
     pub auto_trigger: bool,
     pub show_documentation: bool,
+    pub position: PopupPosition,
 }
 
 impl Default for LspSignatureHelpConfig {
@@ -629,6 +638,7 @@ impl Default for LspSignatureHelpConfig {
         Self {
             auto_trigger: true,
             show_documentation: true,
+            position: PopupPosition::Above,
         }
     }
 }

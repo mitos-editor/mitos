@@ -358,6 +358,7 @@ Available statusline elements:
 | `progress.enable` | boolean | `false` | Show `$/progress` messages below the statusline. |
 | `messages.enable` | boolean | `true` | Show `window/showMessage` messages below the statusline. |
 | `signature-help.auto-trigger` | boolean | `true` | Open signature help automatically. |
+| `signature-help.position` | `"above"` or `"below"` | `"above"` | Preferred position for signature help; falls back when space is limited. |
 | `signature-help.show-documentation` | boolean | `true` | Show documentation in signature help. |
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
