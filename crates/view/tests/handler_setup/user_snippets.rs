@@ -427,8 +427,12 @@ async fn embedded_languages_select_their_own_snippets_and_comment_variables() ->
 #[tokio::test(flavor = "multi_thread")]
 async fn split_files_work_on_first_completion_and_reload_as_one_catalog() -> anyhow::Result<()> {
     let mut f = disk_fixture().await?;
-    let global = f.dir.path().join("user-snippets/team");
-    let project = f.dir.path().join(".mitos/snippets");
+    let global = f.dir.path().join("user-snippets").join("team");
+    let project = current_ref!(f.editor)
+        .1
+        .workspace_root()
+        .join(".mitos")
+        .join("snippets");
     std::fs::create_dir_all(&global)?;
     std::fs::create_dir_all(&project)?;
     std::fs::write(
