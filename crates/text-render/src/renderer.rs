@@ -3,7 +3,7 @@ use stdx::rope::RopeExt as _;
 use text_layout::DisplayPosition;
 
 use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
-use editor_core::graphemes::Grapheme;
+use editor_core::graphemes::{render_grapheme, Grapheme};
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
@@ -338,10 +338,11 @@ impl<'a> TextRenderer<'a> {
             Grapheme::Newline => " ",
         };
 
+        let grapheme = render_grapheme(grapheme);
         self.surface.set_string(
             self.viewport.x + col,
             self.viewport.y + row,
-            grapheme,
+            &grapheme,
             style,
         );
         true
@@ -425,6 +426,7 @@ impl<'a> TextRenderer<'a> {
         let in_bounds = self.column_in_bounds(position.col, width);
 
         if in_bounds {
+            let grapheme = render_grapheme(grapheme);
             let x = self.viewport.x + (position.col - self.offset.col) as u16;
             let y = self.viewport.y + position.row as u16;
             if is_tab || (is_whitespace && grapheme == " ") {
@@ -434,12 +436,12 @@ impl<'a> TextRenderer<'a> {
                     self.surface,
                     x,
                     y,
-                    grapheme,
+                    &grapheme,
                     style,
                     grapheme_style.overlay_style,
                 );
             } else {
-                self.surface.set_grapheme(x, y, grapheme, width, style);
+                self.surface.set_grapheme(x, y, &grapheme, width, style);
             }
         } else if is_tab && position.col < self.offset.col + self.viewport.width as usize {
             // Tabs are individual cells, so either edge can clip their marker/padding.
@@ -449,11 +451,12 @@ impl<'a> TextRenderer<'a> {
             if start < end {
                 let from = char_to_byte_idx(grapheme, start);
                 let to = char_to_byte_idx(grapheme, end);
+                let grapheme = render_grapheme(&grapheme[from..to]);
                 Self::draw_whitespace(
                     self.surface,
                     self.viewport.x + position.col.saturating_sub(self.offset.col) as u16,
                     self.viewport.y + position.row as u16,
-                    &grapheme[from..to],
+                    &grapheme,
                     style,
                     grapheme_style.overlay_style,
                 );
@@ -632,6 +635,28 @@ mod whitespace_tests {
     use super::*;
     use editor_core::Rope;
     use ratatui_core::style::Color;
+
+    #[test]
+    fn control_text_renders_as_visible_cells() {
+        let surface = render("a\x01\x1b\x7f\u{80}b", "", 20, false, 0);
+        let text: String = (0..6).map(|x| surface[(x, 0)].symbol()).collect();
+        assert_eq!(text, "a����b");
+    }
+
+    #[test]
+    fn controls_keep_their_positions_when_horizontally_clipped() {
+        let text = "prefix\0\x1b\x7f\u{80}tail";
+        assert_eq!(row(&render(text, "", 4, false, 6), 0), "����");
+        assert_eq!(row(&render(text, "", 4, false, 10), 0), "tail");
+    }
+
+    #[test]
+    fn virtual_controls_render_as_visible_cells() {
+        use text_layout::text_annotations::InlineAnnotation;
+        let annotations = [InlineAnnotation::new(1, "\x1b\u{80}")];
+        let surface = render_with_annotations("ab", "", 4, false, 0, &annotations);
+        assert_eq!(row(&surface, 0), "a��b");
+    }
 
     fn render(text: &str, settings: &str, width: u16, wrap: bool, offset: usize) -> Surface {
         render_with_annotations(text, settings, width, wrap, offset, &[])
