@@ -260,3 +260,26 @@ async fn nested_insertion_removes_replaced_children_and_preserves_later_parents(
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typing_over_a_parent_skips_its_removed_placeholders() -> anyhow::Result<()> {
+    let mut f = Fixture::new("\n")?;
+    f.editor.insert_snippet(&snippets::Snippet::parse(
+        "${1:before ${2:child}} ${3:after}$0",
+    )?)?;
+    f.editor.insert_char('x')?;
+    assert_eq!(
+        f.editor.move_snippet_tabstop(Direction::Forward),
+        SnippetNavigation::Moved
+    );
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .fragment(doc.text().slice(..)),
+        "after"
+    );
+    f.editor.insert_char('y')?;
+    assert_eq!(current_ref!(f.editor).1.text(), "x y\n");
+    Ok(())
+}

@@ -105,6 +105,24 @@ impl ActiveSnippet {
     /// Returns `true` once every outer snippet range has collapsed or inverted,
     /// which tells the caller that the interactive session can be discarded.
     pub fn map(&mut self, changes: &ChangeSet) -> bool {
+        let deletions: Vec<_> = changes
+            .changes_iter()
+            .filter_map(|(start, end, _)| (start < end).then_some(Range { start, end }))
+            .collect();
+        let descendants: Vec<_> = self
+            .tabstops
+            .iter()
+            .map(|tabstop| {
+                let mut parent = tabstop.parent;
+                while let Some(index) = parent {
+                    if index == self.current_tabstop {
+                        return true;
+                    }
+                    parent = self[index].parent;
+                }
+                false
+            })
+            .collect();
         let positions_to_map = self.ranges.iter_mut().flat_map(|range| {
             [
                 (&mut range.start, Assoc::After),
@@ -113,7 +131,20 @@ impl ActiveSnippet {
         });
         changes.update_positions(positions_to_map);
 
+        let tabstop_count = self.tabstops.len();
         for (i, tabstop) in self.tabstops.iter_mut().enumerate() {
+            // Typing over an outer placeholder removes the tabstops in its
+            // default, but keeps the final cursor and unaffected cursor instances.
+            let overwritten: smallvec::SmallVec<[bool; 1]> = tabstop
+                .ranges
+                .iter()
+                .map(|range| {
+                    i + 1 != tabstop_count
+                        && descendants[i]
+                        && deletions.iter().any(|deletion| deletion.contains(*range))
+                })
+                .collect();
+
             if self.active_tabstops.contains(&TabstopIdx(i)) {
                 let positions_to_map = tabstop.ranges.iter_mut().flat_map(|range| {
                     [
@@ -142,8 +173,8 @@ impl ActiveSnippet {
             tabstop.ranges.retain_mut(|range| {
                 let owner = tabstop.instances[range_index];
                 let snippet_range = &self.ranges[owner];
+                let retain = snippet_range.start <= snippet_range.end && !overwritten[range_index];
                 range_index += 1;
-                let retain = snippet_range.start <= snippet_range.end;
                 if retain {
                     owners.push(owner);
                     // guaranteed by assoc
@@ -217,7 +248,9 @@ impl ActiveSnippet {
 
     fn activate_tabstop(&mut self) -> bool {
         // We can activate a tabstop if are not at the final one
-        if self.current_tabstop.0 == self.tabstops.len() - 1 {
+        if self.current_tabstop.0 == self.tabstops.len() - 1
+            || self[self.current_tabstop].ranges.is_empty()
+        {
             return false;
         }
         self.active_tabstops.clear();
