@@ -11,6 +11,7 @@ pub struct Options {
     pub hidden: bool,
     pub parents: bool,
     pub ignore: bool,
+    pub require_git: bool,
     pub follow_symlinks: bool,
     pub deduplicate_links: bool,
     pub git_ignore: bool,
@@ -27,6 +28,7 @@ impl Default for Options {
             hidden: true,
             parents: true,
             ignore: true,
+            require_git: true,
             follow_symlinks: true,
             deduplicate_links: true,
             git_ignore: true,
@@ -50,6 +52,7 @@ impl Options {
             .parents(self.parents)
             .ignore(self.ignore)
             .follow_links(self.follow_symlinks)
+            .require_git(self.require_git)
             .git_ignore(self.git_ignore)
             .git_global(self.git_global)
             .git_exclude(self.git_exclude)
@@ -96,6 +99,30 @@ fn should_include(entry: &DirEntry, root: &Path, dedup_symlinks: bool, exclude_v
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_ignore_can_apply_outside_repositories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        std::fs::write(dir.path().join("ignored.txt"), "text").unwrap();
+        let mut options = Options {
+            parents: false,
+            git_global: false,
+            ..Options::default()
+        };
+        let visible = |options: &Options| {
+            options
+                .walker(dir.path())
+                .build()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name() == "ignored.txt")
+        };
+        assert!(visible(&options));
+        options.require_git = false;
+        assert!(!visible(&options));
+        options.git_ignore = false;
+        assert!(visible(&options));
+    }
 
     #[test]
     fn workspace_and_directory_walks_respect_metadata_and_depth_policies() {
