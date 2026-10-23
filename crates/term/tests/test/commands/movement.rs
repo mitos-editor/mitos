@@ -199,6 +199,37 @@ async fn test_move_parent_node_start() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn goto_comments_across_injected_layers() -> anyhow::Result<()> {
+    for (file, input, keys, expected) in [
+        (
+            "foo.scm",
+            "#[|]#(define x 1)\n; one\n(define y 2)\n; two\n",
+            "]c]c",
+            "(define x 1)\n; one\n(define y 2)\n#[; two|]#\n",
+        ),
+        (
+            "foo.scm",
+            "(define x 1)\n; one\n(define y 2)\n; two#[|]#\n",
+            "[c[c",
+            "(define x 1)\n#[|; one]#\n(define y 2)\n; two\n",
+        ),
+        (
+            "queries/c/tags.scm",
+            "#[|]#(identifier) @type\n; one\n(identifier) @type\n; two\n",
+            "]c]c",
+            "(identifier) @type\n; one\n(identifier) @type\n#[; two|]#\n",
+        ),
+    ] {
+        test_with_config(
+            AppBuilder::new().with_file(file, None),
+            (input, keys, expected),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
     let tests = vec![
         // single cursor stays single cursor, first goes to end of current
