@@ -59,9 +59,7 @@ impl Application {
                         if let Some(update) = self
                             .editor
                             .handle_language_server_progress(server_id, params)
-                            && !self
-                                .compositor
-                                .has_component(std::any::type_name::<ui::Prompt>())
+                            && !self.compositor.has_component::<ui::Prompt>()
                             && self.editor.config().lsp.progress.enable
                         {
                             if let Some(message) = update.message {

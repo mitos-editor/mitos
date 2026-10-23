@@ -86,10 +86,6 @@ pub trait Component: Any + AnyComponent {
         None
     }
 
-    fn type_name(&self) -> &'static str {
-        std::any::type_name::<Self>()
-    }
-
     fn id(&self) -> Option<&'static str> {
         None
     }
@@ -182,9 +178,8 @@ impl Compositor {
     }
 
     pub fn remove_type<T: 'static>(&mut self) {
-        let type_name = std::any::type_name::<T>();
         self.layers
-            .retain(|component| component.type_name() != type_name);
+            .retain(|component| !component.as_any().is::<T>());
         self.refresh_prompt_sessions();
     }
 
@@ -267,18 +262,16 @@ impl Compositor {
         })
     }
 
-    pub fn has_component(&self, type_name: &str) -> bool {
+    pub fn has_component<T: Any>(&self) -> bool {
         self.layers
             .iter()
-            .any(|component| component.type_name() == type_name)
+            .any(|component| component.as_any().is::<T>())
     }
 
     pub fn find<T: 'static>(&mut self) -> Option<&mut T> {
-        let type_name = std::any::type_name::<T>();
         self.layers
             .iter_mut()
-            .find(|component| component.type_name() == type_name)
-            .and_then(|component| component.as_any_mut().downcast_mut())
+            .find_map(|component| component.as_any_mut().downcast_mut())
     }
 
     pub fn find_id<T: 'static>(&mut self, id: &'static str) -> Option<&mut T> {
