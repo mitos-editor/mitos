@@ -43,7 +43,8 @@ fn request_document_colors(
     exited_server: Option<lsp_client::LanguageServerId>,
 ) {
     let callbacks = editor.handlers.document_colors.callbacks.clone();
-    if !editor.config().lsp.color_swatches.enable {
+    let config = editor.config();
+    if !config.lsp.color_swatches.enable {
         return;
     }
 
@@ -116,9 +117,11 @@ fn attach_document_colors(
     doc_id: DocumentId,
     mut doc_colors: Vec<(usize, lsp::Color)>,
 ) {
-    if !editor.config().lsp.color_swatches.enable {
+    let config = editor.config();
+    if !config.lsp.color_swatches.enable {
         return;
     }
+    let glyph = &config.lsp.color_swatches.glyph;
 
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
@@ -137,7 +140,7 @@ fn attach_document_colors(
 
     for (pos, color) in doc_colors {
         color_swatches_padding.push(InlineAnnotation::new(pos, " "));
-        color_swatches.push(InlineAnnotation::new(pos, "■"));
+        color_swatches.push(InlineAnnotation::new(pos, glyph.as_str()));
         colors.push(Theme::rgb_highlight(
             (color.red * 255.) as u8,
             (color.green * 255.) as u8,
@@ -200,4 +203,32 @@ pub(crate) fn register_hooks() {
 
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn configured_glyph_is_used_for_attached_colors() {
+        let (mut editor, _store) = crate::editor::tests::editor("#[|r]#ed");
+        let mut settings = (*editor.config()).clone();
+        settings.lsp.color_swatches.glyph = "●".into();
+        editor.config = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(settings));
+        let doc_id = current_ref!(editor).1.id();
+        attach_document_colors(
+            &mut editor,
+            doc_id,
+            vec![(
+                0,
+                lsp::Color {
+                    red: 1.0,
+                    green: 0.0,
+                    blue: 0.0,
+                    alpha: 1.0,
+                },
+            )],
+        );
+        let colors = editor.document(doc_id).unwrap().color_swatches().unwrap();
+        assert_eq!(colors.color_swatches[0].text.as_str(), "●");
+    }
 }

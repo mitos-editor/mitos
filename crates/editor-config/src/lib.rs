@@ -656,11 +656,15 @@ impl Default for LspDocumentHighlightConfig {
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspColorSwatchesConfig {
     pub enable: bool,
+    pub glyph: String,
 }
 
 impl Default for LspColorSwatchesConfig {
     fn default() -> Self {
-        Self { enable: true }
+        Self {
+            enable: true,
+            glyph: "■".into(),
+        }
     }
 }
 

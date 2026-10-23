@@ -362,6 +362,7 @@ Available statusline elements:
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
+| `color-swatches.glyph` | string | `"■"` | Text used for a document color swatch. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
 | `code-lenses.enable` | boolean | `true` | Show code lens labels, such as run or test actions, beside code. Use `Space l` for the commands on the current line. |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
