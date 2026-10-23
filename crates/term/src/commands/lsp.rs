@@ -170,6 +170,7 @@ pub(super) fn jump_to_position(
     offset_encoding: OffsetEncoding,
     action: Action,
 ) {
+    let padding = editor.config().scroll.padding;
     let doc = match editor.open(path, action) {
         Ok(id) => doc_mut!(editor, &id),
         Err(err) => {
@@ -191,6 +192,42 @@ pub(super) fn jump_to_position(
     doc.set_selection(view.id, Selection::single(new_range.head, new_range.anchor));
     if action.align_view(view, doc.id()) {
         align_view(doc, view, Align::Center);
+    }
+    view.ensure_cursor_in_view(doc, padding);
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod jump_visibility_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lsp_jump_reveals_the_target_after_horizontal_scrolling() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let directory = tempfile::tempdir()?;
+        let file = directory.path().join("target.txt");
+        std::fs::write(&file, "abcdef".repeat(80))?;
+        app.editor.open(&file, Action::Replace)?;
+        let (view, doc) = current!(app.editor);
+        let mut offset = doc.view_offset(view.id);
+        offset.horizontal_offset = 100;
+        doc.set_view_offset(view.id, offset);
+        let range = lsp::Range::new(lsp::Position::new(0, 0), lsp::Position::new(0, 3));
+        jump_to_position(
+            &mut app.editor,
+            &file,
+            range,
+            OffsetEncoding::Utf8,
+            Action::Replace,
+        );
+        let (view, doc) = current_ref!(&app.editor);
+        assert_eq!(doc.view_offset(view.id).horizontal_offset, 0);
+        assert_eq!(
+            doc.selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..)),
+            0
+        );
+        Ok(())
     }
 }
 
