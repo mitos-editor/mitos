@@ -39,6 +39,7 @@
 - [Themes](./themes.md)
 - [Key remapping](./remapping.md)
 - [Custom commands](./custom-commands.md)
+- [User-defined snippets](./snippets.md)
 - [Languages](./languages.md)
 - [EditorConfig](./editorconfig.md)
 

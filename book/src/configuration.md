@@ -177,7 +177,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `auto-trigger` | boolean | `true` | Show completion automatically. |
-| `snippets` | boolean | `true` | Offer native [user-defined snippets](./completion.md#user-defined-snippets). |
+| `snippets` | boolean | `true` | Offer [user-defined snippets](./snippets.md). |
 | `word` | table | `{ enable = true, trigger-length = 7 }` | Complete words from open buffers. See [`[editor.completion.word]`](#editorcompletionword). |
 | `trigger-delay` | milliseconds | `250` | Delay after typing a word character before completion is shown; use `5` for effectively immediate completion. |
 | `preview-insert` | boolean | `true` | Temporarily insert the selected completion item while browsing the menu. |
