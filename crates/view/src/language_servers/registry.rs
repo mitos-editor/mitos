@@ -457,7 +457,7 @@ pub fn language_server_root(
         workspace_is_cwd,
     );
     let root_path = root.clone().unwrap_or(workspace);
-    let root_uri = root.and_then(|root| Url::from_file_path(root).ok());
+    let root_uri = Url::from_file_path(&root_path).ok();
     (root_path, root_uri)
 }
 
@@ -537,4 +537,20 @@ fn find_lsp_workspace(
 
     debug_assert!(false, "workspace must be an ancestor of <file>");
     None
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fallback_workspace_has_a_matching_root_uri() {
+        let outside = tempfile::tempdir().unwrap();
+        let language = serde_json::from_value(serde_json::json!({
+            "name": "root-test", "scope": "source.root-test", "file-types": [], "roots": []
+        }))
+        .unwrap();
+        let (path, uri) =
+            super::language_server_root(&language, Some(&outside.path().join("file.test")), &[]);
+        assert_eq!(uri, super::Url::from_file_path(&path).ok());
+        assert!(uri.is_some());
+    }
 }
