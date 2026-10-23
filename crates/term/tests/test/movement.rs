@@ -841,3 +841,24 @@ async fn tree_sitter_motions_work_across_injections() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn match_brackets_at_adjacent_node_boundaries() -> anyhow::Result<()> {
+    for (input, expected) in [
+        (
+            "fn main() { let café = [1, #[[|]#2]]; }",
+            "fn main() { let café = [1, [2#[]|]#]; }",
+        ),
+        (
+            "fn main() { let café = [1, [2#[]|]#]; }",
+            "fn main() { let café = [1, #[[|]#2]]; }",
+        ),
+    ] {
+        test_with_config(
+            AppBuilder::new().with_file("foo.rs", None),
+            (input, "mm", expected),
+        )
+        .await?;
+    }
+    Ok(())
+}
