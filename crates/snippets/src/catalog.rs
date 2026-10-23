@@ -31,6 +31,7 @@ struct Definitions {
 #[serde(deny_unknown_fields)]
 struct Definition {
     name: String,
+    #[serde(default)]
     prefix: Strings,
     body: String,
     #[serde(default)]
@@ -77,9 +78,8 @@ impl Catalog {
             );
             let mut prefixes = definition.prefix.into_vec();
             ensure!(
-                !prefixes.is_empty()
-                    && prefixes.iter().all(|prefix| !prefix.is_empty()
-                        && prefix.chars().all(editor_core::chars::char_is_word)),
+                prefixes.iter().all(|prefix| !prefix.is_empty()
+                    && prefix.chars().all(editor_core::chars::char_is_word)),
                 "snippet {:?}: prefixes must be nonempty words",
                 definition.name
             );
@@ -103,6 +103,19 @@ impl Catalog {
             }));
         }
         Ok(Self { entries })
+    }
+
+    /// Project definitions replace global definitions with the same name.
+    pub fn with_overrides(&self, overrides: &Self) -> Self {
+        let entries: std::collections::BTreeMap<_, _> = self
+            .entries
+            .iter()
+            .chain(&overrides.entries)
+            .map(|entry| (entry.name.clone(), entry.clone()))
+            .collect();
+        Self {
+            entries: entries.into_values().collect(),
+        }
     }
 
     pub fn matching(&self, language: &str) -> impl Iterator<Item = &Arc<UserSnippet>> {
@@ -144,5 +157,28 @@ mod tests {
         ] {
             assert!(Catalog::parse(source).is_err(), "{source}");
         }
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+    #[test]
+    fn override_names_replace_the_entire_definition_and_prefixless_snippets_remain_available() {
+        let global = Catalog::parse("[[snippet]]\nname='same'\nprefix='old'\nscope='first'\nbody='old'\n[[snippet]]\nname='other'\nbody='other'").unwrap();
+        let project =
+            Catalog::parse("[[snippet]]\nname='same'\nscope='second'\nbody='new'").unwrap();
+        let merged = global.with_overrides(&project);
+        assert_eq!(merged.matching("first").count(), 1);
+        let entry = merged
+            .matching("second")
+            .find(|entry| entry.name == "same")
+            .unwrap();
+        assert!(entry.prefixes.is_empty());
+        assert_eq!(entry.body, "new");
+        assert!(Catalog::parse(
+            "[[snippet]]\nname='same'\nbody='one'\n[[snippet]]\nname='same'\nbody='two'"
+        )
+        .is_err());
     }
 }

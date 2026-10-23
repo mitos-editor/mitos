@@ -6,6 +6,23 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Explicit user configuration source; workspace files are relative to each document.
+#[derive(Debug, Clone)]
+pub struct Resources {
+    pub user_file: PathBuf,
+}
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            user_file: user_file(),
+        }
+    }
+}
+
+pub fn workspace_file(root: &Path) -> PathBuf {
+    root.join(".mitos").join("snippets.toml")
+}
+
 pub fn user_file() -> PathBuf {
     crate::config_dir().join("snippets.toml")
 }

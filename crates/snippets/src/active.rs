@@ -5,7 +5,7 @@ use ropey::Rope;
 use stdx::range::is_exact_subset;
 use stdx::Range;
 
-use crate::render::{RenderedSnippet, Tabstop};
+use crate::render::{RenderedSnippet, Tabstop, TabstopKind};
 use crate::TabstopIdx;
 use editor_core::movement::Direction;
 use editor_core::{Assoc, ChangeSet, Selection, Transaction};
@@ -243,6 +243,35 @@ impl ActiveSnippet {
     pub fn tabstop_selection(&self, primary_idx: usize, direction: Direction) -> Selection {
         let tabstop = &self[self.current_tabstop];
         tabstop.selection(direction, primary_idx)
+    }
+
+    /// Replace the current choice at its own ranges, preserving linked instances.
+    pub fn cycle_choice(
+        &self,
+        doc: &Rope,
+        selection: &Selection,
+        direction: Direction,
+    ) -> Option<Transaction> {
+        let TabstopKind::Choice { choices } = &self[self.current_tabstop].kind else {
+            return None;
+        };
+        if choices.is_empty() {
+            return None;
+        }
+        let selection = self.tabstop_selection(self.primary_idx(selection), Direction::Forward);
+        let current = selection.primary().fragment(doc.slice(..));
+        let position = choices.iter().position(|choice| choice.as_str() == current);
+        let next = match direction {
+            Direction::Forward => position.map_or(0, |position| (position + 1) % choices.len()),
+            Direction::Backward => position.map_or(choices.len() - 1, |position| {
+                (position + choices.len() - 1) % choices.len()
+            }),
+        };
+        let transaction = Transaction::change_by_selection(doc, &selection, |range| {
+            (range.from(), range.to(), Some(choices[next].clone()))
+        });
+        let selection = selection.map(transaction.changes());
+        Some(transaction.with_selection(selection))
     }
 
     /// Replaces the current tabstop with a newly rendered nested snippet.

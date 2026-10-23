@@ -74,6 +74,26 @@ impl Document {
         }
     }
 
+    pub(crate) fn snippet_choice_transaction(
+        &self,
+        view: ViewId,
+        direction: Direction,
+    ) -> Option<Transaction> {
+        let session = self
+            .snippet
+            .as_ref()
+            .filter(|session| session.view == view)?;
+        session
+            .active
+            .cycle_choice(self.text(), &self.snippet_selection(view), direction)
+    }
+
+    pub(crate) fn snippet_placeholder_active(&self, view: ViewId) -> bool {
+        self.snippet
+            .as_ref()
+            .is_some_and(|session| session.view == view && session.replace_placeholder)
+    }
+
     pub(crate) fn pending_snippet_placeholder(&self, view: ViewId) -> Option<Transaction> {
         let session = self.snippet.as_ref()?;
         (session.view == view && session.replace_placeholder)

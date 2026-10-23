@@ -182,6 +182,11 @@ impl Registers {
         }
     }
 
+    /// Read the complete system clipboard without splitting saved multi-selection values.
+    pub fn clipboard_contents(&self) -> ::clipboard::Result<String> {
+        self.clipboard.get_contents(ClipboardType::Clipboard)
+    }
+
     pub fn clipboard_provider_name(&self) -> String {
         self.clipboard.name()
     }

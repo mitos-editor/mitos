@@ -3,7 +3,7 @@
 A project can configure programs that Mitos runs. Workspace trust lets you
 review project settings before loading them. The default policy allows language
 servers from your user configuration and debug adapters you launch, but requires
-trust before loading `.mitos/config.toml`, `.mitos/languages.toml`, or
+trust before loading `.mitos/config.toml`, `.mitos/languages.toml`, `.mitos/snippets.toml`, or
 repository-local Git settings that can run external commands.
 
 Trust is not a sandbox for language servers or debug adapters. Those tools may

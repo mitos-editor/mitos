@@ -51,6 +51,30 @@ impl Snippet {
         res
     }
 
+    /// Whether the body or one of its placeholder defaults references a variable.
+    pub fn uses_variable(&self, name: &str) -> bool {
+        fn contains(elements: &[SnippetElement], name: &str) -> bool {
+            elements.iter().any(|element| match element {
+                SnippetElement::Variable {
+                    name: variable,
+                    default,
+                    ..
+                } => {
+                    variable.as_str() == name
+                        || default
+                            .as_deref()
+                            .is_some_and(|elements| contains(elements, name))
+                }
+                _ => false,
+            })
+        }
+        contains(&self.elements, name)
+            || self.tabstops.iter().any(|tabstop| match &tabstop.kind {
+                TabstopKind::Placeholder { default } => contains(default, name),
+                _ => false,
+            })
+    }
+
     /// Returns the normalized top-level elements.
     pub fn elements(&self) -> &[SnippetElement] {
         &self.elements

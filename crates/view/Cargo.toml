@@ -53,6 +53,8 @@ vcs.workspace = true
 
 foldhash.workspace = true
 anyhow.workspace = true
+uuid.workspace = true
+jiff = { workspace = true, features = ["tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo", "tzdb-concatenated"] }
 
 tempfile.workspace = true
 

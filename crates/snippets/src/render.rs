@@ -402,6 +402,12 @@ impl SnippetRender<'_> {
                 self.dst[tabstop].kind = TabstopKind::Placeholder;
                 self.off
             }
+            elaborate::TabstopKind::Choice { choices } => {
+                if let Some(first) = choices.first() {
+                    self.push_multiline_str(first);
+                }
+                self.off
+            }
             _ => start,
         };
         self.dst[tabstop].ranges.push(Range { start, end });

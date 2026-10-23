@@ -363,6 +363,9 @@ impl MappableCommand {
         command_palette => super::palette::command_palette, "Open command palette",
         goto_word => super::navigation::goto_word, "Jump to a two-character label",
         extend_to_word => super::navigation::extend_to_word, "Extend to a two-character label",
+        snippet_picker => super::snippets::snippet_picker, "Choose and insert a user-defined snippet",
+        next_snippet_choice => super::snippets::next_snippet_choice, "Choose the next snippet placeholder value",
+        prev_snippet_choice => super::snippets::prev_snippet_choice, "Choose the previous snippet placeholder value",
         goto_next_tabstop => super::snippets::goto_next_tabstop, "Goto next snippet placeholder",
         goto_prev_tabstop => super::snippets::goto_prev_tabstop, "Goto next snippet placeholder",
         rotate_selections_first => super::selection::rotate_selections_first, "Make the first selection your primary one",
@@ -1359,6 +1362,26 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+    },
+    TypableCommand {
+        name: "snippet-insert", aliases: &[], doc: "Insert a named user-defined snippet at the selections.",
+        fun: super::snippets::typed::insert, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "snippets-reload", aliases: &[], doc: "Reload global and trusted workspace snippet definitions.",
+        fun: super::snippets::typed::reload, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "snippets-open", aliases: &[], doc: "Open the user snippets.toml file.",
+        fun: super::snippets::typed::open, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "snippets-open-workspace", aliases: &[], doc: "Open this document workspace snippets.toml file.",
+        fun: super::snippets::typed::open_workspace, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "config-reload",

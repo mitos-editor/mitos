@@ -168,7 +168,7 @@ impl Editor {
                     encoding,
                     session.trigger.pos,
                     self.config().completion.replace,
-                    &mut doc.snippet_ctx(&text, &selection, self.mode()),
+                    |snippet| self.snippet_context(doc, &text, &selection, snippet),
                 )?;
                 let additional = item
                     .item
@@ -337,7 +337,7 @@ fn lsp_item_to_transaction(
     offset_encoding: OffsetEncoding,
     trigger_offset: usize,
     replace_mode: bool,
-    snippet_ctx: &mut SnippetRenderCtx,
+    snippet_context: impl FnOnce(&Snippet) -> SnippetRenderCtx,
 ) -> Option<(Transaction, Option<RenderedSnippet>)> {
     let text = rope.slice(..);
     let primary_cursor = selection.primary().cursor(text);
@@ -390,7 +390,7 @@ fn lsp_item_to_transaction(
             edit_offset,
             replace_mode,
             &snippet,
-            snippet_ctx,
+            &mut snippet_context(&snippet),
         );
         Some((transaction, Some(snippet)))
     } else {
@@ -503,11 +503,13 @@ mod tests {
                 OffsetEncoding::Utf16,
                 4,
                 replace_mode,
-                &mut doc.snippet_ctx(
-                    doc.text(),
-                    doc.selection(view.id),
-                    crate::document::Mode::Insert,
-                ),
+                |_| {
+                    doc.snippet_ctx(
+                        doc.text(),
+                        doc.selection(view.id),
+                        crate::document::Mode::Insert,
+                    )
+                },
             )
             .unwrap();
             let mut text = doc.text().clone();

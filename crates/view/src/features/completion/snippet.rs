@@ -17,12 +17,13 @@ pub(super) fn completion(
     let (view, doc) = current_ref!(editor);
     let text = doc.text();
     let selection = doc.selection(view.id);
-    let language = doc
-        .language_name()
-        .unwrap_or(crate::document::DEFAULT_LANGUAGE_NAME);
-    let mut context = doc.snippet_ctx(text, selection, editor.mode());
+    let language = crate::features::snippets::language_scope(doc, view.id);
     let mut items = Vec::new();
     for entry in catalog.matching(language) {
+        if entry.prefixes.is_empty() {
+            continue;
+        }
+        let mut context = editor.snippet_context(doc, text, selection, &entry.snippet);
         let (transaction, rendered) = crate::editing::completion::generate_transaction_from_snippet(
             text,
             selection,

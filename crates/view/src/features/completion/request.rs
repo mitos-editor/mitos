@@ -184,7 +184,7 @@ pub(super) fn request_completions(
         return false;
     }
     let catalog = if editor.config().completion.snippets {
-        editor.user_snippets()
+        editor.snippet_catalog_for(trigger.doc)
     } else {
         Arc::default()
     };

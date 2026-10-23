@@ -18,18 +18,26 @@ impl Document {
         let selection = selection.clone();
         let path = self.path().map(std::path::Path::to_path_buf);
         let workspace = self.workspace_root().to_path_buf();
-        let line_comment = self
-            .language_config()
-            .and_then(|language| language.comment_tokens.as_ref()?.first().cloned());
-        let block_comment = self
-            .language_config()
-            .and_then(|language| language.block_comment_tokens.as_ref()?.first().cloned());
+        let comments: Vec<_> = selection
+            .iter()
+            .map(|range| {
+                let cursor = range.cursor(text.slice(..));
+                let byte = text.char_to_byte_idx(cursor).min(self.text().len());
+                let language = self.language_config_at(byte);
+                (
+                    language
+                        .and_then(|language| language.comment_tokens.as_ref()?.first().cloned()),
+                    language.and_then(|language| {
+                        language.block_comment_tokens.as_ref()?.first().cloned()
+                    }),
+                )
+            })
+            .collect();
         snippets::SnippetRenderCtx {
             resolve_var: Box::new(move |name, index| {
                 let range = selection.ranges().get(index)?;
                 let cursor = range.cursor(text.slice(..));
                 let line_index = text.char_to_line_idx(cursor);
-                let line = text.line(line_index, stdx::rope::LINE_TYPE);
                 let value = match name {
                     "TM_SELECTED_TEXT" | "SELECTION" => {
                         if range.is_empty()
@@ -39,7 +47,11 @@ impl Document {
                         }
                         range.fragment(text.slice(..)).into_owned()
                     }
-                    "TM_CURRENT_LINE" => line.to_string().trim_end_matches(['\r', '\n']).to_owned(),
+                    "TM_CURRENT_LINE" => editor_core::line_ending::line_without_line_ending(
+                        &text.slice(..),
+                        line_index,
+                    )
+                    .to_string(),
                     "TM_CURRENT_WORD" => {
                         let before = text
                             .slice_chars(..cursor)
@@ -75,9 +87,9 @@ impl Document {
                     }
                     "WORKSPACE_NAME" => workspace.file_name()?.to_string_lossy().into_owned(),
                     "WORKSPACE_FOLDER" => workspace.to_string_lossy().into_owned(),
-                    "LINE_COMMENT" => line_comment.clone()?,
-                    "BLOCK_COMMENT_START" => block_comment.as_ref()?.start.clone(),
-                    "BLOCK_COMMENT_END" => block_comment.as_ref()?.end.clone(),
+                    "LINE_COMMENT" => comments.get(index)?.0.clone()?,
+                    "BLOCK_COMMENT_START" => comments.get(index)?.1.as_ref()?.start.clone(),
+                    "BLOCK_COMMENT_END" => comments.get(index)?.1.as_ref()?.end.clone(),
                     _ => return None,
                 };
                 Some(Cow::Owned(value))

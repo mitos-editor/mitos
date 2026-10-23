@@ -182,11 +182,24 @@ pub struct CompletionSession {
     cancel: TaskHandle,
     trigger: Trigger,
     uri: Option<Uri>,
+    snippet_scope: String,
+    local_snippets_trusted: bool,
 }
 
 impl CompletionSession {
     fn new(editor: &mut Editor, trigger: Trigger, epoch: u64) -> Self {
         let uri = editor.document(trigger.doc).and_then(|doc| doc.uri());
+        let doc = editor
+            .document(trigger.doc)
+            .expect("completion document exists");
+        let snippet_scope = crate::features::snippets::language_scope(doc, trigger.view).to_owned();
+        let local_snippets_trusted = editor
+            .workspace_trust
+            .query(
+                doc.workspace_root(),
+                workspace::trust::TrustQuery::LocalConfig,
+            )
+            .is_trusted();
         let handler = &mut editor.handlers.completions;
         *handler.shared.trigger.lock() = Some(trigger);
         Self {
@@ -195,6 +208,8 @@ impl CompletionSession {
             cancel: handler.session_controller.restart(),
             trigger,
             uri,
+            snippet_scope,
+            local_snippets_trusted,
         }
     }
 
@@ -232,7 +247,19 @@ impl CompletionSession {
                         )
                         .any(|server| server.id() == id)
             }
-            CompletionProvider::Snippet => editor.config().completion.snippets,
+            CompletionProvider::Snippet => {
+                editor.config().completion.snippets
+                    && crate::features::snippets::language_scope(doc, self.trigger.view)
+                        == self.snippet_scope
+                    && editor
+                        .workspace_trust
+                        .query(
+                            doc.workspace_root(),
+                            workspace::trust::TrustQuery::LocalConfig,
+                        )
+                        .is_trusted()
+                        == self.local_snippets_trusted
+            }
             CompletionProvider::Path => doc.path_completion_enabled(),
             CompletionProvider::Word => doc.word_completion_enabled(),
         }

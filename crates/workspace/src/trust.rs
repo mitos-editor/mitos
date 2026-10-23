@@ -167,7 +167,7 @@ pub struct WorkspaceTrust {
 #[derive(Clone, Copy)]
 struct CacheEntry {
     status: TrustStatus,
-    /// Whether `.mitos/config.toml` or `.mitos/languages.toml` exists in the workspace at the time
+    /// Whether a supported workspace-local configuration file exists in the workspace at the time
     /// of the first uncached query. Snapshotted to keep [`WorkspaceTrust::workspace_restricted`]
     /// off the syscall path on repeat calls (statusline indicator runs per render).
     has_local_config: bool,
@@ -404,6 +404,11 @@ impl WorkspaceTrust {
         true
     }
 
+    /// Re-read a workspace's trust grant after external configuration changes.
+    pub fn invalidate(&self, workspace: &Path) {
+        self.inner.lock().remove(workspace);
+    }
+
     /// Revoke any persisted trust grant or exclusion for `workspace`.
     pub fn untrust(&self, workspace: &Path) {
         remove_entry(&self.store, workspace);
@@ -446,6 +451,7 @@ impl WorkspaceTrust {
 fn has_local_config(workspace: &Path) -> bool {
     workspace.join(".mitos").join("config.toml").exists()
         || workspace.join(".mitos").join("languages.toml").exists()
+        || workspace.join(".mitos").join("snippets.toml").exists()
 }
 
 fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {

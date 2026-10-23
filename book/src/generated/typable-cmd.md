@@ -79,6 +79,10 @@
 | `:sort` | Sort ranges in selection. |
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
+| `:snippet-insert` | Insert a named user-defined snippet at the selections. |
+| `:snippets-reload` | Reload global and trusted workspace snippet definitions. |
+| `:snippets-open` | Open the user snippets.toml file. |
+| `:snippets-open-workspace` | Open this document workspace snippets.toml file. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-migrate` | Migrate legacy user settings after confirmation, creating a backup. |
