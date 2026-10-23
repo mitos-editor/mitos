@@ -1071,9 +1071,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // A restored picker can receive input before its first redraw.
         self.refresh_from_editor(ctx.editor);
         for &action in actions {
-            // Keep navigation available, but do not act twice on a row that an
-            // accepted callback may have removed from the replacement list.
-            if self.results.is_refreshing()
+            // Keep navigation available while replacements load or a resumed
+            // picker waits for its old matcher before checking the current source.
+            if (self.results.is_refreshing()
+                || self
+                    .editor_updates
+                    .as_ref()
+                    .is_some_and(|updates| updates.resumed))
                 && matches!(
                     action,
                     PickerAction::Accept
@@ -1551,6 +1555,157 @@ mod tests {
             picker.handle_event(&Event::Key("esc".parse().unwrap()), &mut cx),
             EventResult::Consumed(Some(_))
         ));
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resumed_picker_blocks_stale_row_actions_while_matcher_is_busy() -> anyhow::Result<()> {
+        use super::*;
+        use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+        use std::{
+            cell::RefCell,
+            rc::Rc,
+            sync::{atomic::AtomicBool, mpsc, Mutex},
+            time::Duration,
+        };
+
+        let mut config = AppConfig::default();
+        config.editor.files.watch.enable = false;
+        config.editor.files.watch.watch_vcs = false;
+        let syntax = language::syntax::Loader::new(
+            language_config::Configuration {
+                language: vec![],
+                language_server: Default::default(),
+            },
+            Default::default(),
+        )?;
+        let mut app = Application::new(
+            Default::default(),
+            config.clone(),
+            syntax,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        )?;
+        let mut jobs = Jobs::new();
+        let updates = tokio::sync::mpsc::unbounded_channel().0;
+        let mut cx = Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut app.editor,
+            jobs: &mut jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: false,
+        };
+
+        let block_next = Arc::new(AtomicBool::new(false));
+        let block_worker = block_next.clone();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = Mutex::new(release_rx);
+        let matcher = Nucleo::new(
+            Config::DEFAULT,
+            Arc::new(move || {
+                if block_worker.swap(false, atomic::Ordering::SeqCst) {
+                    started_tx.send(()).unwrap();
+                    // Hold the worker lock until the test releases this match.
+                    let _ = release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5));
+                }
+            }),
+            Some(1),
+            1,
+        );
+        let acted_on = Rc::new(RefCell::new(Vec::new()));
+        let accepted = acted_on.clone();
+        let removed = acted_on.clone();
+        let mut picker = Picker::with(
+            cx.editor.redraw().clone(),
+            matcher,
+            Arc::new([Column::new("name", |item: &u8, _: &()| {
+                item.to_string().into()
+            })]),
+            0,
+            Arc::new(()),
+            Arc::new(AtomicUsize::new(0)),
+            move |_, item, _| {
+                accepted.borrow_mut().push(*item);
+                PickerCallbackResult::KeepOpen
+            },
+        )
+        .with_editor_updates(|cx| cx.resumed.then(|| vec![4]))
+        .with_item_actions(
+            |maps| &maps.quicklist_picker,
+            move |_, item, _| {
+                removed.borrow_mut().push(*item);
+                PickerCallbackResult::KeepOpen
+            },
+        )
+        .with_quicklist(|_, item| {
+            Some(QuicklistEntry {
+                target: QuicklistTarget::Path(format!("{item}.txt").into()),
+                position: QuicklistPosition::None,
+            })
+        });
+        // Release the worker before dropping the picker, including on assertion failures.
+        let release_worker = release_tx;
+        picker.reset_options(vec![1, 2], ());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while picker.results.matcher.tick(10).running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        assert!(matches!(
+            picker.handle_event(&Event::Key("esc".parse().unwrap()), &mut cx),
+            EventResult::Consumed(Some(_))
+        ));
+        let expected = vec![QuicklistEntry {
+            target: QuicklistTarget::Path("4.txt".into()),
+            position: QuicklistPosition::None,
+        }];
+        cx.editor.replace_quicklist(expected.clone());
+
+        // Start another match while keeping the cached snapshot visible.
+        inject_nucleo_item(&picker.results.matcher.injector(), &picker.columns, 3, &());
+        block_next.store(true, atomic::Ordering::SeqCst);
+        picker.results.matcher.tick(0);
+        started_rx.recv_timeout(Duration::from_secs(5))?;
+        for key in ["C-q", "ret", "C-x"] {
+            assert!(matches!(
+                picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx),
+                EventResult::Consumed(None)
+            ));
+        }
+        assert_eq!(cx.editor.quicklist.entries(), expected.as_slice());
+        assert!(acted_on.borrow().is_empty());
+        picker.handle_event(&Event::Key("down".parse().unwrap()), &mut cx);
+        assert_eq!(picker.results.cursor, 1);
+        drop(release_worker);
+
+        let area = Rect::new(0, 0, 80, 24);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                picker.render(area, &mut Surface::empty(area), &mut cx);
+                if !picker.results.is_refreshing()
+                    && !picker.editor_updates.as_ref().unwrap().resumed
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        for key in ["C-q", "ret", "C-x"] {
+            picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx);
+        }
+        assert_eq!(cx.editor.quicklist.entries(), expected.as_slice());
+        assert_eq!(*acted_on.borrow(), [4, 4]);
         assert!(app.close().await.is_empty());
         Ok(())
     }
