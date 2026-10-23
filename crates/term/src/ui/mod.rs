@@ -105,12 +105,31 @@ pub fn regex_prompt(
         move |cx, regex, _, event| fun(cx, regex, event),
     );
 }
+pub fn literal_regex_prompt(
+    cx: &mut crate::commands::Context,
+    prompt: std::borrow::Cow<'static, str>,
+    fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
+) {
+    pattern_prompt(cx, prompt, None, completers::none, fun, true);
+}
+
 pub fn raw_regex_prompt(
     cx: &mut crate::commands::Context,
     prompt: std::borrow::Cow<'static, str>,
     history_register: Option<char>,
     completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
+) {
+    pattern_prompt(cx, prompt, history_register, completion_fn, fun, false);
+}
+
+fn pattern_prompt(
+    cx: &mut crate::commands::Context,
+    prompt: std::borrow::Cow<'static, str>,
+    history_register: Option<char>,
+    completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
+    fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
+    literal: bool,
 ) {
     let (view, doc) = current!(cx.editor);
     let doc_id = view.document_id();
@@ -124,6 +143,13 @@ pub fn raw_regex_prompt(
         history_register,
         completion_fn,
         move |cx: &mut crate::compositor::Context, input: &str, event: PromptEvent| {
+            let escaped;
+            let input = if literal {
+                escaped = editor_core::regex::escape(input);
+                escaped.as_str()
+            } else {
+                input
+            };
             match event {
                 PromptEvent::Abort => {
                     let doc = doc_mut!(cx.editor, &doc_id);
@@ -202,8 +228,10 @@ pub fn raw_regex_prompt(
                 }
             }
         },
-    )
-    .with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader));
+    );
+    if !literal {
+        prompt = prompt.with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader));
+    }
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
     // prompt

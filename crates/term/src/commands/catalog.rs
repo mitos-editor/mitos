@@ -107,6 +107,8 @@ impl MappableCommand {
         merge_consecutive_selections => super::selection::merge_consecutive_selections, "Merge consecutive selections",
         search => super::search::search, "Search for regex pattern",
         rsearch => super::search::rsearch, "Reverse search for regex pattern",
+        search_literal => super::search::search_literal, "Search for literal text",
+        rsearch_literal => super::search::rsearch_literal, "Reverse search for literal text",
         search_next => super::search::search_next, "Select next search match",
         search_prev => super::search::search_prev, "Select previous search match",
         extend_search_next => super::search::extend_search_next, "Add next search match to selection",
