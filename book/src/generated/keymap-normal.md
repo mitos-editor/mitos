@@ -294,8 +294,7 @@
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
 | `` <space>' `` | Open last picker | `` last_picker `` |
-| `` <space>x `` | Debug | Prefix |
-| `` <space>X `` | Debug (sticky; Escape to exit) | Prefix |
+| `` <space>x `` | Enter debug mode | `` debug_mode `` |
 | `` <space>w `` | Window | Prefix |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
 | `` <space>Y `` | Yank primary selection to clipboard | `` yank_primary_selection_to_clipboard `` |
@@ -326,74 +325,6 @@
 | `` <space>gi `` | Show hunk diff | `` vcs_show_change `` |
 | `` <space>gt `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
 | `` <space>gS `` | Browse stashes | `` vcs_stash_picker `` |
-
-#### `` <space>x `` — Debug
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>xl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
-| `` <space>xr `` | Restart debugging session | `` debug_restart `` |
-| `` <space>xb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
-| `` <space>xc `` | Continue program execution | `` debug_continue `` |
-| `` <space>xh `` | Pause program execution | `` debug_pause `` |
-| `` <space>xi `` | Step in | `` debug_step_in `` |
-| `` <space>xo `` | Step out | `` debug_step_out `` |
-| `` <space>xn `` | Step over the current statement | `` debug_step_over `` |
-| `` <space>xv `` | Browse variables | `` debug_variables `` |
-| `` <space>xt `` | End debug session | `` debug_terminate `` |
-| `` <space>xB `` | Breakpoint settings | Prefix |
-| `` <space>xs `` | Switch | Prefix |
-| `` <space>xe `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
-| `` <space>xE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
-
-##### `` <space>xB `` — Breakpoint settings
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>xBc `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
-| `` <space>xBl `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
-
-##### `` <space>xs `` — Switch
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>xss `` | Open debug session picker | `` debug_session_picker `` |
-| `` <space>xst `` | Choose the current debug thread | `` debug_thread_picker `` |
-| `` <space>xsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
-
-#### `` <space>X `` — Debug
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>Xl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
-| `` <space>Xr `` | Restart debugging session | `` debug_restart `` |
-| `` <space>Xb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
-| `` <space>Xc `` | Continue program execution | `` debug_continue `` |
-| `` <space>Xh `` | Pause program execution | `` debug_pause `` |
-| `` <space>Xi `` | Step in | `` debug_step_in `` |
-| `` <space>Xo `` | Step out | `` debug_step_out `` |
-| `` <space>Xn `` | Step over the current statement | `` debug_step_over `` |
-| `` <space>Xv `` | Browse variables | `` debug_variables `` |
-| `` <space>Xt `` | End debug session | `` debug_terminate `` |
-| `` <space>XB `` | Breakpoint settings | Prefix |
-| `` <space>Xs `` | Switch | Prefix |
-| `` <space>Xe `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
-| `` <space>XE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
-
-##### `` <space>XB `` — Breakpoint settings
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>XBc `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
-| `` <space>XBl `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
-
-##### `` <space>Xs `` — Switch
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>Xss `` | Open debug session picker | `` debug_session_picker `` |
-| `` <space>Xst `` | Choose the current debug thread | `` debug_thread_picker `` |
-| `` <space>Xsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
 
 #### `` <space>w `` — Window
 

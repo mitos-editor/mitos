@@ -33,7 +33,7 @@ async fn session_picker_selects_pending_sessions_and_termination_restores_the_pr
     let mut app = AppBuilder::new().build()?;
     let backend = connect(&mut app, &listener, "backend");
     let frontend = connect(&mut app, &listener, "frontend");
-    keys(&mut app, "<space>Xss").await?;
+    keys(&mut app, "<space>xss").await?;
     let text = screen(&app);
     assert!(text.contains("#1 backend"));
     assert!(text.contains("#2 frontend"));
@@ -45,17 +45,23 @@ async fn session_picker_selects_pending_sessions_and_termination_restores_the_pr
     );
     let text = screen(&app);
     assert!(text.contains("Debug #1 backend (starting, 2 sessions)"));
-    // The debug menu is sticky; escape it before starting a new key sequence.
-    keys(&mut app, "<esc><space>Xc").await?;
+    // Leaving debug mode keeps the selected session alive.
+    keys(&mut app, "<esc>").await?;
+    assert_eq!(app.editor.mode(), view::document::Mode::Normal);
+    assert_eq!(
+        app.editor.debugger().get_active_session().unwrap().id(),
+        backend
+    );
+    keys(&mut app, "<space>xc").await?;
     assert!(screen(&app).contains("Selected debugging session is still starting"));
-    keys(&mut app, "<esc><space>Xt").await?;
+    keys(&mut app, "<esc><space>xt").await?;
     assert!(app.editor.debugger().get_session(backend).is_none());
     assert_eq!(
         app.editor.debugger().get_active_session().unwrap().id(),
         frontend
     );
     assert!(screen(&app).contains("Debug #2 frontend (starting, 1 session)"));
-    keys(&mut app, "<esc><space>Xt<esc>").await?;
+    keys(&mut app, "<esc><space>xt<esc>").await?;
     assert!(app.editor.debugger().is_empty());
     assert!(!screen(&app).contains("Debug #"));
     assert!(app.close().await.is_empty());
@@ -88,9 +94,9 @@ async fn launch_menu_allows_existing_sessions_and_picker_rejects_ended_ones() ->
         .with_lang_loader(test_syntax_loader(Some(languages.into())))
         .build()?;
     let original = connect(&mut app, &listener, "original");
-    keys(&mut app, "<space>Xl").await?;
+    keys(&mut app, "<space>xL").await?;
     assert!(screen(&app).contains("Launch another target"));
-    keys(&mut app, "<esc><esc><space>Xss").await?;
+    keys(&mut app, "<esc><esc><space>xss").await?;
     // Remove the row's session while its picker remains open, then reuse the slot.
     assert!(app.editor.debugger_mut().cancel_startup(original));
     let replacement = connect(&mut app, &listener, "replacement");
@@ -102,7 +108,7 @@ async fn launch_menu_allows_existing_sessions_and_picker_rejects_ended_ones() ->
     );
     assert_eq!(app.editor.debugger().sessions().len(), 1);
     assert!(screen(&app).contains("Debugging session has ended"));
-    keys(&mut app, "<esc><space>Xss<esc><esc>").await?;
+    keys(&mut app, "<esc><space>xss<esc><esc>").await?;
     assert_eq!(
         app.editor.debugger().get_active_session().unwrap().id(),
         replacement

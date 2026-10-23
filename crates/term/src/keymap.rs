@@ -508,61 +508,43 @@ mod tests {
     }
 
     #[test]
-    fn debug_prefixes_share_commands_in_normal_and_select_modes() {
+    fn debug_mode_uses_the_current_debug_prefix() {
         let keymaps = Keymaps::default().map();
         for mode in [Mode::Normal, Mode::Select] {
-            let root = &keymaps[&mode];
-            let debug = root.search(&[key!(' '), key!('x')]).unwrap();
-            let sticky_debug = root.search(&[key!(' '), key!('X')]).unwrap();
-            assert_eq!(debug, sticky_debug);
-            assert!(!debug.node().unwrap().is_sticky);
-            assert!(sticky_debug.node().unwrap().is_sticky);
-            assert!(root.search(&[key!(' '), key!('G')]).is_none());
             assert_eq!(
-                debug.search(&[key!('B'), key!('c')]),
-                Some(&KeyTrie::Action(
-                    MappableCommand::debug_edit_breakpoint_condition
-                ))
-            );
-            assert_eq!(
-                debug.search(&[key!('B'), key!('l')]),
-                Some(&KeyTrie::Action(
-                    MappableCommand::debug_edit_breakpoint_log_message
-                ))
+                keymaps[&mode].search(&[key!(' '), key!('x')]),
+                Some(&KeyTrie::Action(MappableCommand::debug_mode))
             );
         }
+        let debug = &keymaps[&Mode::Debug];
+        assert_eq!(
+            debug.search(&[key!('L')]),
+            Some(&KeyTrie::Action(MappableCommand::debug_launch_picker))
+        );
+        assert_eq!(
+            debug.search(&[key!('H')]),
+            Some(&KeyTrie::Action(MappableCommand::debug_pause))
+        );
     }
 
     #[test]
-    fn debug_prefixes_exit_or_repeat_after_a_command() {
-        for mode in [Mode::Normal, Mode::Select] {
-            let mut maps = Keymaps::default();
-            for key in [key!(' '), key!('x')] {
-                assert!(matches!(maps.get(mode, key), KeymapResult::Pending(_)));
-            }
+    fn debug_mode_commands_repeat_without_a_sticky_prefix() {
+        let mut maps = Keymaps::default();
+        for _ in 0..2 {
             assert_eq!(
-                maps.get(mode, key!('n')),
+                maps.get(Mode::Debug, key!('n')),
                 KeymapResult::Matched(MappableCommand::debug_step_over)
             );
-            assert_eq!(
-                maps.get(mode, key!('i')),
-                KeymapResult::Matched(MappableCommand::insert_mode)
-            );
-            for key in [key!(' '), key!('X')] {
-                assert!(matches!(maps.get(mode, key), KeymapResult::Pending(_)));
-            }
-            for _ in 0..2 {
-                assert_eq!(
-                    maps.get(mode, key!('n')),
-                    KeymapResult::Matched(MappableCommand::debug_step_over)
-                );
-            }
-            maps.get(mode, key!(Esc));
-            assert_eq!(
-                maps.get(mode, key!('i')),
-                KeymapResult::Matched(MappableCommand::insert_mode)
-            );
         }
+        assert!(maps.sticky().is_none());
+        assert_eq!(
+            maps.get(Mode::Debug, key!(Esc)),
+            KeymapResult::Matched(MappableCommand::normal_mode)
+        );
+        assert_eq!(
+            maps.get(Mode::Normal, key!('i')),
+            KeymapResult::Matched(MappableCommand::insert_mode)
+        );
     }
 
     #[test]

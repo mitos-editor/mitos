@@ -70,3 +70,89 @@ async fn configured_debug_mode_navigates_edits_and_renders_its_status() -> anyho
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn debug_workflow_keeps_navigation_and_offers_searchable_binding_help() -> anyhow::Result<()>
+{
+    let source = r#"
+        [keys.debug]
+        F11 = "debug_step_over"
+    "#
+    .to_owned();
+    let mut config = term::config::Config::load(Ok(&source), Ok(String::new())).unwrap();
+    config.editor = super::helpers::test_editor_config();
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[|a]#bc\n")
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<space>xlh"),
+                Some(&|app| {
+                    assert_eq!(app.editor.mode(), Mode::Debug);
+                    assert!(app.editor.autoinfo.is_none());
+                    assert!(app.editor.debugger().is_empty());
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(
+                        doc.selection(view.id)
+                            .primary()
+                            .cursor(doc.text().slice(..)),
+                        0
+                    );
+                }),
+            ),
+            (
+                Some("?debug_step_over"),
+                Some(&|app| {
+                    let backend = app.terminal_backend();
+                    let screen: String = backend
+                        .buffer()
+                        .content()
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect();
+                    assert!(screen.contains("debug_step_over"), "{screen}");
+                    assert!(screen.contains("<F11>"), "{screen}");
+                }),
+            ),
+            (
+                Some("<esc>"),
+                Some(&|app| assert_eq!(app.editor.mode(), Mode::Debug)),
+            ),
+            (
+                Some("?move_char_left"),
+                Some(&|app| {
+                    let backend = app.terminal_backend();
+                    let screen: String = backend
+                        .buffer()
+                        .content()
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect();
+                    assert!(screen.contains("Debug Commands"));
+                    assert_eq!(screen.matches("move_char_left").count(), 1, "{screen}");
+                }),
+            ),
+            (Some("<esc>"), None),
+            (
+                Some("?normal_mode<ret>"),
+                Some(&|app| assert_eq!(app.editor.mode(), Mode::Normal)),
+            ),
+            (
+                Some("v<space>x"),
+                Some(&|app| assert_eq!(app.editor.mode(), Mode::Debug)),
+            ),
+            (
+                Some("<esc>"),
+                Some(&|app| assert_eq!(app.editor.mode(), Mode::Normal)),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
