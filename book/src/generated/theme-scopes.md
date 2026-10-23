@@ -210,6 +210,7 @@
 | `ui.selection.primary` | Editor interface style. |
 | `ui.statusline` | Statusline |
 | `ui.statusline.inactive` | Statusline (unfocused document) |
+| `ui.statusline.debug` | Statusline mode during debug mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
 | `ui.statusline.insert` | Statusline mode during insert mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
 | `ui.statusline.normal` | Statusline mode during normal mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
 | `ui.statusline.select` | Statusline mode during select mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |

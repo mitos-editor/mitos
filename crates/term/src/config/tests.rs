@@ -40,6 +40,9 @@ fn parsing_keymaps_config_file() {
             Mode::Normal => keymap!({ "Normal mode"
                 "A-F12" => move_next_word_end,
             }),
+            Mode::Debug => keymap!({ "Debug mode"
+                "A-F12" => move_next_word_end,
+            }),
         },
     );
 
@@ -933,4 +936,44 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
         state.lookup(&maps.sidebar, "r".parse().unwrap()),
         Lookup::Actions(&[S::Resize])
     );
+}
+
+#[test]
+fn debug_keymaps_inherit_normal_after_both_configuration_layers() {
+    use crate::commands::MappableCommand;
+    let global = r#"
+        [keys.normal]
+        F1 = "move_char_right"
+        [keys.debug]
+        F2 = "debug_step_over"
+        [keys.debug.g]
+        x = "debug_variables"
+        [editor.statusline.mode]
+        debug = "DEBUG"
+    "#
+    .to_owned();
+    let workspace = r#"
+        [keys.normal]
+        F1 = "move_char_left"
+        F2 = "move_line_down"
+        [keys.normal.g]
+        y = "move_line_up"
+        [keys.debug]
+        F3 = "normal_mode"
+    "#
+    .to_owned();
+    let config = Config::load(Ok(&global), Ok(workspace)).unwrap();
+    assert_eq!(config.editor.statusline.mode.debug, "DEBUG");
+    let debug = &config.keys[&Mode::Debug];
+    for (keys, command) in [
+        (vec!["F1"], MappableCommand::move_char_left),
+        (vec!["F2"], MappableCommand::debug_step_over),
+        (vec!["F3"], MappableCommand::normal_mode),
+        (vec!["g", "x"], MappableCommand::debug_variables),
+        (vec!["g", "y"], MappableCommand::move_line_up),
+        (vec!["esc"], MappableCommand::normal_mode),
+    ] {
+        let keys: Vec<_> = keys.into_iter().map(|key| key.parse().unwrap()).collect();
+        assert_eq!(debug.search(&keys), Some(&KeyTrie::Action(command)));
+    }
 }

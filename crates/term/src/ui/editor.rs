@@ -158,6 +158,8 @@ impl EditorView {
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
+                self.keymaps.reset();
+                cxt.editor.autoinfo = None;
                 cxt.editor
                     .events()
                     .clone()

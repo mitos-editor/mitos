@@ -101,6 +101,7 @@ pub struct Keys {
     normal: Option<keymap::KeyTrieNode>,
     insert: Option<keymap::KeyTrieNode>,
     select: Option<keymap::KeyTrieNode>,
+    debug: Option<keymap::KeyTrieNode>,
     prompt: Keymap<PromptAction>,
     picker: Keymap<PickerAction>,
     buffer_picker: Keymap<BufferPickerAction>,
@@ -165,7 +166,7 @@ impl Keys {
             Ok(())
         }
 
-        for node in [&self.normal, &self.insert, &self.select]
+        for node in [&self.normal, &self.insert, &self.select, &self.debug]
             .into_iter()
             .flatten()
         {
@@ -178,6 +179,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
+        debug: &mut keymap::KeyTrieNode,
     ) -> ([Keymap<PickerAction>; 8], [Keymap<SidebarAction>; 2]) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
@@ -192,6 +194,9 @@ impl Keys {
                     .unwrap()
                     .merge(keys);
             }
+        }
+        if let Some(keys) = self.debug {
+            debug.merge(keys);
         }
         components.prompt.merge(self.prompt);
         components.picker.merge(self.picker);
@@ -225,6 +230,7 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
+    let mut debug = keymap::default::debug_bindings();
     let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides] =
         std::array::from_fn(|_| Keymap::default());
     let mut sidebar_overrides = Keymap::default();
@@ -233,7 +239,7 @@ pub(super) fn resolve_keymaps(
         let (
             [buffer, quicklist, git, stash, history, explorer, branch, worktree],
             [sidebar, filter],
-        ) = keys.apply(&mut editor, &mut components);
+        ) = keys.apply(&mut editor, &mut components, debug.node_mut().unwrap());
         sidebar_overrides.merge(sidebar);
         sidebar_filter_overrides.merge(filter);
         buffer_overrides.merge(buffer);
@@ -245,6 +251,9 @@ pub(super) fn resolve_keymaps(
         branch_overrides.merge(branch);
         worktree_overrides.merge(worktree);
     }
+    let mut debug_keys = editor[&Mode::Normal].clone();
+    debug_keys.merge_nodes(debug);
+    editor.insert(Mode::Debug, debug_keys);
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
     components.buffer_picker = components.picker.clone();
