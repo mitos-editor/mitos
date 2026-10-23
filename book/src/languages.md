@@ -279,3 +279,11 @@ use-grammars = { except = [ "yaml", "json" ] }
 ```
 
 When omitted, all grammars are fetched and built.
+
+## Packer templates
+
+Files ending in `.pkr.hcl` or `.pkrvars.hcl` use the Packer configuration.
+Install [Packer](https://developer.hashicorp.com/packer/install) and put `packer`
+on `PATH` to format these files with `:format` or on save.
+
+Run `ms --health packer` to check formatter availability.
