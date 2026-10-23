@@ -43,6 +43,13 @@ pub fn general() -> std::io::Result<()> {
             .collect::<Vec<_>>()
             .join(";")
     )?;
+    runtime_warnings(&mut stdout, rt_dirs)
+}
+
+fn runtime_warnings(
+    stdout: &mut impl Write,
+    rt_dirs: &[std::path::PathBuf],
+) -> std::io::Result<()> {
     for rt_dir in rt_dirs.iter() {
         if let Ok(path) = std::fs::read_link(rt_dir) {
             let msg = format!(
@@ -60,7 +67,6 @@ pub fn general() -> std::io::Result<()> {
             writeln!(stdout, "{}", msg.yellow())?;
         }
     }
-
     Ok(())
 }
 
@@ -453,7 +459,12 @@ pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
             writeln!(std::io::stdout().lock())?;
             languages_all()?;
         }
-        Some(lang) => language(lang.to_string())?,
+        Some(lang) => {
+            language(lang.to_string())?;
+            let mut stdout = std::io::stdout().lock();
+            writeln!(stdout)?;
+            runtime_warnings(&mut stdout, loader::runtime_dirs())?;
+        }
     }
     Ok(())
 }
@@ -501,5 +512,32 @@ language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "
         assert!(output.contains("preferred candidate"));
         assert!(output.contains("(fallback)"));
         assert!(output.contains("enabled alongside other entries"));
+    }
+}
+
+#[cfg(test)]
+mod runtime_warning_tests {
+    #[test]
+    fn missing_and_empty_runtime_directories_are_explained() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing");
+        let empty = root.path().join("empty");
+        let populated = root.path().join("populated");
+        std::fs::create_dir(&empty).unwrap();
+        std::fs::create_dir(&populated).unwrap();
+        std::fs::write(populated.join("file"), "data").unwrap();
+        let mut output = Vec::new();
+        super::runtime_warnings(
+            &mut output,
+            &[missing.clone(), empty.clone(), populated.clone()],
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains(&format!(
+            "Runtime directory does not exist: {}",
+            missing.display()
+        )));
+        assert!(output.contains(&format!("Runtime directory is empty: {}", empty.display())));
+        assert!(!output.contains(&populated.to_string_lossy().to_string()));
     }
 }
