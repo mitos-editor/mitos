@@ -4,6 +4,21 @@
 
 ## [0.1.2](https://github.com/mitos-editor/mitos/compare/v0.1.1...v0.1.2) - 2026-10-23
 
+### Highlights
+
+- Define your own snippets without a language server. Insert them through completion, a picker, or keybindings, split collections across files, and share project snippets through trusted workspaces.
+- User-defined and language-server snippets can insert selected text, filenames, workspace paths, clipboard contents, dates, and random values, with support for variable transforms.
+- More UI customization: native terminal block cursors, centered pickers at any terminal size, and glyph rulers with configurable characters.
+- Picker matching ignores decorative icons, icon spacing is tighter, and previews show unsaved changes when opening relative paths.
+- Save-and-quit stays responsive while formatting and writing, preserves unsaved edits when writes fail, and waits for saves to finish before closing. External formatters have a configurable timeout, and LSP formatting uses the document's indentation width.
+- Completion previews, repeated insertion, and nested snippet placeholders preserve edits, cursor positions, and navigation more reliably.
+- Path-based settings refresh more consistently, and workspace symbol searches use the same case-matching rules for open buffers and files.
+- Further internal restructuring shares editing, movement, search, and pane operations across frontends, separates rendering from input, and updates the text engine to Ropey 2.
+
+### Upgrade notes
+
+- Ruler settings now use `[editor.rulers]`, with `columns`, `style`, and `character` options. Existing `editor.rulers = [...]` arrays still work; `:config-migrate` updates them to the new format.
+
 ### Added
 
 - *(quicklist)* add locations and remove entries from picker ([#638](https://github.com/mitos-editor/mitos/pull/638))
