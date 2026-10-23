@@ -555,6 +555,7 @@ mod test {
                 false,
                 &mut SnippetRenderCtx::test_ctx(),
                 0,
+                0,
             )
             .0;
         assert_eq!(rendered_text, parsed_text)

@@ -545,7 +545,11 @@ mod tests {
             doc.text(),
             doc.selection(view.id),
             |_| (0, 0),
-            &mut doc.snippet_ctx(),
+            &mut doc.snippet_ctx(
+                doc.text(),
+                doc.selection(view.id),
+                crate::document::Mode::Insert,
+            ),
         );
         editing::apply(&mut doc, &transaction.with_selection(selection), view.id).unwrap();
         doc.install_snippet(view.id, rendered);

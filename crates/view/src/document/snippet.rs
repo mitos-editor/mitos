@@ -1,5 +1,7 @@
 //! One document's active snippet and pending placeholder replacement.
 
+mod variables;
+
 use super::Document;
 use crate::{editor::SnippetNavigation, ViewId};
 use editor_core::{movement::Direction, ChangeSet, Transaction};

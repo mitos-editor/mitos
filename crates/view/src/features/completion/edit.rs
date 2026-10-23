@@ -168,7 +168,7 @@ impl Editor {
                     encoding,
                     session.trigger.pos,
                     self.config().completion.replace,
-                    &mut doc.snippet_ctx(),
+                    &mut doc.snippet_ctx(&text, &selection, self.mode()),
                 )?;
                 let additional = item
                     .item
@@ -421,7 +421,11 @@ mod tests {
                 let cursor = range.cursor(doc.text().slice(..));
                 (cursor, cursor)
             },
-            &mut doc.snippet_ctx(),
+            &mut doc.snippet_ctx(
+                doc.text(),
+                doc.selection(view.id),
+                crate::document::Mode::Insert,
+            ),
         );
         let primary = primary
             .with_selection(snippet.first_selection(editor_core::movement::Direction::Forward, 1));
@@ -443,7 +447,11 @@ mod tests {
             doc.text(),
             &source,
             |_| (2, 3),
-            &mut doc.snippet_ctx(),
+            &mut doc.snippet_ctx(
+                doc.text(),
+                doc.selection(view.id),
+                crate::document::Mode::Insert,
+            ),
         );
         let primary = primary
             .with_selection(snippet.first_selection(editor_core::movement::Direction::Forward, 0));
@@ -491,7 +499,11 @@ mod tests {
                 OffsetEncoding::Utf16,
                 4,
                 replace_mode,
-                &mut doc.snippet_ctx(),
+                &mut doc.snippet_ctx(
+                    doc.text(),
+                    doc.selection(view.id),
+                    crate::document::Mode::Insert,
+                ),
             )
             .unwrap();
             let mut text = doc.text().clone();

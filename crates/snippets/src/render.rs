@@ -138,6 +138,7 @@ impl Snippet {
         at_newline: bool,
         ctx: &mut SnippetRenderCtx,
         pos: usize,
+        cursor_index: usize,
     ) -> (Tendril, usize) {
         let mut ctx = SnippetRender {
             dst: snippet,
@@ -147,6 +148,7 @@ impl Snippet {
             off: pos,
             ctx,
             at_newline,
+            cursor_index,
         };
         ctx.render_elements(self.elements());
         let end = ctx.off;
@@ -163,16 +165,24 @@ impl Snippet {
         &self,
         doc: &Rope,
         selection: &Selection,
-        change_range: impl FnMut(&selection::Range) -> (usize, usize),
+        mut change_range: impl FnMut(&selection::Range) -> (usize, usize),
         ctx: &mut SnippetRenderCtx,
     ) -> (Transaction, Selection, RenderedSnippet) {
         let mut snippet = self.prepare_render();
         let mut off = 0;
-        let (transaction, selection) = Transaction::change_by_selection_ignore_overlapping(
+        let mut ranges = SmallVec::new();
+        let mut primary_index = 0;
+        let transaction = Transaction::change_ignore_overlapping(
             doc,
-            selection,
-            change_range,
-            |replacement_start, replacement_end| {
+            selection.iter().enumerate().map(|(index, range)| {
+                let (start, end) = change_range(range);
+                (start, end, (index, range))
+            }),
+            |replacement_start, replacement_end, (index, range)| {
+                if index <= selection.primary_index() {
+                    primary_index = ranges.len();
+                }
+                ranges.push(*range);
                 let line_idx = doc.char_to_line_idx(replacement_start);
                 let line_start = doc.line_to_char_idx(line_idx);
                 let prefix = doc.slice_chars(line_start..replacement_start);
@@ -186,6 +196,7 @@ impl Snippet {
                     at_newline,
                     ctx,
                     (replacement_start as i128 + off) as usize,
+                    index,
                 );
                 off +=
                     replacement_start as i128 - replacement_end as i128 + replacement_len as i128;
@@ -193,14 +204,16 @@ impl Snippet {
                 Some(replacement)
             },
         );
-        (transaction, selection, snippet)
+        (transaction, Selection::new(ranges, primary_index), snippet)
     }
 }
 
 /// Callback used to resolve an LSP snippet variable by name.
 ///
+/// The second argument is the original selection index, before overlapping edits
+/// are removed or earlier insertions shift output positions.
 /// Returning `None` causes the variable's default value, if any, to render.
-pub type VariableResolver = dyn FnMut(&str) -> Option<Cow<str>>;
+pub type VariableResolver = dyn FnMut(&str, usize) -> Option<Cow<str>>;
 /// Document-specific settings needed while rendering a snippet.
 pub struct SnippetRenderCtx {
     /// Resolver for editor and protocol variables such as `TM_FILENAME`.
@@ -217,7 +230,7 @@ impl SnippetRenderCtx {
     #[cfg(test)]
     pub(super) fn test_ctx() -> SnippetRenderCtx {
         SnippetRenderCtx {
-            resolve_var: Box::new(|_| None),
+            resolve_var: Box::new(|_, _| None),
             tab_width: 4,
             indent_style: IndentStyle::Spaces(4),
             line_ending: "\n",
@@ -233,6 +246,7 @@ struct SnippetRender<'a> {
     text: Tendril,
     off: usize,
     at_newline: bool,
+    cursor_index: usize,
 }
 
 impl SnippetRender<'_> {
@@ -250,9 +264,7 @@ impl SnippetRender<'_> {
                 ref default,
                 ref transform,
             } => {
-                // TODO: allow resolve_var access to the doc and make it return rope slice
-                // so we can access selections and other document content without allocating
-                if let Some(val) = (self.ctx.resolve_var)(name) {
+                if let Some(val) = (self.ctx.resolve_var)(name, self.cursor_index) {
                     if let Some(transform) = transform {
                         self.push_multiline_str(&transform.apply(
                             (&*val).into(),
@@ -266,6 +278,10 @@ impl SnippetRender<'_> {
                     }
                 } else if let Some(default) = default {
                     self.render_elements(default)
+                } else if let Some(transform) = transform {
+                    self.push_multiline_str(
+                        &transform.apply("".into(), Range { start: 0, end: 0 }),
+                    );
                 }
             }
             SnippetElement::Text(ref text) => self.push_multiline_str(text),
@@ -344,6 +360,7 @@ mod tests {
                 "\t".into(),
                 false,
                 &mut SnippetRenderCtx::test_ctx(),
+                0,
                 0,
             )
             .0;

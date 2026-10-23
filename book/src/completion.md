@@ -96,3 +96,21 @@ Mitos uses the first configured server with the `inline-completion` feature.
 Suggestions can span multiple lines; inline snippet suggestions and multiple
 cursors are not supported. See [feature routing](./languages.md#feature-routing)
 if you use several servers.
+
+## Snippet variables
+
+Snippet bodies can use `$NAME` or `${NAME:default}`. Mitos resolves text variables
+against each cursor's original text and selection, including in completion
+previews. A single cursor in insert mode does not count as selected text.
+
+Supported document variables are `TM_SELECTED_TEXT` (also `SELECTION`),
+`TM_CURRENT_LINE`, `TM_CURRENT_WORD`, `TM_LINE_INDEX` (zero based),
+`TM_LINE_NUMBER` (one based), `CURSOR_INDEX`, and `CURSOR_NUMBER`.
+File variables are `TM_FILENAME`, `TM_FILENAME_BASE`, `TM_DIRECTORY`,
+`TM_FILEPATH`, and `RELATIVE_FILEPATH`. Workspace variables are `WORKSPACE_NAME`
+and `WORKSPACE_FOLDER`. `LINE_COMMENT`, `BLOCK_COMMENT_START`, and
+`BLOCK_COMMENT_END` use the document's language configuration.
+
+Unavailable variables use their default, or an empty string if none is given.
+Variable transforms such as `${TM_FILENAME/(.*)\..+$/$1/}` use the resolved
+value; an unavailable value is transformed as an empty string.

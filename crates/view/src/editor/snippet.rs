@@ -18,6 +18,7 @@ pub enum SnippetNavigation {
 impl Editor {
     /// Insert at each cursor and start or nest the rendered snippet session.
     pub fn insert_snippet(&mut self, snippet: &snippets::Snippet) -> Result<(), EditError> {
+        let mode = self.mode();
         let (view, doc) = current!(self);
         let text = doc.text().slice(..);
         let (transaction, selection, rendered) = snippet.render(
@@ -27,7 +28,7 @@ impl Editor {
                 let cursor = range.cursor(text);
                 (cursor, cursor)
             },
-            &mut doc.snippet_ctx(),
+            &mut doc.snippet_ctx(doc.text(), doc.selection(view.id), mode),
         );
         let selection = rendered.first_selection(Direction::Forward, selection.primary_index());
         editing::apply(doc, &transaction.with_selection(selection), view.id)?;

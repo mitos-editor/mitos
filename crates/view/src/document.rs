@@ -47,7 +47,6 @@ use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::encoding::Encoding;
 use language_config::LanguageServerFeature;
-use snippets::SnippetRenderCtx;
 use text_layout::text_annotations::Overlay;
 use vcs::{DiffHandle, DiffProviderRegistry};
 
@@ -787,16 +786,6 @@ impl Document {
                 lang_config.auto_pairs.as_ref()
             })
             .or(global_config)
-    }
-
-    pub fn snippet_ctx(&self) -> SnippetRenderCtx {
-        SnippetRenderCtx {
-            // TODO snippet variable resolution
-            resolve_var: Box::new(|_| None),
-            tab_width: self.tab_width(),
-            indent_style: self.indent_style,
-            line_ending: self.line_ending.as_str(),
-        }
     }
 
     /// Set the inlay hints for this document and `view_id`.
