@@ -120,6 +120,7 @@ fn validation_reports_each_query_error_without_populating_editor_caches() {
         "tags.scm",
         "rainbows.scm",
         "spellcheck.scm",
+        "folds.scm",
     ] {
         write(dir.path(), filename, "(invalid_node) @invalid");
         let error = loader.validate_queries(language).unwrap_err().to_string();
@@ -150,4 +151,47 @@ fn missing_grammar_stays_optional_even_with_invalid_query_files() {
     let language = loader.language_for_name("resource-json").unwrap();
     assert!(loader.get_config(language).is_none());
     loader.validate_queries(language).unwrap();
+}
+
+#[test]
+fn fold_captures_use_character_ranges_in_injected_and_inherited_languages() {
+    use stdx::rope::RopeExt as _;
+    let loader = crate::loader::default_lang_loader(Resources::default());
+    let cases = [
+        (
+            "markdown",
+            "```rust\nfn main() {\n    work();\n}\n```",
+            "{\n    work();\n}",
+        ),
+        ("json", "{\n  \"é\": [\n    1\n  ]\n}", "[\n    1\n  ]"),
+        ("rust", "fn é() {\n    run();\n}", "{\n    run();\n}"),
+        ("python", "def run():\n    pass", "def run():\n    pass"),
+        (
+            "typescript",
+            "interface Foo {\n  bar: string;\n}",
+            "{\n  bar: string;\n}",
+        ),
+        (
+            "tsx",
+            "const x = <div>\n  <span />\n</div>;",
+            "<div>\n  <span />\n</div>",
+        ),
+        (
+            "html",
+            "<script>\nfunction run() {\n  work();\n}\n</script>",
+            "{\n  work();\n}",
+        ),
+    ];
+    for (name, source, expected) in cases {
+        let text = ropey::Rope::from_str(source);
+        let lang = loader.language_for_name(name).unwrap();
+        let syntax = Syntax::new(text.slice(..), lang, &loader).unwrap();
+        let ranges = syntax.fold_ranges(text.slice(..), &loader, ..);
+        assert!(
+            ranges
+                .iter()
+                .any(|range| text.slice_chars(range.clone()) == expected),
+            "{name}: {ranges:?}"
+        );
+    }
 }

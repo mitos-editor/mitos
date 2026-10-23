@@ -18,6 +18,7 @@
 - [Surround](./surround.md)
 - [Textobjects](./textobjects.md)
 - [Syntax-aware motions](./syntax-aware-motions.md)
+- [Code folding](./folding.md)
 - [Shell commands](./shell.md)
 
 # Working with projects
@@ -69,3 +70,4 @@
   - [Adding tags queries](./guides/tags.md)
   - [Adding rainbow bracket queries](./guides/rainbow_bracket_queries.md)
   - [Adding spellcheck queries](./guides/spellcheck.md)
+  - [Adding folding queries](./guides/folding.md)

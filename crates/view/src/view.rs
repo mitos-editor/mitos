@@ -430,13 +430,7 @@ impl View {
     /// or virtual text lines are visible
     #[inline]
     pub fn estimate_last_doc_line(&self, doc: &Document) -> usize {
-        let doc_text = doc.text().slice(..);
-        let line =
-            doc_text.char_to_line_idx(doc.view_offset(self.id).anchor.min(doc_text.len_chars()));
-        // Saturating subs to make it inclusive zero indexing.
-        (line + self.inner_height(doc))
-            .min(doc_text.len_lines(stdx::rope::LINE_TYPE))
-            .saturating_sub(1)
+        self.layout(doc, None).last_document_line()
     }
 
     /// Translate a document character position to a visible position relative to the text viewport.
@@ -466,6 +460,7 @@ impl View {
         width: u16,
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
+        text_annotations.set_conceals(doc.folded_ranges(self.id));
 
         if let Some(labels) = doc.jump_labels(self.id) {
             let style = theme.and_then(|t| t.find_highlight("ui.virtual.jump-label"));

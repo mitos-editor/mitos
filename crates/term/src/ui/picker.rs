@@ -1136,7 +1136,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some((preview, range)) =
             self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
         {
-            render_preview_content(preview, range, area, inner, surface, cx);
+            render_preview_content(preview, range, inner, surface, cx);
         }
     }
 

@@ -6,6 +6,7 @@ pub enum QueryFeature {
     AutoIndent,
     Tags,
     RainbowBracket,
+    Folding,
 }
 
 impl QueryFeature {
@@ -17,6 +18,7 @@ impl QueryFeature {
             Self::AutoIndent,
             Self::Tags,
             Self::RainbowBracket,
+            Self::Folding,
         ]
     }
 
@@ -28,6 +30,7 @@ impl QueryFeature {
             Self::AutoIndent => "indents.scm",
             Self::Tags => "tags.scm",
             Self::RainbowBracket => "rainbows.scm",
+            Self::Folding => "folds.scm",
         }
     }
 
@@ -39,6 +42,7 @@ impl QueryFeature {
             Self::AutoIndent => "Auto Indent",
             Self::Tags => "Code Navigation Tags",
             Self::RainbowBracket => "Rainbow Brackets",
+            Self::Folding => "Code Folding",
         }
     }
 
@@ -50,6 +54,7 @@ impl QueryFeature {
             Self::AutoIndent => "Indent",
             Self::Tags => "Tags",
             Self::RainbowBracket => "Rainbow",
+            Self::Folding => "Folding",
         }
     }
 }

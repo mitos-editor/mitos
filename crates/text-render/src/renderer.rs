@@ -136,6 +136,11 @@ pub fn render_text(
                 syntax_style: style,
                 overlay_style: Style::default(),
             }
+        } else if text_annotations.conceal_at(grapheme.char_idx).is_some() {
+            GraphemeStyle {
+                syntax_style: renderer.text_style.patch(theme.get("ui.virtual.fold")),
+                overlay_style: overlay_highlighter.style,
+            }
         } else {
             GraphemeStyle {
                 syntax_style,

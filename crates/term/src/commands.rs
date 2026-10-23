@@ -11,6 +11,7 @@ pub(crate) mod dap;
 mod diagnostics;
 mod editing;
 mod files;
+mod folding;
 mod formatting;
 mod history;
 pub mod insert;

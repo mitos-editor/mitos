@@ -92,6 +92,12 @@
 | `delete_selection_noyank` | Delete selection without yanking | normal: `` <A-d> ``, select: `` <A-d> `` |
 | `change_selection` | Change selection | normal: `` c ``, select: `` c `` |
 | `change_selection_noyank` | Change selection without yanking | normal: `` <A-c> ``, select: `` <A-c> `` |
+| `fold_close` | Close the innermost syntax fold | normal: `` Zfc ``, `` zfc ``, select: `` Zfc ``, `` zfc `` |
+| `fold_open` | Open the fold at each cursor | normal: `` Zfo ``, `` zfo ``, select: `` Zfo ``, `` zfo `` |
+| `fold_toggle` | Toggle the fold at each cursor | normal: `` Zfa ``, `` zfa ``, select: `` Zfa ``, `` zfa `` |
+| `fold_selection` | Fold selected lines | normal: `` Zfs ``, `` zfs ``, select: `` Zfs ``, `` zfs `` |
+| `fold_all` | Close all syntax folds | normal: `` Zfm ``, `` zfm ``, select: `` Zfm ``, `` zfm `` |
+| `unfold_all` | Open all folds | normal: `` Zfr ``, `` zfr ``, select: `` Zfr ``, `` zfr `` |
 | `collapse_selection` | Collapse selection into single cursor | normal: `` ; ``, select: `` ; `` |
 | `flip_selections` | Flip selection cursor and anchor | normal: `` <A-;> ``, select: `` <A-;> `` |
 | `ensure_selections_forward` | Ensure all selections face forward | normal: `` <A-:> ``, select: `` <A-:> `` |

@@ -156,7 +156,6 @@ mod tests {
                 format: doc.text_format(area.width, Some(&theme)),
                 annotations: Default::default(),
             },
-            None,
             vec![],
             &theme,
             decorations,

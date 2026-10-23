@@ -1,8 +1,10 @@
 //! Cursor movement through formatted text and display annotations.
 
 use crate::{
-    char_idx_at_visual_block_offset, char_idx_at_visual_offset, doc_formatter::TextFormat,
-    text_annotations::TextAnnotations, visual_offset_from_block,
+    char_idx_at_visual_block_offset, char_idx_at_visual_offset,
+    doc_formatter::TextFormat,
+    text_annotations::{Conceal, TextAnnotations},
+    visual_offset_from_block,
 };
 use editor_core::{
     graphemes::prev_grapheme_boundary,
@@ -10,6 +12,53 @@ use editor_core::{
     Range, RopeSlice,
 };
 use stdx::rope::RopeExt as _;
+
+/// Move by visible document lines, counting a closed region as its header.
+/// Unlike visual motion, wrapped rows and virtual diagnostic rows do not count.
+pub fn document_line_at_offset(
+    slice: RopeSlice,
+    line_idx: usize,
+    dir: Direction,
+    count: usize,
+    conceals: &[Conceal],
+) -> usize {
+    let mut new_line_idx = match dir {
+        Direction::Forward => line_idx.saturating_add(count),
+        Direction::Backward => line_idx.saturating_sub(count),
+    };
+    // Count visible document lines. A closed fold contributes its header only,
+    // even when that header wraps into several visual rows.
+    match dir {
+        Direction::Forward => {
+            for conceal in conceals {
+                let start = slice.char_to_line_idx(conceal.range.start);
+                if start >= line_idx && start < new_line_idx {
+                    new_line_idx = new_line_idx
+                        .saturating_add(slice.char_to_line_idx(conceal.range.end) - start);
+                }
+            }
+        }
+        Direction::Backward => {
+            for conceal in conceals.iter().rev() {
+                let end = slice.char_to_line_idx(conceal.range.end);
+                if end < line_idx && end >= new_line_idx {
+                    new_line_idx = new_line_idx
+                        .saturating_sub(end - slice.char_to_line_idx(conceal.range.start));
+                }
+            }
+        }
+    }
+
+    new_line_idx = new_line_idx.min(slice.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1));
+    // Clamping at EOF can land inside the final folded region.
+    for conceal in conceals {
+        let start = slice.char_to_line_idx(conceal.range.start);
+        if start < new_line_idx && new_line_idx <= slice.char_to_line_idx(conceal.range.end) {
+            return start;
+        }
+    }
+    new_line_idx
+}
 
 pub fn move_vertically_visual(
     slice: RopeSlice,
@@ -62,6 +111,7 @@ pub fn move_vertically_visual(
         return range;
     }
 
+    let new_pos = annotations.checkpoint_anchor(new_pos);
     let mut new_range = range.put_cursor(slice, new_pos, behaviour == Movement::Extend);
     new_range.old_visual_position = Some((0, new_col));
     new_range
@@ -78,7 +128,7 @@ pub fn move_vertically(
 ) -> Range {
     annotations.clear_line_annotations();
     let pos = range.cursor(slice);
-    let line_idx = slice.char_to_line_idx(pos);
+    let line_idx = slice.char_to_line_idx(annotations.checkpoint_anchor(pos));
     let line_start = slice.line_to_char_idx(line_idx);
 
     // Compute the current position's 2d coordinates.
@@ -87,13 +137,9 @@ pub fn move_vertically(
         .old_visual_position
         .map_or((visual_pos.row as u32, visual_pos.col as u32), |pos| pos);
     new_row = new_row.max(visual_pos.row as u32);
-    let line_idx = slice.char_to_line_idx(pos);
 
-    // Compute the new position.
-    let mut new_line_idx = match dir {
-        Direction::Forward => line_idx.saturating_add(count),
-        Direction::Backward => line_idx.saturating_sub(count),
-    };
+    let mut new_line_idx =
+        document_line_at_offset(slice, line_idx, dir, count, annotations.conceals());
 
     let line = if new_line_idx >= slice.len_lines(stdx::rope::LINE_TYPE) - 1 {
         // there is no line terminator for the last line
@@ -104,7 +150,11 @@ pub fn move_vertically(
         // char_idx_at_visual_block_offset returns a one-past-the-end index
         // in case it reaches the end of the slice
         // to avoid moving to the nextline in that case the line terminator is removed from the line
-        let new_line_end = prev_grapheme_boundary(slice, slice.line_to_char_idx(new_line_idx + 1));
+        let mut new_line_end =
+            prev_grapheme_boundary(slice, slice.line_to_char_idx(new_line_idx + 1));
+        if let Some(conceal) = annotations.conceal_at(new_line_end) {
+            new_line_end = conceal.range.end;
+        }
         slice.slice_chars(..new_line_end)
     };
 
@@ -126,6 +176,7 @@ pub fn move_vertically(
         return range;
     }
 
+    let new_pos = annotations.checkpoint_anchor(new_pos);
     let mut new_range = range.put_cursor(slice, new_pos, behaviour == Movement::Extend);
     new_range.old_visual_position = Some((new_row, new_col));
     new_range

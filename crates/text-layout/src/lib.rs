@@ -17,3 +17,6 @@ pub use position::{
 
 mod display_position;
 pub use display_position::DisplayPosition;
+
+#[cfg(test)]
+mod folding_tests;

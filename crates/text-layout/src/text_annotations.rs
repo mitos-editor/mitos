@@ -80,6 +80,14 @@ impl Overlay {
     }
 }
 
+/// A character range replaced by a single selectable ellipsis. Ranges must be
+/// nonempty, disjoint, sorted, and aligned to grapheme boundaries. The original
+/// line ending after a folded region remains in the document stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conceal {
+    pub range: Range<usize>,
+}
+
 /// Line annotations allow inserting virtual text lines between normal text
 /// lines.  These lines can be filled with text in the rendering code as their
 /// contents have no effect beyond visual appearance.
@@ -279,6 +287,7 @@ impl<T: ?Sized> Drop for RawBox<T> {
 pub struct TextAnnotations<'a> {
     inline_annotations: Vec<Layer<'a, InlineAnnotation, Option<Highlight>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
+    conceals: &'a [Conceal],
     line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
 }
 
@@ -292,6 +301,39 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    /// Install disjoint conceal ranges shared by rendering and positioning.
+    pub fn set_conceals(&mut self, conceals: &'a [Conceal]) {
+        self.conceals = conceals;
+    }
+
+    pub fn conceals(&self) -> &[Conceal] {
+        self.conceals
+    }
+
+    /// The replacement anchor for a position inside concealed text.
+    pub fn conceal_at(&self, char_idx: usize) -> Option<&Conceal> {
+        let index = self.conceals.partition_point(|c| c.range.end <= char_idx);
+        self.conceals
+            .get(index)
+            .filter(|c| c.range.start <= char_idx)
+    }
+
+    /// The final line ending belongs to the visible folded header as well.
+    pub fn checkpoint_anchor(&self, char_idx: usize) -> usize {
+        let index = self.conceals.partition_point(|c| c.range.end < char_idx);
+        self.conceals
+            .get(index)
+            .filter(|c| c.range.start <= char_idx)
+            .map_or(char_idx, |c| c.range.start)
+    }
+
+    /// Skip inline text and overlays hidden by a conceal without resetting line
+    /// annotations, whose pending anchors are handled by `skip_concealed_anchors`.
+    pub(crate) fn skip_concealed(&self, end: usize) {
+        reset_pos(&self.inline_annotations, end, |annot| annot.char_idx);
+        reset_pos(&self.overlays, end, |annot| annot.char_idx);
+    }
+
     /// Prepare the TextAnnotations for iteration starting at char_idx
     pub fn reset_pos(&self, char_idx: usize) {
         reset_pos(&self.inline_annotations, char_idx, |annot| annot.char_idx);
@@ -304,13 +346,20 @@ impl<'a> TextAnnotations<'a> {
     pub fn collect_overlay_highlights(&self, char_range: Range<usize>) -> OverlayHighlights {
         let mut highlights = Vec::new();
         self.reset_pos(char_range.start);
-        for char_idx in char_range {
+        let mut char_idx = char_range.start;
+        while char_idx < char_range.end {
+            if let Some(conceal) = self.conceal_at(char_idx) {
+                char_idx = conceal.range.end;
+                reset_pos(&self.overlays, char_idx, |annot| annot.char_idx);
+                continue;
+            }
             if let Some((_, Some(highlight))) = self.overlay_at(char_idx) {
                 // we don't know the number of chars the original grapheme takes
                 // however it doesn't matter as highlight boundaries are automatically
                 // aligned to grapheme boundaries in the rendering code
                 highlights.push((highlight, char_idx..char_idx + 1));
             }
+            char_idx += 1;
         }
 
         OverlayHighlights::Heterogenous { highlights }

@@ -8,8 +8,10 @@ mod language_servers;
 mod lifecycle;
 mod snippet;
 use snippet::SnippetSession;
+mod folding;
 mod mutation;
 mod view_state;
+pub use folding::FoldAction;
 use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
@@ -397,16 +399,7 @@ impl Document {
         self.syntax_loader = loader.clone();
         self.invalidate_language_features();
         self.language = language_config;
-        self.syntax = self.language.as_ref().and_then(|config| {
-            let language = loader.language_for_name(config.language_id.as_str())?;
-            Syntax::new(self.buffer.text().slice(..), language, loader)
-                .map_err(|err| {
-                    if err != syntax::HighlighterError::NoRootConfig {
-                        log::warn!("Error building syntax for '{}': {err}", self.display_name());
-                    }
-                })
-                .ok()
-        });
+        self.syntax = self.parse_syntax(loader);
     }
 
     /// Install syntax prepared for an immutable source, canceling any older parse.
