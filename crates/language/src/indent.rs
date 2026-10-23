@@ -8,6 +8,7 @@ use crate::{
     },
     Syntax,
 };
+use editor_core::graphemes::tab_width_at;
 use editor_core::{
     graphemes::grapheme_width,
     indent::{indent_level_for_line, IndentStyle},
@@ -22,20 +23,28 @@ use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 use tree_house::TREE_SITTER_MATCH_LIMIT;
 
-/// Create a string of tabs & spaces that has the same visual width as the given RopeSlice (independent of the tab width).
-fn whitespace_with_same_width(text: RopeSlice) -> String {
-    let mut s = String::new();
+/// Create whitespace with the same visual width using the configured indentation style.
+fn whitespace_with_same_width(
+    text: RopeSlice,
+    indent_style: &IndentStyle,
+    tab_width: usize,
+) -> String {
+    let mut width = 0;
     for grapheme in text.graphemes() {
-        if grapheme == "\t" {
-            s.push('\t');
+        width += if grapheme == "\t" {
+            tab_width_at(width, tab_width as u16)
         } else {
-            s.extend(std::iter::repeat_n(
-                ' ',
-                grapheme_width(&Cow::from(grapheme)),
-            ));
-        }
+            grapheme_width(&Cow::from(grapheme))
+        };
     }
-    s
+    match indent_style {
+        IndentStyle::Tabs => format!(
+            "{}{}",
+            "\t".repeat(width / tab_width),
+            " ".repeat(width % tab_width)
+        ),
+        IndentStyle::Spaces(_) => " ".repeat(width),
+    }
 }
 
 fn add_indent_level(
@@ -274,8 +283,9 @@ impl<'a> Indentation<'a> {
     }
     pub fn to_string(&self, indent_style: &IndentStyle, tab_width: usize) -> String {
         add_indent_level(
-            self.align
-                .map_or_else(String::new, whitespace_with_same_width),
+            self.align.map_or_else(String::new, |align| {
+                whitespace_with_same_width(align, indent_style, tab_width)
+            }),
             self.net_indent(),
             indent_style,
             tab_width,
@@ -1269,6 +1279,28 @@ mod tests {
                 tab_width
             ),
             None
+        );
+    }
+}
+
+#[cfg(test)]
+mod alignment_tests {
+    use super::*;
+
+    #[test]
+    fn alignment_uses_configured_indent_style_and_tab_stops() {
+        let text = RopeSlice::from("\tprint_ip_address(");
+        assert_eq!(
+            whitespace_with_same_width(text, &IndentStyle::Tabs, 8),
+            "\t\t\t "
+        );
+        assert_eq!(
+            whitespace_with_same_width(text, &IndentStyle::Spaces(4), 8),
+            " ".repeat(25)
+        );
+        assert_eq!(
+            whitespace_with_same_width(RopeSlice::from("a\tb"), &IndentStyle::Tabs, 4),
+            "\t "
         );
     }
 }
