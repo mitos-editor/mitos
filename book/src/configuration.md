@@ -867,3 +867,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+`editor.file-modification-indicator` sets the text used for modified buffers in both the statusline and bufferline. It defaults to `"[+]"`; an empty string hides it. The statusline reserves the same display width when the buffer is unmodified.
