@@ -72,13 +72,15 @@ fn open_navigation_target(
 
     let (path, open_binary_externally) = match target {
         NavigationTarget::Path(path) => (path, false),
-        NavigationTarget::Url(url) if url.scheme() == "file" => match url.to_file_path() {
-            Ok(path) => (path, true),
-            Err(()) => {
-                editor.set_error(|| format!("Invalid file URL: {url}"));
-                return None;
+        NavigationTarget::Url(url) if url.scheme().eq_ignore_ascii_case("file") => {
+            match url.to_file_path() {
+                Ok(path) => (path, true),
+                Err(()) => {
+                    editor.set_error(|| format!("Invalid file URL: {url}"));
+                    return None;
+                }
             }
-        },
+        }
         NavigationTarget::Url(url) => {
             launch_url(jobs, url);
             return None;
