@@ -10,7 +10,8 @@ use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
 use view::features::completion::LspCompletionItem;
 use view::features::completion::{
-    CompletionItem, CompletionResponse, CompletionSession, ResolveHandler, TextCompletion,
+    CompletionItem, CompletionResponse, CompletionSession, ResolveHandler, SnippetCompletion,
+    TextCompletion,
 };
 use view::features::signature_help::SignatureHelpInvoked;
 use view::{graphics::Rect, Editor};
@@ -35,13 +36,17 @@ impl menu::Item for CompletionItem {
                         .as_ref()
                         .is_some_and(|tags| tags.contains(&lsp::CompletionItemTag::DEPRECATED))
             }
-            CompletionItem::Path(_) | CompletionItem::Word(_) => false,
+            CompletionItem::Path(_) | CompletionItem::Word(_) | CompletionItem::Snippet(_) => false,
         };
 
         let label = match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.label.as_str(),
             CompletionItem::Path(TextCompletion { label, .. })
-            | CompletionItem::Word(TextCompletion { label, .. }) => label,
+            | CompletionItem::Word(TextCompletion { label, .. })
+            | CompletionItem::Snippet(SnippetCompletion {
+                text: TextCompletion { label, .. },
+                ..
+            }) => label,
         };
 
         let kind = match self {
@@ -98,7 +103,11 @@ impl menu::Item for CompletionItem {
                 None => "".into(),
             },
             CompletionItem::Path(TextCompletion { kind, .. })
-            | CompletionItem::Word(TextCompletion { kind, .. }) => kind.as_ref().into(),
+            | CompletionItem::Word(TextCompletion { kind, .. })
+            | CompletionItem::Snippet(SnippetCompletion {
+                text: TextCompletion { kind, .. },
+                ..
+            }) => kind.as_ref().into(),
         };
 
         let kind_name = kind.spans.first().map_or("", |span| span.content.as_ref());
@@ -384,7 +393,9 @@ impl Component for Completion {
                 }
                 None => return,
             },
-            CompletionItem::Path(option) | CompletionItem::Word(option) => {
+            CompletionItem::Path(option)
+            | CompletionItem::Word(option)
+            | CompletionItem::Snippet(SnippetCompletion { text: option, .. }) => {
                 let Some(doc) = option.documentation.as_deref() else {
                     return;
                 };

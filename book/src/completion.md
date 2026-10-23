@@ -114,3 +114,32 @@ and `WORKSPACE_FOLDER`. `LINE_COMMENT`, `BLOCK_COMMENT_START`, and
 Unavailable variables use their default, or an empty string if none is given.
 Variable transforms such as `${TM_FILENAME/(.*)\..+$/$1/}` use the resolved
 value; an unavailable value is transformed as an empty string.
+
+## User-defined snippets
+
+Define snippets in `snippets.toml` in your Mitos configuration directory. They
+appear in the completion menu without a language server. For example:
+
+```toml
+[[snippet]]
+name = "Error check"
+prefix = ["err", "iferr"]
+scope = "go"
+description = "Return an error from the current function"
+body = '''if ${1:err} != nil {
+    return $1
+}
+$0'''
+```
+
+`prefix` is a word or a list of words used to find the snippet. `scope` is a
+language name from `languages.toml`, or a list of names. Omit it to make a
+snippet available in every language, including plain text. `name`, `prefix`,
+and `body` are required; `description` is optional. Names must be unique.
+Bodies use the same placeholder and variable syntax as language-server snippets.
+Use actual tab characters or spaces for indentation in TOML literal strings.
+
+Save the file and run `:config-reload`. Invalid definitions report the file and
+snippet name, and preserve your last successfully loaded definitions.
+To disable native snippet suggestions, set `editor.completion.snippets = false`.
+This is independent of `editor.lsp.completion.snippets`.

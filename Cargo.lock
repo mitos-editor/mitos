@@ -2569,6 +2569,7 @@ dependencies = [
  "etcetera",
  "log",
  "serde",
+ "snippets",
  "stdx",
  "tempfile",
  "toml",
@@ -3914,8 +3915,10 @@ dependencies = [
  "parsec",
  "regex-cursor",
  "ropey",
+ "serde",
  "smallvec",
  "stdx",
+ "toml",
 ]
 
 [[package]]

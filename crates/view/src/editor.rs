@@ -111,6 +111,8 @@ pub struct Editor {
     /// is set here.
     pub theme: Theme,
 
+    pub(crate) snippets: crate::features::snippets::SnippetStore,
+
     pub quicklist: Quicklist,
 
     pub status_msg: Option<(Cow<'static, str>, Severity)>,
@@ -247,6 +249,7 @@ impl Editor {
             syn_loader,
             theme_loader,
             last_theme: None,
+            snippets: crate::features::snippets::SnippetStore::default(),
             quicklist: Quicklist::default(),
             registers: Registers::new(crate::clipboard::Clipboard::native(Box::new(
                 arc_swap::access::Map::new(Arc::clone(&config), |config: &Config| {

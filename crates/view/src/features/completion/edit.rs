@@ -192,6 +192,11 @@ impl Editor {
                     });
                 (transaction, snippet, additional)
             }
+            CompletionItem::Snippet(item) => (
+                item.text.transaction.clone(),
+                Some(item.rendered.clone()),
+                None,
+            ),
             CompletionItem::Path(TextCompletion { transaction, .. })
             | CompletionItem::Word(TextCompletion { transaction, .. }) => {
                 (transaction.clone(), None, None)
@@ -379,18 +384,17 @@ fn lsp_item_to_transaction(
             log::error!("Failed to parse snippet: {new_text:?}",);
             return None;
         };
-        let (transaction, snippet) =
-            crate::language_servers::edits::generate_transaction_from_snippet(
-                rope,
-                selection,
-                edit_offset,
-                replace_mode,
-                snippet,
-                snippet_ctx,
-            );
+        let (transaction, snippet) = crate::editing::completion::generate_transaction_from_snippet(
+            rope,
+            selection,
+            edit_offset,
+            replace_mode,
+            &snippet,
+            snippet_ctx,
+        );
         Some((transaction, Some(snippet)))
     } else {
-        let transaction = crate::language_servers::edits::generate_transaction_from_completion_edit(
+        let transaction = crate::editing::completion::generate_transaction_from_completion_edit(
             rope,
             selection,
             edit_offset,

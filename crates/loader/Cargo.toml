@@ -13,6 +13,7 @@ homepage.workspace = true
 [dependencies]
 workspace.workspace = true
 stdx.workspace = true
+snippets.workspace = true
 
 anyhow.workspace = true
 serde.workspace = true

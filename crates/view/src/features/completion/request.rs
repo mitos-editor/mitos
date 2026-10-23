@@ -183,6 +183,11 @@ pub(super) fn request_completions(
     {
         return false;
     }
+    let catalog = if editor.config().completion.snippets {
+        editor.user_snippets()
+    } else {
+        Arc::default()
+    };
     let Some(view) = editor.tree.try_get(editor.tree.focus()) else {
         return false;
     };
@@ -260,6 +265,9 @@ pub(super) fn request_completions(
         savepoint.clone(),
     ) {
         requests.spawn_blocking(path_completion_request);
+    }
+    if let Some(response) = super::snippet::completion(editor, &catalog, savepoint.clone()) {
+        requests.spawn(async move { response });
     }
     if let Some(word_completion_request) =
         word::completion(editor, trigger, handle.clone(), savepoint)

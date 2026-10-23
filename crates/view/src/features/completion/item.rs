@@ -10,6 +10,7 @@ pub enum CompletionProvider {
     Lsp(LanguageServerId),
     Path,
     Word,
+    Snippet,
 }
 
 impl From<LanguageServerId> for CompletionProvider {
@@ -28,6 +29,13 @@ pub struct TextCompletion {
     pub documentation: Option<String>,
 }
 
+/// A native snippet rendered once against its provider's saved text and selections.
+#[derive(Debug, PartialEq, Clone)]
+pub struct SnippetCompletion {
+    pub text: TextCompletion,
+    pub rendered: snippets::RenderedSnippet,
+}
+
 pub struct CompletionResponse {
     pub(super) items: CompletionItems,
     pub context: ResponseContext,
@@ -41,12 +49,14 @@ pub(super) enum CompletionItems {
     },
     Path(Vec<TextCompletion>),
     Word(Vec<TextCompletion>),
+    Snippet(Vec<SnippetCompletion>),
 }
 
 impl CompletionItems {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Lsp { items, .. } => items.is_empty(),
+            Self::Snippet(items) => items.is_empty(),
             Self::Path(items) | Self::Word(items) => items.is_empty(),
         }
     }
@@ -56,6 +66,7 @@ impl CompletionResponse {
     pub fn provider(&self) -> CompletionProvider {
         match &self.items {
             CompletionItems::Lsp { provider, .. } => CompletionProvider::Lsp(*provider),
+            CompletionItems::Snippet(_) => CompletionProvider::Snippet,
             CompletionItems::Path(_) => CompletionProvider::Path,
             CompletionItems::Word(_) => CompletionProvider::Word,
         }
@@ -71,6 +82,9 @@ impl CompletionResponse {
                     provider_priority: self.context.priority,
                 })
             })),
+            CompletionItems::Snippet(items) => {
+                dst.extend(items.drain(..).map(CompletionItem::Snippet))
+            }
             CompletionItems::Path(items) => dst.extend(items.drain(..).map(CompletionItem::Path)),
             CompletionItems::Word(items) => dst.extend(items.drain(..).map(CompletionItem::Word)),
         }
@@ -106,6 +120,7 @@ pub enum CompletionItem {
     Lsp(LspCompletionItem),
     Path(TextCompletion),
     Word(TextCompletion),
+    Snippet(SnippetCompletion),
 }
 
 impl CompletionItem {
@@ -113,6 +128,7 @@ impl CompletionItem {
     pub fn filter_text(&self) -> &str {
         match self {
             CompletionItem::Lsp(item) => item.filter_text(),
+            CompletionItem::Snippet(item) => &item.text.label,
             CompletionItem::Path(item) | CompletionItem::Word(item) => &item.label,
         }
     }
@@ -131,6 +147,7 @@ impl CompletionItem {
     pub fn provider_priority(&self) -> i8 {
         match self {
             CompletionItem::Lsp(item) => item.provider_priority,
+            CompletionItem::Snippet(_) => 0,
             // sorting path completions after LSP for now
             CompletionItem::Path(_) | CompletionItem::Word(_) => 1,
         }
@@ -139,6 +156,7 @@ impl CompletionItem {
     pub fn provider(&self) -> CompletionProvider {
         match self {
             CompletionItem::Lsp(item) => CompletionProvider::Lsp(item.provider),
+            CompletionItem::Snippet(_) => CompletionProvider::Snippet,
             CompletionItem::Path(_) => CompletionProvider::Path,
             CompletionItem::Word(_) => CompletionProvider::Word,
         }
@@ -147,7 +165,7 @@ impl CompletionItem {
     pub fn preselect(&self) -> bool {
         match self {
             CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.preselect.unwrap_or(false),
-            CompletionItem::Path(_) | CompletionItem::Word(_) => false,
+            CompletionItem::Path(_) | CompletionItem::Word(_) | CompletionItem::Snippet(_) => false,
         }
     }
 }

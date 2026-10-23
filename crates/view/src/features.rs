@@ -36,3 +36,5 @@ pub mod workspace_symbols;
 pub mod workspace_trust;
 
 pub mod workspace_search;
+
+pub mod snippets;

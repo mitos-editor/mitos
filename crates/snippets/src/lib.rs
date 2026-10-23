@@ -14,6 +14,8 @@
 //! normalized tabstop.
 
 mod active;
+mod catalog;
+pub use catalog::{Catalog, UserSnippet};
 mod elaborate;
 mod parser;
 mod render;

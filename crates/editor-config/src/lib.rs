@@ -1334,6 +1334,8 @@ pub enum BlockCursorRendering {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CompletionConfig {
+    /// Offer user-defined snippets without requiring a language server.
+    pub snippets: bool,
     /// Automatic auto-completion, automatically pop up without user trigger. Defaults to true.
     pub auto_trigger: bool,
     /// Configures completion of words from open buffers.
@@ -1358,6 +1360,7 @@ pub struct CompletionConfig {
 impl Default for CompletionConfig {
     fn default() -> Self {
         Self {
+            snippets: true,
             auto_trigger: true,
             word: WordCompletion::default(),
             trigger_delay: Duration::from_millis(250),

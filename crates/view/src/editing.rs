@@ -1,5 +1,6 @@
 //! Editing operations over documents and their per-view selections.
 
+pub(crate) mod completion;
 pub mod replay;
 
 use std::collections::HashMap;

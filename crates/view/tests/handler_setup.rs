@@ -85,3 +85,6 @@ mod buffer_search;
 
 #[path = "handler_setup/panes.rs"]
 mod panes;
+
+#[path = "handler_setup/user_snippets.rs"]
+mod user_snippets;

@@ -11,7 +11,12 @@ impl Application {
         let old_editor_config = self.editor.config();
 
         match config_event {
-            ConfigEvent::Refresh => self.refresh_config(),
+            ConfigEvent::Refresh => {
+                self.refresh_config();
+                if let Err(error) = self.editor.reload_snippets() {
+                    self.editor.set_error(|| format!("{error:#}"));
+                }
+            }
 
             ConfigEvent::Update(editor_config) => {
                 let terminal = self.config.load().terminal.clone();

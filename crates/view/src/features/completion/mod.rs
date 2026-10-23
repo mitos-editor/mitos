@@ -30,7 +30,8 @@ pub use edit::CompletionApply;
 use edit::CompletionEdit;
 use item::CompletionItems;
 pub use item::{
-    CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, TextCompletion,
+    CompletionItem, CompletionProvider, CompletionResponse, LspCompletionItem, SnippetCompletion,
+    TextCompletion,
 };
 pub use request::request_incomplete_completion_list;
 use request::{Debounce, Trigger, TriggerKind};
@@ -42,6 +43,7 @@ mod item;
 mod path;
 mod request;
 mod resolve;
+mod snippet;
 mod word;
 
 struct Shared {
@@ -230,6 +232,7 @@ impl CompletionSession {
                         )
                         .any(|server| server.id() == id)
             }
+            CompletionProvider::Snippet => editor.config().completion.snippets,
             CompletionProvider::Path => doc.path_completion_enabled(),
             CompletionProvider::Word => doc.word_completion_enabled(),
         }
@@ -591,6 +594,7 @@ pub(crate) fn register_hooks() {
             .lock()
             .is_some_and(|trigger| trigger.kind != TriggerKind::Manual);
         if (event.old.lsp.enable && !event.new.lsp.enable)
+            || event.old.completion.snippets != event.new.completion.snippets
             || (automatic && !event.new.completion.auto_trigger)
         {
             invalidate(event.editor);
