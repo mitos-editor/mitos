@@ -409,6 +409,8 @@ pub struct Config {
     pub inline_completion: InlineCompletionConfig,
     pub format: FormatConfig,
     pub clipboard: ClipboardConfig,
+    /// Zero-pad the selection-index register to a consistent width.
+    pub pad_selection_index_register: bool,
     pub files: FilesConfig,
     pub diagnostics: DiagnosticsConfig,
     pub indent: IndentConfig,
@@ -1213,6 +1215,7 @@ impl Default for Config {
             inline_completion: InlineCompletionConfig::default(),
             format: FormatConfig::default(),
             clipboard: ClipboardConfig::default(),
+            pad_selection_index_register: false,
             files: FilesConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             indent: IndentConfig::default(),

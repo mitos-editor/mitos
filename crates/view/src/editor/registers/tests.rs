@@ -196,3 +196,27 @@ async fn rejected_paste_keeps_pending_edits_uncommitted() {
     assert_eq!(doc.changes().changes(), pending.changes());
     assert_eq!(doc.snapshot().revision(), revision);
 }
+
+#[tokio::test]
+async fn selection_index_register_can_pad_numbers_to_selection_count() {
+    let input = (0..11)
+        .map(|i| if i == 0 { "#[|x]#" } else { "#(|x)#" })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let (mut editor, _store) = editor(&input);
+    assert_eq!(editor.first_register_value('#').as_deref(), Some("1"));
+    let mut config = (*editor.config()).clone();
+    config.pad_selection_index_register = true;
+    editor.config = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(config));
+    let config = editor.config.clone();
+    for doc in editor.documents_mut() {
+        doc.config = config.clone();
+    }
+    let values: Vec<_> = editor
+        .read_register('#')
+        .unwrap()
+        .map(|v| v.into_owned())
+        .collect();
+    assert_eq!(values.first().unwrap(), "01");
+    assert_eq!(values.last().unwrap(), "11");
+}

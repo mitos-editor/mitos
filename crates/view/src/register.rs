@@ -316,9 +316,17 @@ pub(crate) fn read_contextual<'a>(
     let selection =
         || selection.ok_or_else(|| anyhow::anyhow!("Register '{name}' requires a document view"));
     Ok(match name {
-        '#' => Some(RegisterValues::new(
-            (0..selection()?.len()).map(|i| (i + 1).to_string().into()),
-        )),
+        '#' => {
+            let count = selection()?.len();
+            let width = if document.config.load().pad_selection_index_register {
+                count.ilog10() as usize + 1
+            } else {
+                0
+            };
+            Some(RegisterValues::new(
+                (0..count).map(move |i| format!("{:0width$}", i + 1).into()),
+            ))
+        }
         '.' => Some(RegisterValues::new(
             selection()?.fragments(document.text().slice(..)),
         )),
