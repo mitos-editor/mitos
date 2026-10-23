@@ -86,10 +86,21 @@ impl Display for Grapheme<'_> {
                 }
                 Ok(())
             }
-            Grapheme::Other { ref g } => {
-                write!(f, "{g}")
-            }
+            Grapheme::Other { ref g } => f.write_str(&render_grapheme(g)),
         }
+    }
+}
+
+/// Replace control characters with visible cells before writing editable text to a terminal.
+#[must_use]
+pub fn render_grapheme(g: &str) -> Cow<'_, str> {
+    if g.chars().any(char::is_control) {
+        g.chars()
+            .map(|ch| if ch.is_control() { '\u{fffd}' } else { ch })
+            .collect::<String>()
+            .into()
+    } else {
+        g.into()
     }
 }
 
@@ -447,5 +458,18 @@ mod boundary_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    #[test]
+    fn controls_become_visible_single_cells_and_regular_text_is_borrowed() {
+        for ch in ["\0", "\x01", "\x1b", "\x7f"] {
+            assert_eq!(render_grapheme(ch), "�");
+            assert_eq!(grapheme_width(&render_grapheme(ch)), 1);
+        }
+        assert!(matches!(render_grapheme("界"), Cow::Borrowed("界")));
     }
 }

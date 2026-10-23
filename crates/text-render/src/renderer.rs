@@ -3,7 +3,7 @@ use stdx::rope::RopeExt as _;
 use text_layout::DisplayPosition;
 
 use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
-use editor_core::graphemes::Grapheme;
+use editor_core::graphemes::{render_grapheme, Grapheme};
 use editor_core::highlight::{HighlightEvent, OverlayHighlights};
 use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
@@ -338,10 +338,11 @@ impl<'a> TextRenderer<'a> {
             Grapheme::Newline => " ",
         };
 
+        let grapheme = render_grapheme(grapheme);
         self.surface.set_string(
             self.viewport.x + col,
             self.viewport.y + row,
-            grapheme,
+            &grapheme,
             style,
         );
         true
@@ -422,6 +423,7 @@ impl<'a> TextRenderer<'a> {
             Grapheme::Newline => &self.newline,
         };
 
+        let grapheme = render_grapheme(grapheme);
         let in_bounds = self.column_in_bounds(position.col, width);
 
         if in_bounds {
@@ -434,12 +436,12 @@ impl<'a> TextRenderer<'a> {
                     self.surface,
                     x,
                     y,
-                    grapheme,
+                    &grapheme,
                     style,
                     grapheme_style.overlay_style,
                 );
             } else {
-                self.surface.set_grapheme(x, y, grapheme, width, style);
+                self.surface.set_grapheme(x, y, &grapheme, width, style);
             }
         } else if is_tab && position.col < self.offset.col + self.viewport.width as usize {
             // Tabs are individual cells, so either edge can clip their marker/padding.
@@ -447,8 +449,8 @@ impl<'a> TextRenderer<'a> {
             let end = width
                 .min((self.offset.col + self.viewport.width as usize).saturating_sub(position.col));
             if start < end {
-                let from = char_to_byte_idx(grapheme, start);
-                let to = char_to_byte_idx(grapheme, end);
+                let from = char_to_byte_idx(&grapheme, start);
+                let to = char_to_byte_idx(&grapheme, end);
                 Self::draw_whitespace(
                     self.surface,
                     self.viewport.x + position.col.saturating_sub(self.offset.col) as u16,
@@ -632,6 +634,13 @@ mod whitespace_tests {
     use super::*;
     use editor_core::Rope;
     use ratatui_core::style::Color;
+
+    #[test]
+    fn control_text_renders_as_visible_cells() {
+        let surface = render("a\x01\x1b\x7fb", "", 20, false, 0);
+        let text: String = (0..5).map(|x| surface[(x, 0)].symbol()).collect();
+        assert_eq!(text, "a���b");
+    }
 
     fn render(text: &str, settings: &str, width: u16, wrap: bool, offset: usize) -> Surface {
         render_with_annotations(text, settings, width, wrap, offset, &[])
