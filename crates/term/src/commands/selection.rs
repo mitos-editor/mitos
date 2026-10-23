@@ -70,6 +70,29 @@ pub(super) fn select_regex(cx: &mut Context) {
     );
 }
 
+pub(super) fn select_character(cx: &mut Context) {
+    cx.on_next_key(|cx, event| {
+        use view::input::KeyCode;
+        let ch = match event.code {
+            KeyCode::Char(ch) => ch,
+            KeyCode::Enter => '\n',
+            KeyCode::Tab => '\t',
+            _ => return,
+        };
+        let mut bytes = [0; 4];
+        let regex = stdx::rope::Regex::new(&editor_core::regex::escape(ch.encode_utf8(&mut bytes)))
+            .expect("an escaped character is a valid regex");
+        let (view, doc) = current!(cx.editor);
+        if let Some(selection) =
+            selection::select_on_matches(doc.text().slice(..), doc.selection(view.id), &regex)
+        {
+            doc.set_selection(view.id, selection);
+        } else {
+            cx.editor.set_error(|| "nothing selected");
+        }
+    });
+}
+
 pub(super) fn split_selection(cx: &mut Context) {
     let reg = cx.register.unwrap_or('/');
     ui::regex_prompt(

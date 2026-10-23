@@ -100,6 +100,7 @@ impl MappableCommand {
         page_cursor_half_up => super::movement::page_cursor_half_up, "Move page and cursor half up",
         page_cursor_half_down => super::movement::page_cursor_half_down, "Move page and cursor half down",
         select_all => super::selection::select_all, "Select whole document",
+        select_character => super::selection::select_character, "Select all matches of the next character",
         select_regex => super::selection::select_regex, "Select all regex matches inside selections",
         split_selection => super::selection::split_selection, "Split selections on regex matches",
         split_selection_on_newline => super::selection::split_selection_on_newline, "Split selection on newlines",
