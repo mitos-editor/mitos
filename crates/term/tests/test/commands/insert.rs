@@ -762,3 +762,30 @@ async fn counted_insert_repetition_preserves_the_recording_for_later_dots() -> a
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn kotlin_else_newline() -> anyhow::Result<()> {
+    for heuristic in ["hybrid", "tree-sitter"] {
+        test((
+            indoc! {"
+                fun main() {
+                    if (condition) {
+                        yes()
+                    }#[|\n]#
+                }
+            "},
+            format!(":lang kotlin<ret>:set indent.heuristic {heuristic}<ret>i else {{<ret>"),
+            indoc! {"
+                fun main() {
+                    if (condition) {
+                        yes()
+                    } else {
+                        #[|\n]#
+                    }
+                }
+            "},
+        ))
+        .await?;
+    }
+    Ok(())
+}
