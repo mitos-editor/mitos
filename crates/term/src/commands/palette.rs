@@ -21,7 +21,17 @@ pub(super) fn command_palette_name<'a>(
     data: &CommandPaletteData,
 ) -> Cell<'a> {
     let name: Cow<'a, str> = match item {
-        MappableCommand::Typable { name, .. } => format!(":{name}").into(),
+        MappableCommand::Typable { name, .. } => {
+            let aliases = catalog::TYPABLE_COMMAND_MAP
+                .get(name.as_str())
+                .map(|command| command.aliases)
+                .unwrap_or_default();
+            if aliases.is_empty() {
+                format!(":{name}").into()
+            } else {
+                format!(":{name} ({})", aliases.join(" ")).into()
+            }
+        }
         MappableCommand::Static { name, .. } => (*name).into(),
         MappableCommand::Macro { .. } => {
             unreachable!("macros aren't included in the command palette")
@@ -182,7 +192,7 @@ mod tests {
 
         let name = command_palette_name(&command, &data);
         let name = &name.content.lines[0].spans[0];
-        assert_eq!(name.content, ":write");
+        assert_eq!(name.content, ":write (w)");
         assert_eq!(name.style, tui::style::Style::from(command_style));
 
         let bindings = command_palette_bindings(&command, &data);
