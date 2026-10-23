@@ -311,6 +311,8 @@ single statusline at the bottom of the editor for the focused view.
 | `mode.select` | string | `"SEL"` |
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
+| `always-show-encoding` | boolean | `false` |
+| `branch-prefix` | string | `""` |
 
 Available statusline elements:
 
@@ -324,7 +326,7 @@ Available statusline elements:
 | `file-base-name` | The basename of the opened file |
 | `current-working-directory` | The current working directory  |
 | `file-modification-indicator` | The indicator to show whether the file is modified (a `[+]` appears when there are unsaved changes) |
-| `file-encoding` | The encoding of the opened file if it differs from UTF-8 |
+| `file-encoding` | The encoding of the opened file if it differs from UTF-8, or always when `always-show-encoding` is enabled |
 | `file-line-ending` | The file line endings (CRLF or LF) |
 | `file-indent-style` | The file indentation style |
 | `read-only-indicator` | An indicator that shows `[readonly]` when a file cannot be written |
@@ -335,6 +337,9 @@ Available statusline elements:
 | `selections` | The main selection index out of the number of active selections |
 | `primary-selection-length` | The number of characters currently in the main selection |
 | `position` | The cursor position |
+| `row` | The one-based cursor row |
+| `col` | The one-based cursor column |
+| `yanked-selections` | Number of values in the selected register (or the unnamed register), hidden when at most one |
 | `position-percentage` | The cursor position as a percentage of the total number of lines |
 | `separator` | The string defined in `editor.statusline.separator` (defaults to `"│"`) |
 | `spacer` | Inserts a space between elements (multiple/contiguous spacers may be specified) |
@@ -867,3 +872,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+`branch-prefix` adds text before a non-empty branch element, including its optional icon.

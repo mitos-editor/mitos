@@ -124,12 +124,15 @@ where
         StatusLineElementID::Selections => render_selections,
         StatusLineElementID::PrimarySelectionLength => render_primary_selection_length,
         StatusLineElementID::Position => render_position,
+        StatusLineElementID::Row => render_row,
+        StatusLineElementID::Col => render_col,
         StatusLineElementID::PositionPercentage => render_position_percentage,
         StatusLineElementID::TotalLineNumbers => render_total_line_numbers,
         StatusLineElementID::Separator => render_separator,
         StatusLineElementID::Spacer => render_spacer,
         StatusLineElementID::Branch => render_branch,
         StatusLineElementID::Register => render_register,
+        StatusLineElementID::YankedSelections => render_yanked_selections,
         StatusLineElementID::CurrentWorkingDirectory => render_cwd,
         StatusLineElementID::CodeActionHint => render_code_action_hint,
         StatusLineElementID::DebugSession => render_debug_session,
@@ -494,7 +497,7 @@ where
 {
     let enc = context.doc.encoding();
 
-    if enc != encoding::UTF_8 {
+    if context.editor.config().statusline.always_show_encoding || enc != encoding::UTF_8 {
         write(context, format!(" {} ", enc.name()).into());
     }
 }
@@ -637,6 +640,14 @@ where
         .unwrap_or_default()
         .to_string();
 
+    if head.is_empty() {
+        return;
+    }
+    let prefix = &context.editor.config().statusline.branch_prefix;
+    if !prefix.is_empty() {
+        write(context, prefix.to_owned().into());
+    }
+
     if context.editor.config().icons
         && !head.is_empty()
         && let Some(icon) = ICONS.load().vcs().branch()
@@ -647,6 +658,40 @@ where
     }
 
     write(context, head.into());
+}
+
+fn render_row<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    write(
+        context,
+        format!(" {} ", get_position(context).row + 1).into(),
+    );
+}
+
+fn render_col<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    write(
+        context,
+        format!(" {} ", get_position(context).col + 1).into(),
+    );
+}
+
+fn render_yanked_selections<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let count = context
+        .editor
+        .read_register(context.editor.selected_register.unwrap_or('"'))
+        .map(|values| values.count())
+        .unwrap_or(0);
+    if count > 1 {
+        write(context, format!(" {count} sels yanked ").into());
+    }
 }
 
 fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)

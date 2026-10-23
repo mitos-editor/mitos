@@ -664,3 +664,30 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn optional_statusline_elements_render_cursor_encoding_and_register_count(
+) -> anyhow::Result<()> {
+    use editor_config::StatusLineElement as E;
+    let mut config = test_config();
+    config.editor.statusline.left = vec![E::Row, E::Col, E::FileEncoding, E::YankedSelections];
+    config.editor.statusline.right.clear();
+    config.editor.statusline.always_show_encoding = true;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("one\n  #[|t]#wo")
+        .build()?;
+    app.editor
+        .registers
+        .write('"', vec!["one".into(), "two".into()])?;
+    keys(&mut app, "<esc>").await?;
+    let backend = app.terminal_backend();
+    let text: String = backend
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains(" 2  3  UTF-8  2 sels yanked "), "{text:?}");
+    Ok(())
+}

@@ -722,6 +722,10 @@ pub struct StatusLineConfig {
     pub mode: ModeConfig,
     pub diagnostics: Vec<Severity>,
     pub workspace_diagnostics: Vec<Severity>,
+    /// Include UTF-8 in the file-encoding element.
+    pub always_show_encoding: bool,
+    /// Prefix for the branch element.
+    pub branch_prefix: String,
 }
 
 impl Default for StatusLineConfig {
@@ -750,6 +754,8 @@ impl Default for StatusLineConfig {
             mode: ModeConfig::default(),
             diagnostics: vec![Severity::Warning, Severity::Error],
             workspace_diagnostics: vec![Severity::Warning, Severity::Error],
+            always_show_encoding: false,
+            branch_prefix: String::new(),
         }
     }
 }
@@ -825,6 +831,12 @@ pub enum StatusLineElement {
     /// The cursor position
     Position,
 
+    /// The one-based cursor row.
+    Row,
+
+    /// The one-based cursor column.
+    Col,
+
     /// The separator string
     Separator,
 
@@ -842,6 +854,9 @@ pub enum StatusLineElement {
 
     /// Indicator for selected register
     Register,
+
+    /// Number of values in the active register, hidden when at most one.
+    YankedSelections,
 
     /// The base of current working directory
     CurrentWorkingDirectory,
