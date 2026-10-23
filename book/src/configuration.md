@@ -552,7 +552,7 @@ enable delayed saving.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `smart-case` | boolean | `true` | Search case-insensitively unless the pattern contains an uppercase character. |
-| `wrap-around` | boolean | `true` | Continue at the other end of the document after the last match. |
+| `wrap-around` | boolean | `true` | Continue at the other end of the document after the last match or change. |
 
 ### `[editor.rulers]`
 

@@ -707,7 +707,7 @@ impl Default for LspReferencesConfig {
 pub struct SearchConfig {
     /// Smart case: Case insensitive searching unless pattern contains upper case characters. Defaults to true.
     pub smart_case: bool,
-    /// Whether the search should wrap after depleting the matches. Default to true.
+    /// Whether search and change navigation wrap at document boundaries. Defaults to true.
     pub wrap_around: bool,
 }
 
