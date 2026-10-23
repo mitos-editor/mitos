@@ -304,3 +304,20 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn startup_splits_focus_the_first_requested_file() -> anyhow::Result<()> {
+    let first = tempfile::NamedTempFile::new()?;
+    let second = tempfile::NamedTempFile::new()?;
+    for layout in [view::tree::Layout::Horizontal, view::tree::Layout::Vertical] {
+        let app = AppBuilder::new()
+            .with_file(first.path(), None)
+            .with_file(second.path(), None)
+            .with_split(layout)
+            .build()?;
+        let (_, doc) = view::current_ref!(app.editor);
+        assert_eq!(doc.path().unwrap(), stdx::path::canonicalize(first.path()));
+        assert_eq!(app.editor.tree.views().count(), 2);
+    }
+    Ok(())
+}
