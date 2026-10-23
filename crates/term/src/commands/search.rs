@@ -223,8 +223,9 @@ fn query_global_search(
     injector: &ui::picker::Injector<::search::Match, GlobalSearchConfig>,
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<()>> {
     let request = SearchRequest::new(query, editor, config.search.clone());
-    if matches!(request, Ok(Some(_))) {
-        editor.clear_status();
+    editor.clear_status();
+    if let Err(error) = &request {
+        editor.set_error(|| error.to_string());
     }
     let injector = injector.clone();
     async move {
@@ -481,6 +482,16 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert_eq!(
+            app.editor.get_status().unwrap().0.as_ref(),
+            "Invalid regular expression"
+        );
+        let error = query_global_search("+=", &mut app.editor, config.clone(), &injector)
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("repetition operator missing expression"));
+        query_global_search("", &mut app.editor, config.clone(), &injector).await?;
+        assert!(app.editor.get_status().is_none());
         drop(injector);
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while matcher.tick(10).running {
