@@ -243,7 +243,7 @@ The `smart-tab` subsection controls syntax-aware Tab behavior.
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `smart-tab` | table | See below | Syntax-aware Tab behavior. See [`[editor.indent.smart-tab]`](#editorindentsmart-tab). |
-| `heuristic` | `"simple"`, `"tree-sitter"`, or `"hybrid"` | `"hybrid"` | Indentation strategy. Unavailable strategies fall back from hybrid to tree-sitter to simple. |
+| `heuristic` | `"verbatim"`, `"simple"`, `"tree-sitter"`, or `"hybrid"` | `"hybrid"` | Indentation strategy. `verbatim` copies the current line’s exact leading whitespace; `simple` preserves its width using the current indentation style. Unavailable strategies fall back from hybrid to tree-sitter to simple. |
 
 ### `[editor.diagnostics]`
 
