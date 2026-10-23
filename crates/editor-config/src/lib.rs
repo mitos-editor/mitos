@@ -760,6 +760,7 @@ pub struct ModeConfig {
     pub normal: String,
     pub insert: String,
     pub select: String,
+    pub debug: String,
 }
 
 impl Default for ModeConfig {
@@ -769,6 +770,7 @@ impl Default for ModeConfig {
             normal: String::from("NOR"),
             insert: String::from("INS"),
             select: String::from("SEL"),
+            debug: String::from("DBG"),
         }
     }
 }
@@ -776,7 +778,7 @@ impl Default for ModeConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusLineElement {
-    /// The editor mode (Normal, Insert, Visual/Selection)
+    /// The editor mode (Normal, Insert, Select, Debug)
     Mode,
 
     /// The LSP activity spinner

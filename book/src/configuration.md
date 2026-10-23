@@ -309,6 +309,7 @@ single statusline at the bottom of the editor for the focused view.
 | `mode.normal` | string | `"NOR"` |
 | `mode.insert` | string | `"INS"` |
 | `mode.select` | string | `"SEL"` |
+| `mode.debug` | string | `"DBG"` |
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
 
@@ -316,7 +317,7 @@ Available statusline elements:
 
 | Key    | Description |
 | ------ | ----------- |
-| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
+| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`/`mode.debug`) |
 | `spinner` | A progress spinner indicating LSP activity |
 | `branch` | The current branch name or detached commit hash of the opened workspace |
 | `file-name` | The path/name of the opened file |
@@ -383,6 +384,8 @@ length-limit = 40
 ```
 
 ### `[editor.cursor.shape]`
+
+Debug mode uses the normal cursor shape and cursor theme scopes.
 
 `normal`, `insert`, and `select` each accept `"block"`, `"bar"`, or
 `"underline"`; all default to `"block"`. Terminals can change
@@ -738,7 +741,7 @@ the security model and recommended configurations.
 
 ### `[keys]`
 
-`[keys.normal]`, `[keys.insert]`, and `[keys.select]` are maps whose keys are
+`[keys.normal]`, `[keys.insert]`, `[keys.select]`, and `[keys.debug]` are maps whose keys are
 key names and whose values are a static command, a `:typable-command`, a key
 macro beginning with `@`, a sequence of commands, or another table forming a
 minor mode. There is no fixed list of entries: omitted bindings retain their

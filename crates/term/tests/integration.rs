@@ -30,6 +30,7 @@ mod test {
     mod component_keymaps;
     mod config_application;
     mod cursor;
+    mod debug_mode;
     mod debugger_inline_values;
     mod debugger_sessions;
     mod debugger_terminal;

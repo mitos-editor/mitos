@@ -79,3 +79,10 @@ signature-help, or blame bindings. In the completion menu, other typing
 accepts the completion and continues inserting text.
 
 {{#include ./generated/keymap-components.md}}
+
+## Debug mode
+
+Debug mode uses normal navigation and editing semantics with its own configurable
+bindings. Enter it with the `debug_mode` command, through the command palette or
+a [custom binding](./remapping.md). `Esc` returns to normal mode. The command
+reference lists debug bindings where they differ from normal mode.

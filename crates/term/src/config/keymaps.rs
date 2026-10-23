@@ -46,6 +46,7 @@ pub struct Keys {
     normal: Option<keymap::KeyTrieNode>,
     insert: Option<keymap::KeyTrieNode>,
     select: Option<keymap::KeyTrieNode>,
+    debug: Option<keymap::KeyTrieNode>,
     prompt: Keymap<PromptAction>,
     picker: Keymap<PickerAction>,
     buffer_picker: Keymap<BufferPickerAction>,
@@ -62,6 +63,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
+        debug: &mut keymap::KeyTrieNode,
     ) -> (Keymap<PickerAction>, Keymap<PickerAction>) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
@@ -76,6 +78,9 @@ impl Keys {
                     .unwrap()
                     .merge(keys);
             }
+        }
+        if let Some(keys) = self.debug {
+            debug.merge(keys);
         }
         components.prompt.merge(self.prompt);
         components.picker.merge(self.picker);
@@ -96,13 +101,18 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
+    let mut debug = keymap::default::debug_bindings();
     let mut buffer_overrides = Keymap::default();
     let mut quicklist_overrides = Keymap::default();
     for keys in configured {
-        let (buffer, quicklist) = keys.apply(&mut editor, &mut components);
+        let (buffer, quicklist) =
+            keys.apply(&mut editor, &mut components, debug.node_mut().unwrap());
         buffer_overrides.merge(buffer);
         quicklist_overrides.merge(quicklist);
     }
+    let mut debug_keys = editor[&Mode::Normal].clone();
+    debug_keys.merge_nodes(debug);
+    editor.insert(Mode::Debug, debug_keys);
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
     components.buffer_picker = components.picker.clone();

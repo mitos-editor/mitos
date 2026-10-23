@@ -58,6 +58,19 @@ impl Editor {
         self.set_mode(Mode::Normal);
     }
 
+    /// Use normal editing semantics with debugger command bindings. This does not
+    /// start a session and remains active while navigating between source files.
+    pub fn enter_debug_mode(&mut self) {
+        self.set_mode(Mode::Debug);
+    }
+
+    /// Finish a document's editing mode before moving focus, retaining debugger controls.
+    pub(super) fn leave_editing_mode(&mut self) {
+        if self.mode != Mode::Debug {
+            self.enter_normal_mode();
+        }
+    }
+
     /// Insert at the start of each selection, retaining its extent while typing.
     pub fn enter_insert_mode(&mut self) {
         let (view, doc) = current!(self);

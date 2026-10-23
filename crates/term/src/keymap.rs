@@ -328,6 +328,7 @@ pub type ReverseKeymap = HashMap<String, Vec<Vec<KeyEvent>>>;
 
 pub struct Keymaps {
     pub map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>,
+    mode: Option<Mode>,
     /// Stores pending keys waiting for the next key. This is relative to a
     /// sticky node if one is in use.
     state: Vec<KeyEvent>,
@@ -339,6 +340,7 @@ impl Keymaps {
     pub fn new(map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>) -> Self {
         Self {
             map,
+            mode: None,
             state: Vec::new(),
             sticky: None,
         }
@@ -357,11 +359,21 @@ impl Keymaps {
         self.sticky.as_ref()
     }
 
+    pub(crate) fn reset(&mut self) {
+        self.state.clear();
+        self.sticky = None;
+        self.mode = None;
+    }
+
     pub fn contains_key(&self, mode: Mode, key: KeyEvent) -> bool {
         let keymaps = &*self.map();
         let keymap = &keymaps[&mode];
         keymap
-            .search(self.pending())
+            .search(if self.mode == Some(mode) {
+                self.pending()
+            } else {
+                &[]
+            })
             .and_then(KeyTrie::node)
             .is_some_and(|node| node.contains_key(&key))
     }
@@ -370,6 +382,10 @@ impl Keymaps {
     /// key cancels pending keystrokes. If there are no pending keystrokes but a
     /// sticky node is in use, it will be cleared.
     pub fn get(&mut self, mode: Mode, key: KeyEvent) -> KeymapResult {
+        if self.mode != Some(mode) {
+            self.reset();
+            self.mode = Some(mode);
+        }
         // TODO: remove the sticky part and look up manually
         let keymaps = &*self.map();
         let keymap = &keymaps[&mode];
@@ -679,5 +695,21 @@ is_sticky = false
         ));
 
         assert_eq!(toml::from_str(keys), Ok(expectation));
+    }
+    #[test]
+    fn mode_changes_discard_pending_and_sticky_bindings() {
+        let mut keys = Keymaps::default();
+        for prefix in [key!('g'), key!('Z')] {
+            assert!(matches!(
+                keys.get(Mode::Normal, prefix),
+                KeymapResult::Pending(_)
+            ));
+            assert_eq!(
+                keys.get(Mode::Debug, key!('l')),
+                KeymapResult::Matched(MappableCommand::move_char_right)
+            );
+            assert!(keys.pending().is_empty());
+            assert!(keys.sticky().is_none());
+        }
     }
 }

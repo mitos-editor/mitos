@@ -87,6 +87,8 @@ impl EditorView {
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
+                self.keymaps.reset();
+                cxt.editor.autoinfo = None;
                 event::dispatch(OnModeSwitch {
                     old_mode: last_mode,
                     new_mode: current_mode,
