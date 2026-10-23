@@ -115,6 +115,20 @@ impl Loader {
         Ok((theme, warnings))
     }
 
+    /// Load an explicit file using the same inheritance and style interpretation as named themes.
+    pub fn load_file(&self, path: &std::path::Path) -> Result<Theme> {
+        let (mut theme, warnings) = Theme::from_toml(self.resources.load_file(path)?);
+        for warning in warnings {
+            warn!("Theme '{}': {}", path.display(), warning);
+        }
+        theme.name = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        Ok(theme)
+    }
+
     pub fn default_theme(&self) -> Theme {
         self.default()
     }
@@ -529,6 +543,38 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_files_inherit_named_resources_and_detect_cycles() {
+        let root = tempfile::tempdir().unwrap();
+        let themes = root.path().join("themes");
+        std::fs::create_dir(&themes).unwrap();
+        std::fs::write(
+            themes.join("parent.toml"),
+            "inherits = 'default'\nkeyword = '#123456'\n",
+        )
+        .unwrap();
+        let file = root.path().join("preview.toml");
+        std::fs::write(&file, "inherits = 'parent'\nstring = '#abcdef'\n").unwrap();
+        let loader = Loader::new(Resources::new(vec![root.path().into()]));
+        let theme = loader.load_file(&file).unwrap();
+        assert_eq!(theme.name(), "preview");
+        assert_eq!(
+            theme.get("keyword"),
+            Style::default().fg(Color::Rgb(0x12, 0x34, 0x56))
+        );
+        assert_eq!(
+            theme.get("string"),
+            Style::default().fg(Color::Rgb(0xab, 0xcd, 0xef))
+        );
+        assert_eq!(
+            theme.get("ui.selection"),
+            loader.default_theme().get("ui.selection")
+        );
+        assert!(loader.load_file(&root.path().join("missing.toml")).is_err());
+        std::fs::write(themes.join("parent.toml"), "inherits = 'parent'\n").unwrap();
+        assert!(loader.load_file(&file).is_err());
+    }
 
     #[test]
     fn resources_compile_inherited_styles_and_return_warnings() {

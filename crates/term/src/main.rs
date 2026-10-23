@@ -57,6 +57,7 @@ FLAGS:
                                    the default is the same as 'all', but with languages filtering.
     -g, --grammar {{fetch|build}}    Fetch or builds tree-sitter grammars listed in languages.toml.
     -c, --config <file>            Specify a file to use for configuration
+    -t, --theme <file>             Override the configured theme with a theme file
     --migrate-config <file> --stdout
                                    Export migrated config to stdout without changing the file
     -v                             Increase logging verbosity each use for up to 3 times

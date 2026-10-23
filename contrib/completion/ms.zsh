@@ -19,6 +19,8 @@ _ms() {
 		"--hsplit[Splits all given files horizontally]" \
 		"-c[Specifies a file to use for configuration]" \
 		"--config[Specifies a file to use for configuration]" \
+		"-t[Overrides the configured theme]:theme file:_files" \
+		"--theme[Overrides the configured theme]:theme file:_files" \
 		"-w[Specify initial working directory]" \
 		"--working-dir[Specify initial working directory]" \
 		"--migrate-config[Export migrated configuration (requires --stdout)]:config file:_files" \

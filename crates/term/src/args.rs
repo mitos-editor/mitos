@@ -18,6 +18,7 @@ pub struct Args {
     pub verbosity: u64,
     pub log_file: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
+    pub theme_file: Option<PathBuf>,
     pub migrate_config: Option<PathBuf>,
     pub stdout: bool,
     pub files: IndexMap<PathBuf, Vec<Position>>,
@@ -25,10 +26,14 @@ pub struct Args {
 }
 
 impl Args {
-    #[allow(clippy::too_many_lines)]
     pub fn parse_args() -> Result<Args> {
+        Self::parse_args_from(std::env::args())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_args_from(argv: impl IntoIterator<Item = String>) -> Result<Args> {
         let mut args = Args::default();
-        let mut argv = std::env::args().peekable();
+        let mut argv = argv.into_iter().peekable();
         let mut line_number = 0;
 
         let mut insert_file_with_position = |file_with_position: &str| {
@@ -79,6 +84,10 @@ impl Args {
                 "-c" | "--config" => match argv.next().as_deref() {
                     Some(path) => args.config_file = Some(path.into()),
                     None => anyhow::bail!("--config must specify a path to read"),
+                },
+                "-t" | "--theme" => match argv.next() {
+                    Some(path) => args.theme_file = Some(stdx::path::canonicalize(path)),
+                    None => anyhow::bail!("--theme must specify a path to read"),
                 },
                 "--log" => match argv.next().as_deref() {
                     Some(path) => args.log_file = Some(path.into()),
@@ -177,4 +186,30 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
     let path = path.into();
     let pos = Position::new(row.saturating_sub(1), 0);
     Some((path, pos))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+
+    #[test]
+    fn theme_file_is_resolved_before_the_working_directory_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let args = Args::parse_args_from(
+            [
+                "ms",
+                "--theme",
+                "custom.toml",
+                "-w",
+                directory.path().to_str().unwrap(),
+            ]
+            .map(str::to_owned),
+        )
+        .unwrap();
+        assert_eq!(
+            args.theme_file.unwrap(),
+            stdx::env::current_working_dir().join("custom.toml")
+        );
+        assert!(Args::parse_args_from(["ms", "-t"].map(str::to_owned)).is_err());
+    }
 }

@@ -64,6 +64,7 @@ impl Application {
                 &default_config,
                 &self.terminal,
                 self.theme_mode,
+                self.theme_file.as_deref(),
             );
             let _ = self.editor.apply_language_config(lang_loader, theme);
 
@@ -89,32 +90,37 @@ impl Application {
         config: &Config,
         terminal: &Terminal,
         mode: Option<theme::Mode>,
+        file: Option<&std::path::Path>,
     ) -> theme::Theme {
         let true_color = terminal.backend().supports_true_color()
             || config.terminal.true_color
             || crate::true_color();
         let theme_config = config.theme.clone().unwrap_or_default();
         let name = theme_config.choose(mode);
-        editor
-            .theme_loader
-            .load(name)
-            .map_err(|e| {
-                log::warn!("failed to load theme `{}` - {}", name, e);
-                e
-            })
-            .ok()
-            .filter(|theme| {
-                let colors_ok = true_color || theme.is_16_color();
-                if !colors_ok {
-                    log::warn!(
-                        "loaded theme `{}` but cannot use it because true color \
+        let source = file
+            .map(|path| path.to_string_lossy())
+            .unwrap_or(name.into());
+        file.map_or_else(
+            || editor.theme_loader.load(name),
+            |path| editor.theme_loader.load_file(path),
+        )
+        .map_err(|e| {
+            log::warn!("failed to load theme `{}` - {}", source, e);
+            e
+        })
+        .ok()
+        .filter(|theme| {
+            let colors_ok = true_color || theme.is_16_color();
+            if !colors_ok {
+                log::warn!(
+                    "loaded theme `{}` but cannot use it because true color \
                         support is not enabled",
-                        theme.name()
-                    );
-                }
-                colors_ok
-            })
-            .unwrap_or_else(|| editor.theme_loader.default_theme())
+                    theme.name()
+                );
+            }
+            colors_ok
+        })
+        .unwrap_or_else(|| editor.theme_loader.default_theme())
     }
 }
 

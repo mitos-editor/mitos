@@ -47,6 +47,7 @@ for the editor interface.
 
 | Flag | Purpose |
 | --- | --- |
+| `-t <file>` / `--theme <file>` | Use a theme file for this session, including after configuration reloads |
 | `--tutor` | Open the interactive tutorial |
 | `-c <file>` / `--config <file>` | Use another `config.toml` |
 | `--health [category]` | Check setup; use a language name, `clipboard`, `languages`, `all-languages`, or `all` |
@@ -61,3 +62,7 @@ for the editor interface.
 
 See [Troubleshooting](./troubleshooting.md) for health checks and collecting
 logs, and [Configuration migration](./configuration-migration.md) for upgrades.
+
+Theme file paths resolve relative to the shell's starting directory. Inherited
+parent themes use the usual user/runtime theme search paths. An unreadable or
+invalid override falls back to the default theme and records the error in the log.

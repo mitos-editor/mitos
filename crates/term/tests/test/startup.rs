@@ -255,3 +255,39 @@ async fn diagnostic_refresh_is_delivered_once_to_the_owning_application() -> any
     assert!(second.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_theme_file_survives_configuration_refresh() -> anyhow::Result<()> {
+    use term::{application::Application, args::Args};
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::startup::explicit_theme_file_survives_configuration_refresh",
+    )?
+    else {
+        return Ok(());
+    };
+    std::fs::write(
+        root.join("config/mitos/config.toml"),
+        "[terminal]\ntrue-color = true\n",
+    )?;
+    let file = root.join("preview.toml");
+    std::fs::write(&file, "inherits = 'default'\nkeyword = '#123456'\n")?;
+    let mut config = super::helpers::test_config();
+    config.terminal.true_color = true;
+    let mut app = Application::new(
+        Args {
+            theme_file: Some(file),
+            ..Default::default()
+        },
+        config,
+        super::helpers::test_syntax_loader(None),
+        workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+    )?;
+    let expected = theme::Style::default().fg(theme::Color::Rgb(0x12, 0x34, 0x56));
+    assert_eq!(app.editor.theme.name(), "preview");
+    assert_eq!(app.editor.theme.get("keyword"), expected);
+    app.handle_config_events(view::editor::ConfigEvent::Refresh);
+    assert_eq!(app.editor.theme.name(), "preview");
+    assert_eq!(app.editor.theme.get("keyword"), expected);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

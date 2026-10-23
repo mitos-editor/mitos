@@ -96,7 +96,13 @@ impl Application {
         editor
             .registers
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
-        let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
+        let theme = Self::configured_theme(
+            &editor,
+            &config.load(),
+            &terminal,
+            theme_mode,
+            args.theme_file.as_deref(),
+        );
         let _ = editor.set_theme(theme);
         editor.debugger_mut().set_terminal_launcher(
             crate::terminal_launcher::ExternalTerminal::new(config.clone())?,
@@ -221,6 +227,7 @@ impl Application {
             jobs,
             _presentation_hooks: presentation_hooks,
             theme_mode,
+            theme_file: args.theme_file,
         };
 
         Ok(app)

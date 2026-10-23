@@ -66,6 +66,7 @@ pub struct Application {
     _presentation_hooks: event::HookRegistration,
 
     theme_mode: Option<theme::Mode>,
+    theme_file: Option<std::path::PathBuf>,
 }
 
 impl Application {

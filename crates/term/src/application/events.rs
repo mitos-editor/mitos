@@ -221,6 +221,7 @@ impl Application {
                         &config,
                         &self.terminal,
                         self.theme_mode,
+                        self.theme_file.as_deref(),
                     );
                     let _ = self.editor.set_theme(theme);
                     true

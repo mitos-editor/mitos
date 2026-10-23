@@ -70,6 +70,20 @@ impl Resources {
     fn load_theme(&self, name: &str, visited_paths: &mut HashSet<PathBuf>) -> Result<Value> {
         let path = self.path(name, visited_paths)?;
 
+        self.load_file_with_parents(path, visited_paths)
+    }
+
+    /// Read an explicit theme file, resolving inherited names through these resource roots.
+    pub fn load_file(&self, path: &Path) -> Result<Value> {
+        let mut visited_paths = HashSet::from([path.to_owned()]);
+        self.load_file_with_parents(path.to_owned(), &mut visited_paths)
+    }
+
+    fn load_file_with_parents(
+        &self,
+        path: PathBuf,
+        visited_paths: &mut HashSet<PathBuf>,
+    ) -> Result<Value> {
         let theme_toml = self.load_toml(path)?;
 
         let inherits = theme_toml.get("inherits");
