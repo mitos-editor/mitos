@@ -2551,3 +2551,44 @@ mod adapter_breakpoints;
 
 #[path = "debugger_inline_values.rs"]
 mod inline_values;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn termination_uses_disconnect_capabilities_when_terminate_is_unsupported(
+) -> anyhow::Result<()> {
+    use view::debugger::DebuggerCommand;
+
+    for supports_termination in [false, true] {
+        let mut fixture = Fixture::new("")?;
+        let (id, mut wire) = adapter_with_options(&mut fixture, AdapterOptions::default()).await?;
+        fixture
+            .editor
+            .handle_debugger_message(
+                id,
+                debugger_event(
+                    "capabilities",
+                    json!({
+                        "capabilities": {
+                            "supportsTerminateRequest": false,
+                            "supportTerminateDebuggee": supports_termination
+                        }
+                    }),
+                ),
+            )
+            .await;
+        fixture
+            .editor
+            .debugger_command(DebuggerCommand::Terminate)?;
+        let request = command(&mut wire, "disconnect").await?;
+        assert_eq!(
+            request["arguments"]["terminateDebuggee"],
+            if supports_termination {
+                json!(true)
+            } else {
+                Value::Null
+            }
+        );
+        debugger_callback(&mut fixture).await?;
+        assert!(fixture.editor.debugger().get_session(id).is_none());
+    }
+    Ok(())
+}

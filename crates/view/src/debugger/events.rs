@@ -301,7 +301,18 @@ impl Editor {
                 restart: Some(false),
             })))
         } else {
-            Box::pin(client.disconnect(None))
+            Box::pin(
+                client.disconnect(Some(requests::DisconnectArguments {
+                    restart: Some(false),
+                    terminate_debuggee: session
+                        .capabilities()
+                        .unwrap()
+                        .support_terminate_debuggee
+                        .unwrap_or(false)
+                        .then_some(true),
+                    suspend_debuggee: None,
+                })),
+            )
         };
         self.debugger.invalidate_execution(id);
         self.debugger.sessions[id].lifecycle.begin_disconnect();
