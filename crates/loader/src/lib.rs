@@ -54,6 +54,7 @@ static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
 /// The parent directory is created when possible. Only the first call changes
 /// the stored path; subsequent calls are ignored.
 pub fn initialize_config_file(specified_file: Option<PathBuf>) {
+    LazyLock::force(&CONFIG_DIR);
     let config_file = specified_file.unwrap_or_else(default_config_file);
     ensure_parent_dir(&config_file);
     CONFIG_FILE.set(config_file).ok();
@@ -372,8 +373,6 @@ mod directory_tests {
         const CHILD: &str = "MITOS_TEST_CONFIG_DIRECTORY_CHILD";
         if let Some(expected) = std::env::var_os(CHILD) {
             let expected = std::path::PathBuf::from(expected);
-            assert_eq!(super::config_dir(), expected);
-            assert_eq!(super::lang_config_file(), expected.join("languages.toml"));
             let explicit =
                 std::env::var_os("MITOS_TEST_EXPLICIT_CONFIG_FILE").map(std::path::PathBuf::from);
             super::initialize_config_file(explicit.clone());
@@ -381,12 +380,14 @@ mod directory_tests {
                 super::config_file(),
                 explicit.unwrap_or_else(|| expected.join("config.toml"))
             );
-            std::env::set_current_dir(expected.parent().unwrap()).unwrap();
+            std::env::set_current_dir(expected.parent().unwrap().join("elsewhere")).unwrap();
             assert_eq!(super::config_dir(), expected);
+            assert_eq!(super::lang_config_file(), expected.join("languages.toml"));
             return;
         }
         let root = tempfile::tempdir().unwrap();
         let expected = root.path().canonicalize().unwrap().join("settings");
+        std::fs::create_dir(root.path().join("elsewhere")).unwrap();
         for explicit in [false, true] {
             let mut child = std::process::Command::new(std::env::current_exe().unwrap());
             child.args(["--exact", "directory_tests::config_directory_override_is_stable_and_cli_file_takes_precedence", "--nocapture"])
