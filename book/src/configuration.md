@@ -481,27 +481,27 @@ This applies to all pickers. See [Picker layout](./pickers.md#layout).
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `hidden` | boolean | `true` | Ignore hidden files. |
+| `hidden` | boolean | `true` | Omit hidden files. |
 | `follow-symlinks` | boolean | `true` | Follow symbolic links. |
 | `deduplicate-links` | boolean | `true` | Hide links to files already present in results. |
 | `parents` | boolean | `true` | Read ignore files from parent directories. |
-| `ignore` | boolean | `true` | Read `.ignore` files. |
-| `git-ignore` | boolean | `true` | Read `.gitignore` files. |
-| `git-global` | boolean | `true` | Read Git's global excludes file. |
-| `git-exclude` | boolean | `true` | Read `.git/info/exclude`. |
+| `ignore` | boolean | `true` | Use `.ignore` files to omit entries. |
+| `git-ignore` | boolean | `true` | Use `.gitignore` files to omit entries. |
+| `git-global` | boolean | `true` | Use Git's `core.excludesFile` to omit entries. |
+| `git-exclude` | boolean | `true` | Use `.git/info/exclude` to omit entries. |
 | `max-depth` | integer or unset | Unset | Maximum directory recursion depth. |
 
 ### `[editor.file-explorer]`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `hidden` | boolean | `false` | Ignore hidden files. |
+| `hidden` | boolean | `false` | Omit hidden files. |
 | `follow-symlinks` | boolean | `false` | Follow symbolic links. |
 | `parents` | boolean | `false` | Read ignore files from parent directories. |
-| `ignore` | boolean | `false` | Read `.ignore` files. |
-| `git-ignore` | boolean | `false` | Read `.gitignore` files. |
-| `git-global` | boolean | `false` | Read Git's global excludes file. |
-| `git-exclude` | boolean | `false` | Read `.git/info/exclude`. |
+| `ignore` | boolean | `false` | Use `.ignore` files to omit entries. |
+| `git-ignore` | boolean | `false` | Use `.gitignore` files to omit entries. |
+| `git-global` | boolean | `false` | Use Git's `core.excludesFile` to omit entries. |
+| `git-exclude` | boolean | `false` | Use `.git/info/exclude` to omit entries. |
 
 ### `[editor.buffer-picker]`
 
