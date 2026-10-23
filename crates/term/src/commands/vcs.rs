@@ -847,9 +847,10 @@ mod file_refresh_tests {
             Ok(())
         };
         git(&["init", "-q"])?;
-        let path = dir.path().join("new.txt");
+        let root = stdx::path::normalize(dir.path());
+        let path = root.join("new.txt");
         std::fs::write(&path, "new\n")?;
-        let scope = vcs::ChangedFileScope::Directory(dir.path().to_owned());
+        let scope = vcs::ChangedFileScope::Directory(root);
         let mut task = event::TaskController::new();
         let entries = refresh_changed_files(
             vcs::DiffProviderRegistry::default(),
