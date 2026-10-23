@@ -55,6 +55,9 @@ pub struct Prompt {
     selection: Option<usize>,
     history_register: Option<char>,
     history_pos: Option<usize>,
+    history_draft: Option<String>,
+    history_edited: bool,
+    cached_suggestion: std::cell::OnceCell<Option<String>>,
     completion_fn: CompletionFn,
     callback_fn: CallbackFn,
     pub doc_fn: DocFn,
@@ -144,6 +147,9 @@ impl Prompt {
             selection: None,
             history_register,
             history_pos: None,
+            history_draft: None,
+            history_edited: true,
+            cached_suggestion: std::cell::OnceCell::new(),
             completion_fn: Box::new(completion_fn),
             callback_fn: Box::new(callback_fn),
             doc_fn: Box::new(|_| None),
@@ -190,6 +196,7 @@ impl Prompt {
 
     pub fn with_history_register(&mut self, history_register: Option<char>) -> &mut Self {
         self.history_register = history_register;
+        self.cached_suggestion.take();
         self
     }
 
@@ -201,11 +208,19 @@ impl Prompt {
         &'a self,
         editor: &'a Editor,
     ) -> Option<Cow<'a, str>> {
-        self.history_register
-            .and_then(|reg| editor.first_register_value(reg))
+        self.cached_suggestion
+            .get_or_init(|| {
+                self.history_register
+                    .and_then(|reg| editor.first_register_value(reg))
+                    .map(Cow::into_owned)
+            })
+            .as_deref()
+            .map(Cow::Borrowed)
     }
 
     pub fn recalculate_completion(&mut self, editor: &Editor) {
+        self.history_edited = true;
+        self.cached_suggestion.take();
         self.exit_selection();
         self.completion = (self.completion_fn)(editor, &self.line);
     }
@@ -396,31 +411,42 @@ impl Prompt {
         direction: CompletionDirection,
     ) {
         (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
-        let mut values = match cx.editor.read_register(register) {
-            Some(values) if values.len() > 0 => values.rev(),
-            _ => return,
-        };
-
-        let end = values.len().saturating_sub(1);
-
-        let index = match direction {
-            CompletionDirection::Forward => self.history_pos.map_or(0, |i| i + 1),
-            CompletionDirection::Backward => self
-                .history_pos
-                .unwrap_or_else(|| values.len())
-                .saturating_sub(1),
+        if self.history_edited {
+            self.history_pos = None;
+            self.history_draft = Some(self.line.clone());
         }
-        .min(end);
-
-        self.line = values.nth(index).unwrap().to_string();
-        // Appease the borrow checker.
-        drop(values);
-
-        self.history_pos = Some(index);
-
+        let draft = self.history_draft.get_or_insert_with(|| self.line.clone());
+        let Some(values) = cx.editor.read_register(register) else {
+            return;
+        };
+        let values: Vec<_> = values
+            .rev()
+            .filter(|value| value.contains(draft.as_str()))
+            .map(Cow::into_owned)
+            .collect();
+        if values.is_empty() {
+            return;
+        }
+        let newest = values.len() - 1;
+        if matches!(direction, CompletionDirection::Forward) && self.history_pos == Some(newest) {
+            self.line = self.history_draft.take().unwrap_or_default();
+            self.history_pos = None;
+        } else {
+            let index = match direction {
+                CompletionDirection::Forward => self.history_pos.map_or(0, |index| index + 1),
+                CompletionDirection::Backward => {
+                    self.history_pos.unwrap_or(values.len()).saturating_sub(1)
+                }
+            }
+            .min(newest);
+            self.line.clone_from(&values[index]);
+            self.history_pos = Some(index);
+        }
         self.move_end();
+        self.anchor = 0;
         (self.callback_fn)(cx, &self.line, PromptEvent::Update);
         self.recalculate_completion(cx.editor);
+        self.history_edited = false;
     }
 
     pub fn change_completion_selection(&mut self, direction: CompletionDirection) {
@@ -435,6 +461,7 @@ impl Prompt {
             }
         } % self.completion.len();
 
+        self.history_edited = true;
         self.selection = Some(index);
 
         let (range, item) = &self.completion[index];
@@ -662,7 +689,16 @@ impl Prompt {
                 PromptAction::MoveWordLeft => self.move_cursor(Movement::BackwardWord(1)),
                 PromptAction::MoveWordRight => self.move_cursor(Movement::ForwardWord(1)),
                 PromptAction::MoveLeft => self.move_cursor(Movement::BackwardChar(1)),
-                PromptAction::MoveRight => self.move_cursor(Movement::ForwardChar(1)),
+                PromptAction::MoveRight => {
+                    if self.line.is_empty()
+                        && let Some(suggestion) = self.first_history_completion(cx.editor)
+                    {
+                        self.set_line(suggestion.into_owned(), cx.editor);
+                        (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+                    } else {
+                        self.move_cursor(Movement::ForwardChar(1));
+                    }
+                }
                 PromptAction::MoveEnd => self.move_end(),
                 PromptAction::MoveStart => self.move_start(),
                 PromptAction::DeleteWordBackward => {
@@ -724,7 +760,7 @@ impl Prompt {
                                 // store in history
                                 if let Some(register) = self.history_register
                                     && let Err(err) =
-                                        cx.editor.registers.push(register, self.line.clone())
+                                        cx.editor.registers.push_unique(register, self.line.clone())
                                 {
                                     cx.editor.set_error(|| err.to_string());
                                 };
