@@ -3,7 +3,7 @@ use std::ops::Index;
 use std::sync::Arc;
 use stdx::rope::RopeExt as _;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, ensure, Result};
 use regex_cursor::engines::meta::Builder as RegexBuilder;
 use regex_cursor::engines::meta::Regex;
 use regex_cursor::regex_automata::util::syntax::Config as RegexConfig;
@@ -32,14 +32,16 @@ impl Snippet {
     pub fn parse(snippet: &str) -> Result<Self> {
         let parsed_snippet = parser::parse(snippet)
             .map_err(|rest| anyhow!("Failed to parse snippet. Remaining input: {}", rest))?;
-        Ok(Snippet::new(parsed_snippet))
+        let snippet = Snippet::new(parsed_snippet);
+        snippet.validate_tabstops()?;
+        Ok(snippet)
     }
 
     /// Elaborates parser elements into a snippet ready for rendering.
     ///
     /// Duplicate tabstop labels are merged, missing `$0` is appended, and
     /// source labels are replaced with dense [`TabstopIdx`] values.
-    pub fn new(elements: Vec<parser::SnippetElement>) -> Snippet {
+    fn new(elements: Vec<parser::SnippetElement>) -> Snippet {
         let mut res = Snippet {
             elements: Vec::new(),
             tabstops: Vec::new(),
@@ -49,6 +51,51 @@ impl Snippet {
         res.ensure_last_tabstop();
         res.renumber_tabstops();
         res
+    }
+
+    // Reused labels can introduce cycles after duplicate definitions are merged.
+    // Check both defaults (rendering) and ancestry (interactive navigation).
+    fn validate_tabstops(&self) -> Result<()> {
+        fn visit_elements(
+            snippet: &Snippet,
+            elements: &[SnippetElement],
+            states: &mut [u8],
+        ) -> Result<()> {
+            for element in elements {
+                match element {
+                    SnippetElement::Tabstop { idx } => visit(snippet, *idx, states)?,
+                    SnippetElement::Variable {
+                        default: Some(default),
+                        ..
+                    } => visit_elements(snippet, default, states)?,
+                    _ => (),
+                }
+            }
+            Ok(())
+        }
+        fn visit(snippet: &Snippet, idx: TabstopIdx, states: &mut [u8]) -> Result<()> {
+            ensure!(states[idx.0] != 1, "recursive snippet placeholder");
+            if states[idx.0] == 2 {
+                return Ok(());
+            }
+            states[idx.0] = 1;
+            if let TabstopKind::Placeholder { default } = &snippet[idx].kind {
+                visit_elements(snippet, default, states)?;
+            }
+            states[idx.0] = 2;
+            Ok(())
+        }
+        let mut states = vec![0; self.tabstops.len()];
+        for (index, tabstop) in self.tabstops.iter().enumerate() {
+            visit(self, TabstopIdx(index), &mut states)?;
+            let mut parent = tabstop.parent;
+            for _ in 0..self.tabstops.len() {
+                let Some(idx) = parent else { break };
+                parent = self[idx].parent;
+            }
+            ensure!(parent.is_none(), "recursive snippet placeholder ancestry");
+        }
+        Ok(())
     }
 
     /// Whether the body or one of its placeholder defaults references a variable.
@@ -302,6 +349,7 @@ impl TabstopKind {
     /// Returns whether this tabstop inserts no initial content.
     pub fn is_empty(&self) -> bool {
         matches!(self, TabstopKind::Empty)
+            || matches!(self, TabstopKind::Placeholder { default } if default.is_empty())
     }
 }
 
@@ -424,5 +472,31 @@ impl Transform {
 impl TabstopIdx {
     fn elaborate(idx: usize) -> Self {
         TabstopIdx(idx.wrapping_sub(1))
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+
+    #[test]
+    fn recursive_labels_are_rejected_before_rendering_or_navigation() {
+        for body in ["${1:${1:text}}", "${1:$2} ${2:$1}"] {
+            assert!(
+                Snippet::parse(body)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("recursive snippet placeholder"),
+                "{body}"
+            );
+        }
+        for body in [
+            "${1:text} $1",
+            "${2:outer ${1:inner}}",
+            "${1:outer ${2:inner}}",
+            "${1:${2:text}} ${2:${1:text}}",
+        ] {
+            assert!(Snippet::parse(body).is_ok(), "{body}");
+        }
     }
 }

@@ -296,22 +296,70 @@ impl ActiveSnippet {
                     .expect("validated nested range")
             })
             .collect();
-        let mut cnt = 0;
-        let parent = self[self.current_tabstop].parent;
-        let tabstops = snippet.tabstops.into_iter().map(|mut tabstop| {
-            cnt += 1;
+        // Replacing a placeholder also removes the tabstops in its default.
+        // Build an explicit index map: later parents may move when the nested
+        // snippet adds tabstops or the replaced default loses them.
+        let current = self.current_tabstop.0;
+        let mut removed = vec![false; self.tabstops.len()];
+        removed[current] = true;
+        loop {
+            let mut changed = false;
+            for (index, tabstop) in self.tabstops[..self.tabstops.len() - 1].iter().enumerate() {
+                if !removed[index] && tabstop.parent.is_some_and(|parent| removed[parent.0]) {
+                    removed[index] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let insertion = removed[..current]
+            .iter()
+            .filter(|&&removed| !removed)
+            .count();
+        let mut next = 0;
+        let indices: Vec<_> = removed
+            .iter()
+            .enumerate()
+            .map(|(index, &removed)| {
+                if index == current {
+                    next += snippet.tabstops.len();
+                }
+                if removed {
+                    None
+                } else {
+                    let mapped = TabstopIdx(next);
+                    next += 1;
+                    Some(mapped)
+                }
+            })
+            .collect();
+        let parent = self[self.current_tabstop]
+            .parent
+            .and_then(|parent| indices[parent.0]);
+        let nested = snippet.tabstops.into_iter().map(|mut tabstop| {
             for owner in &mut tabstop.instances {
                 *owner = owners[*owner];
             }
-            if let Some(parent) = &mut tabstop.parent {
-                parent.0 += self.current_tabstop.0;
-            } else {
-                tabstop.parent = parent;
-            }
+            tabstop.parent = tabstop
+                .parent
+                .map(|parent| TabstopIdx(parent.0 + insertion))
+                .or(parent);
             tabstop
         });
-        self.tabstops
-            .splice(self.current_tabstop.0..=self.current_tabstop.0, tabstops);
+        self.tabstops = self
+            .tabstops
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, mut tabstop)| {
+                indices[index]?;
+                tabstop.parent = tabstop.parent.and_then(|parent| indices[parent.0]);
+                Some(tabstop)
+            })
+            .collect();
+        self.tabstops.splice(insertion..insertion, nested);
+        self.current_tabstop = TabstopIdx(insertion);
         self.activate_tabstop();
         Some(self)
     }
@@ -360,5 +408,43 @@ mod tests {
         assert!(transaction.apply(&mut doc));
         assert_eq!(doc, "sizeof()\n");
         assert!(ActiveSnippet::new(snippet).is_none());
+    }
+}
+
+#[cfg(test)]
+mod nesting_tests {
+    use super::*;
+    use crate::{Snippet, SnippetRenderCtx};
+
+    #[test]
+    fn replacing_a_placeholder_preserves_its_nested_final_stop() {
+        let mut text = Rope::from("\n");
+        let outer = Snippet::parse("${1:before$0}").unwrap();
+        let (edit, _, rendered) = outer.render(
+            &text,
+            &Selection::point(0),
+            |_| (0, 0),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        edit.apply(&mut text);
+        let mut active = ActiveSnippet::new(rendered).unwrap();
+        let inner = Snippet::parse("${1:inner} ${2:value}$0").unwrap();
+        let selection = active.tabstop_selection(0, Direction::Forward);
+        let (edit, _, rendered) = inner.render(
+            &text,
+            &selection,
+            |range| (range.from(), range.to()),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        edit.apply(&mut text);
+        active.map(edit.changes());
+        let mut active = active.insert_subsnippet(rendered).unwrap();
+        let mut selection = active.tabstop_selection(0, Direction::Forward);
+        for expected_finished in [false, false, true] {
+            let (next, finished) = active.next_tabstop(&selection);
+            selection = next;
+            assert_eq!(finished, expected_finished);
+        }
+        assert_eq!(selection, Selection::point(11));
     }
 }

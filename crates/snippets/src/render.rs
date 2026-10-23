@@ -417,6 +417,7 @@ impl SnippetRender<'_> {
 
 #[cfg(test)]
 mod tests {
+    use editor_core::{Rope, Selection};
     use stdx::Range;
 
     use crate::render::Tabstop;
@@ -444,6 +445,21 @@ mod tests {
             rendered_text.chars().count()
         );
         assert_eq!(rendered_snippet.ranges.last().unwrap().start, 0)
+    }
+
+    #[test]
+    fn a_bare_reference_before_a_default_uses_the_default_everywhere() {
+        let snippet = Snippet::parse("$1 ${1:name} $1$0").unwrap();
+        let (edit, _, rendered) = snippet.render(
+            &Rope::from("\n"),
+            &Selection::point(0),
+            |_| (0, 0),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        let mut text = Rope::from("\n");
+        edit.apply(&mut text);
+        assert_eq!(text, "name name name\n");
+        assert_eq!(rendered.tabstops[0].ranges.len(), 3);
     }
 
     #[test]

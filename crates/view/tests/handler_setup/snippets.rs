@@ -215,3 +215,48 @@ async fn file_variables_and_transforms_follow_the_document_identity() -> anyhow:
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_insertion_removes_replaced_children_and_preserves_later_parents(
+) -> anyhow::Result<()> {
+    use editor_core::movement::Direction::Forward;
+    let mut f = Fixture::new("\n")?;
+    f.editor.insert_snippet(&snippets::Snippet::parse(
+        "${1:before ${2:obsolete}} ${3:after ${4:child}}$0",
+    )?)?;
+    f.editor
+        .insert_snippet(&snippets::Snippet::parse("<${1:inner}>$0")?)?;
+    f.editor.insert_char('x')?;
+    assert_eq!(current_ref!(f.editor).1.text(), "<x> after child\n");
+    assert_eq!(
+        f.editor.move_snippet_tabstop(Forward),
+        SnippetNavigation::Moved
+    );
+    assert_eq!(
+        f.editor.move_snippet_tabstop(Forward),
+        SnippetNavigation::Moved
+    );
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .fragment(doc.text().slice(..)),
+        "after child"
+    );
+    assert_eq!(
+        f.editor.move_snippet_tabstop(Forward),
+        SnippetNavigation::Moved
+    );
+    f.editor.insert_char('y')?;
+    f.editor.insert_char('z')?;
+    f.editor
+        .move_snippet_tabstop(editor_core::movement::Direction::Backward);
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .fragment(doc.text().slice(..)),
+        "after yz"
+    );
+    Ok(())
+}
