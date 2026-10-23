@@ -304,3 +304,29 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn key_sequence_stops_after_closing_last_view() -> anyhow::Result<()> {
+    for keys in ["<C-q>", "i<C-q>"] {
+        let mut config = test_config();
+        let source = r#"
+            [keys.normal]
+            C-q = ["wclose", "normal_mode"]
+            [keys.insert]
+            C-q = ["wclose", "normal_mode"]
+        "#
+        .to_owned();
+        config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+            .unwrap()
+            .keys;
+        let mut app = AppBuilder::new().with_config(config).build()?;
+        test_key_sequence(
+            &mut app,
+            Some(keys),
+            Some(&|app| assert!(app.editor.should_close())),
+            true,
+        )
+        .await?;
+    }
+    Ok(())
+}
