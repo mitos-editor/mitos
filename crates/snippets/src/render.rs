@@ -29,6 +29,8 @@ pub struct Tabstop {
     /// Ranges are grouped by rendered snippet instance and stored in document
     /// character indices.
     pub ranges: SmallVec<[Range; 1]>,
+    /// Original snippet instance owning each range, including conditional defaults.
+    pub instances: SmallVec<[usize; 1]>,
     /// Parent tabstop for a nested placeholder.
     pub parent: Option<TabstopIdx>,
     /// Editing behavior of the tabstop.
@@ -48,12 +50,7 @@ impl Tabstop {
     ///
     /// `primary_idx` identifies the primary rendered snippet instance, not a
     /// raw range within this tabstop.
-    pub fn selection(
-        &self,
-        direction: Direction,
-        primary_idx: usize,
-        snippet_ranges: usize,
-    ) -> Selection {
+    pub fn selection(&self, direction: Direction, primary_idx: usize) -> Selection {
         Selection::new(
             self.ranges
                 .iter()
@@ -65,7 +62,10 @@ impl Tabstop {
                     range
                 })
                 .collect(),
-            primary_idx * (self.ranges.len() / snippet_ranges),
+            self.instances
+                .iter()
+                .position(|&instance| instance >= primary_idx)
+                .unwrap_or(self.ranges.len() - 1),
         )
     }
 }
@@ -82,7 +82,7 @@ pub struct RenderedSnippet {
 impl RenderedSnippet {
     /// Selects the first navigable tabstop after insertion.
     pub fn first_selection(&self, direction: Direction, primary_idx: usize) -> Selection {
-        self.tabstops[0].selection(direction, primary_idx, self.ranges.len())
+        self.tabstops[0].selection(direction, primary_idx)
     }
 }
 
@@ -106,6 +106,7 @@ impl Snippet {
             self.tabstops()
                 .map(|tabstop| Tabstop {
                     ranges: SmallVec::new(),
+                    instances: SmallVec::new(),
                     parent: tabstop.parent,
                     kind: match &tabstop.kind {
                         elaborate::TabstopKind::Choice { choices } => TabstopKind::Choice {
@@ -168,7 +169,7 @@ impl Snippet {
         mut change_range: impl FnMut(&selection::Range) -> (usize, usize),
         ctx: &mut SnippetRenderCtx,
     ) -> (Transaction, Selection, RenderedSnippet) {
-        let mut snippet = self.prepare_render();
+        let mut instances = Vec::new();
         let mut off = 0;
         let mut ranges = SmallVec::new();
         let mut primary_index = 0;
@@ -190,21 +191,86 @@ impl Snippet {
                 let indent = prefix.slice_chars(..indent_len);
                 let at_newline = indent_len == replacement_start - line_start;
 
+                let mut instance = self.prepare_render();
                 let (replacement, replacement_len) = self.render_at(
-                    &mut snippet,
+                    &mut instance,
                     indent,
                     at_newline,
                     ctx,
                     (replacement_start as i128 + off) as usize,
                     index,
                 );
+                instances.push(instance);
                 off +=
                     replacement_start as i128 - replacement_end as i128 + replacement_len as i128;
 
                 Some(replacement)
             },
         );
-        (transaction, Selection::new(ranges, primary_index), snippet)
+        (
+            transaction,
+            Selection::new(ranges, primary_index),
+            merge_instances(instances),
+        )
+    }
+}
+
+// A variable can resolve at one cursor but use a default containing placeholders
+// at another. Track each range's owner explicitly, and omit tabstops whose
+// conditional defaults were skipped everywhere.
+fn merge_instances(instances: Vec<RenderedSnippet>) -> RenderedSnippet {
+    let first = &instances[0];
+    let mut indices = vec![None; first.tabstops.len()];
+    let mut count = 0;
+    for (index, mapped) in indices.iter_mut().enumerate() {
+        if index == first.tabstops.len() - 1
+            || instances
+                .iter()
+                .any(|instance| !instance.tabstops[index].ranges.is_empty())
+        {
+            *mapped = Some(TabstopIdx(count));
+            count += 1;
+        }
+    }
+    let mut tabstops = Vec::with_capacity(count);
+    for (index, mapped) in indices.iter().enumerate() {
+        if mapped.is_none() {
+            continue;
+        }
+        let mut tabstop = first.tabstops[index].clone();
+        tabstop.ranges.clear();
+        tabstop.instances.clear();
+        while let Some(parent) = tabstop.parent {
+            if let Some(mapped) = indices[parent.0] {
+                tabstop.parent = Some(mapped);
+                break;
+            }
+            tabstop.parent = first.tabstops[parent.0].parent;
+        }
+        for (instance_index, instance) in instances.iter().enumerate() {
+            let source = &instance.tabstops[index];
+            if source.has_placeholder() {
+                tabstop.kind = source.kind.clone();
+            }
+            tabstop.ranges.extend_from_slice(&source.ranges);
+            tabstop
+                .instances
+                .extend(std::iter::repeat_n(instance_index, source.ranges.len()));
+            // A final stop nested in a skipped variable default still ends the snippet.
+            if index == first.tabstops.len() - 1 && source.ranges.is_empty() {
+                let end = instance.ranges[0].end;
+                tabstop.ranges.push(Range { start: end, end });
+                tabstop.instances.push(instance_index);
+            }
+        }
+        tabstops.push(tabstop);
+    }
+    RenderedSnippet {
+        tabstops,
+        ranges: instances
+            .into_iter()
+            .flat_map(|instance| instance.ranges)
+            .collect(),
     }
 }
 
@@ -339,6 +405,7 @@ impl SnippetRender<'_> {
             _ => start,
         };
         self.dst[tabstop].ranges.push(Range { start, end });
+        self.dst[tabstop].instances.push(0);
     }
 }
 
@@ -382,24 +449,89 @@ mod tests {
                 Tabstop {
                     ranges: vec![Range { start: 13, end: 17 }].into(),
                     parent: None,
+                    instances: vec![0].into(),
                     kind: TabstopKind::Placeholder,
                 },
                 Tabstop {
                     ranges: vec![Range { start: 42, end: 42 }].into(),
                     parent: None,
+                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
                 Tabstop {
                     ranges: vec![Range { start: 26, end: 26 }].into(),
                     parent: None,
+                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
                 Tabstop {
                     ranges: vec![Range { start: 53, end: 53 }].into(),
                     parent: None,
+                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
             ],
         );
+    }
+}
+
+#[cfg(test)]
+mod conditional_variable_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_variables_skip_placeholder_defaults_without_losing_the_final_cursor() {
+        let source = Rope::from_str("\n");
+        let mut context = SnippetRenderCtx::test_ctx();
+        context.resolve_var = Box::new(|_, _| Some(Cow::Borrowed("file.rs")));
+        for body in ["${TM_FILENAME:${1:name}}$0", "${TM_FILENAME:${0:name}}"] {
+            let snippet = Snippet::parse(body).unwrap();
+            let (transaction, _, rendered) =
+                snippet.render(&source, &Selection::point(0), |_| (0, 0), &mut context);
+            let mut text = source.clone();
+            transaction.apply(&mut text);
+            assert_eq!(text, "file.rs\n");
+            assert_eq!(rendered.tabstops.len(), 1);
+            assert_eq!(
+                rendered.first_selection(Direction::Forward, 0),
+                Selection::point(7)
+            );
+        }
+    }
+
+    #[test]
+    fn conditional_placeholders_preserve_cursor_groups_and_primary_selection() {
+        let source = Rope::from_str("\n\n");
+        let selection = Selection::new(
+            vec![selection::Range::point(0), selection::Range::point(1)].into(),
+            1,
+        );
+        let mut context = SnippetRenderCtx::test_ctx();
+        context.resolve_var = Box::new(|_, index| (index == 0).then_some(Cow::Borrowed("known")));
+        let snippet = Snippet::parse("${VALUE:${1:name} $1}$0").unwrap();
+        let (transaction, _, rendered) = snippet.render(
+            &source,
+            &selection,
+            |range| (range.head, range.head),
+            &mut context,
+        );
+        let mut text = source.clone();
+        transaction.apply(&mut text);
+        assert_eq!(text, "known\nname name\n");
+        let selection = rendered.first_selection(Direction::Forward, 1);
+        assert_eq!(selection.primary().from(), 6);
+        assert_eq!(selection.primary().to(), 10);
+        let mut active = crate::ActiveSnippet::new(rendered).unwrap();
+        assert!(active.is_valid(&selection));
+        let edit = Transaction::change_by_selection(&text, &selection, |range| {
+            (range.from(), range.to(), Some("X".into()))
+        });
+        let selection = selection.map(edit.changes());
+        edit.apply(&mut text);
+        assert!(!active.map(edit.changes()));
+        assert_eq!(text, "known\nX X\n");
+        let (final_selection, finished) = active.next_tabstop(&selection);
+        assert!(finished);
+        assert_eq!(final_selection.len(), 2);
     }
 }

@@ -136,24 +136,21 @@ impl ActiveSnippet {
                 });
                 changes.update_positions(positions_to_map);
             }
-            let mut snippet_ranges = self.ranges.iter();
-            let mut snippet_range = snippet_ranges.next().unwrap();
-            let mut tabstop_i = 0;
+            let mut range_index = 0;
+            let mut owners = smallvec::SmallVec::new();
             let mut prev = Range { start: 0, end: 0 };
-            let num_ranges = tabstop.ranges.len() / self.ranges.len();
             tabstop.ranges.retain_mut(|range| {
-                if tabstop_i == num_ranges {
-                    snippet_range = snippet_ranges.next().unwrap();
-                    tabstop_i = 0;
-                }
-                tabstop_i += 1;
+                let owner = tabstop.instances[range_index];
+                let snippet_range = &self.ranges[owner];
+                range_index += 1;
                 let retain = snippet_range.start <= snippet_range.end;
                 if retain {
+                    owners.push(owner);
                     // guaranteed by assoc
                     debug_assert!(prev.start <= range.start);
                     debug_assert!(
                         range.start <= range.end,
-                        "Changes: {changes:?} | Range: {range:?} | Tabstop_i: {tabstop_i:?} | Snippet_range: {snippet_range:?} | Prev: {prev:?}"
+                        "Changes: {changes:?} | Range: {range:?} | Instance: {owner:?} | Snippet_range: {snippet_range:?} | Prev: {prev:?}"
                     );
                     if prev.end > range.start {
                         // not really sure what to do in this case. It shouldn't
@@ -166,6 +163,7 @@ impl ActiveSnippet {
                 }
                 retain
             });
+            tabstop.instances = owners;
         }
         self.ranges.iter().all(|range| range.end <= range.start)
     }
@@ -244,7 +242,7 @@ impl ActiveSnippet {
     /// Builds the selection for the current tabstop.
     pub fn tabstop_selection(&self, primary_idx: usize, direction: Direction) -> Selection {
         let tabstop = &self[self.current_tabstop];
-        tabstop.selection(direction, primary_idx, self.ranges.len())
+        tabstop.selection(direction, primary_idx)
     }
 
     /// Replaces the current tabstop with a newly rendered nested snippet.
@@ -259,10 +257,23 @@ impl ActiveSnippet {
             log::warn!("number of subsnippets did not match, discarding outer snippet");
             return ActiveSnippet::new(snippet);
         }
+        let owners: Vec<_> = snippet
+            .ranges
+            .iter()
+            .map(|inner| {
+                self.ranges
+                    .iter()
+                    .position(|outer| outer.contains(*inner))
+                    .expect("validated nested range")
+            })
+            .collect();
         let mut cnt = 0;
         let parent = self[self.current_tabstop].parent;
         let tabstops = snippet.tabstops.into_iter().map(|mut tabstop| {
             cnt += 1;
+            for owner in &mut tabstop.instances {
+                *owner = owners[*owner];
+            }
             if let Some(parent) = &mut tabstop.parent {
                 parent.0 += self.current_tabstop.0;
             } else {
