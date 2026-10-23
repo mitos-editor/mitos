@@ -179,9 +179,12 @@ impl ActiveSnippet {
 
     /// Advances to the next navigable tabstop.
     ///
-    /// The boolean is `true` when navigation has reached the final cursor stop.
+    /// The boolean is `true` when navigation has reached the final cursor stop
+    /// or the selection has left the snippet and the session should end.
     pub fn next_tabstop(&mut self, current_selection: &Selection) -> (Selection, bool) {
-        let primary_idx = self.primary_idx(current_selection);
+        let Some(primary_idx) = self.primary_idx(current_selection) else {
+            return (current_selection.clone(), true);
+        };
         while self.current_tabstop.0 + 1 < self.tabstops.len() {
             self.current_tabstop.0 += 1;
             if self.activate_tabstop() {
@@ -196,9 +199,10 @@ impl ActiveSnippet {
         )
     }
 
-    /// Moves to the preceding navigable tabstop, or returns `None` at the first.
+    /// Moves to the preceding navigable tabstop, or returns `None` at the first
+    /// or when the selection has left the snippet.
     pub fn prev_tabstop(&mut self, current_selection: &Selection) -> Option<Selection> {
-        let primary_idx = self.primary_idx(current_selection);
+        let primary_idx = self.primary_idx(current_selection)?;
         while self.current_tabstop.0 != 0 {
             self.current_tabstop.0 -= 1;
             if self.activate_tabstop() {
@@ -210,18 +214,11 @@ impl ActiveSnippet {
     /// Computes the primary index adjusted for the number of cursors in the current tabstop.
     /// We allow for the selection range to 1 over the end to avoid issues with tabstops
     /// at the very end of snippets.
-    fn primary_idx(&self, current_selection: &Selection) -> usize {
+    fn primary_idx(&self, current_selection: &Selection) -> Option<usize> {
         let primary: Range = current_selection.primary().into();
-        let res = self
-            .ranges
+        self.ranges
             .iter()
-            .position(|&range| range.start <= primary.start && primary.end <= range.end + 1);
-        res.unwrap_or_else(|| {
-            unreachable!(
-                "active snippet must be valid {current_selection:?} {:?}",
-                self.ranges
-            )
-        })
+            .position(|&range| range.start <= primary.start && primary.end <= range.end + 1)
     }
 
     fn activate_tabstop(&mut self) -> bool {
@@ -269,7 +266,7 @@ impl ActiveSnippet {
         if choices.is_empty() {
             return None;
         }
-        let selection = self.tabstop_selection(self.primary_idx(selection), Direction::Forward);
+        let selection = self.tabstop_selection(self.primary_idx(selection)?, Direction::Forward);
         let current = selection.primary().fragment(doc.slice(..));
         let position = choices.iter().position(|choice| choice.as_str() == current);
         let next = match direction {
@@ -496,5 +493,24 @@ mod nesting_tests {
             assert_eq!(finished, expected_finished);
         }
         assert_eq!(selection, Selection::point(11));
+    }
+    #[test]
+    fn stale_selection_finishes_navigation_without_moving_or_editing() {
+        let source = Snippet::parse("foo(${1|bar,baz|})$0").unwrap();
+        let mut text = Rope::from("prefix ");
+        let (edit, _, rendered) = source.render(
+            &text,
+            &Selection::point(7),
+            |_| (7, 7),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        assert!(edit.apply(&mut text));
+        let mut active = ActiveSnippet::new(rendered).unwrap();
+        let outside = Selection::point(0);
+        assert_eq!(active.prev_tabstop(&outside), None);
+        for direction in [Direction::Forward, Direction::Backward] {
+            assert!(active.cycle_choice(&text, &outside, direction).is_none());
+        }
+        assert_eq!(active.next_tabstop(&outside), (outside, true));
     }
 }
