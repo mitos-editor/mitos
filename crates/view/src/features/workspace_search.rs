@@ -1,6 +1,7 @@
 //! Workspace text requests own compiled patterns, buffer snapshots, and worker execution.
 //! Frontends own replacement, display paths, and result publication.
 use crate::Editor;
+use anyhow::Context;
 use editor_core::Rope;
 use std::{collections::HashMap, ops::ControlFlow, path::PathBuf, sync::Arc};
 
@@ -31,10 +32,8 @@ impl Request {
             config.root.exists(),
             "Current working directory does not exist"
         );
-        let search = ::search::Search::new(query, config.smart_case).map_err(|err| {
-            log::info!("Failed to compile search pattern in global search: {}", err);
-            anyhow::anyhow!("Failed to compile regex")
-        })?;
+        let search = ::search::Search::new(query, config.smart_case)
+            .context("Invalid regular expression")?;
         let documents = editor
             .documents()
             .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
