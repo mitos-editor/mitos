@@ -210,3 +210,5 @@ skip-levels = 1
 
 See the [configuration reference](./configuration.md) for all accepted settings,
 [Key remapping](./remapping.md) for bindings, and [Themes](./themes.md) for colors.
+
+Set `line-number = "always-relative"` to retain relative distances in insert mode and unfocused splits. The cursor line still shows its absolute number.
