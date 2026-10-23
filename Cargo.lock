@@ -4334,6 +4334,7 @@ name = "text-render"
 version = "0.1.1"
 dependencies = [
  "core",
+ "criterion",
  "editor-config",
  "ratatui-core",
  "stdx",

@@ -169,6 +169,12 @@ pub fn render_text(
             grapheme.visual_pos,
         );
         last_line_end = grapheme.visual_pos.col + grapheme_width;
+        if !is_in_indent_area
+            && grapheme.raw != Grapheme::Newline
+            && grapheme.visual_pos.col >= renderer.offset.col + renderer.viewport.width as usize
+        {
+            last_line_end += formatter.skip_ascii(decorations.next_anchor());
+        }
     }
 
     renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);
@@ -664,6 +670,127 @@ mod whitespace_tests {
         (0..surface.area.width)
             .map(|x| surface[(x, y)].symbol())
             .collect()
+    }
+
+    #[test]
+    fn clipped_ascii_tails_preserve_following_lines_unicode_tabs_and_annotations() {
+        use text_layout::text_annotations::InlineAnnotation;
+        // Prefixes differ only beyond the right edge. A long tail must not hide
+        // later lines or shift text following tabs and combining graphemes.
+        let tail = "x".repeat(100_000);
+        for suffix in ["\nnext line\n", "e\u{301}\tend\r\nnext\n", "界\nnext\n"] {
+            let text = format!("start {tail}{suffix}");
+            let long = render(&text, "", 20, false, 0);
+            let short = render(
+                &format!("start {}{suffix}", "x".repeat(100)),
+                "",
+                20,
+                false,
+                0,
+            );
+            assert_eq!(long, short);
+            assert!(row(&long, 1).starts_with("next"));
+        }
+        let inline = [InlineAnnotation::new(tail.len() + 6, "hint\nvirtual")];
+        let result =
+            render_with_annotations(&format!("start {tail}\nnext"), "", 20, false, 0, &inline);
+        assert!(row(&result, 1).contains("virtual"));
+        assert!(row(&result, 2).contains("next"));
+    }
+
+    #[test]
+    fn skipped_tails_still_visit_decoration_anchors() {
+        use std::cell::Cell;
+        struct Anchor<'a>(&'a Cell<usize>);
+        impl crate::Decoration for Anchor<'_> {
+            fn reset_pos(&mut self, _: usize) -> usize {
+                50_000
+            }
+            fn decorate_grapheme(
+                &mut self,
+                _: &mut TextRenderer,
+                grapheme: &FormattedGrapheme,
+            ) -> usize {
+                self.0.set(grapheme.visual_pos.col);
+                usize::MAX
+            }
+        }
+        let position = Cell::new(usize::MAX);
+        let text = Rope::from(format!("{}\nnext", "x".repeat(100_000)));
+        let config = editor_config::Config::default();
+        let theme = Theme::from(toml::from_str::<toml::Value>("'ui.text' = 'white'").unwrap());
+        let area = Rect::new(0, 0, 20, 3);
+        let mut surface = Surface::empty(area);
+        let mut renderer = TextRenderer::new(
+            &mut surface,
+            RenderSettings {
+                whitespace: &config.whitespace,
+                indent_guides: &config.indent_guides,
+                tab_width: 4,
+                indent_width: 4,
+            },
+            &theme,
+            DisplayPosition::default(),
+            area,
+        );
+        let mut decorations = DecorationManager::default();
+        decorations.add_decoration(Anchor(&position));
+        render_text(
+            &mut renderer,
+            text.slice(..),
+            0,
+            &TextFormat::default(),
+            &TextAnnotations::default(),
+            std::iter::empty(),
+            vec![],
+            &theme,
+            decorations,
+        );
+        assert_eq!(position.get(), 50_000);
+        assert!(row(&surface, 1).starts_with("next"));
+    }
+
+    #[test]
+    fn skipped_tails_advance_styles_and_preserve_annotations() {
+        use text_layout::text_annotations::InlineAnnotation;
+        let text = Rope::from(format!("{}\nend", "x".repeat(100_000)));
+        let config = editor_config::Config::default();
+        let theme = Theme::from(toml::from_str::<toml::Value>("'ui.text' = 'white'").unwrap());
+        let area = Rect::new(0, 0, 20, 3);
+        let mut surface = Surface::empty(area);
+        let mut renderer = TextRenderer::new(
+            &mut surface,
+            RenderSettings {
+                whitespace: &config.whitespace,
+                indent_guides: &config.indent_guides,
+                tab_width: 4,
+                indent_width: 4,
+            },
+            &theme,
+            DisplayPosition::default(),
+            area,
+        );
+        let inline = [InlineAnnotation::new(50_000, "hint")];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_inline_annotations(&inline, None);
+        let styles = [
+            (0, Style::default().fg(theme::Color::Red)),
+            (100_001, Style::default().fg(theme::Color::Blue)),
+        ];
+        render_text(
+            &mut renderer,
+            text.slice(..),
+            0,
+            &TextFormat::default(),
+            &annotations,
+            styles.into_iter(),
+            vec![],
+            &theme,
+            DecorationManager::default(),
+        );
+        assert!(row(&surface, 1).starts_with("end"));
+        assert_eq!(surface[(0, 0)].fg, Color::Red);
+        assert_eq!(surface[(0, 1)].fg, Color::Blue);
     }
 
     #[test]
