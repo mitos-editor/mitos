@@ -74,6 +74,9 @@ impl Editor {
             Err(error) => return Err(error),
         };
         if source_exists {
+            if let Some(parent) = new_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
             let result = if existing == ExistingTarget::Overwrite {
                 fs::rename(old_path, &new_path)
             } else {
@@ -280,5 +283,29 @@ impl Editor {
         doc.refresh_vcs(&self.diff_providers, trust_full);
         self.refresh_doc_language(doc_id);
         self.refresh_vcs_watches();
+    }
+}
+
+#[cfg(test)]
+mod parent_directory_tests {
+    use super::*;
+    use crate::editor::{tests::editor, Action};
+
+    #[tokio::test]
+    async fn moving_a_file_creates_missing_parent_directories_and_retargets_its_document() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let source = directory.path().join("source.txt");
+        fs::write(&source, "contents").unwrap();
+        let id = editor.open(&source, Action::Replace).unwrap();
+        let target = directory.path().join("new/nested/target.txt");
+        editor
+            .move_path(&source, &target, ExistingTarget::Reject)
+            .unwrap();
+        assert!(!source.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "contents");
+        assert_eq!(
+            editor.document(id).unwrap().path(),
+            Some(stdx::path::canonicalize(&target).as_path())
+        );
     }
 }
