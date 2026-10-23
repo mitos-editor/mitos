@@ -80,6 +80,9 @@ with the following priorities:
    the matcher will automatically take the machine-specific separators into account.
    If the glob isn't an absolute path or doesn't already start with a glob prefix,
    `*/` will automatically be added to ensure it matches for any subdirectory.
+   A glob beginning with `.` also matches the `dot-` prefix used by GNU Stow's
+   `--dotfiles` mode. For example, `{ glob = ".git/config" }` also matches
+   `dot-git/config`.
 2. Extension: if there are no glob matches, any `file-types` string that matches
    the file extension of a given file wins. In the example above, the `"toml"`
    config matches files like `Cargo.toml` or `languages.toml`.
