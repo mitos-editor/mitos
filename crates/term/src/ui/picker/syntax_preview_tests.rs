@@ -237,6 +237,58 @@ async fn preview_keeps_the_open_buffer_authoritative() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn relative_path_previews_follow_unsaved_buffers() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let dir = tempfile::tempdir_in(stdx::env::current_working_dir())?;
+    let path = stdx::path::canonicalize(dir.path().join("buffer.txt"));
+    let relative = stdx::path::get_relative_path(&path);
+    assert!(relative.is_relative());
+    std::fs::write(&path, "old text\n")?;
+    assert_eq!(
+        fixture.read_preview(&relative).as_deref(),
+        Some("old text\n")
+    );
+
+    let id = fixture.app.editor.open(&path, Action::Replace)?;
+    for text in ["new text\n", "another unsaved change\n"] {
+        let (view, doc) = view::current!(fixture.app.editor);
+        let change = editor_core::Transaction::change(
+            doc.text(),
+            [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
+        );
+        view::editing::apply(doc, &change, view.id)?;
+        assert!(doc.is_modified());
+        assert_eq!(fixture.read_preview(&relative).as_deref(), Some(text));
+        assert_eq!(std::fs::read_to_string(&path)?, "old text\n");
+    }
+
+    assert!(fixture.app.editor.close_document(id, true).is_ok());
+    assert_eq!(
+        fixture.read_preview(&relative).as_deref(),
+        Some("old text\n")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn normalized_path_previews_use_open_buffers_when_files_are_missing() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = stdx::path::canonicalize(fixture.dir.path().join("buffer.txt"));
+    std::fs::write(&path, "buffer\n")?;
+    fixture.app.editor.open(&path, Action::Load)?;
+    std::fs::remove_file(&path)?;
+
+    let path = path
+        .parent()
+        .unwrap()
+        .join("missing")
+        .join("..")
+        .join("buffer.txt");
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("buffer\n"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_changes(
 ) -> anyhow::Result<()> {
     let mut fixture = Fixture::with_config(|config| {

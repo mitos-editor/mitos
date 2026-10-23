@@ -348,7 +348,10 @@ impl FilePreview {
         });
         match path_or_id {
             PathOrId::Path(path) => {
-                if let Some(doc) = editor.document_by_path(path).filter(|doc| !doc.is_binary()) {
+                if let Some(doc) = editor
+                    .document_by_path(stdx::path::canonicalize(path))
+                    .filter(|doc| !doc.is_binary())
+                {
                     self.cancel_syntax_load(None);
                     return Some((Preview::EditorDocument(doc), range));
                 }
