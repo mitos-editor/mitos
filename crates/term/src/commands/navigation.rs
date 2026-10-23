@@ -262,6 +262,22 @@ pub(super) fn save_selection(cx: &mut Context) {
     cx.editor.set_status("Selection saved to jumplist");
 }
 
+fn jumplist_preview_contents(text: editor_core::RopeSlice<'_>, selection: &Selection) -> String {
+    let contents = selection
+        .fragments(text)
+        .map(Cow::into_owned)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if contents.trim().is_empty() {
+        text.line(selection.primary().cursor_line(text), stdx::rope::LINE_TYPE)
+            .to_string()
+            .trim()
+            .to_owned()
+    } else {
+        contents
+    }
+}
+
 pub(super) fn jumplist_picker(cx: &mut Context) {
     struct JumpMeta<'a> {
         id: DocumentId,
@@ -282,12 +298,8 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
     let new_meta = |view: &View, doc_id: DocumentId, selection: Selection| {
         let doc = doc!(cx.editor, &doc_id);
         let text = doc.text().slice(..);
-        let contents = selection
-            .fragments(text)
-            .map(Cow::into_owned)
-            .collect::<Vec<_>>()
-            .join(" ");
         let line_start = selection.primary().cursor_line(text);
+        let contents = jumplist_preview_contents(text, &selection);
 
         JumpMeta {
             id: doc_id,
@@ -693,5 +705,23 @@ pub(super) mod typed {
             super::goto_line_preview(cx.editor, NonZeroUsize::new(line));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whitespace_jump_previews_show_the_line_text() {
+        let text = editor_core::Rope::from("    let value = 1;\n");
+        assert_eq!(
+            jumplist_preview_contents(text.slice(..), &Selection::point(1)),
+            "let value = 1;"
+        );
+        assert_eq!(
+            jumplist_preview_contents(text.slice(..), &Selection::single(8, 13)),
+            "value"
+        );
     }
 }
