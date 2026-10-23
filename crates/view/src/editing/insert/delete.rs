@@ -145,6 +145,25 @@ pub fn delete_word_backward(
     )
 }
 
+/// Delete backward to subword starts.
+pub fn delete_sub_word_backward(
+    doc: &mut Document,
+    view_id: ViewId,
+    count: usize,
+) -> Result<(), EditError> {
+    delete_by_selection_insert_mode(
+        doc,
+        view_id,
+        |text, range| {
+            let anchor = core_movement::move_prev_sub_word_start(text, *range, count).from();
+            let next = Range::new(anchor, range.cursor(text));
+            let range = exclude_cursor(text, next, *range);
+            (range.from(), range.to())
+        },
+        Direction::Backward,
+    )
+}
+
 /// Delete forward to word ends while retaining append-mode selections.
 pub fn delete_word_forward(
     doc: &mut Document,
@@ -156,6 +175,23 @@ pub fn delete_word_forward(
         view_id,
         |text, range| {
             let head = core_movement::move_next_word_end(text, *range, count).to();
+            (range.cursor(text), head)
+        },
+        Direction::Forward,
+    )
+}
+
+/// Delete forward to subword ends while retaining append-mode selections.
+pub fn delete_sub_word_forward(
+    doc: &mut Document,
+    view_id: ViewId,
+    count: usize,
+) -> Result<(), EditError> {
+    delete_by_selection_insert_mode(
+        doc,
+        view_id,
+        |text, range| {
+            let head = core_movement::move_next_sub_word_end(text, *range, count).to();
             (range.cursor(text), head)
         },
         Direction::Forward,

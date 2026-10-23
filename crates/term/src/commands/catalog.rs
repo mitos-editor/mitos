@@ -223,6 +223,8 @@ impl MappableCommand {
         append_char_interactive => super::insert::append_char_interactive, "Append an interactively-chosen char",
         delete_char_backward => super::insert::delete_char_backward, "Delete previous char"; keep_completion,
         delete_char_forward => super::insert::delete_char_forward, "Delete next char"; keep_completion,
+        delete_sub_word_backward => super::insert::delete_sub_word_backward, "Delete previous subword"; keep_completion,
+        delete_sub_word_forward => super::insert::delete_sub_word_forward, "Delete next subword"; keep_completion,
         delete_word_backward => super::insert::delete_word_backward, "Delete previous word"; keep_completion,
         delete_word_forward => super::insert::delete_word_forward, "Delete next word"; keep_completion,
         kill_to_line_start => super::insert::kill_to_line_start, "Delete till start of line"; keep_completion,
