@@ -427,13 +427,17 @@ impl<'a> TextRenderer<'a> {
         if in_bounds {
             let x = self.viewport.x + (position.col - self.offset.col) as u16;
             let y = self.viewport.y + position.row as u16;
-            if is_tab {
-                // A tab expands to `width` single-column cells; writing them
-                // individually keeps background styles (selection, cursorline)
-                // across the whole tab and avoids the redraw diff clipping
-                // `render-whitespace` pads. A single `set_grapheme` would pack
-                // them into one wide cell and leave the rest unstyled.
-                self.surface.set_tab(x, y, grapheme, style);
+            if is_tab || (is_whitespace && grapheme == " ") {
+                // Tabs occupy independent cells so highlights cover every pad.
+                // Hidden whitespace also preserves any glyph under the text.
+                Self::draw_whitespace(
+                    self.surface,
+                    x,
+                    y,
+                    grapheme,
+                    style,
+                    grapheme_style.overlay_style,
+                );
             } else {
                 self.surface.set_grapheme(x, y, grapheme, width, style);
             }
@@ -445,11 +449,13 @@ impl<'a> TextRenderer<'a> {
             if start < end {
                 let from = char_to_byte_idx(grapheme, start);
                 let to = char_to_byte_idx(grapheme, end);
-                self.surface.set_tab(
+                Self::draw_whitespace(
+                    self.surface,
                     self.viewport.x + position.col.saturating_sub(self.offset.col) as u16,
                     self.viewport.y + position.row as u16,
                     &grapheme[from..to],
                     style,
+                    grapheme_style.overlay_style,
                 );
             }
         } else if cut_off_start != 0 && cut_off_start < width {
@@ -468,6 +474,30 @@ impl<'a> TextRenderer<'a> {
         }
 
         width
+    }
+
+    fn draw_whitespace(
+        surface: &mut Surface,
+        x: u16,
+        y: u16,
+        whitespace: &str,
+        style: Style,
+        overlay: Style,
+    ) {
+        for (offset, ch) in whitespace.chars().enumerate() {
+            let cell = &mut surface[(x + offset as u16, y)];
+            if ch == ' ' && cell.symbol() != " " {
+                // Hidden whitespace lets underlays such as ruler glyphs show
+                // through. Keep their foreground unless a cursor/selection
+                // explicitly overrides it, and still apply background highlights.
+                cell.set_style(Style {
+                    fg: overlay.fg,
+                    ..style
+                });
+            } else {
+                cell.set_char(ch).set_style(style);
+            }
+        }
     }
 
     pub fn column_in_bounds(&self, colum: usize, width: usize) -> bool {

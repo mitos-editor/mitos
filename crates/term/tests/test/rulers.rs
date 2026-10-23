@@ -1,4 +1,4 @@
-use editor_config::{BufferLine, RulerStyle};
+use editor_config::{BufferLine, RulerStyle, WhitespaceRender, WhitespaceRenderValue};
 use term::application::Application;
 use theme::Theme;
 use tui::style::Color;
@@ -61,6 +61,150 @@ fn assert_rulers(app: &Application, columns: &[u16], character: &str) {
         .filter(|cell| cell.symbol() == character)
         .count();
     assert_eq!(total, count);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn glyph_rulers_show_through_hidden_whitespace() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.rulers.columns = vec![3, 4, 5];
+    config.editor.rulers.style = RulerStyle::Glyph;
+    config.editor.whitespace.render = WhitespaceRender::Basic(WhitespaceRenderValue::None);
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[x|]#   x\nx\t x\nxx\nxx\u{00a0}\u{202f}x\nx界x\n")
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    app.editor.theme = ruler_theme();
+    keys(&mut app, "<esc>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let area = view.inner_area(doc);
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    for (row, expected) in ["┊┊x", "┊┊┊", "┊┊┊", "┊┊x"].into_iter().enumerate()
+    {
+        for (column, symbol) in expected.chars().enumerate() {
+            let cell = &buffer[(area.x + 2 + column as u16, area.y + row as u16)];
+            assert_eq!(
+                cell.symbol(),
+                symbol.to_string(),
+                "row {row}, column {column}"
+            );
+            assert_eq!(
+                cell.fg,
+                if symbol == 'x' {
+                    Color::White
+                } else {
+                    Color::Red
+                }
+            );
+            assert_eq!(cell.bg, Color::Black);
+        }
+    }
+    // A wide character clears the ruler in its continuation cell as well.
+    assert_eq!(buffer[(area.x + 1, area.y + 4)].symbol(), "界");
+    assert_eq!(buffer[(area.x + 2, area.y + 4)].symbol(), " ");
+    assert_eq!(buffer[(area.x + 3, area.y + 4)].symbol(), "x");
+    assert_eq!(buffer[(area.x + 4, area.y + 4)].symbol(), "┊");
+
+    keys(&mut app, ":set whitespace.render all<ret>").await?;
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    for (row, expected) in ["··x", "┊┊·", "⏎┊┊", "⍽␣x"].into_iter().enumerate() {
+        for (column, symbol) in expected.chars().enumerate() {
+            assert_eq!(
+                buffer[(area.x + 2 + column as u16, area.y + row as u16)].symbol(),
+                symbol.to_string(),
+                "row {row}, column {column}"
+            );
+        }
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn glyph_rulers_preserve_whitespace_highlights() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.rulers.columns = vec![3, 4];
+    config.editor.rulers.style = RulerStyle::Glyph;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[x   |]#x")
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    app.editor.theme = ruler_theme();
+    keys(&mut app, "<esc>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let area = view.inner_area(doc);
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    for (column, background) in [(2, Color::Green), (3, Color::Yellow)] {
+        let cell = &buffer[(area.x + column, area.y)];
+        assert_eq!(cell.symbol(), "┊");
+        assert_eq!(cell.fg, Color::Red);
+        assert_eq!(cell.bg, background);
+    }
+    // An explicit cursor foreground still takes precedence over the ruler.
+    app.editor.theme = Theme::from(toml::from_str::<toml::Value>(
+        r#"
+        "ui.text" = { fg = "white" }
+        "ui.selection" = { bg = "green" }
+        "ui.cursor" = { fg = "black", bg = "yellow" }
+        "ui.virtual.ruler" = { fg = "red" }
+        "#,
+    )?);
+    keys(&mut app, "<esc>").await?;
+    let backend = app.terminal_backend();
+    let cell = &backend.buffer()[(area.x + 3, area.y)];
+    assert_eq!(cell.symbol(), "┊");
+    assert_eq!(cell.fg, Color::Black);
+    assert_eq!(cell.bg, Color::Yellow);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn glyph_rulers_show_through_clipped_tabs() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.gutters.layout.clear();
+    config.editor.rulers.columns = vec![2, 3, 122];
+    config.editor.rulers.style = RulerStyle::Glyph;
+    config.editor.whitespace.render = WhitespaceRender::Basic(WhitespaceRenderValue::None);
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text(format!(
+            "x\t{}\tx\n{}#[x|]#\n",
+            "x".repeat(117),
+            "x".repeat(70)
+        ))
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    app.editor.theme = ruler_theme();
+    {
+        let (view, doc) = view::current!(app.editor);
+        doc.set_view_offset(
+            view.id,
+            view::view::ViewPosition {
+                horizontal_offset: 2,
+                ..Default::default()
+            },
+        );
+    }
+    keys(&mut app, "<esc>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let area = view.inner_area(doc);
+    let offset = doc.view_offset(view.id).horizontal_offset;
+    assert_eq!(offset, 2);
+    assert_eq!(area.width, 120);
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    // Both viewport edges cut through a tab; the visible pads retain rulers.
+    for x in [area.x, area.right() - 1] {
+        assert_eq!(buffer[(x, area.y)].symbol(), "┊");
+        assert_eq!(buffer[(x, area.y)].fg, Color::Red);
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

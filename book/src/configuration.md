@@ -570,6 +570,7 @@ character = "│"
 ```
 
 Rulers appear behind document text and use the `ui.virtual.ruler` theme style.
+Glyph rulers show through hidden whitespace; visible whitespace markers cover them.
 The default `"background"` style uses only its background color, preserving
 document text colors. The `"glyph"` style uses only its foreground color,
 preserving document backgrounds. If no foreground is defined, glyph rulers
