@@ -737,8 +737,16 @@ pub(super) mod typed {
             hex
         };
 
-        cx.editor
-            .set_status(format!("\"{printable}\"{unicode}{dec} Hex{hex}"));
+        let category = grapheme
+            .chars()
+            .map(|character| {
+                editor_core::unicode::category::get_general_category(character).abbreviation()
+            })
+            .collect::<Vec<_>>()
+            .join(" + ");
+        cx.editor.set_status(format!(
+            "\"{printable}\"{unicode}{dec} Hex{hex} Cat {category}"
+        ));
 
         Ok(())
     }

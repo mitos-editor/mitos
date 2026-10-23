@@ -704,7 +704,7 @@ async fn test_character_info() -> anyhow::Result<()> {
         Some("ih<esc>h:char<ret>"),
         Some(&|app| {
             assert_eq!(
-                r#""h" (U+0068) Dec 104 Hex 68"#,
+                r#""h" (U+0068) Dec 104 Hex 68 Cat Ll"#,
                 app.editor.get_status().unwrap().0
             );
         }),
@@ -718,7 +718,7 @@ async fn test_character_info() -> anyhow::Result<()> {
         Some("ië<esc>h:char<ret>"),
         Some(&|app| {
             assert_eq!(
-                r#""ë" (U+0065 U+0308) Hex 65 + cc 88"#,
+                r#""ë" (U+0065 U+0308) Hex 65 + cc 88 Cat Ll + Mn"#,
                 app.editor.get_status().unwrap().0
             );
         }),
@@ -732,7 +732,7 @@ async fn test_character_info() -> anyhow::Result<()> {
         Some(":line<minus>ending crlf<ret>:char<ret>"),
         Some(&|app| {
             assert_eq!(
-                r#""\r\n" (U+000d U+000a) Hex 0d + 0a"#,
+                r#""\r\n" (U+000d U+000a) Hex 0d + 0a Cat Cc + Cc"#,
                 app.editor.get_status().unwrap().0
             );
         }),
@@ -745,7 +745,10 @@ async fn test_character_info() -> anyhow::Result<()> {
         &mut helpers::AppBuilder::new().build()?,
         Some(":encoding ascii<ret>ih<esc>h:char<ret>"),
         Some(&|app| {
-            assert_eq!(r#""h" Dec 104 Hex 68"#, app.editor.get_status().unwrap().0);
+            assert_eq!(
+                r#""h" Dec 104 Hex 68 Cat Ll"#,
+                app.editor.get_status().unwrap().0
+            );
         }),
         false,
     )
