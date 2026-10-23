@@ -86,11 +86,13 @@ impl Editor {
             );
             editing::apply(doc, &transaction, view.id)?;
         }
+        let text = doc.text().slice(..);
+        let mut previous_end = 0;
         let selection = doc.selection(view.id).clone().transform(|range| {
-            Range::new(
-                range.from(),
-                graphemes::next_grapheme_boundary(doc.text().slice(..), range.to()),
-            )
+            let to = graphemes::next_grapheme_boundary(text, range.to());
+            let from = range.from().max(previous_end);
+            previous_end = to;
+            Range::new(from, to)
         });
         doc.set_append_cursor_restoration(view.id, true);
         doc.set_selection(view.id, selection);
