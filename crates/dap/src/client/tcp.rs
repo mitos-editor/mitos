@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context as _};
 use std::{net::SocketAddr, process::Stdio, time::Duration};
 use tokio::{
     net::{TcpListener, TcpStream},
-    process::{Child, Command},
+    process::Child,
     time::{self, Instant},
 };
 
@@ -21,7 +21,7 @@ pub(super) async fn spawn(
         .context("Could not allocate a debug adapter port")?;
     let socket = listener.local_addr()?;
     drop(listener);
-    let mut process = Command::new(command)
+    let mut process = super::adapter_command(command)
         .args(args)
         .args(
             port_format
