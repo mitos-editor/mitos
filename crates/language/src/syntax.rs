@@ -343,6 +343,11 @@ impl Loader {
         })
     }
 
+    /// Resolve a configured file extension without applying filename glob rules.
+    pub fn language_for_extension(&self, extension: &str) -> Option<Language> {
+        self.languages_by_extension.get(extension).copied()
+    }
+
     pub fn language_for_scope(&self, scope: &str) -> Option<Language> {
         self.languages.iter().enumerate().find_map(|(idx, config)| {
             (scope == config.config.scope).then_some(Language(idx as u32))
@@ -385,7 +390,7 @@ impl Loader {
             .or_else(|| {
                 path.extension()
                     .and_then(|extension| extension.to_str())
-                    .and_then(|extension| self.languages_by_extension.get(extension).copied())
+                    .and_then(|extension| self.language_for_extension(extension))
             })
     }
 
@@ -1174,6 +1179,22 @@ mod test {
 
     static LOADER: LazyLock<Loader> =
         LazyLock::new(|| crate::loader::default_lang_loader(loader::syntax::Resources::default()));
+
+    #[test]
+    fn extensions_resolve_without_matching_filename_globs() {
+        assert_eq!(
+            LOADER.language_for_extension("rs"),
+            LOADER.language_for_name("rust")
+        );
+        assert_eq!(
+            LOADER.language_for_extension("py"),
+            LOADER.language_for_name("python")
+        );
+        assert!(LOADER.language_for_extension("Cargo.toml").is_none());
+        assert!(LOADER
+            .language_for_extension("unknown-language-extension")
+            .is_none());
+    }
 
     #[test]
     fn syntax_construction_respects_the_supplied_parse_budget() {
