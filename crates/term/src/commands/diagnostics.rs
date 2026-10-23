@@ -23,6 +23,24 @@ use view::{
     Align, Document, DocumentId, Editor,
 };
 
+pub(super) fn goto_first_error(cx: &mut Context) {
+    cx.editor
+        .goto_error(editor_core::movement::Direction::Forward, true);
+}
+pub(super) fn goto_last_error(cx: &mut Context) {
+    cx.editor
+        .goto_error(editor_core::movement::Direction::Backward, true);
+}
+pub(super) fn goto_next_error(cx: &mut Context) {
+    cx.editor
+        .apply_motion(|editor| editor.goto_error(editor_core::movement::Direction::Forward, false));
+}
+pub(super) fn goto_prev_error(cx: &mut Context) {
+    cx.editor.apply_motion(|editor| {
+        editor.goto_error(editor_core::movement::Direction::Backward, false)
+    });
+}
+
 pub(super) fn goto_first_diag(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let selection = match doc.diagnostics().first() {
