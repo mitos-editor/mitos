@@ -217,11 +217,6 @@ impl GlobalSearchConfig {
     }
 }
 
-fn display_match(mut matched: ::search::Match) -> ::search::Match {
-    matched.path = stdx::path::get_relative_path(matched.path).into_owned();
-    matched
-}
-
 fn query_global_search(
     query: &str,
     editor: &mut Editor,
@@ -242,7 +237,7 @@ fn query_global_search(
         request
             .run(
                 move || cancelled.is_shutdown(),
-                move |matched| match injector.push(display_match(matched)) {
+                move |matched| match injector.push(matched) {
                     Ok(()) => ControlFlow::Continue(()),
                     Err(_) => ControlFlow::Break(()),
                 },
@@ -263,12 +258,7 @@ fn refresh_global_search(
         let Some(request) = request? else {
             return Ok(Vec::new());
         };
-        Ok(request
-            .collect(move || cancel.is_canceled())
-            .await?
-            .into_iter()
-            .map(display_match)
-            .collect())
+        request.collect(move || cancel.is_canceled()).await
     }
     .boxed()
 }
@@ -276,7 +266,12 @@ fn refresh_global_search(
 pub(super) fn global_search(cx: &mut Context) {
     let reg = cx.register.unwrap_or('/');
     cx.editor.registers.last_search_register = reg;
-    let picker = global_search_picker(cx.editor, cx.jobs, stdx::env::current_working_dir(), reg);
+    let root = workspace::find_workspace().0;
+    if !root.exists() {
+        cx.editor.set_error(|| "Workspace directory does not exist");
+        return;
+    }
+    let picker = global_search_picker(cx.editor, cx.jobs, root, reg);
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
@@ -302,9 +297,11 @@ fn global_search_picker(
     let initial_case_sensitive = config.case_sensitive.load(Ordering::Relaxed);
     let columns = [
         PickerColumn::new("path", |item: &FileResult, config: &GlobalSearchConfig| {
-            config
-                .style
-                .stylize(Some(&item.path), Some(item.line_start))
+            let path = item
+                .path
+                .strip_prefix(&config.search.root)
+                .unwrap_or(&item.path);
+            config.style.stylize(Some(path), Some(item.line_start))
         })
         .with_prefix(|item, config| config.style.icon(Some(&item.path))),
         PickerColumn::hidden("contents"),

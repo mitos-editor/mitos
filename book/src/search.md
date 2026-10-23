@@ -57,3 +57,7 @@ replacement. `Enter` replaces one match; `Ctrl-Enter` replaces all occurrences
 in the files matching the current path filter. Global replacement expands regex
 captures. Existing buffers stay unsaved; unopened files are updated directly on
 disk. See [Replacing global search results](./pickers.md#replacing-global-search-results).
+
+Global search uses the workspace root, like the workspace file picker. Starting
+it from a project subdirectory includes sibling directories. Search results
+show paths relative to that root.
