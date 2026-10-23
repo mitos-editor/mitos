@@ -35,7 +35,18 @@ fn textobject_pair_surround_impl(
 ) -> Range {
     let pair_pos = match ch {
         Some(ch) => surround::find_nth_pairs_pos(syntax, slice, ch, range, count),
-        None => surround::find_nth_closest_pairs_pos(syntax, slice, range, count),
+        None => {
+            surround::find_nth_closest_pairs_pos(syntax, slice, range, count).and_then(|pair| {
+                if count == 1
+                    && pair.0.min(pair.1) == range.from()
+                    && next_grapheme_boundary(slice, pair.0.max(pair.1)) == range.to()
+                {
+                    surround::find_nth_closest_pairs_pos(syntax, slice, range, count + 1)
+                } else {
+                    Ok(pair)
+                }
+            })
+        }
     };
     pair_pos
         .map(|(anchor, head)| match textobject {
