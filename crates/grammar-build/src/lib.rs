@@ -257,7 +257,7 @@ impl VendoredGrammar {
         self.reinit(remote, object_format)?;
 
         git(&self.dir, ["fetch", "--depth", "1", REMOTE_NAME, rev])?;
-        git(&self.dir, ["checkout", rev])?;
+        git(&self.dir, ["checkout", "FETCH_HEAD"])?;
 
         Ok(())
     }
@@ -614,6 +614,59 @@ fn mtime(path: &Path) -> Result<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fetched_tag_checks_out_the_requested_revision() {
+        let source = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        git(source.path(), ["init"]).unwrap();
+        git(
+            source.path(),
+            [
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "first",
+            ],
+        )
+        .unwrap();
+        git(source.path(), ["tag", "fixture-v1"]).unwrap();
+        let expected = git(source.path(), ["rev-parse", "HEAD"]).unwrap();
+        git(
+            source.path(),
+            [
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "second",
+            ],
+        )
+        .unwrap();
+        let grammar = VendoredGrammar::new("fixture", runtime.path());
+        grammar
+            .init(source.path().to_str().unwrap(), GitObjectFormat::Sha1)
+            .unwrap();
+        grammar
+            .fetch(
+                source.path().to_str().unwrap(),
+                "fixture-v1",
+                GitObjectFormat::Sha1,
+            )
+            .unwrap();
+        assert_eq!(grammar.revision().unwrap(), expected);
+    }
 
     #[test]
     fn local_grammar_build_uses_supplied_runtime_and_reuses_existing_library() {
