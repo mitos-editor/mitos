@@ -212,9 +212,14 @@ impl WhitespacePalette {
             nbsp: character(config.render.nbsp(), chars.nbsp),
             nnbsp: character(config.render.nnbsp(), chars.nnbsp),
             tab: if visible(config.render.tab()) {
-                std::iter::once(chars.tab)
-                    .chain(std::iter::repeat_n(chars.tabpad, tab_width - 1))
-                    .collect()
+                if tab_width == 1 {
+                    chars.tab.to_string()
+                } else {
+                    std::iter::once(chars.tab)
+                        .chain(std::iter::repeat_n(chars.tabpad, tab_width - 2))
+                        .chain(std::iter::once(chars.tabend.unwrap_or(chars.tabpad)))
+                        .collect()
+                }
             } else {
                 " ".repeat(tab_width)
             },
@@ -642,6 +647,18 @@ mod whitespace_tests {
         let annotations = [InlineAnnotation::new(1, "\x1b\u{80}")];
         let surface = render_with_annotations("ab", "", 4, false, 0, &annotations);
         assert_eq!(row(&surface, 0), "a��b");
+    }
+
+    #[test]
+    fn tab_end_marks_the_last_cell_and_preserves_single_cell_tabs() {
+        let mut config = WhitespaceConfig::default();
+        config.render = editor_config::WhitespaceRender::Basic(WhitespaceRenderValue::All);
+        config.characters.tabpad = '·';
+        config.characters.tabend = Some('←');
+        assert_eq!(WhitespacePalette::new(&config, 4, false).tab, "→··←");
+        assert_eq!(WhitespacePalette::new(&config, 1, false).tab, "→");
+        config.characters.tabend = None;
+        assert_eq!(WhitespacePalette::new(&config, 4, false).tab, "→···");
     }
 
     fn render(text: &str, settings: &str, width: u16, wrap: bool, offset: usize) -> Surface {
