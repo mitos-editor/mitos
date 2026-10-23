@@ -23,24 +23,34 @@ export RUSTFLAGS="-C target-feature=-crt-static"
    cd mitos
    ```
 
-2. Compile from source:
+2. Build and install:
 
    ```sh
-   # Optimized release build
-   cargo build --release --locked
-   ```
-   ```sh
-   # Optimized for the current CPU
-   cargo install \
-      --profile opt \
-      --config 'build.rustflags=["-C", "target-cpu=native"]' \
-      --path crates/term \
-      --locked
+   cargo xtask install
    ```
 
-   The release build creates `target/release/ms`; the install command places
-   `ms` in Cargo's binary directory. Both commands construct the tree-sitter
-   grammars in the local `runtime` folder. `ms` is short for Mitos.
+   This installs `ms` (`ms.exe` on Windows) with its themes, syntax highlighting,
+   and dictionaries. The default installation directory is `~/.cargo/bin`.
+   Add it to your `PATH` if needed.
+
+   If you set `CARGO_INSTALL_ROOT` or `CARGO_HOME`, Mitos uses that directory's
+   `bin/` folder instead, preferring `CARGO_INSTALL_ROOT` when both are set.
+   To choose another installation directory or build profile:
+
+   ```sh
+   cargo xtask install --root ./mitos-install --profile opt
+   ```
+
+   This example installs into `./mitos-install/bin`. Run the install command
+   again after updating the repository to upgrade Mitos. Keep custom themes and
+   queries in your [configuration directory](./configuration.md#configuration-files-and-precedence)
+   so they are preserved when upgrading.
+
+   If installation stops because `bin/runtime/` belongs to another installation,
+   choose another `--root` or move that runtime before trying again.
+
+To build without installing, run `cargo build --release --locked`. The executable
+is written to `target/release/ms`. Set up its runtime files as described below.
 
 To skip downloading and compiling grammars during the build, set
 `MITOS_DISABLE_AUTO_GRAMMAR_BUILD=1`.
@@ -54,6 +64,10 @@ To skip downloading and compiling grammars during the build, set
 > 💡 If you only want to build _some_ grammars, see [`use-grammars`](./languages.md#choosing-grammars)
 
 ### Configuring Mitos's runtime files
+
+`cargo xtask install` sets up the runtime for you. Follow these steps if you
+build without installing, or want to use themes and queries directly from the
+source directory while developing Mitos.
 
 #### Linux and macOS
 
@@ -117,9 +131,10 @@ following order:
 This order also sets the priority for selecting which file will be used if multiple runtime
 directories have files with the same name.
 
-Use the data runtime directory for installed runtime assets. Keep personal
-query or dictionary overrides in the config runtime directory, which takes
-priority. Custom themes can also live in the config directory's `themes/` folder.
+For manual runtime installation, use the data runtime directory. The source
+installer places the runtime beside the executable. Keep personal query
+or dictionary overrides in the config runtime directory, which takes priority.
+Custom themes can also live in the config directory's `themes/` folder.
 
 `ms --grammar fetch` and `ms --grammar build` write grammar sources and compiled
 grammars into the user data directory's `runtime/` subdirectory. When run through

@@ -50,11 +50,13 @@ Mitos requires Rust 1.97.1 or newer.
 ```sh
 git clone https://github.com/mitos-editor/mitos
 cd mitos
-cargo build --release
-./target/release/ms --health
+cargo xtask install
+ms --health
 ```
 
-The optimized executable is written to `target/release/ms` (`ms` is short for Mitos). Install it on your `PATH` with `cargo install --path crates/term --locked`.
+This installs Mitos with its themes and syntax highlighting, normally in `~/.cargo/bin`. Add that directory to your `PATH` if needed.
+
+See [building from source](https://mitos.computer/docs/building-from-source.html) for custom install locations and development builds.
 
 ## AI Policy
 

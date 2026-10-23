@@ -153,7 +153,8 @@ async fn quicklist_delete_filtered_row_preserves_query_and_nearest_row() -> anyh
         ])?;
         let current = current_ref!(f.app.editor).1.id();
         f.keys("<space>q").await?;
-        f.keys("pick").await?;
+        // Use a literal filename fragment so temporary paths cannot add rows.
+        f.keys("'pick-").await?;
         f.keys(movement).await?;
         f.keys("<C-x>").await?;
         assert_eq!(current_ref!(f.app.editor).1.id(), current);

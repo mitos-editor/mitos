@@ -1,4 +1,4 @@
-//! Repository-maintenance commands for Mitos contributors.
+//! Source installation and repository-maintenance commands for Mitos contributors.
 //!
 //! Run commands from the workspace root with `cargo xtask <command>`. Tasks in
 //! this crate may rewrite checked-in runtime or documentation artifacts; they
@@ -8,6 +8,7 @@ mod docgen;
 mod grammar_sources;
 mod grammar_updates;
 mod helpers;
+mod install;
 mod path;
 
 use std::{env, error::Error};
@@ -542,6 +543,9 @@ pub mod tasks {
 Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
 
     Tasks:
+        install [--root <path>] [--profile <profile>]
+                                   Build and copy ms and its runtime into <root>/bin.
+                                   Defaults to the Cargo home and the release profile.
         docgen                     Generate files to be included in the mdbook output.
         query-check [languages]    Check that tree-sitter queries are valid for the given
                                    languages, or all languages if none are specified.
@@ -575,6 +579,7 @@ fn main() -> Result<(), DynError> {
     match task {
         None => tasks::print_help(),
         Some(t) => match t.as_str() {
+            "install" => install::install(args)?,
             "docgen" => tasks::docgen()?,
             "query-check" => tasks::querycheck(args)?,
             "indent-check" => tasks::indentcheck(args)?,

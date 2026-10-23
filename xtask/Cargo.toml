@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository maintenance and validation commands for Mitos"
+description = "Source installation, repository maintenance, and validation commands for Mitos"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
