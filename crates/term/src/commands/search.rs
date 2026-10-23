@@ -37,6 +37,41 @@ pub(super) fn rsearch(cx: &mut Context) {
     searcher(cx, Direction::Backward)
 }
 
+pub(super) fn search_literal(cx: &mut Context) {
+    literal_searcher(cx, Direction::Forward);
+}
+
+pub(super) fn rsearch_literal(cx: &mut Context) {
+    literal_searcher(cx, Direction::Backward);
+}
+
+fn literal_searcher(cx: &mut Context, direction: Direction) {
+    let register = cx.register.unwrap_or('/');
+    let wrap = cx.editor.config().search.wrap_around;
+    let movement = if cx.editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
+    };
+    ui::literal_regex_prompt(
+        cx,
+        "literal search:".into(),
+        move |cx, regex, pattern, event| {
+            if event == PromptEvent::Validate {
+                if let Err(error) = cx.editor.registers.push(register, pattern.to_owned()) {
+                    cx.editor.set_error(|| error.to_string());
+                    return;
+                }
+                cx.editor.registers.last_search_register = register;
+            } else if event != PromptEvent::Update {
+                return;
+            }
+            cx.editor
+                .search_buffer(&regex, movement, direction, 1, wrap);
+        },
+    );
+}
+
 fn searcher(cx: &mut Context, direction: Direction) {
     let reg = cx.register.unwrap_or('/');
     let config = cx.editor.config();

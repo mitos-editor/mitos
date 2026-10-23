@@ -948,3 +948,26 @@ async fn match_bracket() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn literal_search_repeats_escaped_patterns_and_restores_on_abort() -> anyhow::Result<()> {
+    test((
+        "#[|x]# a.b axb a.b\n",
+        "<space>?search_literal<ret>a.b<ret>n",
+        "x a.b axb #[|a.b]#\n",
+    ))
+    .await?;
+    test((
+        "a.b axb a.b #[|x]#\n",
+        "<space>?rsearch_literal<ret>a.b<ret>N",
+        "#[|a.b]# axb a.b x\n",
+    ))
+    .await?;
+    test((
+        "#[|x]# a.b\n",
+        "<space>?search_literal<ret>a.b<esc>",
+        "#[|x]# a.b\n",
+    ))
+    .await?;
+    Ok(())
+}
