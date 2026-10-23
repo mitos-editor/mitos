@@ -1,10 +1,11 @@
 use super::Fixture;
 use editor_core::{Range, Selection};
+use loader::snippets::Catalog;
 use std::time::Duration;
 use view::{current, current_ref, document::Mode, features::completion};
 
-fn catalog() -> snippets::Catalog {
-    snippets::Catalog::parse(
+fn catalog() -> Catalog {
+    Catalog::parse(
         r#"
         [[snippet]]
         name = "Greeting"
@@ -106,7 +107,7 @@ async fn replacement_catalog_and_disabled_provider_reject_old_results() -> anyho
         .iter()
         .find(|item| item.filter_text() == "hello")
         .unwrap();
-    f.editor.set_snippet_catalog(snippets::Catalog::default());
+    f.editor.set_snippet_catalog(Catalog::default());
     assert!(!f.editor.accept_completion(&session, item)?);
     f.editor.set_snippet_catalog(catalog());
     let (items, session) = request(&mut f).await?;
@@ -232,7 +233,7 @@ async fn picker_candidates_reject_selection_edits_and_other_editors() -> anyhow:
 async fn prefixless_snippets_replace_selected_text_and_support_nested_choices() -> anyhow::Result<()>
 {
     let mut f = Fixture::new("world\r\n")?;
-    f.editor.set_snippet_catalog(snippets::Catalog::parse(
+    f.editor.set_snippet_catalog(Catalog::parse(
         "[[snippet]]\nname='Wrap'\nbody='<${1|one,two|}>$TM_SELECTED_TEXT$0'",
     )?);
     f.editor.set_mode(Mode::Select);
@@ -259,7 +260,7 @@ async fn prefixless_snippets_replace_selected_text_and_support_nested_choices() 
 async fn variables_are_stable_across_preview_acceptance_and_repeated_occurrences(
 ) -> anyhow::Result<()> {
     let mut f = Fixture::new("id\n")?;
-    f.editor.set_snippet_catalog(snippets::Catalog::parse("[[snippet]]\nname='Identity'\nprefix='id'\nbody='$UUID|$UUID|$RANDOM|$RANDOM_HEX|$CURRENT_YEAR'")?);
+    f.editor.set_snippet_catalog(Catalog::parse("[[snippet]]\nname='Identity'\nprefix='id'\nbody='$UUID|$UUID|$RANDOM|$RANDOM_HEX|$CURRENT_YEAR'")?);
     let (view, doc) = current!(f.editor);
     doc.set_selection(view.id, Selection::point(2));
     let (items, session) = request(&mut f).await?;
@@ -411,7 +412,7 @@ async fn embedded_languages_select_their_own_snippets_and_comment_variables() ->
         }
     })
     .await?;
-    f.editor.set_snippet_catalog(snippets::Catalog::parse("[[snippet]]\nname='HTML'\nscope='html'\nbody='html'\n[[snippet]]\nname='JS'\nscope='javascript'\nbody='$LINE_COMMENT comment'")?);
+    f.editor.set_snippet_catalog(Catalog::parse("[[snippet]]\nname='HTML'\nscope='html'\nbody='html'\n[[snippet]]\nname='JS'\nscope='javascript'\nbody='$LINE_COMMENT comment'")?);
     let candidates = f.editor.snippet_candidates();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].snippet.name, "JS");
@@ -543,7 +544,7 @@ async fn punctuation_prefixes_replace_each_cursors_complete_typed_trigger() -> a
         ),
     ] {
         let mut f = Fixture::new(source)?;
-        f.editor.set_snippet_catalog(snippets::Catalog::parse(
+        f.editor.set_snippet_catalog(Catalog::parse(
             "[[snippet]]\nname='For'\nprefix=['for-const', 'for!']\nbody='${1:expanded}$0'",
         )?);
         let (view, doc) = current!(f.editor);

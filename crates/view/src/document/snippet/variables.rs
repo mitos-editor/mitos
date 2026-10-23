@@ -6,7 +6,7 @@ use crate::Document;
 impl Document {
     /// Capture variables against the text and selections used by the insertion.
     /// Completion callers must pass their saved state, rather than current typing.
-    pub fn snippet_ctx(
+    pub(crate) fn snippet_ctx(
         &self,
         text: &editor_core::Rope,
         selection: &editor_core::Selection,

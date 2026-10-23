@@ -3,7 +3,7 @@ mod variables;
 
 use crate::{Document, DocumentId, Editor, ViewId};
 use anyhow::{ensure, Context, Result};
-use snippets::{Catalog, UserSnippet};
+use loader::snippets::{Catalog, UserSnippet};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -30,6 +30,11 @@ pub enum SnippetSource {
 #[derive(Clone)]
 pub struct SnippetCandidate {
     pub snippet: Arc<UserSnippet>,
+    context: Arc<SnippetInsertionContext>,
+}
+
+/// Shared origin and validation state for all choices in one picker.
+struct SnippetInsertionContext {
     catalog: Arc<Catalog>,
     document: DocumentId,
     view: ViewId,
@@ -67,10 +72,6 @@ impl Editor {
         };
     }
 
-    pub fn snippet_user_file(&self) -> &Path {
-        &self.snippets.resources.user_file
-    }
-
     /// Open the primary configuration or a named file in its collection directory.
     pub fn open_snippet_config(
         &mut self,
@@ -78,7 +79,7 @@ impl Editor {
         file: Option<&Path>,
     ) -> Result<()> {
         let base = match source {
-            SnippetSource::User => self.snippet_user_file().to_path_buf(),
+            SnippetSource::User => self.snippets.resources.user_file.clone(),
             SnippetSource::Workspace => {
                 loader::snippets::workspace_file(doc!(self).workspace_root())
             }
@@ -164,33 +165,37 @@ impl Editor {
             .workspace_trust
             .query(doc.workspace_root(), TrustQuery::LocalConfig)
             .is_trusted();
+        let context = Arc::new(SnippetInsertionContext {
+            catalog: catalog.clone(),
+            document,
+            view: view.id,
+            mode: self.mode(),
+            version: doc.version(),
+            selection: doc.selection(view.id).clone(),
+            uri: doc.uri(),
+            scope: scope.to_owned(),
+            trusted,
+        });
         catalog
             .matching(scope)
             .map(|snippet| SnippetCandidate {
                 snippet: snippet.clone(),
-                catalog: catalog.clone(),
-                document,
-                view: view.id,
-                mode: self.mode(),
-                version: doc.version(),
-                selection: doc.selection(view.id).clone(),
-                uri: doc.uri(),
-                scope: scope.to_owned(),
-                trusted,
+                context: context.clone(),
             })
             .collect()
     }
 
     pub fn insert_user_snippet(&mut self, candidate: &SnippetCandidate) -> Result<()> {
+        let context = &candidate.context;
         let (view, doc) = current_ref!(self);
         ensure!(
-            self.mode() == candidate.mode
-                && view.id == candidate.view
-                && doc.id() == candidate.document
-                && doc.version() == candidate.version
-                && doc.selection(view.id) == &candidate.selection
-                && doc.uri() == candidate.uri
-                && language_scope(doc, view.id) == candidate.scope,
+            self.mode() == context.mode
+                && view.id == context.view
+                && doc.id() == context.document
+                && doc.version() == context.version
+                && doc.selection(view.id) == &context.selection
+                && doc.uri() == context.uri
+                && language_scope(doc, view.id) == context.scope,
             "snippet insertion context changed; reopen the snippet picker"
         );
         let trusted = self
@@ -198,12 +203,12 @@ impl Editor {
             .query(doc.workspace_root(), TrustQuery::LocalConfig)
             .is_trusted();
         ensure!(
-            trusted == candidate.trusted,
+            trusted == context.trusted,
             "workspace trust changed; reopen the snippet picker"
         );
-        let catalog = self.snippet_catalog_for(candidate.document);
+        let catalog = self.snippet_catalog_for(context.document);
         ensure!(
-            Arc::ptr_eq(&catalog, &candidate.catalog),
+            Arc::ptr_eq(&catalog, &context.catalog),
             "snippet definitions changed; reopen the snippet picker"
         );
         self.insert_snippet(&candidate.snippet.snippet)?;

@@ -1,6 +1,8 @@
 //! User snippet configuration discovery and reading.
 use anyhow::{Context, Result};
-use snippets::Catalog;
+mod catalog;
+
+pub use catalog::{Catalog, UserSnippet};
 use std::{
     io::ErrorKind,
     path::{Path, PathBuf},

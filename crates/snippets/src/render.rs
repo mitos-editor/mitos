@@ -38,6 +38,23 @@ pub struct Tabstop {
 }
 
 impl Tabstop {
+    /// Retain ranges together with their owning snippet instances.
+    pub(super) fn retain_ranges(&mut self, mut keep: impl FnMut(&mut Range, usize) -> bool) {
+        let mut index = 0;
+        let mut instances = SmallVec::new();
+        self.ranges.retain_mut(|range| {
+            let instance = self.instances[index];
+            index += 1;
+            if keep(range, instance) {
+                instances.push(instance);
+                true
+            } else {
+                false
+            }
+        });
+        self.instances = instances;
+    }
+
     /// Returns whether entering the tabstop should initially select its text.
     pub fn has_placeholder(&self) -> bool {
         matches!(

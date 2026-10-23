@@ -3915,10 +3915,8 @@ dependencies = [
  "parsec",
  "regex-cursor",
  "ropey",
- "serde",
  "smallvec",
  "stdx",
- "toml",
 ]
 
 [[package]]

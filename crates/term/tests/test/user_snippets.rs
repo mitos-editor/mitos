@@ -1,10 +1,8 @@
 use super::*;
+use loader::snippets::Catalog;
 
-fn definitions() -> snippets::Catalog {
-    snippets::Catalog::parse(
-        "[[snippet]]\nname='Greeting'\nprefix='hello'\nbody='${1|one,two|} $0'",
-    )
-    .unwrap()
+fn definitions() -> Catalog {
+    Catalog::parse("[[snippet]]\nname='Greeting'\nprefix='hello'\nbody='${1|one,two|} $0'").unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -130,7 +128,7 @@ async fn manual_completion_accepts_a_prefix_ending_in_punctuation() -> anyhow::R
     let mut config = test_config();
     config.editor.completion.auto_trigger = false;
     let mut app = AppBuilder::new().with_config(config).build()?;
-    app.editor.set_snippet_catalog(snippets::Catalog::parse(
+    app.editor.set_snippet_catalog(Catalog::parse(
         "[[snippet]]\nname='For'\nprefix='for!'\nbody='${1:expanded}$0'",
     )?);
     test_key_sequences(

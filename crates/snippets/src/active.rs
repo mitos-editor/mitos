@@ -109,20 +109,7 @@ impl ActiveSnippet {
             .changes_iter()
             .filter_map(|(start, end, _)| (start < end).then_some(Range { start, end }))
             .collect();
-        let descendants: Vec<_> = self
-            .tabstops
-            .iter()
-            .map(|tabstop| {
-                let mut parent = tabstop.parent;
-                while let Some(index) = parent {
-                    if index == self.current_tabstop {
-                        return true;
-                    }
-                    parent = self[index].parent;
-                }
-                false
-            })
-            .collect();
+        let descendants = (!deletions.is_empty()).then(|| self.current_descendants());
         let positions_to_map = self.ranges.iter_mut().flat_map(|range| {
             [
                 (&mut range.start, Assoc::After),
@@ -131,19 +118,16 @@ impl ActiveSnippet {
         });
         changes.update_positions(positions_to_map);
 
-        let tabstop_count = self.tabstops.len();
         for (i, tabstop) in self.tabstops.iter_mut().enumerate() {
             // Typing over an outer placeholder removes the tabstops in its
             // default, but keeps the final cursor and unaffected cursor instances.
-            let overwritten: smallvec::SmallVec<[bool; 1]> = tabstop
-                .ranges
-                .iter()
-                .map(|range| {
-                    i + 1 != tabstop_count
-                        && descendants[i]
-                        && deletions.iter().any(|deletion| deletion.contains(*range))
-                })
-                .collect();
+            if let Some(descendants) = &descendants
+                && descendants[i]
+            {
+                tabstop.retain_ranges(|range, _| {
+                    !deletions.iter().any(|deletion| deletion.contains(*range))
+                });
+            }
 
             if self.active_tabstops.contains(&TabstopIdx(i)) {
                 let positions_to_map = tabstop.ranges.iter_mut().flat_map(|range| {
@@ -167,16 +151,11 @@ impl ActiveSnippet {
                 });
                 changes.update_positions(positions_to_map);
             }
-            let mut range_index = 0;
-            let mut owners = smallvec::SmallVec::new();
             let mut prev = Range { start: 0, end: 0 };
-            tabstop.ranges.retain_mut(|range| {
-                let owner = tabstop.instances[range_index];
+            tabstop.retain_ranges(|range, owner| {
                 let snippet_range = &self.ranges[owner];
-                let retain = snippet_range.start <= snippet_range.end && !overwritten[range_index];
-                range_index += 1;
+                let retain = snippet_range.start <= snippet_range.end;
                 if retain {
-                    owners.push(owner);
                     // guaranteed by assoc
                     debug_assert!(prev.start <= range.start);
                     debug_assert!(
@@ -194,7 +173,6 @@ impl ActiveSnippet {
                 }
                 retain
             });
-            tabstop.instances = owners;
         }
         self.ranges.iter().all(|range| range.end <= range.start)
     }
@@ -307,6 +285,27 @@ impl ActiveSnippet {
         Some(transaction.with_selection(selection))
     }
 
+    /// Descendants of the active placeholder, excluding the final cursor stop.
+    fn current_descendants(&self) -> Vec<bool> {
+        self.tabstops
+            .iter()
+            .enumerate()
+            .map(|(index, tabstop)| {
+                if index + 1 == self.tabstops.len() {
+                    return false;
+                }
+                let mut parent = tabstop.parent;
+                while let Some(index) = parent {
+                    if index == self.current_tabstop {
+                        return true;
+                    }
+                    parent = self[index].parent;
+                }
+                false
+            })
+            .collect()
+    }
+
     /// Replaces the current tabstop with a newly rendered nested snippet.
     ///
     /// If the nested render does not align one-for-one with the outer snippet
@@ -333,20 +332,8 @@ impl ActiveSnippet {
         // Build an explicit index map: later parents may move when the nested
         // snippet adds tabstops or the replaced default loses them.
         let current = self.current_tabstop.0;
-        let mut removed = vec![false; self.tabstops.len()];
+        let mut removed = self.current_descendants();
         removed[current] = true;
-        loop {
-            let mut changed = false;
-            for (index, tabstop) in self.tabstops[..self.tabstops.len() - 1].iter().enumerate() {
-                if !removed[index] && tabstop.parent.is_some_and(|parent| removed[parent.0]) {
-                    removed[index] = true;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
         let insertion = removed[..current]
             .iter()
             .filter(|&&removed| !removed)
@@ -448,6 +435,36 @@ mod tests {
 mod nesting_tests {
     use super::*;
     use crate::{Snippet, SnippetRenderCtx};
+
+    #[test]
+    fn overwriting_one_parent_preserves_other_instances_and_their_primary_cursor() {
+        let mut text = Rope::from("\n\n");
+        let source = Snippet::parse("${1:outer ${2:child}} ${3:after}$0").unwrap();
+        let selection = Selection::new(
+            vec![editor_core::Range::point(0), editor_core::Range::point(1)].into(),
+            0,
+        );
+        let (edit, _, rendered) = source.render(
+            &text,
+            &selection,
+            |range| (range.head, range.head),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        edit.apply(&mut text);
+        let mut active = ActiveSnippet::new(rendered).unwrap();
+        let edit = Transaction::change(&text, [(0, 11, Some("x".into()))].into_iter());
+        edit.apply(&mut text);
+        assert!(!active.map(edit.changes()));
+        let (selection, finished) = active.next_tabstop(&Selection::point(1));
+        assert!(!finished);
+        assert_eq!(selection.len(), 1);
+        assert_eq!(selection.primary().fragment(text.slice(..)), "child");
+        let (selection, finished) = active.next_tabstop(&selection);
+        assert!(!finished);
+        assert_eq!(selection.len(), 2);
+        assert_eq!(selection.primary_index(), 1);
+        assert_eq!(selection.primary().fragment(text.slice(..)), "after");
+    }
 
     #[test]
     fn replacing_a_placeholder_preserves_its_nested_final_stop() {

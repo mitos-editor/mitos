@@ -3,7 +3,7 @@ use super::{
     CompletionItems, CompletionResponse, ResponseContext, SnippetCompletion, TextCompletion,
 };
 use crate::{document::SavePoint, Editor};
-use snippets::Catalog;
+use loader::snippets::Catalog;
 use std::sync::Arc;
 
 pub(super) fn completion(

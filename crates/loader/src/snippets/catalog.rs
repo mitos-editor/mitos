@@ -1,9 +1,12 @@
-//! Validated user definitions. Filesystem discovery and editor state live elsewhere.
+//! User snippet definitions, TOML validation, and configuration-layer merging.
 
-use crate::Snippet;
 use anyhow::{ensure, Context, Result};
 use serde::Deserialize;
-use std::{collections::HashSet, sync::Arc};
+use snippets::Snippet;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 #[derive(Debug)]
 pub struct UserSnippet {
@@ -69,7 +72,7 @@ impl Catalog {
     }
 
     /// Attach a source label for duplicate diagnostics and configuration editing.
-    pub fn parse_with_source(source: &str, origin: Option<&str>) -> Result<Self> {
+    pub(super) fn parse_with_source(source: &str, origin: Option<&str>) -> Result<Self> {
         let definitions: Definitions = toml::from_str(source)?;
         let mut names = HashSet::new();
         let mut entries = Vec::with_capacity(definitions.snippet.len());
@@ -85,8 +88,12 @@ impl Catalog {
             );
             let mut prefixes = definition.prefix.into_vec();
             ensure!(
-                prefixes.iter().all(|prefix| !prefix.is_empty()
-                    && prefix.chars().all(|character| !character.is_whitespace() && !character.is_control())),
+                prefixes.iter().all(|prefix| {
+                    !prefix.is_empty()
+                        && prefix.chars().all(|character| {
+                            !character.is_whitespace() && !character.is_control()
+                        })
+                }),
                 "snippet {:?}: prefixes must be nonempty text without whitespace or control characters",
                 definition.name
             );
@@ -115,9 +122,8 @@ impl Catalog {
     }
 
     /// Combine files in one configuration layer without silently shadowing names.
-    pub fn from_sources(sources: impl IntoIterator<Item = Catalog>) -> Result<Self> {
-        let mut entries: std::collections::BTreeMap<String, Arc<UserSnippet>> =
-            std::collections::BTreeMap::new();
+    pub(super) fn from_sources(sources: impl IntoIterator<Item = Catalog>) -> Result<Self> {
+        let mut entries = BTreeMap::<String, Arc<UserSnippet>>::new();
         for catalog in sources {
             for entry in catalog.entries {
                 if let Some(previous) = entries.get(&entry.name) {
@@ -138,7 +144,7 @@ impl Catalog {
 
     /// Project definitions replace global definitions with the same name.
     pub fn with_overrides(&self, overrides: &Self) -> Self {
-        let entries: std::collections::BTreeMap<_, _> = self
+        let entries: BTreeMap<_, _> = self
             .entries
             .iter()
             .chain(&overrides.entries)

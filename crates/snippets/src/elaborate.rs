@@ -56,10 +56,16 @@ impl Snippet {
     // Reused labels can introduce cycles after duplicate definitions are merged.
     // Check both defaults (rendering) and ancestry (interactive navigation).
     fn validate_tabstops(&self) -> Result<()> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum VisitState {
+            Unvisited,
+            Active,
+            Complete,
+        }
         fn visit_elements(
             snippet: &Snippet,
             elements: &[SnippetElement],
-            states: &mut [u8],
+            states: &mut [VisitState],
         ) -> Result<()> {
             for element in elements {
                 match element {
@@ -73,19 +79,22 @@ impl Snippet {
             }
             Ok(())
         }
-        fn visit(snippet: &Snippet, idx: TabstopIdx, states: &mut [u8]) -> Result<()> {
-            ensure!(states[idx.0] != 1, "recursive snippet placeholder");
-            if states[idx.0] == 2 {
+        fn visit(snippet: &Snippet, idx: TabstopIdx, states: &mut [VisitState]) -> Result<()> {
+            ensure!(
+                states[idx.0] != VisitState::Active,
+                "recursive snippet placeholder"
+            );
+            if states[idx.0] == VisitState::Complete {
                 return Ok(());
             }
-            states[idx.0] = 1;
+            states[idx.0] = VisitState::Active;
             if let TabstopKind::Placeholder { default } = &snippet[idx].kind {
                 visit_elements(snippet, default, states)?;
             }
-            states[idx.0] = 2;
+            states[idx.0] = VisitState::Complete;
             Ok(())
         }
-        let mut states = vec![0; self.tabstops.len()];
+        let mut states = vec![VisitState::Unvisited; self.tabstops.len()];
         for (index, tabstop) in self.tabstops.iter().enumerate() {
             visit(self, TabstopIdx(index), &mut states)?;
             let mut parent = tabstop.parent;
