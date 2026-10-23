@@ -316,13 +316,6 @@ impl PaneRenderer {
             highlights::syntax_highlighter(doc, view_offset.anchor, inner.height);
         let mut overlays = Vec::new();
 
-        overlays.push(highlights::overlay_highlights(
-            doc,
-            view_offset.anchor,
-            inner.height,
-            text_annotations,
-        ));
-
         if doc
             .language_config()
             .and_then(|config| config.rainbow_brackets)
@@ -336,6 +329,13 @@ impl PaneRenderer {
         if let Some(overlay) = highlights::document_link_highlights(doc, theme) {
             overlays.push(overlay);
         }
+
+        overlays.push(highlights::overlay_highlights(
+            doc,
+            view_offset.anchor,
+            inner.height,
+            text_annotations,
+        ));
 
         highlights::diagnostic_highlights(doc, theme, &mut overlays);
 
