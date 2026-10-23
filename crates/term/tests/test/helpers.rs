@@ -381,6 +381,11 @@ impl AppBuilder {
         AppBuilder::default()
     }
 
+    pub fn with_split(mut self, split: view::tree::Layout) -> Self {
+        self.args.split = Some(split);
+        self
+    }
+
     pub fn with_file<P: Into<PathBuf>>(
         mut self,
         path: P,

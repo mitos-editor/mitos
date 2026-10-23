@@ -157,9 +157,6 @@ impl Application {
                             Ok(doc_id) => doc_id,
                         };
                         // with Action::Load all documents have the same view
-                        // NOTE: this isn't necessarily true anymore. If
-                        // `--vsplit` or `--hsplit` are used, the file which is
-                        // opened last is focused on.
                         let view_id = current_ref!(editor).0.id;
                         let doc = doc_mut!(editor, &doc_id);
                         let selection = pos
@@ -170,6 +167,11 @@ impl Application {
                             .collect();
                         doc.set_selection(view_id, selection);
                     }
+                }
+
+                let first_view = editor.tree.views().next().map(|(view, _)| view.id);
+                if let Some(first_view) = first_view {
+                    editor.focus(first_view);
                 }
 
                 // if all files were invalid, replace with empty buffer
