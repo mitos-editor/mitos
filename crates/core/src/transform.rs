@@ -178,7 +178,7 @@ pub fn reorder_selection_contents(
     doc: &Rope,
     selection: &Selection,
     strategy: ReorderStrategy,
-    count: usize,
+    group_size: usize,
 ) -> Option<(Transaction, Selection)> {
     let text = doc.slice(..);
 
@@ -187,30 +187,24 @@ pub fn reorder_selection_contents(
         .map(|fragment| fragment.chunks().collect())
         .collect();
 
-    let rotate_by = count.min(ranges.len());
-
-    let primary_index = match strategy {
-        ReorderStrategy::RotateForward => {
-            ranges.rotate_right(rotate_by);
-            // Like `usize::wrapping_add`, but provide a custom range from `0` to `ranges.len()`
-            (selection.primary_index() + ranges.len() + rotate_by) % ranges.len()
+    let group_size = group_size.clamp(1, ranges.len());
+    for group in ranges.chunks_mut(group_size) {
+        match strategy {
+            ReorderStrategy::RotateForward => group.rotate_right(1),
+            ReorderStrategy::RotateBackward => group.rotate_left(1),
+            ReorderStrategy::Reverse => group.reverse(),
         }
-        ReorderStrategy::RotateBackward => {
-            ranges.rotate_left(rotate_by);
-            // Like `usize::wrapping_sub`, but provide a custom range from `0` to `ranges.len()`
-            (selection.primary_index() + ranges.len() - rotate_by) % ranges.len()
-        }
-        ReorderStrategy::Reverse => {
-            if rotate_by.is_multiple_of(2) {
-                // nothing changed, if we reverse something an even
-                // amount of times, the output will be the same
-                return None;
-            }
-            ranges.reverse();
-            // -1 to turn 1-based len into 0-based index
-            (ranges.len() - 1) - selection.primary_index()
-        }
-    };
+    }
+    let index = selection.primary_index();
+    let offset = index % group_size;
+    let start = index - offset;
+    let len = group_size.min(ranges.len() - start);
+    let primary_index = start
+        + match strategy {
+            ReorderStrategy::RotateForward => (offset + 1) % len,
+            ReorderStrategy::RotateBackward => (offset + len - 1) % len,
+            ReorderStrategy::Reverse => len - 1 - offset,
+        };
 
     let transaction = Transaction::change(
         doc,
