@@ -693,3 +693,29 @@ async fn startup_skips_irregular_files_before_focusing_the_first_valid_split() -
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn always_relative_numbers_stay_relative_in_insert_mode_and_unfocused_splits(
+) -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.line_number = editor_config::LineNumber::AlwaysRelative;
+    config.editor.gutters.layout = vec![editor_config::GutterType::LineNumbers];
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("one\ntwo\n#[|t]#hree\nfour")
+        .build()?;
+    keys(&mut app, "<C-w>vi").await?;
+    let backend = app.terminal_backend();
+    let buffer = backend.buffer();
+    for (view, _) in app.editor.tree.views() {
+        let row = view.area.y;
+        let x = view
+            .inner_area(app.editor.document(view.document_id()).unwrap())
+            .x
+            - 1;
+        assert_eq!(buffer[(x, row)].symbol(), "2");
+        assert_eq!(buffer[(x, row + 1)].symbol(), "1");
+        assert_eq!(buffer[(x, row + 2)].symbol(), "3");
+    }
+    Ok(())
+}
