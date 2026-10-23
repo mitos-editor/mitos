@@ -48,7 +48,7 @@ impl Folds {
         self.closed.retain(|fold| {
             !selection.iter().any(|r| {
                 let cursor = r.cursor(text);
-                fold.range.start < cursor && cursor <= fold.range.end
+                fold.range.start < cursor && cursor < fold.range.end
             })
         });
         if len != self.closed.len() {
@@ -143,15 +143,21 @@ impl Document {
                 })
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|range| {
-                    if range.is_empty() {
+                .filter_map(|fold| {
+                    if fold.range.is_empty() {
                         return None;
                     }
-                    conceal(
-                        text,
-                        text.char_to_line_idx(range.start),
-                        text.char_to_line_idx(range.end - 1),
-                    )
+                    let start_line = text.char_to_line_idx(fold.range.start);
+                    let Some(end) = fold.closing_delimiter else {
+                        return conceal(
+                            text,
+                            start_line,
+                            text.char_to_line_idx(fold.range.end - 1),
+                        );
+                    };
+                    let start = line_end_char_index(&text, start_line);
+                    (text.char_to_line_idx(end) > start_line && start < end)
+                        .then_some(Conceal { range: start..end })
                 })
                 .collect()
         } else {
@@ -235,7 +241,7 @@ impl Document {
                 .folds
                 .visible
                 .iter()
-                .find(|c| c.range.start < cursor && cursor <= c.range.end)
+                .find(|c| c.range.start < cursor && cursor < c.range.end)
             {
                 let header = text.line_to_char_idx(text.char_to_line_idx(fold.range.start));
                 editor_core::Range::point(header)
@@ -308,16 +314,22 @@ mod tests {
         );
         let text = doc.text().clone();
         let inner = text.line_to_char_idx(1);
+        let inner_fold = Conceal {
+            range: line_end_char_index(&text.slice(..), 1)..text.line_to_char_idx(3) + 4,
+        };
+        let outer_fold = Conceal {
+            range: line_end_char_index(&text.slice(..), 0)..text.line_to_char_idx(4),
+        };
         doc.set_selection(view.id, Selection::point(inner));
         doc.fold(view.id, FoldAction::Close);
         assert_eq!(
             doc.folded_ranges(view.id),
-            &[conceal(text.slice(..), 1, 3).unwrap()]
+            std::slice::from_ref(&inner_fold)
         );
         doc.fold(view.id, FoldAction::Close);
         assert_eq!(
             doc.folded_ranges(view.id),
-            &[conceal(text.slice(..), 0, 4).unwrap()]
+            std::slice::from_ref(&outer_fold)
         );
         assert_eq!(
             doc.selection(view.id)
@@ -329,7 +341,7 @@ mod tests {
         doc.fold(view.id, FoldAction::Open);
         assert_eq!(
             doc.folded_ranges(view.id),
-            &[conceal(text.slice(..), 1, 3).unwrap()]
+            std::slice::from_ref(&inner_fold)
         );
         assert_eq!(doc.text(), &text);
         assert!(!doc.is_modified());
@@ -338,12 +350,26 @@ mod tests {
         doc.fold(view.id, FoldAction::CloseAll);
         assert_eq!(
             doc.folded_ranges(view.id),
-            &[conceal(text.slice(..), 0, 4).unwrap()]
+            std::slice::from_ref(&outer_fold)
         );
         doc.fold(view.id, FoldAction::Open);
         assert_eq!(
             doc.folded_ranges(view.id),
-            &[conceal(text.slice(..), 1, 3).unwrap()]
+            std::slice::from_ref(&inner_fold)
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_a_syntax_fold_keeps_a_cursor_on_its_real_closing_token() {
+        let (mut doc, view, _) = fixture("fn main() {\n    work();\n}\n", Some("rust"));
+        let text = doc.text().clone();
+        let closer = text.line_to_char_idx(2);
+        doc.set_selection(view.id, Selection::point(closer));
+        doc.fold(view.id, FoldAction::CloseAll);
+        assert_eq!(doc.folded_ranges(view.id).len(), 1);
+        assert_eq!(
+            doc.selection(view.id).primary().cursor(text.slice(..)),
+            closer
         );
     }
 

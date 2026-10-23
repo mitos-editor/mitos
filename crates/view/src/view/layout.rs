@@ -20,23 +20,35 @@ pub struct ViewLayout<'a> {
 }
 
 impl ViewLayout<'_> {
+    /// Source line that begins the display block containing this position.
+    pub fn block_line_at_pos(&self, pos: usize) -> usize {
+        self.text
+            .char_to_line_idx(self.annotations.checkpoint_anchor(self.text, pos))
+    }
+
     /// A whole-line upper bound for text visible in this viewport. Folding
     /// expands the document range; wrapping and virtual lines can only shrink it.
     pub fn visible_byte_range(&self) -> std::ops::Range<usize> {
         let anchor = self
             .annotations
-            .checkpoint_anchor(self.offset.anchor.min(self.text.len_chars()));
+            .checkpoint_anchor(self.text, self.offset.anchor.min(self.text.len_chars()));
         let first = self.text.char_to_line_idx(anchor);
         let last = self.last_document_line();
+        let end = self
+            .annotations
+            .block_end(self.text, self.text.line_to_char_idx(last));
+        let end_line = self.text.char_to_line_idx(end);
         self.text.line_to_byte_idx(first, stdx::rope::LINE_TYPE)
-            ..self.text.line_to_byte_idx(last + 1, stdx::rope::LINE_TYPE)
+            ..self
+                .text
+                .line_to_byte_idx(end_line + 1, stdx::rope::LINE_TYPE)
     }
 
     /// Upper bound for the final visible document line, including an empty EOF line.
     pub fn last_document_line(&self) -> usize {
         let anchor = self
             .annotations
-            .checkpoint_anchor(self.offset.anchor.min(self.text.len_chars()));
+            .checkpoint_anchor(self.text, self.offset.anchor.min(self.text.len_chars()));
         let first = self.text.char_to_line_idx(anchor);
         let count = self
             .offset
@@ -134,8 +146,7 @@ impl ViewLayout<'_> {
             &self.format,
             &self.annotations,
         );
-        (virtual_lines == 0 || !ignore_virtual_text)
-            .then(|| self.annotations.checkpoint_anchor(position))
+        (virtual_lines == 0 || !ignore_virtual_text).then_some(position)
     }
 
     /// Last visible visual row relative to the viewport, clamped to the end of the text.

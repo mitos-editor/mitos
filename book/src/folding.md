@@ -1,8 +1,14 @@
 # Code folding
 
-Folding hides whole lines behind a selectable `…` at the end of the first line.
-It changes the view, leaving the document text and undo history intact. Each
-split has its own folds.
+Syntax folding hides a region's body behind a selectable `…`. Paired closing
+braces, brackets, and parentheses stay visible with the rest of their source
+line, so a folded region can look like `pub struct Editor {…}`, `[…],`, or
+`call!(…);`. The closing tokens remain actual document text: they can be selected
+and edited normally.
+
+Selection folds and syntax regions without paired closing tokens fold whole
+lines. Folding changes the view, leaving the document text and undo history
+intact. Each split has its own folds.
 
 Press `z f` to open the folding menu:
 

@@ -190,8 +190,46 @@ fn fold_captures_use_character_ranges_in_injected_and_inherited_languages() {
         assert!(
             ranges
                 .iter()
-                .any(|range| text.slice_chars(range.clone()) == expected),
+                .any(|range| text.slice_chars(range.range.clone()) == expected),
             "{name}: {ranges:?}"
+        );
+    }
+}
+
+#[test]
+fn syntax_fold_closers_are_real_paired_tokens_and_do_not_include_suffixes() {
+    use stdx::rope::RopeExt as _;
+    let loader = crate::loader::default_lang_loader(Resources::default());
+    for (name, source, closer) in [
+        ("rust", "pub struct Editor {\n  value: usize,\n};", '}'),
+        ("json", "{\n  \"é\": [\n    1\n  ],\n  \"more\": 2\n}", ']'),
+    ] {
+        let text = ropey::Rope::from_str(source);
+        let language = loader.language_for_name(name).unwrap();
+        let syntax = Syntax::new(text.slice(..), language, &loader).unwrap();
+        let folds = syntax.fold_ranges(text.slice(..), &loader, ..);
+        assert!(
+            folds
+                .iter()
+                .any(|fold| fold.closing_delimiter.is_some_and(|end| {
+                    text.get_char_at(end) == Some(closer) && end < fold.range.end
+                })),
+            "{name}: {folds:?}"
+        );
+    }
+    for (name, source) in [
+        ("rust", "fn run() {\n  let s = \"}\";"),
+        ("python", "def run():\n    return \"}\""),
+    ] {
+        let text = ropey::Rope::from_str(source);
+        let language = loader.language_for_name(name).unwrap();
+        let syntax = Syntax::new(text.slice(..), language, &loader).unwrap();
+        assert!(
+            syntax
+                .fold_ranges(text.slice(..), &loader, ..)
+                .iter()
+                .all(|fold| fold.closing_delimiter.is_none()),
+            "{name}"
         );
     }
 }

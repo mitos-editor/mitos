@@ -312,3 +312,109 @@ fn motion_from_a_folded_line_ending_uses_the_header_line_and_clamps_at_eof() {
         assert_eq!(down.cursor(text), header.cursor(text));
     }
 }
+
+#[test]
+fn preserved_suffixes_round_trip_and_share_the_headers_wrapped_rows() {
+    for newline in ["\n", "\r\n"] {
+        for width in [4, 8, 40] {
+            for ending in ["", "\nnext"] {
+                // Two disjoint folds share a source line: the visible suffix of
+                // the first is also the header of the second.
+                let rope = Rope::from_str(&format!("if {{{newline}hidden{newline}}} else {{{newline}hidden{newline}}}; 界e\u{301}{ending}"));
+                let text = rope.slice(..);
+                let folds = [
+                    Conceal {
+                        range: line_end_char_index(&text, 0)..text.line_to_char_idx(2),
+                    },
+                    Conceal {
+                        range: line_end_char_index(&text, 2)..text.line_to_char_idx(4),
+                    },
+                ];
+                let mut annotations = TextAnnotations::default();
+                annotations.set_conceals(&folds);
+                let format = TextFormat {
+                    soft_wrap: true,
+                    viewport_width: width,
+                    max_wrap: 0,
+                    max_indent_retain: 0,
+                    ..Default::default()
+                };
+                let graphemes: Vec<_> =
+                    DocumentFormatter::new_at_prev_checkpoint(text, &format, &annotations, 0)
+                        .collect();
+                let rendered: String = graphemes
+                    .iter()
+                    .filter(|g| !g.source.is_eof())
+                    .map(|g| {
+                        if g.raw == editor_core::graphemes::Grapheme::Newline {
+                            "\n".to_owned()
+                        } else {
+                            g.raw.to_string()
+                        }
+                    })
+                    .collect();
+                assert_eq!(rendered, format!("if {{…}} else {{…}}; 界e\u{301}{ending}"));
+                for g in graphemes {
+                    let display = visual_offset_from_anchor(
+                        text,
+                        0,
+                        g.char_idx,
+                        &format,
+                        &annotations,
+                        usize::MAX,
+                    )
+                    .unwrap()
+                    .0;
+                    assert_eq!(display, g.visual_pos, "{g:?}");
+                    assert_eq!(
+                        char_idx_at_visual_offset(
+                            text,
+                            0,
+                            display.row as isize,
+                            display.col,
+                            &format,
+                            &annotations
+                        ),
+                        (g.char_idx, 0),
+                        "{g:?}"
+                    );
+                    let source_line = text.char_to_line_idx(g.char_idx);
+                    assert_eq!(
+                        g.block_line_idx,
+                        if source_line <= 4 { 0 } else { source_line }
+                    );
+                    assert_eq!(g.line_idx, source_line);
+                    if source_line <= 4 {
+                        assert_eq!(
+                            DocumentFormatter::new_at_prev_checkpoint(
+                                text,
+                                &format,
+                                &annotations,
+                                g.char_idx
+                            )
+                            .next_char_pos(),
+                            0
+                        );
+                    }
+                }
+                // Document-line motion starts from the displayed header even
+                // when the cursor is on a closer from its last source line.
+                let suffix = Range::point(folds[1].range.end + 1);
+                let down = move_vertically(
+                    text,
+                    suffix,
+                    Direction::Forward,
+                    1,
+                    Movement::Move,
+                    &format,
+                    &mut annotations,
+                );
+                if ending.is_empty() {
+                    assert_eq!(down.cursor(text), suffix.cursor(text));
+                } else {
+                    assert_eq!(text.char_to_line_idx(down.cursor(text)), 5);
+                }
+            }
+        }
+    }
+}
