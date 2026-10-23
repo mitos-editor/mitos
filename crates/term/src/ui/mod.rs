@@ -749,6 +749,7 @@ pub mod completers {
         let files = WalkBuilder::new(&dir)
             .hidden(false)
             .follow_links(false) // We're scanning over depth 1
+            .require_git(editor.config().file_picker.require_git)
             .git_ignore(git_ignore)
             .max_depth(Some(1))
             .build()
