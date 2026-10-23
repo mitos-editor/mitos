@@ -118,8 +118,10 @@ value; an unavailable value is transformed as an empty string.
 
 ## User-defined snippets
 
-Define snippets in `snippets.toml` in your Mitos configuration directory. They
-appear in the completion menu without a language server. For example:
+Define snippets in `snippets.toml` in your Mitos configuration directory, or
+split them across `.toml` files in the sibling `snippets/` directory. Both are
+optional and can be used together. Snippets appear in the completion menu
+without a language server. For example:
 
 ```toml
 [[snippet]]
@@ -133,16 +135,46 @@ body = '''if ${1:err} != nil {
 $0'''
 ```
 
-`prefix` is a word or a list of words used to find the snippet. Prefixes contain
-letters, digits, or underscores, including Unicode word characters. Omit
+`prefix` is trigger text or a list of triggers used to find the snippet.
+Prefixes can include punctuation, such as `for-const` or `for!`, and cannot contain
+whitespace or control characters. Automatic completion uses word characters;
+press `Ctrl-x` to request suggestions after punctuation. Accepting a snippet
+replaces its matching prefix at each cursor, including punctuation. Omit
 `prefix` to make a snippet available only through the picker or a named command.
 `scope` is a language name from `languages.toml`, or a list of names. Omit it to make a
 snippet available in every language, including plain text. Language scopes follow
 embedded languages at the cursor when syntax information is available. `name`
 and a nonempty `body` are required; `description` is optional. Names must be unique
-within each file.
+across the user collection, and separately across each workspace collection.
+Duplicate names in the same collection report both files; distinct snippets may
+share a prefix. Only workspace definitions override user definitions by name.
 Bodies use the same placeholder and variable syntax as language-server snippets.
 Use actual tab characters or spaces for indentation in TOML literal strings.
+
+A body may also be an array of lines, joined with newlines:
+
+```toml
+body = ["if ${1:err} != nil {", "    return $1", "}", "$0"]
+```
+
+Collections can be organized by language, project, or topic:
+
+```text
+~/.config/mitos/
+  snippets.toml
+  snippets/
+    rust.toml
+    go/
+      errors.toml
+      http.toml
+```
+
+Each file uses the same `[[snippet]]` format. Filenames and subdirectories only
+organize the collection; language scope remains explicit in each definition.
+Mitos discovers `.toml` files recursively in deterministic order. Other file
+extensions and directory symlinks are ignored. Symlinks to regular files are
+supported. The primary `snippets.toml` file is not required when a directory
+collection exists.
 
 Save the file and run `:config-reload`. Invalid definitions report the file and
 snippet name, and preserve your last successfully loaded definitions.
@@ -151,15 +183,18 @@ This is independent of `editor.lsp.completion.snippets`.
 
 ### Workspace snippets and reloads
 
-Put project definitions in `.mitos/snippets.toml` at the document's workspace
-root, using the same format. Mitos loads these when the workspace is trusted.
+Put project definitions in `.mitos/snippets.toml` or split them across
+`.mitos/snippets/**/*.toml` at the document's workspace root, using the same
+format. Mitos loads these when the workspace is trusted.
 A project definition replaces the user definition with the same name, including
 its prefixes and language scope. Other user definitions remain available.
 Each open workspace has its own definitions.
 
 After saving changes, run `:snippets-reload` or `:config-reload`. Reloading reads
 user and open workspace definitions together. A parse or read error preserves
-the previous definitions and reports the file. Removing a project definition
+the previous definitions and reports the file. A bad member rejects the entire
+reload, including files that were otherwise valid. Creating, renaming, or deleting
+collection files takes effect on the next reload. Removing a project definition
 restores the corresponding user definition after reload. Changes to trusted
 workspace settings may require renewing workspace trust.
 
@@ -172,7 +207,7 @@ Bind `snippet_picker` to browse the snippets available in the current language:
 A-s = "snippet_picker"
 ```
 
-The picker shows names, prefixes, and descriptions. Select an entry and press
+The picker shows names, prefixes, descriptions, and source files. Select an entry and press
 `Enter` to insert it. To bind a particular snippet directly, use a named command:
 
 ```toml
@@ -190,9 +225,13 @@ Undo restores the original text as part of the normal insert undo group.
 | --- | --- |
 | `snippet_picker` | Browse and insert available snippets. |
 | `:snippet-insert <name>` | Insert a snippet by its exact name. |
-| `:snippets-open` | Open the user `snippets.toml`. |
-| `:snippets-open-workspace` | Open this document's workspace `snippets.toml`. |
+| `:snippets-open [file]` | Open `snippets.toml`, or a named file such as `rust.toml` in `snippets/`. |
+| `:snippets-open-workspace [file]` | Open `.mitos/snippets.toml`, or a named file in `.mitos/snippets/`. |
 | `:snippets-reload` | Reload snippet definitions. |
+
+For example, `:snippets-open go/http.toml` opens the corresponding user collection
+file, creating parent directories if needed. Without a filename, it opens the
+primary file as before. Named files must be relative `.toml` paths.
 
 A picker choice expires if its document, selection, language, workspace trust,
 or definitions change. Reopen the picker to choose from the current context.

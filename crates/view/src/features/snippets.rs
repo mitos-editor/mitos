@@ -2,7 +2,7 @@
 mod variables;
 
 use crate::{Document, DocumentId, Editor, ViewId};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use snippets::{Catalog, UserSnippet};
 use std::{
     collections::{HashMap, HashSet},
@@ -17,6 +17,13 @@ pub(crate) struct SnippetStore {
     catalog: Arc<Catalog>,
     projects: HashMap<PathBuf, Arc<Catalog>>,
     loaded: bool,
+}
+
+/// Configuration layer whose snippet files should be edited.
+#[derive(Clone, Copy)]
+pub enum SnippetSource {
+    User,
+    Workspace,
 }
 
 /// A picker choice belongs to its original document, selections, and catalog.
@@ -62,6 +69,27 @@ impl Editor {
 
     pub fn snippet_user_file(&self) -> &Path {
         &self.snippets.resources.user_file
+    }
+
+    /// Open the primary configuration or a named file in its collection directory.
+    pub fn open_snippet_config(
+        &mut self,
+        source: SnippetSource,
+        file: Option<&Path>,
+    ) -> Result<()> {
+        let base = match source {
+            SnippetSource::User => self.snippet_user_file().to_path_buf(),
+            SnippetSource::Workspace => {
+                loader::snippets::workspace_file(doc!(self).workspace_root())
+            }
+        };
+        let path = loader::snippets::edit_file(&base, file)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create snippet directory {}", parent.display()))?;
+        }
+        self.open(&path, crate::editor::Action::Replace)?;
+        Ok(())
     }
 
     /// Reload global and open trusted workspace definitions as one atomic change.

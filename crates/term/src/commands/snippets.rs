@@ -53,6 +53,9 @@ fn picker(
             PickerColumn::new("description", |item: &SnippetCandidate, _| {
                 item.snippet.description.as_str().into()
             }),
+            PickerColumn::new("source", |item: &SnippetCandidate, _| {
+                item.snippet.source.as_deref().unwrap_or("").into()
+            }),
         ],
         0,
         candidates,
@@ -78,7 +81,8 @@ pub(super) fn snippet_picker(cx: &mut Context) {
 pub(super) mod typed {
     use crate::{compositor, ui::PromptEvent};
     use command_line::Args;
-    use view::editor::Action;
+    use std::path::Path;
+    use view::features::snippets::SnippetSource;
 
     pub fn insert(
         cx: &mut compositor::Context,
@@ -110,22 +114,26 @@ pub(super) mod typed {
         Ok(())
     }
 
-    pub fn open(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    pub fn open(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
         if event == PromptEvent::Validate {
-            let path = cx.editor.snippet_user_file().to_path_buf();
-            cx.editor.open(&path, Action::Replace)?;
+            cx.editor
+                .open_snippet_config(SnippetSource::User, args.first().map(Path::new))?;
         }
         Ok(())
     }
 
     pub fn open_workspace(
         cx: &mut compositor::Context,
-        _: Args,
+        args: Args,
         event: PromptEvent,
     ) -> anyhow::Result<()> {
         if event == PromptEvent::Validate {
-            let path = loader::snippets::workspace_file(view::doc!(cx.editor).workspace_root());
-            cx.editor.open(&path, Action::Replace)?;
+            cx.editor
+                .open_snippet_config(SnippetSource::Workspace, args.first().map(Path::new))?;
         }
         Ok(())
     }

@@ -452,6 +452,8 @@ fn has_local_config(workspace: &Path) -> bool {
     workspace.join(".mitos").join("config.toml").exists()
         || workspace.join(".mitos").join("languages.toml").exists()
         || workspace.join(".mitos").join("snippets.toml").exists()
+        || std::fs::symlink_metadata(workspace.join(".mitos/snippets"))
+            .is_ok_and(|metadata| metadata.is_dir())
 }
 
 fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {

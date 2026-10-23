@@ -24,27 +24,29 @@ pub(super) fn completion(
             continue;
         }
         let mut context = editor.snippet_context(doc, text, selection, &entry.snippet);
-        let (transaction, rendered) = crate::editing::completion::generate_transaction_from_snippet(
-            text,
-            selection,
-            None,
-            editor.config().completion.replace,
-            &entry.snippet,
-            &mut context,
-        );
         let documentation = format!(
             "{}\n\n{}\n\n```{language}\n{}\n```",
             entry.name, entry.description, entry.body
         );
         for prefix in &entry.prefixes {
+            let (transaction, rendered) =
+                crate::editing::completion::generate_transaction_from_user_snippet(
+                    text,
+                    selection,
+                    prefix,
+                    editor.config().completion.replace,
+                    &entry.snippet,
+                    &mut context,
+                );
+
             items.push(SnippetCompletion {
                 text: TextCompletion {
-                    transaction: transaction.clone(),
+                    transaction,
                     label: prefix.clone().into(),
                     kind: "snippet".into(),
                     documentation: Some(documentation.clone()),
                 },
-                rendered: rendered.clone(),
+                rendered,
             });
         }
     }

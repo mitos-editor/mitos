@@ -81,8 +81,8 @@
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:snippet-insert` | Insert a named user-defined snippet at the selections. |
 | `:snippets-reload` | Reload global and trusted workspace snippet definitions. |
-| `:snippets-open` | Open the user snippets.toml file. |
-| `:snippets-open-workspace` | Open this document workspace snippets.toml file. |
+| `:snippets-open` | Open the user snippet configuration or a named .toml file in snippets/. |
+| `:snippets-open-workspace` | Open the workspace snippet configuration or a named .toml file in .mitos/snippets/. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-migrate` | Migrate legacy user settings after confirmation, creating a backup. |

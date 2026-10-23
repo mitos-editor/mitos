@@ -127,3 +127,73 @@ pub fn generate_transaction_from_snippet(
     ));
     (transaction, snippet)
 }
+
+/// Render a native snippet, replacing the matching prefix independently at each cursor.
+/// Punctuation in a trigger belongs to the replacement, rather than its preceding text.
+pub fn generate_transaction_from_user_snippet(
+    doc: &Rope,
+    selection: &Selection,
+    prefix: &str,
+    replace_mode: bool,
+    snippet: &Snippet,
+    context: &mut SnippetRenderCtx,
+) -> (Transaction, RenderedSnippet) {
+    let text = doc.slice(..);
+    let (transaction, mapped, rendered) = snippet.render(
+        doc,
+        selection,
+        |range| user_snippet_range(text, range.cursor(text), prefix, replace_mode),
+        context,
+    );
+    let transaction = transaction.with_selection(
+        rendered.first_selection(selection.primary().direction(), mapped.primary_index()),
+    );
+    (transaction, rendered)
+}
+
+fn user_snippet_range(
+    text: RopeSlice<'_>,
+    cursor: usize,
+    prefix: &str,
+    replace_mode: bool,
+) -> (usize, usize) {
+    let (word_start, end) = find_completion_range(text, replace_mode, cursor);
+    let boundaries: Vec<_> = prefix
+        .char_indices()
+        .map(|(index, character)| index + character.len_utf8())
+        .collect();
+    for count in (cursor - word_start + 1..=cursor.min(boundaries.len())).rev() {
+        let start = cursor - count;
+        if text.slice_chars(start..cursor) == prefix[..boundaries[count - 1]]
+            && (start == 0
+                || !prefix.starts_with(chars::char_is_word)
+                || !chars::char_is_word(text.char_at(start - 1)))
+        {
+            return (start, end);
+        }
+    }
+    (word_start, end)
+}
+
+#[cfg(test)]
+mod native_prefix_tests {
+    use super::*;
+    #[test]
+    fn punctuation_prefixes_use_character_coordinates_and_respect_word_boundaries() {
+        for (source, cursor, prefix, replace, expected) in [
+            ("for-c", 5, "for-const", false, (0, 5)),
+            ("for!", 4, "for!", false, (0, 4)),
+            ("!界-名", 4, "!界-名前", false, (0, 4)),
+            ("beforefor!", 10, "for!", false, (10, 10)),
+            ("for-consuffix", 6, "for-const", false, (0, 6)),
+            ("for-consuffix", 6, "for-const", true, (0, 13)),
+        ] {
+            let text = Rope::from_str(source);
+            assert_eq!(
+                user_snippet_range(text.slice(..), cursor, prefix, replace),
+                expected,
+                "{source}"
+            );
+        }
+    }
+}

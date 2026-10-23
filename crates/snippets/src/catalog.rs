@@ -13,6 +13,8 @@ pub struct UserSnippet {
     pub scopes: Vec<String>,
     pub body: String,
     pub snippet: Snippet,
+    /// Display name of the configuration source, when loaded from a file.
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -33,7 +35,7 @@ struct Definition {
     name: String,
     #[serde(default)]
     prefix: Strings,
-    body: String,
+    body: Strings,
     #[serde(default)]
     description: String,
     #[serde(default)]
@@ -63,6 +65,11 @@ impl Strings {
 
 impl Catalog {
     pub fn parse(source: &str) -> Result<Self> {
+        Self::parse_with_source(source, None)
+    }
+
+    /// Attach a source label for duplicate diagnostics and configuration editing.
+    pub fn parse_with_source(source: &str, origin: Option<&str>) -> Result<Self> {
         let definitions: Definitions = toml::from_str(source)?;
         let mut names = HashSet::new();
         let mut entries = Vec::with_capacity(definitions.snippet.len());
@@ -79,8 +86,8 @@ impl Catalog {
             let mut prefixes = definition.prefix.into_vec();
             ensure!(
                 prefixes.iter().all(|prefix| !prefix.is_empty()
-                    && prefix.chars().all(editor_core::chars::char_is_word)),
-                "snippet {:?}: prefixes must be nonempty words",
+                    && prefix.chars().all(|character| !character.is_whitespace() && !character.is_control())),
+                "snippet {:?}: prefixes must be nonempty text without whitespace or control characters",
                 definition.name
             );
             prefixes.sort();
@@ -91,18 +98,42 @@ impl Catalog {
                 "snippet {:?}: language scopes must not be empty",
                 definition.name
             );
-            let snippet = Snippet::parse(&definition.body)
-                .with_context(|| format!("snippet {:?}", definition.name))?;
+            let body = definition.body.into_vec().join("\n");
+            let snippet =
+                Snippet::parse(&body).with_context(|| format!("snippet {:?}", definition.name))?;
             entries.push(Arc::new(UserSnippet {
                 name: definition.name,
                 prefixes,
                 description: definition.description,
                 scopes,
-                body: definition.body,
+                body,
+                source: origin.map(str::to_owned),
                 snippet,
             }));
         }
         Ok(Self { entries })
+    }
+
+    /// Combine files in one configuration layer without silently shadowing names.
+    pub fn from_sources(sources: impl IntoIterator<Item = Catalog>) -> Result<Self> {
+        let mut entries: std::collections::BTreeMap<String, Arc<UserSnippet>> =
+            std::collections::BTreeMap::new();
+        for catalog in sources {
+            for entry in catalog.entries {
+                if let Some(previous) = entries.get(&entry.name) {
+                    anyhow::bail!(
+                        "duplicate snippet name {:?} in {} and {}",
+                        entry.name,
+                        previous.source.as_deref().unwrap_or("<memory>"),
+                        entry.source.as_deref().unwrap_or("<memory>")
+                    );
+                }
+                entries.insert(entry.name.clone(), entry);
+            }
+        }
+        Ok(Self {
+            entries: entries.into_values().collect(),
+        })
     }
 
     /// Project definitions replace global definitions with the same name.

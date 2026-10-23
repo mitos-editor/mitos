@@ -88,3 +88,69 @@ async fn snippet_picker_inserts_its_selected_definition() -> anyhow::Result<()> 
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn snippet_open_accepts_collection_paths_and_keeps_the_primary_file_default(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut app = AppBuilder::new().build()?;
+    app.editor
+        .set_snippet_resources(loader::snippets::Resources {
+            user_file: directory.path().join("snippets.toml"),
+        });
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":snippets-open team/rust.toml<ret>"),
+                Some(&|app| {
+                    assert!(view::doc!(app.editor)
+                        .path()
+                        .unwrap()
+                        .ends_with(std::path::Path::new("snippets/team/rust.toml")));
+                }),
+            ),
+            (
+                Some(":snippets-open<ret>"),
+                Some(&|app| {
+                    assert!(view::doc!(app.editor)
+                        .path()
+                        .unwrap()
+                        .ends_with("snippets.toml"));
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn manual_completion_accepts_a_prefix_ending_in_punctuation() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.completion.auto_trigger = false;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    app.editor.set_snippet_catalog(snippets::Catalog::parse(
+        "[[snippet]]\nname='For'\nprefix='for!'\nbody='${1:expanded}$0'",
+    )?);
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("ifor!<C-x>"),
+                Some(&|app| assert!(view::features::completion::is_shown(&app.editor))),
+            ),
+            (
+                Some("<tab><ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        view::doc!(app.editor).text().to_string().trim_end(),
+                        "expanded"
+                    );
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}

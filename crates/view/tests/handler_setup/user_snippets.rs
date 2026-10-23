@@ -423,3 +423,152 @@ async fn embedded_languages_select_their_own_snippets_and_comment_variables() ->
         .contains("// comment"));
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn split_files_work_on_first_completion_and_reload_as_one_catalog() -> anyhow::Result<()> {
+    let mut f = disk_fixture().await?;
+    let global = f.dir.path().join("user-snippets/team");
+    let project = f.dir.path().join(".mitos/snippets");
+    std::fs::create_dir_all(&global)?;
+    std::fs::create_dir_all(&project)?;
+    std::fs::write(
+        global.join("words.toml"),
+        "[[snippet]]\nname='extra'\nprefix='extra'\nbody=['global', '$0']",
+    )?;
+    std::fs::write(
+        project.join("team.toml"),
+        "[[snippet]]\nname='extra'\nprefix='team'\nbody='project'",
+    )?;
+    // Exercise initial file discovery directly from completion, before opening a picker.
+    let (items, _) = request(&mut f).await?;
+    assert!(items.iter().any(|item| item.filter_text() == "team"));
+    assert!(!items.iter().any(|item| item.filter_text() == "extra"));
+    let before = f.editor.snippet_candidates();
+    assert_eq!(before.len(), 2);
+    let entry = before
+        .iter()
+        .find(|candidate| candidate.snippet.name == "extra")
+        .unwrap();
+    assert_eq!(
+        entry.snippet.source.as_deref(),
+        Some(project.join("team.toml").to_string_lossy().as_ref())
+    );
+    std::fs::write(project.join("bad.toml"), "invalid = true")?;
+    assert!(f.editor.reload_snippets().is_err());
+    assert_eq!(f.editor.snippet_candidates().len(), 2);
+    std::fs::remove_file(project.join("bad.toml"))?;
+    std::fs::remove_file(project.join("team.toml"))?;
+    f.editor.reload_snippets()?;
+    assert!(f.editor.insert_user_snippet(entry).is_err());
+    let after = f.editor.snippet_candidates();
+    assert_eq!(
+        after
+            .iter()
+            .find(|candidate| candidate.snippet.name == "extra")
+            .unwrap()
+            .snippet
+            .body,
+        "global\n$0"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn snippet_editing_commands_create_nested_global_and_workspace_files() -> anyhow::Result<()> {
+    use std::path::Path;
+    use view::features::snippets::SnippetSource;
+    let mut f = disk_fixture().await?;
+    f.editor
+        .open_snippet_config(SnippetSource::User, Some(Path::new("team/rust.toml")))?;
+    assert!(f.dir.path().join("user-snippets/team").is_dir());
+    assert!(current_ref!(f.editor)
+        .1
+        .path()
+        .unwrap()
+        .ends_with(Path::new("user-snippets/team/rust.toml")));
+    f.editor
+        .open_snippet_config(SnippetSource::Workspace, Some(Path::new("go.toml")))?;
+    assert!(current_ref!(f.editor)
+        .1
+        .path()
+        .unwrap()
+        .ends_with(Path::new(".mitos/snippets/go.toml")));
+    f.editor.open_snippet_config(SnippetSource::User, None)?;
+    assert!(current_ref!(f.editor)
+        .1
+        .path()
+        .unwrap()
+        .ends_with("user-snippets.toml"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_with_only_a_snippet_directory_is_reported_as_restricted() -> anyhow::Result<()>
+{
+    let mut f = disk_fixture().await?;
+    std::fs::remove_file(f.dir.path().join(".mitos/snippets.toml"))?;
+    std::fs::create_dir_all(f.dir.path().join(".mitos/snippets"))?;
+    std::fs::write(
+        f.dir.path().join(".mitos/snippets/team.toml"),
+        "[[snippet]]\nname='team'\nbody='team'",
+    )?;
+    f.editor.workspace_trust = workspace::trust::WorkspaceTrust::new(
+        workspace::trust::Config::default(),
+        f.dir.path().join("trust"),
+    );
+    let root = current_ref!(f.editor).1.workspace_root().to_path_buf();
+    assert!(f.editor.workspace_trust.workspace_restricted(&root));
+    assert!(!f
+        .editor
+        .snippet_candidates()
+        .iter()
+        .any(|candidate| candidate.snippet.name == "team"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn punctuation_prefixes_replace_each_cursors_complete_typed_trigger() -> anyhow::Result<()> {
+    for (source, cursors, prefix, expected) in [
+        ("for-c\n", vec![5], "for-const", "expanded\n"),
+        ("for!\n", vec![4], "for!", "expanded\n"),
+        (
+            "for-c\nfor-co\n",
+            vec![5, 12],
+            "for-const",
+            "expanded\nexpanded\n",
+        ),
+    ] {
+        let mut f = Fixture::new(source)?;
+        f.editor.set_snippet_catalog(snippets::Catalog::parse(
+            "[[snippet]]\nname='For'\nprefix=['for-const', 'for!']\nbody='${1:expanded}$0'",
+        )?);
+        let (view, doc) = current!(f.editor);
+        let primary = cursors.len() - 1;
+        doc.set_selection(
+            view.id,
+            Selection::new(cursors.into_iter().map(Range::point).collect(), primary),
+        );
+        let (items, session) = request(&mut f).await?;
+        let item = items
+            .iter()
+            .find(|item| item.filter_text() == prefix)
+            .unwrap();
+        f.editor.begin_completion(&session);
+        assert!(f.editor.preview_completion(&session, item)?);
+        assert_eq!(current_ref!(f.editor).1.text(), source);
+        assert_eq!(
+            f.editor
+                .completion_presentation(current_ref!(f.editor).1)
+                .text(),
+            expected
+        );
+        assert!(f.editor.accept_completion(&session, item)?);
+        f.editor.finish_completion();
+        let (view, doc) = current!(f.editor);
+        assert_eq!(doc.text(), expected);
+        assert_eq!(doc.selection(view.id).primary_index(), primary);
+        assert!(view::editing::undo(doc, view.id));
+        assert_eq!(doc.text(), source);
+    }
+    Ok(())
+}

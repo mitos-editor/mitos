@@ -1374,14 +1374,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "snippets-open", aliases: &[], doc: "Open the user snippets.toml file.",
+        name: "snippets-open", aliases: &[], doc: "Open the user snippet configuration or a named .toml file in snippets/.",
         fun: super::snippets::typed::open, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "snippets-open-workspace", aliases: &[], doc: "Open this document workspace snippets.toml file.",
+        name: "snippets-open-workspace", aliases: &[], doc: "Open the workspace snippet configuration or a named .toml file in .mitos/snippets/.",
         fun: super::snippets::typed::open_workspace, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "config-reload",
