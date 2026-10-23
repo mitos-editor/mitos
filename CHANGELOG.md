@@ -2,6 +2,112 @@
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/mitos-editor/mitos/compare/v0.1.1...v0.1.2) - 2026-10-23
+
+### Added
+
+- *(quicklist)* add locations and remove entries from picker ([#638](https://github.com/mitos-editor/mitos/pull/638))
+- *(snippets)* support split collections and punctuation triggers
+- *(snippets)* complete native insertion, workspace scopes, and variables
+- *(snippets)* load user definitions into native completion
+- *(editor)* support native block cursors ([#623](https://github.com/mitos-editor/mitos/pull/623))
+- *(rulers)* port configurable foreground rulers from Helix ([#630](https://github.com/mitos-editor/mitos/pull/630))
+- *(picker)* add centered layout preference ([#624](https://github.com/mitos-editor/mitos/pull/624))
+- *(picker)* refresh buffers and diagnostics from editor state
+- *(debugger)* support breakpoints in adapter-owned sources
+- *(debugger)* refresh invalidated inspection data in place
+- *(debugger)* show inline runtime values in source ([#511](https://github.com/mitos-editor/mitos/pull/511))
+- *(snippets)* resolve document variables from insertion snapshots ([#642](https://github.com/mitos-editor/mitos/pull/642))
+- *(theme)* add border style support ([#517](https://github.com/mitos-editor/mitos/pull/517))
+- *(editor)* render trailing whitespace independently ([#540](https://github.com/mitos-editor/mitos/pull/540))
+- *(debugger)* add session switching and selected-session status
+
+### Fixed
+
+- *(picker)* preview unsaved buffers for relative paths ([#641](https://github.com/mitos-editor/mitos/pull/641))
+- *(picker)* remove extra left padding when using icons ([#640](https://github.com/mitos-editor/mitos/pull/640))
+- *(picker)* exclude decorative icons from fuzzy matching ([#637](https://github.com/mitos-editor/mitos/pull/637))
+- *(rulers)* preserve background rulers with explicit styles ([#633](https://github.com/mitos-editor/mitos/pull/633))
+- save and format ([#76](https://github.com/mitos-editor/mitos/pull/76))
+- *(completion)* replay snippet edits and cursor state ([#601](https://github.com/mitos-editor/mitos/pull/601))
+- *(buffer)* advance text and history revisions together during replay
+- *(debugger)* integrate frame paging and adapter sources into main
+- *(debugger)* synchronize breakpoints with saved and renamed sources
+- *(debugger)* map source breakpoints through document edits
+- *(grammar)* write installed grammars to the user data runtime
+- *(indent)* in gdscript newline after a block's last line had no indent ([#374](https://github.com/mitos-editor/mitos/pull/374))
+- *(snippets)* skip nested defaults removed by placeholder edits
+- *(snippets)* preserve nested navigation and validate placeholder graphs
+- *(settings)* refresh path overrides through one document owner ([#612](https://github.com/mitos-editor/mitos/pull/612))
+- *(symbols)* apply one case policy to buffers and files
+
+### Other
+
+- *(snippets)* clarify ownership and consolidate editing state
+- *(completion)* isolate previews from live document edits
+- *(lsp)* keep registry mutation inside the editor
+- *(reload)* own file notifications in editor operations
+- *(panes)* complete splits and scroll explicit views ([#614](https://github.com/mitos-editor/mitos/pull/614))
+- *(editor)* own document setting operations ([#603](https://github.com/mitos-editor/mitos/pull/603))
+- *(search)* share buffer matching and editor coordination ([#587](https://github.com/mitos-editor/mitos/pull/587))
+- *(editing)* separate view synchronization from text operations
+- *(editor)* share snippet session operations ([#588](https://github.com/mitos-editor/mitos/pull/588))
+- *(movement)* share ordinary text motions
+- *(movement)* share character finds and primary selection rotation
+- *(ui)* separate pane rendering from editor input
+- *(input)* isolate checked insert replay
+- *(buffer)* own text savepoint tracking
+- *(editor)* share successful input effects
+- *(editing)* use one fallible mutation contract
+- *(text)* migrate the workspace to Ropey 2 ([#583](https://github.com/mitos-editor/mitos/pull/583))
+- *(buffer)* own text history implementation and navigation types ([#375](https://github.com/mitos-editor/mitos/pull/375))
+- *(buffer)* share immutable snapshots across document work
+- *(buffer)* extract text state and undo ownership into a crate
+- *(clipboard)* extract provider settings and native backends ([#361](https://github.com/mitos-editor/mitos/pull/361))
+- *(diagnostics)* extract shared values and edit-mapped collections
+- *(debugger)* bind source operations to live document identities
+- *(debugger)* make session lifecycle transitions explicit ([#477](https://github.com/mitos-editor/mitos/pull/477))
+- *(debugger)* depend on protocol types without the async client
+- *(debugger)* extract editor-independent state models
+- *(grammar)* separate native grammar build tooling ([#360](https://github.com/mitos-editor/mitos/pull/360))
+- *(textobjects)* move range collection into core and language
+- *(symbols)* separate syntax queries from picker presentation
+- *(language)* separate semantic coverage from interactive parse deadlines
+- *(language)* own query feature metadata ([#404](https://github.com/mitos-editor/mitos/pull/404))
+- *(core)* separate text and display coordinates ([#383](https://github.com/mitos-editor/mitos/pull/383))
+- *(language)* drop serialization dependencies owned by configuration
+- *(language)* extract parser-independent configuration crate
+- *(language)* resolve parser state through its owning loader
+- *(language)* extract syntax and structural editing from core
+- *(debugger)* share launch template resolution across frontends ([#479](https://github.com/mitos-editor/mitos/pull/479))
+- *(debugger)* separate launch configuration from DAP types
+- *(language-config)* own spelling settings and dictionary identifiers ([#403](https://github.com/mitos-editor/mitos/pull/403))
+- *(snippets)* use native path components in collection assertions
+- *(search)* share workspace traversal policy
+- *(search)* extract workspace search engine ([#362](https://github.com/mitos-editor/mitos/pull/362))
+- *(text-io)* extract stream encoding and decoding ([#363](https://github.com/mitos-editor/mitos/pull/363))
+- *(config)* move border style to editor settings ([#521](https://github.com/mitos-editor/mitos/pull/521))
+- *(theme)* own icon lookup and presentation values ([#400](https://github.com/mitos-editor/mitos/pull/400))
+- *(core)* separate text primitives from structural editing
+- *(theme)* extract theme interpretation from editor state
+- *(snippets)* derive workspace source paths from the document
+- *(completion)* index the latest document snapshots
+- reuse default documents and debugger message framing ([#622](https://github.com/mitos-editor/mitos/pull/622))
+- *(symbols)* extract syntax-symbols engine crate ([#613](https://github.com/mitos-editor/mitos/pull/613))
+- *(symbols)* separate blocking workspace scans
+- *(workspace)* extract root discovery and trust policy
+- *(word-index)* check cancellation during input scanning ([#575](https://github.com/mitos-editor/mitos/pull/575))
+- *(words)* extract incremental Unicode word indexing ([#414](https://github.com/mitos-editor/mitos/pull/414))
+- *(watcher)* extract native file watching into file-watch ([#525](https://github.com/mitos-editor/mitos/pull/525))
+- *(layout)* extract document-independent pane layout
+- *(layout)* distinguish display positions from document coordinates
+- *(layout)* extract renderer-independent text layout ([#384](https://github.com/mitos-editor/mitos/pull/384))
+- *(config)* default to rounded borders and trailing whitespace ([#577](https://github.com/mitos-editor/mitos/pull/577))
+- *(rendering)* extract the text-render crate
+- *(config)* extract editor settings into editor-config
+- *(fuzzy)* extract matching policies and reusable consumer state ([#409](https://github.com/mitos-editor/mitos/pull/409))
+- *(diff)* extract text comparison and reusable line differencing ([#413](https://github.com/mitos-editor/mitos/pull/413))
+
 ## [0.1.1](https://github.com/mitos-editor/mitos/compare/v0.1.0...v0.1.1) - 2026-10-20
 
 ### Highlights
