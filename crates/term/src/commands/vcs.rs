@@ -301,6 +301,7 @@ pub(super) fn goto_prev_change(cx: &mut Context) {
 
 fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
     let count = cx.count() as u32 - 1;
+    let wrap_around = cx.editor.config().search.wrap_around;
     let motion = move |editor: &mut Editor| {
         let mode = editor.mode();
         let (view, doc) = current!(editor);
@@ -312,17 +313,38 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
             return;
         };
 
+        let status = std::cell::Cell::new(None);
         let selection = doc.selection(view.id).clone().transform(|range| {
             let cursor_line = range.cursor_line(doc_text) as u32;
 
             let diff = diff_handle.load();
+            if diff.is_empty() {
+                status.set(Some("No changes in document"));
+                return range;
+            }
             let hunk_idx = match direction {
                 Direction::Forward => diff
                     .next_hunk(cursor_line)
-                    .map(|idx| (idx + count).min(diff.len() - 1)),
+                    .map(|idx| idx.saturating_add(count).min(diff.len() - 1))
+                    .or_else(|| {
+                        status.set(Some(if wrap_around {
+                            "Wrapped around document"
+                        } else {
+                            "No more changes in document"
+                        }));
+                        wrap_around.then_some(count.min(diff.len() - 1))
+                    }),
                 Direction::Backward => diff
                     .prev_hunk(cursor_line)
-                    .map(|idx| idx.saturating_sub(count)),
+                    .map(|idx| idx.saturating_sub(count))
+                    .or_else(|| {
+                        status.set(Some(if wrap_around {
+                            "Wrapped around document"
+                        } else {
+                            "No more changes in document"
+                        }));
+                        wrap_around.then_some((diff.len() - 1).saturating_sub(count))
+                    }),
             };
             let Some(hunk_idx) = hunk_idx else {
                 return range;
@@ -343,7 +365,10 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
         });
 
         push_jump(view, doc);
-        doc.set_selection(view.id, selection)
+        doc.set_selection(view.id, selection);
+        if let Some(message) = status.get() {
+            editor.set_status(message);
+        }
     };
     cx.editor.apply_motion(motion);
 }

@@ -424,3 +424,67 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn change_navigation_respects_wrap_policy_and_counts() -> anyhow::Result<()> {
+    use editor_core::Selection;
+    use stdx::rope::RopeExt;
+    for wrap in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("changes.txt");
+        std::fs::write(&path, "one\ntwo\nthree\nfour\nfive\nsix\nseven\n")?;
+        git(dir.path(), &["init"]);
+        git(dir.path(), &["add", "changes.txt"]);
+        git(dir.path(), &["commit", "-m", "initial"]);
+        std::fs::write(&path, "one\nTWO\nthree\nfour\nFIVE\nsix\nseven\n")?;
+        let mut config = test_config();
+        config.editor.search.wrap_around = wrap;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_file(&path, None)
+            .build()?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if current_ref!(app.editor)
+                    .1
+                    .diff_handle()
+                    .and_then(|handle| handle.try_load())
+                    .is_some_and(|diff| diff.is_current() && diff.len() == 2)
+                {
+                    break;
+                }
+                run_event_loop_until_idle(&mut app).await;
+            }
+        })
+        .await?;
+        for (keys, start, expected) in [
+            ("]g", 6, if wrap { 1 } else { 6 }),
+            ("[g", 0, if wrap { 4 } else { 0 }),
+            ("2]g", 6, if wrap { 4 } else { 6 }),
+            ("2[g", 0, if wrap { 1 } else { 0 }),
+        ] {
+            let (view, doc) = current!(app.editor);
+            let position = doc.text().line_to_char_idx(start);
+            doc.set_selection(view.id, Selection::point(position));
+            press_keys(&mut app, keys).await?;
+            let (view, doc) = current_ref!(app.editor);
+            assert_eq!(
+                doc.selection(view.id)
+                    .primary()
+                    .cursor_line(doc.text().slice(..)),
+                expected,
+                "{keys}, wrap={wrap}"
+            );
+            assert_eq!(
+                app.editor.get_status().unwrap().0.as_ref(),
+                if wrap {
+                    "Wrapped around document"
+                } else {
+                    "No more changes in document"
+                }
+            );
+        }
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
