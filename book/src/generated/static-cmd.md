@@ -154,6 +154,10 @@
 | `goto_line` | Goto line | normal: `` G ``, select: `` G `` |
 | `goto_last_line` | Goto last line | normal: `` ge `` |
 | `extend_to_last_line` | Extend to last line | select: `` ge `` |
+| `goto_first_error` | Goto first error |  |
+| `goto_last_error` | Goto last error |  |
+| `goto_next_error` | Goto next error |  |
+| `goto_prev_error` | Goto previous error |  |
 | `goto_first_diag` | Goto first diagnostic | normal: `` [D ``, select: `` [D `` |
 | `goto_last_diag` | Goto last diagnostic | normal: `` ]D ``, select: `` ]D `` |
 | `goto_next_diag` | Goto next diagnostic | normal: `` ]d ``, select: `` ]d `` |
