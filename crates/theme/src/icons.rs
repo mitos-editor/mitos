@@ -1177,7 +1177,7 @@ impl Dap {
     #[inline]
     #[must_use]
     pub fn unverified(&self) -> Icon {
-        self.unverified.unwrap_or_else(|| icon!("◯"))
+        self.unverified.unwrap_or_else(|| icon!("○"))
     }
 
     #[inline]
