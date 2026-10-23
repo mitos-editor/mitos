@@ -118,6 +118,12 @@ impl JumpList {
             .min(self.jumps.len());
     }
 
+    /// Remove all recorded jumps and reset the navigation cursor.
+    pub(crate) fn clear(&mut self) {
+        self.jumps.clear();
+        self.current = 0;
+    }
+
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Jump> {
         self.jumps.iter()
     }

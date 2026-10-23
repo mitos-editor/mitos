@@ -283,6 +283,7 @@ impl MappableCommand {
         jump_forward => super::navigation::jump_forward, "Jump forward on jumplist",
         jump_backward => super::navigation::jump_backward, "Jump backward on jumplist",
         save_selection => super::navigation::save_selection, "Save current selection to jumplist",
+        clear_jumplist => super::navigation::clear_jumplist, "Clear current view jumplist",
         jump_view_right => super::windows::jump_view_right, "Jump to right split",
         jump_view_left => super::windows::jump_view_left, "Jump to left split",
         jump_view_up => super::windows::jump_view_up, "Jump to split above",

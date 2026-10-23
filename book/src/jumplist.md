@@ -38,3 +38,6 @@ The following is a non-exhaustive list of which actions add a jump to the jumpli
   - `Ctrl-s` manually creates a jump
   - Trying to close a modified buffer can switch you to that buffer and create a jump
   - The debugger can create jumps as you jump stack frames
+
+The `clear_jumplist` command clears the focused view's jump history. Other views
+keep their own histories. Run it from the command palette or bind it to a key.

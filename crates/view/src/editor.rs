@@ -858,6 +858,11 @@ impl Editor {
         self.jump_quicklist(view_id, Direction::Backward, count, same_file)
     }
 
+    /// Clear the jump history belonging to one view.
+    pub fn clear_jumplist(&mut self, view_id: ViewId) {
+        view_mut!(self, view_id).jumps.clear();
+    }
+
     pub fn jump_forward(&mut self, view_id: ViewId, count: usize) {
         if let Some((doc_id, selection)) = view_mut!(self, view_id).jumps.forward(count).cloned() {
             self.jump_to(view_id, doc_id, selection);
