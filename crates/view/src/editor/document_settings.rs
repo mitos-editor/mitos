@@ -56,7 +56,8 @@ impl Editor {
             Some(name) => {
                 let language = loader
                     .language_for_name(name)
-                    .ok_or_else(|| anyhow!("invalid language id: {name}"))?;
+                    .or_else(|| loader.language_for_extension(name))
+                    .ok_or_else(|| anyhow!("unknown language: {name}"))?;
                 Some(loader.language(language).config().clone())
             }
             None => None,
