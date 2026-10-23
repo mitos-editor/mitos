@@ -122,7 +122,7 @@ async fn execution_highlight_follows_selected_frame_source_resume_and_terminatio
     keys(&mut app, "j").await?;
     assert_line(&app, "paused", true);
     assert_line(&app, "between", false);
-    keys(&mut app, "<space>Gsfcaller<ret>").await?;
+    keys(&mut app, "<space>xsfcaller<ret>").await?;
     assert_eq!(
         app.editor
             .debugger()
@@ -142,7 +142,7 @@ async fn execution_highlight_follows_selected_frame_source_resume_and_terminatio
     keys(&mut app, "").await?;
     assert_eq!(highlighted_rows(&app, Color::Yellow), 0);
     app.editor.open(&path, Action::Replace)?;
-    keys(&mut app, "<space>Gc").await?;
+    keys(&mut app, "<space>xc").await?;
     assert_eq!(highlighted_rows(&app, Color::Yellow), 0);
     app.editor.handle_debugger_message(id, serde_json::from_value(json!({
         "type":"event", "seq":0, "event":"stopped", "body":{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}

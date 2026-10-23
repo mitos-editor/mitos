@@ -210,3 +210,60 @@ async fn debug_mode_survives_source_navigation_and_finishes_insert_state() {
     editor.enter_normal_mode();
     assert_eq!(editor.mode(), Mode::Normal);
 }
+
+#[tokio::test]
+async fn temporary_modes_restore_command_mode_and_finish_the_insert_transaction() {
+    for command_mode in [Mode::Normal, Mode::Debug] {
+        let (mut editor, _store) = editor("#[|é]#界\n");
+        editor.set_mode(command_mode);
+        editor.enter_append_mode().unwrap();
+        let (view, doc) = current!(editor);
+        editing::insert::insert_char(doc, view.id, '語', None).unwrap();
+        editor.enter_select_mode();
+        editor.leave_editing_mode();
+        assert_eq!(editor.mode(), command_mode);
+        let (view, doc) = current!(editor);
+        assert_eq!(doc.text(), "é語界\n");
+        assert_eq!(
+            doc.selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..)),
+            1
+        );
+        doc.commit_changes();
+        view.sync_changes(doc);
+        assert!(editing::undo(doc, view.id));
+        assert_eq!(doc.text(), "é界\n");
+
+        editor.enter_insert_mode();
+        editor.enter_normal_mode();
+        editor.enter_select_mode();
+        editor.leave_editing_mode();
+        assert_eq!(editor.mode(), Mode::Normal);
+    }
+}
+
+#[tokio::test]
+async fn changing_views_or_documents_during_an_edit_restores_debug_mode() {
+    let (mut editor, _store) = editor("#[é|]#界\n");
+    let first = editor.tree.focus();
+    let document = current_ref!(editor).1.id();
+    editor.switch(document, Action::VerticalSplit);
+    let second = editor.tree.focus();
+    editor.focus(first);
+    let original = current_ref!(editor).1.selection(first).clone();
+    editor.enter_debug_mode();
+    editor.enter_append_mode().unwrap();
+    editor.focus(second);
+    assert_eq!(editor.mode(), Mode::Debug);
+    assert_eq!(
+        editor.document(document).unwrap().selection(first),
+        &original
+    );
+    editor.enter_select_mode();
+    editor.new_file(Action::Replace);
+    assert_eq!(editor.mode(), Mode::Debug);
+    editor.enter_insert_mode();
+    editor.switch(document, Action::Replace);
+    assert_eq!(editor.mode(), Mode::Debug);
+}

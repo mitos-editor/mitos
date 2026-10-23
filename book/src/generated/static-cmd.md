@@ -148,9 +148,10 @@
 | `open_above` | Open new line above selection | normal: `` O ``, select: `` O `` |
 | `debug_mode_help` | Show debug commands and current bindings | debug: `` ? `` |
 | `debug_mode` | Enter debug mode | normal: `` <space>x ``, select: `` <space>x `` |
-| `normal_mode` | Enter normal mode | normal: `` <esc> ``, select: `` v ``, insert: `` <esc> `` |
+| `normal_mode` | Enter normal mode | normal: `` <esc> `` |
+| `leave_editing_mode` | Return to normal or debug mode | insert: `` <esc> `` |
 | `select_mode` | Enter selection extend mode | normal: `` v `` |
-| `exit_select_mode` | Exit selection mode | select: `` <esc> `` |
+| `exit_select_mode` | Exit selection mode | select: `` v ``, `` <esc> `` |
 | `goto_definition` | Go to definition | normal: `` gd ``, select: `` gd `` |
 | `goto_declaration` | Go to declaration | normal: `` gD ``, select: `` gD `` |
 | `add_newline_above` | Add newline above | normal: `` [<space> ``, select: `` [<space> `` |

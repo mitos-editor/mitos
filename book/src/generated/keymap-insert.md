@@ -2,7 +2,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <esc> `` | Enter normal mode | `` normal_mode `` |
+| `` <esc> `` | Return to normal or debug mode | `` leave_editing_mode `` |
 | `` <C-s> `` | Start a new undo step without leaving insert mode | `` commit_undo_checkpoint `` |
 | `` <C-x> `` | Invoke completion popup | `` completion `` |
 | `` <C-r> `` | Insert register | `` insert_register `` |
