@@ -182,8 +182,8 @@ impl WorkspaceTrust {
         }
     }
 
-    /// A trust state that grants every capability. Use for non-interactive contexts (CLI grammar
-    /// build, `ms --health`) where prompting isn't meaningful.
+    /// A trust state that grants every capability, for callers that already know the workspace
+    /// is trusted. CLI commands in arbitrary directories must use the configured trust policy.
     pub fn fully_trusted(store: PathBuf) -> Self {
         Self::new(
             Config {

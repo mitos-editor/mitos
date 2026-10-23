@@ -35,6 +35,15 @@ impl Resources {
     }
 
     pub fn grammar(&self, name: &str) -> anyhow::Result<Option<Grammar>> {
+        let mut components = Path::new(name).components();
+        if !matches!(
+            (components.next(), components.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        ) {
+            log::warn!("ignoring invalid grammar name {name:?}");
+            return Ok(None);
+        }
+
         let mut relative = PathBuf::from("grammars").join(name);
         relative.set_extension(crate::grammar::DYLIB_EXTENSION);
         crate::grammar::load_language(name, &self.runtime_file(&relative))
@@ -136,6 +145,23 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn grammar_names_cannot_escape_runtime_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = dir.path().join("runtime");
+        std::fs::create_dir_all(runtime.join("grammars")).unwrap();
+        let escaped = dir.path().join("escaped");
+        std::fs::write(
+            escaped.with_extension(crate::grammar::DYLIB_EXTENSION),
+            "invalid library",
+        )
+        .unwrap();
+        let resources = Resources::new(vec![runtime]);
+        for name in [escaped.to_str().unwrap(), "../../escaped", "../escaped", ""] {
+            assert!(resources.grammar(name).unwrap().is_none(), "{name:?}");
+        }
+    }
+
     #[test]
     fn missing_grammars_are_optional_but_invalid_libraries_are_errors() {
         let dir = tempfile::tempdir().unwrap();

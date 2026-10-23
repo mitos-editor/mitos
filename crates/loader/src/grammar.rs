@@ -73,26 +73,6 @@ pub(crate) fn load_language(name: &str, library_path: &Path) -> Result<Option<Gr
     Ok(Some(grammar))
 }
 
-/// Print a notice if the current workspace has a `.mitos/languages.toml` that we *would* have
-/// merged but the workspace-trust gate is keeping us from.
-fn warn_if_workspace_languages_skipped(trust: &workspace::trust::WorkspaceTrust) {
-    let workspace_languages = crate::workspace_lang_config_file();
-    if !workspace_languages.exists() {
-        return;
-    }
-    if trust
-        .query_current(workspace::trust::TrustQuery::LocalConfig)
-        .is_trusted()
-    {
-        return;
-    }
-    println!(
-        "Note: workspace `{}` was skipped because the workspace is not trusted. Run \
-         `:workspace-trust` from an interactive mitos session in this workspace to opt in.",
-        workspace_languages.display(),
-    );
-}
-
 // Returns the set of grammar configurations the user requests.
 // Grammars are configured in the default and user `languages.toml` and are
 // merged. The `grammar_selection` key of the config is then used to filter
@@ -105,7 +85,7 @@ pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     // directory would clone and compile attacker code
     let trust =
         workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
-    warn_if_workspace_languages_skipped(&trust);
+    crate::config::warn_if_workspace_languages_skipped(&trust);
     let config: Configuration = crate::config::user_lang_config(&trust)
         .context("Could not parse languages.toml")?
         .try_into()?;
@@ -127,14 +107,11 @@ pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     Ok(grammars)
 }
 
-pub fn get_grammar_names() -> Result<Option<HashSet<String>>> {
-    // See `get_grammar_configs`, same threat: workspace-local
-    // `languages.toml` must not influence the grammar set without
-    // explicit on-disk trust.
-    let trust =
-        workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
-    warn_if_workspace_languages_skipped(&trust);
-    let config: Configuration = crate::config::user_lang_config(&trust)
+pub fn get_grammar_names(
+    trust: &workspace::trust::WorkspaceTrust,
+) -> Result<Option<HashSet<String>>> {
+    crate::config::warn_if_workspace_languages_skipped(trust);
+    let config: Configuration = crate::config::user_lang_config(trust)
         .context("Could not parse languages.toml")?
         .try_into()?;
 
