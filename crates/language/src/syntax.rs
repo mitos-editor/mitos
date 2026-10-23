@@ -392,19 +392,13 @@ impl Loader {
     pub fn language_for_shebang(&self, text: RopeSlice) -> Option<Language> {
         // NOTE: this is slightly different than the one for injection markers in tree-house. It
         // is anchored at the beginning.
-        use std::sync::LazyLock;
-        use stdx::rope::Regex;
-        const SHEBANG: &str = r"^#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?([^\s\.\d]+)";
-        static SHEBANG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SHEBANG).unwrap());
-
-        let marker = SHEBANG_REGEX
-            .captures_iter(regex_cursor::Input::new(text))
-            .map(|cap| text.slice(cap.get_group(1).unwrap().range()))
-            .next()?;
+        let marker = shebang_interpreter(text)?;
         self.language_for_shebang_marker(marker)
     }
 
     fn language_for_shebang_marker(&self, marker: RopeSlice) -> Option<Language> {
+        // Injection queries may capture a full shebang and script instead of just a name.
+        let marker = shebang_interpreter(marker).unwrap_or(marker);
         let shebang: Cow<str> = marker.into();
         self.languages_by_shebang.get(shebang.as_ref()).copied()
     }
@@ -469,6 +463,27 @@ impl LanguageLoader for Loader {
     fn get_config(&self, lang: Language) -> Option<&SyntaxConfig> {
         self.languages[lang.idx()].syntax_config(self)
     }
+}
+
+fn shebang_interpreter(text: RopeSlice) -> Option<RopeSlice> {
+    use std::sync::LazyLock;
+    use stdx::rope::Regex;
+
+    const NIX_SHELL: &str = r"(?m)^#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?(?:nix-shell(?:\s+[^\n]*)?\s-i|nix(?:\s+[^\n]*)?\s(?:--command|-c))\s+([^\s\.\d]+)";
+    const SHEBANG: &str = r"^#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?([^\s\.\d]+)";
+
+    static NIX_SHELL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(NIX_SHELL).unwrap());
+    static SHEBANG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SHEBANG).unwrap());
+
+    NIX_SHELL_REGEX
+        .captures_iter(regex_cursor::Input::new(text))
+        .next()
+        .or_else(|| {
+            SHEBANG_REGEX
+                .captures_iter(regex_cursor::Input::new(text))
+                .next()
+        })
+        .map(|cap| text.slice(cap.get_group(1).unwrap().range()))
 }
 
 #[derive(Debug)]
@@ -1174,6 +1189,67 @@ mod test {
 
     static LOADER: LazyLock<Loader> =
         LazyLock::new(|| crate::loader::default_lang_loader(loader::syntax::Resources::default()));
+
+    fn assert_shebang_interpreter(source: &str, expected: Option<&str>) {
+        let source = Rope::from_str(source);
+        let interpreter = shebang_interpreter(source.slice(..)).map(Cow::<str>::from);
+        assert_eq!(interpreter.as_deref(), expected);
+    }
+
+    #[test]
+    fn test_shebang_interpreter() {
+        assert_shebang_interpreter("#!nu\n", Some("nu"));
+        assert_shebang_interpreter("#!/usr/bin/env nu\n", Some("nu"));
+        assert_shebang_interpreter("#!/usr/bin/env -S uv run python\n", Some("uv"));
+        assert_shebang_interpreter("#!/bin/bash\n", Some("bash"));
+        assert_shebang_interpreter("#! /usr/bin/python3\n", Some("python"));
+        assert_shebang_interpreter("def main [] {}\n", None);
+    }
+
+    #[test]
+    fn test_nix_shell_shebang_interpreter() {
+        assert_shebang_interpreter(
+            "#!/usr/bin/env nix-shell\n#!nix-shell -i nu -p nushell nh\n",
+            Some("nu"),
+        );
+        assert_shebang_interpreter(
+            "#!/usr/bin/env nix-shell\n#!nix-shell -p nushell nh -i nu\n",
+            Some("nu"),
+        );
+        assert_shebang_interpreter("#!nix-shell -p bash -i bash\n", Some("bash"));
+        assert_shebang_interpreter("#!nix-shell -i python3 -p python3\n", Some("python"));
+        assert_shebang_interpreter(
+            "#!/usr/bin/env nix\n#! nix shell github:tomberek/-#python3With.prettytable --command python\n",
+            Some("python"),
+        );
+        assert_shebang_interpreter(
+            "#!/usr/bin/env nix\n#! nix shell github:tomberek/-#perlWith.HTMLTokeParserSimple.LWP -c perl -x\n",
+            Some("perl"),
+        );
+        assert_shebang_interpreter(
+            "#!/usr/bin/env nix\n#! nix shell --impure --expr ``\n#! nix with (import (builtins.getFlake ''nixpkgs'') {});\n#! nix terraform.withPlugins (plugins: [ plugins.openstack ])\n#! nix ``\n#! nix --command bash\n",
+            Some("bash"),
+        );
+    }
+
+    #[test]
+    fn nix_shell_language_detection_and_injections() {
+        let script = Rope::from_str("#!/usr/bin/env nix-shell\n#!nix-shell -p nushell -i nu\n");
+        let expected = LOADER.language_for_name("nu").unwrap();
+        assert_eq!(
+            LOADER.language_for_shebang(script.slice(..)),
+            Some(expected)
+        );
+        assert_eq!(
+            LOADER.language_for_shebang_marker(script.slice(..)),
+            Some(expected)
+        );
+        let marker = Rope::from_str("nu");
+        assert_eq!(
+            LOADER.language_for_shebang_marker(marker.slice(..)),
+            Some(expected)
+        );
+    }
 
     #[test]
     fn syntax_construction_respects_the_supplied_parse_budget() {
