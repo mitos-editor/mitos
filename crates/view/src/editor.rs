@@ -3,6 +3,7 @@
 
 use stdx::rope::RopeExt as _;
 mod config;
+mod diagnostic_navigation;
 mod document_settings;
 mod document_store;
 mod documents;
