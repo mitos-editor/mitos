@@ -21,14 +21,19 @@ pub struct Args {
     pub migrate_config: Option<PathBuf>,
     pub stdout: bool,
     pub files: IndexMap<PathBuf, Vec<Position>>,
+    pub stdin_position: Position,
     pub working_directory: Option<PathBuf>,
 }
 
 impl Args {
-    #[allow(clippy::too_many_lines)]
     pub fn parse_args() -> Result<Args> {
+        Self::parse_args_from(std::env::args())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_args_from(argv: impl IntoIterator<Item = String>) -> Result<Args> {
         let mut args = Args::default();
-        let mut argv = std::env::args().peekable();
+        let mut argv = argv.into_iter().peekable();
         let mut line_number = 0;
 
         let mut insert_file_with_position = |file_with_position: &str| {
@@ -128,13 +133,16 @@ impl Args {
             insert_file_with_position(&arg);
         }
 
-        if line_number != 0
-            && let Some(first_position) = args
+        if line_number != 0 {
+            if let Some(first_position) = args
                 .files
                 .first_mut()
                 .and_then(|(_, positions)| positions.first_mut())
-        {
-            first_position.row = line_number;
+            {
+                first_position.row = line_number;
+            } else {
+                args.stdin_position.row = line_number;
+            }
         }
 
         anyhow::ensure!(
@@ -177,4 +185,21 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
     let path = path.into();
     let pos = Position::new(row.saturating_sub(1), 0);
     Some((path, pos))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Args;
+
+    #[test]
+    fn line_positions_apply_to_stdin_without_file_arguments() {
+        for (argument, row) in [("+10", 9), ("+", usize::MAX), ("+0", 0)] {
+            let args = Args::parse_args_from(["ms", argument].map(str::to_owned)).unwrap();
+            assert!(args.files.is_empty());
+            assert_eq!(args.stdin_position.row, row);
+        }
+        let args = Args::parse_args_from(["ms", "+10", "file.test"].map(str::to_owned)).unwrap();
+        assert_eq!(args.files.first().unwrap().1[0].row, 9);
+        assert_eq!(args.stdin_position.row, 0);
+    }
 }
