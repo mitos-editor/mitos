@@ -123,6 +123,7 @@ impl Application {
             // If there are any more files specified, open them
             if files_it.peek().is_some() {
                 let mut nr_of_files = 0;
+                let mut first_view = None;
                 for (file, pos) in files_it {
                     nr_of_files += 1;
                     if file.is_dir() {
@@ -157,10 +158,8 @@ impl Application {
                             Ok(doc_id) => doc_id,
                         };
                         // with Action::Load all documents have the same view
-                        // NOTE: this isn't necessarily true anymore. If
-                        // `--vsplit` or `--hsplit` are used, the file which is
-                        // opened last is focused on.
                         let view_id = current_ref!(editor).0.id;
+                        first_view.get_or_insert(view_id);
                         let doc = doc_mut!(editor, &doc_id);
                         let selection = pos
                             .into_iter()
@@ -170,6 +169,10 @@ impl Application {
                             .collect();
                         doc.set_selection(view_id, selection);
                     }
+                }
+
+                if let Some(first_view) = first_view {
+                    editor.focus(first_view);
                 }
 
                 // if all files were invalid, replace with empty buffer
