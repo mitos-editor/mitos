@@ -58,6 +58,7 @@
 [
   (always_keyword)
   "generate"
+  "endgenerate"
   "for"
   "foreach"
   "repeat"

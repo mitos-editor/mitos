@@ -310,7 +310,7 @@
 | tql | ✓ |  | ✓ |  |  |  |
 | tsq | ✓ |  |  |  | ✓ | `ts_query_ls` |
 | tsx | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |
-| twig | ✓ |  |  |  |  |  |
+| twig | ✓ | ✓ |  |  |  |  |
 | typescript | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |
 | typespec | ✓ | ✓ | ✓ |  |  | `tsp-server` |
 | typst | ✓ | ✓ |  | ✓ |  | `tinymist` |

@@ -1,0 +1,6 @@
+[alias]
+  greet = !echo hello
+#          ^ @function.builtin
+[credential]
+  helper = !printf hello
+#           ^ @function.builtin

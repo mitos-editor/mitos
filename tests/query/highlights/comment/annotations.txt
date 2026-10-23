@@ -1,0 +1,6 @@
+IDEA: improve this
+//^ @hint
+CAUTION: fragile assumption
+//^ @warning
+PROOF: check the invariant
+//^ @error
