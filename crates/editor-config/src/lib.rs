@@ -324,6 +324,7 @@ where
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BorderStyle {
+    None,
     Plain,
     #[default]
     Rounded,
@@ -1656,6 +1657,7 @@ mod tests {
         );
 
         for (name, expected) in [
+            ("none", BorderStyle::None),
             ("plain", BorderStyle::Plain),
             ("rounded", BorderStyle::Rounded),
             ("double", BorderStyle::Double),
@@ -1672,7 +1674,7 @@ mod tests {
 
     #[test]
     fn border_style_rejects_unknown_values_and_wrong_types() {
-        for value in ["'invalid'", "'none'", "42", "true"] {
+        for value in ["'invalid'", "42", "true"] {
             assert!(toml::from_str::<Config>(&format!("border-style = {value}")).is_err());
         }
     }

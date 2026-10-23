@@ -1,33 +1,35 @@
 use editor_config::BorderStyle;
 use theme::Theme;
-use tui::widgets::{Block, BorderType};
+use tui::{symbols::border, widgets::Block};
 use ui_core::graphics::Style;
 
 pub use tui::panel::{
     content_area, BORDER_INSET, HORIZONTAL_INSET, PADDED_HORIZONTAL_INSET, VERTICAL_INSET,
 };
 
-fn border_type(style: BorderStyle) -> BorderType {
+fn border_set(style: BorderStyle) -> border::Set<'static> {
     match style {
-        BorderStyle::Plain => BorderType::Plain,
-        BorderStyle::Rounded => BorderType::Rounded,
-        BorderStyle::Double => BorderType::Double,
-        BorderStyle::Thick => BorderType::Thick,
-        BorderStyle::QuadrantInside => BorderType::QuadrantInside,
-        BorderStyle::QuadrantOutside => BorderType::QuadrantOutside,
+        // Keep the border cells as padding so panel layout and scrolling stay consistent.
+        BorderStyle::None => border::EMPTY,
+        BorderStyle::Plain => border::PLAIN,
+        BorderStyle::Rounded => border::ROUNDED,
+        BorderStyle::Double => border::DOUBLE,
+        BorderStyle::Thick => border::THICK,
+        BorderStyle::QuadrantInside => border::QUADRANT_INSIDE,
+        BorderStyle::QuadrantOutside => border::QUADRANT_OUTSIDE,
     }
 }
 
 pub fn bordered(theme: &Theme, style: BorderStyle) -> Block<'static> {
-    tui::panel::bordered(theme.get("ui.text"), border_type(style))
+    tui::panel::bordered(theme.get("ui.text"), border_set(style))
 }
 
 pub fn horizontally_padded(theme: &Theme, style: BorderStyle) -> Block<'static> {
-    tui::panel::horizontally_padded(theme.get("ui.text"), border_type(style))
+    tui::panel::horizontally_padded(theme.get("ui.text"), border_set(style))
 }
 
 pub fn top_border(style: Style, border_style: BorderStyle) -> Block<'static> {
-    tui::panel::top_border(style, border_type(border_style))
+    tui::panel::top_border(style, border_set(border_style))
 }
 
 #[cfg(test)]
@@ -65,6 +67,7 @@ mod tests {
         let theme = Theme::default();
         let area = Rect::new(0, 0, 5, 3);
         for (style, corner, horizontal) in [
+            (BorderStyle::None, " ", " "),
             (BorderStyle::Plain, "┌", "─"),
             (BorderStyle::Rounded, "╭", "─"),
             (BorderStyle::Double, "╔", "═"),
@@ -73,7 +76,9 @@ mod tests {
             (BorderStyle::QuadrantOutside, "▛", "▀"),
         ] {
             let mut surface = Buffer::empty(area);
-            horizontally_padded(&theme, style).render(area, &mut surface);
+            let block = horizontally_padded(&theme, style);
+            assert_eq!(block.inner(area), Rect::new(2, 1, 1, 1));
+            block.render(area, &mut surface);
             assert_eq!(surface[(0, 0)].symbol(), corner);
             assert_eq!(surface[(1, 0)].symbol(), horizontal);
 

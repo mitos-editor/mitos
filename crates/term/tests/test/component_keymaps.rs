@@ -383,3 +383,69 @@ async fn hover_actions_change_the_rendered_page() -> anyhow::Result<()> {
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> anyhow::Result<()> {
+    use editor_config::BorderStyle;
+    use lsp_client::lsp::{Hover as LspHover, HoverContents, MarkedString};
+    use term::ui::lsp::hover::Hover;
+    use view::editor::ConfigEvent;
+
+    let mut fixture = Fixture::new("")?;
+    let viewport = Rect::new(0, 0, 80, 40);
+    let contents = format!("first line\n\n{}last line", "middle line\n\n".repeat(40));
+    for count in [1, 2] {
+        let hover = Hover::new(
+            (0..count)
+                .map(|_| {
+                    (
+                        "server".into(),
+                        LspHover {
+                            contents: HoverContents::Scalar(MarkedString::String(contents.clone())),
+                            range: None,
+                        },
+                    )
+                })
+                .collect(),
+            fixture.app.editor.syn_loader.clone(),
+        );
+        let mut popup = Popup::new(Hover::ID, hover);
+        let expected_area = popup.area(viewport, &fixture.app.editor);
+        let mut buffer = Buffer::empty(viewport);
+        for (style, corner) in [
+            (BorderStyle::Rounded, "╭"),
+            (BorderStyle::None, " "),
+            (BorderStyle::Double, "╔"),
+            (BorderStyle::None, " "),
+        ] {
+            let mut config = (*fixture.app.editor.config()).clone();
+            config.border_style = style;
+            fixture
+                .app
+                .handle_config_events(ConfigEvent::Update(Box::new(config)));
+
+            popup.render(viewport, &mut buffer, &mut fixture.context());
+            assert_eq!(popup.area(viewport, &fixture.app.editor), expected_area);
+            assert_eq!(buffer[(expected_area.x, expected_area.y)].symbol(), corner);
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("first line"));
+            if count > 1 {
+                assert!(text.contains("server"));
+            }
+            if style == BorderStyle::None {
+                assert!(!text.contains(['╭', '╮', '╰', '╯', '─', '│', '═', '║']));
+            }
+        }
+
+        for _ in 0..20 {
+            popup.scroll_half_page_down();
+        }
+        let mut buffer = Buffer::empty(viewport);
+        popup.render(viewport, &mut buffer, &mut fixture.context());
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("last line"));
+        assert!(!text.contains("first line"));
+    }
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}

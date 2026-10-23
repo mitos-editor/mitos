@@ -111,7 +111,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `continue-comments` | boolean | `true` | Continue a line comment when Enter creates a new line inside it. |
 | `auto-info` | boolean | `true` | Display contextual information popups. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
-| `border-style` | `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. This preference stays the same when switching themes; colors come from the theme. |
+| `border-style` | `"none"`, `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. Use `"none"` to hide borders. This preference stays the same when switching themes; colors come from the theme. |
 | `picker` | table | See below | Shared picker layout. See [`[editor.picker]`](#editorpicker). |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
