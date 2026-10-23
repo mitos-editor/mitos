@@ -1464,3 +1464,33 @@ async fn native_file_navigation_opens_binary_documents_in_the_editor() -> anyhow
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_replay_clears_pending_count() -> anyhow::Result<()> {
+    // <https://github.com/helix-editor/helix/issues/15125>
+    let mut app = helpers::AppBuilder::new().build()?;
+
+    test_key_sequence(
+        &mut app,
+        Some("Q123456Qq"),
+        Some(&|app| assert_eq!(None, app.editor.count)),
+        false,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_replay_isolates_repeated_iterations() -> anyhow::Result<()> {
+    test(("#[a|]#bcde", "Ql2Qgh2q", "ab#[c|]#de\n")).await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_macro_can_supply_count_to_outer_macro() -> anyhow::Result<()> {
+    test(("#[o|]#ne two", r#""bQ2Q"aQ"bqlQgh"aq"#, "on#[e|]# two\n")).await?;
+
+    Ok(())
+}
