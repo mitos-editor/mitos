@@ -44,14 +44,22 @@ Project-local configuration in `.mitos/languages.toml` is subject to
 1. Build the program you want to debug, with debug information enabled.
 2. Open a source file in Mitos. Its language determines which adapter and
    templates are used.
-3. Press `Space G b` on a line to toggle a breakpoint.
-4. Press `Space G l`, choose a template, and fill in its prompts.
+3. Press `Space G` to enter debug mode, then `b` on a line to toggle a breakpoint.
+4. Press `L`, choose a template, and fill in its prompts.
 5. When execution pauses, step through the code or inspect variables using
    the commands below.
 
-`G` is uppercase. Press the keys in sequence. The debug menu stays active
-after a command; while it is active, use the suffix keys such as `n` or `c`
-directly. Press `Esc` to leave the menu.
+`G` and `L` are uppercase. The statusline shows `DBG` while debug mode is active.
+Debug commands use the single keys below, without a persistent help popup.
+Use `h`, `j`, `k`, and `l` to navigate normally. Debug mode stays active when
+opening source files or changing splits, including when selecting stack frames.
+
+Press `?` to open searchable debug command help with your current bindings.
+Choose a command and press `Enter` to run it, or `Esc` to close help. Press `Esc`
+in the editor to return to normal mode. Entering or leaving debug mode does not
+start or stop a session. Editing commands such as `a` enter insert mode; leaving
+insert or select mode returns to normal mode. Press `Space G` to re-enter debug mode.
+See [key remapping](./remapping.md) to customize `[keys.debug]`.
 
 You can also start a template from the command line. For a Rust binary built
 with `cargo build`, for example:
@@ -67,26 +75,32 @@ running TCP debug adapter, use
 
 ## Debugging commands
 
-These bindings are available in normal and select mode:
+Press `Space G` in normal or select mode, then use these bindings in debug mode:
 
 | Keys | Action |
 | --- | --- |
-| `Space G l` | Select a template and start debugging |
-| `Space G b` | Toggle breakpoints on selected lines |
-| `Space G c` | Continue execution |
-| `Space G h` | Pause execution |
-| `Space G n` | Step over |
-| `Space G i` | Step in |
-| `Space G o` | Step out |
-| `Space G v` | Browse variables |
-| `Space G s s` | Switch session |
-| `Space G s t` | Switch thread |
-| `Space G s f` | Switch stack frame |
-| `Space G r` | Restart the session |
-| `Space G t` | End the session |
-| `Space G Ctrl-c` | Edit the breakpoint condition on the current line |
-| `Space G Ctrl-l` | Edit the breakpoint log message on the current line |
-| `Space G e` / `Space G E` | Enable / disable exception breakpoints |
+| `L` | Select a template and start debugging |
+| `b` | Toggle breakpoints on selected lines |
+| `c` | Continue execution |
+| `H` | Pause execution |
+| `n` | Step over |
+| `i` | Step in |
+| `o` | Step out |
+| `v` | Browse variables |
+| `s s` | Switch session |
+| `s t` | Switch thread |
+| `s f` | Switch stack frame |
+| `r` | Restart the session |
+| `t` | End the session |
+| `Ctrl-c` | Edit the breakpoint condition on the current line |
+| `Ctrl-l` | Edit the breakpoint log message on the current line |
+| `e` / `E` | Enable / disable exception breakpoints |
+| `?` | Show debug commands and current bindings |
+| `Esc` | Return to normal mode |
+
+Launch and pause use uppercase `L` and `H` to keep `h` and `l` available for
+navigation. If you used the previous debug menu, replace `Space G l` with
+`Space G L` and `Space G h` with `Space G H`.
 
 Use `:debug-eval <expression>` to evaluate an expression in the selected frame.
 Expandable results open in the variable browser. Run the command again for a new
@@ -94,8 +108,8 @@ result. Supported expressions depend on the debug adapter.
 
 ## Inspecting variables
 
-While paused, use `Space G v` to browse the selected frame's variables. Select a
-scope, such as locals or globals, and press `Enter` to see its values.
+While paused, use `v` in debug mode to browse the selected frame's variables.
+Select a scope, such as locals or globals, and press `Enter` to see its values.
 Entries marked `▸` have children; press `Enter` to open them.
 
 Type to filter the list. Select `Load more…` to see more entries in large objects
@@ -103,7 +117,7 @@ or arrays. Select `.. (back)` to return to the parent. Your filter and selection
 are kept when you return or when values refresh.
 
 Press `Esc` to close the browser. After resuming execution or switching the
-session, thread, or frame, use `Space G v` again to inspect the current values.
+session, thread, or frame, use `v` in debug mode again to inspect the current values.
 
 ## Inline debug values
 
@@ -112,7 +126,7 @@ the code. The values follow the selected frame and disappear when execution
 resumes. Available values depend on your language and debug adapter.
 
 Long values are shortened to fit. Inline values are hidden while the file has
-unsaved changes. Use `Space G v` to browse variables and expand objects.
+unsaved changes. Use `v` in debug mode to browse variables and expand objects.
 
 Inline values are on by default. To turn them off in `config.toml`:
 
@@ -126,20 +140,20 @@ editor session.
 
 ## Stack frames
 
-Use `Space G s f` to choose a frame in the paused thread. Selecting a frame
-opens its source and updates inline values. Use `Space G v` or `:debug-eval`
+Use `s f` in debug mode to choose a frame in the paused thread. Selecting a frame
+opens its source and updates inline values. Use `v` in debug mode or `:debug-eval`
 to inspect values in that frame. Select `Load more…` to see more frames in a
 deep call stack.
 
 ## Multiple sessions
 
 You can debug several programs at once. Each launch selects the new session;
-use `Space G s s` to switch between them. The picker marks the selected session
-with `*`, and the statusline shows its name, state, and the total session count.
+use `s s` in debug mode to switch between them. The picker marks the selected
+session with `*`, and the statusline shows its name, state, and total session count.
 Child sessions started by an adapter appear in the picker too.
 
 Stepping, continuing, inspecting variables, and ending a session apply to the
-selected session. Use `Space G t` to end it or cancel a launch that is still
+selected session. Use `t` in debug mode to end it or cancel a launch that is still
 starting.
 
 File breakpoints are shared across sessions. Save file edits to update

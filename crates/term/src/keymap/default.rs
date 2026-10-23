@@ -248,28 +248,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,
             "'" => last_picker,
-            "G" => { "Debug (experimental)" sticky=true
-                "l" => dap_launch,
-                "r" => dap_restart,
-                "b" => dap_toggle_breakpoints,
-                "c" => dap_continue,
-                "h" => dap_pause,
-                "i" => dap_step_in,
-                "o" => dap_step_out,
-                "n" => dap_next,
-                "v" => dap_variables,
-                "t" => dap_terminate,
-                "C-c" => dap_edit_condition,
-                "C-l" => dap_edit_log,
-                "s" => { "Switch"
-                    "s" => dap_switch_session,
-                    "t" => dap_switch_thread,
-                    "f" => dap_switch_stack_frame,
-                    // sl, sb
-                },
-                "e" => dap_enable_exceptions,
-                "E" => dap_disable_exceptions,
-            },
+            "G" => debug_mode,
             "w" => { "Window"
                 "C-w" | "w" => rotate_view,
                 "C-s" | "s" => hsplit,
@@ -432,5 +411,25 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 pub(crate) fn debug_bindings() -> KeyTrie {
     keymap!({ "Debug mode"
         "esc" => normal_mode,
+        "?" => debug_mode_help,
+        "L" => dap_launch,
+        "r" => dap_restart,
+        "b" => dap_toggle_breakpoints,
+        "c" => dap_continue,
+        "H" => dap_pause,
+        "i" => dap_step_in,
+        "o" => dap_step_out,
+        "n" => dap_next,
+        "v" => dap_variables,
+        "t" => dap_terminate,
+        "C-c" => dap_edit_condition,
+        "C-l" => dap_edit_log,
+        "s" => { "Switch"
+            "s" => dap_switch_session,
+            "t" => dap_switch_thread,
+            "f" => dap_switch_stack_frame,
+        },
+        "e" => dap_enable_exceptions,
+        "E" => dap_disable_exceptions,
     })
 }
