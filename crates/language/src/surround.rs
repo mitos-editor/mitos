@@ -44,6 +44,9 @@ pub fn find_nth_closest_pairs_pos(
     range: Range,
     skip: usize,
 ) -> Result<(usize, usize)> {
+    if text.len_chars() == 0 {
+        return Err(Error::PairNotFound);
+    }
     match syntax {
         Some(syntax) => find_nth_closest_pairs_ts(syntax, text, range, skip),
         None => find_nth_closest_pairs_plain(text, range, skip),
@@ -57,9 +60,8 @@ fn find_nth_closest_pairs_ts(
     mut skip: usize,
 ) -> Result<(usize, usize)> {
     let mut opening = range.from();
-    // We want to expand the selection if we are already on the found pair,
-    // otherwise we would need to subtract "-1" from "range.to()".
-    let mut closing = range.to();
+    let last = range.to().saturating_sub(1).max(range.from());
+    let mut closing = last;
 
     while skip > 0 {
         closing = find_matching_bracket_fuzzy(syntax, text, closing).ok_or(Error::PairNotFound)?;
@@ -71,7 +73,7 @@ fn find_nth_closest_pairs_ts(
         }
 
         // In case found brackets are partially inside current selection.
-        if range.from() < opening || closing < range.to() - 1 {
+        if range.from() < opening || closing < last {
             closing = next_grapheme_boundary(text, closing);
         } else {
             skip -= 1;
