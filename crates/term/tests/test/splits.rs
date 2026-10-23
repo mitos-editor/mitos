@@ -304,3 +304,29 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clear_jumplist_only_clears_the_focused_view() -> anyhow::Result<()> {
+    let mut config = test_config();
+    let source = "[keys.normal]\n'+' = 'clear_jumplist'".to_owned();
+    config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+        .unwrap()
+        .keys;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<C-w>v+"),
+                Some(&|app| {
+                    for (view, focused) in app.editor.tree.views() {
+                        assert_eq!(view.jumps.iter().count() == 0, focused);
+                    }
+                }),
+            ),
+            (Some("<C-w>o"), None),
+        ],
+        false,
+    )
+    .await
+}

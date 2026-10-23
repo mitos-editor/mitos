@@ -262,6 +262,11 @@ pub(super) fn save_selection(cx: &mut Context) {
     cx.editor.set_status("Selection saved to jumplist");
 }
 
+pub(super) fn clear_jumplist(cx: &mut Context) {
+    cx.editor.clear_jumplist(cx.editor.tree.focus());
+    cx.editor.set_status("Jumplist cleared");
+}
+
 pub(super) fn jumplist_picker(cx: &mut Context) {
     struct JumpMeta<'a> {
         id: DocumentId,
