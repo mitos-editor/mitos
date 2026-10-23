@@ -106,6 +106,22 @@ Use `:debug-eval <expression>` to evaluate an expression in the selected frame.
 Expandable results open in the variable browser. Run the command again for a new
 result. Supported expressions depend on the debug adapter.
 
+## Execution line
+
+While paused, the selected stack frame's source line is highlighted in every
+split displaying that source. A `▶` in the gutter marks its first visual row;
+soft-wrapped continuations keep the line highlight. Moving the editing cursor
+does not move the execution highlight.
+
+The highlight follows the selected session, thread, and stack frame, and clears
+when execution resumes or the session ends. It works in all editor modes.
+Unsaved edits hide both the highlight and arrow because the adapter's line
+numbers may no longer match. Saving or undoing the edits restores them.
+
+Themes can customize the line with `ui.highlight.frameline` and the arrow with
+`ui.debug.active`. The line falls back to `ui.highlight` when no frame-line
+style is defined. See [themes](./themes.md) for customization.
+
 ## Inspecting variables
 
 While paused, use `v` in debug mode to browse the selected frame's variables.
