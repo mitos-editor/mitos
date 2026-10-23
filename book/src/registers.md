@@ -98,3 +98,5 @@ paste = { command = "pbpaste" }
 
 See the [provider reference](./configuration.md#editorclipboardprovider) for
 available providers and optional primary-selection commands.
+
+Set `editor.pad-selection-index-register = true` to zero-pad selection numbers from the `#` register to the width of the selection count, for example `01` through `11`.
