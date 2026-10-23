@@ -140,11 +140,13 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
 
 #[tokio::test(flavor = "multi_thread")]
 async fn history_completion() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.terminal.true_color = true;
     test_key_sequence(
-        &mut AppBuilder::new().build()?,
+        &mut AppBuilder::new().with_config(config).build()?,
         Some(":asdf<ret>:theme d<C-n><tab>"),
         Some(&|app| {
-            assert!(!app.editor.is_err());
+            assert!(!app.editor.is_err(), "{:?}", app.editor.get_status());
         }),
         false,
     )
@@ -660,6 +662,40 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
                 }),
             ),
         ],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn right_arrow_fills_history() -> anyhow::Result<()> {
+    test_statusline(":echo 1<ret>:<right> 2", "1 2", Severity::Info).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_navigation_filters_and_restores_draft() -> anyhow::Result<()> {
+    test_statusline(
+        ":echo one<ret>:echo other<ret>:echo on<up><down>e",
+        "one",
+        Severity::Info,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prompt_history_keeps_most_recent_unique_entries() -> anyhow::Result<()> {
+    test_key_sequence(
+        &mut AppBuilder::new().build()?,
+        Some(":echo one<ret>:echo two<ret>:echo one<ret>"),
+        Some(&|app| {
+            let values: Vec<_> = app
+                .editor
+                .read_register(':')
+                .unwrap()
+                .map(|value| value.into_owned())
+                .collect();
+            assert_eq!(values, ["echo one", "echo two"]);
+        }),
         false,
     )
     .await
