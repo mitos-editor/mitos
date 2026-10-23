@@ -36,12 +36,14 @@ pub enum Variable {
     /// The absolute path of the currently focused document. For scratch buffers this will default
     /// to the current working directory.
     FilePathAbsolute,
+    BufferDirectory,
     /// A string containing the line-ending of the currently focused document.
     LineEnding,
     /// Curreng working directory
     CurrentWorkingDirectory,
     /// Nearest ancestor directory of the current working directory that contains `.git`, `.svn`, `jj` or `.mitos`
     WorkspaceDirectory,
+    WorkspacePath,
     // The name of current buffers language as set in `languages.toml`
     Language,
     // Primary selection
@@ -50,6 +52,7 @@ pub enum Variable {
     SelectionLineStart,
     // The one-indexed line number of the end of the primary selection in the currently focused document.
     SelectionLineEnd,
+    Clipboard,
 }
 
 impl Variable {
@@ -58,13 +61,16 @@ impl Variable {
         Self::CursorColumn,
         Self::BufferName,
         Self::FilePathAbsolute,
+        Self::BufferDirectory,
         Self::LineEnding,
         Self::CurrentWorkingDirectory,
         Self::WorkspaceDirectory,
+        Self::WorkspacePath,
         Self::Language,
         Self::Selection,
         Self::SelectionLineStart,
         Self::SelectionLineEnd,
+        Self::Clipboard,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -73,6 +79,9 @@ impl Variable {
             Self::CursorColumn => "cursor_column",
             Self::BufferName => "buffer_name",
             Self::FilePathAbsolute => "file_path_absolute",
+            Self::BufferDirectory => "buffer_directory",
+            Self::WorkspacePath => "workspace_path",
+            Self::Clipboard => "clipboard",
             Self::LineEnding => "line_ending",
             Self::CurrentWorkingDirectory => "current_working_directory",
             Self::WorkspaceDirectory => "workspace_directory",
@@ -89,6 +98,9 @@ impl Variable {
             "cursor_column" => Some(Self::CursorColumn),
             "buffer_name" => Some(Self::BufferName),
             "file_path_absolute" => Some(Self::FilePathAbsolute),
+            "buffer_directory" => Some(Self::BufferDirectory),
+            "workspace_path" => Some(Self::WorkspacePath),
+            "clipboard" => Some(Self::Clipboard),
             "line_ending" => Some(Self::LineEnding),
             "workspace_directory" => Some(Self::WorkspaceDirectory),
             "current_working_directory" => Some(Self::CurrentWorkingDirectory),
@@ -165,7 +177,9 @@ impl Context {
                                 && let std::collections::hash_map::Entry::Vacant(entry) =
                                     self.variables.entry(variable)
                             {
-                                entry.insert(expand_variable(document, selection, variable)?);
+                                entry.insert(expand_variable(
+                                    editor, document, selection, variable,
+                                )?);
                             }
                         }
                         TokenKind::Expansion(ExpansionKind::Register) => {
@@ -372,6 +386,7 @@ impl Context {
 // known strings like the scratch buffer name or line ending strings though, so this function
 // returns a `Cow<'static, str>` instead.
 fn expand_variable(
+    editor: &Editor,
     doc: &Document,
     selection: Option<&Selection>,
     variable: Variable,
@@ -410,6 +425,33 @@ fn expand_variable(
             .to_string();
             Cow::Owned(path)
         }
+        Variable::BufferDirectory => Cow::Owned(
+            doc.path()
+                .and_then(|path| path.parent())
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(stdx::env::current_working_dir)
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        Variable::WorkspacePath => {
+            let path = doc
+                .path()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(stdx::env::current_working_dir);
+            let workspace = workspace::find_workspace().0;
+            Cow::Owned(
+                path.strip_prefix(workspace)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+        Variable::Clipboard => Cow::Owned(
+            editor
+                .first_register_value('+')
+                .map(Cow::into_owned)
+                .unwrap_or_default(),
+        ),
         Variable::LineEnding => Cow::Borrowed(doc.line_ending.as_str()),
         Variable::CurrentWorkingDirectory => std::borrow::Cow::Owned(
             stdx::env::current_working_dir()
