@@ -1,0 +1,6 @@
+  node count=(i32)42 active=#true
+//^ @tag
+//     ^ @variable.other.member
+//            ^ @type.builtin
+//                ^ @constant.numeric.integer
+//                          ^ @constant.builtin.boolean

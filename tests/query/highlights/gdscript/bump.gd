@@ -1,6 +1,6 @@
 func greet(value: String, other = value):
 #          ^ @variable.parameter
-#                 ^ @type
+#                 ^ @type.builtin
 #                         ^ @variable.parameter
     object.render(value)
 #          ^ @function.method
