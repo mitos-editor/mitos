@@ -90,6 +90,8 @@ pub struct TerminaBackend {
     background_color: Option<RgbColor>,
     /// Whether Mitos currently owns an OSC 11 background override.
     background_color_is_set: bool,
+    /// Whether the alternate screen and input modes still need restoring.
+    claimed: bool,
 }
 
 impl TerminaBackend {
@@ -249,6 +251,7 @@ impl TerminaBackend {
             is_synchronized_output_set: false,
             background_color: None,
             background_color_is_set: false,
+            claimed: false,
         })
     }
 
@@ -394,6 +397,7 @@ impl TerminaBackend {
 impl TerminaBackend {
     fn claim(&mut self) -> io::Result<()> {
         self.terminal.enter_raw_mode()?;
+        self.claimed = true;
 
         write!(
             self.terminal,
@@ -437,6 +441,9 @@ impl TerminaBackend {
     }
 
     fn restore(&mut self) -> io::Result<()> {
+        if !self.claimed {
+            return Ok(());
+        }
         self.disable_extensions()?;
         self.disable_mouse_capture()?;
         write!(
@@ -453,6 +460,7 @@ impl TerminaBackend {
         }
         self.terminal.flush()?;
         self.terminal.enter_cooked_mode()?;
+        self.claimed = false;
         Ok(())
     }
 
@@ -761,7 +769,7 @@ impl Drop for TerminaBackend {
     fn drop(&mut self) {
         // Avoid resetting the terminal while panicking because we set a panic hook above in
         // `Self::new`.
-        if !std::thread::panicking() {
+        if !std::thread::panicking() && self.claimed {
             let _ = self.disable_extensions();
             let _ = self.disable_mouse_capture();
             let _ = write!(
