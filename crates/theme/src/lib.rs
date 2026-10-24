@@ -118,6 +118,10 @@ impl Loader {
     /// Load an explicit file using the same inheritance and style interpretation as named themes.
     pub fn load_file(&self, path: &std::path::Path) -> Result<Theme> {
         let (mut theme, warnings) = Theme::from_toml(self.resources.load_file(path)?);
+        anyhow::ensure!(
+            theme.find_highlight_exact("ui.selection").is_some(),
+            "Invalid theme: `ui.selection` required"
+        );
         for warning in warnings {
             warn!("Theme '{}': {}", path.display(), warning);
         }
@@ -572,6 +576,13 @@ mod tests {
             loader.default_theme().get("ui.selection")
         );
         assert!(loader.load_file(&root.path().join("missing.toml")).is_err());
+        let invalid = root.path().join("invalid.toml");
+        std::fs::write(&invalid, "keyword = '#123456'\n").unwrap();
+        assert!(loader
+            .load_file(&invalid)
+            .unwrap_err()
+            .to_string()
+            .contains("ui.selection"));
         std::fs::write(themes.join("parent.toml"), "inherits = 'parent'\n").unwrap();
         assert!(loader.load_file(&file).is_err());
     }

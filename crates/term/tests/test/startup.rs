@@ -275,7 +275,7 @@ async fn explicit_theme_file_survives_configuration_refresh() -> anyhow::Result<
     config.terminal.true_color = true;
     let mut app = Application::new(
         Args {
-            theme_file: Some(file),
+            theme_file: Some(file.clone()),
             ..Default::default()
         },
         config,
@@ -288,6 +288,18 @@ async fn explicit_theme_file_survives_configuration_refresh() -> anyhow::Result<
     app.handle_config_events(view::editor::ConfigEvent::Refresh);
     assert_eq!(app.editor.theme.name(), "preview");
     assert_eq!(app.editor.theme.get("keyword"), expected);
+    std::fs::write(&file, "keyword = '#123456'\n")?;
+    app.handle_config_events(view::editor::ConfigEvent::Refresh);
+    assert_ne!(app.editor.theme.name(), "preview");
+    assert!(app
+        .editor
+        .theme
+        .find_highlight_exact("ui.selection")
+        .is_some());
+    assert_eq!(
+        app.editor.syn_loader.load().scopes().as_slice(),
+        app.editor.theme.scopes()
+    );
     assert!(app.close().await.is_empty());
     Ok(())
 }
