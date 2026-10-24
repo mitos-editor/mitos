@@ -76,7 +76,17 @@ fn diagnostic<'doc>(
                     out,
                     "{}",
                     icon.map_or_else(
-                        || "●".to_string(),
+                        || {
+                            let icons = ICONS.load();
+                            match d.severity {
+                                Some(Severity::Error) => icons.diagnostic().error(),
+                                Some(Severity::Info) => icons.diagnostic().info(),
+                                Some(Severity::Hint) => icons.diagnostic().hint(),
+                                _ => icons.diagnostic().warning(),
+                            }
+                            .with_no_padding()
+                            .to_string()
+                        },
                         |icon| icon.with_no_padding().to_string()
                     )
                 )

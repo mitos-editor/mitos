@@ -239,7 +239,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .hint()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("hint"),
                     ),
                 );
@@ -254,7 +261,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .info()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("info"),
                     ),
                 );
@@ -269,7 +283,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .warning()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("warning"),
                     ),
                 );
@@ -284,7 +305,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .error()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("error"),
                     ),
                 );
@@ -362,7 +390,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .hint()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("hint"),
                     ),
                 );
@@ -377,7 +412,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .info()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("info"),
                     ),
                 );
@@ -392,7 +434,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .warning()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("warning"),
                     ),
                 );
@@ -407,7 +456,14 @@ where
                 write(
                     context,
                     Span::styled(
-                        glyph.unwrap_or_else(|| "●".to_string()),
+                        glyph.unwrap_or_else(|| {
+                            ICONS
+                                .load()
+                                .diagnostic()
+                                .error()
+                                .with_no_padding()
+                                .to_string()
+                        }),
                         context.editor.theme.get("error"),
                     ),
                 );
