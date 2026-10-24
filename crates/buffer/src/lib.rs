@@ -158,6 +158,18 @@ impl Buffer {
         Ok(applied)
     }
 
+    /// Replace derived content without creating an editable undo history. Text
+    /// versions still advance, so snapshots captured before refresh become stale.
+    pub fn apply_without_history(
+        &mut self,
+        changes: &ChangeSet,
+    ) -> Result<AppliedChange, InvalidLength> {
+        let applied = self.apply_changes(changes)?;
+        self.history = History::default();
+        self.clear_pending_changes();
+        Ok(applied)
+    }
+
     fn apply_changes(&mut self, changes: &ChangeSet) -> Result<AppliedChange, InvalidLength> {
         self.validate_changes(changes)?;
         let before = self.text.clone();
@@ -227,6 +239,21 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derived_replacement_invalidates_snapshots_without_undo_or_pending_edits() {
+        let mut buffer = Buffer::new(Rope::from("before\n"));
+        let old = buffer.snapshot();
+        let transaction =
+            Transaction::change(buffer.text(), std::iter::once((0, 6, Some("after".into()))));
+        buffer.apply_without_history(transaction.changes()).unwrap();
+        assert_eq!(buffer.text(), "after\n");
+        assert!(!old.is_current(&buffer));
+        assert_eq!(buffer.version(), old.version() + 1);
+        assert!(buffer.changes().is_empty());
+        assert!(buffer.prepare_history(HistoryAction::Undo).is_empty());
+        assert_eq!(buffer.commit_changes(), None);
+    }
     use crate::history::UndoKind;
 
     fn replace(buffer: &mut Buffer, from: usize, to: usize, text: &str) -> AppliedChange {

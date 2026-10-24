@@ -195,6 +195,7 @@ pub struct Document {
     pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
+    pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
 
     file: file::FileState,
 
@@ -286,6 +287,7 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
+            review: None,
             snippet: None,
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
@@ -362,7 +364,7 @@ impl Document {
         &self,
         loader: &syntax::Loader,
     ) -> Option<Arc<language_config::LanguageConfiguration>> {
-        if self.is_binary() {
+        if self.is_binary() || self.is_content_readonly() {
             return None;
         }
         let language = loader
@@ -379,6 +381,9 @@ impl Document {
         language_config: Option<Arc<LanguageConfiguration>>,
         loader: &Arc<syntax::Loader>,
     ) {
+        if self.is_content_readonly() {
+            return;
+        }
         self.pending_syntax = None;
         self.syntax_loader = loader.clone();
         self.invalidate_language_features();
@@ -563,6 +568,9 @@ impl Document {
     }
 
     pub fn word_completion_enabled(&self) -> bool {
+        if self.is_content_readonly() {
+            return false;
+        }
         self.language_config()
             .and_then(|lang_config| lang_config.word_completion.and_then(|config| config.enable))
             .unwrap_or_else(|| self.config.load().completion.word.enable)

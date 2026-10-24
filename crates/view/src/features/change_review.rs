@@ -13,7 +13,9 @@ use crate::{DocumentId, Editor};
 pub use language_config::DiffEngine;
 pub use text_diff::{Review, ReviewLineKind};
 
+mod document;
 mod engine;
+pub use document::ReviewDocument;
 pub use engine::ReviewSource;
 use engine::Settings;
 

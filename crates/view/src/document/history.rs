@@ -36,7 +36,7 @@ impl Document {
     }
 
     pub(crate) fn change_history(&mut self, action: HistoryAction, origin: Option<ViewId>) -> bool {
-        if self.is_binary() {
+        if self.is_binary() || self.is_content_readonly() {
             return false;
         }
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {

@@ -74,6 +74,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "d" => delete_selection,
         "A-d" => delete_selection_noyank,
+        "ret" => diff_open_source,
         "c" => change_selection,
         "A-c" => change_selection_noyank,
 

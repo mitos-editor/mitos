@@ -14,6 +14,16 @@ impl Editor {
     /// Change editing mode once, invalidating work from the previous mode before
     /// notifying observers. Frontends retain presentation and input replay behavior.
     pub fn set_mode(&mut self, mode: Mode) {
+        if mode == Mode::Insert
+            && self
+                .tree
+                .try_get(self.tree.focus())
+                .and_then(|view| self.document(view.doc))
+                .is_some_and(Document::is_content_readonly)
+        {
+            self.set_error(|| "This document is read-only");
+            return;
+        }
         if self.mode == mode {
             return;
         }

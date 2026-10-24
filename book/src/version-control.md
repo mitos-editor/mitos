@@ -78,49 +78,58 @@ The initial comparison shows unsaved edits when available, then unstaged changes
 then staged changes.
 
 Alt-Up / Alt-Down scroll the preview. `Alt-o` opens the selected comparison in a
-full-screen diff view, including in narrow terminals where the preview pane is hidden.
-Enter opens the file; for a deleted file, it opens the diff instead. Opening a diff
-captures a snapshot; refresh or reopen it to see subsequent changes.
+review buffer, including in narrow terminals where the preview pane is hidden.
+The picker closes and is retained for `Space-'`. Initially Enter opens the file;
+for a deleted file, it opens a review instead. After opening a review, the retained
+picker opens further selections as reviews too. Ctrl-v / Ctrl-s open them in a
+vertical / horizontal split. Opening a diff captures a snapshot; refresh or reopen
+it to see subsequent changes.
 
-### Full-screen diff view
+### Review buffers
 
 Run `:diff` or choose `diff` from the command palette to review all changes in the
 current file against `HEAD`, including unsaved edits. Use `:diff staged` for
 `HEAD` versus the index, `:diff unstaged` for the index versus disk, or
 `:diff buffer` for the index versus the open buffer. These comparisons also work
-in a repository without an initial commit. For deleted files, open the diff from
+in a repository without an initial commit. For deleted files, open the review from
 the changed-file picker.
 
+Reviews are ordinary editor buffers with read-only content. Use your normal
+movement, search, selection, yank, wrapping, scrolling, and view commands.
+`Space-'` reopens the last picker; select another file and use Ctrl-v / Ctrl-s to
+review it alongside the first. `Ctrl-w v` / `Ctrl-w s` split the current review.
+Each view has its own cursor and viewport. Reviews remain in the buffer picker,
+and `Ctrl-o` returns through the normal jump history. Close a review with the
+usual buffer or view commands.
+
 The gutter shows the original and new line numbers and a `+` or `−` change marker.
-Added and removed rows have a background highlight across the view. A marker at
-the left identifies the selected row; hunk headers separate changes with their
-original source ranges. The heading shows the comparison, engine, and line counts.
+Added and removed rows have a background highlight across the view. Hunk headers
+separate changes with their source ranges. The buffer name shows the comparison,
+engine, and line counts. Use the existing `[g` / `]g` change motions to move between
+hunks (`[G` / `]G` for the first / last).
 
-| Key | Action |
+| Command | Action |
 | --- | --- |
-| Up / Down, `k` / `j` | Select a row |
-| Page Up / Page Down, Ctrl-u / Ctrl-d | Move by a page |
-| Home / End | Select the first / last row |
-| `p` / `n` | Previous / next hunk |
-| Left / Right | Scroll horizontally |
-| Alt-Left / Alt-Right | Switch comparison |
-| Alt-d | Switch line / syntax engine |
-| Enter | Jump to the selected location in the current file |
-| `o` | Open the current file without using snapshot line numbers |
-| `r` | Refresh the comparison |
-| Escape, `q`, Ctrl-c | Return to the picker or editor |
+| Enter, `:diff-open-source` | Jump to the selected source location |
+| `:diff-open-file` | Open the current source file without snapshot line numbers |
+| `:diff-refresh` | Capture current Git state and buffer contents |
+| `:diff-engine` | Switch line / syntax comparison for the captured source |
+| `:diff staged`, `:diff unstaged`, `:diff buffer`, `:diff head` | Open another comparison |
 
-Remap these actions under `[keys.diff]`. This view is read-only: editing keys and
-pasted text do not change the underlying document. Staging and stash actions are
-available after returning to the changed-file picker.
+The command palette also provides `diff_refresh`, `diff_toggle_engine`,
+`diff_open_source`, and `diff_open_file`. Bind these through the normal editor
+keymaps. `[keys.diff]` applies to compact diff popups.
 
-The view retains a snapshot while you review it. Refresh captures current Git
-state and buffer contents; switching engines keeps the same source text. Enter
-requires the current file to match the snapshot's new side, so staged changes or
-external edits cannot send you to an unrelated line. Removed rows jump to their
-deletion boundary. Use `o` to open a file whose contents differ. A deleted path is
-never recreated by navigation. Opening a file returns to the editor; closing the
-diff returns to the picker when it was opened there.
+Refreshing a review updates that buffer in all its views, mapping their selections
+and viewport anchors through the change. Separate review buffers retain independent
+snapshots. Engine switches reuse the captured source. Enter requires the live
+source buffer to match the snapshot's new side; removed rows jump to their deletion
+boundary. Use `:diff-open-file` when contents differ. Missing files are never
+recreated by navigation.
+
+Reviews have no file identity, unsaved modifications, or editable undo history.
+Edits, reload, and writes (including `:write!` with a filename) are rejected.
+Staging and stash actions remain in the changed-file picker.
 
 Picker controls can be remapped under `[keys.picker]`. Repository changes refresh
 picker rows and previews while preserving the query and selected path. File watching
@@ -151,10 +160,11 @@ name = "rust"
 diff-engine = "syntax"
 ```
 
-Press **Alt-d** in the changed-file picker, full-screen diff, or a diff popup to switch between line
-and syntax comparison for that review. The heading shows the active engine.
-Remap this with `toggle_diff_engine` under `[keys.picker]` and `toggle_engine`
-under `[keys.diff]`.
+Use `:diff-engine` in a review buffer or **Alt-d** in the changed-file picker or a
+diff popup to switch between line and syntax comparison for that snapshot.
+The review name or popup heading shows the active engine. Remap popup and picker
+actions with `toggle_engine` under `[keys.diff]` and `toggle_diff_engine` under
+`[keys.picker]`. Review buffer actions use the normal editor keymaps.
 
 Syntax comparison uses the file's existing root grammar to match node kinds and
 literal tokens across lines. Changed tokens are emphasized; matching text uses
@@ -163,7 +173,7 @@ line wrapping. String contents, comments, and changes to syntax structure still
 participate in comparison. Embedded languages use the root grammar's representation.
 
 The original removed and added lines, source numbers, whitespace, and counts remain
-visible. A `layout only` heading means the syntax matched while the text changed.
+visible. A `layout only` review name or popup heading means the syntax matched while the text changed.
 Diff gutters, hunk navigation, and `:restore-change` always use exact line hunks.
 Syntax comparison does not infer semantic equivalence or identify moved code.
 

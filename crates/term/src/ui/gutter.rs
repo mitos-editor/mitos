@@ -134,6 +134,20 @@ fn diff<'doc>(
     let added = theme.get("diff.plus.gutter");
     let deleted = theme.get("diff.minus.gutter");
     let modified = theme.get("diff.delta.gutter");
+    if let Some(review) = doc.review() {
+        return Box::new(move |line, _, first, out| {
+            if !first {
+                return None;
+            }
+            let (marker, style) = match review.row(line)?.kind {
+                view::features::change_review::ReviewLineKind::Added => ("+", added),
+                view::features::change_review::ReviewLineKind::Removed => ("−", deleted),
+                _ => return None,
+            };
+            out.push_str(marker);
+            Some(style)
+        });
+    }
     if let Some(diff_handle) = doc.diff_handle() {
         let hunks = diff_handle.load();
         let mut hunk_i = 0;
@@ -185,6 +199,26 @@ fn line_numbers<'doc>(
 ) -> GutterFn<'doc> {
     let text = doc.text().slice(..);
     let width = width(GutterType::LineNumbers, view, doc);
+
+    if let Some(review) = doc.review() {
+        let digits = review.review().line_number_width();
+        let normal = theme.get("ui.linenr");
+        let selected_style = theme.get("ui.linenr.selected");
+        return Box::new(move |line, selected, first, out| {
+            if !first {
+                return None;
+            }
+            let row = review.row(line)?;
+            let number = |value: Option<usize>| {
+                value.map_or_else(
+                    || " ".repeat(digits),
+                    |value| format!("{:>digits$}", value + 1),
+                )
+            };
+            write!(out, "{} {}", number(row.before), number(row.after)).unwrap();
+            Some(if selected { selected_style } else { normal })
+        });
+    }
 
     let last_line_in_view = view.estimate_last_doc_line(doc);
 

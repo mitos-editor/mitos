@@ -262,6 +262,10 @@ impl Editor {
             self.set_error(|| "Adapter source documents cannot be renamed");
             return;
         }
+        if doc.is_content_readonly() {
+            self.set_error(|| "Review documents cannot be given a file path");
+            return;
+        }
         let old_path = doc.path();
 
         if let Some(old_path) = old_path {

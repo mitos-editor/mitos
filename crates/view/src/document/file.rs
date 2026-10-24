@@ -128,7 +128,7 @@ impl Document {
 
     /// Whether the file is read-only, including binary content.
     pub fn is_readonly(&self) -> bool {
-        self.file.readonly
+        self.file.readonly || self.is_content_readonly()
     }
 
     /// External modification already surfaced by automatic reload.
@@ -244,6 +244,10 @@ impl Document {
         if self.is_virtual() {
             bail!("Adapter source documents cannot be saved; copy the text to a new buffer first");
         }
+        anyhow::ensure!(
+            !self.is_content_readonly(),
+            "Review documents cannot be written, including with force or a new filename"
+        );
         if self.file.binary {
             bail!("Binary files are read-only and cannot be saved as text");
         }
@@ -492,6 +496,10 @@ impl Document {
         provider_registry: &DiffProviderRegistry,
         trust_full: bool,
     ) -> Result<(), Error> {
+        anyhow::ensure!(
+            !self.is_content_readonly(),
+            "Use :diff-refresh to refresh a review document"
+        );
         let encoding = self.file.encoding;
         let path = match self.path() {
             None => return Ok(()),
@@ -564,6 +572,9 @@ impl Document {
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead
     pub(crate) fn set_path(&mut self, path: Option<&Path>) {
+        if self.is_content_readonly() {
+            return;
+        }
         self.invalidate_blame();
         self.hover.clear();
         self.navigation.clear();
@@ -578,6 +589,9 @@ impl Document {
 
     /// If there are unsaved modifications.
     pub fn is_modified(&self) -> bool {
+        if self.is_content_readonly() {
+            return false;
+        }
         let current_revision = self.buffer.current_revision();
         log::debug!(
             "id {} modified - last saved: {}, current: {}",
@@ -643,6 +657,9 @@ impl Document {
     /// `.jj`, or `.mitos`. Falls back to the current working directory's workspace when the
     /// document has no path (scratch buffers). Lazily memoised on first call.
     pub fn workspace_root(&self) -> &Path {
+        if let Some(review) = self.review() {
+            return review.workspace();
+        }
         self.file
             .workspace_root
             .get_or_init(|| match self.file.path.as_deref() {
@@ -669,6 +686,9 @@ impl Document {
     pub fn display_name(&self) -> Cow<'_, str> {
         if let Some(name) = &self.file.readonly_name {
             return name.as_str().into();
+        }
+        if let Some(review) = self.review() {
+            return review.title().into();
         }
         self.display_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())

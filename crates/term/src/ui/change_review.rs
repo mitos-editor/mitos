@@ -23,17 +23,15 @@ use crate::{
 
 mod picker;
 pub use picker::ChangeReviewPreview;
-mod workspace;
-pub use workspace::DiffView;
+pub(crate) mod document;
 
-/// Shared presentation for hunk popups, picker previews, and the full diff view.
+/// Compact presentation for hunk popups and picker previews.
 pub struct ReviewView {
     pub title: String,
     pub review: Arc<Review>,
     offset: usize,
     horizontal: usize,
     keys: ui_core::keymap::KeymapState,
-    pending: Option<Pending>,
     task: TaskController,
     source: Option<Arc<ReviewSource>>,
     engine: Option<DiffEngine>,
@@ -55,7 +53,6 @@ impl ReviewView {
             offset: 0,
             horizontal: 0,
             keys: ui_core::keymap::KeymapState::default(),
-            pending: None,
             task: TaskController::new(),
             source: None,
             engine: None,
@@ -83,12 +80,7 @@ impl ReviewView {
     fn toggle_engine(&mut self, redraw: event::Redraw) {
         let current = self
             .engine
-            .or_else(|| self.source.as_ref().map(|source| source.engine()))
-            .or_else(|| {
-                self.pending
-                    .as_ref()
-                    .map(|pending| pending.request.engine())
-            });
+            .or_else(|| self.source.as_ref().map(|source| source.engine()));
         let Some(current) = current else {
             return;
         };
@@ -127,42 +119,12 @@ impl ReviewView {
         });
     }
 
-    fn loading(
-        title: String,
-        request: ReviewRequest,
-        worker: Arc<Semaphore>,
-        redraw: event::Redraw,
-    ) -> Self {
-        let mut view = Self::new(title, Review::notice("Loading diff…"));
-        let request = Arc::new(request);
-        let (tx, result) = oneshot::channel();
-        view.pending = Some(Pending {
-            request: request.clone(),
-            result,
-        });
-        view.mode_worker = worker.clone();
-        let cancel = view.task.restart();
-        load(request, None, worker, cancel, tx, redraw);
-        view
-    }
-
-    fn draw(
-        &self,
-        area: Rect,
-        surface: &mut Buffer,
-        cx: &Context,
-        scroll: usize,
-        selected: Option<usize>,
-    ) {
+    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, scroll: usize) {
         if area.is_empty() {
             return;
         }
         let theme = &cx.editor.theme;
-        let mode = if self.pending.is_some() {
-            "loading"
-        } else {
-            self.review.provider.unwrap_or("line")
-        };
+        let mode = self.review.provider.unwrap_or("line");
         let layout = if self.review.provider == Some("syntax")
             && self.review.unchanged_by_provider
             && (self.review.additions != 0 || self.review.deletions != 0)
@@ -248,14 +210,6 @@ impl ReviewView {
                 String::new()
             };
             let mut spans = vec![
-                Span::styled(
-                    if selected == Some(row + scroll) {
-                        "▸"
-                    } else {
-                        " "
-                    },
-                    theme.get("ui.text.focus"),
-                ),
                 Span::styled(numbers, theme.get("ui.linenr")),
                 Span::styled(format!("{prefix} "), marker_style),
             ];
@@ -281,40 +235,7 @@ impl ReviewView {
 mod tests;
 
 impl ReviewView {
-    fn poll(&mut self, cx: &mut Context) {
-        let mut recompute = false;
-        if let Some(pending) = &mut self.pending {
-            let result = match pending.result.try_recv() {
-                Ok(result) if pending.request.is_current(cx.editor) => Some(result),
-                Ok(_) => Some(Err(anyhow::anyhow!(
-                    "Buffer changed while loading this diff; open it again to refresh"
-                ))),
-                Err(oneshot::error::TryRecvError::Closed) => {
-                    Some(Err(anyhow::anyhow!("Diff preview unavailable")))
-                }
-                Err(oneshot::error::TryRecvError::Empty) => None,
-            };
-            if let Some(result) = result {
-                match result {
-                    Ok(snapshot) => {
-                        self.review = snapshot.review.clone();
-                        self.source = Some(snapshot.source.clone());
-                        recompute = self
-                            .engine
-                            .is_some_and(|engine| engine != snapshot.engine());
-                        if self.engine.is_none() {
-                            self.engine = Some(snapshot.engine());
-                        }
-                    }
-                    Err(error) => self.review = Arc::new(Review::notice(&error.to_string())),
-                }
-                self.pending = None;
-                cx.editor.redraw().request();
-            }
-        }
-        if recompute {
-            self.recompute_engine(cx.editor.redraw().clone());
-        }
+    fn poll(&mut self) {
         if let Some(pending) = &mut self.mode_pending {
             match pending.try_recv() {
                 Ok(review) => {
@@ -332,13 +253,12 @@ impl ReviewView {
 
 impl Component for ReviewView {
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        self.poll(cx);
+        self.poll();
         self.draw(
             panel::content_area(area),
             surface,
             cx,
             cx.scroll.unwrap_or(self.offset),
-            None,
         );
     }
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
@@ -376,7 +296,6 @@ impl Component for ReviewView {
                             .saturating_add(8)
                             .min(self.review.max_line_chars()),
                         DiffAction::ToggleEngine => unreachable!(),
-                        _ => return EventResult::Ignored(None),
                     };
                 }
                 EventResult::Consumed(None)
@@ -387,7 +306,7 @@ impl Component for ReviewView {
 
 /// Theme overrides use `diff.plus.line` / `diff.minus.line`. Existing RGB themes
 /// get a subtle tint; terminal palettes keep their own selection background.
-fn line_style(theme: &theme::Theme, kind: ReviewLineKind) -> view::graphics::Style {
+pub(crate) fn line_style(theme: &theme::Theme, kind: ReviewLineKind) -> view::graphics::Style {
     use view::graphics::Color;
     let scope = match kind {
         ReviewLineKind::Added => "diff.plus",

@@ -117,7 +117,11 @@
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `git_stash_picker` | Browse Git stashes in the current repository |  |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
-| `diff` | Review all changes in the current file in a full-screen diff view |  |
+| `diff` | Review all changes in the current file in a read-only buffer |  |
+| `diff_refresh` | Refresh the current diff review buffer |  |
+| `diff_toggle_engine` | Switch the current diff review between line and syntax comparison |  |
+| `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
+| `diff_open_file` | Open the current file from a diff review |  |
 | `changed_file_picker_in_repository` | Open changed file picker in repository |  |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
 | `workspace_symbol_picker` | Open workspace symbol picker |  |

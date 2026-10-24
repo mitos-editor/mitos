@@ -23,6 +23,9 @@ pub fn width(gutter: GutterType, view: &View, doc: &Document) -> usize {
 /// whether there is content on the last line (the `~` line), and the
 /// `editor.gutters.line-numbers.min-width` settings.
 fn line_numbers_width(view: &View, doc: &Document) -> usize {
+    if let Some(review) = doc.review() {
+        return review.review().line_number_width() * 2 + 1;
+    }
     let text = doc.text();
     let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
     let draw_last = text.line_to_byte_idx(last_line, stdx::rope::LINE_TYPE) < text.len();

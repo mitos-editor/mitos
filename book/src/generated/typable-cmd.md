@@ -96,7 +96,11 @@
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
 | `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
-| `:diff` | Open a full-screen diff for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
+| `:diff` | Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
+| `:diff-refresh` | Refresh the current review buffer from Git and the source buffer. |
+| `:diff-engine` | Toggle line or syntax comparison for the current review snapshot. |
+| `:diff-open-source` | Jump to the selected review row in the matching source buffer. |
+| `:diff-open-file` | Open the current source file without applying review line numbers. |
 | `:restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |

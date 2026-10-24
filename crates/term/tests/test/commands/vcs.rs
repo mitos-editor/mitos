@@ -566,10 +566,10 @@ async fn syntax_hunk_reviews_toggle_captured_snapshots_with_configurable_keys() 
 
 #[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbacks(
+async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallbacks(
 ) -> anyhow::Result<()> {
     let Some(root) = super::super::helpers::isolation::workspace(
-        "test::commands::vcs::syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbacks",
+        "test::commands::vcs::syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallbacks",
     )? else { return Ok(()); };
     let repo = root.join("workspace");
     let path = repo.join("file.json");
@@ -587,23 +587,23 @@ async fn syntax_picker_reviews_toggle_comparisons_open_popups_and_report_fallbac
     wait_for_review_screen(&mut app, "line · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
-    // A warm popup inherits the chosen presentation even when its source was captured in line mode.
+    // Opening a buffer retains the chosen engine and the picker for native restoration.
     press_keys(&mut app, "<A-o>").await?;
-    wait_for_review_screen(&mut app, "syntax · Diff", "\"value\": 3").await?;
-    press_keys(&mut app, "<A-d>").await?;
-    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 3").await?;
-    press_keys(&mut app, "<A-d><esc>").await?;
+    wait_for_review_buffer(&mut app, "syntax", "\"value\": 3").await?;
+    press_keys(&mut app, ":diff-engine<ret>").await?;
+    wait_for_review_buffer(&mut app, "line", "\"value\": 3").await?;
+    press_keys(&mut app, ":diff-engine<ret><space>'").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-left>").await?;
     wait_for_review_screen(&mut app, "syntax · Staged", "\"value\": 1").await?;
     press_keys(&mut app, "<A-o>").await?;
-    wait_for_review_screen(&mut app, "syntax · Diff", "\"value\": 2").await?;
-    press_keys(&mut app, "<A-d>").await?;
-    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 2").await?;
-    // Toggle while a cold popup is loading with its preview pane hidden.
-    press_keys(&mut app, "<esc><C-t><A-o><A-d>").await?;
-    wait_for_review_screen(&mut app, "line · Diff", "\"value\": 2").await?;
-    press_keys(&mut app, "<esc><C-t><esc>").await?;
+    wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
+    press_keys(&mut app, ":diff-engine<ret>").await?;
+    wait_for_review_buffer(&mut app, "line", "\"value\": 2").await?;
+    // A hidden preview can open a buffer and switch engines while loading.
+    press_keys(&mut app, "<space>'<C-t><A-o>:diff-engine<ret>").await?;
+    wait_for_review_buffer(&mut app, "line", "\"value\": 2").await?;
+    press_keys(&mut app, "<space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
     press_keys(&mut app, "<space>gfile.json").await?;
@@ -645,23 +645,23 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     wait_for_review_screen(&mut app, "Unstaged · index", "working contents").await?;
     assert!(review_screen(&app).contains("staged contents"));
     press_keys(&mut app, "<A-o>").await?;
-    assert!(review_screen(&app).contains("Diff ·"));
-    press_keys(&mut app, "<esc><C-t><A-o>").await?;
-    wait_for_review_screen(&mut app, "Diff · Unstaged", "working contents").await?;
-    press_keys(&mut app, "<esc><C-t><esc>").await?;
+    wait_for_review_buffer(&mut app, "line", "working contents").await?;
+    press_keys(&mut app, "<C-o><space>'<C-t><A-o>").await?;
+    wait_for_review_buffer(&mut app, "line", "working contents").await?;
+    press_keys(&mut app, "<C-o><space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     assert_eq!(std::fs::read_to_string(&path)?, "working contents\n");
-    // Opening a deleted row inspects its diff rather than creating an empty buffer.
+    // Opening a deleted row creates a pathless review and never recreates the file.
     press_keys(&mut app, "u").await?;
     std::fs::remove_file(&path)?;
     press_keys(&mut app, "<space>gfile.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "staged contents").await?;
     let documents = app.editor.documents().count();
     press_keys(&mut app, "<ret>").await?;
-    assert!(review_screen(&app).contains("Diff ·"));
-    assert_eq!(app.editor.documents().count(), documents);
+    wait_for_review_buffer(&mut app, "line", "staged contents").await?;
+    assert_eq!(app.editor.documents().count(), documents + 1);
+    assert!(current_ref!(app.editor).1.path().is_none());
     assert!(!path.exists());
-    press_keys(&mut app, "<esc><esc>").await?;
     assert!(app.close().await.is_empty());
     Ok(())
 }
@@ -673,6 +673,27 @@ fn review_screen(app: &Application) -> String {
         .iter()
         .map(|cell| cell.symbol())
         .collect()
+}
+
+async fn wait_for_review_buffer(
+    app: &mut Application,
+    engine: &str,
+    contents: &str,
+) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (_, doc) = current_ref!(app.editor);
+            if doc.review().is_some_and(|review| {
+                !review.is_loading() && review.review().provider.unwrap_or("line") == engine
+            }) && doc.text().to_string().contains(contents)
+            {
+                break;
+            }
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Missing review buffer using {engine:?} with {contents:?}"))
 }
 
 async fn wait_for_review_screen(

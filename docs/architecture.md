@@ -1146,12 +1146,20 @@ errors. The command catalog remains static.
 
 Native change review uses immutable source-mapped rows from `text-diff`.
 `view::features::change_review` captures Git and buffer inputs, language and
-engine policy, and a shared execution budget. `term::ui::change_review` draws the
-same rows in picker previews, hunk popups, and a full-screen `DiffView`. That
-component owns row selection and scrolling; refresh recaptures inputs, whereas
-engine switches reuse the captured source. Navigation checks the after-side
-against the live document before applying source line numbers. Git status and
-rename resolution remain in `vcs`; review UI does not mutate the repository.
+engine policy, and a shared execution budget. Full reviews are pathless,
+read-only `Document`s in the ordinary pane tree. Their coordinator owns snapshots,
+cancellation, and publication; callbacks target a document rather than the focused
+view. `buffer::Buffer::apply_without_history` advances text identity without
+creating undo history. The document maps selections and viewport anchors before
+publishing each refresh. Editing, history, path assignment, reload, and forced
+saves enforce the document's content policy independently of terminal keybindings.
+
+`term::ui::change_review` retains compact picker/popup presentation and supplies
+review-specific line backgrounds and token overlays to the normal editor renderer.
+Shared gutter layout and drawing use the same projected source rows. Review
+buffers reuse native movement, search, selection, yanking, view navigation, and
+buffer lifecycle. Source navigation validates the captured after-side before
+applying line numbers. Git status and rename resolution remain in `vcs`.
 
 `term::compositor` owns components, layers, input dispatch, and render orchestration.
 `term::ui` owns widgets and conversions into Ratatui text and buffers. `tui` owns

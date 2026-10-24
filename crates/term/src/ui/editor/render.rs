@@ -13,7 +13,7 @@ use diagnostics::NumberOrString;
 use editor_config::{DiagnosticFilter, RulerStyle};
 use editor_core::unicode::width::UnicodeWidthStr;
 use loader::VERSION_AND_GIT_HASH;
-use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::LazyLock};
+use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 use stdx::rope::RopeExt as _;
 use text_layout::{visual_offset_from_block, DisplayPosition};
 use theme::{icons::ICONS, Theme};
@@ -24,7 +24,7 @@ use tui::{
     widgets::{Paragraph, Row, Table, TableState, Widget},
 };
 use view::{
-    document::{Mode, SCRATCH_BUFFER_NAME},
+    document::Mode,
     graphics::{Color, Modifier, Rect, RectExt as _, Style},
     Document, Editor, View, ViewId,
 };
@@ -284,6 +284,11 @@ impl PaneRenderer {
 
         let text_annotations = &layout.annotations;
         let mut decorations = DecorationManager::default();
+        if doc.review().is_some() {
+            decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
+                doc, theme,
+            ));
+        }
 
         if doc.breadcrumb_enabled() && !area.is_empty() {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
@@ -315,6 +320,14 @@ impl PaneRenderer {
         let syntax_highlighter =
             highlights::syntax_highlighter(doc, view_offset.anchor, inner.height);
         let mut overlays = Vec::new();
+        if let Some(highlights) = crate::ui::change_review::document::highlights(
+            doc,
+            view_offset.anchor,
+            inner.height,
+            theme,
+        ) {
+            overlays.push(highlights);
+        }
 
         if doc
             .language_config()
@@ -549,7 +562,6 @@ impl PaneRenderer {
     }
 
     fn render_bufferline(editor: &Editor, viewport: Rect, surface: &mut Surface) {
-        let scratch = PathBuf::from(SCRATCH_BUFFER_NAME); // default filename to use for scratch buffer
         surface.clear_with(
             viewport,
             editor
@@ -582,11 +594,9 @@ impl PaneRenderer {
 
                 let fname = doc
                     .path()
-                    .unwrap_or(&scratch)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_str()
-                    .unwrap_or_default();
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy())
+                    .unwrap_or_else(|| doc.display_name());
 
                 let style = if current_doc == doc.id() {
                     bufferline_active
@@ -695,7 +705,7 @@ impl PaneRenderer {
                 }
             } else {
                 // Handle `[scratch]`
-                x = draw_element(surface, viewport, x, SCRATCH_BUFFER_NAME, style);
+                x = draw_element(surface, viewport, x, &doc.display_name(), style);
             }
         }
 
@@ -740,7 +750,7 @@ impl PaneRenderer {
         let gutter_style_virtual = theme.get("ui.gutter.virtual");
         let gutter_selected_style_virtual = theme.get("ui.gutter.selected.virtual");
 
-        for &gutter_type in view.gutters() {
+        for &gutter_type in view.gutters_for(doc) {
             let mut gutter =
                 super::super::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
             let width = view::gutter::width(gutter_type, view, doc);

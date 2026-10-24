@@ -79,6 +79,17 @@ fn prepare_with_config(
     editor.sync_document_views(doc_id);
     let doc = doc_mut!(editor, &doc_id);
 
+    if doc.is_content_readonly() {
+        return Ok(PreparedSave {
+            doc_id,
+            origin,
+            path,
+            force: options.force,
+            auto_format: false,
+            code_actions: false,
+        });
+    }
+
     // Build normalization against a working rope and publish one transaction. Rejection
     // must not leave a partly normalized document or commit pending typing.
     let mut text = doc.text().clone();

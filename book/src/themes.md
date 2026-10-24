@@ -288,9 +288,11 @@ See also [highlighting discussion][#2380]
   - `plus` - additions
     - `gutter` - gutter indicator
     - `line` - added-row background in diff views (optional; otherwise derived from the theme)
+    - `word` - changed-token style in review buffers (optional; otherwise uses `diff.plus`)
   - `minus` - deletions
     - `gutter` - gutter indicator
     - `line` - removed-row background in diff views (optional; otherwise derived from the theme)
+    - `word` - changed-token style in review buffers (optional; otherwise uses `diff.minus`)
   - `delta` - modifications
     - `moved` - renamed or moved files/changes
     - `conflict` - merge conflicts

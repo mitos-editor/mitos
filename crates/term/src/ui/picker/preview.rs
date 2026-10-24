@@ -638,6 +638,14 @@ pub(super) fn render_preview_content(
 
     let syntax_highlighter = highlights::syntax_highlighter(doc, offset.anchor, area.height);
     let mut overlay_highlights = Vec::new();
+    if let Some(highlights) = crate::ui::change_review::document::highlights(
+        doc,
+        offset.anchor,
+        area.height,
+        &cx.editor.theme,
+    ) {
+        overlay_highlights.push(highlights);
+    }
     if doc
         .language_config()
         .and_then(|config| config.rainbow_brackets)
@@ -651,6 +659,12 @@ pub(super) fn render_preview_content(
     highlights::diagnostic_highlights(doc, &cx.editor.theme, &mut overlay_highlights);
 
     let mut decorations = DecorationManager::default();
+    if doc.review().is_some() {
+        decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
+            doc,
+            &cx.editor.theme,
+        ));
+    }
 
     if let Some((start, end)) = range {
         let style = cx

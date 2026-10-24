@@ -61,6 +61,9 @@ impl Document {
         snapshot: buffer::Snapshot,
         origin: Option<ViewId>,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+        if self.is_content_readonly() {
+            return None;
+        }
         let text = snapshot.text().clone();
         if let Some((fmt_cmd, fmt_args, timeout)) = self
             .language_config()

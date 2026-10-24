@@ -106,6 +106,9 @@ impl Handlers {
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
+        if doc.is_content_readonly() {
+            return;
+        }
         doc.document_colors
             .bind_handler(self.document_colors.clone());
         doc.code_lenses.bind_handler(self.code_lenses.clone());

@@ -46,7 +46,7 @@ impl Document {
     /// `:set-spelling-language` override, then the `.editorconfig` `spelling_language`, then the
     /// resolved config (`languages.toml` over `[editor.spelling]`). Re-run when any of these change.
     pub fn detect_spelling_languages(&mut self) {
-        if self.is_binary() {
+        if self.is_binary() || self.is_content_readonly() {
             self.spelling_languages.clear();
             return;
         }

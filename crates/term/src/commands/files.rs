@@ -779,7 +779,12 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let documents: Vec<_> = cx.editor.documents.keys().copied().collect();
+        let documents: Vec<_> = cx
+            .editor
+            .documents
+            .iter()
+            .filter_map(|(&id, doc)| (!doc.is_content_readonly()).then_some(id))
+            .collect();
         for id in documents {
             if let Err(error) = cx.editor.reload_document(id) {
                 cx.editor.set_error(|| error.to_string());

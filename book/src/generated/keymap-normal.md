@@ -42,6 +42,7 @@
 | `` O `` | Open new line above selection | `` open_above `` |
 | `` d `` | Delete selection | `` delete_selection `` |
 | `` <A-d> `` | Delete selection without yanking | `` delete_selection_noyank `` |
+| `` <ret> `` | Jump from a diff review to its source location | `` diff_open_source `` |
 | `` c `` | Change selection | `` change_selection `` |
 | `` <A-c> `` | Change selection without yanking | `` change_selection_noyank `` |
 | `` C `` | Copy selection on next line | `` copy_selection_on_next_line `` |

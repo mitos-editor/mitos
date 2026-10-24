@@ -268,10 +268,22 @@ impl View {
         &self.gutters.layout
     }
 
+    pub fn gutters_for(&self, doc: &Document) -> &[GutterType] {
+        if doc.review().is_some() {
+            &[
+                GutterType::LineNumbers,
+                GutterType::Spacer,
+                GutterType::Diff,
+                GutterType::Spacer,
+            ]
+        } else {
+            self.gutters()
+        }
+    }
+
     pub fn gutter_offset(&self, doc: &Document) -> u16 {
         let total_width = self
-            .gutters
-            .layout
+            .gutters_for(doc)
             .iter()
             .map(|gutter| crate::gutter::width(*gutter, self, doc) as u16)
             .sum();

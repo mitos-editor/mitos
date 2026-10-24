@@ -32,6 +32,8 @@ pub struct ChangeReviewPreview<T> {
     events: Option<broadcast::Receiver<view::file_watcher::Events>>,
     checked: tokio::time::Instant,
     height: u16,
+    review_on_accept: bool,
+    opened_document: bool,
 }
 
 impl<T> ChangeReviewPreview<T> {
@@ -52,6 +54,8 @@ impl<T> ChangeReviewPreview<T> {
             events: None,
             checked: tokio::time::Instant::now(),
             height: 1,
+            review_on_accept: false,
+            opened_document: false,
         }
     }
 
@@ -83,10 +87,15 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         self.stop();
     }
     fn open_on_accept(&self, item: &T) -> bool {
-        matches!(
-            (self.status)(item).change(),
-            vcs::FileChange::Deleted { .. }
-        )
+        self.review_on_accept
+            || matches!(
+                (self.status)(item).change(),
+                vcs::FileChange::Deleted { .. }
+            )
+    }
+
+    fn close_on_open(&self) -> bool {
+        self.opened_document
     }
 
     fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Buffer, cx: &mut Context) {
@@ -225,7 +234,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 view.offset.min(view.review.lines.len().saturating_sub(
                     content.height.saturating_sub(view.heading_rows() as u16) as usize,
                 ));
-            view.draw(content, surface, cx, view.offset, None);
+            view.draw(content, surface, cx, view.offset);
         } else {
             surface.set_stringn(
                 area.x,
@@ -278,6 +287,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
     }
 
     fn action(&mut self, item: Option<&T>, action: PreviewAction, cx: &mut Context) -> EventResult {
+        self.opened_document = false;
         match action {
             PreviewAction::ToggleEngine => {
                 let Some(item) = item else {
@@ -335,7 +345,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 self.comparison = Some(modes[next]);
                 self.stop();
             }
-            PreviewAction::Open => {
+            PreviewAction::Open(action) => {
+                self.review_on_accept = true;
                 let Some(item) = item else {
                     return EventResult::Consumed(None);
                 };
@@ -354,29 +365,9 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                             && old.is_current(cx.editor)
                     })
                     .and(self.snapshot.clone());
-                let title = format!(
-                    "Diff · {} · {}",
-                    comparison.label(),
-                    status
-                        .path()
-                        .strip_prefix(&self.workspace)
-                        .unwrap_or(status.path())
-                        .display()
-                );
-                let worker = self.worker.clone();
-                let workspace = self.workspace.clone();
-                return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                    let view = match ready {
-                        Some(snapshot) => ReviewView::from_snapshot(title, &snapshot),
-                        None => {
-                            ReviewView::loading(title, request, worker, cx.editor.redraw().clone())
-                        }
-                    };
-                    compositor.replace_or_push(
-                        super::DiffView::ID,
-                        super::DiffView::new(view, status, workspace, comparison),
-                    );
-                })));
+                cx.editor.open_review(request, action, ready);
+                self.opened_document = true;
+                return EventResult::Consumed(None);
             }
         }
         EventResult::Consumed(None)

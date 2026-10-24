@@ -16,6 +16,8 @@ use buffer::HistoryAction;
 /// Rejections leave both document text and pending undo groups untouched.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EditError {
+    #[error("This document is read-only")]
+    ReadOnlyDocument,
     #[error("Document {0:?} is closed")]
     DocumentClosed(DocumentId),
     #[error("Document changed: expected version {expected}, found {actual}")]
@@ -28,8 +30,6 @@ pub enum EditError {
     InvalidSavepointView,
     #[error(transparent)]
     SavePoint(#[from] buffer::SavePointError),
-    #[error("Cannot edit read-only document text")]
-    ReadOnlyDocument,
 }
 
 impl From<buffer::InvalidLength> for EditError {

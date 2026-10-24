@@ -10,6 +10,31 @@ use buffer::AppliedChange;
 use editor_core::{ChangeSet, Selection, Transaction};
 
 impl Document {
+    /// Coordinator-only replacement of derived content. Editing remains disabled
+    /// throughout publication, and refreshed text has no undo/write history.
+    pub(crate) fn replace_readonly_content(
+        &mut self,
+        changes: &ChangeSet,
+        initialize: bool,
+    ) -> Result<(), EditError> {
+        assert!(self.is_content_readonly());
+        let change = self.buffer.apply_without_history(changes)?;
+        self.selection_history = Default::default();
+        self.publish_change(&change, None, None);
+        if initialize {
+            // Loading/error notices have no meaningful source anchors. Start
+            // every existing binding at the first review row, including hidden
+            // bindings that may be revisited through native jump history.
+            let views: Vec<_> = self.view_states.keys().copied().collect();
+            for view in views {
+                self.view_states.get_mut(&view).unwrap().position = Default::default();
+                self.set_selection(view, Selection::point(0));
+            }
+        }
+        self.modified_since_accessed = false;
+        self.reset_modified();
+        Ok(())
+    }
     /// Apply text changes without requiring a view. Call [`Self::commit_changes`]
     /// to end the undo group, or use [`crate::Editor::apply_document_changes`] for an
     /// independent, version-checked operation on an editor-owned document.
@@ -27,7 +52,7 @@ impl Document {
     }
 
     pub(crate) fn validate_editable(&self) -> Result<(), EditError> {
-        if self.is_virtual() {
+        if self.is_virtual() || self.is_content_readonly() {
             return Err(EditError::ReadOnlyDocument);
         }
         if self.is_binary() {

@@ -35,7 +35,6 @@ pub(super) fn show_change(cx: &mut Context) {
 pub(super) fn diff(cx: &mut Context) {
     if let Err(error) = request_diff(
         cx.editor,
-        cx.jobs,
         view::features::change_review::ReviewComparison::Head,
     ) {
         cx.editor.set_error(|| error.to_string());
@@ -44,36 +43,59 @@ pub(super) fn diff(cx: &mut Context) {
 
 fn request_diff(
     editor: &mut Editor,
-    jobs: &mut crate::job::Jobs,
     comparison: view::features::change_review::ReviewComparison,
 ) -> anyhow::Result<()> {
-    let (view, doc) = view::current_ref!(editor);
+    let (_, doc) = view::current_ref!(editor);
     anyhow::ensure!(
         !doc.is_binary(),
         "A text buffer is required to review changes"
     );
     let path = doc
         .path()
+        .or_else(|| doc.review().map(|review| review.path()))
         .ok_or_else(|| anyhow::anyhow!("Save this buffer to a path before reviewing Git changes"))?
         .to_owned();
-    let origin = (view.id, doc.id());
     let workspace = doc.workspace_root().to_owned();
     let status = FileStatus {
         staged: None,
         unstaged: Some(FileChange::Modified { path }),
     };
-    let diff = crate::ui::change_review::DiffView::open(editor, status, workspace, comparison);
-    jobs.callback(async move {
-        Ok(crate::job::Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                let (view, doc) = view::current_ref!(editor);
-                if (view.id, doc.id()) == origin {
-                    compositor.replace_or_push(crate::ui::change_review::DiffView::ID, diff);
-                }
-            },
-        )))
-    });
+    let request =
+        view::features::change_review::ReviewRequest::new(editor, &status, comparison, &workspace)
+            .with_fresh_status();
+    editor.open_review(request, view::editor::Action::Replace, None);
     Ok(())
+}
+
+pub(super) fn diff_refresh(cx: &mut Context) {
+    if let Err(error) = cx.editor.refresh_review() {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+pub(super) fn diff_toggle_engine(cx: &mut Context) {
+    if let Err(error) = cx.editor.toggle_review_engine() {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+pub(super) fn diff_open_source(cx: &mut Context) {
+    if view::current_ref!(cx.editor).1.review().is_some()
+        && let Err(error) = cx
+            .editor
+            .open_review_source(true, view::editor::Action::Replace)
+    {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+pub(super) fn diff_open_file(cx: &mut Context) {
+    if let Err(error) = cx
+        .editor
+        .open_review_source(false, view::editor::Action::Replace)
+    {
+        cx.editor.set_error(|| error.to_string());
+    }
 }
 
 fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
@@ -430,6 +452,17 @@ pub(super) fn goto_last_change(cx: &mut Context) {
 }
 
 fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
+    if cx.editor.navigate_review_hunk(
+        if reverse {
+            Direction::Forward
+        } else {
+            Direction::Backward
+        },
+        1,
+        true,
+    ) {
+        return;
+    }
     let editor = &mut cx.editor;
     let (view, doc) = current!(editor);
     if let Some(handle) = doc.diff_handle() {
@@ -459,6 +492,9 @@ pub(super) fn goto_prev_change(cx: &mut Context) {
 }
 
 fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
+    if cx.editor.navigate_review_hunk(direction, cx.count(), false) {
+        return;
+    }
     let count = cx.count() as u32 - 1;
     let wrap_around = cx.editor.config().search.wrap_around;
     let motion = move |editor: &mut Editor| {
@@ -593,7 +629,50 @@ pub(super) mod typed {
             Some("buffer") => ReviewComparison::Buffer,
             Some(_) => bail!("Expected head, staged, unstaged, or buffer"),
         };
-        super::request_diff(cx.editor, cx.jobs, comparison)
+        super::request_diff(cx.editor, comparison)
+    }
+
+    pub(in crate::commands) fn diff_refresh(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            cx.editor.refresh_review()?;
+        }
+        Ok(())
+    }
+    pub(in crate::commands) fn diff_engine(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            cx.editor.toggle_review_engine()?;
+        }
+        Ok(())
+    }
+    pub(in crate::commands) fn diff_open_source(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            cx.editor
+                .open_review_source(true, view::editor::Action::Replace)?;
+        }
+        Ok(())
+    }
+    pub(in crate::commands) fn diff_open_file(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            cx.editor
+                .open_review_source(false, view::editor::Action::Replace)?;
+        }
+        Ok(())
     }
 
     #[cold]

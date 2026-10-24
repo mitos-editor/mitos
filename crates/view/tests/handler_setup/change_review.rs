@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use stdx::rope::RopeExt as _;
 
 use editor_core::Selection;
 use vcs::{FileChange, FileStatus};
@@ -7,6 +8,357 @@ use view::{
     editor::Action,
     features::change_review::{HunkReviewRequest, ReviewComparison, ReviewRequest},
 };
+
+async fn finish_review(f: &mut Fixture, id: view::DocumentId) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while f
+            .editor
+            .document(id)
+            .unwrap()
+            .review()
+            .unwrap()
+            .is_loading()
+        {
+            let callback = f
+                .callbacks
+                .recv()
+                .await
+                .expect("review callback channel closed");
+            callback(&mut f.editor);
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+fn review_request(
+    f: &Fixture,
+    path: &std::path::Path,
+    comparison: ReviewComparison,
+) -> ReviewRequest {
+    ReviewRequest::new(
+        &f.editor,
+        &FileStatus {
+            staged: None,
+            unstaged: Some(FileChange::Modified { path: path.into() }),
+        },
+        comparison,
+        f.dir.path(),
+    )
+    .with_fresh_status()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_buffers_are_native_documents_with_independent_splits_and_no_file_identity(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\nkeep\n")?;
+    prepare(&mut f, "initial");
+    let source = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("unsaved\nkeep\n");
+    let first_view = f.editor.tree.focus();
+    let first = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, first).await?;
+    let doc = f.editor.document(first).unwrap();
+    assert!(doc.path().is_none());
+    assert!(doc.uri().is_none());
+    assert!(doc.is_readonly() && !doc.is_modified());
+    assert!(doc.display_name().contains("[diff"));
+    assert_eq!(doc.cursor_line(first_view), 0);
+    assert_eq!(doc.view_offset(first_view).anchor, 0);
+    assert!(doc.text().to_string().contains("unsaved"));
+    let first_text = doc.text().clone();
+
+    let second = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Staged),
+        Action::VerticalSplit,
+        None,
+    );
+    finish_review(&mut f, second).await?;
+    assert_ne!(first, second);
+    assert_eq!(f.editor.tree.views().count(), 2);
+    assert_eq!(f.editor.tree.get(first_view).document_id(), first);
+    assert_eq!(f.editor.document(first).unwrap().text(), &first_text);
+    assert_eq!(
+        f.editor.document(source).unwrap().text().to_string(),
+        "unsaved\nkeep\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, "committed\nkeep\n");
+
+    f.editor.switch(first, Action::Replace);
+    let second_view = f.editor.tree.focus();
+    let doc = f.editor.document_mut(first).unwrap();
+    doc.set_selection(first_view, Selection::point(doc.text().line_to_char_idx(1)));
+    doc.set_selection(
+        second_view,
+        Selection::point(doc.text().line_to_char_idx(2)),
+    );
+    assert_ne!(doc.cursor_line(first_view), doc.cursor_line(second_view));
+    assert!(
+        f.editor.document(second).is_some(),
+        "switching away must retain a review buffer"
+    );
+    assert!(f.editor.close_document(second, false).is_ok());
+    assert!(f.editor.document(first).is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_protection_covers_editing_history_modes_and_forced_writes() -> anyhow::Result<()> {
+    use editor_core::Transaction;
+    use view::editing::EditError;
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("after\n");
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let version = f.editor.document(id).unwrap().version();
+    let text = f.editor.document(id).unwrap().text().clone();
+    let exported = f.dir.path().join("must-not-exist.txt");
+    let trust = f.editor.diff_providers.clone();
+    let (view, doc) = current!(f.editor);
+    let edit = Transaction::change(
+        doc.text(),
+        std::iter::once((0, 0, Some("forbidden".into()))),
+    );
+    assert_eq!(doc.apply(edit.changes()), Err(EditError::ReadOnlyDocument));
+    assert_eq!(
+        view::editing::apply(doc, &edit, view.id),
+        Err(EditError::ReadOnlyDocument)
+    );
+    assert!(!doc.undo() && !doc.redo());
+    assert!(doc.save(Some(exported.clone()), true).is_err());
+    assert!(doc.reload(&trust, true).is_err());
+    assert_eq!(doc.version(), version);
+    assert_eq!(doc.text(), &text);
+    f.editor.set_mode(view::document::Mode::Insert);
+    assert_eq!(f.editor.mode(), view::document::Mode::Normal);
+    assert!(f.editor.save(id, Some(exported.clone()), true).is_err());
+    f.editor.set_doc_path(id, &exported);
+    assert!(f.editor.document(id).unwrap().path().is_none());
+    assert!(!exported.exists());
+    assert!(!f.editor.document(id).unwrap().is_modified());
+    assert!(f.editor.close_document(id, false).is_ok());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_maps_each_splits_selection_and_does_not_steal_focus() -> anyhow::Result<()> {
+    use editor_core::Transaction;
+    let before: String = (0..35).map(|i| format!("line {i}\n")).collect();
+    let mut f = Fixture::new(&before)?;
+    prepare(&mut f, "initial");
+    let source = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace(
+        &before
+            .replace("line 2\n", "changed\n")
+            .replace("line 25\n", "other\n"),
+    );
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let first = f.editor.tree.focus();
+    f.editor.switch(id, Action::VerticalSplit);
+    let second = f.editor.tree.focus();
+    let doc = f.editor.document_mut(id).unwrap();
+    let row = |needle: &str| {
+        doc.text()
+            .lines(stdx::rope::LINE_TYPE)
+            .position(|line| line.to_string().trim_end() == needle)
+            .unwrap()
+    };
+    let first_pos = doc.text().line_to_char_idx(row("line 4"));
+    let second_pos = doc.text().line_to_char_idx(row("line 24"));
+    doc.set_selection(first, Selection::point(first_pos));
+    doc.set_selection(second, Selection::point(second_pos));
+    let source_doc = f.editor.document(source).unwrap();
+    let edit = Transaction::change(
+        source_doc.text(),
+        std::iter::once((0, 0, Some("inserted\n".into()))),
+    );
+    f.editor
+        .apply_document_changes(source, source_doc.version(), edit.changes())?;
+    f.editor.refresh_review()?;
+    f.editor.new_file(Action::Replace);
+    let focused = current_ref!(f.editor).1.id();
+    finish_review(&mut f, id).await?;
+    assert_eq!(current_ref!(f.editor).1.id(), focused);
+    let doc = f.editor.document(id).unwrap();
+    for (view, expected) in [(first, "line 4"), (second, "line 24")] {
+        assert_eq!(
+            doc.text()
+                .line(doc.cursor_line(view), stdx::rope::LINE_TYPE)
+                .to_string()
+                .trim_end(),
+            expected
+        );
+    }
+    assert!(!doc.is_modified());
+    f.editor.jump_backward(second, 1);
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(doc.id(), id);
+    assert_eq!(
+        doc.text()
+            .line(doc.cursor_line(view.id), stdx::rope::LINE_TYPE)
+            .to_string()
+            .trim_end(),
+        "line 24"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn canceled_or_closed_review_callbacks_cannot_replace_a_newer_document() -> anyhow::Result<()>
+{
+    let mut f = Fixture::with_config("before\n", "language = []", Default::default(), |config| {
+        config.completion.word.enable = false
+    })?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("after\n");
+    while let Ok(callback) = f.callbacks.try_recv() {
+        callback(&mut f.editor);
+    }
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    let old = tokio::time::timeout(std::time::Duration::from_secs(10), f.callbacks.recv())
+        .await?
+        .unwrap();
+    f.editor.refresh_review()?;
+    old(&mut f.editor);
+    assert!(f
+        .editor
+        .document(id)
+        .unwrap()
+        .review()
+        .unwrap()
+        .is_loading());
+    finish_review(&mut f, id).await?;
+    f.editor.refresh_review()?;
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(10), f.callbacks.recv())
+        .await?
+        .unwrap();
+    assert!(f.editor.close_document(id, false).is_ok());
+    let next = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Staged),
+        Action::Replace,
+        None,
+    );
+    closed(&mut f.editor);
+    finish_review(&mut f, next).await?;
+    assert_ne!(id, next);
+    assert_eq!(
+        f.editor
+            .document(next)
+            .unwrap()
+            .review()
+            .unwrap()
+            .comparison(),
+        ReviewComparison::Staged
+    );
+    assert!(f.editor.document(id).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_gutters_show_sources_and_navigation_validates_live_text() -> anyhow::Result<()> {
+    let mut f = Fixture::new("removed\nkeep\n")?;
+    prepare(&mut f, "initial");
+    let source = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("keep\n");
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current_ref!(f.editor);
+    let review = doc.review().unwrap();
+    let removed = review
+        .review()
+        .lines
+        .iter()
+        .position(|row| row.kind == view::features::change_review::ReviewLineKind::Removed)
+        .unwrap();
+    let row = doc.review().unwrap().row(removed).unwrap();
+    assert_eq!(row.before, Some(0));
+    assert_eq!(row.after, None);
+    assert_eq!(
+        view::gutter::width(editor_config::GutterType::LineNumbers, view, doc),
+        3
+    );
+    let view_id = view.id;
+    let doc = f.editor.document_mut(id).unwrap();
+    doc.set_selection(
+        view_id,
+        Selection::point(doc.text().line_to_char_idx(removed)),
+    );
+    let source_doc = f.editor.document(source).unwrap();
+    let edit = editor_core::Transaction::change(
+        source_doc.text(),
+        std::iter::once((0, 0, Some("newer\n".into()))),
+    );
+    f.editor
+        .apply_document_changes(source, source_doc.version(), edit.changes())?;
+    assert!(f.editor.open_review_source(true, Action::Replace).is_err());
+    assert_eq!(current_ref!(f.editor).1.id(), id);
+    f.editor.open_review_source(false, Action::Replace)?;
+    assert_eq!(current_ref!(f.editor).1.id(), source);
+    assert!(f.editor.document(id).is_some());
+    Ok(())
+}
+
+#[cfg(feature = "syntax-diff")]
+#[tokio::test(flavor = "multi_thread")]
+async fn review_document_engine_switches_share_immutable_sources_and_cancel_older_work(
+) -> anyhow::Result<()> {
+    use editor_config::DiffEngine;
+    let mut f = Fixture::with_languages("{\"λ\": 1}\n", JSON_LANGUAGE)?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("{\"λ\": 2}\n");
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    f.editor.toggle_review_engine()?;
+    f.editor.toggle_review_engine()?;
+    finish_review(&mut f, id).await?;
+    let doc = f.editor.document(id).unwrap();
+    let text = doc.text().clone();
+    let source = doc.review().unwrap().source().unwrap().clone();
+    assert_eq!(doc.review().unwrap().engine(), DiffEngine::Line);
+    assert!(!doc.word_completion_enabled());
+    f.editor.toggle_review_engine()?;
+    finish_review(&mut f, id).await?;
+    let doc = f.editor.document(id).unwrap();
+    assert_eq!(doc.review().unwrap().review().provider, Some("syntax"));
+    assert_eq!(doc.text(), &text);
+    assert!(Arc::ptr_eq(
+        doc.review().unwrap().source().unwrap(),
+        &source
+    ));
+    assert!(!doc.is_modified());
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn full_file_head_review_captures_unsaved_text_and_resolves_staged_renames(

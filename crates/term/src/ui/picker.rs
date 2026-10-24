@@ -70,6 +70,11 @@ pub trait PickerPreview<T> {
     fn open_on_accept(&self, _item: &T) -> bool {
         false
     }
+    /// A preview that opens an editor document follows the normal picker close
+    /// path, including retaining it for `last_picker`.
+    fn close_on_open(&self) -> bool {
+        false
+    }
     fn action(
         &mut self,
         _item: Option<&T>,
@@ -89,7 +94,7 @@ pub enum PreviewAction {
     ScrollDown,
     Previous,
     Next,
-    Open,
+    Open(Action),
     ToggleEngine,
 }
 
@@ -1219,11 +1224,23 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         .snapshot()
                         .get_matched_item(self.results.cursor)
                         .map(|item| item.data);
-                    return self.custom_preview.as_mut().unwrap().action(
+                    let open = match action {
+                        PickerAction::AcceptHorizontalSplit => Action::HorizontalSplit,
+                        PickerAction::AcceptVerticalSplit => Action::VerticalSplit,
+                        _ => self.default_action,
+                    };
+                    let result = self.custom_preview.as_mut().unwrap().action(
                         item,
-                        PreviewAction::Open,
+                        PreviewAction::Open(open),
                         ctx,
                     );
+                    if self.custom_preview.as_ref().unwrap().close_on_open()
+                        && action != PickerAction::AcceptKeepOpen
+                        && let EventResult::Consumed(callback) = result
+                    {
+                        return close_fn(self, callback);
+                    }
+                    return result;
                 }
             }
             match action {
@@ -1357,7 +1374,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             PickerAction::PreviewPrevious => PreviewAction::Previous,
                             PickerAction::PreviewNext => PreviewAction::Next,
                             PickerAction::ToggleDiffEngine => PreviewAction::ToggleEngine,
-                            _ => PreviewAction::Open,
+                            _ => PreviewAction::Open(self.default_action),
                         };
                         let item = self
                             .results
@@ -1365,7 +1382,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             .snapshot()
                             .get_matched_item(self.results.cursor)
                             .map(|item| item.data);
-                        return preview.action(item, action, ctx);
+                        let result = preview.action(item, action, ctx);
+                        let close =
+                            preview.close_on_open() && matches!(action, PreviewAction::Open(_));
+                        if close && let EventResult::Consumed(callback) = result {
+                            return close_fn(self, callback);
+                        }
+                        return result;
                     }
                 }
                 PickerAction::TogglePreview => {
