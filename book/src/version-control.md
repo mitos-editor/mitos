@@ -108,6 +108,14 @@ separate changes with their source ranges. The buffer name shows the comparison,
 engine, and line counts. Use the existing `[g` / `]g` change motions to move between
 hunks (`[G` / `]G` for the first / last).
 
+Review buffers use the source language's syntax colors with either comparison
+engine. Removed lines use the original file's syntax; added and context lines use
+the updated file's syntax. Multiline constructs and embedded languages keep their
+full source context, even outside the displayed hunks. Theme changes apply to open
+reviews. Files without a usable grammar retain plain diff highlighting.
+Changed-token styles overlay the syntax colors; themes can use background or
+modifier-only `diff.plus.word` / `diff.minus.word` styles to retain token foregrounds.
+
 | Command | Action |
 | --- | --- |
 | Enter, `:diff-open-source` | Jump to the selected source location |

@@ -188,7 +188,7 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         toml::from_str(
             r#"
         [[language]]
-        name = "review-json"
+        name = "json"
         scope = "source.json"
         file-types = ["json"]
         grammar = "json"
@@ -201,12 +201,15 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         .with_lang_loader(languages)
         .with_file(&path, None)
         .build()?;
-    app.editor.theme = theme::Theme::from(toml::from_str::<toml::Value>(
-        r##"
+    app.editor
+        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+            r##"
         "ui.text" = { fg = "white" }
         "ui.selection" = { bg = "blue" }
         "ui.cursor" = { fg = "black", bg = "yellow" }
         "ui.background" = { bg = "#101010" }
+        "variable.other.member" = "cyan"
+        "string" = "blue"
         "diff.plus" = "green"
         "diff.minus" = "red"
         "diff.plus.word" = { fg = "green", modifiers = ["bold"] }
@@ -214,7 +217,7 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         "diff.plus.line" = { bg = "#103010" }
         "diff.minus.line" = { bg = "#301010" }
     "##,
-    )?);
+        )?))?;
     keys(&mut app, ":diff<ret>").await?;
     ready(&mut app).await?;
     // Settle the frame requested by the completed review callback.
@@ -234,7 +237,7 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         && cell.fg == Color::Green
         && cell.modifier.contains(Modifier::BOLD)));
     assert!(buffer.content.iter().any(|cell| cell.symbol() == "λ"
-        && cell.fg == Color::White
+        && cell.fg == Color::Cyan
         && !cell.modifier.contains(Modifier::BOLD)));
     let (view, doc) = current_ref!(app.editor);
     let area = view.content_area(doc);
@@ -265,5 +268,147 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         "wrapped rows must retain diff backgrounds: added {added_rows}, removed {removed_rows}"
     );
     assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_theme_changes(
+) -> anyhow::Result<()> {
+    use tui::style::Color;
+    for (engine, extension) in [
+        (editor_config::DiffEngine::Line, "rs"),
+        (editor_config::DiffEngine::Syntax, "rs"),
+        (editor_config::DiffEngine::Line, "md"),
+    ] {
+        let dir = tempfile::tempdir()?;
+        git(dir.path(), &["init"]);
+        git(dir.path(), &["config", "core.autocrlf", "false"]);
+        let path = dir.path().join(format!("source.{extension}"));
+        // The opening comment is deliberately outside the displayed hunk. The
+        // removed declaration is a comment; the added declaration is Rust code.
+        let lead: String = (0..10).map(|i| format!("// lead {i}\n")).collect();
+        let tail: String = (0..10).map(|i| format!("// tail {i}\n")).collect();
+        let before = format!("fn main() {{\n/* opening\n{lead}let old = 1;\n{tail}*/\n}}\n");
+        let after = format!("fn main() {{\n/* opening\n{lead}*/\nlet new = 2;\n{tail}}}\n");
+        let (before, after) = if extension == "md" {
+            (
+                format!("```rust\n{before}```\n"),
+                format!("```rust\n{after}```\n"),
+            )
+        } else {
+            (before, after)
+        };
+        std::fs::write(&path, before)?;
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "initial"]);
+        std::fs::write(&path, after)?;
+        let mut config = test_config();
+        config.editor.diff.engine = engine;
+        config.editor.cursor.highlight_line = false;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_lang_loader(language::Loader::new(
+                toml::from_str(
+                    r#"
+                [[language]]
+                name = "rust"
+                scope = "source.rust"
+                file-types = ["rs"]
+                [[language]]
+                name = "markdown"
+                scope = "text.markdown"
+                file-types = ["md"]
+                [[language]]
+                name = "markdown.inline"
+                scope = "text.markdown.inline"
+                grammar = "markdown_inline"
+                file-types = []
+            "#,
+                )?,
+                Default::default(),
+            )?)
+            .with_file(&path, None)
+            .build()?;
+        let theme = |comment: &str, keyword: &str| -> anyhow::Result<theme::Theme> {
+            Ok(theme::Theme::from(toml::from_str::<toml::Value>(
+                &format!(
+                    r##"
+                "ui.text" = "white"
+                "ui.selection" = {{ bg = "blue" }}
+                "ui.cursor" = {{ fg = "black", bg = "yellow" }}
+                "comment" = "{comment}"
+                "keyword" = "{keyword}"
+                "variable" = "cyan"
+                "constant.numeric" = "yellow"
+                "diff.plus" = "green"
+                "diff.minus" = "red"
+                "diff.plus.word" = {{ modifiers = ["bold"] }}
+                "diff.minus.word" = {{ modifiers = ["bold"] }}
+                "diff.plus.line" = {{ bg = "#103010" }}
+                "diff.minus.line" = {{ bg = "#301010" }}
+            "##
+                ),
+            )?))
+        };
+        app.editor.set_theme(theme("blue", "magenta")?)?;
+        keys(&mut app, ":diff<ret>").await?;
+        ready(&mut app).await?;
+        keys(&mut app, "").await?;
+        let assert_colors = |app: &Application, comment: Color, keyword: Color| {
+            let buffer = app.terminal_backend().buffer();
+            for (contents, color, background) in [
+                ("let old", comment, Color::Rgb(48, 16, 16)),
+                ("let new", keyword, Color::Rgb(16, 48, 16)),
+            ] {
+                let row = (0..buffer.area.height)
+                    .find_map(|y| {
+                        let text: String = (0..buffer.area.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect();
+                        text.find(contents)
+                            .map(|byte| (text[..byte].chars().count() as u16, y))
+                    })
+                    .unwrap_or_else(|| panic!("Missing {contents:?} in {engine:?} review"));
+                let cell = &buffer[row];
+                assert_eq!(cell.fg, color, "{contents:?}, {engine:?}");
+                assert_eq!(cell.bg, background, "{contents:?}, {engine:?}");
+            }
+        };
+        assert_colors(&app, Color::Blue, Color::Magenta);
+        let source = current_ref!(app.editor)
+            .1
+            .review()
+            .unwrap()
+            .source()
+            .unwrap()
+            .clone();
+        assert!(source
+            .syntax_for_row(
+                source
+                    .compute(Some(engine), &|| false)
+                    .lines
+                    .iter()
+                    .find(|row| row.text.contains("let old"))
+                    .unwrap()
+            )
+            .is_some());
+        app.editor.set_theme(theme("red", "green")?)?;
+        keys(&mut app, "").await?;
+        assert_colors(&app, Color::Red, Color::Green);
+        keys(&mut app, ":diff-engine<ret>").await?;
+        ready(&mut app).await?;
+        keys(&mut app, "").await?;
+        assert_colors(&app, Color::Red, Color::Green);
+        assert!(std::sync::Arc::ptr_eq(
+            &source,
+            current_ref!(app.editor)
+                .1
+                .review()
+                .unwrap()
+                .source()
+                .unwrap()
+        ));
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }

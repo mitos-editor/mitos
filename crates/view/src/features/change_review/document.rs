@@ -260,6 +260,10 @@ impl Editor {
                     }
                 };
                 ensure!(!check.is_canceled(), "Review canceled");
+                if !review.truncated {
+                    source.prepare_syntax(&|| check.is_canceled());
+                }
+                ensure!(!check.is_canceled(), "Review canceled");
                 let after = projection(&review);
                 let transaction = text_diff::compare_ropes(&before, &after.text);
                 Ok(Computed {

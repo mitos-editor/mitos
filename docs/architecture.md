@@ -1156,6 +1156,12 @@ saves enforce the document's content policy independently of terminal keybinding
 
 `term::ui::change_review` retains compact picker/popup presentation and supplies
 review-specific line backgrounds and token overlays to the normal editor renderer.
+Review sources cache separately parsed before/after syntax trees, initialized by
+the owning review worker with the ordinary language loader and parse budgets.
+The terminal queries visible source ranges and maps syntax styles onto review
+rows; injected languages and multiline context come from the complete snapshots.
+Highlight scopes resolve against the current theme, independently of diff-engine
+selection. Unified rows never become a source syntax tree or bind source services.
 Shared gutter layout and drawing use the same projected source rows. Review
 buffers reuse native movement, search, selection, yanking, view navigation, and
 buffer lifecycle. Source navigation validates the captured after-side before

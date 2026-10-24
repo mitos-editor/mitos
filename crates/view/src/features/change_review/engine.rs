@@ -6,9 +6,9 @@ use std::{
 };
 
 use editor_core::Rope;
-use language::{Language, Loader};
+use language::{Language, Loader, Syntax};
 use language_config::DiffEngine;
-use text_diff::{Review, ReviewProvider, ReviewUnavailable};
+use text_diff::{Review, ReviewLine, ReviewLineKind, ReviewProvider, ReviewUnavailable};
 
 use crate::Editor;
 
@@ -61,6 +61,12 @@ pub struct ReviewSource {
     settings: Settings,
     line_review: OnceLock<Arc<Review>>,
     syntax_review: OnceLock<Arc<Review>>,
+    syntax: OnceLock<SourceSyntax>,
+}
+
+struct SourceSyntax {
+    before: Option<Syntax>,
+    after: Option<Syntax>,
 }
 
 impl ReviewSource {
@@ -72,6 +78,7 @@ impl ReviewSource {
             settings,
             line_review: OnceLock::new(),
             syntax_review: OnceLock::new(),
+            syntax: OnceLock::new(),
         }
     }
 
@@ -82,6 +89,47 @@ impl ReviewSource {
     /// The immutable after-side used to validate navigation into a live document.
     pub fn after(&self) -> &Rope {
         &self.after
+    }
+
+    /// Parse the immutable sides off-thread using the ordinary language loader,
+    /// injection support, and interactive parse budget. Never parse unified rows
+    /// as source code. Canceled work must not populate this shared cache.
+    pub(super) fn prepare_syntax(&self, canceled: &dyn Fn() -> bool) {
+        if self.syntax.get().is_some() || canceled() {
+            return;
+        }
+        let parse = |text: &Rope| {
+            self.settings.language.and_then(|language| {
+                Syntax::new(text.slice(..), language, &self.settings.loader).ok()
+            })
+        };
+        let before = parse(&self.before);
+        if canceled() {
+            return;
+        }
+        let after = parse(&self.after);
+        if !canceled() {
+            // A theme switch may have happened while queries were compiling.
+            self.settings.loader.refresh_highlights();
+            let _ = self.syntax.set(SourceSyntax { before, after });
+        }
+    }
+
+    pub fn syntax_loader(&self) -> &Loader {
+        &self.settings.loader
+    }
+
+    /// Source coordinates and complete syntax context behind a projected row.
+    /// Header/notice rows and sources without a usable grammar have no syntax.
+    pub fn syntax_for_row(&self, row: &ReviewLine) -> Option<(&Rope, &Syntax, usize)> {
+        let syntax = self.syntax.get()?;
+        match row.kind {
+            ReviewLineKind::Removed => Some((&self.before, syntax.before.as_ref()?, row.before?)),
+            ReviewLineKind::Added | ReviewLineKind::Context => {
+                Some((&self.after, syntax.after.as_ref()?, row.after?))
+            }
+            ReviewLineKind::Header | ReviewLineKind::Notice => None,
+        }
     }
 
     /// Retain at most two bounded models per source. Canceled syntax work never enters the cache.

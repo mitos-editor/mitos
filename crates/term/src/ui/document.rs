@@ -30,13 +30,26 @@ pub fn render_document(
         ),
         layout.viewport,
     );
+    let review_styles = super::change_review::document::syntax_styles(
+        doc,
+        layout.offset.anchor,
+        layout.viewport.height,
+        theme,
+    );
+    let ordinary_styles = super::highlights::syntax_styles(layout.text, syntax_highlighter, theme)
+        .take(if review_styles.is_some() {
+            0
+        } else {
+            usize::MAX
+        });
+    let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
     render_text(
         &mut renderer,
         layout.text,
         layout.offset.anchor,
         &layout.format,
         &layout.annotations,
-        super::highlights::syntax_styles(layout.text, syntax_highlighter, theme),
+        syntax_styles,
         overlay_highlights,
         theme,
         decorations,

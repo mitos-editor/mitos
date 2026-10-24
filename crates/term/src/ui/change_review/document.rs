@@ -4,7 +4,7 @@
 use stdx::rope::RopeExt as _;
 
 use editor_core::highlight::OverlayHighlights;
-use theme::Theme;
+use theme::{Style, Theme};
 use view::{features::change_review::ReviewLineKind, graphics::Rect, Document};
 
 use crate::ui::{
@@ -33,6 +33,50 @@ pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decorat
     }
 }
 
+/// Highlight visible rows against their original syntax trees. Each side keeps
+/// its full multiline/injection context, and only visible source ranges are
+/// queried. Resolving scopes at draw time also supports live theme changes.
+pub fn syntax_styles(
+    doc: &Document,
+    anchor: usize,
+    height: u16,
+    theme: &Theme,
+) -> Option<Vec<(usize, Style)>> {
+    let review = doc.review()?;
+    let source = review.source()?;
+    let loader = source.syntax_loader();
+    // Captured reviews can outlive a language-loader reload. Keep that loader's
+    // highlight IDs aligned with the currently displayed theme too.
+    if loader.scopes().as_slice() != theme.scopes() {
+        loader.set_scopes(theme.scopes().to_vec());
+    }
+    let text = doc.text();
+    let first = text.char_to_line_idx(anchor.min(text.len_chars()));
+    let last = (first + usize::from(height) + 1).min(text.len_lines(stdx::rope::LINE_TYPE));
+    let mut styles = Vec::new();
+    for index in first..last {
+        let start = text.line_to_char_idx(index);
+        styles.push((start, theme.get("ui.text")));
+        let Some(row) = review.row(index) else {
+            continue;
+        };
+        let Some((original, syntax, line)) = source.syntax_for_row(row) else {
+            continue;
+        };
+        let byte = original.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
+        let end = byte + row.text.len();
+        let char_start = original.byte_to_char_idx(byte);
+        let char_end = original.byte_to_char_idx(end);
+        let highlighter = syntax.highlighter(original.slice(..), loader, byte as u32..end as u32);
+        styles.extend(
+            super::super::highlights::syntax_styles(original.slice(..), Some(highlighter), theme)
+                .take_while(|(position, _)| *position <= char_end)
+                .map(|(position, style)| (start + position.saturating_sub(char_start), style)),
+        );
+    }
+    Some(styles)
+}
+
 pub fn highlights(
     doc: &Document,
     anchor: usize,
@@ -48,6 +92,9 @@ pub fn highlights(
         let Some(row) = review.row(index) else {
             continue;
         };
+        let has_syntax = review
+            .source()
+            .is_some_and(|source| source.syntax_for_row(row).is_some());
         let start = text.line_to_char_idx(index);
         let scope = match row.kind {
             ReviewLineKind::Added => "diff.plus",
@@ -57,11 +104,13 @@ pub fn highlights(
             ReviewLineKind::Context => continue,
         };
         if let Some(ranges) = review.changes(index) {
-            let highlight = theme.find_highlight(&format!("{scope}.word"))?;
+            let Some(highlight) = theme.find_highlight(&format!("{scope}.word")) else {
+                continue;
+            };
             for range in ranges {
                 highlights.push((highlight, start + range.start..start + range.end));
             }
-        } else if let Some(highlight) = theme.find_highlight(scope) {
+        } else if !has_syntax && let Some(highlight) = theme.find_highlight(scope) {
             highlights.push((
                 highlight,
                 start
