@@ -1531,6 +1531,8 @@ impl Default for IndentConfig {
 pub struct BufferLineConfig {
     /// Persistently display open buffers along the top
     pub show: BufferLine,
+    /// Show the focused buffer path relative to its workspace.
+    pub expand_active: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

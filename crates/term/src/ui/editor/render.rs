@@ -580,13 +580,16 @@ impl PaneRenderer {
                     current_tab = index;
                 }
 
-                let fname = doc
-                    .path()
-                    .unwrap_or(&scratch)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_str()
-                    .unwrap_or_default();
+                let fname = if editor.config().bufferline.expand_active && current_doc == doc.id() {
+                    doc.display_name().into_owned()
+                } else {
+                    doc.path()
+                        .unwrap_or(&scratch)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                };
 
                 let style = if current_doc == doc.id() {
                     bufferline_active
