@@ -719,6 +719,7 @@ pub struct StatusLineConfig {
     pub left: Vec<StatusLineElement>,
     pub right: Vec<StatusLineElement>,
     pub separator: String,
+    pub separators: StatusLineSeparators,
     pub mode: ModeConfig,
     pub diagnostics: Vec<Severity>,
     pub workspace_diagnostics: Vec<Severity>,
@@ -747,11 +748,19 @@ impl Default for StatusLineConfig {
                 E::FileEncoding,
             ],
             separator: String::from("│"),
+            separators: StatusLineSeparators::default(),
             mode: ModeConfig::default(),
             diagnostics: vec![Severity::Warning, Severity::Error],
             workspace_diagnostics: vec![Severity::Warning, Severity::Error],
         }
     }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct StatusLineSeparators {
+    pub left: Option<String>,
+    pub right: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -845,6 +854,9 @@ pub enum StatusLineElement {
 
     /// The base of current working directory
     CurrentWorkingDirectory,
+
+    /// Workspace name followed by the working directory within it.
+    Workspace,
 
     /// Indicator for when code actions are available
     CodeActionHint,

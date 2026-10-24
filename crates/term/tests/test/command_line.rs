@@ -664,3 +664,31 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn statusline_workspace_and_section_separators_render_independently() -> anyhow::Result<()> {
+    use editor_config::StatusLineElement as E;
+    let mut config = test_config();
+    config.editor.statusline.left = vec![E::Workspace, E::Separator];
+    config.editor.statusline.right = vec![E::Separator, E::Position];
+    config.editor.statusline.separators.left = Some("LEFT".into());
+    config.editor.statusline.separators.right = Some("RIGHT".into());
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    keys(&mut app, "<esc>").await?;
+    let root = view::current_ref!(app.editor).1.workspace_root();
+    let name = root
+        .file_name()
+        .unwrap_or(root.as_os_str())
+        .to_string_lossy();
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains(&format!(" {name}")), "{text:?}");
+    assert!(text.contains(&format!("crates{}term LEFT", std::path::MAIN_SEPARATOR)));
+    assert!(text.contains("RIGHT 1:1 "));
+    Ok(())
+}
