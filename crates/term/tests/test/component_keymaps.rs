@@ -449,3 +449,58 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mouse_wheel_navigates_menu_items_and_emits_updates() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("")?;
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let recorded = events.clone();
+    let menu = Menu::new(
+        vec![OptionItem("one"), OptionItem("two")],
+        (),
+        move |_, item, event| {
+            recorded.borrow_mut().push((item.map(|item| item.0), event));
+        },
+    );
+    let mut popup = Popup::new("wheel-test", menu)
+        .menu_style()
+        .with_scrollbar(false);
+    let viewport = Rect::new(0, 0, 40, 12);
+    popup.render(
+        viewport,
+        &mut Buffer::empty(viewport),
+        &mut fixture.context(),
+    );
+    let area = popup.area(viewport, &fixture.app.editor);
+    let outside = Event::Mouse(ui_core::input::MouseEvent {
+        kind: ui_core::input::MouseEventKind::ScrollDown,
+        column: area.right(),
+        row: area.y,
+        modifiers: ui_core::input::KeyModifiers::empty(),
+    });
+    assert!(matches!(
+        popup.handle_event(&outside, &mut fixture.context()),
+        EventResult::Ignored(None)
+    ));
+    assert!(events.borrow().is_empty());
+    for kind in [
+        ui_core::input::MouseEventKind::ScrollDown,
+        ui_core::input::MouseEventKind::ScrollDown,
+        ui_core::input::MouseEventKind::ScrollUp,
+    ] {
+        let event = Event::Mouse(ui_core::input::MouseEvent {
+            kind,
+            column: area.x,
+            row: area.y,
+            modifiers: ui_core::input::KeyModifiers::empty(),
+        });
+        consumed(popup.handle_event(&event, &mut fixture.context()));
+    }
+    assert_eq!(popup.contents().selection().unwrap().0, "one");
+    assert_eq!(events.borrow().len(), 3);
+    assert!(events
+        .borrow()
+        .iter()
+        .all(|(_, event)| *event == PromptEvent::Update));
+    Ok(())
+}
