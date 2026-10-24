@@ -38,6 +38,8 @@ mod test {
     mod document_symbols;
     mod file_operations;
     mod formatting;
+    #[cfg(feature = "git")]
+    mod git_diff;
     mod inline_completion;
     mod language_features;
     mod lsp_alternatives;

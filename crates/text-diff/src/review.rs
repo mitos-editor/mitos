@@ -224,6 +224,30 @@ impl Review {
         self.largest_line.to_string().len().max(1)
     }
 
+    /// Map a review row to the after-side. Removed rows point at the deletion
+    /// boundary, never at an unrelated later hunk. The caller clamps EOF.
+    pub fn after_line_at(&self, row: usize) -> Option<usize> {
+        let line = self.lines.get(row)?;
+        if let Some(after) = line.after {
+            return Some(after);
+        }
+        if line.kind == ReviewLineKind::Notice {
+            return None;
+        }
+        self.lines[row + 1..]
+            .iter()
+            .take_while(|line| line.kind != ReviewLineKind::Header)
+            .find_map(|line| line.after)
+            .or_else(|| {
+                self.lines[..row]
+                    .iter()
+                    .rev()
+                    .take_while(|line| line.kind != ReviewLineKind::Header)
+                    .find_map(|line| line.after.map(|line| line + 1))
+            })
+            .or_else(|| (line.kind == ReviewLineKind::Removed).then_some(0))
+    }
+
     fn push(
         &mut self,
         kind: ReviewLineKind,
@@ -358,6 +382,35 @@ fn range_label(range: &Range<usize>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_navigation_maps_deletions_without_crossing_hunk_boundaries() {
+        for (before, after, boundary) in [
+            ("removed\nkeep\n", "keep\n", 0),
+            ("keep\nremoved\nend\n", "keep\nend\n", 1),
+            ("keep\nremoved\n", "keep\n", 1),
+            ("removed\n", "", 0),
+        ] {
+            let review = Review::new(Rope::from(before), Rope::from(after), None);
+            let row = review
+                .lines
+                .iter()
+                .position(|line| line.kind == ReviewLineKind::Removed)
+                .unwrap();
+            assert_eq!(review.after_line_at(row), Some(boundary));
+            assert_eq!(review.after_line_at(usize::MAX), None);
+        }
+        let before: String = (0..30).map(|i| format!("line {i}\n")).collect();
+        let after = before.replace("line 2\n", "").replace("line 25\n", "new\n");
+        let review = Review::new(Rope::from(before), Rope::from(after), None);
+        let row = review
+            .lines
+            .iter()
+            .position(|line| line.kind == ReviewLineKind::Removed)
+            .unwrap();
+        assert_eq!(review.after_line_at(row), Some(2));
+        assert_eq!(Review::notice("No text changes").after_line_at(0), None);
+    }
 
     struct Provider(ReviewChanges);
 

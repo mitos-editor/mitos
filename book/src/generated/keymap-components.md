@@ -210,10 +210,24 @@
 | `` y `` | `` copy_commit_id `` |
 | `` Y `` | `` copy_message `` |
 
-## Diff popup
+## Diff view and popup
 
 | Key | Action |
 | --- | --- |
+| `` q ``, `` <C-c> ``, `` <esc> `` | `` close `` |
+| `` j ``, `` <down> `` | `` move_down `` |
+| `` <end> `` | `` move_end `` |
+| `` <home> `` | `` move_start `` |
+| `` k ``, `` <up> `` | `` move_up `` |
+| `` <A-right> `` | `` next_comparison `` |
+| `` n `` | `` next_hunk `` |
+| `` o `` | `` open_file `` |
+| `` <ret> `` | `` open_source `` |
+| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <A-left> `` | `` previous_comparison `` |
+| `` p `` | `` previous_hunk `` |
+| `` r `` | `` refresh `` |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
 | `` <A-d> `` | `` toggle_engine `` |

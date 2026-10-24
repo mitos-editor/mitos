@@ -170,6 +170,42 @@ impl DiffProviderRegistry {
         }
         bail!("No Git support compiled in")
     }
+
+    /// Resolve the current staged/unstaged paths, including rename chains.
+    /// Call on a blocking worker when a review is opened without a status picker
+    /// or explicitly refreshed; ordinary preview polling can reuse its status.
+    pub fn file_status(&self, path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+        #[cfg(feature = "git")]
+        if self
+            .providers
+            .iter()
+            .any(|provider| matches!(provider, DiffProvider::Git))
+        {
+            let directory = path
+                .parent()
+                .and_then(|path| path.ancestors().find(|path| path.is_dir()))
+                .ok_or_else(|| anyhow!("File has no existing parent directory"))?;
+            let result = std::cell::RefCell::new(None);
+            git::for_each_file_status(
+                &ChangedFileScope::Repository(directory.into()),
+                trust_full,
+                |_, status| match status {
+                    Ok(status) if status.path() == path => {
+                        *result.borrow_mut() = Some(Ok(status));
+                        false
+                    }
+                    Err(error) => {
+                        *result.borrow_mut() = Some(Err(error));
+                        false
+                    }
+                    _ => true,
+                },
+            )?;
+            return result.into_inner().transpose();
+        }
+        let _ = (path, trust_full);
+        bail!("No Git support compiled in")
+    }
 }
 
 impl Default for DiffProviderRegistry {

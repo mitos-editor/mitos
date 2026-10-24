@@ -530,6 +530,17 @@ pub mod completers {
         Vec::new()
     }
 
+    pub fn diff_comparison(_editor: &Editor, input: &str) -> Vec<Completion> {
+        fuzzy_match(
+            input,
+            ["head", "staged", "unstaged", "buffer"],
+            MatchKind::Text,
+        )
+        .into_iter()
+        .map(|(name, _)| ((0..), Span::raw(name)))
+        .collect()
+    }
+
     pub fn buffer(editor: &Editor, input: &str) -> Vec<Completion> {
         let names = editor
             .documents

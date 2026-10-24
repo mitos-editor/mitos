@@ -78,9 +78,49 @@ The initial comparison shows unsaved edits when available, then unstaged changes
 then staged changes.
 
 Alt-Up / Alt-Down scroll the preview. `Alt-o` opens the selected comparison in a
-scrollable popup, including in narrow terminals where the preview pane is hidden.
+full-screen diff view, including in narrow terminals where the preview pane is hidden.
 Enter opens the file; for a deleted file, it opens the diff instead. Opening a diff
-captures a snapshot; reopen it to see subsequent changes.
+captures a snapshot; refresh or reopen it to see subsequent changes.
+
+### Full-screen diff view
+
+Run `:diff` or choose `diff` from the command palette to review all changes in the
+current file against `HEAD`, including unsaved edits. Use `:diff staged` for
+`HEAD` versus the index, `:diff unstaged` for the index versus disk, or
+`:diff buffer` for the index versus the open buffer. These comparisons also work
+in a repository without an initial commit. For deleted files, open the diff from
+the changed-file picker.
+
+The gutter shows the original and new line numbers and a `+` or `−` change marker.
+Added and removed rows have a background highlight across the view. A marker at
+the left identifies the selected row; hunk headers separate changes with their
+original source ranges. The heading shows the comparison, engine, and line counts.
+
+| Key | Action |
+| --- | --- |
+| Up / Down, `k` / `j` | Select a row |
+| Page Up / Page Down, Ctrl-u / Ctrl-d | Move by a page |
+| Home / End | Select the first / last row |
+| `p` / `n` | Previous / next hunk |
+| Left / Right | Scroll horizontally |
+| Alt-Left / Alt-Right | Switch comparison |
+| Alt-d | Switch line / syntax engine |
+| Enter | Jump to the selected location in the current file |
+| `o` | Open the current file without using snapshot line numbers |
+| `r` | Refresh the comparison |
+| Escape, `q`, Ctrl-c | Return to the picker or editor |
+
+Remap these actions under `[keys.diff]`. This view is read-only: editing keys and
+pasted text do not change the underlying document. Staging and stash actions are
+available after returning to the changed-file picker.
+
+The view retains a snapshot while you review it. Refresh captures current Git
+state and buffer contents; switching engines keeps the same source text. Enter
+requires the current file to match the snapshot's new side, so staged changes or
+external edits cannot send you to an unrelated line. Removed rows jump to their
+deletion boundary. Use `o` to open a file whose contents differ. A deleted path is
+never recreated by navigation. Opening a file returns to the editor; closing the
+diff returns to the picker when it was opened there.
 
 Picker controls can be remapped under `[keys.picker]`. Repository changes refresh
 picker rows and previews while preserving the query and selected path. File watching
@@ -111,7 +151,7 @@ name = "rust"
 diff-engine = "syntax"
 ```
 
-Press **Alt-d** in the changed-file picker or a diff popup to switch between line
+Press **Alt-d** in the changed-file picker, full-screen diff, or a diff popup to switch between line
 and syntax comparison for that review. The heading shows the active engine.
 Remap this with `toggle_diff_engine` under `[keys.picker]` and `toggle_engine`
 under `[keys.diff]`.
@@ -124,7 +164,7 @@ participate in comparison. Embedded languages use the root grammar's representat
 
 The original removed and added lines, source numbers, whitespace, and counts remain
 visible. A `layout only` heading means the syntax matched while the text changed.
-Diff gutters, change navigation, and `:restore-change` always use exact line hunks.
+Diff gutters, hunk navigation, and `:restore-change` always use exact line hunks.
 Syntax comparison does not infer semantic equivalence or identify moved code.
 
 Missing or incompatible grammars, parse errors, and exhausted comparison budgets

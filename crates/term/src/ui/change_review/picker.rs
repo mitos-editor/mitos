@@ -3,10 +3,7 @@
 use super::{load, Pending, ReviewView};
 use crate::{
     compositor::{Context, EventResult},
-    ui::{
-        picker::{PickerPreview, PreviewAction},
-        Popup,
-    },
+    ui::picker::{PickerPreview, PreviewAction},
 };
 use event::TaskController;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -228,7 +225,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 view.offset.min(view.review.lines.len().saturating_sub(
                     content.height.saturating_sub(view.heading_rows() as u16) as usize,
                 ));
-            view.draw(content, surface, cx, view.offset);
+            view.draw(content, surface, cx, view.offset, None);
         } else {
             surface.set_stringn(
                 area.x,
@@ -367,6 +364,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                         .display()
                 );
                 let worker = self.worker.clone();
+                let workspace = self.workspace.clone();
                 return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     let view = match ready {
                         Some(snapshot) => ReviewView::from_snapshot(title, &snapshot),
@@ -375,8 +373,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                         }
                     };
                     compositor.replace_or_push(
-                        ReviewView::ID,
-                        Popup::new(ReviewView::ID, view).auto_close(true),
+                        super::DiffView::ID,
+                        super::DiffView::new(view, status, workspace, comparison),
                     );
                 })));
             }

@@ -23,8 +23,10 @@ use crate::{
 
 mod picker;
 pub use picker::ChangeReviewPreview;
+mod workspace;
+pub use workspace::DiffView;
 
-/// Shared by the hunk popup, picker pane, and future host diff-view services.
+/// Shared presentation for hunk popups, picker previews, and the full diff view.
 pub struct ReviewView {
     pub title: String,
     pub review: Arc<Review>,
@@ -138,12 +140,20 @@ impl ReviewView {
             request: request.clone(),
             result,
         });
+        view.mode_worker = worker.clone();
         let cancel = view.task.restart();
         load(request, None, worker, cancel, tx, redraw);
         view
     }
 
-    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, scroll: usize) {
+    fn draw(
+        &self,
+        area: Rect,
+        surface: &mut Buffer,
+        cx: &Context,
+        scroll: usize,
+        selected: Option<usize>,
+    ) {
         if area.is_empty() {
             return;
         }
@@ -218,20 +228,36 @@ impl ReviewView {
                 ReviewLineKind::Header => (" ", theme.get("diff.delta")),
                 ReviewLineKind::Notice => (" ", theme.get("ui.text.inactive")),
             };
+            let row_area = Rect::new(area.x, area.y + row as u16 + heading_rows, area.width, 1);
+            let line_style = line_style(theme, line.kind);
+            surface.set_style(row_area, line_style);
+            let marker_style = match line.kind {
+                ReviewLineKind::Added => theme.get("diff.plus.gutter"),
+                ReviewLineKind::Removed => theme.get("diff.minus.gutter"),
+                _ => style,
+            };
             let number = |value: Option<usize>| {
                 value.map_or_else(
                     || " ".repeat(number_width),
                     |value| format!("{:>number_width$}", value + 1),
                 )
             };
-            let numbers = if area.width > 25 {
+            let numbers = if area.width as usize > number_width * 2 + 7 {
                 format!("{} {} ", number(line.before), number(line.after))
             } else {
                 String::new()
             };
             let mut spans = vec![
+                Span::styled(
+                    if selected == Some(row + scroll) {
+                        "▸"
+                    } else {
+                        " "
+                    },
+                    theme.get("ui.text.focus"),
+                ),
                 Span::styled(numbers, theme.get("ui.linenr")),
-                Span::styled(format!("{prefix} "), style),
+                Span::styled(format!("{prefix} "), marker_style),
             ];
             spans.extend(source_spans(
                 &line.text,
@@ -246,10 +272,7 @@ impl ReviewView {
                 style.add_modifier(view::graphics::Modifier::BOLD),
             ));
             let text = Line::from(spans);
-            Paragraph::new(text).render(
-                Rect::new(area.x, area.y + row as u16 + heading_rows, area.width, 1),
-                surface,
-            );
+            Paragraph::new(text).render(row_area, surface);
         }
     }
 }
@@ -257,8 +280,8 @@ impl ReviewView {
 #[cfg(test)]
 mod tests;
 
-impl Component for ReviewView {
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+impl ReviewView {
+    fn poll(&mut self, cx: &mut Context) {
         let mut recompute = false;
         if let Some(pending) = &mut self.pending {
             let result = match pending.result.try_recv() {
@@ -304,11 +327,18 @@ impl Component for ReviewView {
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
         }
+    }
+}
+
+impl Component for ReviewView {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+        self.poll(cx);
         self.draw(
             panel::content_area(area),
             surface,
             cx,
             cx.scroll.unwrap_or(self.offset),
+            None,
         );
     }
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
@@ -346,12 +376,46 @@ impl Component for ReviewView {
                             .saturating_add(8)
                             .min(self.review.max_line_chars()),
                         DiffAction::ToggleEngine => unreachable!(),
+                        _ => return EventResult::Ignored(None),
                     };
                 }
                 EventResult::Consumed(None)
             }
         }
     }
+}
+
+/// Theme overrides use `diff.plus.line` / `diff.minus.line`. Existing RGB themes
+/// get a subtle tint; terminal palettes keep their own selection background.
+fn line_style(theme: &theme::Theme, kind: ReviewLineKind) -> view::graphics::Style {
+    use view::graphics::Color;
+    let scope = match kind {
+        ReviewLineKind::Added => "diff.plus",
+        ReviewLineKind::Removed => "diff.minus",
+        ReviewLineKind::Header => return theme.get("ui.text.inactive"),
+        _ => return theme.get("ui.text"),
+    };
+    if let Some(style) = theme.try_get_exact(&format!("{scope}.line")) {
+        return style;
+    }
+    let mut style = theme.get("ui.text");
+    style.bg = match (theme.get("ui.background").bg, theme.get(scope).fg) {
+        (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(dr, dg, db))) => {
+            let mix = |a: u8, b: u8| ((u16::from(a) * 7 + u16::from(b)) / 8) as u8;
+            Some(Color::Rgb(mix(r, dr), mix(g, dg), mix(b, db)))
+        }
+        _ => {
+            let selection = theme.get("ui.selection");
+            selection.bg.or_else(|| {
+                selection
+                    .add_modifier
+                    .contains(view::graphics::Modifier::REVERSED)
+                    .then_some(selection.fg)
+                    .flatten()
+            })
+        }
+    };
+    style
 }
 
 /// Keep controls literal; escape sequences and Markdown in source files are text.
@@ -432,13 +496,8 @@ fn load(
                 return;
             };
             let check = cancel.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                let _permit = permit;
-                anyhow::ensure!(!check.is_canceled(), "Diff preview cancelled");
-                request.compute_cached_cancellable(previous, &|| check.is_canceled())
-            })
-            .await
-            .unwrap_or_else(|error| Err(error.into()));
+            let result = request.run(previous, check).await;
+            drop(permit);
             if !cancel.is_canceled() {
                 let _ = tx.send(result);
                 redraw.request();

@@ -79,6 +79,11 @@ impl ReviewSource {
         self.settings.engine
     }
 
+    /// The immutable after-side used to validate navigation into a live document.
+    pub fn after(&self) -> &Rope {
+        &self.after
+    }
+
     /// Retain at most two bounded models per source. Canceled syntax work never enters the cache.
     pub fn compute(&self, engine: Option<DiffEngine>, canceled: &dyn Fn() -> bool) -> Arc<Review> {
         if canceled() {

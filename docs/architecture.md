@@ -1144,6 +1144,15 @@ errors. The command catalog remains static.
 
 ## Terminal rendering
 
+Native change review uses immutable source-mapped rows from `text-diff`.
+`view::features::change_review` captures Git and buffer inputs, language and
+engine policy, and a shared execution budget. `term::ui::change_review` draws the
+same rows in picker previews, hunk popups, and a full-screen `DiffView`. That
+component owns row selection and scrolling; refresh recaptures inputs, whereas
+engine switches reuse the captured source. Navigation checks the after-side
+against the live document before applying source line numbers. Git status and
+rename resolution remain in `vcs`; review UI does not mutate the repository.
+
 `term::compositor` owns components, layers, input dispatch, and render orchestration.
 `term::ui` owns widgets and conversions into Ratatui text and buffers. `tui` owns
 the backend and terminal rendering integration; `ui-core` supplies shared value

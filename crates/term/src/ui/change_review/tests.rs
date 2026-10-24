@@ -1,6 +1,42 @@
 use super::*;
 
 #[test]
+fn row_highlights_support_rgb_terminal_palettes_and_explicit_overrides() {
+    use view::graphics::Color;
+    let theme = theme::Theme::from(
+        toml::from_str::<toml::Value>(
+            r##"
+        "ui.background" = { bg = "#101010" }
+        "diff.plus" = "#90d090"
+        "diff.minus.line" = { bg = "#402020" }
+    "##,
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        line_style(&theme, ReviewLineKind::Added).bg,
+        Some(Color::Rgb(32, 40, 32))
+    );
+    assert_eq!(
+        line_style(&theme, ReviewLineKind::Removed).bg,
+        Some(Color::Rgb(64, 32, 32))
+    );
+    let theme = theme::Theme::from(
+        toml::from_str::<toml::Value>(
+            r##"
+        "ui.selection" = { fg = "gray", modifiers = ["reversed"] }
+        "diff.plus" = "green"
+    "##,
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        line_style(&theme, ReviewLineKind::Added).bg,
+        Some(Color::Gray)
+    );
+}
+
+#[test]
 fn source_emphasis_survives_unicode_scrolling_and_control_sanitization() {
     let normal = view::graphics::Style::default();
     let changed = normal.add_modifier(view::graphics::Modifier::BOLD);

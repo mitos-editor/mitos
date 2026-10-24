@@ -23,6 +23,8 @@ pub enum ReviewComparison {
     #[default]
     Unstaged,
     Buffer,
+    /// HEAD compared with the current editor buffer, including unsaved edits.
+    Head,
 }
 
 impl ReviewComparison {
@@ -31,15 +33,22 @@ impl ReviewComparison {
             Self::Staged => "Staged · HEAD → index",
             Self::Unstaged => "Unstaged · index → working tree",
             Self::Buffer => "Unsaved · index → buffer",
+            Self::Head => "Changes · HEAD → buffer",
         }
+    }
+
+    fn uses_buffer(self) -> bool {
+        matches!(self, Self::Buffer | Self::Head)
     }
 }
 
 /// Capture is cheap: materialization, repository reads and differencing run off-thread.
 #[derive(Clone)]
 pub struct ReviewRequest {
+    worker: Arc<tokio::sync::Semaphore>,
     providers: vcs::DiffProviderRegistry,
     status: FileStatus,
+    fresh_status: bool,
     comparison: ReviewComparison,
     trust_full: bool,
     buffer: Option<Rope>,
@@ -90,14 +99,17 @@ impl ReviewRequest {
             .map_or(workspace, |doc| doc.workspace_root())
             .to_owned();
         Self {
+            worker: editor.handlers.change_review_worker.clone(),
             providers: editor.diff_providers.clone(),
             status: status.clone(),
+            fresh_status: false,
             comparison,
             trust_full: editor
                 .workspace_trust
                 .query(&workspace, workspace::trust::TrustQuery::Git)
                 .is_trusted(),
-            buffer: (comparison == ReviewComparison::Buffer)
+            buffer: comparison
+                .uses_buffer()
                 .then(|| document.map(|doc| doc.text().clone()))
                 .flatten(),
             document: document.map(|doc| (doc.id(), doc.version())),
@@ -111,6 +123,12 @@ impl ReviewRequest {
         if let Some(engine) = engine {
             self.settings.engine = engine;
         }
+        self
+    }
+
+    /// Re-resolve renames and conflicts when opening directly or refreshing.
+    pub fn with_fresh_status(mut self) -> Self {
+        self.fresh_status = true;
         self
     }
 
@@ -129,7 +147,7 @@ impl ReviewRequest {
                     .workspace_trust
                     .query(&self.workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted()
-            && (self.comparison != ReviewComparison::Buffer
+            && (!self.comparison.uses_buffer()
                 || self.document.is_some_and(|(id, version)| {
                     editor.document(id).is_some_and(|doc| {
                         doc.version() == version && doc.path() == Some(self.status.path())
@@ -144,11 +162,12 @@ impl ReviewRequest {
     /// Presentation changes can reuse captured text; document, trust, and language changes cannot.
     pub fn same_source(&self, other: &Self) -> bool {
         self.status == other.status
+            && self.fresh_status == other.fresh_status
             && self.encoding == other.encoding
             && self.settings.current(&other.settings)
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
-            && (self.comparison != ReviewComparison::Buffer || self.document == other.document)
+            && (!self.comparison.uses_buffer() || self.document == other.document)
     }
 
     fn stamp(&self) -> RepositoryStamp {
@@ -240,16 +259,44 @@ impl ReviewRequest {
         Ok(self.source()?.compute(None, &|| false))
     }
 
+    /// Run under the editor's bounded review budget, shared with hunk and
+    /// historical reads. Canceling a running read retains its permit until exit.
+    pub async fn run(
+        self: Arc<Self>,
+        previous: Option<Arc<ReviewSnapshot>>,
+        cancel: event::TaskHandle,
+    ) -> Result<Arc<ReviewSnapshot>> {
+        let worker = self.worker.clone();
+        let check = cancel.clone();
+        run_review(worker, cancel, move || {
+            self.compute_cached_cancellable(previous, &|| check.is_canceled())
+        })
+        .await
+    }
+
     fn source(&self) -> Result<ReviewSource> {
         let kind = match self.comparison {
             ReviewComparison::Staged => ComparisonKind::Staged,
             ReviewComparison::Buffer => ComparisonKind::Index,
             ReviewComparison::Unstaged => ComparisonKind::Unstaged,
+            ReviewComparison::Head => ComparisonKind::Head,
+        };
+        let status = if self.fresh_status {
+            self.providers
+                .file_status(self.status.path(), self.trust_full)?
+                .unwrap_or_else(|| FileStatus {
+                    staged: None,
+                    unstaged: Some(vcs::FileChange::Modified {
+                        path: self.status.path().to_owned(),
+                    }),
+                })
+        } else {
+            self.status.clone()
         };
         let comparison = self
             .providers
-            .read_comparison(&self.status, kind, self.trust_full)?;
-        let (before, after) = if self.comparison == ReviewComparison::Buffer {
+            .read_comparison(&status, kind, self.trust_full)?;
+        let (before, after) = if self.comparison.uses_buffer() {
             let buffer = self
                 .buffer
                 .clone()
@@ -401,7 +448,7 @@ impl HunkReviewRequest {
     pub async fn run(self: Arc<Self>) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
         let worker = self.worker.clone();
         let cancel = self.target.cancel_handle().clone();
-        run_hunk(worker, cancel, move || self.compute_review()).await
+        run_review(worker, cancel, move || self.compute_review()).await
     }
 
     pub fn compute(&self) -> Result<Arc<Review>> {
@@ -437,7 +484,7 @@ impl HunkReviewRequest {
     }
 }
 
-async fn run_hunk<T: Send + 'static>(
+async fn run_review<T: Send + 'static>(
     worker: Arc<tokio::sync::Semaphore>,
     cancel: event::TaskHandle,
     compute: impl FnOnce() -> Result<T> + Send + 'static,
@@ -473,7 +520,7 @@ mod tests {
         let mut task = event::TaskController::new();
         let (started, running) = tokio::sync::oneshot::channel();
         let (release, blocked) = std::sync::mpsc::channel();
-        let first = tokio::spawn(run_hunk(worker.clone(), task.restart(), move || {
+        let first = tokio::spawn(run_review(worker.clone(), task.restart(), move || {
             let _ = started.send(());
             blocked
                 .recv_timeout(std::time::Duration::from_secs(10))
@@ -481,7 +528,7 @@ mod tests {
             Ok(())
         }));
         running.await.unwrap();
-        let queued = tokio::spawn(run_hunk(
+        let queued = tokio::spawn(run_review(
             worker.clone(),
             task.restart(),
             || -> Result<()> { panic!("canceled queued work must never start") },
@@ -491,6 +538,6 @@ mod tests {
         let current = task.restart();
         assert!(queued.await.unwrap().is_err());
         release.send(()).unwrap();
-        assert_eq!(run_hunk(worker, current, || Ok(42)).await.unwrap(), 42);
+        assert_eq!(run_review(worker, current, || Ok(42)).await.unwrap(), 42);
     }
 }

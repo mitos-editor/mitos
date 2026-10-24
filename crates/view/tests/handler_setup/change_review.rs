@@ -8,6 +8,71 @@ use view::{
     features::change_review::{HunkReviewRequest, ReviewComparison, ReviewRequest},
 };
 
+#[tokio::test(flavor = "multi_thread")]
+async fn full_file_head_review_captures_unsaved_text_and_resolves_staged_renames(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::new("committed\nsecond\nthird\nfourth\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "staged\nsecond\nthird\nfourth\n")?;
+    git(f.dir.path(), &["add", "-A"]);
+    f.replace("unsaved\nsecond\nthird\nfourth\n");
+    let index = std::fs::read(f.dir.path().join(".git/index"))?;
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path: path.clone() }),
+    };
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Head, f.dir.path())
+        .with_fresh_status();
+    let mut task = event::TaskController::new();
+    let snapshot = Arc::new(request.clone()).run(None, task.restart()).await?;
+    assert_eq!(
+        snapshot.source.after().to_string(),
+        "unsaved\nsecond\nthird\nfourth\n"
+    );
+    assert!(snapshot
+        .review
+        .lines
+        .iter()
+        .any(|line| line.text == "committed"));
+    assert!(!snapshot
+        .review
+        .lines
+        .iter()
+        .any(|line| line.text == "staged"));
+    f.replace("newer\n");
+    assert!(!request.is_current(&f.editor));
+    assert_eq!(
+        std::fs::read_to_string(&path)?,
+        "staged\nsecond\nthird\nfourth\n"
+    );
+    assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
+
+    let renamed = path.with_file_name("renamed.txt");
+    git(
+        f.dir.path(),
+        &[
+            "mv",
+            path.file_name().unwrap().to_str().unwrap(),
+            "renamed.txt",
+        ],
+    );
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path: renamed }),
+    };
+    let review = ReviewRequest::new(&f.editor, &status, ReviewComparison::Staged, f.dir.path())
+        .with_fresh_status()
+        .compute()?;
+    assert!(review.lines.iter().any(|line| line.kind
+        == view::features::change_review::ReviewLineKind::Removed
+        && line.text == "committed"));
+    assert!(review.lines.iter().any(|line| line.kind
+        == view::features::change_review::ReviewLineKind::Added
+        && line.text == "staged"));
+    Ok(())
+}
+
 #[cfg(feature = "syntax-diff")]
 const JSON_LANGUAGE: &str = r#"
 [[language]]

@@ -287,8 +287,10 @@ See also [highlighting discussion][#2380]
 - `diff` - version control changes
   - `plus` - additions
     - `gutter` - gutter indicator
+    - `line` - added-row background in diff views (optional; otherwise derived from the theme)
   - `minus` - deletions
     - `gutter` - gutter indicator
+    - `line` - removed-row background in diff views (optional; otherwise derived from the theme)
   - `delta` - modifications
     - `moved` - renamed or moved files/changes
     - `conflict` - merge conflicts

@@ -32,6 +32,50 @@ pub(super) fn show_change(cx: &mut Context) {
     request_change(cx.editor, cx.jobs);
 }
 
+pub(super) fn diff(cx: &mut Context) {
+    if let Err(error) = request_diff(
+        cx.editor,
+        cx.jobs,
+        view::features::change_review::ReviewComparison::Head,
+    ) {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+fn request_diff(
+    editor: &mut Editor,
+    jobs: &mut crate::job::Jobs,
+    comparison: view::features::change_review::ReviewComparison,
+) -> anyhow::Result<()> {
+    let (view, doc) = view::current_ref!(editor);
+    anyhow::ensure!(
+        !doc.is_binary(),
+        "A text buffer is required to review changes"
+    );
+    let path = doc
+        .path()
+        .ok_or_else(|| anyhow::anyhow!("Save this buffer to a path before reviewing Git changes"))?
+        .to_owned();
+    let origin = (view.id, doc.id());
+    let workspace = doc.workspace_root().to_owned();
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path }),
+    };
+    let diff = crate::ui::change_review::DiffView::open(editor, status, workspace, comparison);
+    jobs.callback(async move {
+        Ok(crate::job::Callback::EditorCompositor(Box::new(
+            move |editor, compositor| {
+                let (view, doc) = view::current_ref!(editor);
+                if (view.id, doc.id()) == origin {
+                    compositor.replace_or_push(crate::ui::change_review::DiffView::ID, diff);
+                }
+            },
+        )))
+    });
+    Ok(())
+}
+
 fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
     use view::features::change_review::HunkReviewRequest;
     let request = match HunkReviewRequest::capture(editor) {
@@ -531,6 +575,25 @@ pub(super) mod typed {
             super::request_change(cx.editor, cx.jobs);
         }
         Ok(())
+    }
+
+    pub(in crate::commands) fn diff(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        use view::features::change_review::ReviewComparison;
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        let comparison = match args.first() {
+            None | Some("head") => ReviewComparison::Head,
+            Some("staged") => ReviewComparison::Staged,
+            Some("unstaged") => ReviewComparison::Unstaged,
+            Some("buffer") => ReviewComparison::Buffer,
+            Some(_) => bail!("Expected head, staged, unstaged, or buffer"),
+        };
+        super::request_diff(cx.editor, cx.jobs, comparison)
     }
 
     #[cold]

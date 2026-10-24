@@ -117,6 +117,7 @@
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `git_stash_picker` | Browse Git stashes in the current repository |  |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
+| `diff` | Review all changes in the current file in a full-screen diff view |  |
 | `changed_file_picker_in_repository` | Open changed file picker in repository |  |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
 | `workspace_symbol_picker` | Open workspace symbol picker |  |

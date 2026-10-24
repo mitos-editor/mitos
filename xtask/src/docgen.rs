@@ -350,7 +350,7 @@ pub fn component_keymaps() -> Result<String, DynError> {
     section!("Hover", hover);
     section!("Signature-help popup", signature_help);
     section!("Blame", blame);
-    section!("Diff popup", diff);
+    section!("Diff view and popup", diff);
     md.pop();
     Ok(md)
 }

@@ -94,7 +94,14 @@ pub(crate) fn read_git_comparison(
         }
     }
     let (before, after) = match kind {
-        ComparisonKind::Head => (read_head(path)?, Vec::new()),
+        ComparisonKind::Head => {
+            let original = status
+                .staged
+                .as_ref()
+                .or(status.unstaged.as_ref())
+                .map_or(path, source);
+            (read_head(original)?, Vec::new())
+        }
         ComparisonKind::Index => {
             let original = status.unstaged.as_ref().map_or(path, source);
             (read_index(original)?, Vec::new())
@@ -288,6 +295,8 @@ mod tests {
         let unstaged = read_git_comparison(&status, ComparisonKind::Unstaged, false).unwrap();
         assert_eq!(unstaged.before, staged.after);
         assert_eq!(unstaged.after, b"one\r\nedited\r\nthree\r\n");
+        let head = read_git_comparison(&status, ComparisonKind::Head, false).unwrap();
+        assert_eq!(head.before, staged.before);
     }
 
     #[test]
@@ -308,6 +317,8 @@ mod tests {
             assert_eq!(comparison.before, b"one\ntwo\nthree\n");
             assert_eq!(comparison.before, comparison.after);
         }
+        let head = read_git_comparison(status, ComparisonKind::Head, false).unwrap();
+        assert_eq!(head.before, b"one\ntwo\nthree\n");
     }
 
     #[test]

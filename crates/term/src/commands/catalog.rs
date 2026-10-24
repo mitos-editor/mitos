@@ -151,6 +151,7 @@ impl MappableCommand {
         toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline Git blame",
         git_stash_picker => super::vcs::git_stash_picker, "Browse Git stashes in the current repository",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
+        diff => super::vcs::diff, "Review all changes in the current file in a full-screen diff view",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
         select_references_to_symbol_under_cursor => super::lsp::select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker => super::lsp::workspace_symbol_picker, "Open workspace symbol picker",
@@ -1540,6 +1541,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: super::vcs::typed::show_change,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "diff",
+        aliases: &[],
+        doc: "Open a full-screen diff for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer).",
+        fun: super::vcs::typed::diff,
+        completer: CommandCompleter::positional(&[completers::diff_comparison]),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "restore-change",
