@@ -116,7 +116,7 @@ pub fn clipboard() -> std::io::Result<()> {
 
 pub fn languages_all() -> std::io::Result<()> {
     let trust = workspace_trust();
-    loader::config::warn_if_workspace_languages_skipped(&trust);
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
     languages(None, &trust)
 }
 
@@ -254,7 +254,7 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     let mut stdout = stdout.lock();
 
     let trust = workspace_trust();
-    loader::config::warn_if_workspace_languages_skipped(&trust);
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
     let syn_loader_conf = match user_lang_config(&trust) {
         Ok(conf) => conf,
         Err(err) => {

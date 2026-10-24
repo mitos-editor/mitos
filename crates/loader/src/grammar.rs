@@ -85,7 +85,7 @@ pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     // directory would clone and compile attacker code
     let trust =
         workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
-    crate::config::warn_if_workspace_languages_skipped(&trust);
+    crate::config::warn_if_workspace_languages_skipped(&trust)?;
     let config: Configuration = crate::config::user_lang_config(&trust)
         .context("Could not parse languages.toml")?
         .try_into()?;
@@ -110,7 +110,7 @@ pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
 pub fn get_grammar_names(
     trust: &workspace::trust::WorkspaceTrust,
 ) -> Result<Option<HashSet<String>>> {
-    crate::config::warn_if_workspace_languages_skipped(trust);
+    crate::config::warn_if_workspace_languages_skipped(trust)?;
     let config: Configuration = crate::config::user_lang_config(trust)
         .context("Could not parse languages.toml")?
         .try_into()?;
