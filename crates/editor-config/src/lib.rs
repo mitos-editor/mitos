@@ -341,6 +341,8 @@ pub struct Config {
     pub welcome_screen: bool,
     /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
     pub shell: Vec<String>,
+    /// Render run-shell-command output as highlighted shell code.
+    pub format_shell_output: bool,
     /// Line number mode.
     pub line_number: LineNumber,
     #[serde(deserialize_with = "deserialize_gutter_seq_or_struct")]
@@ -1171,6 +1173,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             welcome_screen: true,
+            format_shell_output: true,
             shell: if cfg!(windows) {
                 vec!["cmd".to_owned(), "/C".to_owned()]
             } else {
