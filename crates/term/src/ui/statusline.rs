@@ -1,5 +1,6 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
+use editor_core::unicode::width::UnicodeWidthStr;
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -630,9 +631,9 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     let title = if context.doc.is_modified() {
-        "[+]"
+        context.editor.config().file_modification_indicator.clone()
     } else {
-        "   "
+        " ".repeat(context.editor.config().file_modification_indicator.width())
     };
 
     write(context, title.into());

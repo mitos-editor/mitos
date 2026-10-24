@@ -171,12 +171,12 @@ impl PaneRenderer {
         ];
         let command_width = commands
             .iter()
-            .map(|(command, suffix, _)| command.width() + suffix.width())
+            .map(|(command, suffix, _)| command.width() + suffix.width() as usize)
             .max()
             .unwrap_or_default() as u16;
         let description_width = commands
             .iter()
-            .map(|(_, _, description)| description.width())
+            .map(|(_, _, description)| description.width() as usize)
             .max()
             .unwrap_or_default() as u16;
         const COMMAND_SPACING: u16 = 2;
@@ -595,7 +595,11 @@ impl PaneRenderer {
                 };
 
                 let show_file_icon = editor.config().icons && doc.path().is_some();
-                let modified = if doc.is_modified() { "[+]" } else { "" };
+                let modified = if doc.is_modified() {
+                    editor.config().file_modification_indicator.clone()
+                } else {
+                    String::new()
+                };
 
                 if show_file_icon && let Some(path) = doc.path() {
                     let icons = ICONS.load();

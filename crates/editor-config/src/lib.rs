@@ -413,6 +413,8 @@ pub struct Config {
     pub diagnostics: DiagnosticsConfig,
     pub indent: IndentConfig,
     pub bufferline: BufferLineConfig,
+    /// Indicator shared by modified buffer tabs and the statusline.
+    pub file_modification_indicator: String,
     pub rainbow_brackets: RainbowBracketsConfig,
 }
 
@@ -1217,6 +1219,7 @@ impl Default for Config {
             diagnostics: DiagnosticsConfig::default(),
             indent: IndentConfig::default(),
             bufferline: BufferLineConfig::default(),
+            file_modification_indicator: "[+]".into(),
             rainbow_brackets: RainbowBracketsConfig::default(),
         }
     }
