@@ -527,7 +527,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "buffer-close",
         aliases: &["bc", "bclose"],
-        doc: "Close the current buffer.",
+        doc: "Close the current buffer, or buffers specified by paths or displayed buffer IDs.",
         fun: super::buffers::typed::buffer_close,
         completer: CommandCompleter::all(completers::buffer),
         signature: Signature {
@@ -538,7 +538,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "buffer-close!",
         aliases: &["bc!", "bclose!"],
-        doc: "Close the current buffer forcefully, ignoring unsaved changes.",
+        doc: "Close the current buffer or specified paths/IDs forcefully, ignoring unsaved changes.",
         fun: super::buffers::typed::force_buffer_close,
         completer: CommandCompleter::all(completers::buffer),
         signature: Signature {
@@ -594,6 +594,11 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+    },
+    TypableCommand {
+        name: "buffer-nth", aliases: &["bi"], doc: "Switch to the nth open buffer (one-based). Use --reverse to count from the end.",
+        fun: super::buffers::typed::buffer_nth, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (1, Some(1)), flags: &[Flag {name: "reverse", alias: Some('r'), doc: "Count buffers from the end", ..Flag::DEFAULT}], ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "buffer-previous",

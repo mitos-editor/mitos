@@ -664,3 +664,19 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn buffer_close_accepts_the_displayed_buffer_id() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let id = app.editor.new_file(view::editor::Action::Load);
+    test_key_sequence(
+        &mut app,
+        Some(&format!(":bc {id}<ret>")),
+        Some(&|app| {
+            assert!(app.editor.document(id).is_none());
+            assert_eq!(app.editor.documents().count(), 1);
+        }),
+        false,
+    )
+    .await
+}

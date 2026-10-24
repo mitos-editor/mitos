@@ -177,7 +177,7 @@ pub(super) mod typed {
     use std::{collections::HashSet, path::Path};
     use view::{
         editor::{Action, CloseError},
-        DocumentId, Editor,
+        Document, DocumentId, Editor,
     };
 
     pub(in crate::commands) fn buffer_close_by_ids_impl(
@@ -218,6 +218,10 @@ pub(super) mod typed {
         editor: &mut Editor,
         args: Args,
     ) -> Vec<DocumentId> {
+        buffer_gather_impl(editor, args, false)
+    }
+
+    fn buffer_gather_impl(editor: &mut Editor, args: Args, allow_ids: bool) -> Vec<DocumentId> {
         // No arguments implies current document
         if args.is_empty() {
             let doc_id = view!(editor).document_id();
@@ -237,6 +241,17 @@ pub(super) mod typed {
                 } else {
                     None
                 }
+            });
+
+            // Exact paths win when a file has a numeric name.
+            let doc_id = doc_id.or_else(|| {
+                if !allow_ids {
+                    return None;
+                }
+                editor
+                    .documents()
+                    .find(|doc| doc.id().to_string() == arg)
+                    .map(Document::id)
             });
 
             match doc_id {
@@ -267,7 +282,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let document_ids = buffer_gather_paths_impl(cx.editor, args);
+        let document_ids = buffer_gather_impl(cx.editor, args, true);
         buffer_close_by_ids_impl(cx, &document_ids, false)
     }
 
@@ -281,7 +296,7 @@ pub(super) mod typed {
             return Ok(());
         }
 
-        let document_ids = buffer_gather_paths_impl(cx.editor, args);
+        let document_ids = buffer_gather_impl(cx.editor, args, true);
         buffer_close_by_ids_impl(cx, &document_ids, true)
     }
 
@@ -392,6 +407,22 @@ pub(super) mod typed {
         }
 
         goto_buffer(cx.editor, Direction::Backward, 1);
+        Ok(())
+    }
+
+    pub(in crate::commands) fn buffer_nth(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        let n: usize = args[0]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("provided argument is not an integer"))?;
+        cx.editor
+            .switch_to_nth_buffer(n, args.has_flag("reverse"))?;
         Ok(())
     }
 

@@ -5,13 +5,14 @@
 | `:quit`, `:q` | Close the current view. |
 | `:quit!`, `:q!` | Force close the current view, ignoring unsaved changes. |
 | `:open`, `:o`, `:edit`, `:e` | Open a file from disk into the current view. |
-| `:buffer-close`, `:bc`, `:bclose` | Close the current buffer. |
-| `:buffer-close!`, `:bc!`, `:bclose!` | Close the current buffer forcefully, ignoring unsaved changes. |
+| `:buffer-close`, `:bc`, `:bclose` | Close the current buffer, or buffers specified by paths or displayed buffer IDs. |
+| `:buffer-close!`, `:bc!`, `:bclose!` | Close the current buffer or specified paths/IDs forcefully, ignoring unsaved changes. |
 | `:buffer-close-others`, `:bco`, `:bcloseother` | Close all buffers but the currently focused one. |
 | `:buffer-close-others!`, `:bco!`, `:bcloseother!` | Force close all buffers but the currently focused one. |
 | `:buffer-close-all`, `:bca`, `:bcloseall` | Close all buffers without quitting. |
 | `:buffer-close-all!`, `:bca!`, `:bcloseall!` | Force close all buffers ignoring unsaved changes without quitting. |
 | `:buffer-next`, `:bn`, `:bnext` | Goto next buffer. |
+| `:buffer-nth`, `:bi` | Switch to the nth open buffer (one-based). Use --reverse to count from the end. |
 | `:buffer-previous`, `:bp`, `:bprev` | Goto previous buffer. |
 | `:write`, `:w` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). |
 | `:write!`, `:w!` | Force write changes to disk creating necessary subdirectories. Accepts an optional path (`:write! some/path.txt`). |

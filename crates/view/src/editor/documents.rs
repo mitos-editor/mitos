@@ -29,6 +29,22 @@ impl Editor {
         view.ensure_cursor_in_view(doc, scrolloff)
     }
 
+    /// Switch to a one-based buffer index in the same order as buffer cycling.
+    pub fn switch_to_nth_buffer(&mut self, n: usize, reverse: bool) -> anyhow::Result<()> {
+        let index = if reverse {
+            self.documents.len().checked_sub(n)
+        } else {
+            n.checked_sub(1)
+        };
+        let id = index
+            .filter(|_| n > 0)
+            .and_then(|index| self.documents.keys().nth(index))
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("buffer {n} is out of range"))?;
+        self.switch(id, Action::Replace);
+        Ok(())
+    }
+
     pub fn switch(&mut self, id: DocumentId, action: Action) {
         use crate::tree::Layout;
 
@@ -423,5 +439,25 @@ impl Editor {
     pub fn document_by_path_mut<P: AsRef<Path>>(&mut self, path: P) -> Option<&mut Document> {
         self.documents_mut()
             .find(|doc| doc.path().is_some_and(|p| p == path.as_ref()))
+    }
+}
+
+#[cfg(test)]
+mod buffer_index_tests {
+    use super::*;
+    #[tokio::test]
+    async fn nth_buffer_switches_in_cycling_order_and_rejects_invalid_indices() {
+        let (mut editor, _store) = crate::editor::tests::editor("#[|a]#");
+        let second = editor.new_file(Action::Load);
+        let third = editor.new_file(Action::Load);
+        editor.switch_to_nth_buffer(2, false).unwrap();
+        assert_eq!(current_ref!(editor).1.id(), second);
+        editor.switch_to_nth_buffer(1, true).unwrap();
+        assert_eq!(current_ref!(editor).1.id(), third);
+        for n in [0, 4, usize::MAX] {
+            assert!(editor.switch_to_nth_buffer(n, false).is_err());
+            assert!(editor.switch_to_nth_buffer(n, true).is_err());
+            assert_eq!(current_ref!(editor).1.id(), third);
+        }
     }
 }
