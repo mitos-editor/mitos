@@ -433,13 +433,7 @@ pub(super) mod typed {
             .transpose()?
             .unwrap_or_else(|| doc.text_width());
 
-        let transaction = editor_core::transform::reflow_selections(
-            doc.text(),
-            doc.selection(view.id),
-            text_width,
-            doc.line_ending,
-        );
-        view::editing::apply(doc, &transaction, view.id)?;
+        view::editing::reflow_selections(doc, view.id, text_width)?;
         doc.commit_changes();
         view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
