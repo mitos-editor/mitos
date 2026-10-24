@@ -290,7 +290,15 @@ impl<T: Item + 'static> Component for Menu<T> {
             Event::Key(event) => *event,
             // Menu is a modal and should consume mouse events so clicks don't fall
             // through to the editor underneath
-            Event::Mouse(_) => return EventResult::Consumed(None),
+            Event::Mouse(mouse) => {
+                let action = match mouse.kind {
+                    ui_core::input::MouseEventKind::ScrollDown => MenuAction::MoveDown,
+                    ui_core::input::MouseEventKind::ScrollUp => MenuAction::MoveUp,
+                    _ => return EventResult::Consumed(None),
+                };
+                self.keys.clear();
+                return self.execute_action(action, cx);
+            }
             Event::Paste(_) => {
                 self.keys.clear();
                 return EventResult::Ignored(None);

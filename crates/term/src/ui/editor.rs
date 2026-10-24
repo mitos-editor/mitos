@@ -683,7 +683,24 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
+            Event::Mouse(mouse_event) => {
+                if let Some(completion) = &mut self.completion {
+                    let mut completion_cx = Context {
+                        config: cx.config,
+                        editor: cx.editor,
+                        jobs: cx.jobs,
+                        scroll: None,
+                        image_picker: None,
+                        is_cursor_owner: false,
+                    };
+                    if let EventResult::Consumed(callback) =
+                        completion.handle_event(event, &mut completion_cx)
+                    {
+                        return EventResult::Consumed(callback);
+                    }
+                }
+                self.handle_mouse_event(mouse_event, &mut cx)
+            }
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;

@@ -218,15 +218,13 @@ impl<T: Component> Popup<T> {
         }
     }
 
-    fn handle_mouse_event(
-        &mut self,
-        &MouseEvent {
+    fn handle_mouse_event(&mut self, event: &MouseEvent, cx: &mut Context) -> EventResult {
+        let &MouseEvent {
             kind,
             column: x,
             row: y,
             ..
-        }: &MouseEvent,
-    ) -> EventResult {
+        } = event;
         if self.auto_close && matches!(kind, MouseEventKind::Down(_)) {
             let close_fn: Callback = Box::new(|compositor, _| {
                 // remove the layer
@@ -254,7 +252,7 @@ impl<T: Component> Popup<T> {
                 self.scroll_half_page_up();
                 EventResult::Consumed(None)
             }
-            _ => EventResult::Ignored(None),
+            _ => self.contents.handle_event(&Event::Mouse(*event), cx),
         }
     }
 }
@@ -272,7 +270,7 @@ impl<T: Component> Component for Popup<T> {
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         let key = match event {
             Event::Key(event) => *event,
-            Event::Mouse(event) => return self.handle_mouse_event(event),
+            Event::Mouse(event) => return self.handle_mouse_event(event, cx),
             Event::Resize(_, _) => {
                 // TODO: calculate inner area, call component's handle_event with that area
                 return EventResult::Ignored(None);
