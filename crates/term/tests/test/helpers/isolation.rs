@@ -29,6 +29,7 @@ pub fn workspace(test_name: &str) -> anyhow::Result<Option<PathBuf>> {
         .env("MITOS_RUNTIME", runtime.canonicalize()?)
         .env(ROOT, &root)
         .env(TEST, test_name)
+        .env_remove("MITOS_CONFIG_DIR")
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_DATA_HOME", root.join("data"))
         .env("XDG_CACHE_HOME", root.join("cache"))

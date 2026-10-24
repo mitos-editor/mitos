@@ -12,6 +12,13 @@ The user configuration directory is:
 - Linux and macOS: `~/.config/mitos`
 - Windows: `%AppData%\mitos`
 
+Set `MITOS_CONFIG_DIR` to use another user configuration directory on any
+platform. It applies to `config.toml`, `languages.toml`, snippets, and user
+runtime assets. Relative paths are resolved at startup and remain stable
+when you change the editor's working directory. An empty value uses the
+platform default. `--config` still overrides the main configuration file;
+it does not change the directory used for the other files.
+
 The main file is `config.toml`. Open it from Mitos with `:config-open`, then
 apply changes with `:config-reload`. On Unix, sending `USR1` to the Mitos
 process also reloads it, for example with `pkill -USR1 ms`.
