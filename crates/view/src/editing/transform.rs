@@ -27,6 +27,33 @@ pub fn reorder_selection_contents(
     Ok(())
 }
 
+/// Reflow with granular changes so stored selections and jumps follow surviving text.
+pub fn reflow_selections(
+    doc: &mut Document,
+    view_id: ViewId,
+    width: usize,
+) -> Result<(), EditError> {
+    let replacements = editor_core::transform::reflow_selections(
+        doc.text(),
+        doc.selection(view_id),
+        width,
+        doc.line_ending,
+    );
+    let mut changes = Vec::new();
+    for (from, to, replacement) in replacements.changes_iter() {
+        let diff = text_diff::compare_fragments(
+            doc.text().slice_chars(from..to),
+            replacement.as_deref().unwrap_or_default(),
+        );
+        changes.extend(
+            diff.changes_iter()
+                .map(|(start, end, text)| (from + start, from + end, text)),
+        );
+    }
+    let transaction = Transaction::change(doc.text(), changes.into_iter());
+    super::apply(doc, &transaction, view_id)
+}
+
 /// Join selected lines, continuing comments across matching language layers.
 pub fn join_selections(
     doc: &mut Document,
