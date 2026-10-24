@@ -14,6 +14,16 @@ pub enum SearchOutcome {
 }
 
 impl Editor {
+    /// Add all buffer matches without changing the primary selection or search wrap policy.
+    pub fn extend_all_search_matches(&mut self, regex: &rope::Regex) {
+        let (view, doc) = current!(self);
+        if let Some(selection) =
+            search::extend_all_matches(doc.text().slice(..), doc.selection(view.id), regex)
+        {
+            doc.set_selection(view.id, selection);
+        }
+    }
+
     /// Search repeatedly, updating the primary selection or adding matches. Stop
     /// at the first missing match and center the final cursor once.
     pub fn search_buffer(

@@ -137,6 +137,30 @@ pub(super) fn extend_search_prev(cx: &mut Context) {
     search_next_or_prev_impl(cx, Movement::Extend, Direction::Backward);
 }
 
+pub(super) fn extend_search_all(cx: &mut Context) {
+    let register = cx
+        .register
+        .unwrap_or(cx.editor.registers.last_search_register);
+    let Some(query) = cx.editor.first_register_value(register) else {
+        return;
+    };
+    let case_insensitive =
+        cx.editor.config().search.smart_case && !query.chars().any(char::is_uppercase);
+    let is_crlf = doc!(cx.editor).line_ending == LineEnding::Crlf;
+    match rope::RegexBuilder::new()
+        .syntax(
+            rope::Config::new()
+                .case_insensitive(case_insensitive)
+                .multi_line(true)
+                .crlf(is_crlf),
+        )
+        .build(&query)
+    {
+        Ok(regex) => cx.editor.extend_all_search_matches(&regex),
+        Err(err) => cx.editor.set_error(|| err.to_string()),
+    }
+}
+
 pub(super) fn search_selection(cx: &mut Context) {
     search_selection_impl(cx, false)
 }
