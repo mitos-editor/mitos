@@ -118,6 +118,9 @@ impl Client {
         enable_snippets: bool,
         client_info: lsp::ClientInfo,
     ) -> Result<lsp::InitializeResult> {
+        let interactive_input_types = [
+            "string", "bool", "number", "enum", "lazyEnum", "file", "list",
+        ];
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
         }
@@ -132,7 +135,16 @@ impl Client {
             root_uri: self.root_uri.clone(),
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
+                experimental: Some(serde_json::json!({
+                    "interactiveResolve": { "inputTypes": interactive_input_types }
+                })),
                 workspace: Some(lsp::WorkspaceClientCapabilities {
+                    interactive_resolve: Some(lsp::InteractiveResolveClientCapabilities {
+                        input_types: interactive_input_types
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
+                    }),
                     configuration: Some(true),
                     did_change_configuration: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
@@ -324,7 +336,6 @@ impl Client {
                     ]),
                     ..Default::default()
                 }),
-                ..Default::default()
             },
             trace: None,
             client_info: Some(client_info),

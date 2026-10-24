@@ -193,6 +193,7 @@ pub struct Document {
     pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: CodeActionHints,
     pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
+    pub(crate) interactive_command: Option<std::sync::Weak<crate::features::interactive::Session>>,
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
 
@@ -327,6 +328,7 @@ impl Document {
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
             code_actions: Default::default(),
+            interactive_command: None,
             document_links: Default::default(),
             document_colors: Default::default(),
             code_lenses: Default::default(),

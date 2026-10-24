@@ -79,7 +79,12 @@ impl Action {
             let server = editor.language_server_by_id(server_id).unwrap();
             match &action {
                 lsp::CodeActionOrCommand::Command(command) => {
-                    editor.execute_lsp_command(command.clone(), server_id);
+                    crate::features::interactive::execute(
+                        editor,
+                        command.clone(),
+                        server_id,
+                        context.clone(),
+                    );
                 }
                 lsp::CodeActionOrCommand::CodeAction(action) => {
                     if action.disabled.is_some() {
@@ -103,7 +108,9 @@ impl Action {
                                         return;
                                     }
                                     match result {
-                                        Ok(action) => apply_lsp_action(editor, server_id, &action),
+                                        Ok(action) => {
+                                            apply_lsp_action(editor, server_id, &action, &context)
+                                        }
                                         Err(err) => editor.set_error(|| {
                                             format!("Failed to resolve code action: {err}")
                                         }),
@@ -112,7 +119,7 @@ impl Action {
                                 .await;
                         });
                     } else {
-                        apply_lsp_action(editor, server_id, action);
+                        apply_lsp_action(editor, server_id, action, &context);
                     }
                 }
             }
@@ -136,6 +143,10 @@ struct LspActionSnapshot {
 }
 
 impl LspActionContext {
+    pub(crate) fn document_id(&self) -> DocumentId {
+        self.0.doc
+    }
+
     pub fn new(doc: &Document) -> Self {
         Self(Arc::new(LspActionSnapshot {
             doc: doc.id(),
@@ -167,7 +178,12 @@ impl LspActionContext {
     }
 }
 
-fn apply_lsp_action(editor: &mut Editor, server_id: LanguageServerId, action: &lsp::CodeAction) {
+fn apply_lsp_action(
+    editor: &mut Editor,
+    server_id: LanguageServerId,
+    action: &lsp::CodeAction,
+    context: &LspActionContext,
+) {
     if action.disabled.is_some() {
         return;
     }
@@ -180,7 +196,12 @@ fn apply_lsp_action(editor: &mut Editor, server_id: LanguageServerId, action: &l
     }
     // Commands may depend on the edit, so never execute one after an edit failure.
     if let Some(command) = &action.command {
-        editor.execute_lsp_command(command.clone(), server_id);
+        // A command may depend on the preceding edit. Bind its interactive phase
+        // to that updated document, even if focus moved during action resolution.
+        if let Some(doc) = editor.document(context.document_id()) {
+            let context = LspActionContext::new(doc);
+            crate::features::interactive::execute(editor, command.clone(), server_id, context);
+        }
     }
 }
 

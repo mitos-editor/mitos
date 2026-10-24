@@ -28,6 +28,7 @@ impl Application {
             return;
         }
         view::features::code_lenses::prepare_visible_code_lenses(&mut self.editor);
+        crate::handlers::interactive::clear_stale(&self.editor, &mut self.compositor);
 
         self.terminal
             .backend_mut()

@@ -39,6 +39,7 @@ mod test {
     mod file_operations;
     mod formatting;
     mod inline_completion;
+    mod interactive;
     mod language_features;
     mod lsp_alternatives;
     mod lsp_lifecycle;
