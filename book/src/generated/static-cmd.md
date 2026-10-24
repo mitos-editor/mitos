@@ -3,14 +3,14 @@
 | `no_op` | Do nothing |  |
 | `move_char_left` | Move left | normal: `` h ``, `` <left> ``, insert: `` <left> `` |
 | `move_char_right` | Move right | normal: `` l ``, `` <right> ``, insert: `` <right> `` |
-| `move_line_up` | Move up | normal: `` gk `` |
-| `move_line_down` | Move down | normal: `` gj `` |
+| `move_line_up` | Move up | normal: `` gk ``, `` g<up> `` |
+| `move_line_down` | Move down | normal: `` gj ``, `` g<down> `` |
 | `move_visual_line_up` | Move up | normal: `` k ``, `` <up> ``, insert: `` <up> `` |
 | `move_visual_line_down` | Move down | normal: `` j ``, `` <down> ``, insert: `` <down> `` |
 | `extend_char_left` | Extend left | select: `` h ``, `` <left> `` |
 | `extend_char_right` | Extend right | select: `` l ``, `` <right> `` |
-| `extend_line_up` | Extend up | select: `` gk `` |
-| `extend_line_down` | Extend down | select: `` gj `` |
+| `extend_line_up` | Extend up | select: `` gk ``, `` g<up> `` |
+| `extend_line_down` | Extend down | select: `` gj ``, `` g<down> `` |
 | `extend_visual_line_up` | Extend up | select: `` k ``, `` <up> `` |
 | `extend_visual_line_down` | Extend down | select: `` j ``, `` <down> `` |
 | `copy_selection_on_next_line` | Copy selection on next line | normal: `` C ``, select: `` C `` |
@@ -23,12 +23,12 @@
 | `move_prev_long_word_start` | Move to start of previous long word | normal: `` B `` |
 | `move_next_long_word_end` | Move to end of next long word | normal: `` E `` |
 | `move_prev_long_word_end` | Move to end of previous long word |  |
-| `move_next_sub_word_start` | Move to start of next sub word |  |
-| `move_prev_sub_word_start` | Move to start of previous sub word |  |
-| `move_next_sub_word_end` | Move to end of next sub word |  |
+| `move_next_sub_word_start` | Move to start of next sub word | normal: `` <A-w> `` |
+| `move_prev_sub_word_start` | Move to start of previous sub word | normal: `` <A-b> `` |
+| `move_next_sub_word_end` | Move to end of next sub word | normal: `` <A-e> `` |
 | `move_prev_sub_word_end` | Move to end of previous sub word |  |
-| `move_parent_node_end` | Move to end of the parent node | normal: `` <A-e> `` |
-| `move_parent_node_start` | Move to beginning of the parent node | normal: `` <A-b> `` |
+| `move_parent_node_end` | Move to end of the parent node | normal: `` <A-l> `` |
+| `move_parent_node_start` | Move to beginning of the parent node | normal: `` <A-h> `` |
 | `extend_next_word_start` | Extend to start of next word | select: `` w `` |
 | `extend_prev_word_start` | Extend to start of previous word | select: `` b `` |
 | `extend_next_word_end` | Extend to end of next word | select: `` e `` |
@@ -37,12 +37,12 @@
 | `extend_prev_long_word_start` | Extend to start of previous long word | select: `` B `` |
 | `extend_next_long_word_end` | Extend to end of next long word | select: `` E `` |
 | `extend_prev_long_word_end` | Extend to end of prev long word |  |
-| `extend_next_sub_word_start` | Extend to start of next sub word |  |
-| `extend_prev_sub_word_start` | Extend to start of previous sub word |  |
-| `extend_next_sub_word_end` | Extend to end of next sub word |  |
+| `extend_next_sub_word_start` | Extend to start of next sub word | select: `` <A-w> `` |
+| `extend_prev_sub_word_start` | Extend to start of previous sub word | select: `` <A-b> `` |
+| `extend_next_sub_word_end` | Extend to end of next sub word | select: `` <A-e> `` |
 | `extend_prev_sub_word_end` | Extend to end of prev sub word |  |
-| `extend_parent_node_end` | Extend to end of the parent node | select: `` <A-e> `` |
-| `extend_parent_node_start` | Extend to beginning of the parent node | select: `` <A-b> `` |
+| `extend_parent_node_end` | Extend to end of the parent node | select: `` <A-l> `` |
+| `extend_parent_node_start` | Extend to beginning of the parent node | select: `` <A-h> `` |
 | `find_till_char` | Move till next occurrence of char | normal: `` t `` |
 | `find_next_char` | Move to next occurrence of char | normal: `` f `` |
 | `extend_till_char` | Extend till next occurrence of char | select: `` t `` |
@@ -99,7 +99,7 @@
 | `append_mode` | Append after selection | normal: `` a ``, select: `` a `` |
 | `command_mode` | Enter command mode | normal: `` : ``, select: `` : `` |
 | `file_picker` | Open file picker | normal: `` <space>f ``, select: `` <space>f `` |
-| `file_picker_in_current_buffer_directory` | Open file picker at current buffer's directory |  |
+| `file_picker_in_current_buffer_directory` | Open file picker at current buffer's directory | normal: `` <space>% ``, select: `` <space>% `` |
 | `file_picker_in_current_directory` | Open file picker at current working directory | normal: `` <space>F ``, select: `` <space>F `` |
 | `file_explorer` | Open file explorer in workspace root | normal: `` <space>e ``, select: `` <space>e `` |
 | `file_explorer_in_current_buffer_directory` | Open file explorer at current buffer's directory | normal: `` <space>E ``, select: `` <space>E `` |
@@ -168,8 +168,8 @@
 | `goto_prev_change` | Goto previous change | normal: `` [g ``, select: `` [g `` |
 | `goto_first_change` | Goto first change | normal: `` [G ``, select: `` [G `` |
 | `goto_last_change` | Goto last change | normal: `` ]G ``, select: `` ]G `` |
-| `goto_line_start` | Goto line start | normal: `` gh ``, `` <home> ``, select: `` gh ``, insert: `` <home> `` |
-| `goto_line_end` | Goto line end | normal: `` gl ``, `` <end> ``, select: `` gl `` |
+| `goto_line_start` | Goto line start | normal: `` gh ``, `` <home> ``, `` g<left> ``, select: `` gh ``, `` g<left> ``, insert: `` <home> `` |
+| `goto_line_end` | Goto line end | normal: `` gl ``, `` <end> ``, `` g<right> ``, select: `` gl ``, `` g<right> `` |
 | `goto_column` | Goto column | normal: `` g\| `` |
 | `extend_to_column` | Extend to column | select: `` g\| `` |
 | `goto_next_buffer` | Goto next buffer | normal: `` gn ``, select: `` gn `` |

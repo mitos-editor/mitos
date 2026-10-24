@@ -29,6 +29,9 @@
 | `` W `` | Extend to start of next long word | `` extend_next_long_word_start `` |
 | `` B `` | Extend to start of previous long word | `` extend_prev_long_word_start `` |
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
+| `` <A-w> `` | Extend to start of next sub word | `` extend_next_sub_word_start `` |
+| `` <A-b> `` | Extend to start of previous sub word | `` extend_prev_sub_word_start `` |
+| `` <A-e> `` | Extend to end of next sub word | `` extend_next_sub_word_end `` |
 | `` v `` | Enter normal mode | `` normal_mode `` |
 | `` G `` | Goto line | `` goto_line `` |
 | `` g `` | Goto | Prefix |
@@ -63,8 +66,8 @@
 | `` <A-left> `` | Select previous sibling the in syntax tree | `` select_prev_sibling `` |
 | `` <A-n> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-right> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
-| `` <A-e> `` | Extend to end of the parent node | `` extend_parent_node_end `` |
-| `` <A-b> `` | Extend to beginning of the parent node | `` extend_parent_node_start `` |
+| `` <A-l> `` | Extend to end of the parent node | `` extend_parent_node_end `` |
+| `` <A-h> `` | Extend to beginning of the parent node | `` extend_parent_node_start `` |
 | `` <A-a> `` | Select all siblings of the current node | `` select_all_siblings `` |
 | `` % `` | Select whole document | `` select_all `` |
 | `` x `` | Select current line, if already selected, extend to next line | `` extend_line_below `` |
@@ -139,7 +142,9 @@
 | `` ge `` | Extend to last line | `` extend_to_last_line `` |
 | `` gf `` | Goto files/URLs in selections | `` goto_file `` |
 | `` gh `` | Goto line start | `` goto_line_start `` |
+| `` g<left> `` | Goto line start | `` goto_line_start `` |
 | `` gl `` | Goto line end | `` goto_line_end `` |
+| `` g<right> `` | Goto line end | `` goto_line_end `` |
 | `` gs `` | Goto first non-blank in line | `` goto_first_nonwhitespace `` |
 | `` gd `` | Goto definition | `` goto_definition `` |
 | `` gD `` | Goto declaration | `` goto_declaration `` |
@@ -154,7 +159,9 @@
 | `` gn `` | Goto next buffer | `` goto_next_buffer `` |
 | `` gp `` | Goto previous buffer | `` goto_previous_buffer `` |
 | `` gk `` | Extend up | `` extend_line_up `` |
+| `` g<up> `` | Extend up | `` extend_line_up `` |
 | `` gj `` | Extend down | `` extend_line_down `` |
+| `` g<down> `` | Extend down | `` extend_line_down `` |
 | `` g. `` | Goto last modification | `` goto_last_modification `` |
 | `` gw `` | Extend to a two-character label | `` extend_to_word `` |
 
@@ -264,6 +271,7 @@
 | --- | --- | --- |
 | `` <space>f `` | Open file picker | `` file_picker `` |
 | `` <space>F `` | Open file picker at current working directory | `` file_picker_in_current_directory `` |
+| `` <space>% `` | Open file picker at current buffer's directory | `` file_picker_in_current_buffer_directory `` |
 | `` <space>e `` | Open file explorer in workspace root | `` file_explorer `` |
 | `` <space>E `` | Open file explorer at current buffer's directory | `` file_explorer_in_current_buffer_directory `` |
 | `` <space>b `` | Open buffer picker | `` buffer_picker `` |

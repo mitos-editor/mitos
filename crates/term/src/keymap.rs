@@ -566,6 +566,16 @@ mod tests {
     #[test]
     fn aliased_modes_are_same_in_default_keymap() {
         let keymaps = Keymaps::default().map();
+        for mode in [Mode::Normal, Mode::Select] {
+            let root = keymaps.get(&mode).unwrap();
+            for (letter, arrow) in [('h', "left"), ('j', "down"), ('k', "up"), ('l', "right")] {
+                assert_eq!(
+                    root.search(&[key!('g'), letter.to_string().parse::<KeyEvent>().unwrap()]),
+                    root.search(&[key!('g'), arrow.parse::<KeyEvent>().unwrap()]),
+                    "goto aliases differ in {mode:?}: {letter} and {arrow}"
+                );
+            }
+        }
         let root = keymaps.get(&Mode::Normal).unwrap();
         assert_eq!(
             root.search(&[key!(' '), key!('w')]).unwrap(),
