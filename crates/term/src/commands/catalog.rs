@@ -1060,9 +1060,21 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "reload!", aliases: &["rl!"], doc: "Discard changes and reload from the source file.",
+        fun: super::files::typed::force_reload,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "reload-all!", aliases: &["rla!"], doc: "Discard changes and reload all documents from the source files.",
+        fun: super::files::typed::force_reload_all,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "reload",
         aliases: &["rl"],
-        doc: "Discard changes and reload from the source file.",
+        doc: "Reload from the source file if the buffer has no unsaved changes.",
         fun: super::files::typed::reload,
         completer: CommandCompleter::none(),
         signature: Signature {
@@ -1073,7 +1085,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "reload-all",
         aliases: &["rla"],
-        doc: "Discard changes and reload all documents from the source files.",
+        doc: "Reload saved buffers, preserving documents with unsaved changes.",
         fun: super::files::typed::reload_all,
         completer: CommandCompleter::none(),
         signature: Signature {
