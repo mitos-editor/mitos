@@ -84,6 +84,8 @@ pub use crate::debugger::Breakpoint;
 pub struct Editor {
     /// Current editing mode.
     mode: Mode,
+    /// Normal or debug mode to resume after temporary insert/select modes.
+    command_mode: Mode,
     pub tree: Tree,
     pub documents: Documents,
 
@@ -232,6 +234,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
+            command_mode: Mode::Normal,
             tree: Tree::new(area),
             documents: Documents::new(),
             writes: WriteQueue::default(),

@@ -42,10 +42,15 @@ D = "debug_mode"
 F10 = "dap_next"
 ```
 
-`Esc` returns to normal mode. Entering or leaving debug mode does not start or
+In DBG, `Esc` returns to normal mode. Entering or leaving debug mode does not start or
 stop a debug session. Debug mode uses normal cursor settings and stays active
-when changing buffers or splits. Insert and select commands enter their own
-modes; leaving them returns to normal mode.
+when changing buffers or splits. Insert and select commands enter temporary
+modes; leaving them returns to DBG if you entered them from debug mode, or NOR
+otherwise. Press `Esc` again in DBG to return to NOR.
+
+`leave_editing_mode` returns to the current normal or debug command mode. The
+insert-mode Escape binding uses it by default. `normal_mode` always enters NOR,
+including in custom bindings and command sequences.
 
 `label` sets the menu title or the description shown for a command binding.
 Menus can be nested and labeled at any depth. Labels also override the names of

@@ -82,7 +82,12 @@ async fn session_picker_selects_pending_sessions_and_termination_restores_the_pr
         frontend
     );
     assert!(screen(&app).contains("Debug #2 frontend (starting, 1 session)"));
-    keys(&mut app, "<esc><space>Gt<esc>").await?;
+    keys(&mut app, "<esc><space>Ga").await?;
+    app.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    assert_eq!(app.editor.mode(), view::document::Mode::Insert);
+    keys(&mut app, "<esc>").await?;
+    assert_eq!(app.editor.mode(), view::document::Mode::Debug);
     assert!(app.editor.debugger().is_empty());
     assert!(!screen(&app).contains("Debug #"));
     assert!(app.close().await.is_empty());

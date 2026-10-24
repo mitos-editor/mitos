@@ -17,6 +17,10 @@ pub(super) fn normal_mode(cx: &mut Context) {
     cx.editor.enter_normal_mode();
 }
 
+pub(super) fn leave_editing_mode(cx: &mut Context) {
+    cx.editor.leave_editing_mode();
+}
+
 pub(super) fn debug_mode(cx: &mut Context) {
     cx.editor.enter_debug_mode();
 }
@@ -27,6 +31,6 @@ pub(super) fn select_mode(cx: &mut Context) {
 
 pub(super) fn exit_select_mode(cx: &mut Context) {
     if cx.editor.mode() == Mode::Select {
-        cx.editor.enter_normal_mode();
+        cx.editor.leave_editing_mode();
     }
 }

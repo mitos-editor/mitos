@@ -2,7 +2,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <esc> `` | Enter normal mode | `` normal_mode `` |
+| `` <esc> `` | Return to normal or debug mode | `` leave_editing_mode `` |
 | `` <C-s> `` | Commit changes to new checkpoint | `` commit_undo_checkpoint `` |
 | `` <C-x> `` | Invoke completion popup | `` completion `` |
 | `` <C-r> `` | Insert register | `` insert_register `` |
