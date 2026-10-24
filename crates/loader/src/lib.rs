@@ -386,7 +386,8 @@ mod directory_tests {
             return;
         }
         let root = tempfile::tempdir().unwrap();
-        let expected = root.path().canonicalize().unwrap().join("settings");
+        // Resolve temporary-directory symlinks and normalize Windows verbatim prefixes.
+        let expected = stdx::path::normalize(root.path().canonicalize().unwrap()).join("settings");
         std::fs::create_dir(root.path().join("elsewhere")).unwrap();
         for explicit in [false, true] {
             let mut child = std::process::Command::new(std::env::current_exe().unwrap());
