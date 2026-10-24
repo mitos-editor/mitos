@@ -10,6 +10,39 @@ use stdx::Url;
 use view::{editor::Action, Editor};
 use workspace::find_workspace;
 
+pub(super) fn move_current_file(cx: &mut Context) {
+    let doc = doc!(cx.editor);
+    let Some(path) = doc.path() else {
+        cx.editor
+            .set_error(|| "Scratch buffer cannot be moved. Use :write instead");
+        return;
+    };
+    let cwd = stdx::env::current_working_dir();
+    let path = path
+        .strip_prefix(&cwd)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned();
+    let prompt = ui::Prompt::new(
+        "mv: ".into(),
+        None,
+        ui::completers::filename,
+        |cx, input, event| {
+            if event == ui::PromptEvent::Validate
+                && let Err(err) = typed::move_buffer_impl(
+                    cx,
+                    input.into(),
+                    typed::MoveBufferOptions { force: false },
+                )
+            {
+                cx.editor.set_error(|| err.to_string());
+            }
+        },
+    )
+    .with_line(path, cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
 pub(super) fn goto_file(cx: &mut Context) {
     goto_file_impl(cx, Action::Replace);
 }
@@ -879,7 +912,7 @@ pub(super) mod typed {
         move_buffer_impl(cx, new_path, MoveBufferOptions { force: true })
     }
 
-    fn move_buffer_impl(
+    pub(super) fn move_buffer_impl(
         cx: &mut compositor::Context,
         new_path: PathBuf,
         options: MoveBufferOptions,

@@ -11,6 +11,7 @@ use view::{
 };
 
 use super::helpers::{
+    keys,
     lsp::{self, Gate, ServerConfig},
     test_config, AppBuilder,
 };
@@ -195,5 +196,31 @@ async fn file_preflight_keeps_the_editor_available_and_rejects_changed_targets(
             }
         }
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn move_file_prompt_prefills_and_moves_the_current_file() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let from = dir.path().join("source file.txt");
+    let to = dir.path().join("moved file.txt");
+    std::fs::write(&from, "sample")?;
+    let mut app = AppBuilder::new().with_file(&from, None).build()?;
+    keys(&mut app, "<space>m").await?;
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("source file.txt"));
+    keys(&mut app, &format!("<C-u>{}<ret>", to.display())).await?;
+    assert!(!from.exists());
+    assert_eq!(std::fs::read_to_string(&to)?, "sample");
+    assert_eq!(
+        view::current_ref!(app.editor).1.path().unwrap(),
+        stdx::path::canonicalize(&to)
+    );
     Ok(())
 }
