@@ -304,3 +304,38 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<()> {
+    let docs_in_screen_order = |app: &term::application::Application| {
+        let mut panes: Vec<_> = app
+            .editor
+            .tree
+            .views()
+            .map(|(view, _)| (view.area.y, view.area.x, view.document_id()))
+            .collect();
+        panes.sort_by_key(|(y, x, _)| (*y, *x));
+        panes.into_iter().map(|(_, _, id)| id).collect::<Vec<_>>()
+    };
+    for (action, outward, inward) in [
+        (
+            view::editor::Action::VerticalSplit,
+            "<C-w><S-left>",
+            "<space>w<S-right>",
+        ),
+        (
+            view::editor::Action::HorizontalSplit,
+            "<C-w><S-up>",
+            "<space>w<S-down>",
+        ),
+    ] {
+        let mut app = AppBuilder::new().build()?;
+        let first = view::current_ref!(app.editor).1.id();
+        let second = app.editor.new_file(action);
+        keys(&mut app, outward).await?;
+        assert_eq!(docs_in_screen_order(&app), [second, first]);
+        keys(&mut app, inward).await?;
+        assert_eq!(docs_in_screen_order(&app), [first, second]);
+    }
+    Ok(())
+}
