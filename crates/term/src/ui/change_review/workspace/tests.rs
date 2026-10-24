@@ -34,6 +34,7 @@ impl Fixture {
             path,
         };
         fixture.git(&["init"]);
+        fixture.git(&["config", "core.autocrlf", "false"]);
         fixture.git(&["add", "."]);
         fixture.git(&["commit", "-m", "initial"]);
         Ok(fixture)
