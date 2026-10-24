@@ -136,6 +136,7 @@ pub(super) mod typed {
         let shell = cx.editor.config().shell.clone();
         let args = args.join(" ");
         let directory = stdx::env::current_working_dir();
+        let format_output = cx.editor.config().format_shell_output;
 
         let callback = async move {
             let output = run_shell(&shell, &args, None, &directory).await?;
@@ -143,7 +144,11 @@ pub(super) mod typed {
                 move |editor: &mut Editor, compositor: &mut Compositor| {
                     if !output.trim().is_empty() {
                         let contents = ui::Markdown::new(
-                            format!("```sh\n{}\n```", output.trim_end()),
+                            if format_output {
+                                format!("```sh\n{}\n```", output.trim_end())
+                            } else {
+                                output.trim_end().to_owned()
+                            },
                             editor.syn_loader.clone(),
                         );
                         let popup = Popup::new("shell", contents).position(Some(

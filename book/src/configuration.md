@@ -867,3 +867,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+Set `editor.format-shell-output = false` to display `:run-shell-command` output as Markdown instead of highlighting it as shell code. The default is `true`.
