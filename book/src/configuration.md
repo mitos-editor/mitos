@@ -867,3 +867,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+Set `editor.bufferline.expand-active = true` to show the focused tab's path relative to its document workspace. Other tabs retain their basenames. The default is `false`.

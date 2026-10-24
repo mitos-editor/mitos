@@ -427,3 +427,26 @@ async fn glyph_rulers_use_foreground_with_background_and_default_fallbacks() -> 
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn active_bufferline_tab_can_show_its_workspace_path() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    std::fs::create_dir(dir.path().join(".mitos"))?;
+    std::fs::create_dir(dir.path().join("nested"))?;
+    let path = dir.path().join("nested/file.txt");
+    std::fs::write(&path, "text")?;
+    let mut config = test_config();
+    config.editor.bufferline.show = BufferLine::Always;
+    config.editor.bufferline.expand_active = true;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+    keys(&mut app, "<esc>").await?;
+    let backend = app.terminal_backend();
+    let row: String = (0..backend.buffer().area.width)
+        .map(|x| backend.buffer()[(x, 0)].symbol())
+        .collect();
+    assert!(row.contains(&format!("nested{}file.txt", std::path::MAIN_SEPARATOR)));
+    Ok(())
+}
