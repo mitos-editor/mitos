@@ -290,7 +290,7 @@ impl PaneRenderer {
         }
 
         if is_focused && config.cursor.highlight_line {
-            decorations.add_decoration(Self::cursorline(doc, view, theme));
+            decorations.add_decoration(Self::cursorline(doc, view, inner, theme));
         }
 
         if is_focused && config.cursor.highlight_column {
@@ -847,7 +847,12 @@ impl PaneRenderer {
     }
 
     /// Apply the highlighting on the lines where a cursor is active
-    fn cursorline(doc: &Document, view: &View, theme: &Theme) -> impl Decoration + use<> {
+    fn cursorline(
+        doc: &Document,
+        view: &View,
+        inner: Rect,
+        theme: &Theme,
+    ) -> impl Decoration + use<> {
         let text = doc.text().slice(..);
         // TODO only highlight the visual line that contains the cursor instead of the full visual line
         let primary_line = doc.selection(view.id).primary().cursor_line(text);
@@ -866,10 +871,8 @@ impl PaneRenderer {
 
         let primary_style = theme.get("ui.cursorline.primary");
         let secondary_style = theme.get("ui.cursorline.secondary");
-        let viewport = view.area;
-
         move |renderer: &mut TextRenderer, pos: LinePos| {
-            let area = Rect::new(viewport.x, pos.visual_line, viewport.width, 1);
+            let area = Rect::new(inner.x, pos.visual_line, inner.width, 1);
             if primary_line == pos.doc_line {
                 renderer.set_style(area, primary_style);
             } else if secondary_lines.binary_search(&pos.doc_line).is_ok() {
