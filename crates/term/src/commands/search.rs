@@ -138,23 +138,40 @@ pub(super) fn extend_search_prev(cx: &mut Context) {
 }
 
 pub(super) fn search_selection(cx: &mut Context) {
-    search_selection_impl(cx, false)
+    search_selection_impl(cx, false, false)
 }
 
 pub(super) fn search_selection_detect_word_boundaries(cx: &mut Context) {
-    search_selection_impl(cx, true)
+    search_selection_impl(cx, true, false)
 }
 
-fn search_selection_impl(cx: &mut Context, detect_word_boundaries: bool) {
+pub(super) fn search_selection_or_word(cx: &mut Context) {
+    search_selection_impl(cx, false, true)
+}
+
+fn search_selection_impl(cx: &mut Context, detect_word_boundaries: bool, expand_word: bool) {
+    let count = cx.count();
     let register = cx.register.unwrap_or('/');
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
 
-    let regex = editor_core::search::selection_pattern(
-        text,
-        doc.selection(view.id),
-        detect_word_boundaries,
-    );
+    let original = doc.selection(view.id);
+    let word;
+    let selection =
+        if expand_word && original.len() == 1 && original.primary().is_single_grapheme(text) {
+            let range = editor_core::textobject::textobject_word(
+                text,
+                original.primary(),
+                editor_core::textobject::TextObject::Inside,
+                count,
+                false,
+            );
+            word = Selection::single(range.anchor, range.head);
+            &word
+        } else {
+            original
+        };
+    let regex = editor_core::search::selection_pattern(text, selection, detect_word_boundaries);
 
     let msg = format!("register '{}' set to '{}'", register, regex);
     match cx.editor.registers.push(register, regex) {
