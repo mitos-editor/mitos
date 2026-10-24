@@ -53,7 +53,7 @@ fn vte_version() -> Option<usize> {
     std::env::var("VTE_VERSION").ok()?.parse().ok()
 }
 
-// Multiplexers can flatten transparent backgrounds. Ghostty retains OSC11 overrides
+// Multiplexers can flatten transparent backgrounds. Ghostty and Rex retain OSC11 overrides
 // across automatic theme changes, even after an OSC111 reset.
 fn supports_dynamic_background(
     tmux: bool,
@@ -63,8 +63,8 @@ fn supports_dynamic_background(
 ) -> bool {
     !tmux
         && !zellij
-        && program != Some("ghostty")
-        && !term.is_some_and(|term| term.contains("ghostty"))
+        && !matches!(program, Some("ghostty" | "rex"))
+        && !term.is_some_and(|term| term.contains("ghostty") || term.contains("rex"))
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -887,7 +887,7 @@ mod tests {
     use super::{supports_dynamic_background, write_reset_background_color};
 
     #[test]
-    fn background_capability_leaves_multiplexers_and_ghostty_in_control() {
+    fn background_capability_preserves_terminal_managed_backgrounds() {
         assert!(supports_dynamic_background(
             false,
             false,
@@ -896,18 +896,22 @@ mod tests {
         ));
         assert!(!supports_dynamic_background(true, false, None, None));
         assert!(!supports_dynamic_background(false, true, None, None));
-        assert!(!supports_dynamic_background(
-            false,
-            false,
-            Some("ghostty"),
-            Some("xterm-256color")
-        ));
-        assert!(!supports_dynamic_background(
-            false,
-            false,
-            None,
-            Some("xterm-ghostty")
-        ));
+        for terminal in ["ghostty", "rex"] {
+            assert!(!supports_dynamic_background(
+                false,
+                false,
+                Some(terminal),
+                Some("xterm-256color")
+            ));
+            for term in [terminal.to_owned(), format!("xterm-{terminal}")] {
+                assert!(!supports_dynamic_background(
+                    false,
+                    false,
+                    None,
+                    Some(&term)
+                ));
+            }
+        }
     }
 
     #[test]
