@@ -252,6 +252,22 @@ fn file_picker_paths(
         })
 }
 
+/// Resolve the configured directory browser for implicit directory opens.
+pub(crate) fn directory_picker(
+    editor: &Editor,
+    root: PathBuf,
+    action: view::editor::Action,
+) -> std::io::Result<Box<dyn crate::compositor::Component>> {
+    Ok(match editor.config().files.directory_opener {
+        editor_config::DirectoryOpener::FilePicker => Box::new(overlay::overlaid(
+            file_picker(editor, root).with_default_action(action),
+        )),
+        editor_config::DirectoryOpener::FileExplorer => Box::new(overlay::overlaid(
+            file_explorer(root, editor)?.with_default_action(action),
+        )),
+    })
+}
+
 pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     let config = editor.config();
     let data = FilePickerData {
