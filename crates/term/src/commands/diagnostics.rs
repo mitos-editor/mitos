@@ -5,7 +5,7 @@ use crate::{
     ui::{self, overlay::overlaid, FileLocation, Picker},
 };
 use ::diagnostics::{DiagnosticProvider, NumberOrString, Severity};
-use editor_core::{Selection, Uri};
+use editor_core::{movement::Direction, Selection, Uri};
 use lsp_client::{lsp, OffsetEncoding};
 use std::{
     collections::{HashMap, HashSet},
@@ -24,21 +24,78 @@ use view::{
 };
 
 pub(super) fn goto_first_error(cx: &mut Context) {
-    cx.editor
-        .goto_error(editor_core::movement::Direction::Forward, true);
+    goto_severity(cx, Direction::Forward, true, Severity::Error);
 }
+
 pub(super) fn goto_last_error(cx: &mut Context) {
-    cx.editor
-        .goto_error(editor_core::movement::Direction::Backward, true);
+    goto_severity(cx, Direction::Backward, true, Severity::Error);
 }
+
 pub(super) fn goto_next_error(cx: &mut Context) {
-    cx.editor
-        .apply_motion(|editor| editor.goto_error(editor_core::movement::Direction::Forward, false));
+    goto_severity(cx, Direction::Forward, false, Severity::Error);
 }
+
 pub(super) fn goto_prev_error(cx: &mut Context) {
-    cx.editor.apply_motion(|editor| {
-        editor.goto_error(editor_core::movement::Direction::Backward, false)
-    });
+    goto_severity(cx, Direction::Backward, false, Severity::Error);
+}
+
+pub(super) fn goto_first_warning(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, true, Severity::Warning);
+}
+
+pub(super) fn goto_last_warning(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, true, Severity::Warning);
+}
+
+pub(super) fn goto_next_warning(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, false, Severity::Warning);
+}
+
+pub(super) fn goto_prev_warning(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, false, Severity::Warning);
+}
+
+pub(super) fn goto_first_info(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, true, Severity::Info);
+}
+
+pub(super) fn goto_last_info(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, true, Severity::Info);
+}
+
+pub(super) fn goto_next_info(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, false, Severity::Info);
+}
+
+pub(super) fn goto_prev_info(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, false, Severity::Info);
+}
+
+pub(super) fn goto_first_hint(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, true, Severity::Hint);
+}
+
+pub(super) fn goto_last_hint(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, true, Severity::Hint);
+}
+
+pub(super) fn goto_next_hint(cx: &mut Context) {
+    goto_severity(cx, Direction::Forward, false, Severity::Hint);
+}
+
+pub(super) fn goto_prev_hint(cx: &mut Context) {
+    goto_severity(cx, Direction::Backward, false, Severity::Hint);
+}
+
+fn goto_severity(cx: &mut Context, direction: Direction, boundary: bool, severity: Severity) {
+    if boundary {
+        cx.editor
+            .goto_diagnostic_severity(direction, true, severity);
+    } else {
+        cx.editor.apply_motion(move |editor| {
+            editor.goto_diagnostic_severity(direction, false, severity)
+        });
+    }
 }
 
 pub(super) fn goto_first_diag(cx: &mut Context) {

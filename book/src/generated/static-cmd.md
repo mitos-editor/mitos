@@ -169,6 +169,18 @@
 | `goto_last_error` | Goto last error |  |
 | `goto_next_error` | Goto next error |  |
 | `goto_prev_error` | Goto previous error |  |
+| `goto_first_warning` | Goto first warning diagnostic |  |
+| `goto_last_warning` | Goto last warning diagnostic |  |
+| `goto_next_warning` | Goto next warning diagnostic |  |
+| `goto_prev_warning` | Goto previous warning diagnostic |  |
+| `goto_first_info` | Goto first info diagnostic |  |
+| `goto_last_info` | Goto last info diagnostic |  |
+| `goto_next_info` | Goto next info diagnostic |  |
+| `goto_prev_info` | Goto previous info diagnostic |  |
+| `goto_first_hint` | Goto first hint diagnostic |  |
+| `goto_last_hint` | Goto last hint diagnostic |  |
+| `goto_next_hint` | Goto next hint diagnostic |  |
+| `goto_prev_hint` | Goto previous hint diagnostic |  |
 | `goto_first_diag` | Goto first diagnostic | normal: `` [D ``, select: `` [D `` |
 | `goto_last_diag` | Goto last diagnostic | normal: `` ]D ``, select: `` ]D `` |
 | `goto_next_diag` | Goto next diagnostic | normal: `` ]d ``, select: `` ]d `` |
