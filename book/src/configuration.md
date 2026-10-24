@@ -867,3 +867,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+`editor.command-line.hints` controls completion hints: `"always"` (default), `"never"`, or `"only-args"`. Hidden hints still support completion cycling. Set `editor.command-line.documentation = false` to hide command documentation; it defaults to `true`. These settings apply when opening a command prompt.

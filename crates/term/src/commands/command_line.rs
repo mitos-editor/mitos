@@ -44,8 +44,17 @@ pub(super) fn command_mode(cx: &mut Context) {
         },
     );
 
+    let settings = cx.editor.config().command_line.clone();
     let custom_commands = cx.editor.config().commands.clone();
-    prompt.doc_fn = Box::new(move |input| command_line_doc_with_custom(input, &custom_commands));
+    if settings.documentation {
+        prompt.doc_fn =
+            Box::new(move |input| command_line_doc_with_custom(input, &custom_commands));
+    }
+    prompt.show_completion_hints = Box::new(move |input| match settings.hints {
+        editor_config::CommandHints::Always => true,
+        editor_config::CommandHints::Never => false,
+        editor_config::CommandHints::OnlyArgs => !command_line::split(input).2,
+    });
 
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);

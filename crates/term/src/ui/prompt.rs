@@ -58,6 +58,7 @@ pub struct Prompt {
     completion_fn: CompletionFn,
     callback_fn: CallbackFn,
     pub doc_fn: DocFn,
+    pub(crate) show_completion_hints: Box<dyn Fn(&str) -> bool>,
     next_char_handler: Option<PromptCharHandler>,
     language: Option<(&'static str, Arc<ArcSwap<syntax::Loader>>)>,
 }
@@ -147,6 +148,7 @@ impl Prompt {
             completion_fn: Box::new(completion_fn),
             callback_fn: Box::new(callback_fn),
             doc_fn: Box::new(|_| None),
+            show_completion_hints: Box::new(|_| true),
             next_char_handler: None,
             keys: KeymapState::default(),
             language: None,
@@ -472,10 +474,14 @@ impl Prompt {
         let cols = std::cmp::max(1, area.width / max_len);
         let col_width = (area.width.saturating_sub(cols)) / cols;
 
-        let height = (self.completion.len() as u16)
-            .div_ceil(cols)
-            .min(10) // at most 10 rows (or less)
-            .min(area.height.saturating_sub(1));
+        let height = if (self.show_completion_hints)(&self.line) {
+            (self.completion.len() as u16)
+                .div_ceil(cols)
+                .min(10) // at most 10 rows (or less)
+                .min(area.height.saturating_sub(1))
+        } else {
+            0
+        };
 
         let completion_area = Rect::new(
             area.x,

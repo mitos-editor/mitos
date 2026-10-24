@@ -22,6 +22,30 @@ pub use commands::{CustomCommand, CustomCommands};
 pub use diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig};
 pub use watch::WatchConfig;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandHints {
+    #[default]
+    Always,
+    Never,
+    OnlyArgs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct CommandLineConfig {
+    pub hints: CommandHints,
+    pub documentation: bool,
+}
+impl Default for CommandLineConfig {
+    fn default() -> Self {
+        Self {
+            hints: CommandHints::Always,
+            documentation: true,
+        }
+    }
+}
+
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 
 /// Vertical guides at configured, one-based document columns.
@@ -363,6 +387,7 @@ pub struct Config {
     pub continue_comments: bool,
     /// Whether to display infoboxes. Defaults to true.
     pub auto_info: bool,
+    pub command_line: CommandLineConfig,
     /// Whether to show icons in the user interface. Defaults to false.
     pub icons: bool,
     pub border_style: BorderStyle,
@@ -1183,6 +1208,7 @@ impl Default for Config {
             idle_timeout: Duration::from_millis(250),
             continue_comments: true,
             auto_info: true,
+            command_line: CommandLineConfig::default(),
             icons: false,
             border_style: BorderStyle::default(),
             picker: PickerConfig::default(),

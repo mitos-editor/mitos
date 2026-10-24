@@ -664,3 +664,33 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_command_hints_keep_completion_cycling() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.command_line.hints = editor_config::CommandHints::Never;
+    config.editor.command_line.documentation = false;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[|]#")
+        .build()?;
+    keys(&mut app, ":the").await?;
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(!text.contains("theme"));
+    keys(&mut app, "<tab>").await?;
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains(":theme"));
+    Ok(())
+}
