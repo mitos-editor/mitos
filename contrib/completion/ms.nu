@@ -20,6 +20,7 @@ export extern ms [
     --health: string@health_categories,         # Checks for potential errors in editor setup
     --grammar(-g): string@grammar_categories,   # Fetches or builds tree-sitter grammars listed in `languages.toml`
     --config(-c): glob,                         # Specifies a file to use for configuration
+    --theme(-t): glob,                          # Overrides the configured theme with a theme file
     -v,                                         # Increases logging verbosity each use for up to 3 times
     --log: glob,                                # Specifies a file to use for logging
     --version(-V),                              # Prints version information
