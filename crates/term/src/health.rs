@@ -13,6 +13,14 @@ use termina::{
     Terminal as _,
 };
 
+fn workspace_trust() -> workspace::trust::WorkspaceTrust {
+    let config = Config::load_default().unwrap_or_default();
+    workspace::trust::WorkspaceTrust::new(
+        (&config.editor.workspace_trust).into(),
+        loader::workspace_trust_dir(),
+    )
+}
+
 /// Display general diagnostics.
 pub fn general() -> std::io::Result<()> {
     let stdout = std::io::stdout();
@@ -107,20 +115,25 @@ pub fn clipboard() -> std::io::Result<()> {
 }
 
 pub fn languages_all() -> std::io::Result<()> {
-    languages(None)
+    let trust = workspace_trust();
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
+    languages(None, &trust)
 }
 
 pub fn languages_selection() -> std::io::Result<()> {
-    let selection = loader::grammar::get_grammar_names().unwrap_or_default();
-    languages(selection)
+    let trust = workspace_trust();
+    let selection = loader::grammar::get_grammar_names(&trust).unwrap_or_default();
+    languages(selection, &trust)
 }
 
-fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
+fn languages(
+    selection: Option<HashSet<String>>,
+    trust: &workspace::trust::WorkspaceTrust,
+) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
-    let mut syn_loader_conf = match user_lang_config(&trust) {
+    let mut syn_loader_conf = match user_lang_config(trust) {
         Ok(conf) => conf,
         Err(err) => {
             let stderr = std::io::stderr();
@@ -240,7 +253,8 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
+    let trust = workspace_trust();
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
     let syn_loader_conf = match user_lang_config(&trust) {
         Ok(conf) => conf,
         Err(err) => {

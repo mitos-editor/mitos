@@ -1,6 +1,6 @@
 pub mod migration;
 
-use std::str::from_utf8;
+use std::{io::Write, str::from_utf8};
 
 use workspace::trust::{TrustQuery, WorkspaceTrust};
 
@@ -39,4 +39,27 @@ pub fn user_lang_config(trust: &WorkspaceTrust) -> Result<toml::Value, toml::de:
         });
 
     Ok(config)
+}
+
+/// Print a diagnostic to stderr if the current workspace has a `.mitos/languages.toml` that we *would* have
+/// merged but the workspace-trust gate is keeping us from.
+pub fn warn_if_workspace_languages_skipped(
+    trust: &workspace::trust::WorkspaceTrust,
+) -> std::io::Result<()> {
+    let workspace_languages = crate::workspace_lang_config_file();
+    if !workspace_languages.exists() {
+        return Ok(());
+    }
+    if trust
+        .query_current(workspace::trust::TrustQuery::LocalConfig)
+        .is_trusted()
+    {
+        return Ok(());
+    }
+    writeln!(
+        std::io::stderr().lock(),
+        "Note: workspace `{}` was skipped because the workspace is not trusted. Run \
+         `:workspace-trust` from an interactive mitos session in this workspace to opt in.",
+        workspace_languages.display(),
+    )
 }
