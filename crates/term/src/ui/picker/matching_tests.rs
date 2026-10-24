@@ -219,3 +219,19 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn implicit_directory_browser_respects_the_configured_kind() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let picker = ui::directory_picker(&app.editor, dir.path().to_owned(), Action::Replace)?;
+    assert!(picker.as_any().is::<ui::overlay::Overlay<ui::FilePicker>>());
+    let mut config = (*app.editor.config()).clone();
+    config.files.directory_opener = editor_config::DirectoryOpener::FileExplorer;
+    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    let picker = ui::directory_picker(&app.editor, dir.path().to_owned(), Action::Replace)?;
+    assert!(picker
+        .as_any()
+        .is::<ui::overlay::Overlay<ui::FileExplorer>>());
+    Ok(())
+}

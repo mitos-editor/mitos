@@ -867,3 +867,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+`editor.files.directory-opener` selects the browser for directory arguments at startup, `:open`, and file links. Use `"file-explorer"` for directory navigation, or the default `"file-picker"` for recursive file search. Explicit picker and explorer commands keep their chosen browser.

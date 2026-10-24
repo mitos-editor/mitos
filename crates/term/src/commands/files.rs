@@ -85,7 +85,13 @@ fn open_navigation_target(
         }
     };
     if path.is_dir() {
-        return Some(Box::new(overlaid(ui::file_picker(editor, path))));
+        return match ui::directory_picker(editor, path, Action::Replace) {
+            Ok(picker) => Some(picker),
+            Err(err) => {
+                editor.set_error(|| err.to_string());
+                None
+            }
+        };
     }
     let binary = open_binary_externally
         && std::fs::File::open(&path)
@@ -232,7 +238,7 @@ pub(super) mod typed {
         },
         compositor::{self, Compositor},
         job::{self, Callback, Job, Jobs},
-        ui::{self, overlay::overlaid, PromptEvent},
+        ui::{self, PromptEvent},
     };
     use ::command_line::Args;
     use anyhow::{anyhow, bail, ensure, Context as _};
@@ -276,9 +282,10 @@ pub(super) mod typed {
                 let callback = async move {
                     let call: job::Callback = job::Callback::EditorCompositor(Box::new(
                         move |editor: &mut Editor, compositor: &mut Compositor| {
-                            let picker = ui::file_picker(editor, path.into_owned())
-                                .with_default_action(action);
-                            compositor.push(Box::new(overlaid(picker)));
+                            match ui::directory_picker(editor, path.into_owned(), action) {
+                                Ok(picker) => compositor.push(picker),
+                                Err(err) => editor.set_error(|| err.to_string()),
+                            }
                         },
                     ));
                     Ok(call)

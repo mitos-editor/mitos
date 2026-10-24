@@ -1426,9 +1426,18 @@ impl Default for ClipboardConfig {
     }
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DirectoryOpener {
+    #[default]
+    FilePicker,
+    FileExplorer,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct FilesConfig {
+    pub directory_opener: DirectoryOpener,
     /// Automatic save on focus lost and/or after delay.
     /// Time delay in milliseconds since last edit after which auto save timer triggers.
     /// Time delay defaults to false with 3000ms delay. Focus lost defaults to false.
@@ -1447,6 +1456,7 @@ pub struct FilesConfig {
 impl Default for FilesConfig {
     fn default() -> Self {
         Self {
+            directory_opener: DirectoryOpener::default(),
             auto_save: AutoSave::default(),
             default_line_ending: LineEndingConfig::default(),
             editor_config: true,

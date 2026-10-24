@@ -11,13 +11,7 @@ use super::TerminaBackend;
 use super::TestBackend;
 use super::{render, Application, Terminal};
 use crate::{
-    args::Args,
-    compositor::Compositor,
-    config::Config,
-    handlers,
-    job::Jobs,
-    keymap::Keymaps,
-    ui::{self, overlay::overlaid},
+    args::Args, compositor::Compositor, config::Config, handlers, job::Jobs, keymap::Keymaps, ui,
 };
 #[cfg(not(windows))]
 use anyhow::Context as _;
@@ -116,8 +110,7 @@ impl Application {
 
             // If the first file is a directory, skip it and open a picker
             if let Some((first, _)) = files_it.next_if(|(p, _)| p.is_dir()) {
-                let picker = ui::file_picker(&editor, first);
-                compositor.push(Box::new(overlaid(picker)));
+                compositor.push(ui::directory_picker(&editor, first, Action::Replace)?);
             }
 
             // If there are any more files specified, open them
