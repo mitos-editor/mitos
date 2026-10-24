@@ -110,6 +110,7 @@ impl MappableCommand {
         search_next => super::search::search_next, "Select next search match",
         search_prev => super::search::search_prev, "Select previous search match",
         extend_search_next => super::search::extend_search_next, "Add next search match to selection",
+        extend_search_all => super::search::extend_search_all, "Add every search match to selection",
         extend_search_prev => super::search::extend_search_prev, "Add previous search match to selection",
         search_selection => super::search::search_selection, "Use current selection as search pattern",
         search_selection_detect_word_boundaries => super::search::search_selection_detect_word_boundaries, "Use current selection as the search pattern, automatically wrapping with `\\b` on word boundaries",

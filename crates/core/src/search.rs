@@ -293,3 +293,55 @@ mod buffer_tests {
         );
     }
 }
+
+/// Add every match while preserving existing ranges, their primary selection, and its direction.
+pub fn extend_all_matches(
+    text: RopeSlice,
+    selection: &Selection,
+    regex: &rope::Regex,
+) -> Option<Selection> {
+    let direction = selection.primary().direction();
+    let mut ranges: crate::SmallVec<[Range; 1]> = selection.ranges().into();
+    let original_len = ranges.len();
+    let mut bounds: std::collections::BTreeSet<_> = ranges
+        .iter()
+        .map(|range| (range.from(), range.to()))
+        .collect();
+    for mat in regex.find_iter(text.regex_input()) {
+        let range = Range::new(
+            text.byte_to_char_idx(mat.start()),
+            text.byte_to_char_idx(mat.end()),
+        )
+        .with_direction(direction);
+        if bounds.insert((range.from(), range.to())) {
+            ranges.push(range);
+        }
+    }
+    (ranges.len() > original_len).then(|| Selection::new(ranges, selection.primary_index()))
+}
+
+#[cfg(test)]
+mod extend_all_tests {
+    use super::*;
+    #[test]
+    fn extend_all_preserves_primary_direction_and_handles_missing_and_empty_matches() {
+        let text: RopeSlice = "cat dog cat cat".into();
+        let original = Selection::single(11, 8);
+        let result =
+            extend_all_matches(text, &original, &rope::Regex::new("cat").unwrap()).unwrap();
+        assert_eq!(result.primary(), original.primary());
+        assert_eq!(
+            result.ranges(),
+            &[Range::new(3, 0), Range::new(11, 8), Range::new(15, 12)]
+        );
+        assert!(
+            extend_all_matches(text, &original, &rope::Regex::new("missing").unwrap()).is_none()
+        );
+        assert_eq!(
+            extend_all_matches(text, &original, &rope::Regex::new("$").unwrap())
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+}
