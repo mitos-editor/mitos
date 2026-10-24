@@ -432,6 +432,8 @@ async fn change_navigation_respects_wrap_policy_and_counts() -> anyhow::Result<(
     for wrap in [false, true] {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("changes.txt");
+        // Keep Git's diff baseline in LF even when core.autocrlf is enabled.
+        std::fs::write(dir.path().join(".gitattributes"), "* text eol=lf\n")?;
         std::fs::write(&path, "one\ntwo\nthree\nfour\nfive\nsix\nseven\n")?;
         git(dir.path(), &["init"]);
         git(dir.path(), &["add", "changes.txt"]);
