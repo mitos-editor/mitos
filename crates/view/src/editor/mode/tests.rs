@@ -189,3 +189,24 @@ async fn leaving_insert_mode_removes_new_blank_line_indentation_in_character_coo
         );
     }
 }
+
+#[tokio::test]
+async fn debug_mode_survives_source_navigation_and_finishes_insert_state() {
+    let (mut editor, _store) = editor("#[é|]#界\n");
+    let first = editor.tree.focus();
+    let doc_id = current_ref!(editor).1.id();
+    let original = current_ref!(editor).1.selection(first).clone();
+    editor.enter_append_mode().unwrap();
+    editor.enter_debug_mode();
+    assert_eq!(editor.mode(), Mode::Debug);
+    assert_eq!(current_ref!(editor).1.selection(first), &original);
+    editor.switch(doc_id, Action::VerticalSplit);
+    assert_eq!(editor.mode(), Mode::Debug);
+    editor.focus(first);
+    assert_eq!(editor.mode(), Mode::Debug);
+    editor.new_file(Action::Replace);
+    assert_eq!(editor.mode(), Mode::Debug);
+    editor.enter_insert_mode();
+    editor.enter_normal_mode();
+    assert_eq!(editor.mode(), Mode::Normal);
+}

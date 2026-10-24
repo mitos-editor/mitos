@@ -127,6 +127,7 @@
 | `insert_at_line_end` | Insert at end of line | normal: `` A ``, select: `` A `` |
 | `open_below` | Open new line below selection | normal: `` o ``, select: `` o `` |
 | `open_above` | Open new line above selection | normal: `` O ``, select: `` O `` |
+| `debug_mode` | Enter debug mode |  |
 | `normal_mode` | Enter normal mode | normal: `` <esc> ``, select: `` v ``, insert: `` <esc> `` |
 | `select_mode` | Enter selection extend mode | normal: `` v `` |
 | `exit_select_mode` | Exit selection mode | select: `` <esc> `` |

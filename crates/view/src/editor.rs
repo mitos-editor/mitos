@@ -542,8 +542,8 @@ impl Editor {
             return;
         }
 
-        // Reset mode to normal and ensure any pending changes are committed in the old document.
-        self.enter_normal_mode();
+        // Finish editing and commit pending changes in the old document.
+        self.leave_editing_mode();
         self.commit_changes();
         self.ensure_cursor_in_view(view_id);
         // Update jumplist selections with new document changes.

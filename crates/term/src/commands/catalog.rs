@@ -161,6 +161,7 @@ impl MappableCommand {
         insert_at_line_end => super::insert::insert_at_line_end, "Insert at end of line",
         open_below => super::insert::open_below, "Open new line below selection",
         open_above => super::insert::open_above, "Open new line above selection",
+        debug_mode => super::mode::debug_mode, "Enter debug mode",
         normal_mode => super::mode::normal_mode, "Enter normal mode",
         select_mode => super::mode::select_mode, "Enter selection extend mode",
         exit_select_mode => super::mode::exit_select_mode, "Exit selection mode",

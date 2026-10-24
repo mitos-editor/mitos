@@ -173,6 +173,7 @@ where
         Mode::Insert => &modenames.insert,
         Mode::Select => &modenames.select,
         Mode::Normal => &modenames.normal,
+        Mode::Debug => &modenames.debug,
     };
     let content = format!(" {mode_str} ");
     let style = if config.statusline.mode.color {
@@ -180,6 +181,7 @@ where
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),
             Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
+            Mode::Debug => context.editor.theme.get("ui.statusline.debug"),
         }
     } else {
         Style::default()

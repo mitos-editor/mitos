@@ -38,7 +38,7 @@ impl Editor {
         }
 
         if !matches!(action, Action::Load) {
-            self.enter_normal_mode();
+            self.leave_editing_mode();
         }
 
         let focus_lost = match action {
