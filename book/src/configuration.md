@@ -322,6 +322,7 @@ Available statusline elements:
 | `file-name` | The path/name of the opened file |
 | `file-absolute-path` | The absolute path/name of the opened file |
 | `file-base-name` | The basename of the opened file |
+| `workspace` | Document workspace name, followed by the working directory within it when applicable |
 | `current-working-directory` | The current working directory  |
 | `file-modification-indicator` | The indicator to show whether the file is modified (a `[+]` appears when there are unsaved changes) |
 | `file-encoding` | The encoding of the opened file if it differs from UTF-8 |
@@ -867,3 +868,5 @@ When omitted, every configured grammar is fetched and built.
 See [Completion and snippets](./completion.md#inline-completions) for setup and
 bindings. Inline suggestions use `ui.virtual.inline-completion`, falling back
 to `ui.virtual.inlay-hint` when that theme scope is absent.
+
+`editor.statusline.separators.left` and `.right` override separator text for each section. Omitted overrides use `editor.statusline.separator`.

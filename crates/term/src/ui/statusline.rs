@@ -24,6 +24,7 @@ pub struct RenderContext<'a> {
     pub view: &'a View,
     pub spinners: &'a ProgressSpinners,
     pub parts: RenderBuffer<'a>,
+    right_section: bool,
 }
 
 impl<'a> RenderContext<'a> {
@@ -39,6 +40,7 @@ impl<'a> RenderContext<'a> {
             view,
             spinners,
             parts: RenderBuffer::default(),
+            right_section: false,
         }
     }
 
@@ -70,6 +72,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
 
     let config = context.editor.config();
 
+    context.right_section = false;
     for element_id in &config.statusline.left {
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
@@ -79,6 +82,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
 
     // Right side of the status line.
 
+    context.right_section = true;
     for element_id in &config.statusline.right {
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
@@ -131,6 +135,7 @@ where
         StatusLineElementID::Branch => render_branch,
         StatusLineElementID::Register => render_register,
         StatusLineElementID::CurrentWorkingDirectory => render_cwd,
+        StatusLineElementID::Workspace => render_workspace,
         StatusLineElementID::CodeActionHint => render_code_action_hint,
         StatusLineElementID::DebugSession => render_debug_session,
     }
@@ -614,7 +619,13 @@ fn render_separator<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let sep = &context.editor.config().statusline.separator;
+    let config = context.editor.config();
+    let sep = if context.right_section {
+        &config.statusline.separators.right
+    } else {
+        &config.statusline.separators.left
+    };
+    let sep = sep.as_ref().unwrap_or(&config.statusline.separator);
     let style = context.editor.theme.get("ui.statusline.separator");
 
     write(context, Span::styled(sep.to_string(), style));
@@ -673,6 +684,22 @@ where
             }
         },
     );
+}
+
+fn render_workspace<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let cwd = stdx::env::current_working_dir();
+    let root = context.doc.workspace_root();
+    let base = root.file_name().unwrap_or(root.as_os_str());
+    let mut name = std::path::PathBuf::from(base);
+    if let Ok(relative) = cwd.strip_prefix(root) {
+        if !relative.as_os_str().is_empty() {
+            name.push(relative);
+        }
+    }
+    write(context, format!(" {} ", name.to_string_lossy()).into());
 }
 
 fn render_cwd<'a, F>(context: &mut RenderContext<'a>, write: F)
