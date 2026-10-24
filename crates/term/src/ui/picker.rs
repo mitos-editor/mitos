@@ -527,32 +527,35 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
         let len = self.results.matcher.snapshot().matched_item_count();
 
-        if len == 0 {
-            // No results, can't move.
+        if len == 0 || amount == 0 {
+            // No results or a zero-height page cannot move.
             return;
         }
 
         match direction {
             Direction::Forward => {
-                self.results.cursor = self.results.cursor.saturating_add(amount) % len;
+                self.results.cursor = if self.results.cursor == len - 1 {
+                    0
+                } else {
+                    self.results.cursor.saturating_add(amount).min(len - 1)
+                };
             }
             Direction::Backward => {
-                self.results.cursor = self
-                    .results
-                    .cursor
-                    .saturating_add(len)
-                    .saturating_sub(amount)
-                    % len;
+                self.results.cursor = if self.results.cursor == 0 {
+                    len - 1
+                } else {
+                    self.results.cursor.saturating_sub(amount)
+                };
             }
         }
     }
 
-    /// Move the cursor down by exactly one page. After the last page comes the first page.
+    /// Move up one page, stopping at the edge before wrapping on the next move.
     pub fn page_up(&mut self) {
         self.move_by(self.completion_height as u32, Direction::Backward);
     }
 
-    /// Move the cursor up by exactly one page. After the first page comes the last page.
+    /// Move down one page, stopping at the edge before wrapping on the next move.
     pub fn page_down(&mut self) {
         self.move_by(self.completion_height as u32, Direction::Forward);
     }
@@ -1094,6 +1097,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
                 PickerAction::MoveDown => {
                     self.move_by(1, Direction::Forward);
+                }
+                PickerAction::HalfPageDown => {
+                    self.move_by(
+                        u32::from(self.completion_height).div_ceil(2),
+                        Direction::Forward,
+                    );
+                }
+                PickerAction::HalfPageUp => {
+                    self.move_by(
+                        u32::from(self.completion_height).div_ceil(2),
+                        Direction::Backward,
+                    );
                 }
                 PickerAction::PageDown => {
                     self.page_down();

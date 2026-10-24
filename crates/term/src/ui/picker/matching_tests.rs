@@ -219,3 +219,32 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn page_sized_moves_stop_at_edges_before_wrapping() -> anyhow::Result<()> {
+    let app = application(false)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("name", |item: &u32, _| item.to_string().into())],
+        0,
+        0..5,
+        (),
+        |_, _, _| {},
+    );
+    settle(&mut picker).await;
+    picker.move_by(0, Direction::Backward);
+    assert_eq!(picker.results.cursor, 0);
+    picker.move_by(3, Direction::Forward);
+    assert_eq!(picker.results.cursor, 3);
+    picker.move_by(3, Direction::Forward);
+    assert_eq!(picker.results.cursor, 4);
+    picker.move_by(3, Direction::Forward);
+    assert_eq!(picker.results.cursor, 0);
+    picker.move_by(3, Direction::Backward);
+    assert_eq!(picker.results.cursor, 4);
+    picker.move_by(3, Direction::Backward);
+    assert_eq!(picker.results.cursor, 1);
+    picker.move_by(3, Direction::Backward);
+    assert_eq!(picker.results.cursor, 0);
+    Ok(())
+}

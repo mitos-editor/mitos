@@ -9,12 +9,14 @@
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-d> `` | `` half_page_down `` |
+| `` <C-u> `` | `` half_page_up `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
-| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
-| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-f> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-b> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
@@ -27,12 +29,14 @@
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-d> `` | `` half_page_down `` |
+| `` <C-u> `` | `` half_page_up `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
-| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
-| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-f> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-b> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
@@ -45,12 +49,14 @@
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-d> `` | `` half_page_down `` |
+| `` <C-u> `` | `` half_page_up `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
-| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
-| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-f> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-b> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <C-x> `` | `` remove_entry `` |
 | `` <C-t> `` | `` toggle_preview `` |

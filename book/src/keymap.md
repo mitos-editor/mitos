@@ -79,3 +79,5 @@ signature-help, or blame bindings. In the completion menu, other typing
 accepts the completion and continues inserting text.
 
 {{#include ./generated/keymap-components.md}}
+
+Picker `Ctrl-u` and `Ctrl-d` move by half a page. Page movement stops at an edge before the next movement wraps around. Component keymaps can bind the `half_page_up` and `half_page_down` actions.
