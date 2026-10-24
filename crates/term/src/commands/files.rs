@@ -589,10 +589,32 @@ pub(super) mod typed {
     }
 
     #[cold]
+    pub(in crate::commands) fn force_reload(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        let id = current_ref!(cx.editor).1.id();
+        cx.editor.force_reload_document(id)?;
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn force_reload_all(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        reload_all_impl(cx, true)
+    }
+
+    #[cold]
     pub(in crate::commands) fn reload_all(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
+        reload_all_impl(cx, false)
+    }
+
+    fn reload_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()> {
         let documents: Vec<_> = cx
             .editor
             .documents
@@ -600,7 +622,12 @@ pub(super) mod typed {
             .filter_map(|(&id, doc)| (!doc.is_content_readonly()).then_some(id))
             .collect();
         for id in documents {
-            if let Err(error) = cx.editor.reload_document(id) {
+            let result = if force {
+                cx.editor.force_reload_document(id)
+            } else {
+                cx.editor.reload_document(id)
+            };
+            if let Err(error) = result {
                 cx.editor.set_error(|| error.to_string());
                 continue;
             }
