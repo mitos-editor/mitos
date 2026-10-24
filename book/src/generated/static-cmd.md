@@ -77,6 +77,7 @@
 | `search_prev` | Select previous search match | normal: `` N ``, `` ZN ``, `` zN ``, select: `` ZN ``, `` zN `` |
 | `extend_search_next` | Add next search match to selection | select: `` n `` |
 | `extend_search_prev` | Add previous search match to selection | select: `` N `` |
+| `search_selection_or_word` | Use the current selection or cursor word as the search pattern |  |
 | `search_selection` | Use current selection as search pattern | normal: `` <A-*> ``, select: `` <A-*> `` |
 | `search_selection_detect_word_boundaries` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | normal: `` * ``, select: `` * `` |
 | `make_search_word_bounded` | Modify current search to make it word bounded |  |

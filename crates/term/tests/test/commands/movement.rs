@@ -948,3 +948,21 @@ async fn match_bracket() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn word_search_pattern_expands_only_a_single_cursor_selection() -> anyhow::Result<()> {
+    test((
+        "f#[|o]#obar foo foobar\n",
+        "<space>?search_selection_or_word<ret>n",
+        "foobar foo #[|foobar]#\n",
+    ))
+    .await?;
+    test((
+        "f#[|oob]#ar oob foobar\n",
+        "<space>?search_selection_or_word<ret>n",
+        "foobar #[|oob]# foobar\n",
+    ))
+    .await?;
+    test(("f#[|o]#obar foo foobar\n", "*n", "fo#[|o]#bar foo foobar\n")).await?;
+    Ok(())
+}
