@@ -248,6 +248,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     query_refresh: bool,
     query_needs_refresh: bool,
     title: Option<Line<'static>>,
+    title_fn: Option<fn(&D) -> Line<'static>>,
 }
 
 /// A closed or dropped picker must not keep waking its frontend.
@@ -426,6 +427,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query_refresh: false,
             query_needs_refresh: false,
             title: None,
+            title_fn: None,
         }
     }
 
@@ -481,6 +483,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_initial_cursor(mut self, cursor: u32) -> Self {
         self.results.cursor = cursor;
+        self
+    }
+
+    /// Derive a title from the currently published picker data.
+    pub(crate) fn with_title_fn(mut self, title: fn(&D) -> Line<'static>) -> Self {
+        self.title_fn = Some(title);
         self
     }
 
@@ -811,8 +819,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         surface.clear_with(area, background);
 
         let mut block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
-        if let Some(title) = &self.title {
-            block = block.title(title.clone()).title_style(text_style);
+        let title = self
+            .title_fn
+            .map(|title| title(&self.results.editor_data))
+            .or_else(|| self.title.clone());
+        if let Some(title) = title {
+            block = block.title(title).title_style(text_style);
         }
         let inner = block.inner(area);
         block.render(area, surface);

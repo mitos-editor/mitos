@@ -219,3 +219,18 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn directory_titles_preserve_the_path_query_column() -> anyhow::Result<()> {
+    let app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let files = ui::file_picker(&app.editor, dir.path().to_owned());
+    assert_eq!(&*files.columns[0].name, "path");
+    let title = (files.title_fn.unwrap())(&files.results.editor_data).to_string();
+    assert!(title.contains(dir.path().to_str().unwrap()));
+    let explorer = ui::file_explorer(dir.path().to_owned(), &app.editor)?;
+    assert_eq!(&*explorer.columns[0].name, "path");
+    let title = (explorer.title_fn.unwrap())(&explorer.results.editor_data).to_string();
+    assert!(title.contains(dir.path().to_str().unwrap()));
+    Ok(())
+}

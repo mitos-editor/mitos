@@ -311,7 +311,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
             }
         },
     )
-    .with_title("Files")
+    .with_title_fn(|data: &FilePickerData| format!("Files — {}", data.root.display()).into())
     .with_preview(|_editor, path| Some((path.as_path().into(), None)))
     .with_file_updates(
         editor,
@@ -426,7 +426,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
             picker::PickerCallbackResult::Close
         },
     )
-    .with_title("File Explorer")
+    .with_title_fn(|data| format!("File Explorer — {}", data.0.display()).into())
     .with_preview(|_editor, (path, _is_dir)| Some((path.as_path().into(), None)))
     .with_quicklist(|_editor, (path, is_dir)| {
         if *is_dir {
