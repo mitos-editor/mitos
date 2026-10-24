@@ -293,6 +293,7 @@
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
 | `` <space>B `` | Toggle inline Git blame | `` toggle_inline_blame `` |
+| `` <space>m `` | Move file, pre-filled with its current path | `` move_current_file `` |
 
 #### `` <space>G `` — Debug (experimental)
 
