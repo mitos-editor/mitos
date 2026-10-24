@@ -245,9 +245,13 @@
 | `` <C-w>l `` | Jump to right split | `` jump_view_right `` |
 | `` <C-w><right> `` | Jump to right split | `` jump_view_right `` |
 | `` <C-w>L `` | Swap with right split | `` swap_view_right `` |
+| `` <C-w><S-right> `` | Swap with right split | `` swap_view_right `` |
 | `` <C-w>K `` | Swap with split above | `` swap_view_up `` |
+| `` <C-w><S-up> `` | Swap with split above | `` swap_view_up `` |
 | `` <C-w>H `` | Swap with left split | `` swap_view_left `` |
+| `` <C-w><S-left> `` | Swap with left split | `` swap_view_left `` |
 | `` <C-w>J `` | Swap with split below | `` swap_view_down `` |
+| `` <C-w><S-down> `` | Swap with split below | `` swap_view_down `` |
 | `` <C-w>n `` | New split scratch buffer | Prefix |
 
 #### `` <C-w>n `` — New split scratch buffer
@@ -355,9 +359,13 @@
 | `` <space>wl `` | Jump to right split | `` jump_view_right `` |
 | `` <space>w<right> `` | Jump to right split | `` jump_view_right `` |
 | `` <space>wH `` | Swap with left split | `` swap_view_left `` |
+| `` <space>w<S-left> `` | Swap with left split | `` swap_view_left `` |
 | `` <space>wJ `` | Swap with split below | `` swap_view_down `` |
+| `` <space>w<S-down> `` | Swap with split below | `` swap_view_down `` |
 | `` <space>wK `` | Swap with split above | `` swap_view_up `` |
+| `` <space>w<S-up> `` | Swap with split above | `` swap_view_up `` |
 | `` <space>wL `` | Swap with right split | `` swap_view_right `` |
+| `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
 | `` <space>wn `` | New split scratch buffer | Prefix |
 
 ##### `` <space>wn `` — New split scratch buffer
