@@ -1676,7 +1676,9 @@ mod tests {
             |maps| &maps.quicklist_picker,
             move |_, item, action| {
                 assert_eq!(action, PickerItemAction::RemoveQuicklistEntry);
-                removed_items.borrow_mut().push(*item);
+                removed_items
+                    .borrow_mut()
+                    .push(*item.expect("selected quicklist row"));
                 PickerCallbackResult::KeepOpen
             },
         )
@@ -1834,7 +1836,9 @@ mod tests {
         .with_item_actions(
             |maps| &maps.quicklist_picker,
             move |_, item, _| {
-                removed.borrow_mut().push(*item);
+                removed
+                    .borrow_mut()
+                    .push(*item.expect("selected quicklist row"));
                 PickerCallbackResult::KeepOpen
             },
         )

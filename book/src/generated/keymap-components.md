@@ -104,11 +104,14 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-s> `` | `` stage `` |
 | `` <A-z> `` | `` stash `` |
 | `` <A-l> `` | `` stashes `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-u> `` | `` unstage `` |
 
 ## Stash picker
@@ -135,8 +138,11 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 
 ## Prompt
 

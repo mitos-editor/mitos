@@ -150,6 +150,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
         |maps| &maps.quicklist_picker,
         |cx, meta, action| {
             if action == PickerItemAction::RemoveQuicklistEntry
+                && let Some(meta) = meta
                 && cx.editor.quicklist.entries().get(meta.index) == Some(&meta.entry)
             {
                 cx.editor.quicklist.remove(meta.index);
