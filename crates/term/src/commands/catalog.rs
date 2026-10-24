@@ -1320,7 +1320,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "sort",
         aliases: &[],
-        doc: "Sort ranges in selection.",
+        doc: "Stably sort selected contents. Supports --numeric (-n), --natural (-N), --length (-l), --key (-k) REGEX and --ignore-leading-blanks (-b), plus --insensitive (-i) and --reverse (-r).",
         fun: super::editing::typed::sort,
         completer: CommandCompleter::none(),
         signature: Signature {
@@ -1337,6 +1337,36 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
                     alias: Some('r'),
                     doc: "sort ranges in reverse order",
                     ..Flag::DEFAULT
+                },
+                Flag {
+                    name: "numeric",
+                    alias: Some('n'),
+                    doc: "compare exact leading decimal numbers; missing numbers count as zero",
+                    ..Flag::DEFAULT
+                },
+                Flag {
+                    name: "natural",
+                    alias: Some('N'),
+                    doc: "compare digit runs numerically, such as item2 before item10",
+                    ..Flag::DEFAULT
+                },
+                Flag {
+                    name: "length",
+                    alias: Some('l'),
+                    doc: "compare Unicode character counts",
+                    ..Flag::DEFAULT
+                },
+                Flag {
+                    name: "ignore-leading-blanks",
+                    alias: Some('b'),
+                    doc: "ignore leading spaces and tabs in sort keys",
+                    ..Flag::DEFAULT
+                },
+                Flag {
+                    name: "key",
+                    alias: Some('k'),
+                    doc: "use the first regex match as the key; leave nonmatching selections in place",
+                    completions: Some(&[]),
                 },
             ],
             ..Signature::DEFAULT

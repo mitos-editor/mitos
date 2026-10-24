@@ -2,9 +2,8 @@
 
 use crate::{
     increment, line_ending::normalize_line_endings, wrap::reflow_hard_wrap, LineEnding, Range,
-    Rope, Selection, Tendril, Transaction,
+    Rope, Selection, Transaction,
 };
-use std::cmp::Reverse;
 use stdx::rope::RopeSliceExt;
 
 /// Replace each selected grapheme with the same literal text. Empty ranges are unchanged.
@@ -50,36 +49,6 @@ pub fn increment_selections(
     (!transaction.changes().is_empty()).then_some(transaction)
 }
 
-/// Stably sort selected contents; case-insensitive keys are computed once per fragment.
-/// Returns `None` when fewer than two ranges were supplied.
-pub fn sort_selection_contents(
-    doc: &Rope,
-    selection: &Selection,
-    case_insensitive: bool,
-    reverse: bool,
-) -> Option<Transaction> {
-    if selection.len() < 2 {
-        return None;
-    }
-    let mut fragments: Vec<Tendril> = selection
-        .slices(doc.slice(..))
-        .map(|fragment| fragment.chunks().collect())
-        .collect();
-    match (case_insensitive, reverse) {
-        (true, true) => fragments.sort_by_cached_key(|fragment| Reverse(fragment.to_lowercase())),
-        (true, false) => fragments.sort_by_cached_key(|fragment| fragment.to_lowercase()),
-        (false, true) => fragments.sort_by(|a, b| b.cmp(a)),
-        (false, false) => fragments.sort(),
-    }
-    Some(Transaction::change(
-        doc,
-        selection
-            .iter()
-            .zip(fragments)
-            .map(|(range, fragment)| (range.from(), range.to(), Some(fragment))),
-    ))
-}
-
 /// Reflow selected text to the requested width and normalize its line endings.
 pub fn reflow_selections(
     doc: &Rope,
@@ -99,7 +68,10 @@ pub fn reflow_selections(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test;
+    use crate::{
+        test,
+        transform::{sort_selection_contents, SortOptions},
+    };
 
     fn assert_transform(
         input: &str,
@@ -167,11 +139,23 @@ mod tests {
             (true, "#[|é]# #(B|)# #(b|)# #(a|)#"),
         ] {
             assert_transform(input, expected, |doc, selection| {
-                sort_selection_contents(doc, selection, true, reverse).unwrap()
+                sort_selection_contents(
+                    doc,
+                    selection,
+                    &SortOptions {
+                        case_insensitive: true,
+                        reverse,
+                        ..SortOptions::default()
+                    },
+                )
+                .unwrap()
             });
         }
         let doc = Rope::from_str("one");
-        assert!(sort_selection_contents(&doc, &Selection::single(0, 3), false, false).is_none());
+        assert!(
+            sort_selection_contents(&doc, &Selection::single(0, 3), &SortOptions::default())
+                .is_none()
+        );
     }
 
     #[test]
@@ -179,7 +163,9 @@ mod tests {
         assert_transform(
             "#(b|)# #[|aa]# #(ZZZ|)#",
             "#(ZZZ|)# #[|aa]# #(b|)#",
-            |doc, selection| sort_selection_contents(doc, selection, false, false).unwrap(),
+            |doc, selection| {
+                sort_selection_contents(doc, selection, &SortOptions::default()).unwrap()
+            },
         );
     }
 

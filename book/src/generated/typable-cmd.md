@@ -76,7 +76,7 @@
 | `:set-option`, `:set` | Set a config option at runtime.<br>For example to disable smart case search, use `:set search.smart-case false`. |
 | `:toggle-option`, `:toggle` | Toggle a config option at runtime.<br>For example to toggle smart case search, use `:toggle search.smart-case`. |
 | `:get-option`, `:get` | Get the current value of a config option. |
-| `:sort` | Sort ranges in selection. |
+| `:sort` | Stably sort selected contents. Supports --numeric (-n), --natural (-N), --length (-l), --key (-k) REGEX and --ignore-leading-blanks (-b), plus --insensitive (-i) and --reverse (-r). |
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:snippet-insert` | Insert a named user-defined snippet at the selections. |

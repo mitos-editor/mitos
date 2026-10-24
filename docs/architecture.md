@@ -264,7 +264,9 @@ these settings through the shared operations.
 
 `core::transform` builds transactions for selected text without editor or frontend
 state. Its selection-content helpers handle grapheme replacement, numeric/date
-increments, stable sorting, and hard reflow. Transactions preserve or map explicit
+increments, stable sorting, and hard reflow. `core::transform::sort` extracts and
+normalizes text, numeric, natural or length keys once per selected fragment;
+regex keys leave nonmatching selections untouched. Transactions preserve or map explicit
 selections; reflow receives the document's line-ending convention. Terminal
 commands resolve arguments, apply through shared editing, and retain prompts,
 mode changes, scrolling, and repeat recording.

@@ -381,7 +381,7 @@ pub(super) mod typed {
 
     use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
-    use anyhow::bail;
+    use anyhow::{bail, ensure};
 
     pub(in crate::commands) fn sort(
         cx: &mut compositor::Context,
@@ -392,13 +392,36 @@ pub(super) mod typed {
             return Ok(());
         }
 
+        use editor_core::{
+            regex,
+            transform::{SortMode, SortOptions},
+        };
+
+        let modes = [
+            ("numeric", SortMode::Numeric),
+            ("natural", SortMode::Natural),
+            ("length", SortMode::Length),
+        ];
+        let mut requested = modes.into_iter().filter(|(flag, _)| args.has_flag(flag));
+        let mode = requested.next().map_or(SortMode::Text, |(_, mode)| mode);
+        ensure!(
+            requested.next().is_none(),
+            "--numeric, --natural and --length are mutually exclusive"
+        );
+        let key = args.get_flag("key").map(regex::Regex::new).transpose()?;
+        let options = SortOptions {
+            mode,
+            case_insensitive: args.has_flag("insensitive"),
+            reverse: args.has_flag("reverse"),
+            ignore_leading_blanks: args.has_flag("ignore-leading-blanks"),
+            key: key.as_ref(),
+        };
         let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
         let Some(transaction) = editor_core::transform::sort_selection_contents(
             doc.text(),
             doc.selection(view.id),
-            args.has_flag("insensitive"),
-            args.has_flag("reverse"),
+            &options,
         ) else {
             bail!("Sorting requires multiple selections. Hint: split selection first");
         };

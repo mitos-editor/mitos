@@ -3,10 +3,10 @@
 use stdx::rope::RopeExt as _;
 mod paste;
 mod selection_contents;
+mod sort;
 pub use paste::{paste, replace_selection_contents, PastePosition};
-pub use selection_contents::{
-    increment_selections, reflow_selections, replace_graphemes, sort_selection_contents,
-};
+pub use selection_contents::{increment_selections, reflow_selections, replace_graphemes};
+pub use sort::{sort_selection_contents, SortMode, SortOptions};
 
 use crate::{indent::IndentStyle, Rope, RopeSlice, Selection, Tendril, Transaction};
 use std::char::{ToLowercase, ToUppercase};
