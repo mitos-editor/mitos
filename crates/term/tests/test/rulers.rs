@@ -427,3 +427,28 @@ async fn glyph_rulers_use_foreground_with_background_and_default_fallbacks() -> 
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cursorline_does_not_recolor_gutters() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.cursor.highlight_line = true;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[|a]#bc")
+        .build()?;
+    app.editor.theme = Theme::from(toml::from_str::<toml::Value>(
+        r#"
+        "ui.background" = { bg = "black" }
+        "ui.cursorline.primary" = { bg = "red" }
+        "ui.selection" = { bg = "green" }
+        "ui.cursor" = { bg = "yellow" }
+    "#,
+    )?);
+    keys(&mut app, "<esc>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let inner = view.inner_area(doc);
+    let backend = app.terminal_backend();
+    assert_eq!(backend.buffer()[(inner.x + 2, inner.y)].bg, Color::Red);
+    assert_ne!(backend.buffer()[(inner.x - 1, inner.y)].bg, Color::Red);
+    Ok(())
+}
