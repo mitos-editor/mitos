@@ -55,6 +55,22 @@ pub(super) fn command_palette_bindings<'a>(
 }
 
 pub fn command_palette(cx: &mut Context) {
+    open_command_palette(cx, "Command Palette", |_| true);
+}
+
+pub(super) fn debug_mode_help(cx: &mut Context) {
+    open_command_palette(cx, "Debug Commands", |command| {
+        command.name().starts_with("dap_")
+            || command.name().starts_with("debug-")
+            || matches!(command.name(), "debug_mode" | "normal_mode")
+    });
+}
+
+fn open_command_palette(
+    cx: &mut Context,
+    title: &'static str,
+    include: fn(&MappableCommand) -> bool,
+) {
     let register = cx.register;
     let count = cx.count;
 
@@ -69,15 +85,18 @@ pub fn command_palette(cx: &mut Context) {
                 binding_style: cx.editor.theme.get("markup.raw.inline"),
             };
 
-            let commands = MappableCommand::STATIC_COMMAND_LIST.iter().cloned().chain(
-                catalog::TYPABLE_COMMAND_LIST
+            let commands =
+                MappableCommand::STATIC_COMMAND_LIST
                     .iter()
-                    .map(|cmd| MappableCommand::Typable {
-                        name: cmd.name.to_owned(),
-                        args: String::new(),
-                        doc: cmd.doc.to_owned(),
-                    }),
-            );
+                    .cloned()
+                    .chain(catalog::TYPABLE_COMMAND_LIST.iter().map(|cmd| {
+                        MappableCommand::Typable {
+                            name: cmd.name.to_owned(),
+                            args: String::new(),
+                            doc: cmd.doc.to_owned(),
+                        }
+                    }))
+                    .filter(include);
 
             let columns = [
                 ui::PickerColumn::new("name", command_palette_name),
@@ -138,7 +157,7 @@ pub fn command_palette(cx: &mut Context) {
                     }
                 },
             )
-            .with_title("Command Palette");
+            .with_title(title);
             compositor.push(Box::new(overlaid(picker)));
         },
     ));
