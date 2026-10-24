@@ -528,6 +528,6 @@ pub mod syntax;
 
 mod transform;
 pub use transform::{
-    continued_line_comment_token, join_selections, reorder_selection_contents,
+    continued_line_comment_token, join_selections, reflow_selections, reorder_selection_contents,
     toggle_block_comments, toggle_comments, toggle_line_comments,
 };
