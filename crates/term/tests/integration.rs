@@ -31,6 +31,7 @@ mod test {
     mod config_application;
     mod cursor;
     mod debug_mode;
+    mod debugger_execution;
     mod debugger_inline_values;
     mod debugger_sessions;
     mod debugger_terminal;
