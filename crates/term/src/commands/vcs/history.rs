@@ -480,14 +480,15 @@ fn files_picker(
     ))
     .with_title(title)
     .with_help(|maps| {
-        format!(
-            "{} {} back ",
-            super::actions::help(&maps.history_picker),
+        let mut hints = super::actions::help(&maps.history_picker);
+        hints.push(format!(
+            "{} back",
             crate::keymap::component::action_hint(
                 &maps.history_picker,
                 &crate::keymap::component::PickerAction::Item(PickerItemAction::HistoryBack)
             )
-        )
+        ));
+        hints
     })
     .with_item_actions(
         |maps| &maps.history_picker,

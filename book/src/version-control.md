@@ -185,7 +185,8 @@ without a notice for unsupported languages.
 
 ## Git picker actions
 
-In the changed-file picker (`Space g`), press **Alt-a** for available Git actions.
+Use these shortcuts directly in the changed-file picker (`Space g`). The picker
+stays open after staging or unstaging, and stashing asks for confirmation.
 Actions use the selected file's repository, or the picker's repository when no
 file is selected.
 
@@ -195,6 +196,9 @@ file is selected.
 | `Alt-u` | Unstage the selected file, keeping its working copy |
 | `Alt-z` | Stash all repository changes, after confirmation |
 | `Alt-l` | Browse stashes |
+
+The picker shows these shortcuts below the file list. **Alt-a** opens the
+action menu as an alternative. Remapped shortcuts appear in the help too.
 
 Staging does not save unsaved buffer edits. Staging and unstaging affect the
 entire file, including both paths of a rename. The picker keeps its query and
@@ -214,7 +218,8 @@ command palette to browse the newest 500 stashes. Press Enter to browse a stash'
 saved staged version, working tree, and untracked files, then Enter on a file to
 review its saved changes. Alt-Enter keeps a picker open while inspecting a selection.
 
-In the stash picker, **Alt-a** opens the action menu:
+In the stash picker, use these shortcuts directly. **Alt-a** also offers the
+same actions in a menu:
 
 | Key | Action |
 | --- | --- |

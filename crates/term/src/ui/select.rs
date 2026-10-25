@@ -61,7 +61,9 @@ impl<T: Item> Component for Select<T> {
         let (message_width, message_height) = self.message.required_size(viewport).unwrap();
         let (menu_width, menu_height) = self.options.required_size(viewport).unwrap();
         Some((
-            menu_width.max(message_width + 2),
+            menu_width
+                .max(message_width.saturating_add(4))
+                .min(viewport.0),
             message_height + menu_height + 2,
         ))
     }
@@ -81,12 +83,14 @@ impl<T: Item> Component for Select<T> {
             .message
             .required_size((max_width, area.height))
             .unwrap();
-        let (_, menu_height) = self
+        let (menu_width, menu_height) = self
             .options
             .required_size((max_width, area.height))
             .unwrap();
         // + 2 for borders and another + 2 for horizontal padding
-        let width = message_width + 4;
+        let width = menu_width
+            .max(message_width.saturating_add(4))
+            .min(area.width);
         let height = message_height + 2 + menu_height;
         let area = area.centered(Constraint::Length(width), Constraint::Length(height));
         let [message_box, menu_area] = Layout::vertical([

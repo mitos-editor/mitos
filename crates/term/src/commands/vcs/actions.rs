@@ -252,12 +252,64 @@ pub(super) fn file_action<T, D>(
 
 pub(super) fn help(
     keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
-) -> String {
-    use crate::keymap::component::{action_hint, PickerAction};
-    format!(
-        " {} actions ",
-        action_hint(keys, &PickerAction::Item(PickerItemAction::Actions))
+) -> Vec<String> {
+    use crate::keymap::component::PickerAction;
+    action_hints(
+        keys,
+        &[(PickerAction::Item(PickerItemAction::Actions), "actions")],
     )
+}
+
+pub(super) fn file_help(
+    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
+) -> Vec<String> {
+    use crate::keymap::component::PickerAction as P;
+    action_hints(
+        keys,
+        &[
+            (P::Accept, "open"),
+            (P::Item(PickerItemAction::Stage), "stage"),
+            (P::Item(PickerItemAction::Unstage), "unstage"),
+            (P::Item(PickerItemAction::Stash), "stash"),
+            (P::Item(PickerItemAction::Stashes), "stashes"),
+            (P::Item(PickerItemAction::Actions), "actions"),
+        ],
+    )
+}
+
+fn stash_help(
+    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
+) -> Vec<String> {
+    use crate::keymap::component::PickerAction as P;
+    action_hints(
+        keys,
+        &[
+            (P::Accept, "inspect"),
+            (P::Item(PickerItemAction::ApplyStash), "apply"),
+            (
+                P::Item(PickerItemAction::ApplyStashWithIndex),
+                "apply with staged changes",
+            ),
+            (P::Item(PickerItemAction::Actions), "actions"),
+        ],
+    )
+}
+
+fn action_hints(
+    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
+    actions: &[(crate::keymap::component::PickerAction, &str)],
+) -> Vec<String> {
+    actions
+        .iter()
+        .filter_map(|(action, label)| {
+            let key = crate::keymap::component::action_hint(keys, action);
+            if key == "unbound" {
+                None
+            } else {
+                Some(format!("{key} {label}"))
+            }
+        })
+        .collect()
 }
 
 pub(super) fn generation(editor: &Editor) -> u64 {
@@ -313,7 +365,7 @@ fn stash_picker(
             }))
         },
     )
-    .with_help(|maps| help(&maps.stash_picker))
+    .with_help(|maps| stash_help(&maps.stash_picker))
     .with_file_updates(
         editor,
         |data| data.repo.root(),

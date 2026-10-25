@@ -219,3 +219,130 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
     assert_eq!(repo.stashes().await?, entries);
     Ok(())
 }
+
+fn frame(
+    component: &mut dyn Component,
+    app: &mut Application,
+    jobs: &mut crate::job::Jobs,
+    config: &crate::config::Config,
+    area: view::graphics::Rect,
+) -> Vec<String> {
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut cx = Context {
+        config: crate::config::Context {
+            current: config,
+            updates: &updates,
+        },
+        editor: &mut app.editor,
+        jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let mut surface = tui::buffer::Buffer::empty(area);
+    component.required_size((area.width, area.height));
+    component.render(area, &mut surface, &mut cx);
+    (area.y..area.bottom())
+        .map(|y| {
+            (area.x..area.right())
+                .map(|x| surface[(x, y)].symbol())
+                .collect()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn direct_git_shortcuts_fit_narrow_pickers_follow_remaps_and_preserve_paging(
+) -> anyhow::Result<()> {
+    use editor_config::BorderStyle;
+    let mut app = application(false)?;
+    let mut jobs = crate::job::Jobs::new();
+    for remapped in [false, true] {
+        let config = crate::config::Config::load(
+            Ok(&if remapped {
+                "[keys.git-picker]\nA-s = 'unbound'\nC-j = 'stage'\nA-z = 'unbound'".to_owned()
+            } else {
+                String::new()
+            }),
+            Ok(String::new()),
+        )
+        .unwrap();
+        for width in [40, 80] {
+            for border in [BorderStyle::None, BorderStyle::Rounded] {
+                let mut editor_config = (*app.editor.config()).clone();
+                editor_config.border_style = border;
+                app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(
+                    editor_config,
+                )));
+                let mut picker = Picker::new(
+                    app.editor.redraw().clone(),
+                    [PickerColumn::new("name", |item: &usize, _: &()| {
+                        format!("row {item}").into()
+                    })],
+                    0,
+                    0..50,
+                    (),
+                    |_, _, _| {},
+                )
+                .with_help(|maps| file_help(&maps.git_picker));
+                until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+                let rows = frame(
+                    &mut picker,
+                    &mut app,
+                    &mut jobs,
+                    &config,
+                    view::graphics::Rect::new(0, 0, width, 12),
+                );
+                let screen = rows.join("\n");
+                for hint in [
+                    "<ret> open",
+                    "<A-u> unstage",
+                    "<A-l> stashes",
+                    "<A-a> actions",
+                ] {
+                    assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
+                }
+                assert!(screen.contains(if remapped {
+                    "<C-j> stage"
+                } else {
+                    "<A-s> stage"
+                }));
+                assert_eq!(screen.contains("<A-z> stash"), !remapped);
+                let visible = rows.iter().filter(|row| row.contains("row ")).count();
+                assert!(visible > 0);
+                assert_eq!(picker.selection(), Some(&0));
+                picker.page_down();
+                assert_eq!(picker.selection(), Some(&visible));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let mut jobs = crate::job::Jobs::new();
+    let config = crate::config::Config::default();
+    for width in [40, 80] {
+        let mut menu = ActionMenu::new(
+            "Git actions".into(),
+            vec![
+                Choice::new("Stage selected file on disk", Command::Cancel),
+                Choice::new("Stash all repository changes…", Command::Cancel),
+            ],
+            std::path::PathBuf::new(),
+        );
+        let screen = frame(
+            &mut menu,
+            &mut app,
+            &mut jobs,
+            &config,
+            view::graphics::Rect::new(0, 0, width, 20),
+        )
+        .join("\n");
+        assert!(screen.contains("Stage selected file on disk"), "{screen}");
+        assert!(screen.contains("Stash all repository changes…"), "{screen}");
+    }
+    Ok(())
+}

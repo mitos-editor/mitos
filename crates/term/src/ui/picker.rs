@@ -233,6 +233,30 @@ impl<T, D> Column<T, D> {
     }
 }
 
+/// Wrap whole key hints so a shortcut and its action stay together.
+fn help_lines(hints: Vec<String>, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for hint in hints {
+        if !line.is_empty()
+            && Line::from(line.as_str()).width() + 3 + Line::from(hint.as_str()).width() > width
+        {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push_str(" · ");
+        }
+        line.push_str(&hint);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 fn visible_column_widths<T, D>(columns: &[Column<T, D>]) -> Vec<Constraint> {
     columns
         .iter()
@@ -250,7 +274,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     keys: KeymapState,
     keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
     item_action_fn: Option<PickerItemCallback<T, D>>,
-    help: Option<fn(&ComponentKeymaps) -> String>,
+    help: Option<fn(&ComponentKeymaps) -> Vec<String>>,
     columns: Arc<[Column<T, D>]>,
     results: results::Results<T, D>,
     primary_column: usize,
@@ -577,8 +601,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Shortcuts shown together, wrapping between hints when space is limited.
     #[cfg(feature = "git")]
-    pub(crate) fn with_help(mut self, help: fn(&ComponentKeymaps) -> String) -> Self {
+    pub(crate) fn with_help(mut self, help: fn(&ComponentKeymaps) -> Vec<String>) -> Self {
         self.help = Some(help);
         self
     }
@@ -884,19 +909,32 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some(title) = &self.title {
             block = block.title(title.clone()).title_style(text_style);
         }
-        let inner = block.inner(area);
+        let mut inner = block.inner(area);
         block.render(area, surface);
         if let Some(help) = self.help
             && area.height > 0
             && area.width > 4
         {
-            surface.set_stringn(
-                area.x + 2,
-                area.bottom() - 1,
-                help(&cx.config.current.component_keys),
-                area.width.saturating_sub(4) as usize,
-                cx.editor.theme.get("ui.text.inactive"),
-            );
+            let width = area.width.saturating_sub(4) as usize;
+            let lines = help_lines(help(&cx.config.current.component_keys), width);
+            let bottom_border = u16::from(inner.bottom() < area.bottom());
+            let height = lines.len().min(
+                inner
+                    .height
+                    .saturating_sub(3 + self.header_height())
+                    .saturating_add(bottom_border) as usize,
+            ) as u16;
+            let top = area.bottom().saturating_sub(height);
+            inner.height = inner.height.min(top.saturating_sub(inner.y));
+            for (row, line) in lines.into_iter().take(height as usize).enumerate() {
+                surface.set_stringn(
+                    area.x + 2,
+                    top + row as u16,
+                    line,
+                    width,
+                    cx.editor.theme.get("ui.text.inactive"),
+                );
+            }
         }
 
         let input_areas = split_picker_input_area(inner, self.replacement_visible());
@@ -956,6 +994,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let rows = rows.max(1);
+        // Page by the visible rows left after the help footer.
+        self.completion_height = rows as u16;
         self.results.offset = self.results.offset.min(self.results.cursor);
         if self.results.cursor >= self.results.offset.saturating_add(rows) {
             self.results.offset = self.results.cursor + 1 - rows;
