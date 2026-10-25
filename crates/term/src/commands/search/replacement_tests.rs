@@ -103,7 +103,11 @@ impl Harness {
     }
 
     async fn settle(&mut self) -> anyhow::Result<()> {
-        tokio::time::timeout(Duration::from_secs(5), async {
+        self.settle_with_timeout(Duration::from_secs(5)).await
+    }
+
+    async fn settle_with_timeout(&mut self, timeout: Duration) -> anyhow::Result<()> {
+        tokio::time::timeout(timeout, async {
             loop {
                 let config = &self.config;
                 let updates = tokio::sync::mpsc::unbounded_channel().0;
@@ -321,6 +325,64 @@ async fn replace_all_with_no_remaining_matches_still_publishes_the_buffer_refres
 }
 
 #[tokio::test]
+async fn bulk_replacement_keeps_navigation_responsive_and_does_not_open_files() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    for index in 0..128 {
+        std::fs::write(
+            dir.path().join(format!("{index:03}.txt")),
+            "foo\n".repeat(8),
+        )?;
+    }
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 1024);
+    let documents = h.app.editor.documents().count();
+    h.key("A-r");
+    h.event(Event::Paste("bar".into()));
+    h.key("C-ret");
+    assert!(!test::is_settled(h.picker()));
+    let selected = h.picker().selection().unwrap().clone();
+    h.key("down");
+    assert_ne!(h.picker().selection(), Some(&selected));
+    h.event(Event::Paste("ignored while replacing".into()));
+    assert!(!h.frame().contains("ignored while replacing"));
+    h.settle_with_timeout(Duration::from_secs(30)).await?;
+    assert_eq!(h.count(), 0);
+    assert_eq!(h.app.editor.documents().count(), documents);
+    for index in 0..128 {
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(format!("{index:03}.txt")))?,
+            "bar\n".repeat(8)
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn closing_before_the_apply_step_cancels_without_writing_files() -> anyhow::Result<()> {
+    use futures_util::StreamExt;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "foo\n")?;
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    let documents = h.app.editor.documents().count();
+    h.key("A-r");
+    h.event(Event::Paste("bar".into()));
+    h.key("ret");
+    h.key("esc");
+    while let Some(result) = h.jobs.wait_futures.next().await {
+        result?;
+    }
+    assert_eq!(std::fs::read_to_string(&path)?, "foo\n");
+    assert_eq!(h.app.editor.documents().count(), documents);
+    Ok(())
+}
+
+#[tokio::test]
 async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("included.txt");
@@ -330,6 +392,7 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     // Alternate spellings of the same root must still use open-buffer snapshots.
     std::fs::create_dir(dir.path().join("root-alias"))?;
     let mut h = Harness::new(&dir.path().join("root-alias/.."))?;
+    h.app.editor.open(&path, view::editor::Action::Load)?;
     h.event(Event::Paste("foo %p included".into()));
     h.settle().await?;
     assert_eq!(h.count(), 2);

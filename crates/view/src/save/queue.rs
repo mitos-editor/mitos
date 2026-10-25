@@ -22,12 +22,19 @@ use crate::{
 
 type DocumentWrites = Flatten<UnboundedReceiverStream<Once<DocumentSavedEventFuture>>>;
 
+#[derive(Debug, Default)]
+struct PathWrites {
+    count: usize,
+    exclusive: usize,
+}
+
 /// Successful events retain their paths until the editor applies or drops them.
 /// Cloned events share an idempotent release, including delayed frontend delivery.
 #[derive(Debug)]
 pub(crate) struct WriteReservation {
     paths: Mutex<Option<Vec<PathBuf>>>,
-    active: Arc<Mutex<HashMap<PathBuf, usize>>>,
+    active: Arc<Mutex<HashMap<PathBuf, PathWrites>>>,
+    exclusive: bool,
 }
 
 impl WriteReservation {
@@ -36,8 +43,9 @@ impl WriteReservation {
             let mut active = self.active.lock();
             for path in paths {
                 let count = active.get_mut(&path).expect("queued path is reserved");
-                *count -= 1;
-                if *count == 0 {
+                count.count -= 1;
+                count.exclusive -= usize::from(self.exclusive);
+                if count.count == 0 {
                     active.remove(&path);
                 }
             }
@@ -58,7 +66,7 @@ pub(crate) struct WriteQueue {
     senders: HashMap<DocumentId, UnboundedSender<Once<DocumentSavedEventFuture>>>,
     completions: SelectAll<DocumentWrites>,
     pending: usize,
-    paths: Arc<Mutex<HashMap<PathBuf, usize>>>,
+    paths: Arc<Mutex<HashMap<PathBuf, PathWrites>>>,
     blocked: Vec<Weak<Vec<PathBuf>>>,
 }
 
@@ -151,16 +159,18 @@ impl WriteQueue {
             .senders
             .get(&document)
             .ok_or_else(|| anyhow::format_err!("saves are closed for this document!"))?;
-        {
-            let mut active = self.paths.lock();
-            for path in &paths {
-                *active.entry(path.clone()).or_default() += 1;
-            }
-        }
-        let reservation = Arc::new(WriteReservation {
-            paths: Mutex::new(Some(paths)),
-            active: self.paths.clone(),
-        });
+        anyhow::ensure!(
+            !self
+                .paths
+                .lock()
+                .iter()
+                .any(|(reserved, writes)| writes.exclusive > 0
+                    && paths
+                        .iter()
+                        .any(|path| reserved.starts_with(path) || path.starts_with(reserved))),
+            "A replacement write is pending for this path"
+        );
+        let reservation = Self::reserve(&self.paths, paths, false);
         sender
             .send(stream::once(Box::pin(async move {
                 let mut result = write.await;
@@ -172,6 +182,32 @@ impl WriteQueue {
             .map_err(|error| anyhow::anyhow!("failed to send save event: {error}"))?;
         self.pending += 1;
         Ok(())
+    }
+
+    pub(crate) fn reserve_paths(&self, mut paths: Vec<PathBuf>) -> Arc<WriteReservation> {
+        paths.sort_unstable();
+        paths.dedup();
+        Self::reserve(&self.paths, paths, true)
+    }
+
+    fn reserve(
+        active: &Arc<Mutex<HashMap<PathBuf, PathWrites>>>,
+        paths: Vec<PathBuf>,
+        exclusive: bool,
+    ) -> Arc<WriteReservation> {
+        {
+            let mut active = active.lock();
+            for path in &paths {
+                let writes = active.entry(path.clone()).or_default();
+                writes.count += 1;
+                writes.exclusive += usize::from(exclusive);
+            }
+        }
+        Arc::new(WriteReservation {
+            paths: Mutex::new(Some(paths)),
+            active: active.clone(),
+            exclusive,
+        })
     }
 
     pub(crate) fn has_pending(&self) -> bool {
@@ -247,6 +283,26 @@ mod tests {
             text: editor_core::Rope::new(),
             reservation: None,
         })
+    }
+
+    #[tokio::test]
+    async fn exclusive_file_replacements_reject_other_writes_until_released() {
+        let mut queue = WriteQueue::default();
+        let document = DocumentId::default();
+        let path = PathBuf::from("replacement.txt");
+        queue.open_document(document);
+        let reservation = queue.reserve_paths(vec![path.clone()]);
+        assert!(queue
+            .enqueue(document, vec![path.clone()], async {
+                Err(anyhow::anyhow!("unused"))
+            })
+            .is_err());
+        drop(reservation);
+        assert!(queue
+            .enqueue(document, vec![path], async {
+                Err(anyhow::anyhow!("unused"))
+            })
+            .is_ok());
     }
 
     #[tokio::test]

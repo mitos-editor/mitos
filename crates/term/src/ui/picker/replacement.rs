@@ -10,10 +10,24 @@ pub(crate) struct ReplacementRequest<'a, T> {
     pub query: &'a str,
     pub replacement: &'a str,
     pub replace_all: bool,
+    pub cancel: event::TaskHandle,
+}
+
+pub(crate) type ReplacementTask<T> = BoxFuture<'static, anyhow::Result<ReplacementStep<T>>>;
+type ApplyReplacement<T> =
+    Box<dyn FnOnce(&mut Editor) -> anyhow::Result<ReplacementTask<T>> + Send>;
+
+pub(crate) enum ReplacementStep<T> {
+    Apply(ApplyReplacement<T>),
+    Complete {
+        count: usize,
+        options: Vec<T>,
+        error: Option<anyhow::Error>,
+    },
 }
 
 type ReplacementCallback<T, D> =
-    Box<dyn Fn(&mut Context, ReplacementRequest<'_, T>, &D) -> anyhow::Result<(usize, Vec<T>)>>;
+    Box<dyn Fn(&Editor, ReplacementRequest<'_, T>, &D) -> anyhow::Result<ReplacementTask<T>>>;
 type CaseSensitiveCallback<D> = Box<dyn Fn(&D, bool)>;
 
 pub(super) struct Replacement<T, D> {
@@ -21,6 +35,8 @@ pub(super) struct Replacement<T, D> {
     callback: ReplacementCallback<T, D>,
     visible: bool,
     active: bool,
+    task: event::TaskController,
+    pending: Option<tokio::sync::oneshot::Receiver<anyhow::Result<ReplacementStep<T>>>>,
 }
 
 pub(super) struct CaseSensitiveToggle<D> {
@@ -66,7 +82,7 @@ pub(super) fn split_picker_input_area(area: Rect, show_replacement: bool) -> Pic
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     pub(crate) fn with_replacement(
         mut self,
-        callback: impl Fn(&mut Context, ReplacementRequest<'_, T>, &D) -> anyhow::Result<(usize, Vec<T>)>
+        callback: impl Fn(&Editor, ReplacementRequest<'_, T>, &D) -> anyhow::Result<ReplacementTask<T>>
             + 'static,
     ) -> Self {
         self.replacement = Some(Replacement {
@@ -74,6 +90,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             callback: Box::new(callback),
             visible: false,
             active: false,
+            task: event::TaskController::new(),
+            pending: None,
         });
         self
     }
@@ -88,6 +106,104 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             callback: Box::new(callback),
         });
         self
+    }
+
+    pub(super) fn replacement_pending(&self) -> bool {
+        self.replacement
+            .as_ref()
+            .is_some_and(|replacement| replacement.pending.is_some())
+    }
+
+    pub(super) fn cancel_replacement(&mut self) {
+        if let Some(replacement) = &mut self.replacement {
+            replacement.task.cancel();
+            replacement.pending = None;
+        }
+    }
+
+    fn queue_replacement(&mut self, task: ReplacementTask<T>, cx: &mut Context) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.replacement.as_mut().unwrap().pending = Some(rx);
+        let redraw = self.redraw.clone();
+        let status = cx.editor.status_sender().clone();
+        // Accepted disk writes keep running if the picker closes, and shutdown
+        // waits for them. Closing before the apply step simply drops the plan.
+        let worker = tokio::spawn(async move {
+            if let Err(Ok(ReplacementStep::Complete { count, error, .. })) = tx.send(task.await) {
+                if let Some(error) = error {
+                    status.report_blocking(anyhow::anyhow!(
+                        "Replacement stopped after {count} matches: {error:#}"
+                    ));
+                } else {
+                    status.report_blocking(event::status::StatusMessage {
+                        severity: event::status::Severity::Info,
+                        message: format!(
+                            "Replaced {count} {}",
+                            if count == 1 { "match" } else { "matches" }
+                        )
+                        .into(),
+                    });
+                }
+            }
+            redraw.request();
+        });
+        cx.jobs.add(
+            crate::job::Job::new(async move {
+                worker.await?;
+                Ok(())
+            })
+            .wait_before_exiting(),
+        );
+    }
+
+    pub(super) fn poll_replacement(&mut self, cx: &mut Context) {
+        use tokio::sync::oneshot::error::TryRecvError;
+        let Some(replacement) = &mut self.replacement else {
+            return;
+        };
+        let Some(mut pending) = replacement.pending.take() else {
+            return;
+        };
+        let result = match pending.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => {
+                replacement.pending = Some(pending);
+                return;
+            }
+            Err(TryRecvError::Closed) => Err(anyhow::anyhow!("Replacement task stopped")),
+        };
+        match result {
+            Ok(ReplacementStep::Apply(apply)) => match apply(cx.editor) {
+                Ok(task) => self.queue_replacement(task, cx),
+                Err(error) => cx.editor.set_error(|| format!("Replace failed: {error:#}")),
+            },
+            Ok(ReplacementStep::Complete {
+                count,
+                options,
+                error,
+            }) => {
+                self.refresh_options(options, self.results.editor_data.clone());
+                if let Some(updates) = &mut self.file_updates {
+                    updates.mark_documents_refreshed(cx.editor);
+                }
+                if let Some(error) = error {
+                    if let Some(updates) = &mut self.file_updates {
+                        updates.stop();
+                    }
+                    cx.editor.set_error(|| {
+                        format!("Replacement stopped after {count} matches: {error:#}")
+                    });
+                } else if count == 0 {
+                    cx.editor.set_status("No matches replaced");
+                } else {
+                    cx.editor.set_status(format!(
+                        "Replaced {count} {}",
+                        if count == 1 { "match" } else { "matches" }
+                    ));
+                }
+            }
+            Err(error) => cx.editor.set_error(|| format!("Replace failed: {error:#}")),
+        }
     }
 
     pub(super) fn replacement_visible(&self) -> bool {
@@ -149,7 +265,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         self.refresh_files(cx.editor);
         self.refresh_query_if_changed(cx.editor);
         self.publish_options();
-        if self.dynamic_query_pending
+        if self.replacement_pending()
+            || self.dynamic_query_pending
             || self.query_refresh
             || self.results.is_refreshing()
             || self
@@ -163,9 +280,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 .set_error(|| "Wait for global search to finish before replacing matches.");
             return;
         }
-        let Some(replacement) = &self.replacement else {
+        if self.replacement.is_none() {
             return;
-        };
+        }
         let query = self.primary_query();
         if query.is_empty() {
             cx.editor.set_error(|| "Enter a search pattern first.");
@@ -178,7 +295,11 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 .map(|item| item.data)
                 .collect()
         } else {
-            self.selection().into_iter().collect()
+            snapshot
+                .get_matched_item(self.results.cursor)
+                .map(|item| item.data)
+                .into_iter()
+                .collect()
         };
         if items.is_empty() {
             cx.editor.set_status("No matches to replace");
@@ -187,34 +308,25 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         let options: Vec<_> = (0..snapshot.item_count())
             .filter_map(|index| snapshot.get_item(index).map(|item| item.data))
             .collect();
+        let replacement = self.replacement.as_mut().unwrap();
         let result = (replacement.callback)(
-            cx,
+            cx.editor,
             ReplacementRequest {
                 matches: &items,
                 options: &options,
                 query: &query,
                 replacement: replacement.prompt.line(),
                 replace_all,
+                cancel: replacement.task.restart(),
             },
             &self.results.editor_data,
         );
         match result {
-            Ok((count, options)) => {
-                // Keep stale coordinates locked until updated rows are published.
-                self.refresh_options(options, self.results.editor_data.clone());
-                if let Some(updates) = &mut self.file_updates {
-                    updates.mark_documents_refreshed(cx.editor);
-                }
-                if count == 0 {
-                    cx.editor.set_status("No matches replaced");
-                } else {
-                    cx.editor.set_status(format!(
-                        "Replaced {count} {}",
-                        if count == 1 { "match" } else { "matches" }
-                    ));
-                }
+            Ok(task) => {
+                self.queue_replacement(task, cx);
+                cx.editor.set_status("Replacing matches…");
             }
-            Err(error) => cx.editor.set_error(|| format!("Replace failed: {error}")),
+            Err(error) => cx.editor.set_error(|| format!("Replace failed: {error:#}")),
         }
     }
 }

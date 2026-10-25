@@ -254,6 +254,7 @@ impl Editor {
         let id = if let Some(id) = id {
             id
         } else {
+            self.ensure_path_not_writing(&path)?;
             let mut doc = Document::open(
                 &path,
                 None,

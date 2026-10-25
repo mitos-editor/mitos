@@ -19,7 +19,9 @@ mod mode;
 mod search;
 mod snippet;
 pub use input::InputKind;
-pub use search::SearchOutcome;
+pub use search::{
+    PendingReplacement, ReplacementOutcome, ReplacementPlan, SearchOutcome, WorkspaceReplacement,
+};
 pub use snippet::SnippetNavigation;
 mod registers;
 mod reload;

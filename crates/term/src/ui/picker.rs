@@ -58,6 +58,7 @@ use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacemen
 pub use self::preview::{
     CachedPreview, FileLocation, ImagePreview, PathOrId, Preview, MAX_FILE_SIZE_FOR_PREVIEW,
 };
+pub(crate) use replacement::{ReplacementStep, ReplacementTask};
 pub(crate) use updates::UpdateContext;
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
@@ -759,6 +760,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        if self.replacement_pending() {
+            return EventResult::Consumed(None);
+        }
         let search_active = !self.replacement_active();
         let result = self.active_prompt_mut().handle_event(event, cx);
         if search_active && matches!(result, EventResult::Consumed(_)) {
@@ -1130,6 +1134,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            picker.cancel_replacement();
             picker.query_needs_refresh =
                 picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();
             picker.results.discard_pending();
@@ -1183,6 +1188,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // A restored picker can receive input before its first redraw.
         self.refresh_from_editor(ctx.editor);
         for &action in actions {
+            if self.replacement_pending()
+                && !matches!(
+                    action,
+                    PickerAction::Cancel
+                        | PickerAction::MoveUp
+                        | PickerAction::MoveDown
+                        | PickerAction::PageUp
+                        | PickerAction::PageDown
+                        | PickerAction::MoveStart
+                        | PickerAction::MoveEnd
+                        | PickerAction::TogglePreview
+                )
+            {
+                return EventResult::Consumed(None);
+            }
             // Keep navigation available while replacements load or a resumed
             // picker waits for its old matcher before checking the current source.
             if (self.results.is_refreshing()
@@ -1259,7 +1279,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 PickerAction::MoveEnd => {
                     self.to_end();
                 }
-                PickerAction::Cancel => return close_fn(self, None),
+                PickerAction::Cancel => {
+                    if self.replacement_pending() {
+                        ctx.editor.clear_status();
+                    }
+                    return close_fn(self, None);
+                }
                 PickerAction::PopulateQuicklist => {
                     // Pickers can provide explicit quicklist entries when they have
                     // more precise jump data. Everything else falls back to preview
@@ -1464,6 +1489,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             self.poll = None;
         }
 
+        self.poll_replacement(cx);
         self.refresh_files(cx.editor);
         self.refresh_query_if_changed(cx.editor);
         self.refresh_from_editor(cx.editor);

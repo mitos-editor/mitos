@@ -376,38 +376,46 @@ fn global_search_picker(
             },
         })
     })
-    .with_replacement(|cx, request, config| {
+    .with_replacement(|editor, request, config| {
+        use crate::ui::picker::{ReplacementStep, ReplacementTask};
         let search = ::search::Search::new(
             request.query,
             !config.case_sensitive.load(Ordering::Relaxed),
         )?;
-        let count = cx.editor.replace_workspace_matches(
-            &search,
+        let replacement = view::editor::WorkspaceReplacement::new(
+            editor,
+            search,
             request.matches,
             request.replacement,
             request.replace_all,
+            request.cancel,
         )?;
-        // Only edited buffers can have changed. Preserve all other files and their
-        // ordering, including rows hidden by the current path filter.
-        let mut refreshed = std::collections::HashMap::new();
-        for item in request.matches {
-            if refreshed.contains_key(&item.path) {
-                continue;
-            }
-            let id = cx.editor.open(&item.path, view::editor::Action::Load)?;
-            let document = cx.editor.document(id).unwrap();
-            let rows = search.search_document(&item.path, document.text())?;
-            refreshed.insert(item.path.clone(), rows);
+        let options: Vec<_> = request.options.iter().map(|item| (*item).clone()).collect();
+        Ok(async move {
+            let plan = replacement.prepare().await?;
+            Ok(ReplacementStep::Apply(Box::new(move |editor| {
+                let pending = plan.apply(editor)?;
+                let task: ReplacementTask<::search::Match> = async move {
+                    let mut outcome = pending.finish().await;
+                    let mut refreshed = Vec::new();
+                    for item in options {
+                        if let Some(rows) = outcome.rows.get_mut(&item.path) {
+                            refreshed.append(rows);
+                        } else {
+                            refreshed.push(item);
+                        }
+                    }
+                    Ok(ReplacementStep::Complete {
+                        count: outcome.count,
+                        options: refreshed,
+                        error: outcome.error,
+                    })
+                }
+                .boxed();
+                Ok(task)
+            })))
         }
-        let mut options = Vec::new();
-        for item in request.options {
-            if let Some(rows) = refreshed.get_mut(&item.path) {
-                options.append(rows);
-            } else {
-                options.push((*item).clone());
-            }
-        }
-        Ok((count, options))
+        .boxed())
     })
     .with_case_sensitive_toggle(initial_case_sensitive, |config, enabled| {
         config.case_sensitive.store(enabled, Ordering::Relaxed);

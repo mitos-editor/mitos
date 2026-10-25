@@ -74,9 +74,12 @@ filter. Wait for search and result updates to finish before replacing.
 
 Replacement text expands regex captures: `$1` and `${name}` insert numbered
 and named captures, and `$$` inserts a literal dollar sign. An empty replacement
-deletes matches. Changes stay in editor buffers until saved and form one undo
-step per affected buffer. Open buffers, including unsaved edits, take precedence
-over files on disk.
+deletes matches. Open buffers, including unsaved edits, take precedence over files
+on disk. Their replacements stay unsaved and form one undo step per buffer.
+Files without an open buffer are updated directly on disk, without adding them
+to the buffer list or editor undo history. An error stops further writes;
+completed writes remain applied. Closing the picker does not interrupt file
+writes that have already started.
 
 Results and previews refresh after replacement so subsequent actions use current
 match positions. These bindings can be changed under `[keys.picker]`.
