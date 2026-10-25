@@ -22,13 +22,13 @@ pub struct ReviewDocument {
     task: TaskController,
     loading: bool,
     initialized: bool,
-    title: String,
+    instance: usize,
     changes: RowChanges,
 }
 
 impl ReviewDocument {
-    pub fn title(&self) -> &str {
-        &self.title
+    pub fn instance(&self) -> usize {
+        self.instance
     }
     pub fn path(&self) -> &Path {
         self.request.status.path()
@@ -65,27 +65,6 @@ impl ReviewDocument {
         self.changes
             .get(document_line.checked_sub(self.row_offset())?)?
             .as_deref()
-    }
-    fn update_title(&mut self) {
-        let mode = self.review.provider.unwrap_or("line");
-        let pending = if self.loading { " · loading" } else { "" };
-        let layout = if self.review.unchanged_by_provider
-            && (self.review.additions != 0 || self.review.deletions != 0)
-        {
-            " · layout only"
-        } else {
-            ""
-        };
-        self.title = literal(&format!(
-            "[diff · {mode}{layout} · +{} −{}{pending}] {} · {}",
-            self.review.additions,
-            self.review.deletions,
-            self.request.comparison.label(),
-            self.path()
-                .strip_prefix(self.workspace())
-                .unwrap_or(self.path())
-                .display()
-        ));
     }
 }
 
@@ -136,17 +115,26 @@ impl Editor {
     ) -> DocumentId {
         let review = Arc::new(Review::notice("Loading diff…"));
         let projection = projection(&review);
-        let mut state = ReviewDocument {
+        let instance = self
+            .documents()
+            .filter_map(Document::review)
+            .filter(|review| {
+                review.path() == request.status.path() && review.comparison() == request.comparison
+            })
+            .map(ReviewDocument::instance)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let state = ReviewDocument {
             request: request.clone(),
             review: review.clone(),
             source: None,
             task: TaskController::new(),
             loading: true,
             initialized: false,
-            title: String::new(),
+            instance,
             changes: projection.changes,
         };
-        state.update_title();
         let mut doc = Document::from(
             projection.text,
             None,
@@ -237,7 +225,6 @@ impl Editor {
         if matches!(work, Work::Read { .. }) {
             state.source = None;
         }
-        state.update_title();
         let request = match &work {
             Work::Read { request, .. } => Some(request.clone()),
             _ => None,
@@ -333,7 +320,6 @@ impl Editor {
         state.source = source;
         state.changes = changes;
         state.loading = false;
-        state.update_title();
         // Only this coordinator replaces derived content. It uses the normal
         // state-mapping/publication path without enabling editing or recording undo.
         doc.replace_readonly_content(transaction.changes(), initialize)

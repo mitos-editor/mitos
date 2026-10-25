@@ -1153,6 +1153,11 @@ view. `buffer::Buffer::apply_without_history` advances text identity without
 creating undo history. The document maps selections and viewport anchors before
 publishing each refresh. Editing, history, path assignment, reload, and forced
 saves enforce the document's content policy independently of terminal keybindings.
+`Document::display_metadata` exposes source paths and buffer kinds independently
+of filesystem identity. Review names contain only the source and comparison;
+independent snapshots have stable instance numbers. The editor disambiguates tab
+labels across its document set, while the terminal renders live comparison counts,
+engine, and loading state in the statusline.
 
 `term::ui::change_review` retains compact picker/popup presentation and supplies
 review-specific line backgrounds and token overlays to the normal editor renderer.

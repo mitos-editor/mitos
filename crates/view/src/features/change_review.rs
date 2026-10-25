@@ -30,6 +30,15 @@ pub enum ReviewComparison {
 }
 
 impl ReviewComparison {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Staged => "staged",
+            Self::Unstaged => "unstaged",
+            Self::Buffer => "buffer",
+            Self::Head => "HEAD",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Staged => "Staged · HEAD → index",

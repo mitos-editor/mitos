@@ -412,3 +412,67 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusline(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["config", "core.autocrlf", "false"]);
+    let path = dir.path().join("note.txt");
+    std::fs::write(&path, "before\n")?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    std::fs::write(&path, "after\n")?;
+    let mut config = test_config();
+    config.editor.icons = false;
+    config.editor.bufferline.show = editor_config::BufferLine::Always;
+    config.editor.statusline.left = vec![editor_config::StatusLineElement::FileBaseName];
+    config.editor.statusline.right = vec![];
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(language::Loader::default())
+        .with_file(&path, None)
+        .build()?;
+    keys(&mut app, ":diff<ret>").await?;
+    ready(&mut app).await?;
+    keys(&mut app, "").await?;
+    let first = current_ref!(app.editor).1.id();
+    let name = current_ref!(app.editor).1.display_name().into_owned();
+    assert_eq!(name, "note.txt [diff: HEAD]");
+    let row = |app: &Application, y: u16| -> String {
+        let buffer = app.terminal_backend().buffer();
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect()
+    };
+    let tab = row(&app, 0);
+    assert!(tab.contains("note.txt [diff: HEAD]"));
+    assert!(!tab.contains("line") && !tab.contains("+1") && !tab.contains("loading"));
+    let (view, doc) = current_ref!(app.editor);
+    let status = row(&app, view.statusline_area(doc).y);
+    assert!(status.contains("note.txt") && status.contains("DIFF HEAD"));
+    assert!(status.contains("+1") && status.contains("−1") && status.contains("line"));
+    keys(&mut app, ":diff-engine<ret>").await?;
+    ready(&mut app).await?;
+    assert_eq!(current_ref!(app.editor).1.display_name(), name);
+    keys(&mut app, ":diff-refresh<ret>").await?;
+    ready(&mut app).await?;
+    assert_eq!(current_ref!(app.editor).1.display_name(), name);
+    keys(&mut app, ":diff<ret>").await?;
+    ready(&mut app).await?;
+    let second = current_ref!(app.editor).1.id();
+    assert!(current_ref!(app.editor)
+        .1
+        .display_name()
+        .ends_with("[diff: HEAD #2]"));
+    keys(&mut app, "<C-o>").await?;
+    assert_eq!(current_ref!(app.editor).1.id(), first);
+    // The picker searches the comparison label and activates the document ID.
+    keys(&mut app, "<space>bHEAD #2").await?;
+    keys(&mut app, "<ret>").await?;
+    assert_eq!(current_ref!(app.editor).1.id(), second);
+    assert!(current_ref!(app.editor).1.path().is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

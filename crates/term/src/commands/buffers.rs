@@ -6,12 +6,14 @@ use crate::{
     ui::{overlay::overlaid, picker::PickerCallbackResult, Picker, PickerColumn},
 };
 use std::{borrow::Cow, path::Path};
+use view::document::DocumentKind;
 use view::{DocumentId, Editor};
 
 #[derive(PartialEq)]
 struct BufferMeta {
     id: DocumentId,
     name: String,
+    kind: DocumentKind,
     path: Option<Cow<'static, Path>>,
     is_modified: bool,
     is_current: bool,
@@ -25,9 +27,11 @@ fn buffer_items(editor: &Editor) -> Vec<BufferMeta> {
         .map(|doc| BufferMeta {
             id: doc.id(),
             name: doc.display_name().into_owned(),
+            kind: doc.display_metadata().kind,
             path: doc
-                .path()
-                .map(ToOwned::to_owned)
+                .display_metadata()
+                .source_path
+                .map(|path| std::path::PathBuf::from(doc.display_metadata().format_path(path)))
                 .map(stdx::path::get_relative_path),
             is_modified: doc.is_modified(),
             is_current: doc.id() == current,
@@ -91,7 +95,14 @@ fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConf
             if meta.path.is_none() {
                 meta.name.as_str().into()
             } else {
-                config.stylize(meta.path.as_deref(), None)
+                let mut cell = config.stylize(meta.path.as_deref(), None);
+                let suffix = meta.kind.suffix();
+                if !suffix.is_empty() {
+                    cell.content.lines[0]
+                        .spans
+                        .push(tui::text::Span::raw(suffix.into_owned()));
+                }
+                cell
             }
         })
         .with_prefix(|meta, config| config.icon(meta.path.as_deref())),

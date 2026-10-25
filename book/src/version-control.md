@@ -104,8 +104,11 @@ usual buffer or view commands.
 
 The gutter shows the original and new line numbers and a `+` or `−` change marker.
 Added and removed rows have a background highlight across the view. Hunk headers
-separate changes with their source ranges. The buffer name shows the comparison,
-engine, and line counts. Use the existing `[g` / `]g` change motions to move between
+separate changes with their source ranges. Buffer names show the source filename
+and comparison, for example `editor.rs [diff: staged]`. Counts, engine, and loading
+state appear in the statusline. Tabs include directories when filenames collide;
+separate snapshots of the same comparison receive stable `#2`, `#3` suffixes.
+Use the existing `[g` / `]g` change motions to move between
 hunks (`[G` / `]G` for the first / last).
 
 Review buffers use the source language's syntax colors with either comparison
@@ -170,7 +173,7 @@ diff-engine = "syntax"
 
 Use `:diff-engine` in a review buffer or **Alt-d** in the changed-file picker or a
 diff popup to switch between line and syntax comparison for that snapshot.
-The review name or popup heading shows the active engine. Remap popup and picker
+The review statusline or popup heading shows the active engine. Remap popup and picker
 actions with `toggle_engine` under `[keys.diff]` and `toggle_diff_engine` under
 `[keys.picker]`. Review buffer actions use the normal editor keymaps.
 
@@ -181,7 +184,7 @@ line wrapping. String contents, comments, and changes to syntax structure still
 participate in comparison. Embedded languages use the root grammar's representation.
 
 The original removed and added lines, source numbers, whitespace, and counts remain
-visible. A `layout only` review name or popup heading means the syntax matched while the text changed.
+visible. A `layout only` review statusline or popup heading means the syntax matched while the text changed.
 Diff gutters, hunk navigation, and `:restore-change` always use exact line hunks.
 Syntax comparison does not infer semantic equivalence or identify moved code.
 

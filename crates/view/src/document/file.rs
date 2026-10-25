@@ -688,7 +688,11 @@ impl Document {
             return name.as_str().into();
         }
         if let Some(review) = self.review() {
-            return review.title().into();
+            let path = review
+                .path()
+                .strip_prefix(review.workspace())
+                .unwrap_or(review.path());
+            return self.display_metadata().format_name(path).into();
         }
         self.display_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())

@@ -1,5 +1,7 @@
+mod display;
 mod presentation;
 pub use crate::features::formatting::FormatterError;
+pub use display::{DocumentDisplay, DocumentKind};
 use stdx::rope::RopeExt as _;
 pub(crate) mod history;
 mod language_servers;

@@ -581,6 +581,7 @@ impl PaneRenderer {
             .unwrap_or_else(|| editor.theme.get("ui.statusline.inactive"));
 
         let current_doc = view!(editor).document_id();
+        let labels = editor.document_tab_labels();
         let mut current_tab = 0;
         // PERF: Bufferline rendering needs an owned title list every frame. Cache these by document
         // metadata if bufferline rendering becomes measurable with very large buffer sets.
@@ -592,11 +593,7 @@ impl PaneRenderer {
                     current_tab = index;
                 }
 
-                let fname = doc
-                    .path()
-                    .and_then(|path| path.file_name())
-                    .map(|name| name.to_string_lossy())
-                    .unwrap_or_else(|| doc.display_name());
+                let fname = &labels[&doc.id()];
 
                 let style = if current_doc == doc.id() {
                     bufferline_active
@@ -604,10 +601,11 @@ impl PaneRenderer {
                     bufferline_inactive
                 };
 
-                let show_file_icon = editor.config().icons && doc.path().is_some();
+                let source_path = doc.display_metadata().source_path;
+                let show_file_icon = editor.config().icons && source_path.is_some();
                 let modified = if doc.is_modified() { "[+]" } else { "" };
 
-                if show_file_icon && let Some(path) = doc.path() {
+                if show_file_icon && let Some(path) = source_path {
                     let icons = ICONS.load();
                     if let Some(file) = icons.fs().file() {
                         let icon =

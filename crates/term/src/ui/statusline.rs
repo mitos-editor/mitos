@@ -606,25 +606,14 @@ fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = format!(" {} ", context.doc.display_name());
-
-    write(context, title.into());
+    render_filename(context, write, FileNameFormat::Relative);
 }
 
 fn render_file_absolute_path<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = {
-        let path = context
-            .doc
-            .path()
-            .as_ref()
-            .map_or_else(|| context.doc.display_name(), |p| p.to_string_lossy());
-        format!(" {} ", path)
-    };
-
-    write(context, title.into());
+    render_filename(context, write, FileNameFormat::Absolute);
 }
 
 fn render_file_modification_indicator<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -656,16 +645,87 @@ fn render_file_base_name<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = {
-        let rel_path = context.doc.display_path();
-        let path = rel_path
-            .as_ref()
-            .and_then(|p| p.file_name().map(|s| s.to_string_lossy()))
-            .unwrap_or_else(|| context.doc.display_name());
-        format!(" {} ", path)
-    };
+    render_filename(context, write, FileNameFormat::Base);
+}
 
-    write(context, title.into());
+enum FileNameFormat {
+    Relative,
+    Absolute,
+    Base,
+}
+
+fn render_filename<'a, F>(context: &mut RenderContext<'a>, write: F, format: FileNameFormat)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let doc = context.doc;
+    let display = doc.display_metadata();
+    let path = match format {
+        FileNameFormat::Relative => doc
+            .review()
+            .map(|review| {
+                review
+                    .path()
+                    .strip_prefix(review.workspace())
+                    .unwrap_or(review.path())
+            })
+            .or_else(|| doc.display_path()),
+        FileNameFormat::Absolute => display.source_path,
+        FileNameFormat::Base => display
+            .source_path
+            .and_then(|path| path.file_name())
+            .map(Path::new),
+    };
+    let name = path.map_or_else(
+        || doc.display_name(),
+        |path| display.format_path(path).into(),
+    );
+    write(context, format!(" {name} ").into());
+    render_review_status(context, write);
+}
+
+fn render_review_status<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let Some(review) = context.doc.review() else {
+        return;
+    };
+    let number = if review.instance() > 1 {
+        format!(" #{}", review.instance())
+    } else {
+        String::new()
+    };
+    write(
+        context,
+        format!(" DIFF {}{number} ", review.comparison().name()).into(),
+    );
+    write(
+        context,
+        Span::styled(
+            format!("+{} ", review.review().additions),
+            context.editor.theme.get("diff.plus"),
+        ),
+    );
+    write(
+        context,
+        Span::styled(
+            format!("−{} ", review.review().deletions),
+            context.editor.theme.get("diff.minus"),
+        ),
+    );
+    write(
+        context,
+        format!("{} ", review.review().provider.unwrap_or("line")).into(),
+    );
+    if review.review().unchanged_by_provider
+        && (review.review().additions != 0 || review.review().deletions != 0)
+    {
+        write(context, "layout only ".into());
+    }
+    if review.is_loading() {
+        write(context, "loading ".into());
+    }
 }
 
 fn render_separator<'a, F>(context: &mut RenderContext<'a>, write: F)

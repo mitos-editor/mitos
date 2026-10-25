@@ -734,3 +734,122 @@ async fn buffer_review_uses_the_index_without_saving_and_invalidates_after_edits
     assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_labels_are_stable_disambiguate_sources_and_number_independent_snapshots(
+) -> anyhow::Result<()> {
+    use view::document::DocumentKind;
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    let source = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace("after\n");
+    let first = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    let name = f
+        .editor
+        .document(first)
+        .unwrap()
+        .display_name()
+        .into_owned();
+    assert!(name.ends_with("document.words [diff: HEAD]"));
+    finish_review(&mut f, first).await?;
+    f.editor.toggle_review_engine()?;
+    finish_review(&mut f, first).await?;
+    f.editor.refresh_review()?;
+    finish_review(&mut f, first).await?;
+    assert_eq!(f.editor.document(first).unwrap().display_name(), name);
+    assert_eq!(
+        f.editor.document(first).unwrap().display_metadata().kind,
+        DocumentKind::Diff {
+            comparison: ReviewComparison::Head,
+            instance: 1
+        }
+    );
+    assert_eq!(
+        f.editor
+            .document(first)
+            .unwrap()
+            .display_metadata()
+            .source_path,
+        Some(path.as_path())
+    );
+    assert!(f.editor.document(first).unwrap().path().is_none());
+    assert!(f.editor.document(first).unwrap().uri().is_none());
+    let second = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, second).await?;
+    let second_name = f
+        .editor
+        .document(second)
+        .unwrap()
+        .display_name()
+        .into_owned();
+    assert!(second_name.ends_with("[diff: HEAD #2]"));
+    assert!(f.editor.close_document(first, false).is_ok());
+    assert_eq!(
+        f.editor.document(second).unwrap().display_name(),
+        second_name
+    );
+    let third = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, third).await?;
+    assert!(f
+        .editor
+        .document(third)
+        .unwrap()
+        .display_name()
+        .ends_with("[diff: HEAD #3]"));
+    let staged = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Staged),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, staged).await?;
+    assert!(f
+        .editor
+        .document(staged)
+        .unwrap()
+        .display_name()
+        .ends_with("[diff: staged]"));
+    let labels = f.editor.document_tab_labels();
+    assert_eq!(labels[&source], "document.words");
+    assert_eq!(labels[&second], "document.words [diff: HEAD #2]");
+    assert_eq!(labels[&third], "document.words [diff: HEAD #3]");
+    // Same filenames in different directories and workspaces remain distinct.
+    let nested = path
+        .parent()
+        .unwrap()
+        .join("nested")
+        .join(path.file_name().unwrap());
+    std::fs::create_dir_all(nested.parent().unwrap())?;
+    std::fs::write(&nested, "other\n")?;
+    let other = f.editor.open(&nested, Action::Load)?;
+    let review = f.editor.open_review(
+        review_request(&f, &nested, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, review).await?;
+    let labels = f.editor.document_tab_labels();
+    assert_ne!(labels[&source], labels[&other]);
+    assert!(labels[&review].contains("nested"));
+    assert!(labels[&review].ends_with("[diff: HEAD]"));
+    let elsewhere = tempfile::tempdir()?;
+    let alternate = elsewhere.path().join(path.file_name().unwrap());
+    std::fs::write(&alternate, "elsewhere\n")?;
+    let elsewhere = f.editor.open(&alternate, Action::Load)?;
+    let labels = f.editor.document_tab_labels();
+    assert_ne!(labels[&source], labels[&elsewhere]);
+    assert_ne!(labels[&other], labels[&elsewhere]);
+    Ok(())
+}
