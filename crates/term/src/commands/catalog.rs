@@ -164,6 +164,7 @@ impl MappableCommand {
         debug_mode_help => super::palette::debug_mode_help, "Show debug commands and current bindings",
         debug_mode => super::mode::debug_mode, "Enter debug mode",
         normal_mode => super::mode::normal_mode, "Enter normal mode",
+        leave_editing_mode => super::mode::leave_editing_mode, "Return to normal or debug mode",
         select_mode => super::mode::select_mode, "Enter selection extend mode",
         exit_select_mode => super::mode::exit_select_mode, "Exit selection mode",
         goto_definition => super::lsp::goto_definition, "Goto definition",

@@ -56,9 +56,12 @@ opening source files or changing splits, including when selecting stack frames.
 
 Press `?` to open searchable debug command help with your current bindings.
 Choose a command and press `Enter` to run it, or `Esc` to close help. Press `Esc`
-in the editor to return to normal mode. Entering or leaving debug mode does not
-start or stop a session. Editing commands such as `a` enter insert mode; leaving
-insert or select mode returns to normal mode. Press `Space G` to re-enter debug mode.
+while in DBG to return to normal mode. Entering or leaving debug mode does not
+start or stop a session. Editing commands such as `a` temporarily enter insert
+mode. Press `Esc` to finish editing and return to DBG; press `Esc` again to
+return to NOR. Leaving select mode also restores DBG when entered from it.
+A session ending while you type leaves you in insert mode; Escape still returns
+to DBG, where you can launch another session.
 See [key remapping](./remapping.md) to customize `[keys.debug]`.
 
 You can also start a template from the command line. For a Rust binary built

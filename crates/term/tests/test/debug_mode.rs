@@ -55,7 +55,7 @@ async fn configured_debug_mode_navigates_edits_and_renders_its_status() -> anyho
             (
                 Some("aX<esc>"),
                 Some(&|app| {
-                    assert_eq!(app.editor.mode(), Mode::Normal);
+                    assert_eq!(app.editor.mode(), Mode::Debug);
                     assert!(current_ref!(app.editor).1.text().to_string().contains('X'));
                 }),
             ),
@@ -149,6 +149,73 @@ async fn debug_workflow_keeps_navigation_and_offers_searchable_binding_help() ->
                 Some("<esc>"),
                 Some(&|app| assert_eq!(app.editor.mode(), Mode::Normal)),
             ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn editing_returns_to_debug_mode_and_repeat_uses_the_current_command_mode(
+) -> anyhow::Result<()> {
+    let source = r#"
+        [keys.normal]
+        F10 = "select_mode"
+        [keys.insert]
+        F9 = "normal_mode"
+        F10 = "select_mode"
+    "#
+    .to_owned();
+    let mut config = term::config::Config::load(Ok(&source), Ok(String::new())).unwrap();
+    config.editor = super::helpers::test_editor_config();
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[|a]#bc\n")
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    let debug = |app: &term::application::Application| assert_eq!(app.editor.mode(), Mode::Debug);
+    let normal = |app: &term::application::Application| assert_eq!(app.editor.mode(), Mode::Normal);
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<space>GaX<esc>"),
+                Some(&|app| {
+                    debug(app);
+                    assert_eq!(current_ref!(app.editor).1.text(), "aXbc\n");
+                }),
+            ),
+            (
+                Some("."),
+                Some(&|app| {
+                    debug(app);
+                    assert_eq!(current_ref!(app.editor).1.text(), "aXXbc\n");
+                }),
+            ),
+            (
+                Some("u"),
+                Some(&|app| {
+                    debug(app);
+                    assert_eq!(current_ref!(app.editor).1.text(), "aXbc\n");
+                }),
+            ),
+            (
+                Some("u<esc>gh."),
+                Some(&|app| {
+                    normal(app);
+                    assert_eq!(current_ref!(app.editor).1.text(), "aXbc\n");
+                }),
+            ),
+            (Some("<space>GaQ<F10><esc>"), Some(&debug)),
+            (Some("<F10>v"), Some(&debug)),
+            (Some("<F10>y"), Some(&debug)),
+            (Some("<F10>d"), Some(&debug)),
+            (Some("<F10><A-r>replacement<ret>"), Some(&debug)),
+            (Some("aZ<F9>"), Some(&normal)),
+            (Some("iR<esc><F10><esc>"), Some(&normal)),
+            (Some("<space>GaS<esc><esc>"), Some(&normal)),
             (Some(":qa!<ret>"), None),
         ],
         true,

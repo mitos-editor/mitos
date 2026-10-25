@@ -14,7 +14,7 @@ require a tree-sitter grammar and the relevant queries for the file type.
 
 ## Normal mode
 
-Normal mode is the default when Mitos starts. Press Escape to return to it.
+Normal mode is the default when Mitos starts.
 Type a number before a command to give it a count, for example `42G` to go
 to line 42. Unlike Vim, `f`, `F`, `t`, and `T` can cross line boundaries.
 
@@ -52,8 +52,9 @@ command; sticky groups stay open until Escape. See
 ## Insert mode
 
 Press `i` in normal mode to enter insert mode. An insert session normally
-forms one undo step when you return to normal mode. `Ctrl-s` starts another
-undo step without leaving insert mode; see [Macros and undo](./macros.md#undo-and-redo).
+forms one undo step when you leave insert mode. `Esc` returns to the normal or
+debug mode you entered it from. `Ctrl-s` starts another undo step without leaving
+insert mode; see [Macros and undo](./macros.md#undo-and-redo).
 
 Tab uses [smart tab](./completion.md#smart-tab). To disable a binding, map
 it to `no_op` in `[keys.insert]`.
@@ -65,6 +66,7 @@ it to `no_op` in `[keys.insert]`.
 Press `v` in normal mode to enter select mode. Motions extend selections
 rather than replace them; `vgl`, for example, extends to the end of the line.
 Searching with `n` or `N` keeps the current selection and adds the next match.
+`Esc` or `v` leaves select mode and restores the preceding normal or debug mode.
 
 {{#include ./generated/keymap-select.md}}
 

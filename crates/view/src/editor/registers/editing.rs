@@ -58,7 +58,7 @@ impl Editor {
     pub fn delete_selections(&mut self, register: Option<char>) -> Result<()> {
         self.remove_selected_text(register)?;
         if self.mode() == Mode::Select {
-            self.set_mode(Mode::Normal);
+            self.leave_editing_mode();
         }
         Ok(())
     }
