@@ -141,9 +141,11 @@ mod tests {
         let encoded = serde_json::to_value(&location).unwrap();
         let decoded: lsp::Location = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded.uri.to_file_path().unwrap(), path);
+        // Editor URIs normalize Windows short names such as RUNNER~1 in TEMP.
+        let normalized = stdx::path::normalize(&path);
         assert_eq!(
             decoded.uri.to_editor_uri().unwrap().as_path(),
-            Some(path.as_path())
+            Some(normalized.as_path())
         );
     }
 
