@@ -204,8 +204,13 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
     compositor.push(files);
     key(&mut app, &mut compositor, &mut jobs, "ret");
     assert!(view::current_ref!(app.editor).1.review().is_some());
-    assert!(compositor.find::<ui::Popup<ui::change_review::ReviewView>>().is_none());
-    assert!(compositor.last_picker.is_some(), "the file browser remains restorable");
+    assert!(compositor
+        .find::<ui::Popup<ui::change_review::ReviewView>>()
+        .is_none());
+    assert!(
+        compositor.last_picker.is_some(),
+        "the file browser remains restorable"
+    );
     assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
     assert_eq!(
         std::fs::read_to_string(dir.path().join("file.txt"))?,
