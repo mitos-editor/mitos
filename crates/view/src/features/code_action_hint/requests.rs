@@ -4,13 +4,13 @@ use std::{collections::HashSet, time::Duration};
 
 use ::diagnostics::DiagnosticProvider;
 use editor_core::Range;
-use event::{cancelable_future, register_hook, send_blocking, AsyncHook};
+use event::{register_hook, send_blocking};
 use futures_util::stream::FuturesUnordered;
 use lsp_client::lsp::{CodeAction, CodeActionOrCommand, CodeActionTriggerKind};
-use tokio::{sync::mpsc::Sender, time::Instant};
+use tokio::sync::mpsc::Sender;
 use tokio_stream::StreamExt;
 
-use crate::features::request::DocumentRequest;
+use crate::features::{debounce::debounce_targets, request::DocumentRequest};
 use crate::{
     action::code_actions_for_range_filtered,
     callbacks::EditorCallbackSender,
@@ -30,35 +30,12 @@ pub struct CodeActionHintHandler {
 
 impl CodeActionHintHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let events = Debounce {
-            callbacks: callbacks.clone(),
-            targets: HashSet::new(),
-        }
-        .spawn();
+        let events = debounce_targets(
+            callbacks.clone(),
+            Duration::from_millis(200),
+            |editor, (doc, view)| request_code_action_hint(editor, doc, view),
+        );
         Self { callbacks, events }
-    }
-}
-
-struct Debounce {
-    callbacks: EditorCallbackSender,
-    targets: HashSet<(DocumentId, ViewId)>,
-}
-
-impl AsyncHook for Debounce {
-    type Event = (DocumentId, ViewId);
-
-    fn handle_event(&mut self, event: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
-        self.targets.insert(event);
-        Some(Instant::now() + Duration::from_millis(200))
-    }
-
-    fn finish_debounce(&mut self) {
-        let targets = std::mem::take(&mut self.targets);
-        self.callbacks.send_blocking(move |editor| {
-            for (doc_id, view_id) in targets {
-                request_code_action_hint(editor, doc_id, view_id);
-            }
-        });
     }
 }
 
@@ -123,46 +100,43 @@ fn request_code_action_hint(editor: &mut Editor, doc_id: DocumentId, view_id: Vi
         return;
     }
     let request = DocumentRequest::new(doc, cancel, servers);
-    tokio::spawn(async move {
-        let mut available = has_spelling_action;
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(actions))) => {
-                    available |= actions.unwrap_or_default().iter().any(|action| {
-                        matches!(
-                            action,
-                            CodeActionOrCommand::Command(_)
-                                | CodeActionOrCommand::CodeAction(CodeAction {
-                                    disabled: None,
-                                    ..
-                                })
-                        )
-                    });
+    request.publish(
+        callbacks,
+        async move {
+            let mut available = has_spelling_action;
+            while let Some(result) = futures.next().await {
+                match result {
+                    Ok(actions) => {
+                        available |= actions.unwrap_or_default().iter().any(|action| {
+                            matches!(
+                                action,
+                                CodeActionOrCommand::Command(_)
+                                    | CodeActionOrCommand::CodeAction(CodeAction {
+                                        disabled: None,
+                                        ..
+                                    })
+                            )
+                        })
+                    }
+                    Err(err) => log::error!("while gathering code actions: {err}"),
                 }
-                Some(Some(Err(err))) => log::error!("while gathering code actions: {err}"),
-                Some(None) => break,
-                None => return,
             }
-        }
-        callbacks
-            .send(move |editor| {
-                if !request.is_current(editor)
-                    || !editor.config().code_action_hint()
-                    || !editor
-                        .tree
-                        .try_get(view_id)
-                        .is_some_and(|view| view.doc == doc_id)
-                {
-                    return;
-                }
+            Some(available)
+        },
+        move |editor, available| {
+            if editor.config().code_action_hint()
+                && editor
+                    .tree
+                    .try_get(view_id)
+                    .is_some_and(|view| view.doc == doc_id)
+            {
                 let doc = editor.document_mut(doc_id).unwrap();
-                if doc.selection(view_id) != &selection {
-                    return;
+                if doc.selection(view_id) == &selection {
+                    apply_code_action_hint(doc, view_id, available);
                 }
-                apply_code_action_hint(doc, view_id, available);
-            })
-            .await;
-    });
+            }
+        },
+    );
 }
 
 fn apply_code_action_hint(doc: &mut Document, view: ViewId, available: bool) {

@@ -1,6 +1,6 @@
 //! Batch document refreshes after edits without coupling feature request logic.
 
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, hash::Hash, time::Duration};
 
 use event::AsyncHook;
 use tokio::{sync::mpsc::Sender, time::Instant};
@@ -15,34 +15,44 @@ pub(crate) fn debounce_documents(
     callbacks: EditorCallbackSender,
     request: fn(&mut Editor, DocumentId),
 ) -> Sender<DocumentId> {
-    DocumentDebounce {
+    debounce_targets(callbacks, DOCUMENT_CHANGE_DEBOUNCE, request)
+}
+
+pub(crate) fn debounce_targets<T: Eq + Hash + Send + Sync + 'static>(
+    callbacks: EditorCallbackSender,
+    delay: Duration,
+    request: fn(&mut Editor, T),
+) -> Sender<T> {
+    Debounce {
         callbacks,
-        docs: HashSet::new(),
+        delay,
+        targets: HashSet::new(),
         request,
     }
     .spawn()
 }
 
-struct DocumentDebounce {
+struct Debounce<T> {
     callbacks: EditorCallbackSender,
-    docs: HashSet<DocumentId>,
-    request: fn(&mut Editor, DocumentId),
+    delay: Duration,
+    targets: HashSet<T>,
+    request: fn(&mut Editor, T),
 }
 
-impl AsyncHook for DocumentDebounce {
-    type Event = DocumentId;
+impl<T: Eq + Hash + Send + Sync + 'static> AsyncHook for Debounce<T> {
+    type Event = T;
 
-    fn handle_event(&mut self, doc: DocumentId, _timeout: Option<Instant>) -> Option<Instant> {
-        self.docs.insert(doc);
-        Some(Instant::now() + DOCUMENT_CHANGE_DEBOUNCE)
+    fn handle_event(&mut self, target: T, _timeout: Option<Instant>) -> Option<Instant> {
+        self.targets.insert(target);
+        Some(Instant::now() + self.delay)
     }
 
     fn finish_debounce(&mut self) {
-        let docs = std::mem::take(&mut self.docs);
+        let targets = std::mem::take(&mut self.targets);
         let request = self.request;
         self.callbacks.send_blocking(move |editor| {
-            for doc in docs {
-                request(editor, doc);
+            for target in targets {
+                request(editor, target);
             }
         });
     }

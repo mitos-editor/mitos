@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
     current, current_ref,
-    editor::Action,
+    editor::{Action, ConfigEvent},
     features::{
         code_lenses::DocumentCodeLensesHandler, document_colors::DocumentColorsHandler,
         document_highlight::DocumentHighlightHandler, document_links::DocumentLinksHandler,
@@ -169,6 +169,13 @@ impl Fixture {
         }
     }
 
+    fn show_colors(&mut self, enable: bool) {
+        let mut config = (*self.app.editor.config()).clone();
+        config.lsp.color_swatches.enable = enable;
+        self.app
+            .handle_config_events(ConfigEvent::Update(Box::new(config)));
+    }
+
     fn edit(&mut self, word: &str) {
         let (view, doc) = current!(self.app.editor);
         let change = Transaction::change(
@@ -220,6 +227,57 @@ const ALL: &[Feature] = &[
     Feature::Links,
     Feature::Symbols,
 ];
+
+#[tokio::test(flavor = "multi_thread")]
+async fn color_configuration_refreshes_open_documents_and_rejects_queued_results(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("colors.feature-test"), "😀 original\n")?;
+    let initial = fixture.initialize().await?;
+    fixture.show_colors(false);
+    fixture.apply(initial);
+    assert!(current_ref!(fixture.app.editor)
+        .1
+        .color_swatches()
+        .is_none());
+    let disabled = fixture.batch(&[Feature::Lenses]).await?;
+    fixture.apply(disabled);
+
+    // Enabling a feature on an already open document requests its data without an edit.
+    fixture.show_colors(true);
+    let enabled = fixture.batch(&[Feature::Lenses, Feature::Colors]).await?;
+    fixture.apply(enabled);
+    assert!(current_ref!(fixture.app.editor)
+        .1
+        .color_swatches()
+        .is_some());
+
+    // Cached swatches disappear immediately, and a response queued before disable
+    // must not repopulate them even if the setting is subsequently enabled again.
+    fixture.edit("replacement");
+    let pending = fixture.batch(ALL).await?;
+    fixture.show_colors(false);
+    assert!(current_ref!(fixture.app.editor)
+        .1
+        .color_swatches()
+        .is_none());
+    let disabled = fixture.batch(&[Feature::Lenses]).await?;
+    fixture.apply(disabled);
+    fixture.show_colors(true);
+    fixture.apply(pending);
+    assert!(current_ref!(fixture.app.editor)
+        .1
+        .color_swatches()
+        .is_none());
+    let enabled = fixture.batch(&[Feature::Lenses, Feature::Colors]).await?;
+    fixture.apply(enabled);
+    assert!(current_ref!(fixture.app.editor)
+        .1
+        .color_swatches()
+        .is_some());
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn requests_events_and_results_stay_with_each_editor() -> anyhow::Result<()> {
