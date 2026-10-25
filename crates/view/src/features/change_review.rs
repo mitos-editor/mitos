@@ -19,7 +19,7 @@ pub(crate) mod historical;
 pub use document::ReviewDocument;
 pub use engine::ReviewSource;
 use engine::Settings;
-pub use historical::HistoricalReviewRequest;
+pub use historical::{HistoricalReviewRequest, HistoricalReviewSnapshot};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReviewComparison {

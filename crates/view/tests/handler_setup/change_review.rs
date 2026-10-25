@@ -1227,3 +1227,38 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_a_historical_preview_reuses_its_sources_and_selected_engine() -> anyhow::Result<()>
+{
+    use view::features::change_review::HistoricalReviewRequest;
+    let mut f = Fixture::new("current\n")?;
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let request = HistoricalReviewRequest::comparison(
+        &f.editor,
+        path,
+        f.dir.path().to_owned(),
+        "pinned revision".into(),
+        vcs::Comparison {
+            before: b"before\n".to_vec(),
+            after: b"after\n".to_vec(),
+        },
+    );
+    let mut task = event::TaskController::new();
+    let snapshot = request.clone().run(task.restart()).await?;
+    let source = snapshot.source.clone();
+    let id = f.editor.open_historical_snapshot(
+        snapshot,
+        Some(editor_config::DiffEngine::Syntax),
+        Action::VerticalSplit,
+    )?;
+    finish_review(&mut f, id).await?;
+    let state = f.editor.document(id).unwrap().review().unwrap();
+    assert!(Arc::ptr_eq(state.source().unwrap(), &source));
+    assert_eq!(state.engine(), editor_config::DiffEngine::Syntax);
+    assert_eq!(source.after().to_string(), "after\n");
+    let canceled = task.restart();
+    task.cancel();
+    assert!(request.run(canceled).await.is_err());
+    Ok(())
+}

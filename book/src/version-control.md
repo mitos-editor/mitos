@@ -266,7 +266,9 @@ Restoring a change replaces whole intersecting hunks in the current buffer. Use 
 ## Git history
 
 Use `:file-history` (or `git_file_history` in the command palette) to browse the
-current file's first-parent history, following Git's rename detection. Press
+current file's first-parent history, following Git's rename detection. The selected
+commit's diff appears in the preview pane. Use **Ctrl-t** to hide or show it,
+**Alt-up/down** to scroll, and **Alt-d** to switch the diff engine. Press
 **Enter** to review the selected commit against its first parent. **Ctrl-v** and
 **Ctrl-s** open reviews in splits. **Space-'** restores the browser with its query
 and selection, so you can open another comparison alongside it.
@@ -296,8 +298,8 @@ History reads do not check out revisions or change the working tree or index.
 Remap the action menu through `keys.history-picker`; shared picker bindings apply.
 
 Use `:git-history` (alias `:vcs-history`, or `git_history` in the command palette)
-for repository history. Select a commit, then a changed file to open its native
-review. The file browser's **Alt-h** action returns to its parent browser with the
+for repository history. Select a commit, then a changed file to preview its diff
+against the selected parent and open its native review. The file browser's **Alt-h** action returns to its parent browser with the
 query and selection preserved. **Space-'** restores the most recently used
 browser after opening a review. **Alt-a** provides version and comparison actions
 for files (buffer comparison requires an open matching file) and explicit parent

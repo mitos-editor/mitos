@@ -38,6 +38,14 @@ pub struct HistoricalReviewRequest {
     before_settings: Settings,
     trusted: bool,
     input: Input,
+    worker: Arc<tokio::sync::Semaphore>,
+}
+
+/// A bounded historical preview that can be reused by a native review document.
+pub struct HistoricalReviewSnapshot {
+    pub source: Arc<ReviewSource>,
+    pub review: Arc<Review>,
+    pub(super) request: HistoricalReviewRequest,
 }
 
 impl HistoricalReviewRequest {
@@ -51,6 +59,7 @@ impl HistoricalReviewRequest {
     ) -> Self {
         Self {
             settings: Settings::historical(editor, &path),
+            worker: editor.handlers.change_review_worker.clone(),
             before_settings: Settings::historical(editor, &path),
             before_path: path.clone(),
             before_label: label.clone(),
@@ -77,6 +86,7 @@ impl HistoricalReviewRequest {
         let workspace = repository.root().to_owned();
         Self {
             settings: Settings::historical(editor, &path),
+            worker: editor.handlers.change_review_worker.clone(),
             before_settings: Settings::historical(editor, &path),
             before_path: path.clone(),
             before_label: format!("{}^1", &entry.id()[..12]),
@@ -123,6 +133,7 @@ impl HistoricalReviewRequest {
         let workspace = repository.root().to_owned();
         Ok(Self {
             settings: Settings::historical(editor, &path),
+            worker: editor.handlers.change_review_worker.clone(),
             before_settings: Settings::historical(editor, &before_path),
             before_path,
             trusted: editor
@@ -174,6 +185,40 @@ impl HistoricalReviewRequest {
             buffer: Some(doc.text().clone()),
         };
         Ok(request)
+    }
+
+    pub fn engine(&self) -> super::DiffEngine {
+        self.settings.engine
+    }
+
+    pub fn with_engine(mut self, engine: Option<super::DiffEngine>) -> Self {
+        if let Some(engine) = engine {
+            self.settings.engine = engine;
+        }
+        self
+    }
+
+    /// Compare capture policy independently of the immutable source key and chosen engine.
+    pub fn same_policy(&self, other: &Self) -> bool {
+        self.trusted == other.trusted
+            && self.settings.current(&other.settings)
+            && self.before_settings.current(&other.before_settings)
+    }
+
+    /// Historical previews share the editor's bounded, cancellable review worker.
+    pub async fn run(self, cancel: event::TaskHandle) -> Result<Arc<HistoricalReviewSnapshot>> {
+        let worker = self.worker.clone();
+        let check = cancel.clone();
+        super::run_review(worker, cancel, move || {
+            let (source, review) = self.compute(&|| check.is_canceled())?;
+            ensure!(!check.is_canceled(), "Historical review canceled");
+            Ok(Arc::new(HistoricalReviewSnapshot {
+                source,
+                review,
+                request: self,
+            }))
+        })
+        .await
     }
 
     pub(super) fn source_metadata(&self, before: bool) -> (PathBuf, String) {

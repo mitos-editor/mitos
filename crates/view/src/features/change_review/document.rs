@@ -177,7 +177,9 @@ impl Editor {
         action: Action,
         previous: Option<Arc<ReviewSnapshot>>,
     ) -> DocumentId {
-        self.open_review_request(Request::Live(request), action, previous)
+        let request = Request::Live(request);
+        let work = request.clone().work(previous);
+        self.open_review_request(request, action, work)
     }
 
     pub fn open_historical_review(
@@ -185,15 +187,31 @@ impl Editor {
         request: super::HistoricalReviewRequest,
         action: Action,
     ) -> DocumentId {
-        self.open_review_request(Request::Historical(request), action, None)
+        let request = Request::Historical(request);
+        let work = request.clone().work(None);
+        self.open_review_request(request, action, work)
     }
 
-    fn open_review_request(
+    /// Open the exact previewed sources without reading historical objects again.
+    pub fn open_historical_snapshot(
         &mut self,
-        request: Request,
+        snapshot: Arc<super::HistoricalReviewSnapshot>,
+        engine: Option<DiffEngine>,
         action: Action,
-        previous: Option<Arc<ReviewSnapshot>>,
-    ) -> DocumentId {
+    ) -> Result<DocumentId> {
+        ensure!(
+            snapshot.request.is_current(self),
+            "Workspace trust changed; reload the historical preview"
+        );
+        let request = snapshot.request.clone().with_engine(engine);
+        let work = Work::Engine {
+            source: snapshot.source.clone(),
+            engine: request.engine(),
+        };
+        Ok(self.open_review_request(Request::Historical(request), action, work))
+    }
+
+    fn open_review_request(&mut self, request: Request, action: Action, work: Work) -> DocumentId {
         let review = Arc::new(Review::notice("Loading diff…"));
         let projection = projection(&review);
         let instance = self
@@ -213,7 +231,7 @@ impl Editor {
             .unwrap_or(0)
             + 1;
         let state = ReviewDocument {
-            request: request.clone(),
+            request,
             review: review.clone(),
             source: None,
             task: TaskController::new(),
@@ -235,7 +253,7 @@ impl Editor {
             doc: id,
         })
         .report_to(self.status_sender());
-        self.start_review(id, request.work(previous));
+        self.start_review(id, work);
         id
     }
 
@@ -301,7 +319,10 @@ impl Editor {
         let request = match &work {
             Work::Read { request, .. } => Some(Request::Live((**request).clone())),
             Work::Historical(request) => Some(Request::Historical((**request).clone())),
-            _ => None,
+            Work::Engine { .. } => match &state.request {
+                Request::Historical(request) => Some(Request::Historical(request.clone())),
+                Request::Live(_) => None,
+            },
         };
         let worker = self.handlers.change_review_worker.clone();
         let callbacks = self.callback_sender().clone();

@@ -38,6 +38,22 @@ async fn ready(app: &mut Application) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn preview_contains(app: &mut Application, needle: &str) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            keys(app, "").await.unwrap();
+            let buffer = app.terminal_backend().buffer();
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            if text.contains(needle) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn native_review_reopens_picker_and_opens_another_diff_in_a_split() -> anyhow::Result<()> {
     let Some(root) = isolation::workspace(
@@ -498,6 +514,12 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
     git(&workspace, &["commit", "-m", "changed history"]);
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     keys(&mut app, ":file-history<ret>changed history").await?;
+    preview_contains(&mut app, "old_version").await?;
+    assert!(
+        current_ref!(app.editor).1.review().is_none(),
+        "previewing does not open a document"
+    );
+
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.review().is_none() {
             keys(&mut app, "<ret>").await.unwrap();
@@ -602,6 +624,9 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
     })
     .await?;
     keys(&mut app, "<ret>side.rs").await?;
+    preview_contains(&mut app, "fn side()").await?;
+    assert!(current_ref!(app.editor).1.review().is_none());
+
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.review().is_none() {
             keys(&mut app, "<C-v>").await.unwrap();

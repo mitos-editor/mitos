@@ -70,6 +70,7 @@ fn browser(
         repo: repo.clone(),
         buffer,
     };
+    let preview_repo = data.repo.clone();
     let accept = data.clone();
     let actions = data.clone();
     let mut pager = Pager {
@@ -158,6 +159,28 @@ fn browser(
             }))
         },
     );
+    let picker = if path.is_some() {
+        picker.with_custom_preview(crate::ui::change_review::HistoricalReviewPreview::new(
+            |row: &Row| match row {
+                Row::Commit(commit) if commit.file.is_some() => Some(commit.id.clone()),
+                _ => None,
+            },
+            move |editor, row| {
+                let Row::Commit(commit) = row else {
+                    anyhow::bail!("Select a commit to preview");
+                };
+                review_request(
+                    editor,
+                    &preview_repo,
+                    commit,
+                    commit.file.as_ref().unwrap(),
+                    0,
+                )
+            },
+        ))
+    } else {
+        picker
+    };
     Ok(Box::new(overlaid(picker)))
 }
 
@@ -404,6 +427,8 @@ fn files_picker(
         commit.id.short(),
         parent + 1
     );
+    let preview_repo = data.repo.clone();
+    let preview_commit = commit.clone();
     let accept = data.clone();
     let selected = commit.clone();
     let menu_data = data.clone();
@@ -449,6 +474,10 @@ fn files_picker(
             }
         },
     )
+    .with_custom_preview(crate::ui::change_review::HistoricalReviewPreview::new(
+        |file: &HistoryFile| Some(file.clone()),
+        move |editor, file| review_request(editor, &preview_repo, &preview_commit, file, parent),
+    ))
     .with_title(title)
     .with_help(|maps| {
         format!(
