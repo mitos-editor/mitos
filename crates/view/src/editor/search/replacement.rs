@@ -336,6 +336,15 @@ impl ReplacementPlan {
         }
         for edit in &self.files {
             ensure!(
+                !editor.writes.is_blocked(&edit.path)
+                    && !edit
+                        .reservations
+                        .iter()
+                        .any(|path| editor.writes.is_blocked(path)),
+                "A filesystem operation is pending for {}",
+                edit.path.display()
+            );
+            ensure!(
                 !documents.contains_key(&edit.path)
                     && !edit
                         .reservations

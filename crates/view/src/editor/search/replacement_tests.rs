@@ -221,6 +221,11 @@ async fn disk_replacement_preserves_bom_line_endings_and_permissions() -> anyhow
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("file.txt");
     std::fs::write(&path, "\u{feff}foo\r\n")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))?;
+    }
     let permissions = std::fs::metadata(&path)?.permissions();
     let outcome = prepare(&editor, &[&matched(&path, 0, 3)], "α", true)
         .await?
@@ -229,7 +234,35 @@ async fn disk_replacement_preserves_bom_line_endings_and_permissions() -> anyhow
         .await;
     assert!(outcome.error.is_none());
     assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}α\r\n");
-    assert_eq!(std::fs::metadata(&path)?.permissions(), permissions);
+    let saved_permissions = std::fs::metadata(&path)?.permissions();
+    #[cfg(unix)]
+    assert_eq!(saved_permissions, permissions);
+    // Windows Permissions also contains attributes such as ARCHIVE, which
+    // set_permissions does not preserve. Only the read-only flag is a permission.
+    #[cfg(windows)]
+    assert_eq!(saved_permissions.readonly(), permissions.readonly());
+    Ok(())
+}
+
+#[tokio::test]
+async fn replacements_and_external_file_operations_exclude_each_other() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "foo\n")?;
+    let plan = prepare(&editor, &[&matched(&path, 0, 3)], "bar", true).await?;
+    let block = editor.block_file_writes(vec![dir.path().into()])?;
+    assert!(plan.apply(&mut editor).is_err());
+    assert_eq!(std::fs::read_to_string(&path)?, "foo\n");
+    drop(block);
+    let pending = prepare(&editor, &[&matched(&path, 0, 3)], "bar", true)
+        .await?
+        .apply(&mut editor)?;
+    assert!(editor.block_file_writes(vec![dir.path().into()]).is_err());
+    let outcome = pending.finish().await;
+    assert!(outcome.error.is_none());
+    assert_eq!(std::fs::read_to_string(&path)?, "bar\n");
+    let _block = editor.block_file_writes(vec![dir.path().into()])?;
     Ok(())
 }
 

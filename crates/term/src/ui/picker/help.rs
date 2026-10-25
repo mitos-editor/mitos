@@ -40,16 +40,13 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 ),
             ]);
         }
-        let mut hints = self.help.map_or_else(Vec::new, |help| {
-            help(&cx.config.current.component_keys)
-        });
-        hints.extend(actions
-            .into_iter()
-            .filter_map(|(action, label)| {
-                let key = crate::keymap::component::action_hint(keys, &action);
-                (key != "unbound").then(|| format!("{key} {label}"))
-            })
-        );
+        let mut hints = self
+            .help
+            .map_or_else(Vec::new, |help| help(&cx.config.current.component_keys));
+        hints.extend(actions.into_iter().filter_map(|(action, label)| {
+            let key = crate::keymap::component::action_hint(keys, &action);
+            (key != "unbound").then(|| format!("{key} {label}"))
+        }));
         if hints.is_empty() {
             return;
         }

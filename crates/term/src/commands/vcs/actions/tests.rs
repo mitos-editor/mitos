@@ -252,7 +252,7 @@ fn frame(
 }
 
 #[tokio::test]
-async fn direct_git_shortcuts_fit_narrow_pickers_follow_remaps_and_preserve_paging(
+async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
 ) -> anyhow::Result<()> {
     use editor_config::BorderStyle;
     let mut app = application(false)?;
@@ -267,10 +267,11 @@ async fn direct_git_shortcuts_fit_narrow_pickers_follow_remaps_and_preserve_pagi
             Ok(String::new()),
         )
         .unwrap();
-        for width in [40, 80] {
+        for width in [40, 120] {
             for border in [BorderStyle::None, BorderStyle::Rounded] {
                 let mut editor_config = (*app.editor.config()).clone();
                 editor_config.border_style = border;
+                editor_config.picker.show_keybindings = true;
                 app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(
                     editor_config,
                 )));
@@ -294,22 +295,42 @@ async fn direct_git_shortcuts_fit_narrow_pickers_follow_remaps_and_preserve_pagi
                     view::graphics::Rect::new(0, 0, width, 12),
                 );
                 let screen = rows.join("\n");
-                for hint in [
-                    "<ret> open",
-                    "<A-u> unstage",
-                    "<A-l> stashes",
-                    "<A-a> actions",
-                ] {
-                    assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
-                }
+                assert!(screen.contains("<ret> open"), "{screen}");
                 assert!(screen.contains(if remapped {
                     "<C-j> stage"
                 } else {
                     "<A-s> stage"
                 }));
-                assert_eq!(screen.contains("<A-z> stash"), !remapped);
+                if width == 120 {
+                    for hint in ["<A-u> unstage", "<A-l> stashes", "<A-a> actions"] {
+                        assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
+                    }
+                    assert_eq!(screen.contains("<A-z> stash"), !remapped);
+                } else {
+                    assert!(!screen.contains("actions"), "{screen}");
+                }
+                assert!(rows[..rows.len() - 1]
+                    .iter()
+                    .all(|row| !row.contains("stage")));
                 let visible = rows.iter().filter(|row| row.contains("row ")).count();
                 assert!(visible > 0);
+                let mut editor_config = (*app.editor.config()).clone();
+                editor_config.picker.show_keybindings = false;
+                app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(
+                    editor_config,
+                )));
+                let hidden = frame(
+                    &mut picker,
+                    &mut app,
+                    &mut jobs,
+                    &config,
+                    view::graphics::Rect::new(0, 0, width, 12),
+                );
+                assert!(!hidden.join("\n").contains("stage"));
+                assert_eq!(
+                    hidden.iter().filter(|row| row.contains("row ")).count(),
+                    visible
+                );
                 assert_eq!(picker.selection(), Some(&0));
                 picker.page_down();
                 assert_eq!(picker.selection(), Some(&visible));

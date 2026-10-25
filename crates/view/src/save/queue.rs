@@ -102,7 +102,7 @@ fn blocked_by(path: &Path, blocked: &[PathBuf]) -> bool {
 impl WriteQueue {
     pub(crate) fn block(&mut self, paths: Vec<PathBuf>) -> anyhow::Result<FileWriteBlock> {
         anyhow::ensure!(
-            !self.has_pending(),
+            !self.has_pending() && self.paths.lock().is_empty(),
             "Wait for pending saves before changing files on disk"
         );
         self.blocked.retain(|paths| paths.strong_count() != 0);
