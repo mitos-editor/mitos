@@ -21,7 +21,7 @@ use tui::{
     buffer::{Buffer as Surface, BufferExt as _},
     layout::{Alignment, Constraint, Layout, Size},
     text::{Line, Span},
-    widgets::{Paragraph, Row, Table, TableState, Widget},
+    widgets::{Paragraph, Row, StatefulWidget, Table, TableState, Widget},
 };
 use view::{
     document::Mode,
@@ -247,13 +247,16 @@ impl PaneRenderer {
                 Line::styled(description.to_owned(), text),
             ])
         });
-        Table::new(rows)
-            .widths(&[
+        let table = Table::new(
+            rows,
+            [
                 Constraint::Length(command_width),
                 Constraint::Length(description_width),
-            ])
-            .column_spacing(COMMAND_SPACING)
-            .render_table(commands_area, surface, &mut TableState::default(), false);
+            ],
+        )
+        .column_spacing(COMMAND_SPACING)
+        .flex(tui::layout::Flex::Legacy);
+        StatefulWidget::render(table, commands_area, surface, &mut TableState::default());
 
         Paragraph::new(footer.to_vec())
             .alignment(Alignment::Center)

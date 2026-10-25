@@ -9,7 +9,7 @@ use stdx::rope::RopeExt as _;
 use tui::buffer::Buffer as Surface;
 use tui::layout::Constraint;
 use tui::text::Span;
-use tui::widgets::{Row, Table, TableState, Widget};
+use tui::widgets::{Row, StatefulWidget, Table, TableState, Widget};
 use ui_core::input::KeyEvent;
 use ui_core::keyboard::{KeyCode, KeyModifiers};
 use ui_core::keymap::{KeymapState, Lookup};
@@ -519,11 +519,11 @@ impl Prompt {
             });
             let widths = vec![Constraint::Length(col_width.saturating_sub(1)); cols as usize];
             let mut state = TableState::default();
-            Table::new(rows)
-                .widths(&widths)
+            let table = Table::new(rows, &widths)
                 .style(background)
                 .column_spacing(2)
-                .render_table(area, surface, &mut state, false);
+                .flex(tui::layout::Flex::Legacy);
+            StatefulWidget::render(table, area, surface, &mut state);
         }
 
         if let Some(doc) = (self.doc_fn)(&self.line) {

@@ -25,7 +25,7 @@ use tui::{
     buffer::Buffer as Surface,
     layout::{Constraint, Layout, Size},
     text::{Line, Span},
-    widgets::{Cell, Paragraph, Row, Table},
+    widgets::{Cell, Paragraph, Row, StatefulWidget, Table},
 };
 
 use tui::buffer::BufferExt as _;
@@ -1098,12 +1098,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }))
         });
 
-        let mut table = Table::new(options)
+        let marker = " > ";
+        let mut options: Vec<_> = options.collect();
+        if self.truncate_start {
+            tui::table::truncate_rows_start(&mut options, inner, &self.widths, 1, marker);
+        }
+        let mut table = Table::new(options, &self.widths)
             .style(text_style)
-            .highlight_style(selected)
-            .highlight_symbol(" > ")
+            .row_highlight_style(selected)
+            .highlight_symbol(marker)
             .column_spacing(1)
-            .widths(&self.widths);
+            .flex(tui::layout::Flex::Legacy);
 
         // -- Header
         if self.columns.len() > 1 {
@@ -1126,7 +1131,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
                     Some(Cell::from(Span::styled(Cow::from(&*column.name), style)))
                 }))
-                .style(header_style),
+                .style(header_style)
+                .into(),
             );
         }
 
@@ -1134,7 +1140,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let mut table_state = TableState::default().with_selected(Some(cursor as usize));
 
-        table.render_table(inner, surface, &mut table_state, self.truncate_start);
+        StatefulWidget::render(table, inner, surface, &mut table_state);
     }
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {

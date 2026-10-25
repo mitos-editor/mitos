@@ -4,7 +4,7 @@
 //! such as [`layout`], [`style`], [`text`], and [`widgets`]. Mitos-specific code
 //! lives at the boundaries Ratatui intentionally does not own: terminal session
 //! setup in [`backend`], editor-aware buffer writes in [`buffer::BufferExt`],
-//! and a small compatibility [`widgets::Table`] with start truncation.
+//! and [`table`] row preparation for start truncation.
 //!
 //! New rendering code should use Ratatui primitives directly unless the editor
 //! needs behavior that is shared across several components.
@@ -12,7 +12,7 @@
 pub mod backend;
 pub mod panel;
 pub mod scrollbar;
-mod table;
+pub mod table;
 pub mod terminal;
 
 /// Ratatui buffer types plus editor-specific write operations.
@@ -41,12 +41,12 @@ pub mod text {
     pub use ratatui::text::*;
 }
 
-/// Ratatui widgets plus Mitos's table compatibility wrapper.
+/// Ratatui widgets plus editor table row preparation values.
 pub mod widgets {
-    pub use crate::table::{Cell, Row, Table};
+    pub use crate::table::{Cell, Row};
     pub use ratatui::widgets::{
         Block, BorderType, Borders, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, StatefulWidget, TableState, Tabs, Widget, Wrap,
+        ScrollbarState, StatefulWidget, Table, TableState, Tabs, Widget, Wrap,
     };
 }
 

@@ -3,7 +3,11 @@ use crate::{
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
     key, shift,
 };
-use tui::{buffer::Buffer as Surface, scrollbar, widgets::Table};
+use tui::{
+    buffer::Buffer as Surface,
+    scrollbar,
+    widgets::{StatefulWidget, Table},
+};
 use ui_core::keymap::{KeymapState, Lookup};
 
 pub use tui::widgets::{Cell, Row};
@@ -367,11 +371,11 @@ impl<T: Item + 'static> Component for Menu<T> {
             .matches
             .iter()
             .map(|(index, _score)| self.options[*index as usize].format(&self.editor_data));
-        let table = Table::new(rows)
+        let table = Table::new(rows, &self.widths)
             .style(style)
-            .highlight_style(selected)
+            .row_highlight_style(selected)
             .column_spacing(1)
-            .widths(&self.widths);
+            .flex(tui::layout::Flex::Legacy);
 
         use tui::widgets::TableState;
 
@@ -379,11 +383,11 @@ impl<T: Item + 'static> Component for Menu<T> {
             .with_offset(scroll)
             .with_selected(self.cursor);
 
-        table.render_table(
+        StatefulWidget::render(
+            table,
             area.clip_left(Self::LEFT_PADDING as u16).clip_right(1),
             surface,
             &mut table_state,
-            false,
         );
 
         if len > win_height {
