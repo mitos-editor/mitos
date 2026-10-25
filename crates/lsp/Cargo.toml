@@ -17,7 +17,7 @@ name = "lsp_client"
 
 [dependencies]
 diagnostics.workspace = true
-stdx.workspace = true
+stdx = { workspace = true, features = ["protocol"] }
 core.workspace = true
 lsp-types.workspace = true
 

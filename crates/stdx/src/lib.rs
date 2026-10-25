@@ -10,6 +10,8 @@ pub mod env;
 pub mod faccess;
 pub mod file;
 pub mod path;
+#[cfg(feature = "protocol")]
+pub mod protocol;
 pub mod range;
 pub mod rope;
 pub mod uri;

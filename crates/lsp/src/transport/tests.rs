@@ -6,6 +6,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::{
     io::{AsyncWrite, DuplexStream, WriteHalf},
     task::JoinHandle,

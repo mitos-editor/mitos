@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex as SequenceMutex},
 };
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite},
     sync::{
         mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
         oneshot, Mutex,
@@ -199,39 +199,9 @@ impl TransportState {
         buffer: &mut String,
         content: &mut Vec<u8>,
     ) -> Result<Payload> {
-        let mut content_length = None;
-        loop {
-            buffer.clear();
-            if reader.read_line(buffer).await? == 0 {
-                return Err(Error::StreamClosed);
-            };
-
-            if buffer == "\r\n" {
-                // look for an empty CRLF line
-                break;
-            }
-
-            let header = buffer.trim();
-            let parts = header.split_once(": ");
-
-            match parts {
-                Some(("Content-Length", value)) => {
-                    content_length = Some(value.parse().context("invalid content length")?);
-                }
-                Some((_, _)) => {}
-                None => {
-                    // Workaround: Some non-conformant language servers will output logging and other garbage
-                    // into the same stream as JSON-RPC messages. This can also happen from shell scripts that spawn
-                    // the server. Skip such lines and log a warning.
-
-                    // warn!("Failed to parse header: {:?}", header);
-                }
-            }
+        if !stdx::protocol::read_frame(reader, buffer, content).await? {
+            return Err(Error::StreamClosed);
         }
-
-        let content_length = content_length.context("missing content length")?;
-        content.resize(content_length, 0);
-        reader.read_exact(content).await?;
         let msg = std::str::from_utf8(content).context("invalid utf8 from server")?;
 
         info!("[{}] <- DAP {}", id, msg);
@@ -280,16 +250,7 @@ impl TransportState {
     ) -> Result<()> {
         info!("[{}] -> DAP {}", self.id, request);
 
-        // send the headers
-        server_stdin
-            .write_all(format!("Content-Length: {}\r\n\r\n", request.len()).as_bytes())
-            .await?;
-
-        // send the body
-        server_stdin.write_all(request.as_bytes()).await?;
-
-        server_stdin.flush().await?;
-
+        stdx::protocol::write_frame(server_stdin, &request).await?;
         Ok(())
     }
 

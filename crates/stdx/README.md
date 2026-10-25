@@ -1,5 +1,9 @@
 # `stdx`
 
+The optional `protocol` feature provides reusable asynchronous Content-Length
+framing for LSP and DAP. Payload decoding and connection lifecycles stay with
+their protocol clients.
+
 Provides general-purpose utilities shared across crates, including filesystem, path, environment, range, rope, and URI helpers.
 
 Editor positions count Unicode scalar values. The rope helpers convert those positions to Ropey 2 byte offsets explicitly; native Ropey slices and mutations use byte offsets. Line helpers use the editor’s selected LF or Unicode line convention.
