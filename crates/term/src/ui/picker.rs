@@ -234,30 +234,6 @@ impl<T, D> Column<T, D> {
     }
 }
 
-/// Wrap whole key hints so a shortcut and its action stay together.
-fn help_lines(hints: Vec<String>, width: usize) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    for hint in hints {
-        if !line.is_empty()
-            && Line::from(line.as_str()).width() + 3 + Line::from(hint.as_str()).width() > width
-        {
-            lines.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
-            line.push_str(" · ");
-        }
-        line.push_str(&hint);
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    lines
-}
-
 fn visible_column_widths<T, D>(columns: &[Column<T, D>]) -> Vec<Constraint> {
     columns
         .iter()
@@ -910,34 +886,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some(title) = &self.title {
             block = block.title(title.clone()).title_style(text_style);
         }
-        let mut inner = block.inner(area);
+        let inner = block.inner(area);
         block.render(area, surface);
-        if let Some(help) = self.help
-            && area.height > 0
-            && area.width > 4
-        {
-            let width = area.width.saturating_sub(4) as usize;
-            let lines = help_lines(help(&cx.config.current.component_keys), width);
-            let bottom_border = u16::from(inner.bottom() < area.bottom());
-            let height = lines.len().min(
-                inner
-                    .height
-                    .saturating_sub(3 + self.header_height())
-                    .saturating_add(bottom_border) as usize,
-            ) as u16;
-            let top = area.bottom().saturating_sub(height);
-            inner.height = inner.height.min(top.saturating_sub(inner.y));
-            for (row, line) in lines.into_iter().take(height as usize).enumerate() {
-                surface.set_stringn(
-                    area.x + 2,
-                    top + row as u16,
-                    line,
-                    width,
-                    cx.editor.theme.get("ui.text.inactive"),
-                );
-            }
-        }
-        let inner = self.render_help(area, inner, surface, cx);
+        self.render_help(area, surface, cx);
 
         let input_areas = split_picker_input_area(inner, self.replacement_visible());
         let inner = input_areas.results;
@@ -997,8 +948,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         self.completion_height = rows as u16;
         let rows = rows.max(1);
-        // Page by the visible rows left after the help footer.
-        self.completion_height = rows as u16;
         // Publication can move selection toward the end of a reordered result set.
         // Fill the viewport from above instead of leaving most rows blank.
         self.results.offset = self

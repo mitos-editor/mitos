@@ -476,7 +476,7 @@ max-depth = 10
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `layout` | `"auto"` or `"centered"` | `"auto"` | `auto` fills the available area below 200 terminal columns and uses a centered layout on wider terminals. `centered` always uses 90% of the available width and height. Both reserve the bottom two rows. |
-| `show-keybindings` | boolean | `true` | Show shortcuts for available picker actions. |
+| `show-keybindings` | boolean | `true` | Show shortcuts for picker-specific actions. |
 
 This applies to all pickers. See [Picker layout](./pickers.md#layout).
 

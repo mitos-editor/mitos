@@ -20,43 +20,8 @@ fn set_hints(app: &mut Application, enabled: bool) {
 }
 
 #[tokio::test]
-async fn file_picker_hints_follow_live_visibility_and_restore_result_space() -> anyhow::Result<()> {
-    let mut app = test::application(false)?;
-    let config = AppConfig::default();
-    let dir = tempfile::tempdir()?;
-    for index in 0..40 {
-        std::fs::write(dir.path().join(format!("{index:02}.txt")), "text")?;
-    }
-    let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
-    test::until(&mut picker, &mut app, |picker| {
-        test::items(picker).count() == 40
-    })
-    .await?;
-    let visible = frame(&mut picker, &mut app, &config);
-    for hint in [
-        "<ret> open",
-        "<C-s> split below",
-        "<C-v> split right",
-        "<C-t> preview",
-        "<C-q> quicklist",
-    ] {
-        assert!(visible.contains(hint), "missing {hint:?}");
-    }
-    assert!(!visible.contains("replace"));
-    let visible_rows = picker.completion_height;
-    set_hints(&mut app, false);
-    let hidden = frame(&mut picker, &mut app, &config);
-    assert!(!hidden.contains("<ret> open"));
-    assert!(!hidden.contains("split below"));
-    assert!(picker.completion_height > visible_rows);
-    assert_eq!(test::items(&picker).count(), 40);
-    set_hints(&mut app, true);
-    assert!(frame(&mut picker, &mut app, &config).contains("<ret> open"));
-    Ok(())
-}
-
-#[tokio::test]
-async fn generic_picker_hints_only_advertise_supported_actions() -> anyhow::Result<()> {
+async fn picker_specific_hints_follow_live_visibility_and_use_at_most_one_row() -> anyhow::Result<()>
+{
     let mut app = test::application(false)?;
     let config = AppConfig::default();
     let mut picker = Picker::new(
@@ -65,23 +30,56 @@ async fn generic_picker_hints_only_advertise_supported_actions() -> anyhow::Resu
             item.to_string().into()
         })],
         0,
-        [1, 2],
+        0..40,
         (),
         |_, _, _| {},
+    )
+    .with_item_actions(
+        |maps| &maps.quicklist_picker,
+        |_, _, _| PickerCallbackResult::KeepOpen,
     );
-    let text = frame(&mut picker, &mut app, &config);
-    assert!(text.contains("<ret> select"));
-    assert!(text.contains("close"));
-    for unavailable in [
-        "split",
+    test::until(&mut picker, &mut app, |picker| {
+        test::items(picker).count() == 40
+    })
+    .await?;
+    assert!(frame(&mut picker, &mut app, &config).contains("<C-x> remove entry"));
+    let visible_rows = picker.completion_height;
+    set_hints(&mut app, false);
+    assert!(!frame(&mut picker, &mut app, &config).contains("remove entry"));
+    assert_eq!(picker.completion_height, visible_rows);
+    assert_eq!(test::items(&picker).count(), 40);
+    set_hints(&mut app, true);
+    assert!(frame(&mut picker, &mut app, &config).contains("<C-x> remove entry"));
+    assert_eq!(picker.completion_height, visible_rows);
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_pickers_without_specific_actions_do_not_show_hints_or_lose_result_space(
+) -> anyhow::Result<()> {
+    let mut app = test::application(false)?;
+    let config = AppConfig::default();
+    let dir = tempfile::tempdir()?;
+    std::fs::write(dir.path().join("entry.txt"), "text")?;
+    let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
+    test::until(&mut picker, &mut app, |picker| {
+        test::items(picker).count() == 1
+    })
+    .await?;
+    let visible = frame(&mut picker, &mut app, &config);
+    for generic in [
+        "<ret> open",
+        "split below",
+        "split right",
         "preview",
         "quicklist",
-        "replace",
-        "remove entry",
-        "close buffer",
     ] {
-        assert!(!text.contains(unavailable), "unexpected {unavailable:?}");
+        assert!(!visible.contains(generic), "unexpected {generic:?}");
     }
+    let visible_rows = picker.completion_height;
+    set_hints(&mut app, false);
+    assert!(!frame(&mut picker, &mut app, &config).contains("<ret>"));
+    assert_eq!(picker.completion_height, visible_rows);
     Ok(())
 }
 

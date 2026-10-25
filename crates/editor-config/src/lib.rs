@@ -518,7 +518,7 @@ pub enum BreadcrumbPathOptions {
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct PickerConfig {
     pub layout: PickerLayout,
-    /// Show shortcuts for the current picker's available actions.
+    /// Show shortcuts for picker-specific actions.
     pub show_keybindings: bool,
 }
 

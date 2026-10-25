@@ -94,7 +94,12 @@ impl Harness {
             },
         );
         let _ = picker.cursor(area, &self.app.editor);
-        surface.content.iter().map(|cell| cell.symbol()).collect()
+        surface
+            .content
+            .chunks(usize::from(width).max(1))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     async fn settle(&mut self) -> anyhow::Result<()> {
@@ -141,12 +146,12 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
 
     let dir = tempfile::tempdir()?;
     let mut h = Harness::new(dir.path())?;
-    let frame = h.frame();
+    let frame = h.frame_at(200, 24);
     assert!(frame.contains("<A-r> replace"));
     assert!(frame.contains("<A-c> toggle case"));
     assert!(!frame.contains("replace all"));
     h.key("A-r");
-    let frame = h.frame();
+    let frame = h.frame_at(200, 24);
     assert!(frame.contains("<A-r> switch input"));
     assert!(frame.contains("<ret> replace one"));
     assert!(frame.contains("<C-ret> replace all"));
@@ -167,7 +172,7 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
             Binding::Actions(vec![PickerAction::ReplaceAll]),
         )]))),
     );
-    let frame = h.frame();
+    let frame = h.frame_at(200, 24);
     assert!(frame.contains("<F4> switch input"));
     assert!(frame.contains("<F5>a replace all"));
     assert!(!frame.contains("<A-r>"));
@@ -191,10 +196,16 @@ async fn replacement_footer_keeps_inputs_and_results_visible_on_small_terminals(
         "replace: bar",
         "entry.txt",
         "<ret> replace one",
-        "<C-ret> replace all",
     ] {
         assert!(frame.contains(text), "missing {text:?} in {frame}");
     }
+    assert!(!frame.contains("<C-ret> replace all"));
+    assert!(!frame.contains("<A-r> switch input"));
+    let rows: Vec<_> = frame.lines().collect();
+    assert!(rows.last().unwrap().contains("<ret> replace one"));
+    assert!(rows[..rows.len() - 1]
+        .iter()
+        .all(|row| !row.contains("<ret>") && !row.contains("<C-ret>")));
     // Layout clipping must also remain safe when a terminal is very small.
     h.key("C-a");
     for width in [0, 1, 2, 4, 5, 20, 40, 73] {
