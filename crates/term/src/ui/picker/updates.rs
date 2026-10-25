@@ -95,10 +95,12 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 
     pub(super) fn refresh_from_editor(&mut self, editor: &mut Editor) {
-        if self.results.pending_options.is_some() {
-            return;
-        }
-        if self.results.matcher.tick(0).running {
+        if self.results.pending_options.is_some() || self.results.matcher.tick(0).running {
+            // Matching can finish in this frame after consuming its redraw signal.
+            // Resume the deferred source refresh even if no further input arrives.
+            if self.editor_updates.is_some() {
+                self.redraw.request();
+            }
             return;
         }
         let Some(mut updates) = self.editor_updates.take() else {
@@ -283,6 +285,58 @@ mod initial_options_tests {
         })
         .await?;
         assert_eq!(picker.results.matcher.snapshot().item_count(), 1);
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod deferred_refresh_tests {
+    use super::*;
+    use crate::ui::{
+        picker::{
+            test::{application, draw},
+            PickerCallbackResult,
+        },
+        PickerColumn,
+    };
+    use futures_util::FutureExt;
+    use std::sync::atomic::AtomicUsize;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn initial_load_deferred_by_matching_finishes_without_another_keypress(
+    ) -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        // The matcher completion signal has already been consumed by the current
+        // frame. The source coordinator must arrange its own continuation.
+        let matcher = || nucleo::Nucleo::new(nucleo::Config::DEFAULT, Arc::new(|| {}), Some(1), 1);
+        let mut picker = Picker::with(
+            app.editor.redraw().clone(),
+            matcher(),
+            Arc::new([PickerColumn::new("item", |item: &u32, _: &()| {
+                item.to_string().into()
+            })]),
+            0,
+            Arc::new(()),
+            Arc::new(AtomicUsize::new(0)),
+            |_, _, _| PickerCallbackResult::Close,
+        )
+        .with_initial_options(|_| Box::pin(async { Ok(vec![7]) }));
+        picker.results.spare_matcher = Some(matcher());
+        picker.refresh_options(vec![0], Arc::new(()));
+        app.editor.redraw().start_frame();
+        picker.refresh_from_editor(&mut app.editor);
+        assert!(
+            app.editor.redraw().requested().now_or_never().is_some(),
+            "a deferred source refresh must schedule a follow-up frame"
+        );
+        draw(&mut picker, &mut app);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while picker.selection() != Some(&7) {
+                app.editor.redraw().requested().await;
+                draw(&mut picker, &mut app);
+            }
+        })
+        .await?;
         Ok(())
     }
 }

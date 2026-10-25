@@ -39,7 +39,7 @@ async fn ready(app: &mut Application) -> anyhow::Result<()> {
 }
 
 async fn preview_contains(app: &mut Application, needle: &str) -> anyhow::Result<()> {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             keys(app, "").await.unwrap();
             let buffer = app.terminal_backend().buffer();
@@ -50,7 +50,22 @@ async fn preview_contains(app: &mut Application, needle: &str) -> anyhow::Result
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
-    .await?;
+    .await;
+    if result.is_err() {
+        let buffer = app.terminal_backend().buffer();
+        let screen = (buffer.area.y..buffer.area.bottom())
+            .map(|y| {
+                (buffer.area.x..buffer.area.right())
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!(
+            "Timed out waiting for diff preview {needle:?}; editor status: {:?}\n{screen}",
+            app.editor.get_status()
+        );
+    }
     Ok(())
 }
 
