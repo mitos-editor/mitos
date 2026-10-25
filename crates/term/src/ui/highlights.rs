@@ -428,33 +428,76 @@ pub(super) fn primary_native_cursor_kind(
     Some(kind)
 }
 
-/// Adapt parser highlight events to character-indexed, fully resolved styles.
-/// The drawing loop consumes this stream without knowing about syntax trees.
-pub(crate) fn syntax_styles(
-    text: editor_core::RopeSlice<'_>,
-    mut highlighter: Option<syntax::Highlighter<'_>>,
+/// Resolve syntax and overlay events into contiguous UTF-8 byte ranges.
+/// Callers convert offsets only when crossing into document character coordinates.
+pub(crate) fn styled_spans(
+    mut syntax: Option<syntax::Highlighter<'_>>,
+    overlays: impl IntoIterator<Item = OverlayHighlights>,
     theme: &Theme,
-) -> impl Iterator<Item = (usize, theme::Style)> {
-    use editor_core::highlight::HighlightEvent;
-    use stdx::rope::RopeSliceExt;
+    base: theme::Style,
+    len: usize,
+) -> impl Iterator<Item = (ops::Range<usize>, theme::Style)> {
+    use editor_core::highlight::{HighlightEvent, OverlayHighlighter};
 
-    let text_style = theme.get("ui.text");
-    let mut style = text_style;
+    let mut overlays = OverlayHighlighter::new(overlays);
+    let mut syntax_style = base;
+    let mut overlay_style = theme::Style::default();
+    let mut position = 0;
     std::iter::from_fn(move || {
-        let highlighter = highlighter.as_mut()?;
-        let offset = highlighter.next_event_offset();
-        if offset == u32::MAX {
+        if position >= len {
             return None;
         }
-        let position = text.byte_to_char_idx(text.ceil_char_boundary(offset as usize));
-        let (event, highlights) = highlighter.advance();
-        let base = match event {
-            HighlightEvent::Refresh => text_style,
-            HighlightEvent::Push => style,
-        };
-        style = highlights.fold(base, |acc, highlight| acc.patch(theme.highlight(highlight)));
-        Some((position, style))
+        if let Some(syntax) = &mut syntax {
+            while syntax.next_event_offset() as usize <= position {
+                let (event, highlights) = syntax.advance();
+                let previous = if event == HighlightEvent::Refresh {
+                    base
+                } else {
+                    syntax_style
+                };
+                syntax_style = highlights.fold(previous, |style, highlight| {
+                    style.patch(theme.highlight(highlight))
+                });
+            }
+        }
+        while overlays.next_event_offset() <= position {
+            let (event, highlights) = overlays.advance();
+            let previous = if event == HighlightEvent::Refresh {
+                theme::Style::default()
+            } else {
+                overlay_style
+            };
+            overlay_style = highlights.fold(previous, |style, highlight| {
+                style.patch(theme.highlight(highlight))
+            });
+        }
+        let end = syntax
+            .as_ref()
+            .map_or(usize::MAX, |syntax| syntax.next_event_offset() as usize)
+            .min(overlays.next_event_offset())
+            .min(len);
+        debug_assert!(end > position, "highlight events must advance");
+        let range = position..end;
+        position = end;
+        Some((range, syntax_style.patch(overlay_style)))
     })
+}
+
+/// Adapt resolved byte spans to the character positions consumed by the renderer.
+pub(crate) fn syntax_styles(
+    text: editor_core::RopeSlice<'_>,
+    highlighter: Option<syntax::Highlighter<'_>>,
+    theme: &Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> {
+    use stdx::rope::RopeSliceExt;
+    styled_spans(highlighter, [], theme, theme.get("ui.text"), text.len()).map(
+        move |(range, style)| {
+            (
+                text.byte_to_char_idx(text.ceil_char_boundary(range.start)),
+                style,
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -462,6 +505,39 @@ mod tests {
     use super::*;
     use BlockCursorRendering::{Native, Software};
     use CursorKind::{Bar, Block, Underline};
+
+    #[test]
+    fn styled_spans_restore_outer_styles_at_shared_utf8_boundaries() {
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.text" = "#ffffff"
+            "string" = "#ff0000"
+            "markup.bold" = { modifiers = ["bold"] }
+        }));
+        let base = theme.get("ui.text");
+        let red = theme.find_highlight_exact("string").unwrap();
+        let bold = theme.find_highlight_exact("markup.bold").unwrap();
+        let spans: Vec<_> = styled_spans(
+            None,
+            [
+                OverlayHighlights::single(red, 2..7),
+                OverlayHighlights::single(bold, 5..6),
+            ],
+            &theme,
+            base,
+            "é界\nx".len(),
+        )
+        .collect();
+        let red_style = base.patch(theme.highlight(red));
+        assert_eq!(
+            spans,
+            [
+                (0..2, base),
+                (2..5, red_style),
+                (5..6, red_style.patch(theme.highlight(bold))),
+                (6..7, red_style),
+            ]
+        );
+    }
 
     #[test]
     fn native_blocks_keep_their_shape_when_focus_changes() {

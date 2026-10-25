@@ -12,10 +12,7 @@ use std::sync::Arc;
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use editor_core::{
-    highlight::{HighlightEvent, OverlayHighlights},
-    RopeSlice,
-};
+use editor_core::{highlight::OverlayHighlights, RopeSlice};
 use language::{syntax, Syntax};
 use theme::Modifier;
 use theme::Theme;
@@ -61,74 +58,22 @@ pub fn highlighted_code_block<'a>(
         return styled_multiline_text(text, code_style);
     };
 
-    let mut syntax_highlighter = syntax.highlighter(ropeslice, loader, ..);
-    let mut syntax_highlight_stack = Vec::new();
-    let mut overlay_highlight_stack = Vec::new();
-    let mut overlay_highlighter =
-        editor_core::highlight::OverlayHighlighter::new(additional_highlight_spans);
-    let mut pos = 0;
-
-    while pos < ropeslice.len() as u32 {
-        if pos == syntax_highlighter.next_event_offset() {
-            let (event, new_highlights) = syntax_highlighter.advance();
-            if event == HighlightEvent::Refresh {
-                syntax_highlight_stack.clear();
+    for (range, style) in super::highlights::styled_spans(
+        Some(syntax.highlighter(ropeslice, loader, ..)),
+        additional_highlight_spans,
+        theme,
+        text_style,
+        text.len(),
+    ) {
+        for fragment in text[range].split_inclusive('\n') {
+            let line = fragment.strip_suffix('\n');
+            spans.push(Span::styled(
+                line.unwrap_or(fragment).replace('\t', "    "),
+                style,
+            ));
+            if line.is_some() {
+                lines.push(Line::from(std::mem::take(&mut spans)));
             }
-            syntax_highlight_stack.extend(new_highlights);
-        } else if pos == overlay_highlighter.next_event_offset() as u32 {
-            let (event, new_highlights) = overlay_highlighter.advance();
-            if event == HighlightEvent::Refresh {
-                overlay_highlight_stack.clear();
-            }
-            overlay_highlight_stack.extend(new_highlights)
-        }
-
-        let start = pos;
-        pos = syntax_highlighter
-            .next_event_offset()
-            .min(overlay_highlighter.next_event_offset() as u32);
-        if pos == u32::MAX {
-            pos = ropeslice.len() as u32;
-        }
-        if pos == start {
-            continue;
-        }
-        // The highlighter should always move forward.
-        // If the highlighter malfunctions, bail on syntax highlighting and log an error.
-        debug_assert!(pos > start);
-        if pos < start {
-            log::error!("Failed to highlight '{language}': {text:?}");
-            return styled_multiline_text(text, code_style);
-        }
-
-        let style = syntax_highlight_stack
-            .iter()
-            .chain(overlay_highlight_stack.iter())
-            .fold(text_style, |acc, highlight| {
-                acc.patch(theme.highlight(*highlight))
-            });
-
-        let mut slice = &text[start as usize..pos as usize];
-        // TODO: do we need to handle all unicode line endings
-        // here, or is just '\n' okay?
-        while let Some(end) = slice.find('\n') {
-            // emit span up to newline
-            let text = &slice[..end];
-            let text = text.replace('\t', "    "); // replace tabs
-            let span = Span::styled(text, style);
-            spans.push(span);
-
-            // truncate slice to after newline
-            slice = &slice[end + 1..];
-
-            // make a new line
-            let spans = std::mem::take(&mut spans);
-            lines.push(Line::from(spans));
-        }
-
-        if !slice.is_empty() {
-            let span = Span::styled(slice.replace('\t', "    "), style);
-            spans.push(span);
         }
     }
 
@@ -391,5 +336,57 @@ impl Component for Markdown {
             width + panel::HORIZONTAL_INSET,
             height + panel::VERTICAL_INSET,
         ))
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_spans_preserve_unicode_overlays_tabs_and_line_endings() {
+        let loader = syntax::Loader::new(
+            toml::from_str(
+                r#"[[language]]
+name = "json"
+scope = "source.json"
+file-types = ["json"]
+"#,
+            )
+            .unwrap(),
+            loader::syntax::Resources::default(),
+        )
+        .unwrap();
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.text" = "white"
+            "ui.selection" = { bg = "blue" }
+            "string" = "red"
+        }));
+        loader.set_scopes(theme.scopes().to_vec());
+        let selected = theme.find_highlight_exact("ui.selection").unwrap();
+        let output = highlighted_code_block(
+            "{\n\t\"é\": 1\n}\n",
+            "json",
+            Some(&theme),
+            &loader,
+            Some(OverlayHighlights::single(selected, 4..6)),
+        );
+        let lines: Vec<String> = output
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(lines, ["{", "    \"é\": 1", "}"]);
+        let span = output.lines[1]
+            .spans
+            .iter()
+            .find(|span| span.content == "é")
+            .unwrap();
+        assert_eq!(span.style.bg, Some(tui::style::Color::Blue));
     }
 }
