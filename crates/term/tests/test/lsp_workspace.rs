@@ -1,3 +1,4 @@
+use lsp_client::UriExt as _;
 use std::{path::Path, time::Duration};
 
 use editor_config::WatchConfig;

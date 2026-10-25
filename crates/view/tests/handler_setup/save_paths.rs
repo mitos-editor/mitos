@@ -1,4 +1,5 @@
 use super::Fixture;
+use lsp_client::UriExt as _;
 use std::path::{Path, PathBuf};
 use view::{current_ref, editor::FileOperation};
 

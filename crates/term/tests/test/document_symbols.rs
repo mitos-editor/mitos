@@ -160,7 +160,7 @@ async fn document_symbol_queries_preserve_hierarchy_locations_and_origin() -> an
     assert!(flat.location.uri.to_string().ends_with(".other"));
     assert_eq!(
         flat.location.uri.to_url().unwrap(),
-        flat.symbol.location.uri
+        stdx::Url::parse(flat.symbol.location.uri.as_str()).unwrap()
     );
 
     let replaced = app

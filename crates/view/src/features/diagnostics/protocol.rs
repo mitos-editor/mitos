@@ -1,5 +1,6 @@
 //! LSP diagnostics conversion, caching, and publication for push and pull providers.
 
+use lsp_client::UriExt as _;
 use std::collections::BTreeMap;
 use stdx::rope::RopeExt as _;
 
@@ -176,7 +177,7 @@ impl Editor {
         server_id: LanguageServerId,
         params: lsp::PublishDiagnosticsParams,
     ) {
-        let uri = match Uri::try_from(params.uri) {
+        let uri = match params.uri.to_editor_uri() {
             Ok(uri) => uri,
             Err(err) => {
                 log::error!("{err}");

@@ -12,6 +12,7 @@ pub(super) fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     lsp::WorkspaceFolder {
         name: uri
             .path()
+            .as_str()
             .rsplit('/')
             .find(|segment| !segment.is_empty())
             .map(|basename| basename.to_string())

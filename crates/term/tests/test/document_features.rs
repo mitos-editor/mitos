@@ -420,9 +420,9 @@ async fn resolved_link_navigation_validates_queued_delivery() -> anyhow::Result<
         gate.release()?;
         let update = tokio::time::timeout(Duration::from_secs(5), task.run()).await?;
         let id = current_ref!(fixture.app.editor).1.id();
-        let expected = lsp_client::Url::parse(&format!(
+        let expected = stdx::Url::parse(&format!(
             "{}.resolved",
-            current_ref!(fixture.app.editor).1.url().unwrap()
+            current_ref!(fixture.app.editor).1.url().unwrap().as_str()
         ))?;
         match invalidation {
             "edit" => fixture.edit("changed"),

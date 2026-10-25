@@ -1,3 +1,4 @@
+use lsp_client::UriExt as _;
 mod fixture;
 mod notifications;
 mod preflight_scope;

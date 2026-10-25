@@ -1,4 +1,5 @@
 use super::*;
+use crate::UriExt as _;
 use serde_json::Value;
 use slotmap::Key;
 use std::time::Duration;

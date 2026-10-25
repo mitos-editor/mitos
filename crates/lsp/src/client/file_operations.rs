@@ -1,6 +1,7 @@
 //! Capability-filtered file creation, rename, and deletion messages.
 
 use super::Client;
+use crate::UriExt as _;
 use crate::{
     lsp::{self, Url},
     Result,

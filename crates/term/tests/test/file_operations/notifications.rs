@@ -1,3 +1,4 @@
+use lsp_client::UriExt as _;
 use std::path::Path;
 
 use lsp_client::{lsp, OffsetEncoding, Url};

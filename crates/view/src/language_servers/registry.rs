@@ -3,6 +3,7 @@
 use arc_swap::ArcSwap;
 use futures_util::stream::select_all::SelectAll;
 use language_config::{LanguageConfiguration, LanguageServerConfiguration, RootMarkers};
+use lsp_client::UriExt as _;
 use lsp_client::{
     file_event, lsp, Call, Client, Error, LanguageServerId, LanguageServerName, Result, Url,
 };

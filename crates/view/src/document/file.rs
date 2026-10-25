@@ -13,6 +13,7 @@ use editor_config::Config;
 use editor_core::{encoding, encoding::Encoding, Rope};
 use futures_util::future::BoxFuture;
 use language::syntax;
+use lsp_client::UriExt as _;
 use std::{
     borrow::Cow,
     future::Future,
@@ -21,10 +22,7 @@ use std::{
     sync::{Arc, OnceLock},
     time::SystemTime,
 };
-use stdx::{
-    faccess::{copy_metadata, readonly},
-    Url,
-};
+use stdx::faccess::{copy_metadata, readonly};
 use text_io::to_writer;
 use vcs::DiffProviderRegistry;
 
@@ -633,8 +631,8 @@ impl Document {
     }
 
     /// File path as a URL.
-    pub fn url(&self) -> Option<Url> {
-        Url::from_file_path(self.path()?).ok()
+    pub fn url(&self) -> Option<lsp_client::lsp::Uri> {
+        lsp_client::lsp::Uri::from_file_path(self.path()?).ok()
     }
 
     pub fn uri(&self) -> Option<editor_core::Uri> {

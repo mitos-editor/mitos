@@ -12,7 +12,6 @@ members = [
   "crates/view",
   "crates/term",
   "crates/tui",
-  "crates/lsp-types",
   "crates/lsp",
   "crates/event",
   "crates/dap-types",
@@ -86,7 +85,7 @@ text-diff = { path = "crates/text-diff" }
 syntax-diff = { path = "crates/syntax-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
-lsp-types = { path = "crates/lsp-types" }
+lsp-types = { version = "0.97", features = ["proposed"] }
 parsec = { path = "crates/parsec" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }
