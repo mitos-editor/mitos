@@ -590,26 +590,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
-        let len = self.results.matcher.snapshot().matched_item_count();
-
-        if len == 0 {
-            // No results, can't move.
-            return;
-        }
-
-        match direction {
-            Direction::Forward => {
-                self.results.cursor = self.results.cursor.saturating_add(amount) % len;
-            }
-            Direction::Backward => {
-                self.results.cursor = self
-                    .results
-                    .cursor
-                    .saturating_add(len)
-                    .saturating_sub(amount)
-                    % len;
-            }
-        }
+        self.results.cursor = super::list::move_cursor(
+            Some(self.results.cursor),
+            self.results.matcher.snapshot().matched_item_count(),
+            amount,
+            direction,
+        )
+        .unwrap();
     }
 
     /// Scroll up by one page, keeping the cursor on the same visible row.
@@ -1628,12 +1615,11 @@ type PickerItemCallback<T, D> =
 /// viewport is also filled from above instead of leaving most rows blank.
 fn visible_offset(cursor: u32, offset: u32, rows: u32, len: u32) -> u32 {
     let rows = rows.max(1);
-    let offset = offset.min(len.saturating_sub(rows)).min(cursor);
-    if cursor >= offset.saturating_add(rows) {
-        cursor + 1 - rows
-    } else {
-        offset
-    }
+    super::list::scroll_offset(
+        cursor as usize,
+        offset.min(len.saturating_sub(rows)) as usize,
+        rows as usize,
+    ) as u32
 }
 
 /// Cursor and offset after paging, as `(cursor, offset)`.

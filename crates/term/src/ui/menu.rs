@@ -3,6 +3,7 @@ use crate::{
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
     key, shift,
 };
+use editor_core::movement::Direction;
 use tui::{
     buffer::Buffer as Surface,
     scrollbar,
@@ -82,6 +83,7 @@ impl<T: Item> Menu<T> {
     /// Execute an action directly when the caller already knows the intent.
     /// Internal acceptance must not depend on the user's Enter binding.
     pub(crate) fn execute_action(&mut self, action: MenuAction, cx: &mut Context) -> EventResult {
+        let half_page = (self.size.1 as usize / 2).max(1);
         match action {
             MenuAction::Cancel => {
                 (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
@@ -94,10 +96,12 @@ impl<T: Item> Menu<T> {
                 }
                 return EventResult::Ignored(close_callback());
             }
-            MenuAction::MoveUp => self.move_up(),
+            MenuAction::MoveUp => self.move_by(1, Direction::Backward),
             MenuAction::MoveDown => self.move_down(),
-            MenuAction::PageUp => self.move_half_page_up(),
-            MenuAction::PageDown => self.move_half_page_down(),
+            MenuAction::PageUp => {
+                self.move_by(half_page.min(self.matches.len()), Direction::Backward)
+            }
+            MenuAction::PageDown => self.move_by(half_page, Direction::Forward),
         }
         (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Update);
         EventResult::Consumed(None)
@@ -137,49 +141,22 @@ impl<T: Item> Menu<T> {
         self.scroll = 0;
     }
 
-    pub fn move_up(&mut self) {
+    fn move_by(&mut self, amount: usize, direction: Direction) {
         if self.matches.is_empty() {
             return;
         }
-        let len = self.matches.len();
-        let max_index = len.saturating_sub(1);
-        let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
-        self.cursor = Some(pos);
-        self.adjust_scroll();
-    }
-
-    pub fn move_half_page_up(&mut self) {
-        if self.matches.is_empty() {
-            return;
-        }
-        let len = self.matches.len();
-        let max_index = len.saturating_sub((self.size.1 as usize / 2).max(1));
-        let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
-        self.cursor = Some(pos);
+        self.cursor = super::list::move_cursor(
+            self.cursor.map(|cursor| cursor as u32),
+            self.matches.len() as u32,
+            amount as u32,
+            direction,
+        )
+        .map(|cursor| cursor as usize);
         self.adjust_scroll();
     }
 
     pub fn move_down(&mut self) {
-        if self.matches.is_empty() {
-            return;
-        }
-        let len = self.matches.len();
-        let pos = self.cursor.map_or(0, |i| i + 1) % len;
-        self.cursor = Some(pos);
-        self.adjust_scroll();
-    }
-
-    pub fn move_half_page_down(&mut self) {
-        if self.matches.is_empty() {
-            return;
-        }
-        let len = self.matches.len();
-        let pos = self
-            .cursor
-            .map_or(0, |i| i + (self.size.1 as usize / 2).max(1))
-            % len;
-        self.cursor = Some(pos);
-        self.adjust_scroll();
+        self.move_by(1, Direction::Forward);
     }
 
     pub fn auto_close(mut self, auto_close: bool) -> Self {
@@ -232,17 +209,8 @@ impl<T: Item> Menu<T> {
     }
 
     fn adjust_scroll(&mut self) {
-        let win_height = self.size.1 as usize;
         if let Some(cursor) = self.cursor {
-            let mut scroll = self.scroll;
-            if cursor > (win_height + scroll).saturating_sub(1) {
-                // scroll down
-                scroll += cursor - (win_height + scroll).saturating_sub(1)
-            } else if cursor < scroll {
-                // scroll up
-                scroll = cursor
-            }
-            self.scroll = scroll;
+            self.scroll = super::list::scroll_offset(cursor, self.scroll, self.size.1 as usize);
         }
     }
 

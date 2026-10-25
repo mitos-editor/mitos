@@ -160,6 +160,11 @@ async fn menu_actions_sequences_empty_options_and_smart_tab() -> anyhow::Result<
     ));
     consumed(fixture.key(&mut menu, "C-d"));
     assert_eq!(events.borrow().len(), 2);
+    let _ = menu.required_size((80, 4));
+    consumed(fixture.key(&mut menu, "pageup"));
+    assert_eq!(menu.selection().unwrap().0, "one");
+    consumed(fixture.key(&mut menu, "pagedown"));
+    assert_eq!(menu.selection().unwrap().0, "two");
     // Smart tab normally supersedes Tab, but a remapped acceptance still runs.
     closes(fixture.key(&mut menu, "tab"));
     assert!(matches!(

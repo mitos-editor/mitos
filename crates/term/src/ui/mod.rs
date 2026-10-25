@@ -12,6 +12,7 @@ mod icons;
 mod image;
 mod info;
 mod layout;
+mod list;
 pub mod lsp;
 mod markdown;
 pub mod menu;
