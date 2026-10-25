@@ -13,15 +13,6 @@ pub enum DiffEngine {
     Auto,
 }
 
-impl DiffEngine {
-    pub fn toggled(self) -> Self {
-        match self {
-            Self::Line => Self::Syntax,
-            Self::Syntax | Self::Auto => Self::Line,
-        }
-    }
-}
-
 use ::diagnostics::Severity;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::comment::BlockCommentToken;

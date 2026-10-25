@@ -56,15 +56,6 @@ impl Request {
             Self::Historical(r) => r.settings.engine,
         }
     }
-    fn with_engine(self, engine: DiffEngine) -> Self {
-        match self {
-            Self::Live(r) => Self::Live(r.with_engine(Some(engine))),
-            Self::Historical(mut r) => {
-                r.settings.engine = engine;
-                Self::Historical(r)
-            }
-        }
-    }
     fn is_current(&self, editor: &Editor) -> bool {
         match self {
             Self::Live(r) => r.is_current(editor),
@@ -196,14 +187,13 @@ impl Editor {
     pub fn open_historical_snapshot(
         &mut self,
         snapshot: Arc<super::HistoricalReviewSnapshot>,
-        engine: Option<DiffEngine>,
         action: Action,
     ) -> Result<DocumentId> {
         ensure!(
             snapshot.request.is_current(self),
             "Workspace trust changed; reload the historical preview"
         );
-        let request = snapshot.request.clone().with_engine(engine);
+        let request = snapshot.request.clone();
         let work = Work::Engine {
             source: snapshot.source.clone(),
             engine: request.engine(),
@@ -266,11 +256,14 @@ impl Editor {
         let request = match &state.request {
             Request::Live(request) => Request::Live(
                 ReviewRequest::new(self, &request.status, state.comparison(), state.workspace())
-                    .with_engine(Some(state.engine()))
                     .with_fresh_status(),
             ),
             // A refresh retries the exact captured objects and buffer snapshot.
-            Request::Historical(request) => Request::Historical(request.clone()),
+            Request::Historical(request) => {
+                let mut request = request.clone();
+                request.refresh_settings(self);
+                Request::Historical(request)
+            }
         };
         self.documents
             .get_mut(&id)
@@ -280,30 +273,6 @@ impl Editor {
             .unwrap()
             .request = request.clone();
         self.start_review(id, request.work(None));
-        Ok(())
-    }
-
-    pub fn toggle_review_engine(&mut self) -> Result<()> {
-        let (_, doc) = crate::current_ref!(self);
-        let id = doc.id();
-        let state = doc
-            .review()
-            .ok_or_else(|| anyhow::anyhow!("The current buffer is not a diff review"))?;
-        let engine = state.engine().toggled();
-        let source = state.source.clone();
-        let request = state.request.clone().with_engine(engine);
-        self.documents
-            .get_mut(&id)
-            .unwrap()
-            .review
-            .as_mut()
-            .unwrap()
-            .request = request.clone();
-        let work = match source {
-            Some(source) => Work::Engine { source, engine },
-            None => request.work(None),
-        };
-        self.start_review(id, work);
         Ok(())
     }
 

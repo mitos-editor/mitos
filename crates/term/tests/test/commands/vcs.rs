@@ -520,7 +520,7 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
 
 #[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn syntax_hunk_reviews_toggle_captured_snapshots_with_configurable_keys() -> anyhow::Result<()>
+async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() -> anyhow::Result<()>
 {
     use editor_config::DiffEngine;
     let dir = tempfile::tempdir()?;
@@ -534,12 +534,6 @@ async fn syntax_hunk_reviews_toggle_captured_snapshots_with_configurable_keys() 
     let index = std::fs::read(dir.path().join(".git/index"))?;
     let mut config = test_config();
     config.editor.diff.engine = DiffEngine::Syntax;
-    let keys = term::config::Config::load(
-        Ok(&"[keys.diff]\nA-e = 'toggle_engine'\n".to_owned()),
-        Err(term::config::ConfigLoadError::default()),
-    )
-    .unwrap();
-    config.component_keys = keys.component_keys;
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_file(&path, None)
@@ -549,11 +543,9 @@ async fn syntax_hunk_reviews_toggle_captured_snapshots_with_configurable_keys() 
     let (view, doc) = current_ref!(app.editor);
     let selection = doc.selection(view.id).clone();
     let version = doc.version();
-    // Changing disk after opening must not replace either captured side when toggling.
+    // Scrolling an open popup keeps the configured engine and captured text.
     std::fs::write(&path, "{\"value\": 999}\n")?;
-    press_keys(&mut app, "<A-e>").await?;
-    wait_for_review_screen(&mut app, "line · Current change", "\"value\": 2").await?;
-    press_keys(&mut app, "<A-e><A-e><A-e>").await?;
+    press_keys(&mut app, "<right><left>").await?;
     wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.selection(view.id), &selection);
@@ -582,33 +574,32 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
     git(&repo, &["add", "file.json"]);
     std::fs::write(&path, "{\"value\": 3}\n")?;
     let index = std::fs::read(repo.join(".git/index"))?;
-    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let mut config = test_config();
+    config.editor.diff.engine = editor_config::DiffEngine::Syntax;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
     press_keys(&mut app, "<space>gfile.json").await?;
-    wait_for_review_screen(&mut app, "line · Unstaged", "\"value\": 3").await?;
+    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
-    // Opening a buffer retains the chosen engine and the picker for native restoration.
+    // Opening a buffer uses the configured engine and keeps the picker for restoration.
     press_keys(&mut app, "<A-o>").await?;
     wait_for_review_buffer(&mut app, "syntax", "\"value\": 3").await?;
-    press_keys(&mut app, ":diff-engine<ret>").await?;
-    wait_for_review_buffer(&mut app, "line", "\"value\": 3").await?;
-    press_keys(&mut app, ":diff-engine<ret><space>'").await?;
+    press_keys(&mut app, "<space>'").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-left>").await?;
     wait_for_review_screen(&mut app, "syntax · Staged", "\"value\": 1").await?;
     press_keys(&mut app, "<A-o>").await?;
     wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
-    press_keys(&mut app, ":diff-engine<ret>").await?;
-    wait_for_review_buffer(&mut app, "line", "\"value\": 2").await?;
-    // A hidden preview can open a buffer and switch engines while loading.
-    press_keys(&mut app, "<space>'<C-t><A-o>:diff-engine<ret>").await?;
-    wait_for_review_buffer(&mut app, "line", "\"value\": 2").await?;
+    // A hidden preview also opens a review using the configured engine.
+    press_keys(&mut app, "<space>'<C-t><A-o>").await?;
+    wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
     press_keys(&mut app, "<space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
     press_keys(&mut app, "<space>gfile.json").await?;
-    wait_for_review_screen(&mut app, "line · Unstaged", "{]").await?;
-    press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "line · Unstaged", "parse errors").await?;
     assert!(review_screen(&app).contains("{]"));
     press_keys(&mut app, "<esc>").await?;

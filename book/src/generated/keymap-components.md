@@ -23,7 +23,6 @@
 | `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -50,7 +49,6 @@
 | `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -78,7 +76,6 @@
 | `` <C-x> `` | `` remove_entry `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -109,7 +106,6 @@
 | `` <A-z> `` | `` stash `` |
 | `` <A-l> `` | `` stashes `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-u> `` | `` unstage `` |
@@ -140,7 +136,6 @@
 | `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -167,7 +162,6 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
-| `` <A-d> `` | `` toggle_diff_engine `` |
 | `` <C-t> `` | `` toggle_preview `` |
 
 ## Prompt
@@ -242,4 +236,3 @@
 | --- | --- |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
-| `` <A-d> `` | `` toggle_engine `` |

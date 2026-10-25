@@ -327,8 +327,7 @@ async fn review_gutters_show_sources_and_navigation_validates_live_text() -> any
 
 #[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn review_document_engine_switches_share_immutable_sources_and_cancel_older_work(
-) -> anyhow::Result<()> {
+async fn review_refresh_uses_configured_engine_and_cancels_older_work() -> anyhow::Result<()> {
     use editor_config::DiffEngine;
     let mut f = Fixture::with_languages("{\"λ\": 1}\n", JSON_LANGUAGE)?;
     prepare(&mut f, "initial");
@@ -339,23 +338,27 @@ async fn review_document_engine_switches_share_immutable_sources_and_cancel_olde
         Action::Replace,
         None,
     );
-    f.editor.toggle_review_engine()?;
-    f.editor.toggle_review_engine()?;
+    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
+    f.editor.refresh_review()?;
+    f.configure(|config| config.diff.engine = DiffEngine::Line);
+    f.editor.refresh_review()?;
     finish_review(&mut f, id).await?;
     let doc = f.editor.document(id).unwrap();
     let text = doc.text().clone();
     let source = doc.review().unwrap().source().unwrap().clone();
     assert_eq!(doc.review().unwrap().engine(), DiffEngine::Line);
     assert!(!doc.word_completion_enabled());
-    f.editor.toggle_review_engine()?;
+    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
+    f.editor.refresh_review()?;
     finish_review(&mut f, id).await?;
     let doc = f.editor.document(id).unwrap();
     assert_eq!(doc.review().unwrap().review().provider, Some("syntax"));
     assert_eq!(doc.text(), &text);
-    assert!(Arc::ptr_eq(
-        doc.review().unwrap().source().unwrap(),
-        &source
-    ));
+    assert_eq!(doc.review().unwrap().engine(), DiffEngine::Syntax);
+    assert_eq!(
+        doc.review().unwrap().source().unwrap().after(),
+        source.after()
+    );
     assert!(!doc.is_modified());
     Ok(())
 }
@@ -476,19 +479,15 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
         .iter()
         .any(|line| line.text.contains("\"value\": 3")));
     let syntax = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
-    let overridden = syntax.clone().with_engine(Some(DiffEngine::Line));
-    assert!(!syntax.same_target(&overridden));
-    assert!(syntax.same_source(&overridden));
-    assert!(overridden.is_current(&f.editor));
     let original = syntax.compute_cached(None)?;
-    let line = overridden.compute_cached(Some(original.clone()))?;
-    assert!(Arc::ptr_eq(&original.source, &line.source));
-    assert_eq!(line.engine(), DiffEngine::Line);
-    let back = syntax.compute_cached(Some(line.clone()))?;
-    assert!(Arc::ptr_eq(&original.source, &back.source));
-    assert!(Arc::ptr_eq(&original.review, &back.review));
-    let line_again = overridden.compute_cached(Some(back))?;
-    assert!(Arc::ptr_eq(&line.review, &line_again.review));
+    let cached = syntax.compute_cached(Some(original.clone()))?;
+    assert!(Arc::ptr_eq(&original, &cached));
+    f.configure(|config| config.diff.engine = DiffEngine::Line);
+    let line = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let updated = line.compute_cached(Some(original.clone()))?;
+    assert_eq!(updated.engine(), DiffEngine::Line);
+    assert_eq!(updated.review.provider, None);
+    assert!(!Arc::ptr_eq(&original.source, &updated.source));
     f.editor.syn_loader.store(Arc::new(language::Loader::new(
         toml::from_str(JSON_LANGUAGE)?,
         loader::syntax::Resources::default(),
@@ -546,8 +545,9 @@ async fn language_policy_overrides_global_defaults_for_hunk_and_unopened_file_re
     assert_eq!(request.engine(), DiffEngine::Syntax);
     assert_eq!(request.compute()?.provider, Some("syntax"));
     let index = std::fs::read(f.dir.path().join(".git/index"))?;
-    let request = request.with_engine(Some(DiffEngine::Line));
-    assert_eq!(request.compute()?.provider, None);
+    f.configure(|config| config.diff.engine = DiffEngine::Line);
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
+    assert_eq!(request.compute()?.provider, Some("syntax"));
     assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
     Ok(())
 }
@@ -757,8 +757,7 @@ async fn review_labels_are_stable_disambiguate_sources_and_number_independent_sn
         .into_owned();
     assert!(name.ends_with("document.words [diff: HEAD]"));
     finish_review(&mut f, first).await?;
-    f.editor.toggle_review_engine()?;
-    finish_review(&mut f, first).await?;
+    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     f.editor.refresh_review()?;
     finish_review(&mut f, first).await?;
     assert_eq!(f.editor.document(first).unwrap().display_name(), name);
@@ -1066,6 +1065,7 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .text()
         .to_string()
         .contains("newer edits"));
+    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     f.editor.refresh_review()?;
     finish_review(&mut f, id).await?;
     assert!(f
@@ -1075,6 +1075,10 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .text()
         .to_string()
         .contains("captured unsaved"));
+    assert_eq!(
+        f.editor.document(id).unwrap().review().unwrap().engine(),
+        editor_config::DiffEngine::Syntax
+    );
     assert_eq!(std::fs::read_to_string(path)?, "committed\n");
     assert_eq!(
         f.editor.document(source).unwrap().text().to_string(),
@@ -1229,11 +1233,12 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn opening_a_historical_preview_reuses_its_sources_and_selected_engine() -> anyhow::Result<()>
-{
+async fn opening_a_historical_preview_reuses_its_sources_and_configured_engine(
+) -> anyhow::Result<()> {
     use view::features::change_review::HistoricalReviewRequest;
     let mut f = Fixture::new("current\n")?;
     let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     let request = HistoricalReviewRequest::comparison(
         &f.editor,
         path,
@@ -1247,11 +1252,9 @@ async fn opening_a_historical_preview_reuses_its_sources_and_selected_engine() -
     let mut task = event::TaskController::new();
     let snapshot = request.clone().run(task.restart()).await?;
     let source = snapshot.source.clone();
-    let id = f.editor.open_historical_snapshot(
-        snapshot,
-        Some(editor_config::DiffEngine::Syntax),
-        Action::VerticalSplit,
-    )?;
+    let id = f
+        .editor
+        .open_historical_snapshot(snapshot, Action::VerticalSplit)?;
     finish_review(&mut f, id).await?;
     let state = f.editor.document(id).unwrap().review().unwrap();
     assert!(Arc::ptr_eq(state.source().unwrap(), &source));

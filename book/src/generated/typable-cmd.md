@@ -100,7 +100,6 @@
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
 | `:file-history`, `:git-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
 | `:diff-refresh` | Refresh the current diff. Historical comparisons keep their original revisions and buffer contents. |
-| `:diff-engine` | Toggle line or syntax comparison for the current review snapshot. |
 | `:diff-open-source` | Open the source at the selected diff line. |
 | `:diff-open-file` | Open today's file from a diff review. |
 | `:restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |

@@ -427,10 +427,6 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
         app.editor.set_theme(theme("red", "green")?)?;
         keys(&mut app, "").await?;
         assert_colors(&app, Color::Red, Color::Green);
-        keys(&mut app, ":diff-engine<ret>").await?;
-        ready(&mut app).await?;
-        keys(&mut app, "").await?;
-        assert_colors(&app, Color::Red, Color::Green);
         assert!(std::sync::Arc::ptr_eq(
             &source,
             current_ref!(app.editor)
@@ -485,7 +481,7 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
     let status = row(&app, view.statusline_area(doc).y);
     assert!(status.contains("note.txt") && status.contains("DIFF HEAD"));
     assert!(status.contains("+1") && status.contains("−1") && status.contains("line"));
-    keys(&mut app, ":diff-engine<ret>").await?;
+    keys(&mut app, ":set diff.engine syntax<ret>:diff-refresh<ret>").await?;
     ready(&mut app).await?;
     assert_eq!(current_ref!(app.editor).1.display_name(), name);
     keys(&mut app, ":diff-refresh<ret>").await?;

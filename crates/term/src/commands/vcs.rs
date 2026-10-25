@@ -100,12 +100,6 @@ pub(super) fn diff_refresh(cx: &mut Context) {
     }
 }
 
-pub(super) fn diff_toggle_engine(cx: &mut Context) {
-    if let Err(error) = cx.editor.toggle_review_engine() {
-        cx.editor.set_error(|| error.to_string());
-    }
-}
-
 pub(super) fn diff_open_source(cx: &mut Context) {
     if view::current_ref!(cx.editor).1.review().is_some()
         && let Err(error) = cx
@@ -143,14 +137,13 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
                     return;
                 }
                 match result {
-                    Ok((source, review))
+                    Ok((_, review))
                         if review.additions != 0 || review.deletions != 0 || review.truncated =>
                     {
                         let view = crate::ui::change_review::ReviewView::from_shared(
                             "Current change · HEAD → buffer".into(),
                             review,
-                        )
-                        .with_source(source);
+                        );
                         compositor.replace_or_push(
                             crate::ui::change_review::ReviewView::ID,
                             crate::ui::Popup::new(crate::ui::change_review::ReviewView::ID, view)
@@ -714,16 +707,6 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         if event == PromptEvent::Validate {
             cx.editor.refresh_review()?;
-        }
-        Ok(())
-    }
-    pub(in crate::commands) fn diff_engine(
-        cx: &mut compositor::Context,
-        _args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor.toggle_review_engine()?;
         }
         Ok(())
     }

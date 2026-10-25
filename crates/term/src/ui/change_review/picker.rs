@@ -10,7 +10,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, Semaphore};
 use tui::buffer::Buffer;
 use view::{
-    features::change_review::{DiffEngine, ReviewComparison, ReviewRequest, ReviewSnapshot},
+    features::change_review::{ReviewComparison, ReviewRequest, ReviewSnapshot},
     graphics::Rect,
 };
 
@@ -20,7 +20,6 @@ pub struct ChangeReviewPreview<T> {
     status: fn(&T) -> &vcs::FileStatus,
     workspace: PathBuf,
     comparison: Option<ReviewComparison>,
-    engine: Option<DiffEngine>,
     task: TaskController,
     worker: Arc<Semaphore>,
     pending: Option<Pending>,
@@ -42,7 +41,6 @@ impl<T> ChangeReviewPreview<T> {
             status,
             workspace,
             comparison: None,
-            engine: None,
             task: TaskController::new(),
             worker: Arc::new(Semaphore::new(1)),
             pending: None,
@@ -139,23 +137,14 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let poll = &cx.editor.config().files.reload.poll;
         self.dirty |= dirty;
-        let request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace)
-            .with_engine(self.engine);
+        let request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace);
         let target_changed = self
             .request
             .as_ref()
             .is_none_or(|old| !old.same_target(&request) || !old.is_current(cx.editor));
         if target_changed {
-            let snapshot = self.snapshot.take().filter(|_| {
-                !self.dirty
-                    && self
-                        .request
-                        .as_ref()
-                        .is_some_and(|old| old.same_source(&request) && old.is_current(cx.editor))
-            });
             self.stop();
-            self.dirty |= snapshot.is_none();
-            self.snapshot = snapshot;
+            self.dirty = true;
         }
         let poll_due =
             poll.enable && self.checked.elapsed() >= Duration::from_millis(poll.interval.max(100));
@@ -191,7 +180,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                         match result {
                             Ok(snapshot) => {
                                 let offset = self.ready.as_ref().map_or(0, |view| view.offset);
-                                let mut view = ReviewView::from_snapshot(
+                                let mut view = ReviewView::from_shared(
                                     format!(
                                         "{} · {}",
                                         comparison.label(),
@@ -201,7 +190,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                                             .unwrap_or(status.path())
                                             .display()
                                     ),
-                                    &snapshot,
+                                    snapshot.review.clone(),
                                 );
                                 view.offset = offset;
                                 self.ready = Some(view);
@@ -268,9 +257,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     .replace("<A-o>", "A-o")
             };
             let help = format!(
-                "{} open · {} engine · {}/{} compare · {}/{} scroll",
+                "{} open · {}/{} compare · {}/{} scroll",
                 hint(PickerAction::OpenPreview),
-                hint(PickerAction::ToggleDiffEngine),
                 hint(PickerAction::PreviewPrevious),
                 hint(PickerAction::PreviewNext),
                 hint(PickerAction::PreviewScrollUp),
@@ -289,20 +277,6 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
     fn action(&mut self, item: Option<&T>, action: PreviewAction, cx: &mut Context) -> EventResult {
         self.opened_document = false;
         match action {
-            PreviewAction::ToggleEngine => {
-                let Some(item) = item else {
-                    return EventResult::Consumed(None);
-                };
-                let status = (self.status)(item);
-                let request = ReviewRequest::new(
-                    cx.editor,
-                    status,
-                    self.comparison_for(cx.editor, status),
-                    &self.workspace,
-                )
-                .with_engine(self.engine);
-                self.engine = Some(request.engine().toggled());
-            }
             PreviewAction::ScrollUp => {
                 if let Some(view) = &mut self.ready {
                     view.offset = view
@@ -352,8 +326,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 };
                 let status = (self.status)(item).clone();
                 let comparison = self.comparison_for(cx.editor, &status);
-                let request = ReviewRequest::new(cx.editor, &status, comparison, &self.workspace)
-                    .with_engine(self.engine);
+                let request = ReviewRequest::new(cx.editor, &status, comparison, &self.workspace);
                 let ready = self
                     .request
                     .as_ref()

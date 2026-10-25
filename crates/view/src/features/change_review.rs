@@ -136,13 +136,6 @@ impl ReviewRequest {
         }
     }
 
-    pub fn with_engine(mut self, engine: Option<DiffEngine>) -> Self {
-        if let Some(engine) = engine {
-            self.settings.engine = engine;
-        }
-        self
-    }
-
     /// Re-resolve renames and conflicts when opening directly or refreshing.
     pub fn with_fresh_status(mut self) -> Self {
         self.fresh_status = true;
@@ -173,11 +166,6 @@ impl ReviewRequest {
     }
 
     pub fn same_target(&self, other: &Self) -> bool {
-        self.same_source(other) && self.settings.engine == other.settings.engine
-    }
-
-    /// Presentation changes can reuse captured text; document, trust, and language changes cannot.
-    pub fn same_source(&self, other: &Self) -> bool {
         self.status == other.status
             && self.fresh_status == other.fresh_status
             && self.encoding == other.encoding
@@ -246,17 +234,13 @@ impl ReviewRequest {
     ) -> Result<Arc<ReviewSnapshot>> {
         ensure!(!canceled(), "Diff preview canceled");
         let stamp = self.stamp();
-        let source = if let Some(previous) = previous
+        if let Some(previous) = previous
             && previous.stamp == stamp
-            && previous.request.same_source(self)
+            && previous.request.same_target(self)
         {
-            if previous.engine() == self.engine() {
-                return Ok(previous);
-            }
-            previous.source.clone()
-        } else {
-            Arc::new(self.source()?)
-        };
+            return Ok(previous);
+        }
+        let source = Arc::new(self.source()?);
         ensure!(!canceled(), "Diff preview canceled");
         let review = source.compute(Some(self.engine()), canceled);
         ensure!(!canceled(), "Diff preview canceled");

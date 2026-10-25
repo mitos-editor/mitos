@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 use tui::buffer::Buffer;
 use view::{
-    features::change_review::{DiffEngine, HistoricalReviewRequest, HistoricalReviewSnapshot},
+    features::change_review::{HistoricalReviewRequest, HistoricalReviewSnapshot},
     graphics::Rect,
     Editor,
 };
@@ -27,7 +27,6 @@ pub struct HistoricalReviewPreview<T, K> {
     snapshot: Option<Arc<HistoricalReviewSnapshot>>,
     ready: Option<ReviewView>,
     error: Option<String>,
-    engine: Option<DiffEngine>,
     height: u16,
     opened_document: bool,
 }
@@ -46,7 +45,6 @@ impl<T, K: Eq> HistoricalReviewPreview<T, K> {
             snapshot: None,
             ready: None,
             error: None,
-            engine: None,
             height: 1,
             opened_document: false,
         }
@@ -68,7 +66,7 @@ impl<T, K: Eq> HistoricalReviewPreview<T, K> {
             return;
         };
         let request = match (self.capture)(editor, item) {
-            Ok(request) => request.with_engine(self.engine),
+            Ok(request) => request,
             Err(error) => {
                 self.stop();
                 self.error = Some(error.to_string());
@@ -128,13 +126,10 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                     self.pending = None;
                     match result {
                         Ok(snapshot) => {
-                            let mut view = ReviewView::from_shared(
+                            let view = ReviewView::from_shared(
                                 "Historical change".into(),
                                 snapshot.review.clone(),
-                            )
-                            .with_source(snapshot.source.clone());
-                            view.engine =
-                                self.selected.as_ref().map(|(_, request)| request.engine());
+                            );
                             self.ready = Some(view);
                             self.snapshot = Some(snapshot);
                         }
@@ -150,7 +145,6 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
         }
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            view.poll();
             view.offset =
                 view.offset.min(view.review.lines.len().saturating_sub(
                     content.height.saturating_sub(view.heading_rows() as u16) as usize,
@@ -177,9 +171,8 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                 area.x,
                 area.bottom() - 1,
                 format!(
-                    "{} open · {} engine · {}/{} scroll",
+                    "{} open · {}/{} scroll",
                     action_hint(keys, &PickerAction::OpenPreview),
-                    action_hint(keys, &PickerAction::ToggleDiffEngine),
                     action_hint(keys, &PickerAction::PreviewScrollUp),
                     action_hint(keys, &PickerAction::PreviewScrollDown)
                 ),
@@ -196,30 +189,13 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
             PreviewAction::Open(action) => {
                 if let Some((_, request)) = &self.selected {
                     if let Some(snapshot) = &self.snapshot {
-                        match cx.editor.open_historical_snapshot(
-                            snapshot.clone(),
-                            self.engine,
-                            action,
-                        ) {
+                        match cx.editor.open_historical_snapshot(snapshot.clone(), action) {
                             Ok(_) => self.opened_document = true,
                             Err(error) => cx.editor.set_error(|| error.to_string()),
                         }
                     } else {
                         cx.editor.open_historical_review(request.clone(), action);
                         self.opened_document = true;
-                    }
-                }
-            }
-            PreviewAction::ToggleEngine => {
-                if let Some((_, request)) = &mut self.selected {
-                    let engine = request.engine().toggled();
-                    self.engine = Some(engine);
-                    *request = request.clone().with_engine(Some(engine));
-                    if let Some(view) = &mut self.ready {
-                        view.engine = Some(engine);
-                        view.recompute_engine(cx.editor.redraw().clone());
-                    } else {
-                        self.stop();
                     }
                 }
             }

@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use event::{TaskController, TaskHandle};
+use event::TaskHandle;
 use tokio::sync::{oneshot, Semaphore};
 use tui::{
     buffer::Buffer,
@@ -10,9 +10,7 @@ use tui::{
     widgets::{Paragraph, Widget},
 };
 use view::{
-    features::change_review::{
-        DiffEngine, Review, ReviewLineKind, ReviewRequest, ReviewSnapshot, ReviewSource,
-    },
+    features::change_review::{Review, ReviewLineKind, ReviewRequest, ReviewSnapshot},
     graphics::Rect,
 };
 
@@ -36,11 +34,6 @@ pub struct ReviewView {
     offset: usize,
     horizontal: usize,
     keys: ui_core::keymap::KeymapState,
-    task: TaskController,
-    source: Option<Arc<ReviewSource>>,
-    engine: Option<DiffEngine>,
-    mode_pending: Option<oneshot::Receiver<Arc<Review>>>,
-    mode_worker: Arc<Semaphore>,
 }
 
 impl ReviewView {
@@ -57,70 +50,11 @@ impl ReviewView {
             offset: 0,
             horizontal: 0,
             keys: ui_core::keymap::KeymapState::default(),
-            task: TaskController::new(),
-            source: None,
-            engine: None,
-            mode_pending: None,
-            mode_worker: Arc::new(Semaphore::new(1)),
         }
-    }
-
-    pub fn with_source(mut self, source: Arc<ReviewSource>) -> Self {
-        self.source = Some(source);
-        self
-    }
-
-    fn from_snapshot(title: String, snapshot: &ReviewSnapshot) -> Self {
-        let mut view =
-            Self::from_shared(title, snapshot.review.clone()).with_source(snapshot.source.clone());
-        view.engine = Some(snapshot.engine());
-        view
     }
 
     fn heading_rows(&self) -> usize {
         1 + usize::from(self.review.fallback.is_some())
-    }
-
-    fn toggle_engine(&mut self, redraw: event::Redraw) {
-        let current = self
-            .engine
-            .or_else(|| self.source.as_ref().map(|source| source.engine()));
-        let Some(current) = current else {
-            return;
-        };
-        self.engine = Some(current.toggled());
-        self.recompute_engine(redraw);
-    }
-
-    fn recompute_engine(&mut self, redraw: event::Redraw) {
-        let Some(source) = self.source.clone() else {
-            return;
-        };
-        let engine = self.engine.unwrap_or(source.engine());
-        let cancel = self.task.restart();
-        let worker = self.mode_worker.clone();
-        let (tx, rx) = oneshot::channel();
-        self.mode_pending = Some(rx);
-        tokio::spawn(async move {
-            let work = async {
-                let Ok(permit) = worker.acquire_owned().await else {
-                    return;
-                };
-                let check = cancel.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    let _permit = permit;
-                    source.compute(Some(engine), &|| check.is_canceled())
-                })
-                .await;
-                if !cancel.is_canceled()
-                    && let Ok(review) = result
-                {
-                    let _ = tx.send(review);
-                    redraw.request();
-                }
-            };
-            event::cancelable_future(work, &cancel).await;
-        });
     }
 
     fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, scroll: usize) {
@@ -137,24 +71,8 @@ impl ReviewView {
         } else {
             ""
         };
-        let pending = if self.mode_pending.is_some() {
-            " · loading…"
-        } else {
-            ""
-        };
-        let hint = if self.source.is_some() {
-            format!(
-                " · {} engine",
-                crate::keymap::component::action_hint(
-                    &cx.config.current.component_keys.diff,
-                    &crate::keymap::component::DiffAction::ToggleEngine
-                )
-            )
-        } else {
-            String::new()
-        };
         let heading = format!(
-            "{mode}{layout} · {}  +{} −{}{pending}{hint}",
+            "{mode}{layout} · {}  +{} −{}",
             literal(&self.title),
             self.review.additions,
             self.review.deletions
@@ -238,26 +156,8 @@ impl ReviewView {
 #[cfg(test)]
 mod tests;
 
-impl ReviewView {
-    fn poll(&mut self) {
-        if let Some(pending) = &mut self.mode_pending {
-            match pending.try_recv() {
-                Ok(review) => {
-                    self.review = review;
-                    self.mode_pending = None;
-                }
-                Err(oneshot::error::TryRecvError::Closed) => {
-                    self.mode_pending = None;
-                }
-                Err(oneshot::error::TryRecvError::Empty) => {}
-            }
-        }
-    }
-}
-
 impl Component for ReviewView {
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        self.poll();
         self.draw(
             panel::content_area(area),
             surface,
@@ -289,17 +189,12 @@ impl Component for ReviewView {
             Lookup::Unbound => EventResult::Ignored(None),
             Lookup::Actions(actions) => {
                 for action in actions {
-                    if *action == DiffAction::ToggleEngine {
-                        self.toggle_engine(cx.editor.redraw().clone());
-                        continue;
-                    }
                     self.horizontal = match action {
                         DiffAction::ScrollLeft => self.horizontal.saturating_sub(8),
                         DiffAction::ScrollRight => self
                             .horizontal
                             .saturating_add(8)
                             .min(self.review.max_line_chars()),
-                        DiffAction::ToggleEngine => unreachable!(),
                     };
                 }
                 EventResult::Consumed(None)

@@ -16,7 +16,6 @@ use crate::Editor;
 pub(super) struct Settings {
     loader: Arc<Loader>,
     language: Option<Language>,
-    configured: DiffEngine,
     pub engine: DiffEngine,
 }
 
@@ -36,7 +35,6 @@ impl Settings {
         Self {
             loader,
             language,
-            configured,
             engine: configured,
         }
     }
@@ -44,18 +42,17 @@ impl Settings {
     pub(super) fn historical(editor: &Editor, path: &Path) -> Self {
         let mut settings = Self::capture(editor, path);
         settings.language = settings.loader.language_for_filename(path);
-        settings.configured = settings
+        settings.engine = settings
             .language
             .and_then(|lang| settings.loader.language(lang).config().diff_engine)
             .unwrap_or(editor.config().diff.engine);
-        settings.engine = settings.configured;
         settings
     }
 
     pub(super) fn current(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.loader, &other.loader)
             && self.language == other.language
-            && self.configured == other.configured
+            && self.engine == other.engine
     }
 
     pub fn is_current(&self, editor: &Editor, path: &Path) -> bool {
@@ -63,8 +60,8 @@ impl Settings {
     }
 }
 
-/// The exact snapshots behind an open review. Switching its presentation never rereads Git or
-/// changes the document. Language resources and policy belong to the captured editor setup.
+/// The exact snapshots behind an open review. Language resources and comparison policy
+/// belong to the captured editor configuration.
 pub struct ReviewSource {
     before: Rope,
     after: Rope,

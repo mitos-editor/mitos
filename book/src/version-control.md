@@ -123,17 +123,15 @@ engine, and whether the review is loading.
 | Enter, `:diff-open-source` | Jump to the selected source location |
 | `:diff-open-file` | Open today's file without jumping to a diff line |
 | `:diff-refresh` | Update the review with current Git state and buffer contents |
-| `:diff-engine` | Switch between line and syntax comparison |
 
 An open review keeps the contents it compared until you refresh it. Refreshing
 updates every view of that review; other review buffers keep their own contents.
-Switching the engine compares the same contents. If the source has changed since
-opening the review, refresh before jumping to a source line, or use
-`:diff-open-file` to open the current file.
+If the source has changed since opening the review, refresh before jumping to a
+source line, or use `:diff-open-file` to open the current file.
 
-The command palette provides `diff`, `diff_refresh`, `diff_toggle_engine`,
-`diff_open_source`, and `diff_open_file`. Bind these through the normal editor
-keymaps. `[keys.diff]` controls compact diff popups.
+The command palette provides `diff`, `diff_refresh`, `diff_open_source`, and
+`diff_open_file`. Bind these through the normal editor keymaps. `[keys.diff]`
+controls compact diff popups.
 
 Reviewing does not save buffers or stage changes. Use the changed-file picker for
 [Git actions](#git-picker-actions). Binary files, submodules, and unresolved index
@@ -164,10 +162,10 @@ name = "rust"
 diff-engine = "syntax"
 ```
 
-Use `:diff-engine` in a review buffer or **Alt-d** in a diff preview or popup to
-switch engines. The review statusline or popup heading shows the active engine.
-Remap the picker action as `toggle_diff_engine` under `[keys.picker]`, or the popup
-action as `toggle_engine` under `[keys.diff]`.
+Reviews use the configured engine, with language settings taking precedence over
+`editor.diff.engine`. After changing configuration, refresh or reopen an existing
+review to use the new setting. The review statusline or popup heading shows the
+active engine.
 
 Both engines show the original added and removed lines, whitespace, line numbers,
 and counts. A `layout only` label means the syntax matched despite changes to the
@@ -248,7 +246,7 @@ Restoring a change replaces whole intersecting hunks in the current buffer. Use
 Run `:file-history` to browse commits that changed the current file, following
 renames detected by Git. The preview shows each selected commit's diff against
 its first parent. Use Ctrl-t to hide or show the preview, Alt-Up / Alt-Down to
-scroll, and Alt-d to switch the diff engine.
+scroll.
 
 Press **Enter** to open the diff in a review buffer. Ctrl-v / Ctrl-s open it in a
 vertical / horizontal split. `Space '` restores the picker with its query and

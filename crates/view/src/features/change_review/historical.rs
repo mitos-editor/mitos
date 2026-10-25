@@ -191,14 +191,23 @@ impl HistoricalReviewRequest {
         self.settings.engine
     }
 
-    pub fn with_engine(mut self, engine: Option<super::DiffEngine>) -> Self {
-        if let Some(engine) = engine {
-            self.settings.engine = engine;
+    /// Refresh comparison policy without replacing pinned revisions or captured buffer text.
+    pub(super) fn refresh_settings(&mut self, editor: &Editor) {
+        self.settings = Settings::historical(editor, &self.path);
+        #[cfg(feature = "git")]
+        if matches!(
+            &self.input,
+            Input::Revisions {
+                buffer: Some(_),
+                ..
+            }
+        ) {
+            self.settings = Settings::capture(editor, &self.path);
         }
-        self
+        self.before_settings = Settings::historical(editor, &self.before_path);
     }
 
-    /// Compare capture policy independently of the immutable source key and chosen engine.
+    /// Compare configured review policy independently of the immutable source key.
     pub fn same_policy(&self, other: &Self) -> bool {
         self.trusted == other.trusted
             && self.settings.current(&other.settings)
