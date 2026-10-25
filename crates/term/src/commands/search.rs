@@ -11,11 +11,14 @@ use editor_core::{
 };
 use futures_util::FutureExt;
 use std::{ops::ControlFlow, sync::Arc};
-use stdx::rope::{self, RopeExt as _};
+use stdx::rope::RopeExt as _;
 use view::{
     align_view,
     document::Mode,
-    features::workspace_search::{Request as SearchRequest, WorkspaceSearch},
+    features::{
+        buffer_search::Query,
+        workspace_search::{Request as SearchRequest, WorkspaceSearch},
+    },
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
@@ -50,7 +53,7 @@ fn searcher(cx: &mut Context, direction: Direction) {
     // TODO: could probably share with select_on_matches?
     let completions = search_completions(cx, Some(reg));
 
-    ui::regex_prompt(
+    ui::search_prompt(
         cx,
         "search:".into(),
         Some(reg),
@@ -61,14 +64,14 @@ fn searcher(cx: &mut Context, direction: Direction) {
                 .map(|comp| (0.., comp.clone().into()))
                 .collect()
         },
-        move |cx, regex, event| {
+        move |cx, query, _, event| {
             if event == PromptEvent::Validate {
                 cx.editor.registers.last_search_register = reg;
             } else if event != PromptEvent::Update {
                 return;
             }
             cx.editor
-                .search_buffer(&regex, movement, direction, 1, wrap_around);
+                .search_buffer(&query, movement, direction, 1, wrap_around);
         },
     );
 }
@@ -81,26 +84,13 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
     let config = cx.editor.config();
     if let Some(query) = cx.editor.first_register_value(register) {
         let search_config = &config.search;
-        let case_insensitive = if search_config.smart_case {
-            !query.chars().any(char::is_uppercase)
-        } else {
-            false
-        };
         let wrap_around = search_config.wrap_around;
         let is_crlf = doc!(cx.editor).line_ending == LineEnding::Crlf;
-        match rope::RegexBuilder::new()
-            .syntax(
-                rope::Config::new()
-                    .case_insensitive(case_insensitive)
-                    .multi_line(true)
-                    .crlf(is_crlf),
-            )
-            .build(&query)
-        {
-            Ok(regex) => {
+        match Query::new(&query, search_config.smart_case, is_crlf) {
+            Ok(query) => {
                 match cx
                     .editor
-                    .search_buffer(&regex, movement, direction, count, wrap_around)
+                    .search_buffer(&query, movement, direction, count, wrap_around)
                 {
                     view::editor::SearchOutcome::Found { wrapped: true } => {
                         cx.editor.set_status("Wrapped around document")

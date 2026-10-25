@@ -70,8 +70,7 @@ use crate::{
 };
 use editor_config::Config;
 use editor_core::{
-    encoding, indent::IndentStyle, search::SearchMatch, ChangeSet, LineEnding, Range, Rope,
-    Selection, Transaction,
+    encoding, indent::IndentStyle, ChangeSet, LineEnding, Range, Rope, Selection, Transaction,
 };
 
 use language::{syntax, Syntax};
@@ -176,8 +175,6 @@ pub struct Document {
     pub(crate) buffer: buffer::Buffer,
     view_states: HashMap<ViewId, DocumentViewState>,
     snippet: Option<SnippetSession>,
-    /// Current search information.
-    last_search_match: HashMap<ViewId, SearchMatch>,
     pub(crate) breakpoint_saved_text: Option<Rope>,
     pub(crate) breakpoint_source: Option<::debugger::SourceBreakpoints>,
 
@@ -293,7 +290,6 @@ impl Document {
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
             view_states: HashMap::default(),
-            last_search_match: HashMap::default(),
             inlay_hints: Default::default(),
             hover: Default::default(),
             navigation: Default::default(),
@@ -404,14 +400,6 @@ impl Document {
         // TODO: use a transaction?
         self.update_selection(view_id, selection);
         self.selection_did_change(view_id);
-    }
-
-    pub fn set_last_search_match(&mut self, view_id: ViewId, search_match: SearchMatch) {
-        self.last_search_match.insert(view_id, search_match);
-    }
-
-    pub fn get_last_search_match(&self, view_id: ViewId) -> Option<SearchMatch> {
-        self.last_search_match.get(&view_id).copied()
     }
 
     fn selection_did_change(&mut self, view_id: ViewId) {

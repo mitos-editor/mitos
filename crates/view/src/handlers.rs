@@ -2,7 +2,7 @@ use crate::{
     callbacks::EditorCallbackSender,
     events::ConfigDidChange,
     features::{
-        auto_reload, auto_save, blame, code_action_hint, code_actions, code_lenses,
+        auto_reload, auto_save, blame, buffer_search, code_action_hint, code_actions, code_lenses,
         completion::{self, CompletionEvent, CompletionHandler},
         diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
         inlay_hints, inline_completion, navigation, rename,
@@ -34,6 +34,7 @@ pub struct Handlers {
     pub document_colors: document_colors::DocumentColorsHandler,
     pub code_lenses: code_lenses::DocumentCodeLensesHandler,
     pub syntax: syntax::SyntaxHandler,
+    pub buffer_search: buffer_search::Handler,
     pub completions: CompletionHandler,
     pub inline_completions: inline_completion::InlineCompletionHandler,
     pub hover: hover::HoverHandler,
@@ -75,6 +76,7 @@ impl Handlers {
             document_colors: document_colors::DocumentColorsHandler::new(callbacks.clone()),
             code_lenses: code_lenses::DocumentCodeLensesHandler::new(callbacks.clone()),
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
+            buffer_search: buffer_search::Handler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             hover: hover::HoverHandler::new(callbacks.clone()),
@@ -217,6 +219,7 @@ fn register_hooks() {
         navigation::register_hooks();
         crate::features::shell::register_hooks();
         rename::register_hooks();
+        buffer_search::register_hooks();
         code_actions::register_hooks();
         workspace_symbols::register_hooks();
         inlay_hints::register_hooks();

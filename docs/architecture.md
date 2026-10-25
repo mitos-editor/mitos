@@ -1294,6 +1294,25 @@ decisions from document revisions and filesystem events. Queries prefer open
 buffers over disk. The terminal supplies traversal options and presents symbols
 through picker columns, previews, quicklists, and navigation actions.
 
+## Buffer search statistics
+
+`core::search` owns windowed navigation. Its `statistics` module separately counts
+canonical full-document matches with a match limit and a caller-supplied stop
+predicate. Statistics retain at most the limit plus one proof match and distinguish
+exact, capped, and unavailable values; a navigation range need not belong to that
+canonical stream.
+
+`view::features::buffer_search` owns compiled query identity and counting requests.
+Each `DocumentViewState` owns its cache, last target, and cancellation controller.
+Text mutations invalidate every view before observers run; relationship removal
+drops its controller. Presentation copies retain cached values without live work.
+One editor-owned handler debounces cache misses, limits blocking workers, and
+publishes through its explicit callback sender. Queued results validate
+cancellation, buffer snapshots, query identity, configuration, and view binding.
+The time budget is cooperative between regex calls, including the final EOF check.
+`term` supplies search input and formats cached statusline values; rendering never
+starts or waits for counting.
+
 ## Fuzzy matching
 
 `fuzzy` owns text/path/completion scoring profiles and reusable matcher buffers.

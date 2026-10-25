@@ -333,7 +333,7 @@ Available statusline elements:
 | `diagnostics` | The number of warnings and/or errors |
 | `workspace-diagnostics` | The number of warnings and/or errors on workspace |
 | `selections` | The main selection index out of the number of active selections |
-| `search-position` | Current search match and total matches in the view `[<current>/<total>]` |
+| `search-position` | Last search match position and count, such as `[3/12]`; counts above the limit use `>N`, and unavailable counts use `?` |
 | `primary-selection-length` | The number of characters currently in the main selection |
 | `position` | The cursor position |
 | `position-percentage` | The cursor position as a percentage of the total number of lines |
@@ -554,7 +554,7 @@ enable delayed saving.
 | --- | --- | --- | --- |
 | `smart-case` | boolean | `true` | Search case-insensitively unless the pattern contains an uppercase character. |
 | `wrap-around` | boolean | `true` | Continue at the other end of the document after the last match or change. |
-| `max-matches` | integer or `"none"` | `100` | Maximum number of matches counted for the denominator of `search-position`; `"none"` for no limit. |
+| `max-matches` | nonnegative integer or `"none"` | `100` | Limit the search-position counting scan; both the match index and total may be capped. `"none"` removes the match limit, while the time budget still applies. |
 
 ### `[editor.rulers]`
 

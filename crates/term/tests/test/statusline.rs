@@ -12,6 +12,51 @@ fn row(buffer: &Buffer, area: Rect) -> String {
         .collect()
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -> anyhow::Result<()>
+{
+    use super::helpers::{callbacks, keys};
+    use editor_config::OptionToml;
+    use view::features::buffer_search::Handler;
+
+    for (text, input, limit, expected) in [
+        ("#[o|]#ne one one\n", "/one<ret>", Some(100), "[2/3]"),
+        ("#[o|]#ne one one\n", "/one<ret>", Some(2), "[2/>2]"),
+        ("#[o|]#ne one one\n", "/one<ret>", Some(1), "[>1/>1]"),
+        ("#[a|]#aa\n", "/aa<ret>", None, "[?/1]"),
+        ("aa#[a|]#\n", "?a+<ret>", None, "[?/1]"),
+    ] {
+        let (sender, mut updates) = callbacks::channel();
+        let mut config = test_config();
+        config.editor.statusline.left.clear();
+        config.editor.statusline.right = vec![StatusLineElement::SearchPosition];
+        config.editor.search.max_matches = limit.map_or(OptionToml::None, OptionToml::Some);
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_lang_loader(language::syntax::Loader::default())
+            .with_input_text(text)
+            .with_handler_setup(move |handlers, _| handlers.buffer_search = Handler::new(sender))
+            .build()?;
+        keys(&mut app, input).await?;
+        let update = tokio::time::timeout(std::time::Duration::from_secs(5), updates.recv())
+            .await?
+            .unwrap();
+        update(&mut app.editor);
+        keys(&mut app, "").await?;
+        let (view, doc) = current_ref!(app.editor);
+        assert!(row(app.terminal_backend().buffer(), view.statusline_area(doc)).contains(expected));
+
+        // Repeated navigation uses the cache immediately, and ordinary movement clears it.
+        keys(&mut app, "n").await?;
+        assert!(updates.try_recv().is_err());
+        keys(&mut app, "h").await?;
+        let (view, doc) = current_ref!(app.editor);
+        assert_eq!(doc.search_position(view.id), None);
+        assert!(!row(app.terminal_backend().buffer(), view.statusline_area(doc)).contains('['));
+    }
+    Ok(())
+}
+
 fn assert_per_view(app: &Application) {
     assert!(!app.editor.config().statusline.global);
     let backend = app.terminal_backend();

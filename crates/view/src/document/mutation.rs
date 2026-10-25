@@ -57,6 +57,9 @@ impl Document {
 
         let old_doc = change.before();
         let changes = change.changes();
+        if !changes.is_empty() {
+            self.invalidate_search_counts();
+        }
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
             let selection = &mut state.selection;

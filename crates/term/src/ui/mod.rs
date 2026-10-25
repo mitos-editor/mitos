@@ -49,8 +49,12 @@ use view::{
 
 use tui::text::{Line, Span};
 
-use std::{borrow::Cow, path::Path, sync::Arc};
-use std::{error::Error, path::PathBuf};
+use std::{
+    borrow::Cow,
+    error::Error,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 struct Utf8PathBuf {
     path: String,
@@ -112,6 +116,26 @@ pub fn raw_regex_prompt(
     completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
 ) {
+    search_prompt(
+        cx,
+        prompt,
+        history_register,
+        completion_fn,
+        move |cx, query, input, event| {
+            fun(cx, query.into_regex(), input, event);
+        },
+    );
+}
+
+/// The shared regex prompt retains query identity for buffer-search statistics.
+pub fn search_prompt(
+    cx: &mut crate::commands::Context,
+    prompt: std::borrow::Cow<'static, str>,
+    history_register: Option<char>,
+    completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
+    fun: impl Fn(&mut crate::compositor::Context, view::features::buffer_search::Query, &str, PromptEvent)
+        + 'static,
+) {
     let (view, doc) = current!(cx.editor);
     let doc_id = view.document_id();
     let view_id = view.id;
@@ -137,23 +161,13 @@ pub fn raw_regex_prompt(
                         return;
                     }
 
-                    let case_insensitive = if config.search.smart_case {
-                        !input.chars().any(char::is_uppercase)
-                    } else {
-                        false
-                    };
-
                     let is_crlf = doc!(cx.editor).line_ending == editor_core::LineEnding::Crlf;
-                    match rope::RegexBuilder::new()
-                        .syntax(
-                            rope::Config::new()
-                                .case_insensitive(case_insensitive)
-                                .multi_line(true)
-                                .crlf(is_crlf),
-                        )
-                        .build(input)
-                    {
-                        Ok(regex) => {
+                    match view::features::buffer_search::Query::new(
+                        input,
+                        config.search.smart_case,
+                        is_crlf,
+                    ) {
+                        Ok(query) => {
                             let doc = doc_mut!(cx.editor, &doc_id);
                             let view = view_mut!(cx.editor, view_id);
 
@@ -165,7 +179,7 @@ pub fn raw_regex_prompt(
                                 view.push_jump(doc, (doc_id, snapshot.clone()));
                             }
 
-                            fun(cx, regex, input, event);
+                            fun(cx, query, input, event);
 
                             let (view, doc) = current!(cx.editor);
                             view.ensure_cursor_in_view(doc, config.scroll.padding);
@@ -180,8 +194,7 @@ pub fn raw_regex_prompt(
                                 let callback = async move {
                                     let call: job::Callback = Callback::EditorCompositor(Box::new(
                                         move |_editor: &mut Editor, compositor: &mut Compositor| {
-                                            let contents =
-                                                Text::new(err.source().unwrap_or(&err).to_string());
+                                            let contents = Text::new(err.root_cause().to_string());
                                             let size = compositor.size();
                                             let editor_area = size.clip_bottom(2);
                                             let popup = Popup::new("invalid-regex", contents)

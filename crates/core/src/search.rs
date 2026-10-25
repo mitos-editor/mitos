@@ -1,39 +1,25 @@
+pub mod statistics;
+
 use crate::movement::Direction;
 use crate::{Range, RopeSlice, Selection};
 use stdx::rope::RopeExt as _;
 use stdx::rope::{self, RopeSliceExt};
 
-/// A buffer match in character coordinates, its position in the document, and
-/// whether reaching it wrapped the document.
+/// A buffer match in character coordinates and whether reaching it wrapped the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchMatch {
     pub range: Range,
     pub wrapped: bool,
-    /// 1-based index of `range` among every match in the document.
-    pub idx: usize,
-    /// Total number of matches, possibly bounded by a configured maximum.
-    pub count: SearchMatchLimit,
-}
-
-/// Bound applied to the reported total number of matches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchMatchLimit {
-    /// The document holds exactly this many matches.
-    Limitless(usize),
-    /// Counting stopped at this maximum, so the real total is larger.
-    Limited(usize),
 }
 
 /// Find the next/previous regex match after the primary selection. Search windows
 /// retain full-rope context for anchors. A point at EOF cannot repeatedly match itself.
-/// The match carries its document position; `max_matches` bounds the counted total.
 pub fn find_regex(
     text: RopeSlice,
     primary: Range,
     regex: &rope::Regex,
     direction: Direction,
     wrap: bool,
-    max_matches: Option<usize>,
 ) -> Option<SearchMatch> {
     let boundary = match direction {
         Direction::Forward => primary.to(),
@@ -64,64 +50,14 @@ pub fn find_regex(
             .flatten()
             .map(|matched| (matched, true))
     })?;
-    let range = Range::new(
-        text.byte_to_char_idx(matched.start()),
-        text.byte_to_char_idx(matched.end()),
-    )
-    .with_direction(primary.direction());
-    let (idx, count) = position_and_count(text, regex, matched.start(), matched.end(), max_matches);
     Some(SearchMatch {
-        range,
+        range: Range::new(
+            text.byte_to_char_idx(matched.start()),
+            text.byte_to_char_idx(matched.end()),
+        )
+        .with_direction(primary.direction()),
         wrapped,
-        idx,
-        count,
     })
-}
-
-/// 1-based index of the match spanning `start..end` in `text` and the total
-/// number of matches, bounded by `max_matches` when supplied.
-fn position_and_count(
-    text: RopeSlice,
-    regex: &rope::Regex,
-    start: usize,
-    end: usize,
-    max_matches: Option<usize>,
-) -> (usize, SearchMatchLimit) {
-    // Locate the match in document order, leaving the iterator right after it so
-    // the remaining matches can be counted below.
-    let mut matches = regex.find_iter(text.regex_input()).enumerate().peekable();
-
-    // The `unwrap` won't fail because we only get here if there was a match in the caller.
-    let (idx, _) = matches
-        .find(|(_, matched)| matched.start() == start && matched.end() == end)
-        .unwrap();
-
-    let count = match max_matches {
-        None => match matches.last() {
-            None => SearchMatchLimit::Limitless(idx + 1),
-            Some((last_idx, _)) => SearchMatchLimit::Limitless(last_idx + 1),
-        },
-        Some(max) => {
-            if matches.peek().is_none() {
-                // The found match is the last one, so its index is the exact total.
-                if idx + 1 > max {
-                    SearchMatchLimit::Limited(max)
-                } else {
-                    SearchMatchLimit::Limitless(idx + 1)
-                }
-            } else {
-                // Count forward only up to `max`, reporting a limited denominator
-                // when the document has at least that many matches.
-                match matches.take_while(|(i, _)| i <= &max).last() {
-                    Some((last_idx, _)) if last_idx < max => {
-                        SearchMatchLimit::Limitless(last_idx + 1)
-                    }
-                    _ => SearchMatchLimit::Limited(max),
-                }
-            }
-        }
-    };
-    (idx + 1, count)
 }
 
 /// Build a literal alternation from selections, deduplicated in stable order.
@@ -261,45 +197,32 @@ mod buffer_tests {
         let first = Range::new(0, 1);
         let last = Range::new(2, 3);
         assert_eq!(
-            find_regex(text, first, &regex, Direction::Forward, false, None),
+            find_regex(text, first, &regex, Direction::Forward, false),
             Some(SearchMatch {
                 range: last,
-                wrapped: false,
-                idx: 2,
-                count: SearchMatchLimit::Limitless(2),
+                wrapped: false
             })
         );
         assert_eq!(
-            find_regex(text, last, &regex, Direction::Forward, false, None),
+            find_regex(text, last, &regex, Direction::Forward, false),
             None
         );
         assert_eq!(
-            find_regex(text, last, &regex, Direction::Forward, true, None),
+            find_regex(text, last, &regex, Direction::Forward, true),
             Some(SearchMatch {
                 range: first,
-                wrapped: true,
-                idx: 1,
-                count: SearchMatchLimit::Limitless(2),
+                wrapped: true
             })
         );
         assert_eq!(
-            find_regex(text, first, &regex, Direction::Backward, true, None),
+            find_regex(text, first, &regex, Direction::Backward, true),
             Some(SearchMatch {
                 range: last,
-                wrapped: true,
-                idx: 2,
-                count: SearchMatchLimit::Limitless(2),
+                wrapped: true
             })
         );
-        let backward = find_regex(
-            text,
-            Range::new(3, 2),
-            &regex,
-            Direction::Backward,
-            false,
-            None,
-        )
-        .unwrap();
+        let backward =
+            find_regex(text, Range::new(3, 2), &regex, Direction::Backward, false).unwrap();
         assert_eq!(backward.range, Range::new(1, 0));
     }
 
@@ -308,62 +231,16 @@ mod buffer_tests {
         let text = Rope::from("a\n");
         let text = text.slice(..);
         let regex = rope::Regex::new("(?m)$").unwrap();
-        let eof = find_regex(
-            text,
-            Range::new(1, 2),
-            &regex,
-            Direction::Forward,
-            false,
-            None,
-        )
-        .unwrap();
+        let eof = find_regex(text, Range::new(1, 2), &regex, Direction::Forward, false).unwrap();
         assert_eq!(eof.range, Range::point(2));
-        assert_eq!(eof.count, SearchMatchLimit::Limitless(2));
-        assert!(find_regex(text, eof.range, &regex, Direction::Forward, false, None).is_none());
-        let wrapped = find_regex(text, eof.range, &regex, Direction::Forward, true, None).unwrap();
+        assert!(find_regex(text, eof.range, &regex, Direction::Forward, false).is_none());
+        let wrapped = find_regex(text, eof.range, &regex, Direction::Forward, true).unwrap();
         assert_eq!(wrapped.range, Range::point(1));
         assert!(wrapped.wrapped);
         let start = rope::Regex::new("(?m)^").unwrap();
-        let wrapped = find_regex(
-            text,
-            Range::new(0, 1),
-            &start,
-            Direction::Backward,
-            true,
-            None,
-        )
-        .unwrap();
+        let wrapped =
+            find_regex(text, Range::new(0, 1), &start, Direction::Backward, true).unwrap();
         assert_eq!(wrapped.range, Range::point(2));
-    }
-
-    #[test]
-    fn match_count_is_bounded_by_the_configured_maximum() {
-        let text = Rope::from("one one one one\n");
-        let text = text.slice(..);
-        let regex = rope::Regex::new("one").unwrap();
-        let unbounded = find_regex(
-            text,
-            Range::point(0),
-            &regex,
-            Direction::Forward,
-            false,
-            None,
-        )
-        .unwrap();
-        assert_eq!(unbounded.idx, 1);
-        assert_eq!(unbounded.count, SearchMatchLimit::Limitless(4));
-
-        let bounded = find_regex(
-            text,
-            Range::point(0),
-            &regex,
-            Direction::Forward,
-            false,
-            Some(2),
-        )
-        .unwrap();
-        assert_eq!(bounded.idx, 1);
-        assert_eq!(bounded.count, SearchMatchLimit::Limited(2));
     }
 
     #[test]
@@ -375,15 +252,8 @@ mod buffer_tests {
                 .syntax(rope::Config::new().multi_line(true).crlf(newline == "\r\n"))
                 .build("^b$")
                 .unwrap();
-            let found = find_regex(
-                text,
-                Range::new(0, 1),
-                &regex,
-                Direction::Forward,
-                false,
-                None,
-            )
-            .unwrap();
+            let found =
+                find_regex(text, Range::new(0, 1), &regex, Direction::Forward, false).unwrap();
             assert_eq!(
                 found.range,
                 Range::new(1 + newline.len(), 2 + newline.len())
@@ -394,8 +264,7 @@ mod buffer_tests {
                     Range::point(text.len_chars()),
                     &regex,
                     Direction::Backward,
-                    false,
-                    None
+                    false
                 )
                 .unwrap()
                 .range,

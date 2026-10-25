@@ -1,6 +1,6 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
-use editor_core::search::{SearchMatch, SearchMatchLimit};
+use editor_core::search::statistics::Count;
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -720,14 +720,23 @@ fn render_search_position<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    if let Some(SearchMatch { idx, count, .. }) = context.doc.get_last_search_match(context.view.id)
-    {
-        let count_str = match count {
-            SearchMatchLimit::Limitless(count) => format!("{}", count),
-            SearchMatchLimit::Limited(max) => format!(">{}", max),
-        };
-        write(context, format!(" [{}/{}] ", idx, count_str).into());
-    }
+    let Some(position) = context.doc.search_position(context.view.id) else {
+        return;
+    };
+    let count = |value, unknown: &str| match value {
+        Count::Exact(n) => n.to_string(),
+        Count::MoreThan(n) => format!(">{n}"),
+        Count::Unknown => unknown.to_owned(),
+    };
+    write(
+        context,
+        format!(
+            " [{}/{}] ",
+            count(position.current, "?"),
+            count(position.total, "??")
+        )
+        .into(),
+    );
 }
 
 fn render_file_indent_style<'a, F>(context: &mut RenderContext<'a>, write: F)

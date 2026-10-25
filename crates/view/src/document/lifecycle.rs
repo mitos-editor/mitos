@@ -28,7 +28,6 @@ impl Document {
     }
 
     pub(super) fn update_selection(&mut self, view: ViewId, selection: Selection) {
-        self.last_search_match.remove(&view);
         let selection = selection.ensure_invariants(self.buffer.text().slice(..));
         let changed = self
             .try_selection(view)
@@ -36,6 +35,7 @@ impl Document {
         match self.view_states.entry(view) {
             std::collections::hash_map::Entry::Occupied(mut state) => {
                 let state = state.get_mut();
+                state.search.clear_position();
                 if state.selection != selection {
                     state.expansion_history.clear();
                 }
