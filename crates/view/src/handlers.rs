@@ -45,8 +45,7 @@ pub struct Handlers {
     pub blame: blame::BlameHandler,
     #[cfg(feature = "git")]
     pub git_operations: crate::features::git_operations::GitOperationsHandler,
-    pub(crate) change_review: parking_lot::Mutex<event::TaskController>,
-    pub(crate) change_review_worker: std::sync::Arc<tokio::sync::Semaphore>,
+    pub(crate) change_review: crate::features::change_review::Handler,
     pub auto_reload: auto_reload::AutoReloadHandler,
     pub word_index: word_index::Handler,
     pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
@@ -91,8 +90,7 @@ impl Handlers {
             blame: blame::BlameHandler::new(callbacks.clone()),
             #[cfg(feature = "git")]
             git_operations: crate::features::git_operations::GitOperationsHandler::default(),
-            change_review: parking_lot::Mutex::default(),
-            change_review_worker: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            change_review: crate::features::change_review::Handler::new(callbacks.clone()),
             auto_reload: auto_reload::AutoReloadHandler::new(callbacks.clone(), config),
             word_index: word_index::Handler::spawn(),
             pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler::new(callbacks.clone()),
@@ -128,6 +126,7 @@ impl Handlers {
             .bind_handler(&self.inline_completions);
         doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
         doc.auto_save_trigger = Some(self.auto_save.trigger());
+        doc.review_trigger = Some(self.change_review.document_trigger());
         doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
         doc.blame.bind_handler(self.blame.clone());

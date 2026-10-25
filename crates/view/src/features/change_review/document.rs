@@ -24,6 +24,7 @@ pub struct ReviewDocument {
     initialized: bool,
     instance: usize,
     changes: RowChanges,
+    observed: Option<Arc<Observed>>,
 }
 
 #[derive(Clone)]
@@ -67,13 +68,36 @@ impl Request {
             Self::Live(r) => Work::Read {
                 request: Arc::new(r),
                 previous,
+                observed: None,
             },
             Self::Historical(r) => Work::Historical(Arc::new(r)),
         }
     }
 }
 
+struct Observed {
+    request: ReviewRequest,
+    stamp: super::RepositoryStamp,
+}
+
 impl ReviewDocument {
+    pub(crate) fn is_live(&self) -> bool {
+        matches!(self.request, Request::Live(_))
+    }
+
+    pub(super) fn is_refreshing(&self) -> bool {
+        self.task.is_running()
+    }
+
+    pub(super) fn affected_by(&self, path: &Path) -> bool {
+        self.observed.as_ref().is_none_or(|observed| {
+            observed
+                .stamp
+                .iter()
+                .any(|(watched, _)| watched == path || watched.starts_with(path))
+        })
+    }
+
     pub fn revision_label(&self) -> Option<&str> {
         match &self.request {
             Request::Historical(r) => Some(&r.label),
@@ -138,6 +162,7 @@ enum Work {
     Read {
         request: Arc<ReviewRequest>,
         previous: Option<Arc<ReviewSnapshot>>,
+        observed: Option<Arc<Observed>>,
     },
     Engine {
         source: Arc<ReviewSource>,
@@ -153,7 +178,8 @@ struct Projection {
 }
 
 struct Computed {
-    source: Arc<ReviewSource>,
+    source: Option<Arc<ReviewSource>>,
+    observed: Option<Arc<Observed>>,
     review: Arc<Review>,
     transaction: Transaction,
     changes: RowChanges,
@@ -229,6 +255,7 @@ impl Editor {
             initialized: false,
             instance,
             changes: projection.changes,
+            observed: None,
         };
         let mut doc = Document::from(
             projection.text,
@@ -244,15 +271,39 @@ impl Editor {
         })
         .report_to(self.status_sender());
         self.start_review(id, work);
+        // Pathless projections still need the source repository's metadata watches.
+        self.refresh_vcs_watches();
+        super::live::configure(self);
         id
     }
 
     pub fn refresh_review(&mut self) -> Result<()> {
-        let (view, doc) = crate::current_ref!(self);
-        let state = doc
-            .review()
-            .ok_or_else(|| anyhow::anyhow!("The current buffer is not a diff review"))?;
-        let id = view.document_id();
+        let id = crate::current_ref!(self).0.document_id();
+        ensure!(
+            self.document(id).is_some_and(|doc| doc.review().is_some()),
+            "The current buffer is not a diff review"
+        );
+        self.refresh_review_document(id, true);
+        Ok(())
+    }
+
+    pub(super) fn refresh_scheduled_review(&mut self, id: DocumentId) {
+        let Some(state) = self.document(id).and_then(Document::review) else {
+            return;
+        };
+        if let Request::Historical(request) = &state.request {
+            let mut updated = request.clone();
+            updated.refresh_settings(self);
+            if request.same_policy(&updated) {
+                return;
+            }
+        }
+        self.refresh_review_document(id, false);
+    }
+
+    fn refresh_review_document(&mut self, id: DocumentId, force: bool) {
+        let state = self.document(id).and_then(Document::review).unwrap();
+        let observed = (!force).then(|| state.observed.clone()).flatten();
         let request = match &state.request {
             Request::Live(request) => Request::Live(
                 ReviewRequest::new(self, &request.status, state.comparison(), state.workspace())
@@ -272,8 +323,14 @@ impl Editor {
             .as_mut()
             .unwrap()
             .request = request.clone();
-        self.start_review(id, request.work(None));
-        Ok(())
+        let mut work = request.work(None);
+        if let Work::Read {
+            observed: previous, ..
+        } = &mut work
+        {
+            *previous = observed;
+        }
+        self.start_review(id, work);
     }
 
     fn start_review(&mut self, id: DocumentId, work: Work) {
@@ -281,10 +338,9 @@ impl Editor {
         let old = doc.snapshot();
         let state = doc.review.as_mut().unwrap();
         let cancel = state.task.restart();
-        state.loading = true;
-        if matches!(work, Work::Read { .. } | Work::Historical(_)) {
-            state.source = None;
-        }
+        // Metadata-only checks should not flash the loading status on every poll.
+        state.loading = !matches!(&work, Work::Read { request, observed: Some(previous), .. }
+            if previous.request.same_target(request));
         let request = match &work {
             Work::Read { request, .. } => Some(Request::Live((**request).clone())),
             Work::Historical(request) => Some(Request::Historical((**request).clone())),
@@ -293,37 +349,75 @@ impl Editor {
                 Request::Live(_) => None,
             },
         };
-        let worker = self.handlers.change_review_worker.clone();
+        let loading = state.loading;
+        let worker = self.handlers.change_review.worker.clone();
         let callbacks = self.callback_sender().clone();
         let check = cancel.clone();
+        let started_callbacks = callbacks.clone();
+        let started_cancel = cancel.clone();
         let before = old.text().clone();
         tokio::spawn(async move {
             let result = run_review(worker, cancel.clone(), move || {
-                let (source, review) = match work {
-                    Work::Historical(request) => request.compute(&|| check.is_canceled())?,
-                    Work::Read { request, previous } => {
-                        let snapshot = request
-                            .compute_cached_cancellable(previous, &|| check.is_canceled())?;
-                        (snapshot.source.clone(), snapshot.review.clone())
+                let mut observed = None;
+                let result = match work {
+                    Work::Historical(request) => request.compute(&|| check.is_canceled()),
+                    Work::Read {
+                        request,
+                        previous,
+                        observed: previous_inputs,
+                    } => {
+                        let stamp = request.stamp();
+                        if previous_inputs.as_ref().is_some_and(|previous| {
+                            previous.stamp == stamp && previous.request.same_target(&request)
+                        }) {
+                            return Ok(None);
+                        }
+                        if !loading {
+                            started_callbacks.send_blocking(move |editor| {
+                                if !started_cancel.is_canceled()
+                                    && let Some(state) = editor
+                                        .documents
+                                        .get_mut(&id)
+                                        .and_then(|doc| doc.review.as_mut())
+                                {
+                                    state.loading = true;
+                                    editor.redraw().request();
+                                }
+                            });
+                        }
+                        observed = Some(Arc::new(Observed {
+                            request: (*request).clone(),
+                            stamp,
+                        }));
+                        request
+                            .compute_cached_cancellable(previous, &|| check.is_canceled())
+                            .map(|snapshot| (snapshot.source.clone(), snapshot.review.clone()))
                     }
                     Work::Engine { source, engine } => {
                         let review = source.compute(Some(engine), &|| check.is_canceled());
-                        (source, review)
+                        Ok((source, review))
                     }
                 };
+                let (source, review) = match result {
+                    Ok((source, review)) => (Some(source), review),
+                    Err(error) => (None, Arc::new(Review::notice(&error.to_string()))),
+                };
                 ensure!(!check.is_canceled(), "Review canceled");
-                if !review.truncated {
+                if !review.truncated
+                    && let Some(source) = &source
+                {
                     source.prepare_syntax(&|| check.is_canceled());
                 }
                 ensure!(!check.is_canceled(), "Review canceled");
                 let after = projection(&review);
                 let transaction = text_diff::compare_ropes(&before, &after.text);
-                Ok(Computed {
+                Ok(Some(Computed {
                     source,
+                    observed,
                     review,
                     transaction,
                     changes: after.changes,
-                })
+                }))
             })
             .await;
             if cancel.is_canceled() {
@@ -342,6 +436,18 @@ impl Editor {
                         .as_ref()
                         .is_some_and(|request| !request.is_current(editor))
                     {
+                        if matches!(request, Some(Request::Live(_))) {
+                            editor
+                                .documents
+                                .get_mut(&id)
+                                .unwrap()
+                                .review
+                                .as_mut()
+                                .unwrap()
+                                .loading = false;
+                            super::live::queue(editor, id);
+                            return;
+                        }
                         Err(anyhow::anyhow!(
                             "Source changed while loading the diff; use :diff-refresh"
                         ))
@@ -352,21 +458,33 @@ impl Editor {
                 })
                 .await;
         });
-        self.redraw().request();
+        if self.document(id).unwrap().review().unwrap().loading {
+            self.redraw().request();
+        }
     }
 
-    fn complete_review(&mut self, id: DocumentId, cancel: TaskHandle, result: Result<Computed>) {
+    fn complete_review(
+        &mut self,
+        id: DocumentId,
+        cancel: TaskHandle,
+        result: Result<Option<Computed>>,
+    ) {
         if cancel.is_canceled() {
             return;
         }
         let doc = self.documents.get_mut(&id).unwrap();
-        let (source, review, transaction, changes) = match result {
-            Ok(Computed {
+        let (source, review, transaction, changes, observed) = match result {
+            Ok(None) => {
+                doc.review.as_mut().unwrap().loading = false;
+                return;
+            }
+            Ok(Some(Computed {
                 source,
                 review,
                 transaction,
                 changes,
-            }) => (Some(source), review, transaction, changes),
+                observed,
+            })) => (source, review, transaction, changes, observed),
             Err(error) => {
                 let review = Arc::new(Review::notice(&error.to_string()));
                 let projection = projection(&review);
@@ -375,7 +493,7 @@ impl Editor {
                     doc.text(),
                     std::iter::once((0, doc.text().len_chars(), Some(text.into()))),
                 );
-                (None, review, transaction, projection.changes)
+                (None, review, transaction, projection.changes, None)
             }
         };
         let state = doc.review.as_mut().unwrap();
@@ -384,6 +502,7 @@ impl Editor {
         state.review = review;
         state.source = source;
         state.changes = changes;
+        state.observed = observed;
         state.loading = false;
         // Only this coordinator replaces derived content. It uses the normal
         // state-mapping/publication path without enabling editing or recording undo.

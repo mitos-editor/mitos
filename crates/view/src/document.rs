@@ -226,6 +226,7 @@ pub struct Document {
         Option<crate::features::signature_help::SignatureHelpTrigger>,
     pub(crate) word_index_trigger: Option<crate::features::word_index::WordIndexTrigger>,
     pub(crate) auto_save_trigger: Option<crate::features::auto_save::AutoSaveTrigger>,
+    pub(crate) review_trigger: Option<crate::features::change_review::ReviewTrigger>,
     pub(crate) syntax_handler: Option<crate::features::syntax::SyntaxHandler>,
     pub(crate) spelling_events:
         Option<tokio::sync::mpsc::Sender<crate::features::spelling::SpellingEvent>>,
@@ -314,6 +315,7 @@ impl Document {
             pending_syntax: None,
             syntax_handler: None,
             auto_save_trigger: None,
+            review_trigger: None,
             word_index_trigger: None,
             signature_help_trigger: None,
             spelling_events: None,

@@ -96,3 +96,7 @@ mod change_review;
 #[cfg(feature = "git")]
 #[path = "handler_setup/git_operations.rs"]
 mod git_operations;
+
+#[cfg(feature = "git")]
+#[path = "handler_setup/change_review_live.rs"]
+mod change_review_live;

@@ -9,7 +9,7 @@ use view::{
     features::change_review::{HunkReviewRequest, ReviewComparison, ReviewRequest},
 };
 
-async fn finish_review(f: &mut Fixture, id: view::DocumentId) -> anyhow::Result<()> {
+pub(super) async fn finish_review(f: &mut Fixture, id: view::DocumentId) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         while f
             .editor
@@ -31,7 +31,7 @@ async fn finish_review(f: &mut Fixture, id: view::DocumentId) -> anyhow::Result<
     Ok(())
 }
 
-fn review_request(
+pub(super) fn review_request(
     f: &Fixture,
     path: &std::path::Path,
     comparison: ReviewComparison,
@@ -191,10 +191,12 @@ async fn refresh_maps_each_splits_selection_and_does_not_steal_focus() -> anyhow
     );
     f.editor
         .apply_document_changes(source, source_doc.version(), edit.changes())?;
-    f.editor.refresh_review()?;
     f.editor.new_file(Action::Replace);
     let focused = current_ref!(f.editor).1.id();
-    finish_review(&mut f, id).await?;
+    wait_for_review(&mut f, id, |doc| {
+        doc.text().to_string().contains("inserted")
+    })
+    .await?;
     assert_eq!(current_ref!(f.editor).1.id(), focused);
     let doc = f.editor.document(id).unwrap();
     for (view, expected) in [(first, "line 4"), (second, "line 24")] {
@@ -1065,9 +1067,25 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .text()
         .to_string()
         .contains("newer edits"));
+    let captured = f.editor.document(id).unwrap().text().clone();
+    let other = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::VerticalSplit,
+        None,
+    );
+    finish_review(&mut f, other).await?;
+    file_event(&mut f, &path, view::file_watcher::EventType::Modified);
+    f.configure(|config| {
+        config.files.reload.poll.enable = true;
+        config.files.reload.poll.interval = 100;
+    });
+    settle_review_events(&mut f).await;
+    assert_eq!(f.editor.document(id).unwrap().text(), &captured);
     f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
-    f.editor.refresh_review()?;
-    finish_review(&mut f, id).await?;
+    wait_for_review(&mut f, id, |doc| {
+        doc.review().unwrap().engine() == editor_config::DiffEngine::Syntax
+    })
+    .await?;
     assert!(f
         .editor
         .document(id)
@@ -1264,4 +1282,54 @@ async fn opening_a_historical_preview_reuses_its_sources_and_configured_engine(
     task.cancel();
     assert!(request.run(canceled).await.is_err());
     Ok(())
+}
+
+pub(super) async fn wait_for_review(
+    f: &mut Fixture,
+    id: view::DocumentId,
+    ready: impl Fn(&view::Document) -> bool,
+) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let doc = f.editor.document(id).unwrap();
+            if !doc.review().unwrap().is_loading() && ready(doc) {
+                break;
+            }
+            f.callbacks
+                .recv()
+                .await
+                .expect("editor callback channel closed")(&mut f.editor);
+        }
+    })
+    .await
+    .map_err(|error| {
+        anyhow::anyhow!(
+            "Review {id:?} did not update: {error}; contents: {}",
+            f.editor.document(id).unwrap().text()
+        )
+    })?;
+    Ok(())
+}
+
+pub(super) async fn settle_review_events(f: &mut Fixture) {
+    let until = tokio::time::sleep(std::time::Duration::from_millis(400));
+    tokio::pin!(until);
+    loop {
+        tokio::select! {
+            _ = &mut until => break,
+            callback = f.callbacks.recv() => callback.unwrap()(&mut f.editor),
+        }
+    }
+}
+
+pub(super) fn file_event(
+    f: &mut Fixture,
+    path: &std::path::Path,
+    ty: view::file_watcher::EventType,
+) {
+    use view::file_watcher::{CanonicalPathBuf, Event, Events};
+    f.editor.handle_file_events(&Events::from(vec![Event {
+        path: CanonicalPathBuf::assert_canonicalized(&stdx::path::canonicalize_existing(path)),
+        ty,
+    }]));
 }

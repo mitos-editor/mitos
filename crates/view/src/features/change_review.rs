@@ -15,6 +15,10 @@ pub use text_diff::{Review, ReviewLineKind};
 
 mod document;
 mod engine;
+mod live;
+pub(crate) use live::{
+    handle_file_events, has_live_reviews, invalidate, poll, Handler, ReviewTrigger,
+};
 pub(crate) mod historical;
 pub use document::ReviewDocument;
 pub use engine::ReviewSource;
@@ -116,7 +120,7 @@ impl ReviewRequest {
             .map_or(workspace, |doc| doc.workspace_root())
             .to_owned();
         Self {
-            worker: editor.handlers.change_review_worker.clone(),
+            worker: editor.handlers.change_review.worker.clone(),
             providers: editor.diff_providers.clone(),
             status: status.clone(),
             fresh_status: false,
@@ -158,11 +162,12 @@ impl ReviewRequest {
                     .query(&self.workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted()
             && (!self.comparison.uses_buffer()
-                || self.document.is_some_and(|(id, version)| {
-                    editor.document(id).is_some_and(|doc| {
+                || match self.document {
+                    Some((id, version)) => editor.document(id).is_some_and(|doc| {
                         doc.version() == version && doc.path() == Some(self.status.path())
-                    })
-                }))
+                    }),
+                    None => editor.document_by_path(self.status.path()).is_none(),
+                })
     }
 
     pub fn same_target(&self, other: &Self) -> bool {
@@ -281,9 +286,11 @@ impl ReviewRequest {
                 anyhow::bail!("Historical sources require a captured revision")
             }
             ReviewComparison::Staged => ComparisonKind::Staged,
-            ReviewComparison::Buffer => ComparisonKind::Index,
+            ReviewComparison::Buffer if self.buffer.is_some() => ComparisonKind::Index,
+            ReviewComparison::Buffer => ComparisonKind::Unstaged,
             ReviewComparison::Unstaged => ComparisonKind::Unstaged,
-            ReviewComparison::Head => ComparisonKind::Head,
+            ReviewComparison::Head if self.buffer.is_some() => ComparisonKind::Head,
+            ReviewComparison::Head => ComparisonKind::HeadToWorktree,
         };
         let status = if self.fresh_status {
             self.providers
@@ -300,11 +307,7 @@ impl ReviewRequest {
         let comparison = self
             .providers
             .read_comparison(&status, kind, self.trust_full)?;
-        let (before, after) = if self.comparison.uses_buffer() {
-            let buffer = self
-                .buffer
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("No open text buffer for this file"))?;
+        let (before, after) = if let Some(buffer) = self.buffer.clone() {
             ensure!(
                 buffer.len() <= MAX_REVIEW_BYTES,
                 "Buffer too large to review (limit 10 MiB)"
@@ -376,10 +379,10 @@ impl HunkReviewRequest {
             doc.text().len() <= MAX_REVIEW_BYTES,
             "Buffer too large to review (limit 10 MiB)"
         );
-        let cancel = editor.handlers.change_review.lock().restart();
+        let cancel = editor.handlers.change_review.hunk.lock().restart();
         Ok(Self {
             target: super::request::SelectionRequest::new(doc, view.id, cancel, Vec::new()),
-            worker: editor.handlers.change_review_worker.clone(),
+            worker: editor.handlers.change_review.worker.clone(),
             providers: editor.diff_providers.clone(),
             path: path.clone(),
             workspace: doc.workspace_root().to_owned(),
@@ -466,9 +469,10 @@ async fn run_review<T: Send + 'static>(
 }
 
 pub(crate) fn register_hooks() {
+    live::register_hooks();
     use crate::events::DocumentFocusLost;
     event::register_hook!(move |event: &mut DocumentFocusLost<'_>| {
-        event.editor.handlers.change_review.lock().cancel();
+        event.editor.handlers.change_review.hunk.lock().cancel();
         Ok(())
     });
 }

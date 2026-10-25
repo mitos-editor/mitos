@@ -43,13 +43,13 @@ impl AutoReloadHandler {
             events,
             confirmations: VecDeque::new(),
         };
-        handler.configure(config);
+        handler.configure(config, false);
         handler
     }
 
-    fn configure(&self, config: &Config) {
+    fn configure(&self, config: &Config, live_reviews: bool) {
         let event = if config.files.reload.poll.enable
-            && (config.files.reload.enable || config.files.watch.watch_vcs)
+            && (config.files.reload.enable || config.files.watch.watch_vcs || live_reviews)
         {
             PollEvent::PollAfter {
                 interval: config.files.reload.poll.interval.max(100),
@@ -59,6 +59,14 @@ impl AutoReloadHandler {
         };
         send_blocking(&self.events, event);
     }
+}
+
+/// Review projections need the same fallback even with buffer auto-reload disabled.
+pub(crate) fn configure(editor: &Editor) {
+    editor.handlers.auto_reload.configure(
+        &editor.config(),
+        super::change_review::has_live_reviews(editor),
+    );
 }
 
 fn dispatch(
@@ -98,7 +106,7 @@ impl AsyncHook for PollHandler {
             if editor.config().files.reload.poll.enable {
                 check_unwatched(editor);
             }
-            editor.handlers.auto_reload.configure(&editor.config());
+            configure(editor);
         });
     }
 }
@@ -214,6 +222,7 @@ pub fn check_unwatched(editor: &mut Editor) {
             handle_document_change(editor, id);
         }
     }
+    super::change_review::poll(editor);
     if editor.config().files.watch.watch_vcs && editor.file_watcher.poll_extra_paths() {
         reload_vcs(editor);
     }
@@ -289,6 +298,7 @@ pub(crate) fn reload_vcs(editor: &mut Editor) {
     }
     // HEAD may now point to another loose ref.
     editor.refresh_vcs_watches();
+    super::change_review::invalidate(editor);
 }
 
 /// Apply filesystem changes using the editor's current settings.
@@ -335,7 +345,10 @@ pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
-        event.editor.handlers.auto_reload.configure(event.new);
+        event.editor.handlers.auto_reload.configure(
+            event.new,
+            super::change_review::has_live_reviews(event.editor),
+        );
         Ok(())
     });
 }

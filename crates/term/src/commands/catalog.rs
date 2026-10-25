@@ -154,7 +154,7 @@ impl MappableCommand {
         git_stash_picker => super::vcs::git_stash_picker, "Browse Git stashes in the current repository",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         diff => super::vcs::diff, "Review all changes in the current file in a read-only buffer",
-        diff_refresh => super::vcs::diff_refresh, "Refresh the current diff review buffer",
+        diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
         diff_open_source => super::vcs::diff_open_source, "Jump from a diff review to its source location",
         diff_open_file => super::vcs::diff_open_file, "Open the current file from a diff review",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
@@ -1574,7 +1574,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-refresh",
         aliases: &[],
-        doc: "Refresh the current diff. Historical comparisons keep their original revisions and buffer contents.",
+        doc: "Retry loading the current diff. Current-file reviews update automatically; historical comparisons keep their original revisions and buffer contents.",
         fun: super::vcs::typed::diff_refresh,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },

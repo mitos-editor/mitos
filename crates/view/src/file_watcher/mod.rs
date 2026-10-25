@@ -25,6 +25,7 @@ impl Editor {
                 Some((event.path.as_std_path().to_owned(), ty))
             }));
         crate::features::auto_reload::handle_file_events(self, events);
+        crate::features::change_review::handle_file_events(self, events);
         let _ = self.file_watcher.events.send(events.clone());
         self.redraw().request();
     }

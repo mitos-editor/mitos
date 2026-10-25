@@ -14,6 +14,8 @@ pub enum ComparisonKind {
     Unstaged,
     /// Read only HEAD, for comparisons against an editor snapshot.
     Head,
+    /// Compare HEAD with the working file when no editor snapshot is open.
+    HeadToWorktree,
     /// Read only the index, for comparisons against an editor snapshot.
     Index,
 }
@@ -60,7 +62,8 @@ pub(crate) fn read_git_comparison(
         };
         read_object(entry.object_id(), entry.mode().kind(), path)
     };
-    if kind != ComparisonKind::Head && matches!(status.unstaged, Some(FileChange::Conflict { .. }))
+    if !matches!(kind, ComparisonKind::Head | ComparisonKind::HeadToWorktree)
+        && matches!(status.unstaged, Some(FileChange::Conflict { .. }))
     {
         bail!("Unmerged file: resolve conflicts in the working file before reviewing against the index");
     }
@@ -93,14 +96,34 @@ pub(crate) fn read_git_comparison(
             _ => change.path(),
         }
     }
+    let read_worktree = || -> Result<Vec<u8>> {
+        Ok(match std::fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                gix::path::try_into_bstr(std::fs::read_link(path)?)?
+                    .into_owned()
+                    .into()
+            }
+            Ok(metadata) if metadata.is_file() => bounded_read(&mut std::fs::File::open(path)?)?,
+            Ok(_) => bail!("Submodule changes cannot be displayed as a text diff"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(error.into()),
+        })
+    };
     let (before, after) = match kind {
-        ComparisonKind::Head => {
+        ComparisonKind::Head | ComparisonKind::HeadToWorktree => {
             let original = status
                 .staged
                 .as_ref()
                 .or(status.unstaged.as_ref())
                 .map_or(path, source);
-            (read_head(original)?, Vec::new())
+            (
+                read_head(original)?,
+                if kind == ComparisonKind::HeadToWorktree {
+                    read_worktree()?
+                } else {
+                    Vec::new()
+                },
+            )
         }
         ComparisonKind::Index => {
             let original = status.unstaged.as_ref().map_or(path, source);
@@ -114,19 +137,7 @@ pub(crate) fn read_git_comparison(
         ComparisonKind::Unstaged => {
             let original = status.unstaged.as_ref().map_or(path, source);
             let before = read_index(original)?;
-            let after = match std::fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_symlink() => {
-                    gix::path::try_into_bstr(std::fs::read_link(path)?)?
-                        .into_owned()
-                        .into()
-                }
-                Ok(metadata) if metadata.is_file() => {
-                    bounded_read(&mut std::fs::File::open(path)?)?
-                }
-                Ok(_) => bail!("Submodule changes cannot be displayed as a text diff"),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-                Err(error) => return Err(error.into()),
-            };
+            let after = read_worktree()?;
             (before, after)
         }
     };
@@ -319,6 +330,34 @@ mod tests {
         }
         let head = read_git_comparison(status, ComparisonKind::Head, false).unwrap();
         assert_eq!(head.before, b"one\ntwo\nthree\n");
+    }
+
+    #[test]
+    fn head_to_worktree_ignores_the_index_and_handles_missing_files() {
+        let repo = empty_git_repo();
+        let path = repo.path().join("file.txt");
+        std::fs::write(&path, "committed\n").unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        std::fs::write(&path, "staged\n").unwrap();
+        exec_git_cmd(&["add", "file.txt"], repo.path());
+        std::fs::write(&path, "working\n").unwrap();
+        let status = statuses(repo.path()).pop().unwrap();
+        let comparison =
+            read_git_comparison(&status, ComparisonKind::HeadToWorktree, false).unwrap();
+        assert_eq!(comparison.before, b"committed\n");
+        assert_eq!(comparison.after, b"working\n");
+        std::fs::remove_file(&path).unwrap();
+        let deleted = read_git_comparison(&status, ComparisonKind::HeadToWorktree, false).unwrap();
+        assert_eq!(deleted.before, b"committed\n");
+        assert!(deleted.after.is_empty());
+        let conflict = FileStatus {
+            staged: None,
+            unstaged: Some(crate::FileChange::Conflict { path: path.clone() }),
+        };
+        std::fs::write(&path, "resolved\n").unwrap();
+        let comparison =
+            read_git_comparison(&conflict, ComparisonKind::HeadToWorktree, false).unwrap();
+        assert_eq!(comparison.after, b"resolved\n");
     }
 
     #[test]

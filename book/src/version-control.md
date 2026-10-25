@@ -94,17 +94,22 @@ engine, and whether the review is loading.
 | --- | --- |
 | `Enter`, `:diff-open-source` | Jump to the selected source location |
 | `:diff-open-file` | Open the current file without jumping to a diff line |
-| `:diff-refresh` | Update a current-file comparison with the latest contents |
+| `:diff-refresh` | Retry loading the current review |
 
 `Enter` can jump into the current file only when it matches the updated version
 in the comparison. Removed lines jump to their deletion location in that file.
-If the file differs, use `:diff-open-file` without a line jump, or refresh an
-outdated review.
+If the file differs from the version being reviewed, use `:diff-open-file`
+without a line jump.
 
-An open review keeps the contents it compared until you refresh it. Refreshing
-updates every view of that review; other review buffers keep their own contents.
-[Historical comparisons](#older-versions-and-comparisons) keep their original
-revisions and captured buffer text when refreshed.
+Current-file reviews update automatically as you edit, stage changes, or change
+files outside Mitos. Updates apply to every view of each affected review. Buffer
+comparisons use the file on disk if you close its source buffer, and follow the
+buffer again when you reopen it.
+
+External updates follow your [file watching and polling settings](./configuration.md#editorfileswatch).
+Use `:diff-refresh` to retry a failed read or update a review when watching and
+polling are disabled. [Historical comparisons](#older-versions-and-comparisons)
+keep their selected revisions and captured buffer text, including when refreshed.
 
 To review two files side by side:
 
@@ -154,8 +159,9 @@ diff-engine = "syntax"
 ```
 
 Language settings take precedence over `editor.diff.engine`. Run `:config-reload`
-after editing configuration, then use `:diff-refresh` or open a new review to
-apply the setting. The review statusline or popup heading shows the active engine.
+after editing configuration. Open review buffers apply the new setting
+automatically; reopen a popup to update it. The review statusline or popup heading
+shows the active engine.
 
 Both engines show the original added and removed lines, whitespace, line numbers,
 and counts. A `layout only` label means the syntax matched while the text's

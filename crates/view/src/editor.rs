@@ -804,6 +804,13 @@ impl Editor {
     /// Include the workspace and repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
+        for doc in self.documents.values() {
+            if let Some(review) = doc.review().filter(|review| review.is_live())
+                && let Some(parent) = review.path().parent()
+            {
+                self.file_watcher.add_root(parent);
+            }
+        }
         if self.config().files.watch.watch_vcs {
             let root = workspace::find_workspace().0;
             let trusted = self
@@ -812,12 +819,23 @@ impl Editor {
                 .is_trusted();
             paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
             for doc in self.documents.values() {
-                let Some(path) = doc.path().and_then(|path| path.parent()) else {
+                let Some(path) = doc
+                    .path()
+                    .or_else(|| {
+                        doc.review()
+                            .filter(|review| review.is_live())
+                            .map(|review| review.path())
+                    })
+                    .and_then(|path| path.parent())
+                else {
                     continue;
                 };
+                let workspace = doc
+                    .review()
+                    .map_or_else(|| doc.workspace_root(), |review| review.workspace());
                 let trust_full = self
                     .workspace_trust
-                    .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
+                    .query(workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted();
                 paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
             }

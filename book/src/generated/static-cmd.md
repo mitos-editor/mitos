@@ -120,7 +120,7 @@
 | `git_stash_picker` | Browse Git stashes in the current repository |  |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
 | `diff` | Review all changes in the current file in a read-only buffer |  |
-| `diff_refresh` | Refresh the current diff review buffer |  |
+| `diff_refresh` | Retry loading the current diff review buffer |  |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `diff_open_file` | Open the current file from a diff review |  |
 | `changed_file_picker_in_repository` | Open changed file picker in repository |  |

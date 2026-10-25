@@ -59,7 +59,7 @@ impl HistoricalReviewRequest {
     ) -> Self {
         Self {
             settings: Settings::historical(editor, &path),
-            worker: editor.handlers.change_review_worker.clone(),
+            worker: editor.handlers.change_review.worker.clone(),
             before_settings: Settings::historical(editor, &path),
             before_path: path.clone(),
             before_label: label.clone(),
@@ -86,7 +86,7 @@ impl HistoricalReviewRequest {
         let workspace = repository.root().to_owned();
         Self {
             settings: Settings::historical(editor, &path),
-            worker: editor.handlers.change_review_worker.clone(),
+            worker: editor.handlers.change_review.worker.clone(),
             before_settings: Settings::historical(editor, &path),
             before_path: path.clone(),
             before_label: format!("{}^1", &entry.id()[..12]),
@@ -133,7 +133,7 @@ impl HistoricalReviewRequest {
         let workspace = repository.root().to_owned();
         Ok(Self {
             settings: Settings::historical(editor, &path),
-            worker: editor.handlers.change_review_worker.clone(),
+            worker: editor.handlers.change_review.worker.clone(),
             before_settings: Settings::historical(editor, &before_path),
             before_path,
             trusted: editor
@@ -386,7 +386,7 @@ impl Editor {
         })
         .report_to(self.status_sender());
         let old = self.document(id).unwrap().snapshot();
-        let worker = self.handlers.change_review_worker.clone();
+        let worker = self.handlers.change_review.worker.clone();
         let callbacks = self.callback_sender().clone();
         let check = cancel.clone();
         let before = old.text().clone();
