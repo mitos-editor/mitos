@@ -20,13 +20,16 @@ async fn mode_observers_see_each_completed_transition_once() -> anyhow::Result<(
     f.editor.set_mode(Mode::Insert);
     f.editor.set_mode(Mode::Insert);
     f.editor.set_mode(Mode::Select);
+    f.editor.enter_debug_mode();
+    f.editor.enter_debug_mode();
     f.editor.enter_normal_mode();
     assert_eq!(
         *observed.lock().unwrap(),
         vec![
             (Mode::Normal, Mode::Insert),
             (Mode::Insert, Mode::Select),
-            (Mode::Select, Mode::Normal)
+            (Mode::Select, Mode::Debug),
+            (Mode::Debug, Mode::Normal)
         ]
     );
     Ok(())

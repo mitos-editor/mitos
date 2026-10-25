@@ -30,6 +30,23 @@ c = { label = "Edit config", command = ":config-open" }
 j = { k = "normal_mode" } # Press j, then k, to leave insert mode.
 ```
 
+Debug mode inherits normal bindings after user and workspace configuration is
+merged. Debug defaults override those bindings, then `[keys.debug]` overrides
+apply. To enter debug mode with a custom binding:
+
+```toml
+[keys.normal.space]
+D = "debug_mode"
+
+[keys.debug]
+F10 = "dap_next"
+```
+
+`Esc` returns to normal mode. Entering or leaving debug mode does not start or
+stop a debug session. Debug mode uses normal cursor settings and stays active
+when changing buffers or splits. Insert and select commands enter their own
+modes; leaving them returns to normal mode.
+
 `label` sets the menu title or the description shown for a command binding.
 Menus can be nested and labeled at any depth. Labels also override the names of
 built-in menus while keeping their other bindings. Trusted workspace labels

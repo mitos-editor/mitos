@@ -40,6 +40,9 @@ fn parsing_keymaps_config_file() {
             Mode::Normal => keymap!({ "Normal mode"
                 "A-F12" => move_next_word_end,
             }),
+            Mode::Debug => keymap!({ "Debug mode"
+                "A-F12" => move_next_word_end,
+            }),
         },
     );
 
@@ -880,4 +883,47 @@ fn rulers_normalize_legacy_arrays_before_layering() {
     }
     assert!(Config::load_test_result("[editor.rulers]\nchar = '|'").is_err());
     assert!(Config::load_test_result("[editor]\nrulers = [80]\nrulers.columns = [40]").is_err());
+}
+
+#[test]
+fn debug_keymaps_inherit_normal_after_both_configuration_layers() {
+    use crate::commands::MappableCommand;
+    let global = r#"
+        [keys.normal]
+        F1 = "move_char_right"
+        [keys.debug]
+        F2 = "dap_next"
+        [keys.debug.g]
+        x = "dap_variables"
+        [editor.statusline.mode]
+        debug = "DEBUG"
+    "#
+    .to_owned();
+    let workspace = r#"
+        [keys.normal]
+        F1 = "move_char_left"
+        F2 = "move_line_down"
+        [keys.normal.g]
+        y = "move_line_up"
+        [keys.debug]
+        F3 = "normal_mode"
+    "#
+    .to_owned();
+    let config = Config::load(Ok(&global), Ok(workspace)).unwrap();
+    assert_eq!(config.editor.statusline.mode.debug, "DEBUG");
+    let debug = &config.keys[&Mode::Debug];
+    for (keys, command) in [
+        (vec!["F1"], MappableCommand::move_char_left),
+        (vec!["F2"], MappableCommand::dap_next),
+        (vec!["F3"], MappableCommand::normal_mode),
+        (vec!["g", "x"], MappableCommand::dap_variables),
+        (vec!["g", "y"], MappableCommand::move_line_up),
+        (vec!["esc"], MappableCommand::normal_mode),
+    ] {
+        let keys: Vec<_> = keys.into_iter().map(|key| key.parse().unwrap()).collect();
+        assert_eq!(
+            debug.search(&keys),
+            Some(&KeyTrie::MappableCommand(command))
+        );
+    }
 }

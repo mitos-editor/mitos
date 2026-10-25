@@ -420,9 +420,19 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "home" => goto_line_start,
         "end" => goto_line_end_newline,
     });
+    let mut debug = normal.clone();
+    debug.merge_nodes(debug_bindings());
     hashmap!(
+        Mode::Debug => debug,
         Mode::Normal => normal,
         Mode::Select => select,
         Mode::Insert => insert,
     )
+}
+
+/// Bindings layered over the resolved normal map, before user debug overrides.
+pub(crate) fn debug_bindings() -> KeyTrie {
+    keymap!({ "Debug mode"
+        "esc" => normal_mode,
+    })
 }

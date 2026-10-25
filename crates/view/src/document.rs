@@ -85,6 +85,7 @@ pub enum Mode {
     Normal = 0,
     Select = 1,
     Insert = 2,
+    Debug = 3,
 }
 
 impl Mode {
@@ -93,7 +94,7 @@ impl Mode {
         shapes: &editor_config::CursorShapeConfig,
     ) -> crate::graphics::CursorKind {
         match self {
-            Self::Normal => shapes.normal,
+            Self::Normal | Self::Debug => shapes.normal,
             Self::Select => shapes.select,
             Self::Insert => shapes.insert,
         }
@@ -106,6 +107,7 @@ impl Display for Mode {
             Mode::Normal => f.write_str("normal"),
             Mode::Select => f.write_str("select"),
             Mode::Insert => f.write_str("insert"),
+            Mode::Debug => f.write_str("debug"),
         }
     }
 }
@@ -118,6 +120,7 @@ impl FromStr for Mode {
             "normal" => Ok(Mode::Normal),
             "select" => Ok(Mode::Select),
             "insert" => Ok(Mode::Insert),
+            "debug" => Ok(Mode::Debug),
             _ => bail!("Invalid mode '{}'", s),
         }
     }

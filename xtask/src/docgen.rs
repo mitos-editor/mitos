@@ -59,7 +59,14 @@ pub fn typable_commands() -> Result<String, DynError> {
 pub fn static_commands() -> Result<String, DynError> {
     let mut md = String::new();
     let keymap = term::keymap::default();
+    // Debug inherits normal bindings; list only its differences in the reference.
+    let mut debug = keymap[&Mode::Debug].reverse_map();
+    for bindings in debug.values_mut() {
+        bindings
+            .retain(|keys| keymap[&Mode::Debug].search(keys) != keymap[&Mode::Normal].search(keys));
+    }
     let keymaps = [
+        ("debug", debug),
         ("normal", keymap[&Mode::Normal].reverse_map()),
         ("select", keymap[&Mode::Select].reverse_map()),
         ("insert", keymap[&Mode::Insert].reverse_map()),
