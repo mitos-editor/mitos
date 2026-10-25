@@ -988,6 +988,7 @@ async fn stash_review_completion_is_owned_by_its_document_and_opens_frozen_reado
     f.editor.open_review_source(true, Action::VerticalSplit)?;
     let (view, doc) = current!(f.editor);
     assert_eq!(doc.text().to_string(), "stashed\n");
+    assert_eq!(doc.workspace_root(), path.parent().unwrap());
     assert!(doc.is_content_readonly());
     assert!(doc.path().is_none() && doc.uri().is_none());
     assert!(!doc.is_modified());

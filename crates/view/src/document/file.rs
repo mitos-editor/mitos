@@ -660,6 +660,9 @@ impl Document {
         if let Some(review) = self.review() {
             return review.workspace();
         }
+        if let Some(source) = &self.historical {
+            return &source.workspace;
+        }
         self.file
             .workspace_root
             .get_or_init(|| match self.file.path.as_deref() {
