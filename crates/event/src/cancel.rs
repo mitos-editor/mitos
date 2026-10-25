@@ -125,7 +125,8 @@ impl Shared {
 /// If the controller is dropped, the subtasks are automatically canceled.
 #[derive(Default, Debug)]
 pub struct TaskController {
-    shared: Arc<Shared>,
+    // Most controllers are idle; allocate only when the first task starts.
+    shared: Option<Arc<Shared>>,
 }
 
 impl TaskController {
@@ -136,20 +137,25 @@ impl TaskController {
     ///
     /// Returns whether any tasks were still running before the cancellation.
     pub fn cancel(&mut self) -> bool {
-        self.shared.inc_generation(0).1 != 0
+        self.shared
+            .as_ref()
+            .is_some_and(|shared| shared.inc_generation(0).1 != 0)
     }
 
     /// Checks whether there are any task handles
     /// that haven't been dropped (or canceled) yet.
     pub fn is_running(&self) -> bool {
-        self.shared.num_running() != 0
+        self.shared
+            .as_ref()
+            .is_some_and(|shared| shared.num_running() != 0)
     }
 
     /// Starts a new task and cancels the previous task (handles).
     pub fn restart(&mut self) -> TaskHandle {
+        let shared = self.shared.get_or_insert_with(Default::default);
         TaskHandle {
-            generation: self.shared.inc_generation(1).0,
-            shared: self.shared.clone(),
+            generation: shared.inc_generation(1).0,
+            shared: shared.clone(),
         }
     }
 }
@@ -214,6 +220,24 @@ mod tests {
     use tokio::task::yield_now;
 
     use crate::{cancelable_future, TaskController};
+
+    #[test]
+    fn idle_controllers_allocate_on_first_use_and_reuse_their_state() {
+        let mut controller = TaskController::new();
+        assert!(!controller.is_running());
+        assert!(!controller.cancel());
+        assert!(controller.shared.is_none());
+        let first = controller.restart();
+        let shared = std::sync::Arc::as_ptr(controller.shared.as_ref().unwrap());
+        controller.cancel();
+        let second = controller.restart();
+        assert!(first.is_canceled());
+        assert!(!second.is_canceled());
+        assert_eq!(
+            shared,
+            std::sync::Arc::as_ptr(controller.shared.as_ref().unwrap())
+        );
+    }
 
     #[test]
     fn immediate_cancel() {
