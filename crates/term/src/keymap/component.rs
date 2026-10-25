@@ -72,6 +72,8 @@ pub enum PickerItemAction {
     Stashes,
     ApplyStash,
     ApplyStashWithIndex,
+    #[serde(rename = "back")]
+    HistoryBack,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -124,6 +126,7 @@ pub struct ComponentKeymaps {
     pub quicklist_picker: Keymap<PickerAction>,
     pub git_picker: Keymap<PickerAction>,
     pub stash_picker: Keymap<PickerAction>,
+    pub history_picker: Keymap<PickerAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -166,6 +169,14 @@ impl ComponentKeymaps {
         ]));
         shared
     }
+    pub fn history_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[
+            ("A-a", PickerAction::Item(PickerItemAction::Actions)),
+            ("A-h", PickerAction::Item(PickerItemAction::HistoryBack)),
+        ]));
+        shared
+    }
+
     pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
@@ -260,6 +271,7 @@ impl Default for ComponentKeymaps {
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),
             stash_picker: Self::stash_picker(picker.clone()),
+            history_picker: Self::history_picker(picker.clone()),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),

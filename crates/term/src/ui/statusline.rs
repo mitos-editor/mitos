@@ -698,7 +698,13 @@ where
     };
     write(
         context,
-        format!(" DIFF {}{number} ", review.comparison().name()).into(),
+        format!(
+            " DIFF {}{number} ",
+            review
+                .revision_label()
+                .unwrap_or(review.comparison().name())
+        )
+        .into(),
     );
     write(
         context,

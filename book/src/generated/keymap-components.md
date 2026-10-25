@@ -144,6 +144,32 @@
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
+## History picker
+
+| Key | Action |
+| --- | --- |
+| `` <ret> `` | `` accept `` |
+| `` <C-s> `` | `` accept_horizontal_split `` |
+| `` <A-ret> `` | `` accept_keep_open `` |
+| `` <C-v> `` | `` accept_vertical_split `` |
+| `` <A-a> `` | `` actions `` |
+| `` <A-h> `` | `` back `` |
+| `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
+| `` <end> `` | `` move_end `` |
+| `` <home> `` | `` move_start `` |
+| `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-o> `` | `` open_preview `` |
+| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-right> `` | `` preview_next `` |
+| `` <A-left> `` | `` preview_previous `` |
+| `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-d> `` | `` toggle_diff_engine `` |
+| `` <C-t> `` | `` toggle_preview `` |
+
 ## Prompt
 
 | Key | Action |

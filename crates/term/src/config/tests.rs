@@ -918,3 +918,34 @@ fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
     );
     assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
 }
+
+#[test]
+fn history_picker_keys_inherit_navigation_and_only_accept_history_actions() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{KeymapState, Lookup};
+    let config = Config::load(
+        Ok(&"[keys.history-picker]\nC-j = 'actions'".to_owned()),
+        Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
+    )
+    .unwrap();
+    let mut state = KeymapState::default();
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.history_picker,
+            "C-j".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::Item(I::Actions)])
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.history_picker,
+            "C-k".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    assert!(Config::load(
+        Ok(&"[keys.history-picker]\nC-j = 'stage'".to_owned()),
+        Ok(String::new())
+    )
+    .is_err());
+}

@@ -43,6 +43,8 @@ impl<'de> Deserialize<'de> for QuicklistPickerAction {
 struct GitPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StashPickerAction(PickerAction);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HistoryPickerAction(PickerAction);
 
 macro_rules! picker_actions {
     ($schema:ident, {$($name:literal => $action:ident),* $(,)?}) => {
@@ -59,6 +61,7 @@ macro_rules! picker_actions {
     };
 }
 picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
+picker_actions!(HistoryPickerAction, {"actions" => Actions, "back" => HistoryBack});
 picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex, "actions" => Actions });
 
 /// User-facing `[keys]` table keeps editor and component schemas separate.
@@ -74,6 +77,7 @@ pub struct Keys {
     quicklist_picker: Keymap<QuicklistPickerAction>,
     git_picker: Keymap<GitPickerAction>,
     stash_picker: Keymap<StashPickerAction>,
+    history_picker: Keymap<HistoryPickerAction>,
     menu: Keymap<MenuAction>,
     popup: Keymap<PopupAction>,
     hover: Keymap<PageAction>,
@@ -87,7 +91,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> [Keymap<PickerAction>; 4] {
+    ) -> [Keymap<PickerAction>; 5] {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -115,6 +119,7 @@ impl Keys {
             self.quicklist_picker.map_actions(|action| action.0),
             self.git_picker.map_actions(|action| action.0),
             self.stash_picker.map_actions(|action| action.0),
+            self.history_picker.map_actions(|action| action.0),
         ]
     }
 }
@@ -124,14 +129,15 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
-    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides] =
+    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides] =
         std::array::from_fn(|_| Keymap::default());
     for keys in configured {
-        let [buffer, quicklist, git, stash] = keys.apply(&mut editor, &mut components);
+        let [buffer, quicklist, git, stash, history] = keys.apply(&mut editor, &mut components);
         buffer_overrides.merge(buffer);
         quicklist_overrides.merge(quicklist);
         git_overrides.merge(git);
         stash_overrides.merge(stash);
+        history_overrides.merge(history);
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
@@ -143,5 +149,7 @@ pub(super) fn resolve_keymaps(
     components.git_picker.merge(git_overrides);
     components.stash_picker = ComponentKeymaps::stash_picker(components.picker.clone());
     components.stash_picker.merge(stash_overrides);
+    components.history_picker = ComponentKeymaps::history_picker(components.picker.clone());
+    components.history_picker.merge(history_overrides);
     (editor, components)
 }

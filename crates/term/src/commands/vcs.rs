@@ -15,6 +15,30 @@ use view::{document::Mode, Editor};
 
 #[cfg(feature = "git")]
 mod actions;
+#[cfg(feature = "git")]
+mod history;
+
+pub(super) fn git_history(cx: &mut Context) {
+    #[cfg(feature = "git")]
+    match history::repository_history(cx.editor) {
+        Ok(picker) => cx.push_layer(picker),
+        Err(error) => cx.editor.set_error(|| error.to_string()),
+    }
+    #[cfg(not(feature = "git"))]
+    cx.editor
+        .set_error(|| "No Git support included in this build");
+}
+
+pub(super) fn git_file_history(cx: &mut Context) {
+    #[cfg(feature = "git")]
+    match history::file_history(cx.editor) {
+        Ok(picker) => cx.push_layer(picker),
+        Err(error) => cx.editor.set_error(|| error.to_string()),
+    }
+    #[cfg(not(feature = "git"))]
+    cx.editor
+        .set_error(|| "No Git support included in this build");
+}
 
 pub(super) fn git_stash_picker(cx: &mut Context) {
     #[cfg(feature = "git")]
@@ -633,6 +657,54 @@ pub(super) mod typed {
             Some(_) => bail!("Expected head, staged, unstaged, or buffer"),
         };
         super::request_diff(cx.editor, comparison)
+    }
+
+    pub(in crate::commands) fn file_history(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        open_history(cx, event, false)
+    }
+    pub(in crate::commands) fn git_history(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        open_history(cx, event, true)
+    }
+    fn open_history(
+        cx: &mut compositor::Context,
+        event: PromptEvent,
+        repository: bool,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        #[cfg(feature = "git")]
+        {
+            cx.jobs.callback(async move {
+                Ok(crate::job::Callback::EditorCompositor(Box::new(
+                    move |editor, compositor| {
+                        let result = if repository {
+                            super::history::repository_history(editor)
+                        } else {
+                            super::history::file_history(editor)
+                        };
+                        match result {
+                            Ok(picker) => compositor.push(picker),
+                            Err(error) => editor.set_error(|| error.to_string()),
+                        }
+                    },
+                )))
+            });
+            Ok(())
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = (cx, repository);
+            bail!("No Git support included in this build");
+        }
     }
 
     pub(in crate::commands) fn diff_refresh(

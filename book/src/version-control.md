@@ -262,3 +262,44 @@ Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 | `:restore-change` | Unbound | Restore changes intersecting the selections from `HEAD` |
 
 Restoring a change replaces whole intersecting hunks in the current buffer. Use `u` to undo it. The command does not save the file or modify Git's staging area.
+
+## Git history
+
+Use `:file-history` (or `git_file_history` in the command palette) to browse the
+current file's first-parent history, following Git's rename detection. Press
+**Enter** to review the selected commit against its first parent. **Ctrl-v** and
+**Ctrl-s** open reviews in splits. **Space-'** restores the browser with its query
+and selection, so you can open another comparison alongside it.
+
+**Alt-a** opens actions for the selected commit:
+
+- Open its historical version in a read-only source buffer.
+- Compare that revision with the original file buffer, including unsaved edits.
+- Review a merge against a different parent.
+
+A comparison captures its sources when requested. Editing the original buffer or
+moving a branch afterwards does not change the open comparison; `:diff-refresh`
+retries those same historical objects and captured buffer text. Open a new
+comparison to capture newer edits.
+
+History loads 100 commits at a time. Select **Load 100 older commits…** to continue;
+clear the query if that row is filtered out. Each browser shows at most 5000
+commits. Loading stops when the browser closes and resumes safely when restored.
+Root commits compare with an empty source. Missing objects, binary files, and
+unsupported source types produce an error rather than an incomplete text diff.
+
+In historical reviews, **Enter** on an added or context row opens that revision;
+on a removed row it opens the parent version. **:diff-open-file** separately opens
+today's file without applying historical line numbers. These source buffers have
+normal syntax highlighting and cannot be edited or written, even with `:write!`.
+History reads do not check out revisions or change the working tree or index.
+Remap the action menu through `keys.history-picker`; shared picker bindings apply.
+
+Use `:git-history` (alias `:vcs-history`, or `git_history` in the command palette)
+for repository history. Select a commit, then a changed file to open its native
+review. The file browser's **Alt-h** action returns to its parent browser with the
+query and selection preserved. **Space-'** restores the most recently used
+browser after opening a review. **Alt-a** provides version and comparison actions
+for files (buffer comparison requires an open matching file) and explicit parent
+choices for merge commits. Repository history uses
+the current file's repository, or the current directory when no file is open.

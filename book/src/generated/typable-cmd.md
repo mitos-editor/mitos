@@ -97,6 +97,8 @@
 | `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff` | Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
+| `:git-history`, `:vcs-history` | Browse repository commit history. Select a commit, then a file to review; Alt-a offers merge-parent and historical-version actions. |
+| `:file-history`, `:git-file-history` | Browse first-parent history of the current file across renames. Enter reviews the selected change; Alt-a opens version, buffer comparison, and merge-parent actions. |
 | `:diff-refresh` | Refresh the current review buffer from Git and the source buffer. |
 | `:diff-engine` | Toggle line or syntax comparison for the current review snapshot. |
 | `:diff-open-source` | Jump to the selected review row in the matching source buffer. |

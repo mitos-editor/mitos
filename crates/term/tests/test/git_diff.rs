@@ -477,3 +477,161 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn file_history_restores_query_opens_splits_and_historical_syntax() -> anyhow::Result<()> {
+    let Some(root) = isolation::workspace(
+        "test::git_diff::file_history_restores_query_opens_splits_and_historical_syntax",
+    )?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    git(&workspace, &["init"]);
+    git(&workspace, &["config", "core.autocrlf", "false"]);
+    let path = workspace.join("history.rs");
+    std::fs::write(&path, "fn old_version() { let value = 1; }\n")?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "initial history"]);
+    std::fs::write(&path, "fn new_version() { let value = 2; }\n")?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "changed history"]);
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    keys(&mut app, ":file-history<ret>changed history").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while current_ref!(app.editor).1.review().is_none() {
+            keys(&mut app, "<ret>").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    ready(&mut app).await?;
+    let first = current_ref!(app.editor).1.id();
+    let first_view = app.editor.tree.focus();
+    assert!(current_ref!(app.editor)
+        .1
+        .text()
+        .to_string()
+        .contains("old_version"));
+    keys(&mut app, "<space>'<C-v>").await?;
+    ready(&mut app).await?;
+    assert_ne!(current_ref!(app.editor).1.id(), first);
+    assert_eq!(app.editor.tree.views().count(), 2);
+    assert_eq!(app.editor.tree.get(first_view).document_id(), first);
+    // Removed lines open the parent version rather than today's file.
+    keys(&mut app, "/old_version<ret><ret>").await?;
+    let (_, doc) = current_ref!(app.editor);
+    assert!(doc.review().is_none() && doc.is_content_readonly());
+    assert_eq!(
+        doc.text().to_string(),
+        "fn old_version() { let value = 1; }\n"
+    );
+    assert!(
+        doc.syntax().is_some(),
+        "historical source uses the ordinary language syntax tree"
+    );
+    assert!(doc.path().is_none());
+    keys(&mut app, "<space>'<A-a>Open historical version<ret>").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !current_ref!(app.editor)
+            .1
+            .text()
+            .to_string()
+            .contains("new_version")
+        {
+            keys(&mut app, "").await.unwrap();
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    let (_, doc) = current_ref!(app.editor);
+    assert!(doc.review().is_none() && doc.is_content_readonly());
+    assert!(doc.syntax().is_some());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_history_selects_merge_parents_and_retains_nested_browsers() -> anyhow::Result<()>
+{
+    let Some(root) = isolation::workspace(
+        "test::git_diff::repository_history_selects_merge_parents_and_retains_nested_browsers",
+    )?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    git(&workspace, &["init"]);
+    git(&workspace, &["config", "core.autocrlf", "false"]);
+    let path = workspace.join("main.rs");
+    std::fs::write(&path, "fn original() {}\n")?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "initial"]);
+    git(&workspace, &["checkout", "-b", "side"]);
+    std::fs::write(workspace.join("side.rs"), "fn side() {}\n")?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "side commit"]);
+    git(&workspace, &["checkout", "-"]);
+    std::fs::write(&path, "fn main() {}\n")?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "main commit"]);
+    git(
+        &workspace,
+        &["merge", "--no-ff", "side", "-m", "merge review"],
+    );
+    let head = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&workspace)
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    assert!(head.status.success());
+    let head = String::from_utf8(head.stdout)?;
+    let index = std::fs::read(workspace.join(".git/index"))?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    keys(&mut app, ":git-history<ret>merge review").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            keys(&mut app, "").await.unwrap();
+            let buffer = app.terminal_backend().buffer();
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            if text.contains(&head[..12]) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    keys(&mut app, "<ret>side.rs").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while current_ref!(app.editor).1.review().is_none() {
+            keys(&mut app, "<C-v>").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    ready(&mut app).await?;
+    let first = current_ref!(app.editor).1.id();
+    assert!(current_ref!(app.editor)
+        .1
+        .text()
+        .to_string()
+        .contains("fn side()"));
+    // Restore the file browser, return to its commit browser, and choose the second parent.
+    keys(&mut app, "<space>'<A-h><A-a>parent 2<ret>main.rs").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while current_ref!(app.editor).1.id() == first {
+            keys(&mut app, "<C-s>").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    ready(&mut app).await?;
+    let (_, doc) = current_ref!(app.editor);
+    assert!(doc.text().to_string().contains("fn original()"));
+    assert!(doc.text().to_string().contains("fn main()"));
+    assert_eq!(app.editor.tree.views().count(), 3);
+    assert_eq!(std::fs::read(workspace.join(".git/index"))?, index);
+    assert_eq!(std::fs::read_to_string(&path)?, "fn main() {}\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

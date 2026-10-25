@@ -115,6 +115,8 @@
 | `show_change` | Show the current change against HEAD | normal: `` <space>i ``, select: `` <space>i `` |
 | `blame_line` | Show commit details for the current line |  |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
+| `git_history` | Browse Git commits and their changed files in the current repository |  |
+| `git_file_history` | Browse the current file history across renames |  |
 | `git_stash_picker` | Browse Git stashes in the current repository |  |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
 | `diff` | Review all changes in the current file in a read-only buffer |  |

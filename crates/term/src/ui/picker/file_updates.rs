@@ -86,6 +86,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     /// Start an owner-scoped read for a picker whose initial rows have not been loaded.
+    #[cfg(feature = "git")]
     pub(crate) fn refresh_on_open(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {
             updates.dirty = true;
