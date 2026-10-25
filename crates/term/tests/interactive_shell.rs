@@ -40,6 +40,12 @@ impl Screen {
             .any(|row| row.iter().collect::<String>().contains(text))
     }
 
+    fn contains_line(&self, text: &str) -> bool {
+        self.cells
+            .iter()
+            .any(|row| row.iter().collect::<String>().trim_end() == text)
+    }
+
     fn feed(&mut self, text: &str) {
         self.pending.push_str(text);
         let mut input = std::mem::take(&mut self.pending);
@@ -106,16 +112,24 @@ struct Editor {
 
 impl Editor {
     fn new() -> anyhow::Result<Self> {
+        Self::with_shell(&["sh", "-c"])
+    }
+
+    fn with_shell(shell: &[&str]) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir()?;
+        let shell = serde_json::to_string(shell)?;
         std::fs::write(
             dir.path().join("config.toml"),
-            r#"[terminal.keyboard]
+            format!(
+                r#"[terminal.keyboard]
 kitty-protocol = "enabled"
 [editor]
 mouse = false
-[commands]
-":outline" = [":goto %sh_interactive{%arg{0}}", ":echo %sh{echo %{cursor_line} > completed}"]
-":nested" = [":goto %sh_interactive{echo %sh{echo 2}}", ":echo %sh{echo %{cursor_line} > completed}"]
+shell = {shell}
+"#
+            ) + r#"[commands]
+":outline" = [":goto %sh_interactive{%arg{0}}", ":echo completed %{cursor_line}"]
+":nested" = [":goto %sh_interactive{echo %sh{echo 2}}", ":echo completed %{cursor_line}"]
 "#,
         )?;
         std::fs::write(dir.path().join("sample.txt"), "one\ntwo\nthree\nfour\n")?;
@@ -265,7 +279,6 @@ mouse = false
 
     fn interactive(&mut self, command: &str) -> anyhow::Result<()> {
         self.output.clear();
-        let _ = std::fs::remove_file(self.dir.path().join("completed"));
         self.send(&format!(":outline '{}'\r", command.replace('\'', "''")))
     }
 
@@ -293,7 +306,7 @@ mouse = false
 
     fn assert_line(&mut self, line: &str) -> anyhow::Result<()> {
         self.wait("command result", |editor| {
-            editor.dir.path().join("completed").exists()
+            editor.screen.contains_line(&format!("completed {line}"))
                 || editor.screen.contains("Interactive shell command failed")
                 || editor.screen.contains("Interactive shell was suspended")
                 || editor.screen.contains("Could not start interactive shell")
@@ -303,15 +316,12 @@ mouse = false
             unsafe { libc::tcgetpgrp(self.terminal.as_ref().unwrap().as_raw_fd()) },
             self.child.id() as i32
         );
-        let _ = std::fs::remove_file(self.dir.path().join("line"));
-        self.send(":echo %sh{echo %{cursor_line} > line}\r")?;
+        // Wait for the editor to execute the continuation, rather than a file
+        // written by an expansion whose completion callback may still be queued.
+        self.send(":echo cursor-line: %{cursor_line}\r")?;
         self.wait("command continuation", |editor| {
-            editor.dir.path().join("line").exists()
+            editor.screen.contains_line(&format!("cursor-line: {line}"))
         })?;
-        assert_eq!(
-            std::fs::read_to_string(self.dir.path().join("line"))?.trim(),
-            line
-        );
         Ok(())
     }
 }
@@ -370,7 +380,6 @@ fn interactive_expansion_owns_input_and_resumes_goto() -> anyhow::Result<()> {
 
     // Nested shell expansions compose with interactive expansions.
     editor.output.clear();
-    std::fs::remove_file(editor.dir.path().join("completed"))?;
     editor.send(":nested\r")?;
     editor.assert_line("2")?;
     Ok(())
@@ -389,13 +398,18 @@ fn failures_interrupts_and_stopped_children_restore_the_editor() -> anyhow::Resu
         editor.send(key)?;
         editor.assert_line("1")?;
     }
-    // Even failure before a child can exec must restore input and terminal modes.
-    editor.send(":set shell [\"/mitos-missing-shell\"]\r")?;
+    Ok(())
+}
+
+#[test]
+fn spawn_failure_restores_terminal_and_editor_input() -> anyhow::Result<()> {
+    // Startup configuration is installed before commands run. A queued :set
+    // immediately followed by :outline can capture the previous shell instead.
+    let mut editor = Editor::with_shell(&["/mitos-missing-shell"])?;
     editor.interactive("echo 4")?;
     editor.wait("spawn failure", |editor| {
         editor.screen.contains("Could not start interactive shell")
     })?;
-    editor.send(":set shell [\"sh\", \"-c\"]\r")?;
     editor.assert_line("1")?;
     Ok(())
 }
