@@ -391,7 +391,9 @@ mod trust_tests {
     fn reduced_trust_does_not_execute_repository_local_smudge_filters() {
         let repo = empty_git_repo();
         let path = repo.path().join("file.txt");
-        std::fs::write(&path, "original\n").unwrap();
+        // Exercise streaming beyond pipe buffers: the filter must read its entire input.
+        let original = b"original\n".repeat(16 * 1024);
+        std::fs::write(&path, &original).unwrap();
         std::fs::write(
             repo.path().join(".gitattributes"),
             "*.txt text eol=lf filter=probe\n",
@@ -399,7 +401,7 @@ mod trust_tests {
         .unwrap();
         create_commit_with_message(repo.path(), true, "initial");
         exec_git_cmd(
-            &["config", "filter.probe.smudge", "git --version"],
+            &["config", "filter.probe.smudge", "git hash-object --stdin"],
             repo.path(),
         );
         let status = FileStatus {
@@ -407,15 +409,25 @@ mod trust_tests {
             unstaged: None,
         };
         let reduced = read_git_comparison(&status, ComparisonKind::Staged, false).unwrap();
-        assert_eq!(reduced.before, b"original\n");
-        assert_eq!(reduced.after, b"original\n");
+        assert_eq!(reduced.before, original);
+        assert_eq!(reduced.after, original);
         assert_eq!(
             crate::git::get_diff_base(status.path(), false).unwrap(),
-            b"original\n"
+            original
         );
         let trusted = read_git_comparison(&status, ComparisonKind::Staged, true).unwrap();
-        assert!(trusted.before.starts_with(b"git version "));
-        assert!(trusted.after.starts_with(b"git version "));
+        let expected =
+            gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, &original)
+                .unwrap()
+                .to_string();
+        assert_eq!(
+            String::from_utf8(trusted.before).unwrap().trim_end(),
+            expected
+        );
+        assert_eq!(
+            String::from_utf8(trusted.after).unwrap().trim_end(),
+            expected
+        );
     }
 
     #[test]
