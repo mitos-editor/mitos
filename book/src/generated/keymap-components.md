@@ -162,7 +162,10 @@
 | `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
 
 ## Prompt
 

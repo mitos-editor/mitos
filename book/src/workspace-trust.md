@@ -21,6 +21,9 @@ A `[⚠]` indicator appears in the bottom-right when the workspace is restricted
 and granting trust would enable project settings or a blocked language server.
 Run `:workspace-trust` to approve a workspace after reviewing its settings.
 
+[Git actions](./version-control.md#git-picker-actions) that change files or the
+staging area also require workspace trust.
+
 ## Revoking trust
 
 Use `:workspace-untrust` to remove a grant or exclusion. Use

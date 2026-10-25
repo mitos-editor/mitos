@@ -12,7 +12,7 @@ The title in the top border identifies the picker.
 | `Space /` | Project search |
 | `Space s` / `Space S` | File / workspace symbols |
 | `Space d` / `Space D` | File / workspace diagnostics |
-| `Space g` | Changed Git files |
+| `Space g` | [Changed Git files](./version-control.md#changed-files) |
 | `Space '` | Reopen the last picker |
 
 ## Open a result
@@ -121,16 +121,20 @@ to unignore a path:
 
 File, explorer, global-search, and changed-file results update as files change,
 keeping your query, selected item, and scroll position where possible. You can
-keep navigating while updates load. Previews show current content, preferring
-open buffers to files on disk. Global search also follows unsaved buffer edits.
+keep navigating while updates load. File previews prefer open buffers to files
+on disk. Changed-file pickers show the
+[selected comparison](./version-control.md#changed-files). Global search also
+follows unsaved buffer edits.
 
 Buffer and diagnostic pickers follow editor updates. A resolved diagnostic stays
 visible while selected, marked as resolved, until you move away. Symbol pickers
-refresh when their source documents or providers change. Reopening a picker
-checks its current source again.
+refresh when their source documents or providers change. Reopening these pickers
+checks their current sources again.
 
 Quicklist and jump-history entries remain stored collections; filesystem changes
-do not regenerate their contents.
+do not regenerate their contents. [Git history](./version-control.md#git-history)
+starts from the checked-out commit when opened; run the history command again
+to browse a different branch.
 
 If results do not update, check [file watching](./configuration.md#editorfileswatch)
 and [periodic checks](./configuration.md#editorfilesreload).
