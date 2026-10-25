@@ -6,7 +6,7 @@ use futures_util::Stream;
 use tui::backend::BackendExt;
 #[cfg(not(windows))]
 use view::graphics::Rect;
-use view::{editor::ConfigEvent, Editor};
+use view::Editor;
 
 mod configuration;
 mod events;
@@ -145,16 +145,7 @@ impl Application {
                     self.handle_terminal_events(event).await;
                 }
                 Some(event) = self.config_updates.1.recv() => {
-                    match event {
-                        crate::config::ConfigEvent::Update(settings) => {
-                            let old_editor_config = self.editor.config();
-                            self.apply_editor_settings(*settings);
-                            self.editor.refresh_config(&old_editor_config);
-                        }
-                        crate::config::ConfigEvent::Refresh => {
-                            self.handle_config_events(ConfigEvent::Refresh);
-                        }
-                    }
+                    self.apply_config_update(event);
                     self.render().await;
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {

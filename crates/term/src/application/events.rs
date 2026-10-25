@@ -171,6 +171,7 @@ impl Application {
         #[cfg(not(windows))]
         use termina::escape::csi;
 
+        let mut should_redraw = self.apply_pending_config_updates();
         let config = self.config.load();
         let mut cx = crate::compositor::Context {
             config: crate::config::Context {
@@ -184,7 +185,7 @@ impl Application {
             is_cursor_owner: false,
         };
         // Handle key events
-        let should_redraw = match event.unwrap() {
+        should_redraw |= match event.unwrap() {
             #[cfg(not(windows))]
             termina::Event::WindowResized(termina::WindowSize { rows, cols, .. }) => {
                 self.terminal
@@ -252,6 +253,7 @@ impl Application {
             event => self.compositor.handle_event(&event.into(), &mut cx),
         };
 
+        should_redraw |= self.apply_pending_config_updates();
         if should_redraw && !self.editor.should_close() {
             self.render().await;
         }

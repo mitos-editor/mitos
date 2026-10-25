@@ -39,6 +39,30 @@ impl Application {
         self.editor.refresh_config(&old_editor_config);
     }
 
+    pub(super) fn apply_config_update(&mut self, event: crate::config::ConfigEvent) {
+        match event {
+            crate::config::ConfigEvent::Update(settings) => {
+                let old_editor_config = self.editor.config();
+                self.apply_editor_settings(*settings);
+                self.editor.refresh_config(&old_editor_config);
+            }
+            crate::config::ConfigEvent::Refresh => {
+                self.handle_config_events(ConfigEvent::Refresh);
+            }
+        }
+    }
+
+    /// Commands can enqueue settings while terminal input remains ready.
+    /// Apply those settings before another input event can observe the old snapshot.
+    pub(super) fn apply_pending_config_updates(&mut self) -> bool {
+        let mut updated = false;
+        while let Ok(event) = self.config_updates.1.try_recv() {
+            self.apply_config_update(event);
+            updated = true;
+        }
+        updated
+    }
+
     pub(super) fn apply_editor_settings(&mut self, settings: EditorSettings) {
         let mut app_config = (**self.config.load()).clone();
         app_config.editor = settings.editor;
@@ -123,5 +147,54 @@ pub(super) fn terminal_config(config: &Config) -> tui::terminal::Config {
         enable_mouse_capture: config.editor.mouse.enable,
         force_enable_extended_underlines: config.terminal.undercurl,
         kitty_keyboard_protocol: config.terminal.keyboard.kitty_protocol,
+    }
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod tests {
+    use super::*;
+    use crate::ui::picker::test::application;
+
+    async fn keys(app: &mut Application, input: &str) -> anyhow::Result<()> {
+        for key in ui_core::input::parse_macro(input)? {
+            #[cfg(not(windows))]
+            let event = termina::event::Event::Key(key.into());
+            #[cfg(windows)]
+            let event = crossterm::event::Event::Key(key.into());
+            app.handle_terminal_events(Ok(event)).await;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shell_settings_apply_before_the_next_terminal_command() -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        for (input, expected) in [
+            (
+                r#":set shell ["/mitos-missing-shell"]<ret>:get shell<ret>"#,
+                r#"["/mitos-missing-shell"]"#,
+            ),
+            (
+                r#":set shell ["sh", "-c"]<ret>:get shell<ret>"#,
+                r#"["sh","-c"]"#,
+            ),
+        ] {
+            keys(&mut app, input).await?;
+            assert_eq!(app.editor.get_status().unwrap().0.as_ref(), expected);
+        }
+
+        // Updates completed by asynchronous commands must also precede pending input.
+        keys(&mut app, ":get shell").await?;
+        let mut settings = app.config.load().editor_settings();
+        settings.editor.shell = vec!["/mitos-missing-shell".into()];
+        app.config_updates
+            .0
+            .send(crate::config::ConfigEvent::Update(Box::new(settings)))?;
+        keys(&mut app, "<ret>").await?;
+        assert_eq!(
+            app.editor.get_status().unwrap().0.as_ref(),
+            r#"["/mitos-missing-shell"]"#
+        );
+        Ok(())
     }
 }

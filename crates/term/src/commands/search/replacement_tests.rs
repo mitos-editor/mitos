@@ -290,13 +290,15 @@ async fn single_replace_refreshes_only_its_buffer_and_preserves_all_other_result
 #[tokio::test]
 async fn replace_all_with_no_remaining_matches_still_publishes_the_buffer_refresh(
 ) -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = tempfile::Builder::new()
+        .prefix("included-parent-")
+        .tempdir()?;
     let included = dir.path().join("included.txt");
     let excluded = dir.path().join("excluded.txt");
     std::fs::write(&included, "foo\n")?;
     std::fs::write(&excluded, "foo\n")?;
     let mut h = Harness::new(dir.path())?;
-    h.event(Event::Paste("foo %p included".into()));
+    h.event(Event::Paste("foo %p 'included.txt".into()));
     h.settle().await?;
     assert_eq!(h.count(), 1);
     assert_eq!(test::all_items(h.picker()).count(), 2);
@@ -384,7 +386,10 @@ async fn closing_before_the_apply_step_cancels_without_writing_files() -> anyhow
 
 #[tokio::test]
 async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
+    // Parent directories must not satisfy the filename filter.
+    let dir = tempfile::Builder::new()
+        .prefix("included-parent-")
+        .tempdir()?;
     let path = dir.path().join("included.txt");
     let excluded = dir.path().join("excluded.txt");
     std::fs::write(&path, "α foo foo\nfoo\n")?;
@@ -393,7 +398,7 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     std::fs::create_dir(dir.path().join("root-alias"))?;
     let mut h = Harness::new(&dir.path().join("root-alias/.."))?;
     h.app.editor.open(&path, view::editor::Action::Load)?;
-    h.event(Event::Paste("foo %p included".into()));
+    h.event(Event::Paste("foo %p 'included.txt".into()));
     h.settle().await?;
     assert_eq!(h.count(), 2);
     h.key("A-r");
