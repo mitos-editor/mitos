@@ -17,14 +17,15 @@ async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -
 {
     use super::helpers::{callbacks, keys};
     use editor_config::OptionToml;
+    use editor_core::search::statistics::Position;
     use view::features::buffer_search::Handler;
 
-    for (text, input, limit, expected) in [
-        ("#[o|]#ne one one\n", "/one<ret>", Some(100), "[2/3]"),
-        ("#[o|]#ne one one\n", "/one<ret>", Some(2), "[2/>2]"),
-        ("#[o|]#ne one one\n", "/one<ret>", Some(1), "[>1/>1]"),
-        ("#[a|]#aa\n", "/aa<ret>", None, "[?/1]"),
-        ("aa#[a|]#\n", "?a+<ret>", None, "[?/1]"),
+    for (text, prefix, input, limit, expected) in [
+        ("#[o|]#ne one one\n", "/o", "ne<ret>", Some(100), "[2/3]"),
+        ("#[o|]#ne one one\n", "/o", "ne<ret>", Some(2), "[2/>2]"),
+        ("#[o|]#ne one one\n", "/o", "ne<ret>", Some(1), "[>1/>1]"),
+        ("#[a|]#aa\n", "/a", "a<ret>", None, "[?/1]"),
+        ("aa#[a|]#\n", "?a", "+<ret>", None, "[?/1]"),
     ] {
         let (sender, mut updates) = callbacks::channel();
         let mut config = test_config();
@@ -37,18 +38,45 @@ async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -
             .with_input_text(text)
             .with_handler_setup(move |handlers, _| handlers.buffer_search = Handler::new(sender))
             .build()?;
+        // Force a prefix result to be queued before the final query replaces it.
+        keys(&mut app, prefix).await?;
+        let obsolete_update =
+            tokio::time::timeout(std::time::Duration::from_secs(5), updates.recv())
+                .await?
+                .unwrap();
         keys(&mut app, input).await?;
-        let update = tokio::time::timeout(std::time::Duration::from_secs(5), updates.recv())
-            .await?
-            .unwrap();
-        update(&mut app.editor);
+        obsolete_update(&mut app.editor);
+        let (view, doc) = current_ref!(app.editor);
+        assert_eq!(doc.search_position(view.id), Some(Position::PENDING));
+
+        // The first callback may be obsolete. Wait for the current query's
+        // publication before testing the rendered count or cached navigation.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let (view, doc) = current_ref!(app.editor);
+                if doc.search_position(view.id) != Some(Position::PENDING) {
+                    break;
+                }
+                updates.recv().await.expect("search callback queue closed")(&mut app.editor);
+            }
+        })
+        .await?;
         keys(&mut app, "").await?;
         let (view, doc) = current_ref!(app.editor);
-        assert!(row(app.terminal_backend().buffer(), view.statusline_area(doc)).contains(expected));
+        let rendered = row(app.terminal_backend().buffer(), view.statusline_area(doc));
+        assert!(
+            rendered.contains(expected),
+            "query {prefix}{input}: expected {expected:?}, got {rendered:?}"
+        );
 
-        // Repeated navigation uses the cache immediately, and ordinary movement clears it.
+        // Navigation reuses the cache even if other obsolete callbacks are queued.
         keys(&mut app, "n").await?;
-        assert!(updates.try_recv().is_err());
+        let (view, doc) = current_ref!(app.editor);
+        assert!(doc
+            .search_position(view.id)
+            .is_some_and(|position| position != Position::PENDING));
+
+        // Ordinary movement clears the displayed position.
         keys(&mut app, "h").await?;
         let (view, doc) = current_ref!(app.editor);
         assert_eq!(doc.search_position(view.id), None);
