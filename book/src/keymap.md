@@ -83,6 +83,8 @@ accepts the completion and continues inserting text.
 ## Debug mode
 
 Debug mode uses normal navigation and editing semantics with its own configurable
-bindings. Enter it with the `debug_mode` command, through the command palette or
-a [custom binding](./remapping.md). `Esc` returns to normal mode. The command
-reference lists debug bindings where they differ from normal mode.
+bindings. Press `Space G` in normal or select mode to enter it; `Esc` returns to
+normal mode. `?` opens searchable help with debug commands and their current
+bindings. These tables show bindings that differ from normal mode.
+
+{{#include ./generated/keymap-debug.md}}

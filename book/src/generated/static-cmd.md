@@ -127,7 +127,8 @@
 | `insert_at_line_end` | Insert at end of line | normal: `` A ``, select: `` A `` |
 | `open_below` | Open new line below selection | normal: `` o ``, select: `` o `` |
 | `open_above` | Open new line above selection | normal: `` O ``, select: `` O `` |
-| `debug_mode` | Enter debug mode |  |
+| `debug_mode_help` | Show debug commands and current bindings | debug: `` ? `` |
+| `debug_mode` | Enter debug mode | normal: `` <space>G ``, select: `` <space>G `` |
 | `normal_mode` | Enter normal mode | normal: `` <esc> ``, select: `` v ``, insert: `` <esc> `` |
 | `select_mode` | Enter selection extend mode | normal: `` v `` |
 | `exit_select_mode` | Exit selection mode | select: `` <esc> `` |
@@ -300,23 +301,23 @@
 | `goto_prev_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
 | `goto_next_paragraph` | Goto next paragraph | normal: `` ]p ``, select: `` ]p `` |
 | `goto_prev_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
-| `dap_launch` | Launch debug target | normal: `` <space>Gl ``, select: `` <space>Gl `` |
-| `dap_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
-| `dap_toggle_breakpoints` | Toggle breakpoints | normal: `` <space>Gb ``, select: `` <space>Gb `` |
-| `dap_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
-| `dap_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
-| `dap_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
-| `dap_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
-| `dap_next` | Step to next | normal: `` <space>Gn ``, select: `` <space>Gn `` |
-| `dap_variables` | Browse variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
-| `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
-| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
-| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
-| `dap_switch_session` | Switch debugging session | normal: `` <space>Gss ``, select: `` <space>Gss `` |
-| `dap_switch_thread` | Switch current thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
-| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
-| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
-| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
+| `dap_launch` | Launch debug target | debug: `` L `` |
+| `dap_restart` | Restart debugging session | debug: `` r `` |
+| `dap_toggle_breakpoints` | Toggle breakpoints | debug: `` b `` |
+| `dap_continue` | Continue program execution | debug: `` c `` |
+| `dap_pause` | Pause program execution | debug: `` H `` |
+| `dap_step_in` | Step in | debug: `` i `` |
+| `dap_step_out` | Step out | debug: `` o `` |
+| `dap_next` | Step to next | debug: `` n `` |
+| `dap_variables` | Browse variables | debug: `` v `` |
+| `dap_terminate` | End debug session | debug: `` t `` |
+| `dap_edit_condition` | Edit breakpoint condition on current line | debug: `` <C-c> `` |
+| `dap_edit_log` | Edit breakpoint log message on current line | debug: `` <C-l> `` |
+| `dap_switch_session` | Switch debugging session | debug: `` ss `` |
+| `dap_switch_thread` | Switch current thread | debug: `` st `` |
+| `dap_switch_stack_frame` | Switch stack frame | debug: `` sf `` |
+| `dap_enable_exceptions` | Enable exception breakpoints | debug: `` e `` |
+| `dap_disable_exceptions` | Disable exception breakpoints | debug: `` E `` |
 | `shell_pipe` | Pipe selections through shell command | normal: `` \| ``, select: `` \| `` |
 | `shell_pipe_to` | Pipe selections into shell command ignoring output | normal: `` <A-\|> ``, select: `` <A-\|> `` |
 | `shell_insert_output` | Insert shell command output before selections | normal: `` ! ``, select: `` ! `` |

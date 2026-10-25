@@ -278,7 +278,7 @@
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
 | `` <space>' `` | Open last picker | `` last_picker `` |
-| `` <space>G `` | Debug (experimental) (sticky; Escape to exit) | Prefix |
+| `` <space>G `` | Enter debug mode | `` debug_mode `` |
 | `` <space>w `` | Window | Prefix |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
 | `` <space>Y `` | Yank main selection to clipboard | `` yank_main_selection_to_clipboard `` |
@@ -294,34 +294,6 @@
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
 | `` <space>B `` | Toggle inline Git blame | `` toggle_inline_blame `` |
-
-#### `` <space>G `` — Debug (experimental)
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>Gl `` | Launch debug target | `` dap_launch `` |
-| `` <space>Gr `` | Restart debugging session | `` dap_restart `` |
-| `` <space>Gb `` | Toggle breakpoints | `` dap_toggle_breakpoints `` |
-| `` <space>Gc `` | Continue program execution | `` dap_continue `` |
-| `` <space>Gh `` | Pause program execution | `` dap_pause `` |
-| `` <space>Gi `` | Step in | `` dap_step_in `` |
-| `` <space>Go `` | Step out | `` dap_step_out `` |
-| `` <space>Gn `` | Step to next | `` dap_next `` |
-| `` <space>Gv `` | Browse variables | `` dap_variables `` |
-| `` <space>Gt `` | End debug session | `` dap_terminate `` |
-| `` <space>G<C-c> `` | Edit breakpoint condition on current line | `` dap_edit_condition `` |
-| `` <space>G<C-l> `` | Edit breakpoint log message on current line | `` dap_edit_log `` |
-| `` <space>Gs `` | Switch | Prefix |
-| `` <space>Ge `` | Enable exception breakpoints | `` dap_enable_exceptions `` |
-| `` <space>GE `` | Disable exception breakpoints | `` dap_disable_exceptions `` |
-
-##### `` <space>Gs `` — Switch
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>Gss `` | Switch debugging session | `` dap_switch_session `` |
-| `` <space>Gst `` | Switch current thread | `` dap_switch_thread `` |
-| `` <space>Gsf `` | Switch stack frame | `` dap_switch_stack_frame `` |
 
 #### `` <space>w `` — Window
 

@@ -66,8 +66,14 @@ async fn session_picker_selects_pending_sessions_and_termination_restores_the_pr
     );
     let text = screen(&app);
     assert!(text.contains("Debug #1 backend (starting, 2 sessions)"));
-    // The debug menu is sticky; escape it before starting a new key sequence.
-    keys(&mut app, "<esc><space>Gc").await?;
+    // Leaving debug mode keeps the selected session alive.
+    keys(&mut app, "<esc>").await?;
+    assert_eq!(app.editor.mode(), view::document::Mode::Normal);
+    assert_eq!(
+        app.editor.debugger().get_active_session().unwrap().id(),
+        backend
+    );
+    keys(&mut app, "<space>Gc").await?;
     assert!(screen(&app).contains("Selected debugging session is still starting"));
     keys(&mut app, "<esc><space>Gt").await?;
     assert!(app.editor.debugger().get_session(backend).is_none());
@@ -109,7 +115,7 @@ async fn launch_menu_allows_existing_sessions_and_picker_rejects_ended_ones() ->
         .with_lang_loader(test_syntax_loader(Some(languages.into())))
         .build()?;
     let original = connect(&mut app, &listener, "original");
-    keys(&mut app, "<space>Gl").await?;
+    keys(&mut app, "<space>GL").await?;
     assert!(screen(&app).contains("Launch another target"));
     keys(&mut app, "<esc><esc><space>Gss").await?;
     // Remove the row's session while its picker remains open, then reuse the slot.
