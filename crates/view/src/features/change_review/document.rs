@@ -6,7 +6,7 @@ use stdx::rope::RopeExt as _;
 use std::{ops::Range, path::Path, sync::Arc};
 
 use anyhow::{ensure, Result};
-use editor_core::{movement::Direction, Rope, Selection, Transaction};
+use editor_core::{movement::Direction, Range as SelectionRange, Rope, Selection, Transaction};
 use event::{TaskController, TaskHandle};
 use text_diff::ReviewLine;
 
@@ -16,7 +16,7 @@ use super::{
 use crate::{editor::Action, Document, DocumentId, Editor};
 
 pub struct ReviewDocument {
-    request: ReviewRequest,
+    request: Request,
     review: Arc<Review>,
     source: Option<Arc<ReviewSource>>,
     task: TaskController,
@@ -26,18 +26,81 @@ pub struct ReviewDocument {
     changes: RowChanges,
 }
 
+#[derive(Clone)]
+enum Request {
+    Live(ReviewRequest),
+    Historical(super::HistoricalReviewRequest),
+}
+impl Request {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Live(r) => r.status.path(),
+            Self::Historical(r) => &r.path,
+        }
+    }
+    fn workspace(&self) -> &Path {
+        match self {
+            Self::Live(r) => &r.workspace,
+            Self::Historical(r) => &r.workspace,
+        }
+    }
+    fn comparison(&self) -> super::ReviewComparison {
+        match self {
+            Self::Live(r) => r.comparison,
+            Self::Historical(_) => super::ReviewComparison::Historical,
+        }
+    }
+    fn engine(&self) -> DiffEngine {
+        match self {
+            Self::Live(r) => r.engine(),
+            Self::Historical(r) => r.settings.engine,
+        }
+    }
+    fn with_engine(self, engine: DiffEngine) -> Self {
+        match self {
+            Self::Live(r) => Self::Live(r.with_engine(Some(engine))),
+            Self::Historical(mut r) => {
+                r.settings.engine = engine;
+                Self::Historical(r)
+            }
+        }
+    }
+    fn is_current(&self, editor: &Editor) -> bool {
+        match self {
+            Self::Live(r) => r.is_current(editor),
+            Self::Historical(r) => r.is_current(editor),
+        }
+    }
+    fn work(self, previous: Option<Arc<ReviewSnapshot>>) -> Work {
+        match self {
+            Self::Live(r) => Work::Read {
+                request: Arc::new(r),
+                previous,
+            },
+            Self::Historical(r) => Work::Historical(r),
+        }
+    }
+}
+
 impl ReviewDocument {
+    pub fn revision_label(&self) -> Option<&str> {
+        match &self.request {
+            Request::Historical(r) => Some(&r.label),
+            Request::Live(_) => None,
+        }
+    }
+
     pub fn instance(&self) -> usize {
         self.instance
     }
     pub fn path(&self) -> &Path {
-        self.request.status.path()
+        self.request.path()
     }
     pub fn workspace(&self) -> &Path {
-        &self.request.workspace
+        self.request.workspace()
     }
     pub fn comparison(&self) -> super::ReviewComparison {
-        self.request.comparison
+        self.request.comparison()
     }
     pub fn engine(&self) -> DiffEngine {
         self.request.engine()
@@ -72,7 +135,7 @@ impl Document {
     /// Derived content can be selected and searched but cannot be edited or saved.
     /// This is independent of filesystem write permissions and cannot be forced.
     pub fn is_content_readonly(&self) -> bool {
-        self.review.is_some()
+        self.review.is_some() || self.historical.is_some()
     }
     pub fn review(&self) -> Option<&ReviewDocument> {
         self.review.as_deref()
@@ -80,6 +143,7 @@ impl Document {
 }
 
 enum Work {
+    Historical(super::HistoricalReviewRequest),
     Read {
         request: Arc<ReviewRequest>,
         previous: Option<Arc<ReviewSnapshot>>,
@@ -113,13 +177,30 @@ impl Editor {
         action: Action,
         previous: Option<Arc<ReviewSnapshot>>,
     ) -> DocumentId {
+        self.open_review_request(Request::Live(request), action, previous)
+    }
+
+    pub fn open_historical_review(
+        &mut self,
+        request: super::HistoricalReviewRequest,
+        action: Action,
+    ) -> DocumentId {
+        self.open_review_request(Request::Historical(request), action, None)
+    }
+
+    fn open_review_request(
+        &mut self,
+        request: Request,
+        action: Action,
+        previous: Option<Arc<ReviewSnapshot>>,
+    ) -> DocumentId {
         let review = Arc::new(Review::notice("Loading diff…"));
         let projection = projection(&review);
         let instance = self
             .documents()
             .filter_map(Document::review)
             .filter(|review| {
-                review.path() == request.status.path() && review.comparison() == request.comparison
+                review.path() == request.path() && review.comparison() == request.comparison()
             })
             .map(ReviewDocument::instance)
             .max()
@@ -148,13 +229,7 @@ impl Editor {
             doc: id,
         })
         .report_to(self.status_sender());
-        self.start_review(
-            id,
-            Work::Read {
-                request: Arc::new(request),
-                previous,
-            },
-        );
+        self.start_review(id, request.work(previous));
         id
     }
 
@@ -164,14 +239,15 @@ impl Editor {
             .review()
             .ok_or_else(|| anyhow::anyhow!("The current buffer is not a diff review"))?;
         let id = view.document_id();
-        let request = ReviewRequest::new(
-            self,
-            &state.request.status,
-            state.comparison(),
-            state.workspace(),
-        )
-        .with_engine(Some(state.engine()))
-        .with_fresh_status();
+        let request = match &state.request {
+            Request::Live(request) => Request::Live(
+                ReviewRequest::new(self, &request.status, state.comparison(), state.workspace())
+                    .with_engine(Some(state.engine()))
+                    .with_fresh_status(),
+            ),
+            // A refresh retries the exact captured objects and buffer snapshot.
+            Request::Historical(request) => Request::Historical(request.clone()),
+        };
         self.documents
             .get_mut(&id)
             .unwrap()
@@ -179,13 +255,7 @@ impl Editor {
             .as_mut()
             .unwrap()
             .request = request.clone();
-        self.start_review(
-            id,
-            Work::Read {
-                request: Arc::new(request),
-                previous: None,
-            },
-        );
+        self.start_review(id, request.work(None));
         Ok(())
     }
 
@@ -197,7 +267,7 @@ impl Editor {
             .ok_or_else(|| anyhow::anyhow!("The current buffer is not a diff review"))?;
         let engine = state.engine().toggled();
         let source = state.source.clone();
-        let request = state.request.clone().with_engine(Some(engine));
+        let request = state.request.clone().with_engine(engine);
         self.documents
             .get_mut(&id)
             .unwrap()
@@ -207,10 +277,7 @@ impl Editor {
             .request = request.clone();
         let work = match source {
             Some(source) => Work::Engine { source, engine },
-            None => Work::Read {
-                request: Arc::new(request),
-                previous: None,
-            },
+            None => request.work(None),
         };
         self.start_review(id, work);
         Ok(())
@@ -222,11 +289,12 @@ impl Editor {
         let state = doc.review.as_mut().unwrap();
         let cancel = state.task.restart();
         state.loading = true;
-        if matches!(work, Work::Read { .. }) {
+        if matches!(work, Work::Read { .. } | Work::Historical(_)) {
             state.source = None;
         }
         let request = match &work {
-            Work::Read { request, .. } => Some(request.clone()),
+            Work::Read { request, .. } => Some(Request::Live((**request).clone())),
+            Work::Historical(request) => Some(Request::Historical(request.clone())),
             _ => None,
         };
         let worker = self.handlers.change_review_worker.clone();
@@ -236,6 +304,7 @@ impl Editor {
         tokio::spawn(async move {
             let result = run_review(worker, cancel.clone(), move || {
                 let (source, review) = match work {
+                    Work::Historical(request) => request.compute(&|| check.is_canceled())?,
                     Work::Read { request, previous } => {
                         let snapshot = request
                             .compute_cached_cancellable(previous, &|| check.is_canceled())?;
@@ -337,38 +406,80 @@ impl Editor {
     /// Use the existing change motions for review hunks, with independent cursors
     /// in every split. `edge` selects the first/last hunk instead of a neighbour.
     pub fn navigate_review_hunk(&mut self, direction: Direction, count: usize, edge: bool) -> bool {
-        let (view, doc) = crate::current!(self);
-        let Some(state) = doc.review() else {
+        if crate::current_ref!(self).1.review().is_none() {
             return false;
-        };
-        let line = doc.cursor_line(view.id);
-        let rows: Vec<_> = state
-            .review
-            .lines
-            .iter()
-            .enumerate()
-            .filter_map(|(row, line)| {
-                (line.kind == ReviewLineKind::Header).then_some(row + state.row_offset())
-            })
-            .collect();
-        let target = if edge {
-            match direction {
-                Direction::Forward => rows.last().copied(),
-                Direction::Backward => rows.first().copied(),
-            }
-        } else {
-            let targets: Vec<_> = match direction {
-                Direction::Forward => rows.into_iter().filter(|row| *row > line).collect(),
-                Direction::Backward => rows.into_iter().rev().filter(|row| *row < line).collect(),
-            };
-            targets
-                .get(count.saturating_sub(1).min(targets.len().saturating_sub(1)))
-                .copied()
-        };
-        if let Some(row) = target {
-            let selection = Selection::point(doc.text().line_to_char_idx(row));
-            doc.set_selection(view.id, selection);
         }
+        let wrap = self.config().search.wrap_around;
+        self.apply_motion(move |editor| {
+            let mode = editor.mode();
+            let (view, doc) = crate::current!(editor);
+            let state = doc.review().unwrap();
+            let rows: Vec<_> = state
+                .review
+                .lines
+                .iter()
+                .enumerate()
+                .filter_map(|(row, line)| {
+                    (line.kind == ReviewLineKind::Header).then_some(row + state.row_offset())
+                })
+                .collect();
+            let status = std::cell::Cell::new(None);
+            let text = doc.text().slice(..);
+            let selection = doc.selection(view.id).clone().transform(|range| {
+                if rows.is_empty() {
+                    status.set(Some("No changes in document"));
+                    return range;
+                }
+                let line = range.cursor_line(text);
+                let offset = count.saturating_sub(1);
+                let index = if edge {
+                    Some(if direction == Direction::Forward {
+                        rows.len() - 1
+                    } else {
+                        0
+                    })
+                } else {
+                    let next = match direction {
+                        Direction::Forward => rows
+                            .iter()
+                            .position(|row| *row > line)
+                            .map(|i| i.saturating_add(offset).min(rows.len() - 1)),
+                        Direction::Backward => rows
+                            .iter()
+                            .rposition(|row| *row < line)
+                            .map(|i| i.saturating_sub(offset)),
+                    };
+                    next.or_else(|| {
+                        status.set(Some(if wrap {
+                            "Wrapped around document"
+                        } else {
+                            "No more changes in document"
+                        }));
+                        wrap.then(|| match direction {
+                            Direction::Forward => offset.min(rows.len() - 1),
+                            Direction::Backward => (rows.len() - 1).saturating_sub(offset),
+                        })
+                    })
+                };
+                let Some(index) = index else {
+                    return range;
+                };
+                let point = doc.text().line_to_char_idx(rows[index]);
+                if mode == crate::document::Mode::Select {
+                    SelectionRange::new(range.anchor, point)
+                } else {
+                    SelectionRange::point(point)
+                }
+            });
+            doc.commit_changes();
+            view.sync_changes(doc);
+            let jump = (doc.id(), doc.selection(view.id).clone());
+            view.push_jump(doc, jump);
+            doc.set_selection(view.id, selection);
+            if let Some(status) = status.get() {
+                editor.set_status(status);
+            }
+        });
         true
     }
 
@@ -392,6 +503,20 @@ impl Editor {
         } else {
             None
         };
+        if jump && let Request::Historical(request) = &state.request {
+            let (source, line) = target.unwrap();
+            let label = request.label.clone();
+            let workspace = request.workspace.clone();
+            self.open_historical_source(path, workspace, label, source, action);
+            let (view, doc) = crate::current!(self);
+            let line = line.min(
+                doc.text()
+                    .len_lines(stdx::rope::LINE_TYPE)
+                    .saturating_sub(1),
+            );
+            doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(line)));
+            return Ok(());
+        }
         ensure!(
             self.document_by_path(&path).is_some() || path.is_file(),
             "This file no longer exists; its deleted text remains in the review"

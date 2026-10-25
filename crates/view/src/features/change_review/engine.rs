@@ -70,6 +70,19 @@ struct SourceSyntax {
 }
 
 impl ReviewSource {
+    pub(super) fn loader(&self) -> Arc<Loader> {
+        self.settings.loader.clone()
+    }
+
+    pub(super) fn initialize_document(&self, doc: &mut crate::Document) {
+        doc.language = self
+            .settings
+            .language
+            .map(|lang| self.settings.loader.language(lang).config().clone());
+
+        doc.syntax = self.syntax.get().and_then(|syntax| syntax.after.clone());
+    }
+
     pub(super) fn new(before: Rope, after: Rope, line: Option<usize>, settings: Settings) -> Self {
         Self {
             before,

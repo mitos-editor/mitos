@@ -85,6 +85,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Start an owner-scoped read for a picker whose initial rows have not been loaded.
+    pub(crate) fn refresh_on_open(mut self) -> Self {
+        if let Some(updates) = &mut self.file_updates {
+            updates.dirty = true;
+        }
+        self
+    }
+
     /// Search and VCS rows depend on file contents as well as directory membership.
     pub(crate) fn refresh_on_content_changes(mut self) -> Self {
         if let Some(updates) = &mut self.file_updates {

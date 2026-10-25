@@ -694,6 +694,13 @@ impl Document {
                 .unwrap_or(review.path());
             return self.display_metadata().format_name(path).into();
         }
+        if let Some(source) = &self.historical {
+            let path = source
+                .path
+                .strip_prefix(&source.workspace)
+                .unwrap_or(&source.path);
+            return self.display_metadata().format_name(path).into();
+        }
         self.display_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }

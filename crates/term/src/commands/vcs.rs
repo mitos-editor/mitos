@@ -21,7 +21,10 @@ pub(super) fn git_stash_picker(cx: &mut Context) {
     {
         let path = stdx::env::current_working_dir();
         let workspace = workspace::find_workspace_in(&path).0;
-        actions::request_stashes(cx.editor, cx.jobs, path, workspace);
+        match actions::stash_browser(cx.editor, path, workspace) {
+            Ok(picker) => cx.push_layer(picker),
+            Err(error) => cx.editor.set_error(|| error.to_string()),
+        }
     }
     #[cfg(not(feature = "git"))]
     cx.editor

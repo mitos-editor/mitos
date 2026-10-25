@@ -9,6 +9,7 @@ pub enum DocumentKind {
     File,
     Scratch,
     Virtual,
+    Revision,
     Diff {
         comparison: ReviewComparison,
         instance: usize,
@@ -39,16 +40,33 @@ impl DocumentKind {
 pub struct DocumentDisplay<'a> {
     pub source_path: Option<&'a Path>,
     pub kind: DocumentKind,
+    pub revision: Option<&'a str>,
 }
 
 impl DocumentDisplay<'_> {
     pub fn format_name(self, path: &Path) -> String {
-        format!("{}{}", self.format_path(path), self.kind.suffix())
+        if let Some(label) = self.revision {
+            let kind = if matches!(self.kind, DocumentKind::Diff { .. }) {
+                "diff: "
+            } else {
+                ""
+            };
+            let instance = match self.kind {
+                DocumentKind::Diff { instance, .. } if instance > 1 => format!(" #{instance}"),
+                _ => String::new(),
+            };
+            format!("{} [{kind}{label}{instance}]", self.format_path(path))
+        } else {
+            format!("{}{}", self.format_path(path), self.kind.suffix())
+        }
     }
 
     pub fn format_path(self, path: &Path) -> String {
         let label = path.to_string_lossy();
-        if matches!(self.kind, DocumentKind::Diff { .. }) {
+        if matches!(
+            self.kind,
+            DocumentKind::Diff { .. } | DocumentKind::Revision
+        ) {
             label
                 .chars()
                 .map(|ch| {
@@ -70,14 +88,23 @@ impl Document {
         if let Some(review) = self.review() {
             return DocumentDisplay {
                 source_path: Some(review.path()),
+                revision: review.revision_label(),
                 kind: DocumentKind::Diff {
                     comparison: review.comparison(),
                     instance: review.instance(),
                 },
             };
         }
+        if let Some(source) = &self.historical {
+            return DocumentDisplay {
+                source_path: Some(&source.path),
+                kind: DocumentKind::Revision,
+                revision: Some(&source.label),
+            };
+        }
         DocumentDisplay {
             source_path: self.path(),
+            revision: None,
             kind: if self.is_virtual() {
                 DocumentKind::Virtual
             } else if self.path().is_some() {

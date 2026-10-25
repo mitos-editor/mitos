@@ -114,7 +114,10 @@ fn dispatch(
 ) {
     match command {
         Command::Cancel => {}
-        Command::Stashes(path) => open_stashes(cx, path, workspace),
+        Command::Stashes(path) => match stash_browser(cx.editor, path, workspace) {
+            Ok(picker) => compositor.push(picker),
+            Err(error) => cx.editor.set_error(|| error.to_string()),
+        },
         Command::Run(action @ GitAction::File(..)) | Command::Confirmed(action) => {
             start(cx, workspace, action)
         }
@@ -261,39 +264,15 @@ pub(super) fn generation(editor: &Editor) -> u64 {
     editor.handlers().git_operations.revision()
 }
 
-pub(super) fn open_stashes(cx: &mut Context, path: PathBuf, workspace: PathBuf) {
-    request_stashes(cx.editor, cx.jobs, path, workspace);
-}
-
-pub(super) fn request_stashes(
-    editor: &mut Editor,
-    jobs: &mut crate::job::Jobs,
+pub(super) fn stash_browser(
+    editor: &Editor,
     path: PathBuf,
     workspace: PathBuf,
-) {
-    editor.set_status("Loading stashes… (newest 500)");
-    jobs.callback(async move {
-        let result = async {
-            let repo =
-                tokio::task::spawn_blocking(move || GitRepository::discover(&path)).await??;
-            let entries = repo.stashes().await?;
-            Ok::<_, anyhow::Error>((repo, entries))
-        }
-        .await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| match result {
-                Ok((repo, entries)) => {
-                    if entries.is_empty() {
-                        editor.set_status("No stashes in this repository");
-                    }
-                    compositor.push(Box::new(overlaid(stash_picker(
-                        editor, repo, workspace, entries,
-                    ))));
-                }
-                Err(error) => editor.set_error(|| error.to_string()),
-            },
-        )))
-    });
+) -> anyhow::Result<Box<dyn Component>> {
+    let repo = GitRepository::discover(&path)?;
+    Ok(Box::new(overlaid(
+        stash_picker(editor, repo, workspace, Vec::new()).refresh_on_open(),
+    )))
 }
 
 struct StashData {
@@ -306,10 +285,9 @@ fn stash_picker(
     entries: Vec<StashEntry>,
 ) -> Picker<StashEntry, StashData> {
     let inspect_repo = repo.clone();
-    let inspect_workspace = workspace.clone();
     let action_repo = repo.clone();
     let action_workspace = workspace.clone();
-    Picker::new(
+    Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
             PickerColumn::new("stash", |entry: &StashEntry, _| {
@@ -325,13 +303,14 @@ fn stash_picker(
         2,
         entries,
         StashData { repo },
-        move |cx, entry, _| {
-            open_stash_files(
-                cx,
-                inspect_repo.clone(),
-                inspect_workspace.clone(),
-                entry.clone(),
-            );
+        move |_, entry, _| {
+            let repo = inspect_repo.clone();
+            let entry = entry.clone();
+            PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
+                compositor.push(Box::new(overlaid(stash_files_picker(
+                    cx.editor, repo, entry,
+                ))));
+            }))
         },
     )
     .with_help(|maps| help(&maps.stash_picker))
@@ -375,84 +354,56 @@ fn stash_picker(
     )
 }
 
-fn open_stash_files(cx: &mut Context, repo: GitRepository, workspace: PathBuf, entry: StashEntry) {
-    cx.editor.set_status("Loading stash files…");
-    cx.jobs.callback(async move {
-        let files = repo.stash_files(&entry).await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| match files {
-                Ok(files) => {
-                    let review_repo = repo.clone();
-                    let review_workspace = workspace.clone();
-                    let review_entry = entry.clone();
-                    let picker = Picker::new(
-                        editor.redraw().clone(),
-                        [
-                            PickerColumn::new("kind", |file: &StashFile, _: &()| {
-                                file.layer().label().into()
-                            }),
-                            PickerColumn::new("path", |file: &StashFile, _| {
-                                file.path().to_string_lossy().into_owned().into()
-                            }),
-                        ],
-                        1,
-                        files,
-                        (),
-                        move |cx, file, _| {
-                            let request =
-                                view::features::change_review::HistoricalReviewRequest::capture(
-                                    cx.editor,
-                                    &review_repo.root().join(file.path()),
-                                );
-                            let trusted = cx
-                                .editor
-                                .workspace_trust
-                                .query(&review_workspace, workspace::trust::TrustQuery::Git)
-                                .is_trusted();
-                            let repo = review_repo.clone();
-                            let entry = review_entry.clone();
-                            let file = file.clone();
-                            let title = format!(
-                                "{} ({}) · {} · HEAD → {}",
-                                entry.selector,
-                                &entry.id()[..12],
-                                file.path().display(),
-                                file.layer().label()
-                            );
-                            cx.jobs.callback(async move {
-                                let result = request
-                                    .run(move || repo.read_stash_file(&entry, &file, trusted))
-                                    .await;
-                                Ok(Callback::EditorCompositor(Box::new(
-                                    move |editor, compositor| match result {
-                                        Ok((source, review)) => compositor.push(Box::new(
-                                            ui::Popup::new(
-                                                ui::change_review::ReviewView::ID,
-                                                ui::change_review::ReviewView::from_shared(
-                                                    title, review,
-                                                )
-                                                .with_source(source),
-                                            )
-                                            .auto_close(true),
-                                        )),
-                                        Err(error) => editor.set_error(|| error.to_string()),
-                                    },
-                                )))
-                            });
-                        },
-                    );
-                    compositor.push(Box::new(overlaid(picker)));
-                    editor.set_status(format!(
-                        "{} ({}) · {} · Enter to review a saved file",
-                        entry.selector,
-                        &entry.id()[..12],
-                        entry.message
-                    ));
-                }
-                Err(error) => editor.set_error(|| error.to_string()),
-            },
-        )))
-    });
+fn stash_files_picker(
+    editor: &Editor,
+    repo: GitRepository,
+    entry: StashEntry,
+) -> Picker<StashFile, StashFiles> {
+    let data = StashFiles {
+        repo: repo.clone(),
+        entry: entry.clone(),
+    };
+    Picker::new(
+        editor.redraw().clone(),
+        [
+            PickerColumn::new("kind", |file: &StashFile, _: &StashFiles| {
+                file.layer().label().into()
+            }),
+            PickerColumn::new("path", |file: &StashFile, _| {
+                file.path().to_string_lossy().into_owned().into()
+            }),
+        ],
+        1,
+        [],
+        data,
+        move |cx, file, action| {
+            let request = view::features::change_review::HistoricalReviewRequest::stash(
+                cx.editor,
+                repo.clone(),
+                entry.clone(),
+                file.clone(),
+            );
+            cx.editor.open_historical_review(request, action);
+        },
+    )
+    .with_title("Stash files · Enter to review")
+    .with_file_updates(
+        editor,
+        |data| data.repo.root(),
+        |_, _, data, cancel| {
+            Box::pin(async move {
+                event::cancelable_future(data.repo.stash_files(&data.entry), cancel)
+                    .await
+                    .unwrap_or_else(|| Err(anyhow::anyhow!("Stash browser closed")))
+            })
+        },
+    )
+    .refresh_on_open()
+}
+
+struct StashFiles {
+    repo: GitRepository,
+    entry: StashEntry,
 }
 
 #[cfg(all(test, feature = "integration"))]

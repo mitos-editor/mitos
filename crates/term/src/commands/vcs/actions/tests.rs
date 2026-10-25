@@ -192,24 +192,10 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
     key(&mut app, &mut compositor, &mut jobs, "ret");
-    let callback = tokio::time::timeout(std::time::Duration::from_secs(5), jobs.callbacks.recv())
-        .await?
-        .unwrap();
-    assert!(jobs
-        .handle_callback(
-            crate::config::Context {
-                current: &crate::config::Config::default(),
-                updates: &tokio::sync::mpsc::unbounded_channel().0
-            },
-            &mut app.editor,
-            &mut compositor,
-            Ok(Some(callback))
-        )
-        .is_none());
     let layer = compositor.pop().unwrap();
     let mut files = layer
         .as_boxed_any()
-        .downcast::<ui::overlay::Overlay<Picker<StashFile, ()>>>()
+        .downcast::<ui::overlay::Overlay<Picker<StashFile, StashFiles>>>()
         .map_err(|_| anyhow::anyhow!("Expected stash files picker"))?;
     until(&mut files.content, &mut app, |picker| {
         picker.selection().is_some()
@@ -217,23 +203,9 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
     .await?;
     compositor.push(files);
     key(&mut app, &mut compositor, &mut jobs, "ret");
-    let callback = tokio::time::timeout(std::time::Duration::from_secs(5), jobs.callbacks.recv())
-        .await?
-        .unwrap();
-    assert!(jobs
-        .handle_callback(
-            crate::config::Context {
-                current: &crate::config::Config::default(),
-                updates: &tokio::sync::mpsc::unbounded_channel().0
-            },
-            &mut app.editor,
-            &mut compositor,
-            Ok(Some(callback))
-        )
-        .is_none());
-    assert!(compositor
-        .find::<ui::Popup<ui::change_review::ReviewView>>()
-        .is_some());
+    assert!(view::current_ref!(app.editor).1.review().is_some());
+    assert!(compositor.find::<ui::Popup<ui::change_review::ReviewView>>().is_none());
+    assert!(compositor.last_picker.is_some(), "the file browser remains restorable");
     assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
     assert_eq!(
         std::fs::read_to_string(dir.path().join("file.txt"))?,

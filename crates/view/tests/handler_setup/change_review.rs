@@ -853,3 +853,161 @@ async fn review_labels_are_stable_disambiguate_sources_and_number_independent_sn
     assert_ne!(labels[&other], labels[&elsewhere]);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_motions_preserve_cursors_selection_mode_wrapping_and_jumps() -> anyhow::Result<()> {
+    use editor_core::{movement::Direction, Range};
+    let original = (0..40).map(|i| format!("line {i}\n")).collect::<String>();
+    let mut f = Fixture::new(&original)?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    f.replace(
+        &original
+            .replace("line 5\n", "changed 5\n")
+            .replace("line 30\n", "changed 30\n"),
+    );
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    let rows: Vec<_> = doc
+        .review()
+        .unwrap()
+        .review()
+        .lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, row)| {
+            (row.kind == view::features::change_review::ReviewLineKind::Header).then_some(i)
+        })
+        .collect();
+    assert_eq!(rows.len(), 2);
+    let first = doc.text().line_to_char_idx(rows[0]);
+    let last = doc.text().line_to_char_idx(rows[1]);
+    doc.set_selection(
+        view.id,
+        Selection::new(vec![Range::point(first), Range::point(last)].into(), 0),
+    );
+    f.configure(|config| config.search.wrap_around = false);
+    f.editor.navigate_review_hunk(Direction::Forward, 1, false);
+    assert_eq!(
+        current_ref!(f.editor)
+            .1
+            .selection(current_ref!(f.editor).0.id)
+            .primary()
+            .cursor(current_ref!(f.editor).1.text().slice(..)),
+        last
+    );
+    f.configure(|config| config.search.wrap_around = true);
+    f.editor.navigate_review_hunk(Direction::Forward, 1, false);
+    assert_eq!(
+        current_ref!(f.editor)
+            .1
+            .selection(current_ref!(f.editor).0.id)
+            .primary()
+            .cursor(current_ref!(f.editor).1.text().slice(..)),
+        first
+    );
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(
+        view.id,
+        Selection::new(
+            vec![
+                Range::point(doc.text().line_to_char_idx(rows[0] + 1)),
+                Range::point(doc.text().line_to_char_idx(rows[1] + 1)),
+            ]
+            .into(),
+            0,
+        ),
+    );
+    f.editor.navigate_review_hunk(Direction::Backward, 1, false);
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(doc.selection(view.id).len(), 2);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        first
+    );
+    f.editor.set_mode(view::document::Mode::Select);
+    f.editor.navigate_review_hunk(Direction::Forward, 5, false);
+    let (view, doc) = current_ref!(f.editor);
+    assert_eq!(doc.selection(view.id).primary().anchor, first);
+    assert!(doc.selection(view.id).primary().head >= last);
+    let view_id = view.id;
+    f.editor.set_mode(view::document::Mode::Normal);
+    let doc = f.editor.document_mut(id).unwrap();
+    let origin = doc.text().line_to_char_idx(rows[0] + 1);
+    doc.set_selection(view_id, Selection::point(origin));
+    f.editor.navigate_review_hunk(Direction::Forward, 1, false);
+    f.editor.jump_backward(view_id, 1);
+    let doc = f.editor.document(id).unwrap();
+    assert_eq!(
+        doc.selection(view_id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        origin
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stash_review_completion_is_owned_by_its_document_and_opens_frozen_readonly_text(
+) -> anyhow::Result<()> {
+    use view::features::change_review::HistoricalReviewRequest;
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    let original = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "stashed\n")?;
+    let repo = vcs::operations::GitRepository::discover(&path)?;
+    repo.prepare_stash(true)?.execute().await?;
+    let entry = repo.stashes().await?.remove(0);
+    let file = repo
+        .stash_files(&entry)
+        .await?
+        .into_iter()
+        .find(|file| file.layer() == vcs::operations::StashLayer::Worktree)
+        .unwrap();
+    let request = HistoricalReviewRequest::stash(&f.editor, repo, entry, file);
+    let id = f
+        .editor
+        .open_historical_review(request.clone(), Action::Replace);
+    f.editor.switch(original, Action::Replace);
+    finish_review(&mut f, id).await?;
+    assert_eq!(
+        current_ref!(f.editor).1.id(),
+        original,
+        "a delayed historical read must never steal focus"
+    );
+    f.editor.switch(id, Action::Replace);
+    f.editor.open_review_source(true, Action::VerticalSplit)?;
+    let (view, doc) = current!(f.editor);
+    assert_eq!(doc.text().to_string(), "stashed\n");
+    assert!(doc.is_content_readonly());
+    assert!(doc.path().is_none() && doc.uri().is_none());
+    assert!(!doc.is_modified());
+    assert!(view::editing::apply(
+        doc,
+        &editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "edit".into()),
+        view.id
+    )
+    .is_err());
+    let canceled = f.editor.open_historical_review(request, Action::Replace);
+    assert!(f.editor.close_document(canceled, false).is_ok());
+    f.editor.switch(original, Action::Replace);
+    // Closed owners cannot be resurrected by either queued or running work.
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    while let Ok(callback) = f.callbacks.try_recv() {
+        callback(&mut f.editor);
+    }
+    assert!(f.editor.document(canceled).is_none());
+    assert_eq!(current_ref!(f.editor).1.id(), original);
+    Ok(())
+}

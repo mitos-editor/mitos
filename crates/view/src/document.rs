@@ -198,6 +198,7 @@ pub struct Document {
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
     pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
+    pub(crate) historical: Option<crate::features::change_review::historical::HistoricalDocument>,
 
     file: file::FileState,
 
@@ -290,6 +291,7 @@ impl Document {
         Self {
             id: DocumentId::default(),
             review: None,
+            historical: None,
             snippet: None,
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),

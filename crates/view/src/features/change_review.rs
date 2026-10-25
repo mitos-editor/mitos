@@ -15,13 +15,17 @@ pub use text_diff::{Review, ReviewLineKind};
 
 mod document;
 mod engine;
+pub(crate) mod historical;
 pub use document::ReviewDocument;
 pub use engine::ReviewSource;
 use engine::Settings;
+pub use historical::HistoricalReviewRequest;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReviewComparison {
     Staged,
+    /// Immutable historical sources, independent of today's index and working tree.
+    Historical,
     #[default]
     Unstaged,
     Buffer,
@@ -32,6 +36,7 @@ pub enum ReviewComparison {
 impl ReviewComparison {
     pub fn name(self) -> &'static str {
         match self {
+            Self::Historical => "revision",
             Self::Staged => "staged",
             Self::Unstaged => "unstaged",
             Self::Buffer => "buffer",
@@ -41,6 +46,7 @@ impl ReviewComparison {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::Historical => "Historical comparison",
             Self::Staged => "Staged · HEAD → index",
             Self::Unstaged => "Unstaged · index → working tree",
             Self::Buffer => "Unsaved · index → buffer",
@@ -287,6 +293,9 @@ impl ReviewRequest {
 
     fn source(&self) -> Result<ReviewSource> {
         let kind = match self.comparison {
+            ReviewComparison::Historical => {
+                anyhow::bail!("Historical sources require a captured revision")
+            }
             ReviewComparison::Staged => ComparisonKind::Staged,
             ReviewComparison::Buffer => ComparisonKind::Index,
             ReviewComparison::Unstaged => ComparisonKind::Unstaged,
@@ -350,47 +359,6 @@ fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
         "Decoded file too large to review (limit 10 MiB)"
     );
     Ok(text)
-}
-
-/// Captured presentation policy for an immutable historical comparison.
-#[derive(Clone)]
-pub struct HistoricalReviewRequest {
-    settings: Settings,
-    encoding: Option<&'static Encoding>,
-    worker: Arc<tokio::sync::Semaphore>,
-}
-impl HistoricalReviewRequest {
-    pub fn capture(editor: &Editor, path: &std::path::Path) -> Self {
-        Self {
-            settings: Settings::capture(editor, path),
-            encoding: editor.document_by_path(path).map(|doc| doc.encoding()),
-            worker: editor.handlers.change_review_worker.clone(),
-        }
-    }
-    /// Decode and compute off the editor thread, with the same bounds and language policy as live reviews.
-    pub fn compute(self, comparison: vcs::Comparison) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
-        let source = Arc::new(ReviewSource::new(
-            decode(&comparison.before, self.encoding)?,
-            decode(&comparison.after, self.encoding)?,
-            None,
-            self.settings,
-        ));
-        let review = source.compute(None, &|| false);
-        Ok((source, review))
-    }
-
-    /// Serialize historical reads with hunk reviews. Queued requests retain no file contents.
-    pub async fn run(
-        self,
-        read: impl FnOnce() -> Result<vcs::Comparison> + Send + 'static,
-    ) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
-        let permit = self.worker.clone().acquire_owned().await?;
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            self.compute(read()?)
-        })
-        .await?
-    }
 }
 
 /// A hunk inspection belongs to the exact selection that requested it.
