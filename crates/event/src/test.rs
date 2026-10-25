@@ -5,6 +5,32 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use crate::{dispatch, events, register_dynamic_hook, register_event, register_hook};
+
+#[tokio::test]
+async fn typed_hooks_accept_independent_borrowed_lifetimes() {
+    events! { BorrowedEvent<'a, 'b> { output: &'a mut String, text: &'b str } }
+    register_event::<BorrowedEvent>();
+    let registration = crate::register_owned_hook!(move |event: &mut BorrowedEvent<'_, '_>| {
+        event.output.push_str(event.text);
+        Ok(())
+    });
+    let text = String::from("borrowed");
+    let mut output = String::new();
+    dispatch(BorrowedEvent {
+        output: &mut output,
+        text: &text,
+    })
+    .log();
+    assert_eq!(output, "borrowed");
+    drop(registration);
+    dispatch(BorrowedEvent {
+        output: &mut output,
+        text: &text,
+    })
+    .log();
+    assert_eq!(output, "borrowed");
+}
+
 #[tokio::test]
 async fn smoke_test() {
     events! {

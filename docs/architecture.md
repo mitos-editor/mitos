@@ -1221,6 +1221,13 @@ documents, starting and stopping of language servers and more.
 any time an event is emitted. `event` also provides `AsyncHook` - a tool
 for running cancellable tasks which run after events with _debouncing_.
 
+Each generated event defines a higher-ranked callback type accepting all its
+borrowed lifetimes. The registry stores typed hook lists behind safe `Any`
+downcasts; callbacks receive the concrete event directly. No event reference or
+callback lifetime is erased, and the event crate forbids unsafe code. The name
+registry continues to support dynamic no-payload subscriptions and runtime-scoped
+test isolation.
+
 See the `AsyncHook` type for more information. Events can be created within the
 `events!` macro. Synchronous hooks can be created with `register_hook!`. And
 editor-wide events can be sent to hooks with `event::dispatch`.

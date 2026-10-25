@@ -1,38 +1,36 @@
-//! A global registry where events are registered and can be
-//! subscribed to by registering hooks. The registry identifies event
-//! types using their type name so multiple event with the same type name
-//! may not be registered (will cause a panic to ensure soundness)
+//! Typed hook lists selected by event identity. Only the list is type-erased;
+//! dispatch and borrowed event arguments remain statically typed.
 
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, LazyLock, Weak,
+        Arc, LazyLock,
     },
 };
 
 use anyhow::{bail, Result};
-use hashbrown::hash_map::Entry;
-use hashbrown::HashMap;
+use hashbrown::{hash_map::Entry, HashMap};
 use parking_lot::RwLock;
 
-use crate::hook::ErasedHook;
 use crate::runtime_local;
 
-type Hooks = Arc<Vec<Arc<Hook>>>;
+type DynamicHook = Arc<dyn Fn() -> Result<()> + Send + Sync>;
 
-pub struct Registry {
-    events: HashMap<&'static str, TypeId, foldhash::fast::FixedState>,
-    handlers: HashMap<&'static str, Hooks, foldhash::fast::FixedState>,
+// Dynamic hooks carry no event reference, so they can share the typed list
+// without erasing any argument lifetime.
+enum Callback<H: ?Sized> {
+    Typed(Box<H>),
+    Dynamic(DynamicHook),
 }
 
-pub(crate) struct Hook {
-    callback: ErasedHook,
+struct Hook<H: ?Sized> {
+    callback: Callback<H>,
     active: AtomicBool,
 }
 
-impl Hook {
-    fn new(callback: ErasedHook) -> Arc<Self> {
+impl<H: ?Sized> Hook<H> {
+    fn new(callback: Callback<H>) -> Arc<Self> {
         Arc::new(Self {
             callback,
             active: AtomicBool::new(true),
@@ -40,146 +38,169 @@ impl Hook {
     }
 }
 
-/// Owns an event subscription. Dropping it removes the hook from future dispatches.
-/// A callback already selected by an in-progress dispatch may finish; its captures
-/// are released when no dispatch retains it.
-///
-/// Dispatch snapshots hooks in registration order and checks whether each hook
-/// is still active before calling it. New subscriptions take effect on the next
-/// dispatch.
-#[must_use = "dropping the registration immediately unsubscribes its hook"]
-pub struct HookRegistration {
-    registry: Weak<RwLock<Registry>>,
-    event: &'static str,
-    hook: Arc<Hook>,
+type HookSnapshot<H> = Arc<Vec<Arc<Hook<H>>>>;
+
+struct Hooks<H: ?Sized> {
+    callbacks: HookSnapshot<H>,
 }
 
-impl Drop for HookRegistration {
-    fn drop(&mut self) {
-        self.hook.active.store(false, Ordering::Release);
-        if let Some(registry) = self.registry.upgrade() {
-            Arc::make_mut(registry.write().handlers.get_mut(self.event).unwrap())
-                .retain(|hook| !Arc::ptr_eq(hook, &self.hook));
+impl<H: ?Sized> Default for Hooks<H> {
+    fn default() -> Self {
+        Self {
+            callbacks: Arc::new(Vec::new()),
         }
-        // The registration retains the callback until after the registry lock
-        // is released, so destructors may safely register or remove other hooks.
     }
+}
+
+impl<H: ?Sized> Hooks<H> {
+    fn insert(&mut self, hook: Arc<Hook<H>>) {
+        Arc::make_mut(&mut self.callbacks).push(hook);
+    }
+}
+
+trait RegisteredHooks: Any + Send + Sync {
+    fn insert_dynamic(&mut self, event: &'static str, callback: DynamicHook) -> HookRegistration;
+}
+
+impl<H: ?Sized + Send + Sync + 'static> RegisteredHooks for Hooks<H> {
+    fn insert_dynamic(&mut self, event: &'static str, callback: DynamicHook) -> HookRegistration {
+        let hook = Hook::new(Callback::Dynamic(callback));
+        self.insert(hook.clone());
+        subscription(event, hook)
+    }
+}
+
+struct RegisteredEvent {
+    ty: TypeId,
+    hooks: Box<dyn RegisteredHooks>,
+}
+
+pub(crate) struct Registry {
+    events: HashMap<&'static str, RegisteredEvent, foldhash::fast::FixedState>,
 }
 
 impl Registry {
-    pub fn register_event<E: Event + 'static>(&mut self) {
-        let ty = TypeId::of::<E>();
-        assert_eq!(ty, TypeId::of::<E::Static>());
+    pub(crate) fn register_event<E: Event>(&mut self) {
+        let ty = TypeId::of::<E::Static>();
         match self.events.entry(E::ID) {
             Entry::Occupied(entry) => {
-                if entry.get() == &ty {
-                    // don't warn during tests to avoid log spam
-                    #[cfg(not(feature = "integration_test"))]
-                    panic!("Event {} was registered multiple times", E::ID);
-                } else {
-                    panic!("Multiple events with ID {} were registered", E::ID);
-                }
+                assert_eq!(entry.get().ty, ty, "Multiple events with ID {}", E::ID);
+                #[cfg(not(feature = "integration_test"))]
+                panic!("Event {} was registered multiple times", E::ID);
             }
-            Entry::Vacant(ent) => {
-                ent.insert(ty);
-                self.handlers.insert(E::ID, Arc::new(Vec::new()));
+            Entry::Vacant(entry) => {
+                entry.insert(RegisteredEvent {
+                    ty,
+                    hooks: Box::new(Hooks::<E::Hook>::default()),
+                });
             }
         }
     }
 
-    /// # Safety
-    /// The erased callback must accept `E`, generically over its lifetimes.
-    unsafe fn insert_hook<E: Event>(&mut self, hook: Arc<Hook>) {
-        // ensure event type ids match so we can rely on them always matching
-        let id = E::ID;
-        let Some(&event_id) = self.events.get(id) else {
-            panic!("Tried to register handler for unknown event {id}");
-        };
-        assert!(
-            TypeId::of::<E::Static>() == event_id,
-            "Tried to register invalid hook for event {id}"
-        );
-        Arc::make_mut(self.handlers.get_mut(id).unwrap()).push(hook);
-    }
-
-    fn snapshot<E: Event>(&self) -> Hooks {
-        let Some(hooks) = self.handlers.get(E::ID) else {
+    fn snapshot<E: Event>(&self) -> HookSnapshot<E::Hook> {
+        let Some(event) = self.events.get(E::ID) else {
             log::error!("Dispatched unknown event {}", E::ID);
             return Arc::default();
         };
         assert_eq!(
+            event.ty,
             TypeId::of::<E::Static>(),
-            self.events[E::ID],
-            "Tried to dispatch invalid event {}",
+            "Invalid event {}",
             E::ID
         );
-        hooks.clone()
+        let hooks: &dyn Any = &*event.hooks;
+        hooks
+            .downcast_ref::<Hooks<E::Hook>>()
+            .expect("event hook type mismatch")
+            .callbacks
+            .clone()
+    }
+
+    fn hooks_mut<H: ?Sized + Send + Sync + 'static>(&mut self, id: &str) -> &mut Hooks<H> {
+        let event = self
+            .events
+            .get_mut(id)
+            .expect("Tried to register handler for unknown event");
+        let hooks: &mut dyn Any = &mut *event.hooks;
+        hooks.downcast_mut().expect("event hook type mismatch")
     }
 }
 
 runtime_local! {
     static REGISTRY: LazyLock<Arc<RwLock<Registry>>> = LazyLock::new(|| Arc::new(RwLock::new(Registry {
-        // hardcoded random number is good enough here we don't care about DOS resistance
-        // and avoids the additional complexity of `Option<Registry>`
         events: HashMap::with_hasher(foldhash::fast::FixedState::with_seed(72536814787)),
-        handlers: HashMap::with_hasher(foldhash::fast::FixedState::with_seed(72536814787)),
     })));
 }
 
-pub(crate) fn with_mut<T>(f: impl FnOnce(&mut Registry) -> T) -> T {
-    f(&mut REGISTRY.write())
+pub(crate) fn register_event<E: Event>() {
+    REGISTRY.write().register_event::<E>();
 }
 
-pub(crate) unsafe fn register<E: Event>(
-    hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
-) -> Arc<Hook> {
-    // Keep an owner outside the lock while validating/inserting. If registration
-    // panics, captured subscriptions must be dropped only after the guard unwinds.
-    let hook = Hook::new(ErasedHook::new(hook));
-    unsafe { REGISTRY.write().insert_hook::<E>(hook.clone()) };
-    hook
+pub(crate) fn register<E: Event>(callback: Box<E::Hook>) {
+    // Retain the hook outside the lock while validating/inserting so failed
+    // registration releases user captures after the lock unwinds.
+    let hook = Hook::new(Callback::Typed(callback));
+    REGISTRY
+        .write()
+        .hooks_mut::<E::Hook>(E::ID)
+        .insert(hook.clone());
 }
 
-pub(crate) unsafe fn register_owned<E: Event>(
-    hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
+pub(crate) fn register_owned<E: Event>(callback: Box<E::Hook>) -> HookRegistration {
+    let hook = Hook::new(Callback::Typed(callback));
+    REGISTRY
+        .write()
+        .hooks_mut::<E::Hook>(E::ID)
+        .insert(hook.clone());
+    subscription(E::ID, hook)
+}
+
+fn subscription<H: ?Sized + Send + Sync + 'static>(
+    event: &'static str,
+    hook: Arc<Hook<H>>,
 ) -> HookRegistration {
-    let hook = unsafe { register(hook) };
-    HookRegistration {
-        registry: Arc::downgrade(&REGISTRY),
-        event: E::ID,
-        hook,
-    }
+    let registry = Arc::downgrade(&REGISTRY);
+    HookRegistration(Some(Box::new(move || {
+        hook.active.store(false, Ordering::Release);
+        if let Some(registry) = registry.upgrade() {
+            Arc::make_mut(&mut registry.write().hooks_mut::<H>(event).callbacks)
+                .retain(|registered| !Arc::ptr_eq(registered, &hook));
+        }
+        // The closure retains the hook until after the lock is released, so
+        // dropping captures may safely unregister other subscriptions.
+    })))
 }
 
 pub(crate) fn register_dynamic(
     hook: impl Fn() -> Result<()> + 'static + Send + Sync,
     id: &str,
 ) -> Result<HookRegistration> {
-    let event = REGISTRY.read().events.get_key_value(id).map(|(&id, _)| id);
-    let Some(event) = event else {
+    let callback: DynamicHook = Arc::new(hook);
+    let mut registry = REGISTRY.write();
+    let Some((&event, _)) = registry.events.get_key_value(id) else {
         bail!("Tried to register handler for unknown event {id}");
     };
-    // Construct/drop user-owned captures outside the registry lock, including
-    // the unknown-event error path above.
-    let hook = Hook::new(ErasedHook::new_dynamic(hook));
-    Arc::make_mut(REGISTRY.write().handlers.get_mut(event).unwrap()).push(hook.clone());
-    Ok(HookRegistration {
-        registry: Arc::downgrade(&REGISTRY),
-        event,
-        hook,
-    })
+    Ok(registry
+        .events
+        .get_mut(event)
+        .unwrap()
+        .hooks
+        .insert_dynamic(event, callback.clone()))
 }
 
 pub(crate) fn dispatch<E: Event>(mut event: E) -> crate::HookErrors {
     let mut errors = Vec::new();
-    // Never hold the registry lock while calling user code. Hooks may dispatch
-    // recursively, subscribe, or remove their own registration.
+    // Take the typed snapshot under one read lock and release it before user code.
+    // Removed hooks are skipped; new hooks participate in later dispatches.
     let hooks = REGISTRY.read().snapshot::<E>();
     for hook in hooks.iter() {
         if hook.active.load(Ordering::Acquire) {
-            // Safety: snapshot validates the event's static type before erasure.
-            if let Err(err) = unsafe { hook.callback.call(&mut event) } {
-                errors.push(err);
+            let result = match &hook.callback {
+                Callback::Typed(callback) => event.call(callback),
+                Callback::Dynamic(callback) => callback(),
+            };
+            if let Err(error) = result {
+                errors.push(error);
             }
         }
     }
@@ -189,14 +210,25 @@ pub(crate) fn dispatch<E: Event>(mut event: E) -> crate::HookErrors {
     }
 }
 
-/// # Safety
-/// The number of specified lifetimes and the static type *must* be correct.
-/// This is ensured automatically by the [`events`](crate::events)
-/// macro.
-pub unsafe trait Event: Sized {
-    /// Globally unique (case sensitive)  string that identifies this type.
-    /// A good candidate is the events type name
+/// An event's callback type accepts every combination of its borrowed lifetimes.
+/// The [`events!`](crate::events) macro supplies this higher-ranked type and its
+/// typed invocation; aliases cannot narrow the callback to a `'static` borrow.
+pub trait Event: Sized {
     const ID: &'static str;
-    const LIFETIMES: usize;
-    type Static: Event + 'static;
+    type Static: Event<Hook = Self::Hook> + 'static;
+    type Hook: ?Sized + Send + Sync + 'static;
+    fn call(&mut self, hook: &Self::Hook) -> Result<()>;
+}
+
+/// Owns a subscription. Dropping it prevents later calls and releases captures
+/// once any callback already running has finished. Removal is safe during dispatch.
+#[must_use = "dropping the registration immediately unsubscribes its hook"]
+pub struct HookRegistration(Option<Box<dyn FnOnce() + Send + Sync>>);
+
+impl Drop for HookRegistration {
+    fn drop(&mut self) {
+        if let Some(unsubscribe) = self.0.take() {
+            unsubscribe();
+        }
+    }
 }

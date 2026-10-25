@@ -31,15 +31,19 @@
 //! Shared editor services use `view::callbacks::EditorCallbackSender`; terminal
 //! presentation uses `term::job::JobSender`, bound to the owning application.
 
+#![forbid(unsafe_code)]
+
 use anyhow::Result;
 pub use cancel::{cancelable_future, TaskController, TaskHandle};
 pub use debounce::{send_blocking, AsyncHook};
 pub use redraw::{Redraw, RenderLockGuard, RequestRedrawOnDrop};
 pub use registry::{Event, HookRegistration};
 
+#[doc(hidden)]
+pub type HookResult = Result<()>;
+
 mod cancel;
 mod debounce;
-mod hook;
 mod redraw;
 mod registry;
 #[doc(hidden)]
@@ -54,35 +58,19 @@ mod test;
 /// Built-in hooks are installed during startup. Owned subscriptions may also be
 /// registered and removed during event dispatch.
 pub fn register_event<E: Event + 'static>() {
-    registry::with_mut(|registry| registry.register_event::<E>())
+    registry::register_event::<E>()
 }
 
-/// Registers a hook that will be called when an event of type `E` is dispatched.
-/// This function should usually not be used directly, use the [`register_hook`]
-/// macro instead.
-///
-///
-/// # Safety
-///
-/// `hook` must be totally generic over all lifetime parameters of `E`. For
-/// example if `E` was a known type `Foo<'a, 'b>`, then the correct trait bound
-/// would be `F: for<'a, 'b, 'c> Fn(&'a mut Foo<'b, 'c>)`, but there is no way to
-/// express that kind of constraint for a generic type with the Rust type system
-/// as of this writing.
-pub unsafe fn register_hook_raw<E: Event>(
-    hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
-) {
-    unsafe { registry::register(hook) };
+/// Registers a permanent hook. Prefer [`register_hook!`] to infer the event's
+/// higher-ranked callback type from its argument.
+pub fn register_hook<E: Event>(hook: Box<E::Hook>) {
+    registry::register::<E>(hook);
 }
 
-/// Registers an owned, statically typed hook. Prefer [`register_owned_hook!`].
-///
-/// # Safety
-/// The callback must obey the same lifetime requirements as [`register_hook_raw`].
-pub unsafe fn register_owned_hook_raw<E: Event>(
-    hook: impl Fn(&mut E) -> Result<()> + 'static + Send + Sync,
-) -> HookRegistration {
-    unsafe { registry::register_owned(hook) }
+/// Registers a typed hook owned by its returned subscription.
+/// Prefer [`register_owned_hook!`] for closure type inference.
+pub fn register_owned_hook<E: Event>(hook: Box<E::Hook>) -> HookRegistration {
+    registry::register_owned::<E>(hook)
 }
 
 /// Registers a callback for an event identified only by its dynamic name.
@@ -151,106 +139,54 @@ impl HookErrors {
 macro_rules! events {
     ($name: ident<$($lt: lifetime),*> { $($data:ident : $data_ty:ty),* } $($rem:tt)*) => {
         pub struct $name<$($lt),*> { $(pub $data: $data_ty),* }
-        unsafe impl<$($lt),*> $crate::Event for $name<$($lt),*> {
+        impl $crate::Event for $crate::events!(@replace_lt $name, $('_, $lt),*) {
             const ID: &'static str = stringify!($name);
-            const LIFETIMES: usize = $crate::events!(@sum $(1, $lt),*);
             type Static = $crate::events!(@replace_lt $name, $('static, $lt),*);
+            type Hook = dyn for<$($lt),*> Fn(&mut $name<$($lt),*>) -> $crate::HookResult + Send + Sync;
+            fn call(&mut self, hook: &Self::Hook) -> $crate::HookResult { hook(self) }
         }
         $crate::events!{ $($rem)* }
     };
     ($name: ident { $($data:ident : $data_ty:ty),* } $($rem:tt)*) => {
         pub struct $name { $(pub $data: $data_ty),* }
-        unsafe impl $crate::Event for $name {
+        impl $crate::Event for $name {
             const ID: &'static str = stringify!($name);
-            const LIFETIMES: usize = 0;
             type Static = Self;
+            type Hook = dyn Fn(&mut $name) -> $crate::HookResult + Send + Sync;
+            fn call(&mut self, hook: &Self::Hook) -> $crate::HookResult { hook(self) }
         }
         $crate::events!{ $($rem)* }
     };
     () => {};
     (@replace_lt $name: ident, $($lt1: lifetime, $lt2: lifetime),* ) => {$name<$($lt1),*>};
-    (@sum $($val: expr, $lt1: lifetime),* ) => {0 $(+ $val)*};
 }
 
-/// Safely register statically typed event hooks
+/// Register a permanent typed hook. The event's higher-ranked callback type
+/// checks borrowed lifetimes at compile time, including through type aliases.
+///
+/// ```compile_fail
+/// event::events! { Borrowed<'a> { text: &'a str } }
+/// type StaticEvent = Borrowed<'static>;
+/// event::register_hook!(move |event: &mut StaticEvent| {
+///     let _: &'static str = event.text;
+///     Ok(())
+/// });
+/// ```
 #[macro_export]
 macro_rules! register_hook {
-    (move |$($args:tt)*) => {
-        $crate::register_hook!(@register register_hook_raw move |$($args)*)
+    (move |$event:ident: &mut $event_ty:ty| $body:expr) => {
+        $crate::register_hook::<$event_ty>(::std::boxed::Box::new(move |$event: &mut $event_ty| {
+            $body
+        }))
     };
-    // Safety: this is safe because we fully control the type of the event here and
-    // ensure all lifetime arguments are fully generic and the correct number of lifetime arguments
-    // is present
-    (@register $register:ident move |$event:ident: &mut $event_ty: ident<$($lt: lifetime),*>| $body: expr) => {{
-        let val = move |$event: &mut $event_ty<$($lt),*>| $body;
-        unsafe {
-            // Lifetimes are a bit of a pain. We want to allow events being
-            // non-static. Lifetimes don't actually exist at runtime so its
-            // fine to essentially transmute the lifetimes as long as we can
-            // prove soundness. The hook must therefore accept any combination
-            // of lifetimes. In other words fn(&'_ mut Event<'_, '_>) is ok
-            // but examples like fn(&'_ mut Event<'_, 'static>) or fn<'a>(&'a
-            // mut Event<'a, 'a>) are not. To make this safe we use a macro to
-            // forbid the user from specifying lifetimes manually (all lifetimes
-            // specified are always function generics and passed to the event so
-            // lifetimes can't be used multiple times and using 'static causes a
-            // syntax error).
-            //
-            // There is one soundness hole tough: Type Aliases allow
-            // "accidentally" creating these problems. For example:
-            //
-            // type Event2  = Event<'static>.
-            // type Event2<'a>  = Event<'a, a>.
-            //
-            // These cases can be caught by counting the number of lifetimes
-            // parameters at the parameter declaration site and then at the hook
-            // declaration site. By asserting the number of lifetime parameters
-            // are equal we can catch all bad type aliases under one assumption:
-            // There are no unused lifetime parameters. Introducing a static
-            // would reduce the number of arguments of the alias by one in the
-            // above example Event2 has zero lifetime arguments while the original
-            // event has one lifetime argument. Similar logic applies to using
-            // a lifetime argument multiple times. The ASSERT below performs a
-            // a compile time assertion to ensure exactly this property.
-            //
-            // With unused lifetime arguments it is still one way to cause unsound code:
-            //
-            // type Event2<'a, 'b> = Event<'a, 'a>;
-            //
-            // However, this case will always emit a compiler warning/cause CI
-            // failures so a user would have to introduce #[allow(unused)] which
-            // is easily caught in review (and a very theoretical case anyway).
-            // If we want to be pedantic we can simply compile mitos with
-            // forbid(unused). All of this is just a safety net to prevent
-            // very theoretical misuse. This won't come up in real code (and is
-            // easily caught in review).
-            #[allow(unused)]
-            const ASSERT: () = {
-                if <$event_ty as $crate::Event>::LIFETIMES != 0 + $crate::events!(@sum $(1, $lt),*){
-                    panic!("invalid type alias");
-                }
-            };
-            $crate::$register::<$crate::events!(@replace_lt $event_ty, $('static, $lt),*)>(val)
-        }
-    }};
-    (@register $register:ident move |$event:ident: &mut $event_ty: ident| $body: expr) => {{
-        let val = move |$event: &mut $event_ty| $body;
-        unsafe {
-            #[allow(unused)]
-            const ASSERT: () = {
-                if <$event_ty as $crate::Event>::LIFETIMES != 0{
-                    panic!("invalid type alias");
-                }
-            };
-            $crate::$register::<$event_ty>(val)
-        }
-    }};
 }
 
 /// Register a typed hook owned by the returned [`HookRegistration`].
 #[macro_export]
 macro_rules! register_owned_hook {
-    (move |$($args:tt)*) => {
-        $crate::register_hook!(@register register_owned_hook_raw move |$($args)*)
+    (move |$event:ident: &mut $event_ty:ty| $body:expr) => {
+        $crate::register_owned_hook::<$event_ty>(::std::boxed::Box::new(
+            move |$event: &mut $event_ty| $body,
+        ))
     };
 }
