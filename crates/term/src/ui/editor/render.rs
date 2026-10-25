@@ -297,10 +297,8 @@ impl PaneRenderer {
             Self::highlight_cursorcolumn(doc, view, surface, theme, &layout);
         }
 
-        // Set DAP highlights, if needed.
-        if let Some(frame) = editor.debugger_frame_in_document(doc)
-            && let Some(dap_line) = view::debugger::source::line_index(frame.line)
-        {
+        // The editor validates paused source locations for every view.
+        if let Some(dap_line) = editor.debugger_execution_line(doc) {
             let style = theme.get("ui.highlight.frameline");
             let line_decoration = move |renderer: &mut TextRenderer, pos: LinePos| {
                 if pos.doc_line != dap_line {
