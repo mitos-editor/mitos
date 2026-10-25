@@ -100,6 +100,9 @@ async fn continuation_is_pinned_and_tracks_a_rename_across_pages() -> Result<()>
         .history_page(repo.history_cursor(Some(&root.join("new.txt")))?.unwrap())
         .await?;
     assert_eq!(first.commits.len(), HISTORY_PAGE_SIZE);
+    let repository_page = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?;
     std::fs::write(root.join("new.txt"), "new branch tip\n")?;
     commit(root, "after browser opened");
     let second = repo.history_page(first.next.unwrap()).await?;
@@ -110,6 +113,9 @@ async fn continuation_is_pinned_and_tracks_a_rename_across_pages() -> Result<()>
         Path::new("old.txt")
     );
     assert!(second.next.is_none());
+    let repository_older = repo.history_page(repository_page.next.unwrap()).await?;
+    assert_eq!(repository_older.commits.len(), 3);
+    assert_eq!(repository_older.commits[0].subject, "commit 2");
     Ok(())
 }
 
@@ -161,8 +167,8 @@ async fn merge_files_use_the_explicit_parent_and_missing_objects_report_errors()
     assert_eq!(page.commits[0].id, merge.id);
     assert_eq!(
         page.commits.len(),
-        3,
-        "repository history explicitly follows first parents"
+        4,
+        "repository history includes commits from merged branches"
     );
     Ok(())
 }

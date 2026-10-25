@@ -85,6 +85,7 @@ pub struct CommitEntry {
 pub struct HistoryCursor {
     head: RevisionId,
     path: Option<PathBuf>,
+    skip: usize,
 }
 
 pub struct HistoryPage {
@@ -103,18 +104,17 @@ impl GitRepository {
         Ok(Some(HistoryCursor {
             head: RevisionId::parse(&repo.head_commit()?.id.to_string())?,
             path,
+            skip: 0,
         }))
     }
 
-    /// First-parent history gives deterministic continuation and rename tracking at merges.
+    /// Repository history walks the pinned ancestry; file history follows first parents for stable rename continuation.
     /// Dropping this future kills its Git process, including when a browser is hidden.
     pub async fn history_page(&self, cursor: HistoryCursor) -> Result<HistoryPage> {
         let mut command = self.command();
         command
             .args([
                 "log",
-                "--first-parent",
-                "--diff-merges=first-parent",
                 "--no-color",
                 "--no-ext-diff",
                 "--no-textconv",
@@ -124,9 +124,18 @@ impl GitRepository {
             ])
             .arg(format!("--max-count={}", HISTORY_PAGE_SIZE + 1));
         if cursor.path.is_some() {
-            command.args(["--follow", "--name-status", "--find-renames=50%", "-l1000"]);
+            command.args([
+                "--first-parent",
+                "--diff-merges=first-parent",
+                "--follow",
+                "--name-status",
+                "--find-renames=50%",
+                "-l1000",
+            ]);
         } else {
-            command.arg("--no-patch");
+            command
+                .args(["--topo-order", "--no-patch"])
+                .arg(format!("--skip={}", cursor.skip));
         }
         command.arg(cursor.head.as_str()).arg("--");
         if let Some(path) = &cursor.path {
@@ -157,16 +166,23 @@ impl GitRepository {
             }
             commits.push(commit);
         }
-        let next = if has_more {
+        let next = if !has_more {
+            None
+        } else if path.is_none() {
+            Some(HistoryCursor {
+                head: cursor.head,
+                path: None,
+                skip: cursor.skip + commits.len(),
+            })
+        } else {
             commits
                 .last()
                 .and_then(|commit| commit.parents.first())
                 .map(|head| HistoryCursor {
                     head: head.clone(),
                     path,
+                    skip: 0,
                 })
-        } else {
-            None
         };
         Ok(HistoryPage { commits, next })
     }
