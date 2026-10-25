@@ -7,6 +7,9 @@ use std::{
 
 use serde_json::{json, Value};
 
+#[path = "interactive_lsp.rs"]
+mod interactive_lsp;
+
 fn respond(output: &mut impl Write, message: Value) -> anyhow::Result<()> {
     let body = serde_json::to_vec(&message)?;
     write!(output, "Content-Length: {}\r\n\r\n", body.len())?;
@@ -49,6 +52,7 @@ fn main() -> anyhow::Result<()> {
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
+    let interactive = args.first().is_some_and(|arg| arg == "--interactive");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
@@ -69,6 +73,7 @@ fn main() -> anyhow::Result<()> {
         || workspace_symbols
         || formatting
         || diagnostics
+        || interactive
         || code_actions
         || lifecycle
         || signature_help
@@ -113,7 +118,8 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
-        if file_operations
+        if interactive
+            || file_operations
             || rename
             || workspace_symbols
             || formatting
@@ -226,6 +232,40 @@ fn main() -> anyhow::Result<()> {
         let Some(id) = message.get("id") else {
             continue;
         };
+        if interactive {
+            if (method == "command/resolve" && params["arguments"][0] == "resolve-error")
+                || (method == "workspace/executeCommand"
+                    && params["arguments"][0] == "execute-error")
+            {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id":id,
+                    "error":{"code":-32603, "message":"fixture command failure"}}),
+                )?;
+                continue;
+            }
+            if (method == "command/resolve" && args.iter().any(|arg| arg == "--hold-resolve"))
+                || (method == "interactive/listEnum"
+                    && args.iter().any(|arg| arg == "--hold-search"))
+            {
+                continue;
+            }
+            let result = interactive_lsp::handle(method, params, &args);
+            if method == "workspace/executeCommand" && params["arguments"][0] == "edit" {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id":"interactive-edit",
+                    "method":"workspace/applyEdit", "params":{"edit":{"changes":{
+                        params["arguments"][1].as_str().unwrap(): [{"range": range(0,0), "newText":"done "}]
+                    }}}}),
+                )?;
+            }
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id, "result":result}),
+            )?;
+            continue;
+        }
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
         if rename && matches!(method, "textDocument/prepareRename" | "textDocument/rename") {
