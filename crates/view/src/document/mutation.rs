@@ -95,6 +95,10 @@ impl Document {
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.buffer.text().slice(..));
             state.position.anchor = changes.map_pos(state.position.anchor, Assoc::Before);
+            state.inlay_hints.apply_changes(changes);
+            state
+                .highlights
+                .apply_changes(changes, self.buffer.text().len_chars());
         }
 
         // update tree-sitter syntax tree
@@ -117,12 +121,8 @@ impl Document {
         self.inline_completions.clear();
         self.map_snippet(changes);
 
-        self.inlay_hints.apply_changes(changes);
-        self.hover.clear();
+        self.cancel_hover_requests(None);
         self.navigation.clear();
-
-        self.document_highlights
-            .apply_changes(changes, self.buffer.text().len_chars());
 
         // Install an explicit transaction selection before observers inspect the new state.
         if let (Some(selection), Some(view_id)) = (selection, view_id) {

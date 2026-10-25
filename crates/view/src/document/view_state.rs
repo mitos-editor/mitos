@@ -5,13 +5,20 @@ use editor_core::Selection;
 use text_layout::text_annotations::Overlay;
 
 #[derive(Debug)]
-pub(super) struct DocumentViewState {
+pub(crate) struct DocumentViewState {
     pub selection: Selection,
     pub position: ViewPosition,
     pub jump_labels: Vec<Overlay>,
     pub restore_append_cursor: bool,
     pub expansion_history: Vec<Selection>,
     pub search: crate::features::buffer_search::State,
+    pub highlights: crate::features::document_highlight::DocumentHighlightsState,
+    pub code_action_hint: crate::features::code_action_hint::CodeActionHints,
+    pub inlay_hints: crate::features::inlay_hints::InlayHintsState,
+    pub hover: event::TaskController,
+    pub code_actions: event::TaskController,
+    pub shell_filter: event::TaskController,
+    pub breadcrumbs: Option<crate::features::document_symbols::Breadcrumbs>,
 }
 
 impl Clone for DocumentViewState {
@@ -23,6 +30,13 @@ impl Clone for DocumentViewState {
             restore_append_cursor: self.restore_append_cursor,
             expansion_history: self.expansion_history.clone(),
             search: self.search.presentation(),
+            highlights: self.highlights.presentation(),
+            code_action_hint: self.code_action_hint.presentation(),
+            inlay_hints: self.inlay_hints.presentation(),
+            hover: Default::default(),
+            code_actions: Default::default(),
+            shell_filter: Default::default(),
+            breadcrumbs: self.breadcrumbs.clone(),
         }
     }
 }
@@ -36,6 +50,13 @@ impl DocumentViewState {
             restore_append_cursor: false,
             expansion_history: Vec::new(),
             search: Default::default(),
+            highlights: Default::default(),
+            code_action_hint: Default::default(),
+            inlay_hints: Default::default(),
+            hover: Default::default(),
+            code_actions: Default::default(),
+            shell_filter: Default::default(),
+            breadcrumbs: None,
         }
     }
 }

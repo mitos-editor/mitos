@@ -114,14 +114,12 @@ impl Handlers {
             .bind_handler(self.document_colors.clone());
         doc.code_lenses.bind_handler(self.code_lenses.clone());
         doc.document_links.bind_handler(self.document_links.clone());
-        doc.document_highlights
-            .bind_handler(self.document_highlight.clone());
+        doc.document_highlight_handler = Some(self.document_highlight.clone());
         doc.document_symbols
             .bind_handler(self.document_symbols.clone());
         doc.pull_diagnostics
             .bind_handler(self.pull_diagnostics.clone());
-        doc.code_action_hints
-            .bind_handler(self.code_action_hint.clone());
+        doc.code_action_hint_handler = Some(self.code_action_hint.clone());
         doc.inline_completions
             .bind_handler(&self.inline_completions);
         doc.signature_help_trigger = Some(self.signature_hints.document_trigger());

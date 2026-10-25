@@ -68,7 +68,7 @@ pub fn refresh(editor: &mut Editor) {
             .next()
         else {
             let doc = editor.documents.get_mut(&doc_id).unwrap();
-            doc.inlay_hints.remove_view(view_id);
+            doc.view_state_mut(view_id).inlay_hints = Default::default();
             continue;
         };
         let key = CacheKey {
@@ -77,7 +77,11 @@ pub fn refresh(editor: &mut Editor) {
             server: server.id(),
             viewport: viewport(view, doc),
         };
-        if doc.inlay_hints.is_current(view_id, &key) {
+        if doc
+            .view_states
+            .get(&view_id)
+            .is_some_and(|state| state.inlay_hints.is_current(&key))
+        {
             continue;
         }
         let text = doc.text();
@@ -95,7 +99,7 @@ pub fn refresh(editor: &mut Editor) {
             continue;
         };
         let doc = editor.documents.get_mut(&doc_id).unwrap();
-        let cancel = doc.inlay_hints.start(view_id, key.clone());
+        let cancel = doc.view_state_mut(view_id).inlay_hints.start(key.clone());
         let request = Request {
             owner: Arc::downgrade(&callbacks),
             target: ViewRequest::new(doc, view_id, cancel, vec![key.server]),
@@ -123,12 +127,12 @@ pub fn refresh(editor: &mut Editor) {
                                 doc.config.load().lsp.inlay_hints.length_limit,
                                 hints.unwrap_or_default(),
                             );
-                            doc.inlay_hints.complete(view_id, hints);
+                            doc.view_state_mut(view_id).inlay_hints.complete(hints);
                             editor.redraw().request();
                         }
                         Err(error) => {
                             log::error!("inlay hints request failed: {error}");
-                            doc.inlay_hints.retry(view_id);
+                            doc.view_state_mut(view_id).inlay_hints.retry();
                         }
                     }
                 })

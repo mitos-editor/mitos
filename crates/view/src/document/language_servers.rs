@@ -22,7 +22,7 @@ impl Document {
         let server = self.language_servers.remove(name);
         if let Some(server) = &server {
             self.opened_language_servers.remove(&server.id());
-            self.hover.clear();
+            self.cancel_hover_requests(None);
             self.navigation.clear();
             self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();

@@ -13,9 +13,7 @@ mod view_state;
 use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
-use crate::features::{
-    blame::DocumentBlame, code_action_hint::CodeActionHints, inline_completion::InlineCompletions,
-};
+use crate::features::{blame::DocumentBlame, inline_completion::InlineCompletions};
 // Retain document-facing annotation types at their established public paths.
 pub use crate::features::inline_completion::InlineCompletion;
 pub use crate::features::{
@@ -63,9 +61,8 @@ use crate::{
     events::SelectionDidChange,
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
-        document_highlight::DocumentHighlightsState, document_links::DocumentLinks,
-        document_symbols::DocumentSymbols, hover::HoverState, inlay_hints::InlayHintsState,
-        navigation::NavigationState,
+        document_highlight::DocumentHighlightHandler, document_links::DocumentLinks,
+        document_symbols::DocumentSymbols, navigation::NavigationState,
     },
     view::ViewPosition,
     DocumentId, ViewId,
@@ -175,26 +172,23 @@ pub struct Document {
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
-    view_states: HashMap<ViewId, DocumentViewState>,
+    pub(crate) view_states: HashMap<ViewId, DocumentViewState>,
     snippet: Option<SnippetSession>,
     pub(crate) breakpoint_saved_text: Option<Rope>,
     pub(crate) breakpoint_source: Option<::debugger::SourceBreakpoints>,
 
-    // Each feature owns its cache, scheduling handle, and request controllers.
-    // Dropping the document drops those controllers and cancels in-flight work.
-    pub(crate) hover: HoverState,
+    // Document-wide feature state and scheduling handles. Per-view caches and
+    // request controllers live in view_states and drop with their relationship.
     pub(crate) navigation: NavigationState,
-    pub(crate) shell_filters: crate::features::shell::ShellFilters,
     pub(crate) rename: event::TaskController,
-    pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: InlineCompletions,
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
     pub(crate) document_links: DocumentLinks,
-    pub(crate) document_highlights: DocumentHighlightsState,
-    pub(crate) code_action_hints: CodeActionHints,
-    pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
+    pub(crate) document_highlight_handler: Option<DocumentHighlightHandler>,
+    pub(crate) code_action_hint_handler:
+        Option<crate::features::code_action_hint::CodeActionHintHandler>,
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
     pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
@@ -266,7 +260,6 @@ impl fmt::Debug for Document {
             .field("id", &self.id)
             .field("buffer", &self.buffer)
             .field("views", &self.view_states)
-            .field("text_annotations", &self.inlay_hints)
             .field("file", &self.file)
             .field("syntax", &self.syntax)
             .field("language", &self.language)
@@ -297,10 +290,7 @@ impl Document {
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
             view_states: HashMap::default(),
-            inlay_hints: Default::default(),
-            hover: Default::default(),
             navigation: Default::default(),
-            shell_filters: Default::default(),
             rename: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
@@ -332,9 +322,8 @@ impl Document {
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
-            document_highlights: Default::default(),
-            code_action_hints: Default::default(),
-            code_actions: Default::default(),
+            document_highlight_handler: None,
+            code_action_hint_handler: None,
             document_links: Default::default(),
             document_colors: Default::default(),
             code_lenses: Default::default(),
@@ -483,16 +472,9 @@ impl Document {
     /// Remove any views' data and state that is stored in the `Document`.
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.view_states.remove(&view_id);
-        self.inlay_hints.remove_view(view_id);
-        self.hover.remove_view(view_id);
-        self.code_actions.remove_view(view_id);
         self.navigation.remove_view(view_id);
-        self.shell_filters.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);
-        self.document_symbols.remove_view(view_id);
-        self.document_highlights.remove_view(view_id);
         self.inline_completions.remove_view(self.id, view_id);
-        self.code_action_hints.remove_view(view_id);
     }
 
     /// Capture text and the selection of an attached view. Text tracking belongs
@@ -744,7 +726,7 @@ impl Document {
         self.view_states.keys().copied()
     }
 
-    fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
+    pub(crate) fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
         let text = self.buffer.text().slice(..);
         self.view_states
             .entry(view_id)
@@ -820,7 +802,7 @@ impl Document {
 
     /// Set the inlay hints for this document and `view_id`.
     pub fn set_inlay_hints(&mut self, view_id: ViewId, inlay_hints: DocumentInlayHints) {
-        self.inlay_hints.set(view_id, inlay_hints);
+        self.view_state_mut(view_id).inlay_hints.set(inlay_hints);
     }
 
     pub fn set_jump_labels(&mut self, view_id: ViewId, labels: Vec<Overlay>) {
@@ -840,13 +822,15 @@ impl Document {
 
     /// Get the inlay hints for this document and `view_id`.
     pub fn inlay_hints(&self, view_id: ViewId) -> Option<&DocumentInlayHints> {
-        self.inlay_hints.get(view_id)
+        self.view_states.get(&view_id)?.inlay_hints.get()
     }
 
     /// Completely removes all the inlay hints saved for the document, dropping them to free memory
     /// (since it often means inlay hints have been fully deactivated).
     pub fn reset_all_inlay_hints(&mut self) {
-        self.inlay_hints.clear();
+        for state in self.view_states.values_mut() {
+            state.inlay_hints = Default::default();
+        }
     }
 
     pub fn has_language_server_with_feature(&self, feature: LanguageServerFeature) -> bool {
@@ -884,6 +868,22 @@ mod test {
         let second_highlight = doc.document_highlight_controller(second).restart();
         let first_hint = doc.code_action_controller(first).restart();
         let second_hint = doc.code_action_controller(second).restart();
+        let first_other = {
+            let state = doc.view_state_mut(first);
+            [
+                state.hover.restart(),
+                state.code_actions.restart(),
+                state.shell_filter.restart(),
+            ]
+        };
+        let second_other = {
+            let state = doc.view_state_mut(second);
+            [
+                state.hover.restart(),
+                state.code_actions.restart(),
+                state.shell_filter.restart(),
+            ]
+        };
 
         doc.remove_view(first);
 
@@ -891,6 +891,8 @@ mod test {
         assert!(!doc.code_action_hints(first));
         assert!(first_highlight.is_canceled());
         assert!(first_hint.is_canceled());
+        assert!(first_other.iter().all(event::TaskHandle::is_canceled));
+        assert!(second_other.iter().all(|request| !request.is_canceled()));
         let remaining = doc.document_highlights(second).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0], 3..5);
