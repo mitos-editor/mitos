@@ -286,7 +286,8 @@ pub fn complete_command_args(
                 .collect(),
             }
         }
-        TokenKind::Expand | TokenKind::Expansion(ExpansionKind::Shell) => {
+        TokenKind::Expand
+        | TokenKind::Expansion(ExpansionKind::Shell | ExpansionKind::InteractiveShell) => {
             // See the comment about the checked sub expect above.
             let arg_completer = matches!(args.completion_state(), CompletionState::Positional)
                 .then(|| {
@@ -397,7 +398,7 @@ fn complete_expand(
                 TokenKind::Expansion(ExpansionKind::Variable) => {
                     return complete_variable_expansion(&token.content, local_offset);
                 }
-                TokenKind::Expansion(ExpansionKind::Shell) => {
+                TokenKind::Expansion(ExpansionKind::Shell | ExpansionKind::InteractiveShell) => {
                     return complete_expand(editor, &token, None, local_offset);
                 }
                 TokenKind::ExpansionKind => {

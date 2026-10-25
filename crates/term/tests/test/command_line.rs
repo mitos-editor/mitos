@@ -664,3 +664,13 @@ async fn shell_expansions_allow_cancellation_and_new_submissions() -> anyhow::Re
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interactive_shell_expansions_require_a_real_terminal() -> anyhow::Result<()> {
+    test_statusline(
+        ":echo %sh_interactive{echo hello}",
+        "'echo': interactive shell expansion requires a real Unix terminal",
+        Severity::Error,
+    )
+    .await
+}

@@ -1,5 +1,5 @@
 use futures_util::{future::BoxFuture, FutureExt};
-use std::{borrow::Cow, collections::HashMap, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc};
 
 use command_line::{ExpansionKind, Token, TokenKind, Tokenizer};
 
@@ -101,6 +101,14 @@ impl Variable {
     }
 }
 
+/// Frontend executor for a shell that needs exclusive terminal access.
+/// Contexts without an executor (such as formatters) reject interactive expansions.
+pub type InteractiveShell = Arc<
+    dyn Fn(tokio::process::Command) -> BoxFuture<'static, Result<std::process::Output>>
+        + Send
+        + Sync,
+>;
+
 /// Editor values captured before asynchronous command evaluation.
 /// Only referenced variables and registers are read; shell output is never expanded again.
 pub struct Context {
@@ -108,6 +116,7 @@ pub struct Context {
     registers: HashMap<char, Cow<'static, str>>,
     shell: Vec<String>,
     directory: PathBuf,
+    interactive_shell: Option<InteractiveShell>,
 }
 
 impl Context {
@@ -135,9 +144,15 @@ impl Context {
             registers: HashMap::new(),
             shell: editor.config().shell.clone(),
             directory,
+            interactive_shell: None,
         };
         context.capture_inner(editor, document, selection, source)?;
         Ok(context)
+    }
+
+    pub fn with_interactive_shell(mut self, executor: InteractiveShell) -> Self {
+        self.interactive_shell = Some(executor);
+        self
     }
 
     // Scan raw input too: signatures may consume the remainder as a single expanded token.
@@ -183,7 +198,10 @@ impl Context {
                                 );
                             }
                         }
-                        TokenKind::Expansion(ExpansionKind::Shell) | TokenKind::Expand => {
+                        TokenKind::Expansion(
+                            ExpansionKind::Shell | ExpansionKind::InteractiveShell,
+                        )
+                        | TokenKind::Expand => {
                             self.capture_inner(editor, document, selection, &token.content)?
                         }
                         _ => {}
@@ -230,7 +248,12 @@ impl Context {
                 }
                 TokenKind::Expand => self.expand_inner(token.content, positional_args).await,
                 TokenKind::Expansion(ExpansionKind::Shell) => {
-                    self.expand_shell(token.content, positional_args).await
+                    self.expand_shell(token.content, positional_args, false)
+                        .await
+                }
+                TokenKind::Expansion(ExpansionKind::InteractiveShell) => {
+                    self.expand_shell(token.content, positional_args, true)
+                        .await
                 }
                 TokenKind::Expansion(ExpansionKind::Register) => {
                     let name = register_name(&token.content)?;
@@ -281,7 +304,17 @@ impl Context {
         &self,
         content: Cow<'a, str>,
         positional_args: &[Cow<'a, str>],
+        interactive: bool,
     ) -> Result<Cow<'a, str>> {
+        let executor = if interactive {
+            Some(self.interactive_shell.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "interactive shell expansions are only available in submitted editor commands"
+                )
+            })?)
+        } else {
+            None
+        };
         let content = self.expand_inner(content, positional_args).await?;
         ensure!(!self.shell.is_empty(), "No shell set");
         let mut process = tokio::process::Command::new(&self.shell[0]);
@@ -289,7 +322,18 @@ impl Context {
             .args(&self.shell[1..])
             .arg(content.as_ref())
             .current_dir(&self.directory);
-        let output = crate::features::process::output(process, None).await?;
+        let output = if let Some(executor) = executor {
+            executor(process).await?
+        } else {
+            crate::features::process::output(process, None).await?
+        };
+        if interactive {
+            ensure!(
+                output.status.success(),
+                "Interactive shell command failed: {}",
+                output.status
+            );
+        }
         let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
         if !output.stderr.is_empty() {
             log::warn!(

@@ -1074,6 +1074,15 @@ view binding, document version, and selection before executing the command. A ne
 submission or Escape/Ctrl-c cancels the pending expansion. Formatter arguments use
 the same captured expansion context inside their formatting request.
 
+`%sh_interactive{...}` uses a frontend executor supplied only to submitted command
+contexts. `Application` pauses its terminal input worker and waits for that pause
+to finish before restoring terminal modes. On Unix, the child runs in its own
+foreground process group with terminal stdin/stderr and captured stdout. Editor
+callbacks and rendering wait until the child releases the terminal; completion,
+cancellation and failures restore the foreground group, terminal modes and input,
+then resume the existing command continuation. Formatter contexts have no
+interactive executor. Windows reports that a Unix terminal is required.
+
 The terminal frontend.
 
 The `main` function sets up a new `Application` that runs the event loop.

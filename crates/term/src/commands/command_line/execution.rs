@@ -71,8 +71,13 @@ impl Target {
 }
 
 impl Command {
-    fn arguments(&self, editor: &Editor) -> BoxFuture<'static, anyhow::Result<Args<'static>>> {
-        let context = expansion::Context::capture(editor, &self.input);
+    fn arguments(
+        &self,
+        editor: &Editor,
+        interactive_shell: expansion::InteractiveShell,
+    ) -> BoxFuture<'static, anyhow::Result<Args<'static>>> {
+        let context = expansion::Context::capture(editor, &self.input)
+            .with_interactive_shell(interactive_shell);
         let input = self.input.clone();
         let positional = self.positional.clone();
         let signature = match &self.invocation {
@@ -99,7 +104,7 @@ impl Command {
         }
         .map(move |result: anyhow::Result<Args<'static>>| {
             result.map_err(|error| match name {
-                Some(name) => anyhow::anyhow!("'{name}': {error}"),
+                Some(name) => anyhow::anyhow!("'{name}': {error:#}"),
                 None => error,
             })
         })
@@ -159,7 +164,7 @@ impl Sequence {
                     }
                 }
                 Step::Command(command) => {
-                    let mut args = command.arguments(cx.editor);
+                    let mut args = command.arguments(cx.editor, cx.jobs.interactive_shell());
                     if let Some(result) = args.as_mut().now_or_never() {
                         if let Err(error) =
                             result.and_then(|args| command.apply(cx, args, &mut self.preview))
