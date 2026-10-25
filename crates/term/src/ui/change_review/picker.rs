@@ -255,9 +255,11 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     .replace("<A-up>", "A-↑")
                     .replace("<A-down>", "A-↓")
                     .replace("<A-o>", "A-o")
+                    .replace("<A-p>", "A-p")
+                    .replace("<A-n>", "A-n")
             };
             let help = format!(
-                "{} open · {}/{} compare · {}/{} scroll",
+                "{} open · {}/{} versions · {}/{} scroll",
                 hint(PickerAction::OpenPreview),
                 hint(PickerAction::PreviewPrevious),
                 hint(PickerAction::PreviewNext),

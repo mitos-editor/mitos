@@ -159,6 +159,8 @@ impl ComponentKeymaps {
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
+            ("A-p", PickerAction::PreviewPrevious),
+            ("A-n", PickerAction::PreviewNext),
             ("A-a", PickerAction::Item(I::Actions)),
             ("A-s", PickerAction::Item(I::Stage)),
             ("A-u", PickerAction::Item(I::Unstage)),

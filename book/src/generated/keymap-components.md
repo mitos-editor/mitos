@@ -97,8 +97,8 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
+| `` <A-n> ``, `` <A-right> `` | `` preview_next `` |
+| `` <A-p> ``, `` <A-left> `` | `` preview_previous `` |
 | `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |

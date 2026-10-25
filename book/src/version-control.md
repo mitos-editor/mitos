@@ -66,8 +66,8 @@ Press `Space g` to browse changed files. The picker has separate **staged** and
 changes. Staged new files are labeled `added`; files not yet added to Git are
 labeled `untracked`.
 
-The preview shows the selected file's diff. Use Alt-Left / Alt-Right to switch
-comparisons:
+The preview shows the selected file's diff. Use **Alt-p / Alt-n** to choose which
+versions to compare:
 
 | Comparison | Before | After |
 | --- | --- | --- |
@@ -77,7 +77,11 @@ comparisons:
 
 The unsaved comparison is available for listed files with a modified text buffer.
 The preview starts with unsaved edits when available, then unstaged changes, then
-staged changes. Alt-Up / Alt-Down scroll the preview; Ctrl-t hides or shows it.
+staged changes. Alt-Left / Alt-Right also switch comparisons, but some terminals
+use these keys for word movement. Use Alt-p / Alt-n in that case. These controls
+change which versions are compared; they do not move between diff hunks.
+
+Alt-Up / Alt-Down scroll the preview; Ctrl-t hides or shows it.
 
 Enter opens the file. **Alt-o** opens the selected diff in a review buffer,
 including in narrow terminals where the preview is hidden. For deleted files,
