@@ -40,51 +40,8 @@ fn write_selection(
     output.flush()
 }
 
-#[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn default_provider() -> ClipboardProvider {
-    match ClipboardProvider::default() {
-        ClipboardProvider::None => ClipboardProvider::Termcode,
-        provider => provider,
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-pub(crate) fn default_provider() -> ClipboardProvider {
-    use stdx::env::{binary_exists, env_var_is_set};
-
-    fn is_exit_success(program: &str, args: &[&str]) -> bool {
-        std::process::Command::new(program)
-            .args(args)
-            .output()
-            .ok()
-            .and_then(|out| out.status.success().then_some(()))
-            .is_some()
-    }
-
-    if binary_exists("termux-clipboard-set") && binary_exists("termux-clipboard-get") {
-        ClipboardProvider::Termux
-    } else if env_var_is_set("TMUX") && binary_exists("tmux") {
-        ClipboardProvider::Tmux
-    } else if env_var_is_set("WEZTERM_UNIX_SOCKET") && binary_exists("wezterm") {
-        ClipboardProvider::Termcode
-    } else if env_var_is_set("WAYLAND_DISPLAY")
-        && binary_exists("wl-copy")
-        && binary_exists("wl-paste")
-    {
-        ClipboardProvider::Wayland
-    } else if env_var_is_set("DISPLAY") && binary_exists("xclip") {
-        ClipboardProvider::XClip
-    } else if env_var_is_set("DISPLAY")
-        && binary_exists("xsel")
-        // FIXME: check performance of is_exit_success
-        && is_exit_success("xsel", &["-o", "-b"])
-    {
-        ClipboardProvider::XSel
-    } else if binary_exists("win32yank.exe") {
-        ClipboardProvider::Win32Yank
-    } else {
-        ClipboardProvider::Termcode
-    }
+    ClipboardProvider::default_for_terminal()
 }
 
 #[cfg(test)]

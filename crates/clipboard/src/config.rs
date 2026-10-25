@@ -42,11 +42,27 @@ impl Default for ClipboardProvider {
     fn default() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            super::native::default_provider()
+            super::native::default_provider(false)
         }
         #[cfg(target_arch = "wasm32")]
         {
             Self::None
+        }
+    }
+}
+
+impl ClipboardProvider {
+    /// Select a default when the frontend can write OSC 52 clipboard sequences.
+    /// Native providers retain their platform precedence, including terminal-specific
+    /// detection; OSC 52 is the fallback when native access is unavailable.
+    pub fn default_for_terminal() -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let provider = super::native::default_provider(true);
+        #[cfg(target_arch = "wasm32")]
+        let provider = Self::None;
+        match provider {
+            Self::None => Self::Termcode,
+            provider => provider,
         }
     }
 }
