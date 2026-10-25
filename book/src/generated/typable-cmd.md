@@ -97,12 +97,12 @@
 | `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff` | Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
-| `:git-history`, `:vcs-history` | Browse repository commit history. Select a commit, then a file to review; Alt-a offers merge-parent and historical-version actions. |
-| `:file-history`, `:git-file-history` | Browse first-parent history of the current file across renames. Enter reviews the selected change; Alt-a opens version, buffer comparison, and merge-parent actions. |
-| `:diff-refresh` | Refresh the current review buffer from Git and the source buffer. |
+| `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
+| `:file-history`, `:git-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:diff-refresh` | Refresh the current diff. Historical comparisons keep their original revisions and buffer contents. |
 | `:diff-engine` | Toggle line or syntax comparison for the current review snapshot. |
-| `:diff-open-source` | Jump to the selected review row in the matching source buffer. |
-| `:diff-open-file` | Open the current source file without applying review line numbers. |
+| `:diff-open-source` | Open the source at the selected diff line. |
+| `:diff-open-file` | Open today's file from a diff review. |
 | `:restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |

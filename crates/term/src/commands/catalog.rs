@@ -1559,7 +1559,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "git-history",
         aliases: &["vcs-history"],
-        doc: "Browse repository commit history. Select a commit, then a file to review; Alt-a offers merge-parent and historical-version actions.",
+        doc: "Browse repository commits. Select a commit, then a file to review its changes.",
         fun: super::vcs::typed::git_history,
         completer: CommandCompleter::none(),
         signature: Signature {positionals:(0,Some(0)),..Signature::DEFAULT},
@@ -1567,7 +1567,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "file-history",
         aliases: &["git-file-history"],
-        doc: "Browse first-parent history of the current file across renames. Enter reviews the selected change; Alt-a opens version, buffer comparison, and merge-parent actions.",
+        doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons.",
         fun: super::vcs::typed::file_history,
         completer: CommandCompleter::none(),
         signature: Signature {positionals: (0,Some(0)), ..Signature::DEFAULT},
@@ -1575,7 +1575,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-refresh",
         aliases: &[],
-        doc: "Refresh the current review buffer from Git and the source buffer.",
+        doc: "Refresh the current diff. Historical comparisons keep their original revisions and buffer contents.",
         fun: super::vcs::typed::diff_refresh,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1591,7 +1591,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-open-source",
         aliases: &[],
-        doc: "Jump to the selected review row in the matching source buffer.",
+        doc: "Open the source at the selected diff line.",
         fun: super::vcs::typed::diff_open_source,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1599,7 +1599,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-open-file",
         aliases: &[],
-        doc: "Open the current source file without applying review line numbers.",
+        doc: "Open today's file from a diff review.",
         fun: super::vcs::typed::diff_open_file,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },

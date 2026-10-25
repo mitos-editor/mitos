@@ -1,6 +1,7 @@
 # Version control
 
-Mitos provides Git change indicators, navigation, and commit information while you edit.
+Use Git in Mitos to review changes, stage files, browse history, and see who last
+changed a line.
 
 ## Blame details
 
@@ -50,119 +51,111 @@ Available placeholders are:
 
 ## Reviewing changes
 
-Run `:show-change`, press `Space-i`, or choose `show_change` from the command palette
-to inspect the change at the current line. The popup shows removed and added lines
-with context and source line numbers. It compares `HEAD` with the current buffer,
-including unsaved edits.
+Press `Space i` or run `:show-change` to inspect the change at the current line.
+The popup compares `HEAD` with the current buffer, including unsaved edits, and
+shows added and removed lines with context and line numbers.
 
-Use `Ctrl-d` / `Ctrl-u` or Page Down / Page Up to scroll. Left / Right scroll
-horizontally. Close with Escape. Vertical scrolling and closing follow `[keys.popup]`;
-horizontal scrolling follows `[keys.diff]`.
+Use `Ctrl-d` / `Ctrl-u` or Page Down / Page Up to scroll, Left / Right to scroll
+horizontally, and Escape to close. Remap scrolling and closing under
+`[keys.popup]`, and horizontal scrolling under `[keys.diff]`.
 
-The changed-file picker (`Space-g`) has separate **staged** and **unstaged** columns.
-Each path appears once, including files with both kinds of changes. Staged new files
-are labeled `added`; files not yet added to Git are labeled `untracked`.
+### Changed files
 
-The preview shows a diff rather than the file's contents. Use Alt-Left / Alt-Right
-to switch comparisons:
+Press `Space g` to browse changed files. The picker has separate **staged** and
+**unstaged** columns. Each path appears once, including files with both kinds of
+changes. Staged new files are labeled `added`; files not yet added to Git are
+labeled `untracked`.
+
+The preview shows the selected file's diff. Use Alt-Left / Alt-Right to switch
+comparisons:
 
 | Comparison | Before | After |
 | --- | --- | --- |
-| Staged | `HEAD` | Git index |
-| Unstaged | Git index | File on disk |
-| Unsaved | Git index | Current buffer, including unsaved edits |
+| Staged | `HEAD` | Staged version (Git index) |
+| Unstaged | Staged version | File on disk |
+| Unsaved | Staged version | Current buffer, including unsaved edits |
 
-For a file listed by Git, the unsaved comparison is available when it has a modified
-text buffer.
-The initial comparison shows unsaved edits when available, then unstaged changes,
-then staged changes.
+The unsaved comparison is available for listed files with a modified text buffer.
+The preview starts with unsaved edits when available, then unstaged changes, then
+staged changes. Alt-Up / Alt-Down scroll the preview; Ctrl-t hides or shows it.
 
-Alt-Up / Alt-Down scroll the preview. `Alt-o` opens the selected comparison in a
-review buffer, including in narrow terminals where the preview pane is hidden.
-The picker closes and is retained for `Space-'`. Initially Enter opens the file;
-for a deleted file, it opens a review instead. After opening a review, the retained
-picker opens further selections as reviews too. Ctrl-v / Ctrl-s open them in a
-vertical / horizontal split. Opening a diff captures a snapshot; refresh or reopen
-it to see subsequent changes.
+Enter opens the file. **Alt-o** opens the selected diff in a review buffer,
+including in narrow terminals where the preview is hidden. For deleted files,
+Enter also opens a review. After opening a review, `Space '` restores the picker
+and Enter opens further selections as reviews. Use Ctrl-v / Ctrl-s to open them
+in a vertical / horizontal split.
+
+Picker controls can be remapped under `[keys.picker]`. Repository changes refresh
+rows and previews while keeping the query and selected file.
 
 ### Review buffers
 
-Run `:diff` or choose `diff` from the command palette to review all changes in the
-current file against `HEAD`, including unsaved edits. Use `:diff staged` for
-`HEAD` versus the index, `:diff unstaged` for the index versus disk, or
-`:diff buffer` for the index versus the open buffer. These comparisons also work
-in a repository without an initial commit. For deleted files, open the review from
-the changed-file picker.
+Run `:diff` to compare the current file with `HEAD`, including unsaved edits.
+Choose another comparison with:
 
-Reviews are ordinary editor buffers with read-only content. Use your normal
-movement, search, selection, yank, wrapping, scrolling, and view commands.
-`Space-'` reopens the last picker; select another file and use Ctrl-v / Ctrl-s to
-review it alongside the first. `Ctrl-w v` / `Ctrl-w s` split the current review.
-Each view has its own cursor and viewport. Reviews remain in the buffer picker,
-and `Ctrl-o` returns through the normal jump history. Close a review with the
-usual buffer or view commands.
+| Command | Comparison |
+| --- | --- |
+| `:diff head` | `HEAD` against the current buffer (the default) |
+| `:diff staged` | `HEAD` against the staged version |
+| `:diff unstaged` | Staged version against the file on disk |
+| `:diff buffer` | Staged version against the current buffer |
 
-The gutter shows the original and new line numbers and a `+` or `−` change marker.
-Added and removed rows have a background highlight across the view. Hunk headers
-separate changes with their source ranges. Buffer names show the source filename
-and comparison, for example `editor.rs [diff: staged]`. Counts, engine, and loading
-state appear in the statusline. Tabs include directories when filenames collide;
-separate snapshots of the same comparison receive stable `#2`, `#3` suffixes.
-Use the existing `[g` / `]g` change motions to move between
-hunks (`[G` / `]G` for the first / last).
+These commands also work before the repository's first commit. For deleted
+files, open the review from the changed-file picker.
 
-Review buffers use the source language's syntax colors with either comparison
-engine. Removed lines use the original file's syntax; added and context lines use
-the updated file's syntax. Multiline constructs and embedded languages keep their
-full source context, even outside the displayed hunks. Theme changes apply to open
-reviews. Files without a usable grammar retain plain diff highlighting.
-Changed-token styles overlay the syntax colors; themes can use background or
-modifier-only `diff.plus.word` / `diff.minus.word` styles to retain token foregrounds.
+Reviews open as read-only buffers. Use normal movement, search, selection, yank,
+wrapping, and view commands. `Ctrl-w v` / `Ctrl-w s` split the current review;
+`Space '` reopens the last picker so you can open another diff alongside it.
+Reviews appear in the buffer picker. Use `Ctrl-o` to return through the jumplist
+and the usual buffer or view commands to close them.
+
+The gutter shows the old and new line numbers and a `+` or `−` marker. Added and
+removed lines have a background highlight and keep the source language's syntax
+colors. Hunk headers separate groups of changes. Use `[g` / `]g` to move between
+hunks, or `[G` / `]G` for the first / last hunk.
+
+Buffer names show the filename and comparison, for example
+`editor.rs [diff: staged]`. The statusline shows change counts, the comparison
+engine, and whether the review is loading.
 
 | Command | Action |
 | --- | --- |
 | Enter, `:diff-open-source` | Jump to the selected source location |
-| `:diff-open-file` | Open the current source file without snapshot line numbers |
-| `:diff-refresh` | Capture current Git state and buffer contents |
-| `:diff-engine` | Switch line / syntax comparison for the captured source |
-| `:diff staged`, `:diff unstaged`, `:diff buffer`, `:diff head` | Open another comparison |
+| `:diff-open-file` | Open today's file without jumping to a diff line |
+| `:diff-refresh` | Update the review with current Git state and buffer contents |
+| `:diff-engine` | Switch between line and syntax comparison |
 
-The command palette also provides `diff_refresh`, `diff_toggle_engine`,
+An open review keeps the contents it compared until you refresh it. Refreshing
+updates every view of that review; other review buffers keep their own contents.
+Switching the engine compares the same contents. If the source has changed since
+opening the review, refresh before jumping to a source line, or use
+`:diff-open-file` to open the current file.
+
+The command palette provides `diff`, `diff_refresh`, `diff_toggle_engine`,
 `diff_open_source`, and `diff_open_file`. Bind these through the normal editor
-keymaps. `[keys.diff]` applies to compact diff popups.
+keymaps. `[keys.diff]` controls compact diff popups.
 
-Refreshing a review updates that buffer in all its views, mapping their selections
-and viewport anchors through the change. Separate review buffers retain independent
-snapshots. Engine switches reuse the captured source. Enter requires the live
-source buffer to match the snapshot's new side; removed rows jump to their deletion
-boundary. Use `:diff-open-file` when contents differ. Missing files are never
-recreated by navigation.
-
-Reviews have no file identity, unsaved modifications, or editable undo history.
-Edits, reload, and writes (including `:write!` with a filename) are rejected.
-Staging and stash actions remain in the changed-file picker.
-
-Picker controls can be remapped under `[keys.picker]`. Repository changes refresh
-picker rows and previews while preserving the query and selected path. File watching
-and polling follow the editor's file settings.
-
-Reviewing never saves buffers or changes Git's index. Binary files, submodules,
-and unresolved index conflicts show explanatory messages. Inputs are limited to
-10 MiB and 200,000 lines per side; very large rendered diffs are truncated with a
-notice.
+Reviewing does not save buffers or stage changes. Use the changed-file picker for
+[Git actions](#git-picker-actions). Binary files, submodules, and unresolved index
+conflicts show an explanation instead of a text diff. Very large files may be
+rejected, or their diffs shortened with a notice.
 
 ### Syntax-aware review
 
-Line comparison is the default. To use Tree-sitter for review views, set this in
-`config.toml`:
+Line comparison is the default. Syntax comparison highlights changed parts of
+code while matching code across line breaks, which can make changes easier to
+read when an expression has also been reformatted. Syntax highlighting is
+available with either engine.
+
+To enable syntax comparison, add this to `config.toml`:
 
 ```toml
 [editor.diff]
 engine = "syntax"
 ```
 
-Use `"auto"` to choose syntax comparison for files with an available grammar and
-line comparison for other files. A language can override the global choice in
+Use `"auto"` to choose syntax comparison for supported languages and line
+comparison for other files. A language can override the global choice in
 `languages.toml`:
 
 ```toml
@@ -171,44 +164,28 @@ name = "rust"
 diff-engine = "syntax"
 ```
 
-Use `:diff-engine` in a review buffer or **Alt-d** in the changed-file picker or a
-diff popup to switch between line and syntax comparison for that snapshot.
-The review statusline or popup heading shows the active engine. Remap popup and picker
-actions with `toggle_engine` under `[keys.diff]` and `toggle_diff_engine` under
-`[keys.picker]`. Review buffer actions use the normal editor keymaps.
+Use `:diff-engine` in a review buffer or **Alt-d** in a diff preview or popup to
+switch engines. The review statusline or popup heading shows the active engine.
+Remap the picker action as `toggle_diff_engine` under `[keys.picker]`, or the popup
+action as `toggle_engine` under `[keys.diff]`.
 
-Syntax comparison uses the file's existing root grammar to match node kinds and
-literal tokens across lines. Changed tokens are emphasized; matching text uses
-the normal text color. This helps distinguish an expression change from surrounding
-line wrapping. String contents, comments, and changes to syntax structure still
-participate in comparison. Embedded languages use the root grammar's representation.
+Both engines show the original added and removed lines, whitespace, line numbers,
+and counts. A `layout only` label means the syntax matched despite changes to the
+text's layout. Comments and string contents still take part in comparison.
+Change navigation and `:restore-change` use line changes with either engine.
+Syntax comparison does not determine whether two pieces of code behave the same
+or identify moved code.
 
-The original removed and added lines, source numbers, whitespace, and counts remain
-visible. A `layout only` review statusline or popup heading means the syntax matched while the text changed.
-Diff gutters, hunk navigation, and `:restore-change` always use exact line hunks.
-Syntax comparison does not infer semantic equivalence or identify moved code.
-
-Missing or incompatible grammars, parse errors, and exhausted comparison budgets
-fall back to line review. A notice explains the fallback; `auto` silently chooses
-line mode for files without a language or grammar. Syntax inputs are limited to
-512 KiB per side and 30,000 tree events per side, with a checked 300 ms budget for
-the comparison. Parsing and traversal can be canceled; the bounded matching step
-finishes before its result is accepted or discarded.
-
-Toggling an open popup compares the same captured snapshots. Reopen it to pick up
-new file contents or language configuration. Line and syntax presentations are
-cached together, so switching back does not repeat matching. Picker previews reuse
-their captured text when only the engine changes; file or language changes refresh
-the comparison.
-
-The standard build includes syntax comparison. Builds made without the
-`syntax-diff` Cargo feature retain line review and report that the syntax provider
-is unavailable when explicitly requested.
+Syntax comparison needs an available language grammar. If the grammar is missing,
+the code cannot be parsed, or the comparison is too large, Mitos falls back to
+line comparison. A notice explains the fallback; `auto` uses line comparison
+without a notice for unsupported languages.
 
 ## Git picker actions
 
 In the changed-file picker (`Space g`), press **Alt-a** for available Git actions.
-Actions use the selected file's repository; with no selection, they use the picker root.
+Actions use the selected file's repository, or the picker's repository when no
+file is selected.
 
 | Key | Action |
 | --- | --- |
@@ -217,36 +194,38 @@ Actions use the selected file's repository; with no selection, they use the pick
 | `Alt-z` | Stash all repository changes, after confirmation |
 | `Alt-l` | Browse stashes |
 
-Staging does not save unsaved buffer edits. Staging and unstaging affect the entire
-file, including both paths of a rename. Results refresh without losing the query
-or jumping back to the first row.
+Staging does not save unsaved buffer edits. Staging and unstaging affect the
+entire file, including both paths of a rename. The picker keeps its query and
+selected file after each action.
 
 Stashing saves staged, unstaged, and untracked files throughout the selected
-repository, then restores its working tree to `HEAD`. Ignored files and changes
-inside submodule working trees are excluded. Save or close modified buffers in
-that repository first. Mitos suspends file saves while Git runs, reloads clean
-buffers afterwards, and preserves edits made during the operation. Preserved
-edits may need `:w!` to replace the changed disk version.
+repository, then restores its working tree to `HEAD`. It excludes ignored files
+and changes inside submodules. Save or close modified buffers in that repository
+first. File saves pause while Git runs. Mitos reloads clean buffers afterwards
+and keeps edits made during the operation; those edits may need `:w!` to replace
+the changed file on disk.
 
-**Alt-l**, or the command palette's `git_stash_picker`, lists the newest 500
-stashes. Press **Enter** to browse a stash's saved index, working tree, and
-untracked files, then **Enter** on a file to review its immutable text diff.
-Use **Alt-Enter** to keep a picker open while inspecting. In the stash picker,
-**Alt-a** opens its action menu:
+### Stashes
+
+Press **Alt-l** in the changed-file picker or choose `git_stash_picker` from the
+command palette to browse the newest 500 stashes. Press Enter to browse a stash's
+saved staged version, working tree, and untracked files, then Enter on a file to
+review its saved changes. Alt-Enter keeps a picker open while inspecting a selection.
+
+In the stash picker, **Alt-a** opens the action menu:
 
 | Key | Action |
 | --- | --- |
 | `Alt-s` | Apply the stash and keep it |
 | `Alt-i` | Apply the stash, restore its staged changes, and keep it |
 
-Application requires confirmation and clean editor buffers. The selected stash
-is identified by its commit, so later additions to the stash list cannot change
-which stash gets applied. Git may leave conflicts to resolve; the stash is always
-retained and Mitos refreshes the resulting files and index even on failure.
+Applying a stash requires confirmation and saved or closed modified buffers.
+Git may leave conflicts to resolve. The stash is kept even if applying it fails,
+and Mitos refreshes the resulting files and staged changes.
 
 Git actions require the `git` executable on `PATH` and workspace Git trust
-(`:workspace-trust`). Review and status browsing retain their existing trust policy.
-Remap these actions in [`keys.git-picker` and `keys.stash-picker`](remapping.md#component-keys).
+(`:workspace-trust`). Remap these actions under
+[`keys.git-picker` and `keys.stash-picker`](./remapping.md#component-keys).
 
 ## Change navigation and restoration
 
@@ -254,54 +233,66 @@ Diff gutters compare the buffer with `HEAD`, including unsaved edits.
 
 | Command | Default keys | Action |
 | --- | --- | --- |
-| `show_change` / `:show-change` | `Space-i` | Inspect the current change |
+| `show_change` / `:show-change` | `Space i` | Inspect the current change |
 | `goto_next_change` / `goto_prev_change` | `]g` / `[g` | Select the next / previous change |
 | `goto_first_change` / `goto_last_change` | `[G` / `]G` | Select the first / last change |
 | `changed_file_picker` | `Space g` | Browse changed files within the workspace |
 | `changed_file_picker_in_repository` | Unbound | Browse changed files throughout the repository |
 | `:restore-change` | Unbound | Restore changes intersecting the selections from `HEAD` |
 
-Restoring a change replaces whole intersecting hunks in the current buffer. Use `u` to undo it. The command does not save the file or modify Git's staging area.
+Restoring a change replaces whole intersecting hunks in the current buffer. Use
+`u` to undo it. The command does not save the file or change Git's staging area.
 
 ## Git history
 
-Use `:file-history` (or `git_file_history` in the command palette) to browse the
-current file's first-parent history, following Git's rename detection. The selected
-commit's diff appears in the preview pane. Use **Ctrl-t** to hide or show it,
-**Alt-up/down** to scroll, and **Alt-d** to switch the diff engine. Press
-**Enter** to review the selected commit against its first parent. **Ctrl-v** and
-**Ctrl-s** open reviews in splits. **Space-'** restores the browser with its query
-and selection, so you can open another comparison alongside it.
+Run `:file-history` to browse commits that changed the current file, following
+renames detected by Git. The preview shows each selected commit's diff against
+its first parent. Use Ctrl-t to hide or show the preview, Alt-Up / Alt-Down to
+scroll, and Alt-d to switch the diff engine.
+
+Press **Enter** to open the diff in a review buffer. Ctrl-v / Ctrl-s open it in a
+vertical / horizontal split. `Space '` restores the picker with its query and
+selection, so you can open another comparison alongside it.
 
 **Alt-a** opens actions for the selected commit:
 
-- Open its historical version in a read-only source buffer.
-- Compare that revision with the original file buffer, including unsaved edits.
-- Review a merge against a different parent.
+- Open the version of the file saved in that commit.
+- Compare it with the file buffer you started from, including unsaved edits.
+- Compare a merge commit with a different parent.
 
-A comparison captures its sources when requested. Editing the original buffer or
-moving a branch afterwards does not change the open comparison; `:diff-refresh`
-retries those same historical objects and captured buffer text. Open a new
-comparison to capture newer edits.
+File history follows the first parent of merge commits. To browse commits from
+merged branches as well, use repository history.
+
+### Repository history
+
+Run `:git-history` (alias `:vcs-history`) to browse repository commits. Select a
+commit, then a changed file to preview and review its diff. Merges compare with
+their first parent by default; use Alt-a to choose another parent.
+
+In the changed-file browser, **Alt-h** returns to the commit browser and restores
+its query and selection. Alt-a also offers historical versions and comparisons
+with an open buffer for that file. `Space '` restores the last picker after
+opening a review.
+
+Repository history uses the current file's repository, or the current directory
+when no file is open. Both history commands are also available in the command
+palette as `git_file_history` and `git_history`.
+
+### Older versions and comparisons
+
+Historical versions open in read-only buffers with syntax highlighting. In a
+historical diff, Enter on an added or unchanged line opens that commit's version;
+on a removed line it opens the parent version. `:diff-open-file` opens today's
+file instead.
+
+An open historical comparison keeps the revisions and any unsaved buffer text
+from when you requested it. `:diff-refresh` reloads that same comparison. Open a
+new comparison to include newer edits. Browsing history does not check out
+revisions or change files or staged changes.
 
 History loads 100 commits at a time. Select **Load 100 older commits…** to continue;
-clear the query if that row is filtered out. Each browser shows at most 5000
-commits. Loading stops when the browser closes and resumes safely when restored.
-Root commits compare with an empty source. Missing objects, binary files, and
-unsupported source types produce an error rather than an incomplete text diff.
+clear the query if that row is hidden by your filter. Each browser shows at most
+5000 commits, and filtering searches only the commits already loaded.
 
-In historical reviews, **Enter** on an added or context row opens that revision;
-on a removed row it opens the parent version. **:diff-open-file** separately opens
-today's file without applying historical line numbers. These source buffers have
-normal syntax highlighting and cannot be edited or written, even with `:write!`.
-History reads do not check out revisions or change the working tree or index.
-Remap the action menu through `keys.history-picker`; shared picker bindings apply.
-
-Use `:git-history` (alias `:vcs-history`, or `git_history` in the command palette)
-for repository history. Select a commit, then a changed file to preview its diff
-against the selected parent and open its native review. The file browser's **Alt-h** action returns to its parent browser with the
-query and selection preserved. **Space-'** restores the most recently used
-browser after opening a review. **Alt-a** provides version and comparison actions
-for files (buffer comparison requires an open matching file) and explicit parent
-choices for merge commits. Repository history uses
-the current file's repository, or the current directory when no file is open.
+Remap history actions under `[keys.history-picker]`, which inherits shared
+picker bindings. See [Component keys](./remapping.md#component-keys).

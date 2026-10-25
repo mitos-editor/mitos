@@ -139,6 +139,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
+| `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
@@ -148,10 +149,11 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
-`keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`, and
-`keys.stash-picker` inherit `keys.picker`. Picker-specific bindings take priority
-over shared picker bindings, including ones from project configuration. The
-quicklist picker also binds `Ctrl-x` to `remove_entry` by default.
+`keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
+`keys.stash-picker`, and `keys.history-picker` inherit `keys.picker`.
+Picker-specific bindings take priority over shared picker bindings, including
+ones from project configuration. The quicklist picker also binds `Ctrl-x` to
+`remove_entry` by default.
 
 `close_buffer` closes the selected buffer while keeping the picker open. It
 waits for pending saves and refuses to discard unsaved changes. After closing,

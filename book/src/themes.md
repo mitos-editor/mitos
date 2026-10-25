@@ -287,18 +287,21 @@ See also [highlighting discussion][#2380]
 - `diff` - version control changes
   - `plus` - additions
     - `gutter` - gutter indicator
-    - `line` - added-row background in diff views (optional; otherwise derived from the theme)
-    - `word` - changed-token style in review buffers (optional; otherwise uses `diff.plus`)
+    - `line` - added-line background in diff views (optional; otherwise derived from the theme)
+    - `word` - changed text in review buffers (optional; otherwise uses `diff.plus`)
   - `minus` - deletions
     - `gutter` - gutter indicator
-    - `line` - removed-row background in diff views (optional; otherwise derived from the theme)
-    - `word` - changed-token style in review buffers (optional; otherwise uses `diff.minus`)
+    - `line` - removed-line background in diff views (optional; otherwise derived from the theme)
+    - `word` - changed text in review buffers (optional; otherwise uses `diff.minus`)
   - `delta` - modifications
     - `moved` - renamed or moved files/changes
     - `conflict` - merge conflicts
     - `gutter` - gutter indicator
 
 - `embedded` - Interpolated expressions embedded in a string template (`${…}`)
+
+To keep syntax colors visible in review buffers, give `diff.plus.word` and
+`diff.minus.word` a background or text modifier without setting a foreground.
 
 #### Interface
 
