@@ -47,11 +47,12 @@ fn source_state(editor: &Editor, document: DocumentId, workspace: bool) -> Optio
 
 pub(super) fn symbol_key(
     item: &SymbolInformationItem,
-) -> (Option<PathBuf>, String, String, Option<String>) {
+) -> (Option<PathBuf>, String, serde_json::Value, Option<String>) {
     (
-        item.location.uri.as_path().map(Path::to_owned),
+        item.symbol.location.uri.as_path().map(Path::to_owned),
         item.symbol.name.clone(),
-        format!("{:?}", item.symbol.kind),
+        // Upstream SymbolKind has no Hash implementation; use its numeric wire value.
+        serde_json::to_value(item.symbol.kind).expect("symbol kinds serialize as integers"),
         item.symbol.container_name.clone(),
     )
 }

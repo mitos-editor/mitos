@@ -1,6 +1,5 @@
 //! Workspace symbol providers captured independently of picker presentation.
 
-use lsp_client::UriExt as _;
 use std::{collections::HashSet, sync::Weak};
 
 use anyhow::{ensure, Context as _, Result};
@@ -9,18 +8,12 @@ use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, Strea
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, OffsetEncoding};
 
-use super::navigation::Location;
+use super::symbols::Symbol;
 use crate::{
     callbacks::EditorCallbackSender,
     events::{ConfigDidChange, LanguageServerExited},
     DocumentId, Editor,
 };
-
-/// A normalized symbol and a location in the originating server's position encoding.
-pub struct WorkspaceSymbol {
-    pub symbol: lsp::SymbolInformation,
-    pub location: Location,
-}
 
 /// Providers belong to the document that opened the session, even if focus moves.
 /// Frontends own query replacement and drop the old task when a query is superseded.
@@ -75,11 +68,11 @@ impl WorkspaceSymbolsSession {
 /// Streams complete provider responses as they arrive, without borrowing the editor.
 pub struct WorkspaceSymbolsTask {
     lifetime: TaskHandle,
-    requests: FuturesUnordered<BoxFuture<'static, lsp_client::Result<Vec<WorkspaceSymbol>>>>,
+    requests: FuturesUnordered<BoxFuture<'static, lsp_client::Result<Vec<Symbol>>>>,
 }
 
 impl WorkspaceSymbolsTask {
-    pub async fn next_batch(&mut self) -> Option<lsp_client::Result<Vec<WorkspaceSymbol>>> {
+    pub async fn next_batch(&mut self) -> Option<lsp_client::Result<Vec<Symbol>>> {
         event::cancelable_future(self.requests.next(), &self.lifetime)
             .await
             .flatten()
@@ -89,9 +82,20 @@ impl WorkspaceSymbolsTask {
 fn normalize_symbols(
     response: Option<lsp::WorkspaceSymbolResponse>,
     encoding: OffsetEncoding,
-) -> Vec<WorkspaceSymbol> {
-    let symbols = match response {
-        Some(lsp::WorkspaceSymbolResponse::Flat(symbols)) => symbols,
+) -> Vec<Symbol> {
+    match response {
+        Some(lsp::WorkspaceSymbolResponse::Flat(symbols)) => symbols
+            .into_iter()
+            .filter_map(|symbol| {
+                Symbol::from_lsp(
+                    symbol.name,
+                    symbol.kind,
+                    symbol.container_name,
+                    symbol.location,
+                    encoding,
+                )
+            })
+            .collect(),
         Some(lsp::WorkspaceSymbolResponse::Nested(symbols)) => symbols
             .into_iter()
             .filter_map(|symbol| {
@@ -100,39 +104,17 @@ fn normalize_symbols(
                     log::warn!("discarding workspace symbol without a location range");
                     return None;
                 };
-                #[allow(deprecated)]
-                Some(lsp::SymbolInformation {
-                    name: symbol.name,
-                    kind: symbol.kind,
-                    tags: symbol.tags,
-                    deprecated: None,
-                    container_name: symbol.container_name,
+                Symbol::from_lsp(
+                    symbol.name,
+                    symbol.kind,
+                    symbol.container_name,
                     location,
-                })
+                    encoding,
+                )
             })
             .collect(),
         None => Vec::new(),
-    };
-    symbols
-        .into_iter()
-        .filter_map(|symbol| {
-            let uri = match symbol.location.uri.to_editor_uri() {
-                Ok(uri) => uri,
-                Err(error) => {
-                    log::warn!("discarding symbol with invalid URI: {error}");
-                    return None;
-                }
-            };
-            Some(WorkspaceSymbol {
-                location: Location {
-                    uri,
-                    range: symbol.location.range,
-                    offset_encoding: encoding,
-                },
-                symbol,
-            })
-        })
-        .collect()
+    }
 }
 
 impl Editor {
@@ -188,6 +170,7 @@ pub(crate) fn register_hooks() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsp_client::UriExt as _;
     use serde_json::json;
 
     #[test]
@@ -200,7 +183,7 @@ mod tests {
         ])).unwrap();
         let items = normalize_symbols(Some(response), OffsetEncoding::Utf8);
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].symbol.name, "valid");
+        assert_eq!(items[0].name, "valid");
         assert_eq!(items[0].location.range, range);
         assert_eq!(items[0].location.offset_encoding, OffsetEncoding::Utf8);
     }
@@ -219,6 +202,6 @@ mod tests {
             OffsetEncoding::Utf16,
         );
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].symbol.name, "resolved");
+        assert_eq!(items[0].name, "resolved");
     }
 }

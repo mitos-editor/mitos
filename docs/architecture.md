@@ -1056,8 +1056,9 @@ and followups before reporting an error.
 
 The LSP client uses upstream `lsp-types` wire definitions. `lsp::UriExt` adapts
 protocol URIs through `stdx` for the editor's RFC3986 file encoding and path
-conversion. Symbol icon names and supported-kind enumeration belong to the client
-adapter rather than a protocol fork. Incoming URI syntax is validated by the upstream
+conversion. Symbol queries expose one normalized editor location per symbol. Icon names
+belong to the frontend; the client advertises the supported wire kinds without
+extending protocol types. Incoming URI syntax is validated by the upstream
 wire type; editor navigation additionally requires an absolute URI.
 
 ## Protocol and repository integrations

@@ -154,16 +154,12 @@ async fn document_symbol_queries_preserve_hierarchy_locations_and_origin() -> an
         .find(|symbol| symbol.symbol.name == "nested")
         .unwrap();
     assert_eq!(nested.children[0].symbol.name, "child");
-    assert_eq!(nested.location.range.end.character, 1);
+    assert_eq!(nested.symbol.location.range.end.character, 1);
     let flat = symbols
         .iter()
         .find(|symbol| symbol.symbol.name == "flat")
         .unwrap();
-    assert!(flat.location.uri.to_string().ends_with(".other"));
-    assert_eq!(
-        flat.location.uri.to_url().unwrap(),
-        stdx::Url::parse(flat.symbol.location.uri.as_str()).unwrap()
-    );
+    assert!(flat.symbol.location.uri.to_string().ends_with(".other"));
 
     let replaced = app
         .editor

@@ -34,7 +34,10 @@ pub struct Location {
 }
 
 impl Location {
-    fn from_lsp(location: lsp::Location, offset_encoding: OffsetEncoding) -> Option<Self> {
+    pub(super) fn from_lsp(
+        location: lsp::Location,
+        offset_encoding: OffsetEncoding,
+    ) -> Option<Self> {
         match location.uri.to_editor_uri() {
             Ok(uri) => Some(Self {
                 uri,

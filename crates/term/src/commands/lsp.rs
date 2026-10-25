@@ -1,5 +1,5 @@
 use super::{navigation::push_jump, Context};
-use crate::ui::lsp::symbol_kind_scope;
+use crate::ui::lsp::{symbol_kind_icon_name, symbol_kind_scope};
 use crate::{
     compositor::Compositor,
     job::Callback,
@@ -8,7 +8,6 @@ use crate::{
 use editor_core::Selection;
 use futures_util::FutureExt;
 use language_config::LanguageServerFeature;
-use lsp_client::SymbolKindExt as _;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 use std::path::Path;
 use stdx::path;
@@ -118,8 +117,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
 
 #[derive(PartialEq)]
 struct SymbolInformationItem {
-    location: Location,
-    symbol: lsp::SymbolInformation,
+    symbol: view::features::symbols::Symbol,
     tree_prefix: String,
 }
 
@@ -286,7 +284,7 @@ fn symbol_kind_icon(
     ICONS
         .load()
         .kind()
-        .get(item.symbol.kind.as_str())
+        .get(symbol_kind_icon_name(item.symbol.kind))
         .map(|icon| ui::icon_span(icon.with_no_left_padding()))
 }
 
@@ -317,7 +315,7 @@ fn symbol_container_cell<'a>(
 }
 
 fn symbol_path_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
-    let path = if let Some(path) = item.location.uri.as_path() {
+    let path = if let Some(path) = item.symbol.location.uri.as_path() {
         path::get_relative_path(path).to_string_lossy().to_string()
     } else {
         item.symbol.location.uri.to_string()
@@ -345,7 +343,6 @@ fn nested_symbol_to_flat(
 
     list.push(SymbolInformationItem {
         symbol: symbol.symbol,
-        location: symbol.location,
         tree_prefix,
     });
 
@@ -363,27 +360,20 @@ fn nested_symbol_to_flat(
 #[cfg(test)]
 mod symbol_picker_tests {
     use super::*;
-    use lsp_client::UriExt as _;
     use theme::DEFAULT_THEME;
 
     fn symbol_information_item() -> SymbolInformationItem {
-        let uri = lsp::Url::parse("file:///tmp/main.rs").unwrap();
-        #[allow(deprecated)]
-        let symbol = lsp::SymbolInformation {
-            name: "main".into(),
-            kind: lsp::SymbolKind::FUNCTION,
-            tags: None,
-            deprecated: None,
-            location: lsp::Location::new(uri.clone(), lsp::Range::default()),
-            container_name: Some("crate".into()),
-        };
         SymbolInformationItem {
-            location: Location {
-                uri: uri.to_editor_uri().unwrap(),
-                range: lsp::Range::default(),
-                offset_encoding: OffsetEncoding::Utf16,
+            symbol: view::features::symbols::Symbol {
+                name: "main".into(),
+                kind: lsp::SymbolKind::FUNCTION,
+                container_name: Some("crate".into()),
+                location: Location {
+                    uri: std::path::PathBuf::from("/tmp/main.rs").into(),
+                    range: lsp::Range::default(),
+                    offset_encoding: OffsetEncoding::Utf16,
+                },
             },
-            symbol,
             tree_prefix: String::new(),
         }
     }
@@ -396,7 +386,6 @@ mod symbol_picker_tests {
         item.symbol.name = name.into();
         view::features::document_symbols::DocumentSymbol {
             symbol: item.symbol,
-            location: item.location,
             children: children.into_iter().collect(),
         }
     }
@@ -430,6 +419,23 @@ mod symbol_picker_tests {
             path.content.lines[0].spans[0].style,
             DEFAULT_THEME.get("ui.text.directory")
         );
+    }
+
+    #[test]
+    fn unknown_symbol_kinds_have_distinct_stable_keys_without_icons() {
+        let mut first = symbol_information_item();
+        let mut second = symbol_information_item();
+        first.symbol.kind = serde_json::from_value(serde_json::json!(100)).unwrap();
+        second.symbol.kind = serde_json::from_value(serde_json::json!(101)).unwrap();
+        assert_eq!(symbol_kind_icon_name(first.symbol.kind), "");
+        assert_eq!(symbol_kind_icon_name(second.symbol.kind), "");
+        assert_ne!(
+            symbol_updates::symbol_key(&first),
+            symbol_updates::symbol_key(&second)
+        );
+        let original = symbol_updates::symbol_key(&first);
+        first.symbol.location.range.start.line += 1;
+        assert_eq!(symbol_updates::symbol_key(&first), original);
     }
 
     #[test]
@@ -514,14 +520,14 @@ pub fn symbol_picker(cx: &mut Context) {
                 items,
                 picker_data,
                 move |cx, item, action| {
-                    jump_to_location(cx.editor, &item.location, action);
+                    jump_to_location(cx.editor, &item.symbol.location, action);
                 },
             )
             .with_item_key(symbol_updates::symbol_key)
             .with_editor_updates(symbol_updates::document_updates(editor, document, view))
             .with_title("Document Symbols")
-            .with_preview(move |_editor, item| location_to_file_location(&item.location))
-            .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.location))
+            .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
+            .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
             .truncate_start(false);
 
             compositor.push(Box::new(overlaid(picker)))
@@ -562,8 +568,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
                     Ok(items) => {
                         for item in items {
                             injector.push(SymbolInformationItem {
-                                symbol: item.symbol,
-                                location: item.location,
+                                symbol: item,
                                 tree_prefix: String::new(),
                             })?;
                         }
@@ -611,11 +616,11 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
             if !session.load().is_current(cx.editor) {
                 return;
             }
-            jump_to_location(cx.editor, &item.location, action);
+            jump_to_location(cx.editor, &item.symbol.location, action);
         },
     )
-    .with_preview(|_editor, item| location_to_file_location(&item.location))
-    .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.location))
+    .with_preview(|_editor, item| location_to_file_location(&item.symbol.location))
+    .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.symbol.location))
     .with_title("Workspace Symbols")
     .with_dynamic_query(get_symbols, None, cx.jobs)
     .with_item_key(symbol_updates::symbol_key)

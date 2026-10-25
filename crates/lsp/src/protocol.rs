@@ -53,77 +53,35 @@ impl UriExt for lsp::Uri {
     }
 }
 
-/// Stable icon names and the supported wire values, including unknown-kind fallback.
-pub trait SymbolKindExt {
-    fn as_str(&self) -> &'static str;
-    fn all() -> Vec<lsp::SymbolKind>;
-}
-
-impl SymbolKindExt for lsp::SymbolKind {
-    #[inline]
-    fn as_str(&self) -> &'static str {
-        match *self {
-            Self::FILE => "file",
-            Self::MODULE => "module",
-            Self::NAMESPACE => "namespace",
-            Self::PACKAGE => "package",
-            Self::CLASS => "class",
-            Self::METHOD => "method",
-            Self::PROPERTY => "property",
-            Self::FIELD => "field",
-            Self::CONSTRUCTOR => "constructor",
-            Self::ENUM => "enum",
-            Self::INTERFACE => "interface",
-            Self::FUNCTION => "function",
-            Self::VARIABLE => "variable",
-            Self::CONSTANT => "constant",
-            Self::STRING => "string",
-            Self::NUMBER => "number",
-            Self::BOOLEAN => "boolean",
-            Self::ARRAY => "array",
-            Self::OBJECT => "object",
-            Self::KEY => "key",
-            Self::NULL => "null",
-            Self::ENUM_MEMBER => "enum_member",
-            Self::STRUCT => "struct",
-            Self::EVENT => "event",
-            Self::OPERATOR => "operator",
-            Self::TYPE_PARAMETER => "type_param",
-            _ => "",
-        }
-    }
-
-    fn all() -> Vec<Self> {
-        vec![
-            Self::FILE,
-            Self::MODULE,
-            Self::NAMESPACE,
-            Self::PACKAGE,
-            Self::CLASS,
-            Self::METHOD,
-            Self::PROPERTY,
-            Self::FIELD,
-            Self::CONSTRUCTOR,
-            Self::ENUM,
-            Self::INTERFACE,
-            Self::FUNCTION,
-            Self::VARIABLE,
-            Self::CONSTANT,
-            Self::STRING,
-            Self::NUMBER,
-            Self::BOOLEAN,
-            Self::ARRAY,
-            Self::OBJECT,
-            Self::KEY,
-            Self::NULL,
-            Self::ENUM_MEMBER,
-            Self::STRUCT,
-            Self::EVENT,
-            Self::OPERATOR,
-            Self::TYPE_PARAMETER,
-        ]
-    }
-}
+/// Wire values advertised by both document and workspace symbol capabilities.
+pub(crate) const SYMBOL_KINDS: &[lsp::SymbolKind] = &[
+    lsp::SymbolKind::FILE,
+    lsp::SymbolKind::MODULE,
+    lsp::SymbolKind::NAMESPACE,
+    lsp::SymbolKind::PACKAGE,
+    lsp::SymbolKind::CLASS,
+    lsp::SymbolKind::METHOD,
+    lsp::SymbolKind::PROPERTY,
+    lsp::SymbolKind::FIELD,
+    lsp::SymbolKind::CONSTRUCTOR,
+    lsp::SymbolKind::ENUM,
+    lsp::SymbolKind::INTERFACE,
+    lsp::SymbolKind::FUNCTION,
+    lsp::SymbolKind::VARIABLE,
+    lsp::SymbolKind::CONSTANT,
+    lsp::SymbolKind::STRING,
+    lsp::SymbolKind::NUMBER,
+    lsp::SymbolKind::BOOLEAN,
+    lsp::SymbolKind::ARRAY,
+    lsp::SymbolKind::OBJECT,
+    lsp::SymbolKind::KEY,
+    lsp::SymbolKind::NULL,
+    lsp::SymbolKind::ENUM_MEMBER,
+    lsp::SymbolKind::STRUCT,
+    lsp::SymbolKind::EVENT,
+    lsp::SymbolKind::OPERATOR,
+    lsp::SymbolKind::TYPE_PARAMETER,
+];
 
 #[cfg(test)]
 mod tests {
@@ -141,9 +99,11 @@ mod tests {
         let encoded = serde_json::to_value(&location).unwrap();
         let decoded: lsp::Location = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded.uri.to_file_path().unwrap(), path);
+        // Editor URIs normalize Windows short names such as RUNNER~1 in TEMP.
+        let normalized = stdx::path::normalize(&path);
         assert_eq!(
             decoded.uri.to_editor_uri().unwrap().as_path(),
-            Some(path.as_path())
+            Some(normalized.as_path())
         );
     }
 
@@ -197,12 +157,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_symbol_kinds_remain_distinct_and_have_no_icon_name() {
+    fn unknown_symbol_kinds_remain_distinct_and_supported_values_are_complete() {
         let first: lsp::SymbolKind = serde_json::from_value(json!(100)).unwrap();
         let second: lsp::SymbolKind = serde_json::from_value(json!(101)).unwrap();
         assert_ne!(first, second);
-        assert_eq!(first.as_str(), "");
-        let kinds = lsp::SymbolKind::all();
+        let kinds = SYMBOL_KINDS;
         assert_eq!(kinds.len(), 26);
         assert_eq!(
             serde_json::to_value(kinds).unwrap(),

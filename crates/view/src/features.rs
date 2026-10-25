@@ -33,6 +33,7 @@ pub(crate) mod request;
 pub mod shell;
 pub mod signature_help;
 pub mod spelling;
+pub mod symbols;
 pub mod syntax;
 pub mod syntax_symbols;
 pub mod word_index;

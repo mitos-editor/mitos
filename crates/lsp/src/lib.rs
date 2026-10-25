@@ -13,8 +13,7 @@
 //! bug for non-ASCII text.
 //!
 //! Protocol wire types are available under [`lsp`] and intentionally remain in
-//! the upstream `lsp-types` dependency, with editor adapters in [`UriExt`] and
-//! [`SymbolKindExt`].
+//! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
 
 mod client;
 pub mod file_event;
@@ -32,7 +31,7 @@ pub mod lsp {
 }
 
 mod protocol;
-pub use protocol::{SymbolKindExt, UriError, UriExt};
+pub use protocol::{UriError, UriExt};
 use std::collections::HashMap;
 
 use thiserror::Error;
