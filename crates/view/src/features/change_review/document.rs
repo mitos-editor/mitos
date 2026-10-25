@@ -77,7 +77,7 @@ impl Request {
                 request: Arc::new(r),
                 previous,
             },
-            Self::Historical(r) => Work::Historical(r),
+            Self::Historical(r) => Work::Historical(Arc::new(r)),
         }
     }
 }
@@ -143,7 +143,7 @@ impl Document {
 }
 
 enum Work {
-    Historical(super::HistoricalReviewRequest),
+    Historical(Arc<super::HistoricalReviewRequest>),
     Read {
         request: Arc<ReviewRequest>,
         previous: Option<Arc<ReviewSnapshot>>,
@@ -294,7 +294,7 @@ impl Editor {
         }
         let request = match &work {
             Work::Read { request, .. } => Some(Request::Live((**request).clone())),
-            Work::Historical(request) => Some(Request::Historical(request.clone())),
+            Work::Historical(request) => Some(Request::Historical((**request).clone())),
             _ => None,
         };
         let worker = self.handlers.change_review_worker.clone();
