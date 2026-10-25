@@ -4,10 +4,10 @@
 //! edits and filesystem operations remain applied, matching the advertised LSP
 //! `abort` failure-handling capability.
 
+use lsp_client::UriExt as _;
 use std::path::PathBuf;
 
 use crate::language_servers::edits::generate_transaction_from_edits;
-use editor_core::Uri;
 use lsp_client::{lsp, OffsetEncoding};
 
 use crate::editor::ExistingTarget;
@@ -35,7 +35,7 @@ pub enum ApplyEditErrorKind {
         source: crate::document::DocumentOpenError,
     },
     #[error(transparent)]
-    InvalidUrl(#[from] editor_core::uri::UrlConversionError),
+    InvalidUrl(#[from] lsp_client::UriError),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 }
@@ -48,7 +48,7 @@ impl Editor {
         text_edits: Vec<lsp::TextEdit>,
         offset_encoding: OffsetEncoding,
     ) -> Result<(), ApplyEditErrorKind> {
-        let uri = match Uri::try_from(url) {
+        let uri = match url.to_editor_uri() {
             Ok(uri) => uri,
             Err(err) => {
                 log::error!("{err}");
@@ -176,7 +176,7 @@ impl Editor {
         // may no longer be valid.
         match op {
             ResourceOp::Create(op) => {
-                let uri = Uri::try_from(&op.uri)?;
+                let uri = op.uri.to_editor_uri()?;
                 let path = uri.as_path().expect("URIs are valid paths");
                 let options = op.options.as_ref();
                 let existing = ExistingTarget::from_options(
@@ -190,7 +190,7 @@ impl Editor {
                 self.create_path(path, false, existing)?;
             }
             ResourceOp::Delete(op) => {
-                let uri = Uri::try_from(&op.uri)?;
+                let uri = op.uri.to_editor_uri()?;
                 let path = uri.as_path().expect("URIs are valid paths");
                 let ignore_if_not_exists = op
                     .options
@@ -209,9 +209,9 @@ impl Editor {
                 }
             }
             ResourceOp::Rename(op) => {
-                let from_uri = Uri::try_from(&op.old_uri)?;
+                let from_uri = op.old_uri.to_editor_uri()?;
                 let from = from_uri.as_path().expect("URIs are valid paths");
-                let to_uri = Uri::try_from(&op.new_uri)?;
+                let to_uri = op.new_uri.to_editor_uri()?;
                 let to = to_uri.as_path().expect("URIs are valid paths");
                 // Protocol rename requires an existing source; interactive moves
                 // also support documents whose first save has not happened yet.

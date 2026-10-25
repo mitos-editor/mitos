@@ -1,6 +1,7 @@
 //! Language-server process startup, initialization, and shutdown.
 
 use super::{workspace::workspace_for_uri, Client};
+use crate::SymbolKindExt as _;
 use crate::{
     jsonrpc,
     lsp::{self, CodeActionCapabilityResolveSupport, PositionEncodingKind},

@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use anyhow::Context as _;
-use lsp_client::{lsp, OffsetEncoding, Url};
+use lsp_client::{lsp, OffsetEncoding, UriExt as _, Url};
 use serde_json::{json, Value};
 use view::{
     current_ref,

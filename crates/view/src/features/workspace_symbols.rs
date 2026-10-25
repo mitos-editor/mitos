@@ -1,5 +1,6 @@
 //! Workspace symbol providers captured independently of picker presentation.
 
+use lsp_client::UriExt as _;
 use std::{collections::HashSet, sync::Weak};
 
 use anyhow::{ensure, Context as _, Result};
@@ -115,7 +116,7 @@ fn normalize_symbols(
     symbols
         .into_iter()
         .filter_map(|symbol| {
-            let uri = match editor_core::Uri::try_from(&symbol.location.uri) {
+            let uri = match symbol.location.uri.to_editor_uri() {
                 Ok(uri) => uri,
                 Err(error) => {
                     log::warn!("discarding symbol with invalid URI: {error}");

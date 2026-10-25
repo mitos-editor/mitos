@@ -3,6 +3,7 @@
 //! Adapted from work by Pascal Kuthe and Blaž Hrastnik in
 //! [Helix PR #14544](https://github.com/helix-editor/helix/pull/14544).
 
+use crate::UriExt as _;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -56,7 +57,7 @@ fn watcher_glob(pattern: lsp::GlobPattern) -> anyhow::Result<Glob> {
             };
             let path = uri
                 .to_file_path()
-                .map_err(|_| anyhow::anyhow!("invalid file watcher base URI: {uri}"))?;
+                .map_err(|_| anyhow::anyhow!("invalid file watcher base URI: {}", uri.as_str()))?;
             let path = stdx::path::canonicalize_existing(&path);
             let path = path
                 .to_str()
