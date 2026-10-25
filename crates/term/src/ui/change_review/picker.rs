@@ -259,7 +259,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     .replace("<A-n>", "A-n")
             };
             let help = format!(
-                "{} open · {}/{} versions · {}/{} scroll",
+                "{} open diff · {}/{} versions · {}/{} scroll",
                 hint(PickerAction::OpenPreview),
                 hint(PickerAction::PreviewPrevious),
                 hint(PickerAction::PreviewNext),

@@ -415,7 +415,14 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         let action_scope = scope.clone();
         let action_workspace = workspace_root.clone();
         picker
-            .with_help(|maps| actions::help(&maps.git_picker))
+            .with_help(|maps| {
+                use crate::keymap::component::{action_hint, PickerAction};
+                format!(
+                    " {} open ·{}",
+                    action_hint(&maps.git_picker, &PickerAction::Accept),
+                    actions::help(&maps.git_picker)
+                )
+            })
             .with_refresh_generation(cx.editor, actions::generation)
             .with_item_actions(
                 |maps| &maps.git_picker,

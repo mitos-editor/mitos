@@ -171,7 +171,7 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                 area.x,
                 area.bottom() - 1,
                 format!(
-                    "{} open · {}/{} scroll",
+                    "{} open diff · {}/{} scroll",
                     action_hint(keys, &PickerAction::OpenPreview),
                     action_hint(keys, &PickerAction::PreviewScrollUp),
                     action_hint(keys, &PickerAction::PreviewScrollDown)
