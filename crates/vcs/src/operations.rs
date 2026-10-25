@@ -15,6 +15,7 @@ use tokio::{
 
 use crate::{FileChange, FileStatus};
 
+pub mod history;
 mod stash;
 pub use stash::{StashEntry, StashFile, StashLayer};
 

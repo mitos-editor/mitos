@@ -41,6 +41,17 @@ impl Settings {
         }
     }
 
+    pub(super) fn historical(editor: &Editor, path: &Path) -> Self {
+        let mut settings = Self::capture(editor, path);
+        settings.language = settings.loader.language_for_filename(path);
+        settings.configured = settings
+            .language
+            .and_then(|lang| settings.loader.language(lang).config().diff_engine)
+            .unwrap_or(editor.config().diff.engine);
+        settings.engine = settings.configured;
+        settings
+    }
+
     pub(super) fn current(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.loader, &other.loader)
             && self.language == other.language
@@ -58,6 +69,7 @@ pub struct ReviewSource {
     before: Rope,
     after: Rope,
     line: Option<usize>,
+    before_settings: Option<Settings>,
     settings: Settings,
     line_review: OnceLock<Arc<Review>>,
     syntax_review: OnceLock<Arc<Review>>,
@@ -74,13 +86,33 @@ impl ReviewSource {
         self.settings.loader.clone()
     }
 
-    pub(super) fn initialize_document(&self, doc: &mut crate::Document) {
-        doc.language = self
-            .settings
+    pub(super) fn with_before_settings(mut self, settings: Settings) -> Self {
+        self.before_settings = Some(settings);
+        self
+    }
+    pub(super) fn text(&self, before: bool) -> &Rope {
+        if before {
+            &self.before
+        } else {
+            &self.after
+        }
+    }
+    pub(super) fn initialize_document(&self, doc: &mut crate::Document, before: bool) {
+        let settings = if before {
+            self.before_settings.as_ref().unwrap_or(&self.settings)
+        } else {
+            &self.settings
+        };
+        doc.language = settings
             .language
-            .map(|lang| self.settings.loader.language(lang).config().clone());
-
-        doc.syntax = self.syntax.get().and_then(|syntax| syntax.after.clone());
+            .map(|lang| settings.loader.language(lang).config().clone());
+        doc.syntax = self.syntax.get().and_then(|syntax| {
+            if before {
+                syntax.before.clone()
+            } else {
+                syntax.after.clone()
+            }
+        });
     }
 
     pub(super) fn new(before: Rope, after: Rope, line: Option<usize>, settings: Settings) -> Self {
@@ -88,6 +120,7 @@ impl ReviewSource {
             before,
             after,
             line,
+            before_settings: None,
             settings,
             line_review: OnceLock::new(),
             syntax_review: OnceLock::new(),
@@ -111,16 +144,19 @@ impl ReviewSource {
         if self.syntax.get().is_some() || canceled() {
             return;
         }
-        let parse = |text: &Rope| {
-            self.settings.language.and_then(|language| {
-                Syntax::new(text.slice(..), language, &self.settings.loader).ok()
-            })
+        let parse = |text: &Rope, settings: &Settings| {
+            settings
+                .language
+                .and_then(|language| Syntax::new(text.slice(..), language, &settings.loader).ok())
         };
-        let before = parse(&self.before);
+        let before = parse(
+            &self.before,
+            self.before_settings.as_ref().unwrap_or(&self.settings),
+        );
         if canceled() {
             return;
         }
-        let after = parse(&self.after);
+        let after = parse(&self.after, &self.settings);
         if !canceled() {
             // A theme switch may have happened while queries were compiling.
             self.settings.loader.refresh_highlights();
@@ -160,6 +196,17 @@ impl ReviewSource {
         });
         if engine == DiffEngine::Line || canceled() {
             return line.clone();
+        }
+        if self
+            .before_settings
+            .as_ref()
+            .is_some_and(|before| before.language != self.settings.language)
+        {
+            let mut review = line.as_ref().clone();
+            if engine == DiffEngine::Syntax {
+                review.fallback = Some(ReviewUnavailable("source languages differ"));
+            }
+            return Arc::new(review);
         }
         let syntax = self.syntax_review.get().cloned().unwrap_or_else(|| {
             let review = Arc::new(match self.provider() {

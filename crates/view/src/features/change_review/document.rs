@@ -200,7 +200,13 @@ impl Editor {
             .documents()
             .filter_map(Document::review)
             .filter(|review| {
-                review.path() == request.path() && review.comparison() == request.comparison()
+                review.path() == request.path()
+                    && review.comparison() == request.comparison()
+                    && review.revision_label()
+                        == match &request {
+                            Request::Historical(r) => Some(r.label.as_str()),
+                            Request::Live(_) => None,
+                        }
             })
             .map(ReviewDocument::instance)
             .max()
@@ -485,10 +491,53 @@ impl Editor {
 
     pub fn open_review_source(&mut self, jump: bool, action: Action) -> Result<()> {
         let (view, doc) = crate::current_ref!(self);
+        if !jump && let Some(source) = &doc.historical {
+            let path = source.path.clone();
+            ensure!(
+                path.is_file(),
+                "This file no longer exists in the working tree"
+            );
+            self.open(&path, action)?;
+            return Ok(());
+        }
         let state = doc
             .review()
             .ok_or_else(|| anyhow::anyhow!("The current buffer is not a diff review"))?;
         let path = state.path().to_owned();
+        if jump && let Request::Historical(request) = &state.request {
+            ensure!(!state.loading, "Wait for the review to finish loading");
+            let source = state
+                .source
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("No source snapshot is available"))?;
+            let row = doc
+                .cursor_line(view.id)
+                .checked_sub(state.row_offset())
+                .and_then(|row| state.review.lines.get(row));
+            let before = row.is_some_and(|row| row.kind == ReviewLineKind::Removed);
+            let line = row
+                .and_then(|row| if before { row.before } else { row.after })
+                .or_else(|| {
+                    doc.cursor_line(view.id)
+                        .checked_sub(state.row_offset())
+                        .and_then(|row| state.review.after_line_at(row))
+                })
+                .ok_or_else(|| anyhow::anyhow!("This row has no source location"))?;
+            let (path, label) = request.source_metadata(before);
+            let workspace = request.workspace.clone();
+            self.open_historical_source(path, workspace, label, source, action, before);
+            let (view, doc) = crate::current!(self);
+            let line = line.min(
+                doc.text()
+                    .len_lines(stdx::rope::LINE_TYPE)
+                    .saturating_sub(1),
+            );
+            doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(line)));
+            let padding = self.config().scroll.padding;
+            let (view, doc) = crate::current!(self);
+            view.ensure_cursor_in_view_center(doc, padding);
+            return Ok(());
+        }
         let target = if jump {
             ensure!(!state.loading, "Wait for the review to finish loading");
             let source = state
@@ -503,20 +552,6 @@ impl Editor {
         } else {
             None
         };
-        if jump && let Request::Historical(request) = &state.request {
-            let (source, line) = target.unwrap();
-            let label = request.label.clone();
-            let workspace = request.workspace.clone();
-            self.open_historical_source(path, workspace, label, source, action);
-            let (view, doc) = crate::current!(self);
-            let line = line.min(
-                doc.text()
-                    .len_lines(stdx::rope::LINE_TYPE)
-                    .saturating_sub(1),
-            );
-            doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(line)));
-            return Ok(());
-        }
         ensure!(
             self.document_by_path(&path).is_some() || path.is_file(),
             "This file no longer exists; its deleted text remains in the review"

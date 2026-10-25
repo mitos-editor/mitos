@@ -2,10 +2,20 @@
 use super::{decode, engine::Settings, Review, ReviewSource};
 use crate::{editor::Action, Document, DocumentId, Editor};
 use anyhow::{ensure, Result};
+use editor_core::Rope;
 use std::{path::PathBuf, sync::Arc};
+#[cfg(feature = "git")]
+use vcs::operations::{history::RevisionFile, GitRepository};
 
 #[derive(Clone)]
 enum Input {
+    #[cfg(feature = "git")]
+    Revisions {
+        repository: GitRepository,
+        before: Option<RevisionFile>,
+        after: Option<RevisionFile>,
+        buffer: Option<Rope>,
+    },
     Snapshot(Arc<vcs::Comparison>),
     #[cfg(feature = "git")]
     Stash {
@@ -22,6 +32,10 @@ pub struct HistoricalReviewRequest {
     pub(super) workspace: PathBuf,
     pub(super) label: String,
     pub(super) settings: Settings,
+    before_path: PathBuf,
+    before_label: String,
+    after_label: String,
+    before_settings: Settings,
     trusted: bool,
     input: Input,
 }
@@ -36,7 +50,11 @@ impl HistoricalReviewRequest {
         comparison: vcs::Comparison,
     ) -> Self {
         Self {
-            settings: Settings::capture(editor, &path),
+            settings: Settings::historical(editor, &path),
+            before_settings: Settings::historical(editor, &path),
+            before_path: path.clone(),
+            before_label: label.clone(),
+            after_label: label.clone(),
             trusted: editor
                 .workspace_trust
                 .query(&workspace, workspace::trust::TrustQuery::Git)
@@ -58,7 +76,11 @@ impl HistoricalReviewRequest {
         let path = repository.root().join(file.path());
         let workspace = repository.root().to_owned();
         Self {
-            settings: Settings::capture(editor, &path),
+            settings: Settings::historical(editor, &path),
+            before_settings: Settings::historical(editor, &path),
+            before_path: path.clone(),
+            before_label: format!("{}^1", &entry.id()[..12]),
+            after_label: format!("{} {}", &entry.id()[..12], file.layer().label()),
             label: format!("{} {}", &entry.id()[..12], file.layer().label()),
             trusted: editor
                 .workspace_trust
@@ -74,6 +96,94 @@ impl HistoricalReviewRequest {
         }
     }
 
+    #[cfg(feature = "git")]
+    pub fn revisions(
+        editor: &Editor,
+        repository: GitRepository,
+        before: Option<RevisionFile>,
+        after: Option<RevisionFile>,
+    ) -> Result<Self> {
+        ensure!(
+            before.is_some() || after.is_some(),
+            "A historical file is required"
+        );
+        let endpoint = after.as_ref().or(before.as_ref()).unwrap();
+        let path = repository.root().join(endpoint.path());
+        let before_path = before
+            .as_ref()
+            .map_or_else(|| path.clone(), |file| repository.root().join(file.path()));
+        let before_label = before
+            .as_ref()
+            .map_or("empty", |file| file.revision.short())
+            .to_owned();
+        let after_label = after
+            .as_ref()
+            .map_or("deleted", |file| file.revision.short())
+            .to_owned();
+        let workspace = repository.root().to_owned();
+        Ok(Self {
+            settings: Settings::historical(editor, &path),
+            before_settings: Settings::historical(editor, &before_path),
+            before_path,
+            trusted: editor
+                .workspace_trust
+                .query(&workspace, workspace::trust::TrustQuery::Git)
+                .is_trusted(),
+            label: format!("{before_label} → {after_label}"),
+            before_label,
+            after_label,
+            path,
+            workspace,
+            input: Input::Revisions {
+                repository,
+                before,
+                after,
+                buffer: None,
+            },
+        })
+    }
+
+    #[cfg(feature = "git")]
+    pub fn against_buffer(
+        editor: &Editor,
+        repository: GitRepository,
+        before: RevisionFile,
+        buffer: DocumentId,
+    ) -> Result<Self> {
+        let doc = editor
+            .document(buffer)
+            .ok_or_else(|| anyhow::anyhow!("The original buffer has been closed"))?;
+        ensure!(!doc.is_binary(), "A text buffer is required");
+        let path = doc
+            .path()
+            .ok_or_else(|| anyhow::anyhow!("The original file buffer is unavailable"))?
+            .to_owned();
+        ensure!(
+            doc.text().len() <= vcs::MAX_REVIEW_BYTES,
+            "Buffer too large to compare (limit 10 MiB)"
+        );
+        let mut request = Self::revisions(editor, repository.clone(), Some(before.clone()), None)?;
+        request.path = path.clone();
+        request.settings = Settings::capture(editor, &path);
+        request.after_label = "buffer snapshot".into();
+        request.label = format!("{} → buffer", before.revision.short());
+        request.input = Input::Revisions {
+            repository,
+            before: Some(before),
+            after: None,
+            buffer: Some(doc.text().clone()),
+        };
+        Ok(request)
+    }
+
+    pub(super) fn source_metadata(&self, before: bool) -> (PathBuf, String) {
+        if before {
+            (self.before_path.clone(), self.before_label.clone())
+        } else {
+            (self.path.clone(), self.after_label.clone())
+        }
+    }
+
     pub(super) fn is_current(&self, editor: &Editor) -> bool {
         self.trusted
             == editor
@@ -86,8 +196,32 @@ impl HistoricalReviewRequest {
         &self,
         canceled: &dyn Fn() -> bool,
     ) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
+        let source = self.source(canceled)?;
+        let review = source.compute(None, canceled);
+        Ok((source, review))
+    }
+
+    fn source(&self, canceled: &dyn Fn() -> bool) -> Result<Arc<ReviewSource>> {
         ensure!(!canceled(), "Historical review canceled");
         let comparison: vcs::Comparison = match &self.input {
+            #[cfg(feature = "git")]
+            Input::Revisions {
+                repository,
+                before,
+                after,
+                ..
+            } => vcs::Comparison {
+                before: before
+                    .as_ref()
+                    .map(|file| repository.read_revision_file(file, self.trusted))
+                    .transpose()?
+                    .unwrap_or_default(),
+                after: after
+                    .as_ref()
+                    .map(|file| repository.read_revision_file(file, self.trusted))
+                    .transpose()?
+                    .unwrap_or_default(),
+            },
             Input::Snapshot(comparison) => vcs::Comparison {
                 before: comparison.before.clone(),
                 after: comparison.after.clone(),
@@ -101,14 +235,30 @@ impl HistoricalReviewRequest {
         };
         ensure!(!canceled(), "Historical review canceled");
         // Historical encodings are detected from the historical bytes, independently of today's file.
-        let source = Arc::new(ReviewSource::new(
-            decode(&comparison.before, None)?,
-            decode(&comparison.after, None)?,
-            None,
-            self.settings.clone(),
-        ));
-        let review = source.compute(None, canceled);
-        Ok((source, review))
+        let after = {
+            #[cfg(feature = "git")]
+            if let Input::Revisions {
+                buffer: Some(buffer),
+                ..
+            } = &self.input
+            {
+                buffer.clone()
+            } else {
+                decode(&comparison.after, None)?
+            }
+            #[cfg(not(feature = "git"))]
+            decode(&comparison.after, None)?
+        };
+        let source = Arc::new(
+            ReviewSource::new(
+                decode(&comparison.before, None)?,
+                after,
+                None,
+                self.settings.clone(),
+            )
+            .with_before_settings(self.before_settings.clone()),
+        );
+        Ok(source)
     }
 }
 
@@ -116,6 +266,7 @@ pub(crate) struct HistoricalDocument {
     pub path: PathBuf,
     pub workspace: PathBuf,
     pub label: String,
+    _task: event::TaskController,
 }
 
 impl Editor {
@@ -126,9 +277,10 @@ impl Editor {
         label: String,
         source: Arc<ReviewSource>,
         action: Action,
+        before: bool,
     ) -> DocumentId {
         let mut doc = Document::from(
-            source.after().clone(),
+            source.text(before).clone(),
             None,
             self.config.clone(),
             source.loader(),
@@ -138,14 +290,105 @@ impl Editor {
             path,
             workspace,
             label,
+            _task: event::TaskController::new(),
         });
         let id = self.new_file_from_document(action, doc);
-        source.initialize_document(self.document_mut(id).unwrap());
+        source.initialize_document(self.document_mut(id).unwrap(), before);
         event::dispatch(crate::events::DocumentDidOpen {
             editor: self,
             doc: id,
         })
         .report_to(self.status_sender());
+        id
+    }
+}
+
+impl Editor {
+    /// Open a loading source buffer immediately; completion only updates this owner.
+    pub fn open_historical_version(
+        &mut self,
+        request: HistoricalReviewRequest,
+        action: Action,
+    ) -> DocumentId {
+        let (path, label) = request.source_metadata(false);
+        let mut doc = Document::from(
+            Rope::from("Loading historical version…\n"),
+            None,
+            self.config.clone(),
+            self.syn_loader.load_full(),
+        );
+        let mut task = event::TaskController::new();
+        let cancel = task.restart();
+        doc.historical = Some(HistoricalDocument {
+            path,
+            workspace: request.workspace.clone(),
+            label,
+            _task: task,
+        });
+        let id = self.new_file_from_document(action, doc);
+        event::dispatch(crate::events::DocumentDidOpen {
+            editor: self,
+            doc: id,
+        })
+        .report_to(self.status_sender());
+        let old = self.document(id).unwrap().snapshot();
+        let worker = self.handlers.change_review_worker.clone();
+        let callbacks = self.callback_sender().clone();
+        let check = cancel.clone();
+        let before = old.text().clone();
+        tokio::spawn(async move {
+            let captured = request.clone();
+            let result = super::run_review(worker, cancel.clone(), move || {
+                let source = captured.source(&|| check.is_canceled())?;
+                source.prepare_syntax(&|| check.is_canceled());
+                ensure!(!check.is_canceled(), "Historical source canceled");
+                let transaction = text_diff::compare_ropes(&before, source.after());
+                Ok((source, transaction))
+            })
+            .await;
+            if cancel.is_canceled() {
+                return;
+            }
+            callbacks
+                .send(move |editor| {
+                    if cancel.is_canceled() {
+                        return;
+                    }
+                    let result = if request.is_current(editor) {
+                        result
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "Workspace trust changed; reopen this historical version"
+                        ))
+                    };
+                    let Some(doc) = editor.document_mut(id) else {
+                        return;
+                    };
+                    if !old.is_current(&doc.buffer) {
+                        return;
+                    }
+                    let (source, transaction) = match result {
+                        Ok((source, transaction)) => (Some(source), transaction),
+                        Err(error) => {
+                            let text = format!("Cannot open historical version: {error}\n");
+                            (
+                                None,
+                                editor_core::Transaction::change(
+                                    doc.text(),
+                                    [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
+                                ),
+                            )
+                        }
+                    };
+                    doc.replace_readonly_content(transaction.changes(), true)
+                        .expect("historical publication uses the captured snapshot");
+                    if let Some(source) = source {
+                        source.initialize_document(doc, false);
+                    }
+                    editor.redraw().request();
+                })
+                .await;
+        });
         id
     }
 }

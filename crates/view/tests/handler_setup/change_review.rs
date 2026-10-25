@@ -1011,3 +1011,185 @@ async fn stash_review_completion_is_owned_by_its_document_and_opens_frozen_reado
     assert_eq!(current_ref!(f.editor).1.id(), original);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
+) -> anyhow::Result<()> {
+    use vcs::operations::history::RevisionFile;
+    use view::features::change_review::HistoricalReviewRequest;
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    let source = current_ref!(f.editor).1.id();
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let repo = vcs::operations::GitRepository::discover(&path)?;
+    let commit = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?
+        .commits
+        .remove(0);
+    let endpoint = RevisionFile::new(commit.id, path.strip_prefix(repo.root())?.to_owned())?;
+    f.replace("captured unsaved\n");
+    let request = HistoricalReviewRequest::against_buffer(&f.editor, repo, endpoint, source)?;
+    f.replace("newer edits\n");
+    let id = f.editor.open_historical_review(request, Action::Replace);
+    finish_review(&mut f, id).await?;
+    assert!(f
+        .editor
+        .document(id)
+        .unwrap()
+        .text()
+        .to_string()
+        .contains("captured unsaved"));
+    assert!(!f
+        .editor
+        .document(id)
+        .unwrap()
+        .text()
+        .to_string()
+        .contains("newer edits"));
+    f.editor.refresh_review()?;
+    finish_review(&mut f, id).await?;
+    assert!(f
+        .editor
+        .document(id)
+        .unwrap()
+        .text()
+        .to_string()
+        .contains("captured unsaved"));
+    assert_eq!(std::fs::read_to_string(path)?, "committed\n");
+    assert_eq!(
+        f.editor.document(source).unwrap().text().to_string(),
+        "newer edits\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleted_historical_rows_open_the_before_version_without_recreating_the_file(
+) -> anyhow::Result<()> {
+    use view::features::change_review::HistoricalReviewRequest;
+    let mut f = Fixture::new("deleted contents\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let repo = vcs::operations::GitRepository::discover(&path)?;
+    let commit = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?
+        .commits
+        .remove(0);
+    let file = repo
+        .commit_files(&commit, 0)
+        .await?
+        .into_iter()
+        .find(|file| file.path() == path.strip_prefix(repo.root()).unwrap())
+        .unwrap();
+    let endpoint = file.endpoints(&commit, 0)?.1;
+    std::fs::remove_file(&path)?;
+    let request = HistoricalReviewRequest::revisions(&f.editor, repo, endpoint, None)?;
+    let id = f.editor.open_historical_review(request, Action::Replace);
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    let row = doc
+        .review()
+        .unwrap()
+        .review()
+        .lines
+        .iter()
+        .position(|row| row.kind == view::features::change_review::ReviewLineKind::Removed)
+        .unwrap();
+    doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(row)));
+    f.editor.open_review_source(true, Action::VerticalSplit)?;
+    let (_, doc) = current_ref!(f.editor);
+    assert_eq!(doc.text().to_string(), "deleted contents\n");
+    assert!(doc.is_content_readonly());
+    assert!(!path.exists());
+    assert!(f.editor.open_review_source(false, Action::Replace).is_err());
+    Ok(())
+}
+
+#[cfg(feature = "syntax-diff")]
+#[tokio::test(flavor = "multi_thread")]
+async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax(
+) -> anyhow::Result<()> {
+    use vcs::operations::history::RevisionFile;
+    use view::features::change_review::HistoricalReviewRequest;
+    let languages = format!("{JSON_LANGUAGE}\n[[language]]\nname = 'rust'\nscope = 'source.rust'\nfile-types = ['rs']\n");
+    let mut f = Fixture::with_languages("{\"old\": 1}\n", &languages)?;
+    prepare(&mut f, "initial");
+    let old_path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let repo = vcs::operations::GitRepository::discover(&old_path)?;
+    let parent = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?
+        .commits
+        .remove(0);
+    // Historical language selection must use each endpoint path.
+    let rust_path = f.dir.path().join("source.rs");
+    std::fs::write(&rust_path, "fn historical() {}\n")?;
+    let result = std::process::Command::new("git")
+        .arg("-C")
+        .arg(f.dir.path())
+        .args(["add", "source.rs"])
+        .output()?;
+    assert!(result.status.success());
+    let result = std::process::Command::new("git")
+        .arg("-C")
+        .arg(f.dir.path())
+        .args(["-c", "commit.gpgsign=false", "commit", "-m", "rust source"])
+        .output()?;
+    assert!(result.status.success());
+    let commit = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?
+        .commits
+        .remove(0);
+    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
+    let before = RevisionFile::new(parent.id, old_path.strip_prefix(repo.root())?.to_owned())?;
+    let after = RevisionFile::new(commit.id, "source.rs".into())?;
+    let request = HistoricalReviewRequest::revisions(&f.editor, repo, Some(before), Some(after))?;
+    let id = f.editor.open_historical_review(request, Action::Replace);
+    finish_review(&mut f, id).await?;
+    assert_eq!(
+        f.editor
+            .document(id)
+            .unwrap()
+            .review()
+            .unwrap()
+            .review()
+            .fallback
+            .unwrap()
+            .0,
+        "source languages differ"
+    );
+    for (kind, language) in [
+        (
+            view::features::change_review::ReviewLineKind::Removed,
+            "review-json",
+        ),
+        (view::features::change_review::ReviewLineKind::Added, "rust"),
+    ] {
+        f.editor.switch(id, Action::Replace);
+        let (view, doc) = current!(f.editor);
+        let state = doc.review().unwrap();
+        let row = state
+            .review()
+            .lines
+            .iter()
+            .position(|row| row.kind == kind)
+            .unwrap();
+        assert!(state
+            .source()
+            .unwrap()
+            .syntax_for_row(&state.review().lines[row])
+            .is_some());
+        doc.set_selection(
+            view.id,
+            Selection::point(doc.text().line_to_char_idx(row + state.row_offset())),
+        );
+        f.editor.open_review_source(true, Action::Replace)?;
+        let (_, doc) = current_ref!(f.editor);
+        assert_eq!(doc.language_name(), Some(language));
+        assert!(doc.syntax().is_some());
+    }
+    Ok(())
+}
