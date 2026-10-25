@@ -98,7 +98,7 @@ impl Screen {
 
 struct Editor {
     child: Child,
-    terminal: File,
+    terminal: Option<File>,
     dir: tempfile::TempDir,
     output: String,
     screen: Screen,
@@ -135,7 +135,8 @@ mouse = false
                     &mut slave,
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
-                    &mut size,
+                    // BSD uses a mutable pointer; Linux accepts a const pointer.
+                    &raw mut size,
                 )
             } == 0,
             "openpty: {}",
@@ -178,7 +179,7 @@ mouse = false
         unsafe { libc::fcntl(master, libc::F_SETFL, libc::O_NONBLOCK) };
         let mut editor = Self {
             child,
-            terminal,
+            terminal: Some(terminal),
             dir,
             output: String::new(),
             screen: Screen::default(),
@@ -188,14 +189,17 @@ mouse = false
     }
 
     fn send(&mut self, input: &str) -> anyhow::Result<()> {
-        self.terminal.write_all(input.as_bytes())?;
+        self.terminal
+            .as_mut()
+            .unwrap()
+            .write_all(input.as_bytes())?;
         Ok(())
     }
 
     fn drain(&mut self) -> anyhow::Result<()> {
         let mut buffer = [0; 16384];
         loop {
-            match self.terminal.read(&mut buffer) {
+            match self.terminal.as_mut().unwrap().read(&mut buffer) {
                 Ok(0) => break,
                 Ok(count) => {
                     let output = String::from_utf8_lossy(&buffer[..count]);
@@ -253,7 +257,7 @@ mouse = false
     fn raw(&self) -> bool {
         let mut modes = unsafe { std::mem::zeroed::<libc::termios>() };
         assert_eq!(
-            unsafe { libc::tcgetattr(self.terminal.as_raw_fd(), &mut modes) },
+            unsafe { libc::tcgetattr(self.terminal.as_ref().unwrap().as_raw_fd(), &mut modes) },
             0
         );
         modes.c_lflag & libc::ICANON == 0
@@ -280,7 +284,10 @@ mouse = false
         let group: i32 = std::fs::read_to_string(self.dir.path().join("pid"))?
             .trim()
             .parse()?;
-        assert_eq!(unsafe { libc::tcgetpgrp(self.terminal.as_raw_fd()) }, group);
+        assert_eq!(
+            unsafe { libc::tcgetpgrp(self.terminal.as_ref().unwrap().as_raw_fd()) },
+            group
+        );
         Ok(())
     }
 
@@ -293,7 +300,7 @@ mouse = false
         })?;
         self.wait("editor terminal reclamation", |editor| editor.raw())?;
         assert_eq!(
-            unsafe { libc::tcgetpgrp(self.terminal.as_raw_fd()) },
+            unsafe { libc::tcgetpgrp(self.terminal.as_ref().unwrap().as_raw_fd()) },
             self.child.id() as i32
         );
         let _ = std::fs::remove_file(self.dir.path().join("line"));
@@ -311,11 +318,14 @@ mouse = false
 
 impl Drop for Editor {
     fn drop(&mut self) {
-        let group = unsafe { libc::tcgetpgrp(self.terminal.as_raw_fd()) };
+        let group = unsafe { libc::tcgetpgrp(self.terminal.as_ref().unwrap().as_raw_fd()) };
         if group > 0 && group != self.child.id() as i32 {
             unsafe { libc::kill(-group, libc::SIGKILL) };
         }
         let _ = self.child.kill();
+        // Close the PTY before waiting: terminal teardown can otherwise keep
+        // the killed editor from exiting on macOS.
+        drop(self.terminal.take());
         let _ = self.child.wait();
     }
 }
@@ -336,7 +346,13 @@ fn interactive_expansion_owns_input_and_resumes_goto() -> anyhow::Result<()> {
         ws_ypixel: 320,
     };
     assert_eq!(
-        unsafe { libc::ioctl(editor.terminal.as_raw_fd(), libc::TIOCSWINSZ as _, &resized) },
+        unsafe {
+            libc::ioctl(
+                editor.terminal.as_ref().unwrap().as_raw_fd(),
+                libc::TIOCSWINSZ as _,
+                &resized,
+            )
+        },
         0
     );
     thread::sleep(Duration::from_millis(150));
