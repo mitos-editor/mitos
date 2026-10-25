@@ -257,6 +257,8 @@ pub enum ExpansionKind {
     ///
     /// For example `%sh{echo hello}`.
     Shell,
+    /// Run the shell command with exclusive access to the interactive terminal.
+    InteractiveShell,
     /// Expand registers from the editor's state.
     ///
     /// For example `%reg{a}`.
@@ -272,6 +274,7 @@ impl ExpansionKind {
         Self::Variable,
         Self::Unicode,
         Self::Shell,
+        Self::InteractiveShell,
         Self::Register,
         Self::Arg,
     ];
@@ -281,6 +284,7 @@ impl ExpansionKind {
             Self::Variable => "",
             Self::Unicode => "u",
             Self::Shell => "sh",
+            Self::InteractiveShell => "sh_interactive",
             Self::Register => "reg",
             Self::Arg => "arg",
         }
@@ -291,6 +295,7 @@ impl ExpansionKind {
             "" => Some(Self::Variable),
             "u" => Some(Self::Unicode),
             "sh" => Some(Self::Shell),
+            "sh_interactive" => Some(Self::InteractiveShell),
             "reg" => Some(Self::Register),
             "arg" => Some(Self::Arg),
             _ => None,
@@ -558,7 +563,7 @@ impl<'a> Tokenizer<'a> {
         let kind_start = self.pos;
         self.pos += self.input[self.pos..]
             .bytes()
-            .take_while(|b| b.is_ascii_lowercase())
+            .take_while(|b| b.is_ascii_lowercase() || *b == b'_')
             .count();
         let kind = &self.input[kind_start..self.pos];
 
@@ -1115,6 +1120,10 @@ mod test {
 
     #[test]
     fn tokenize_percent() {
+        assert_tokens(
+            r#"goto %sh_interactive{echo "%{cursor_line}"}"#,
+            &["goto", r#"echo "%{cursor_line}""#],
+        );
         // Pair delimiters:
         assert_tokens(r#"echo %{hello world}"#, &["echo", "hello world"]);
         assert_tokens(r#"echo %[hello world]"#, &["echo", "hello world"]);

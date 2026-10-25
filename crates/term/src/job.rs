@@ -54,6 +54,11 @@ pub struct Job {
     pub wait: bool,
 }
 
+pub(crate) struct InteractiveShellRequest {
+    pub command: tokio::process::Command,
+    pub result: tokio::sync::oneshot::Sender<anyhow::Result<std::process::Output>>,
+}
+
 pub struct Jobs {
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
@@ -62,6 +67,8 @@ pub struct Jobs {
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
     after_writes: VecDeque<AfterWrites>,
+    interactive_executor: view::expansion::InteractiveShell,
+    pub(crate) interactive_requests: Receiver<InteractiveShellRequest>,
 }
 
 impl Job {
@@ -104,6 +111,7 @@ impl Jobs {
             },
             move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
         );
+        let (interactive_sender, interactive_requests) = channel(1);
         Self {
             sender,
             editor_callbacks,
@@ -111,7 +119,13 @@ impl Jobs {
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             after_writes: VecDeque::new(),
+            interactive_executor: interactive_executor(interactive_sender),
+            interactive_requests,
         }
+    }
+
+    pub(crate) fn interactive_shell(&self) -> view::expansion::InteractiveShell {
+        self.interactive_executor.clone()
     }
 
     pub fn sender(&self) -> JobSender {
@@ -230,6 +244,25 @@ impl Jobs {
             }
         }
     }
+}
+
+fn interactive_executor(
+    sender: Sender<InteractiveShellRequest>,
+) -> view::expansion::InteractiveShell {
+    std::sync::Arc::new(move |command| {
+        let sender = sender.clone();
+        async move {
+            let (result, receiver) = tokio::sync::oneshot::channel();
+            sender
+                .send(InteractiveShellRequest { command, result })
+                .await
+                .map_err(|_| anyhow::anyhow!("editor closed before interactive shell execution"))?;
+            receiver
+                .await
+                .map_err(|_| anyhow::anyhow!("interactive shell execution cancelled"))?
+        }
+        .boxed()
+    })
 }
 
 #[cfg(test)]

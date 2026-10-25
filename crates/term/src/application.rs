@@ -10,6 +10,9 @@ use view::{editor::ConfigEvent, Editor};
 
 mod configuration;
 mod events;
+#[cfg(all(not(windows), not(feature = "integration")))]
+mod input;
+mod interactive;
 mod lsp;
 mod render;
 mod startup;
@@ -63,6 +66,8 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
+    #[cfg(all(not(windows), not(feature = "integration")))]
+    terminal_input: input::Control,
     _presentation_hooks: event::HookRegistration,
 
     theme_mode: Option<theme::Mode>,
@@ -125,6 +130,16 @@ impl Application {
                     if !self.handle_signals(signal).await {
                         return false;
                     };
+                }
+                Some(request) = self.jobs.interactive_requests.recv() => {
+                    match self.interactive_shell(request).await {
+                        Ok(true) => {},
+                        Ok(false) => return false,
+                        Err(error) => {
+                            log::error!("Could not restore terminal after interactive shell: {error}");
+                            return false;
+                        }
+                    }
                 }
                 Some(event) = input_stream.next() => {
                     self.handle_terminal_events(event).await;
@@ -268,16 +283,11 @@ impl Application {
     pub fn event_stream(
         &self,
     ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
-        use termina::{escape::csi, Terminal as _};
-        let reader = self.terminal.backend().terminal().event_reader();
-        termina::EventStream::new(reader, |event| {
-            // Accept either non-escape sequences or theme mode updates.
-            !event.is_escape()
-                || matches!(
-                    event,
-                    termina::Event::Csi(csi::Csi::Mode(csi::Mode::ReportTheme(_)))
-                )
-        })
+        use termina::Terminal as _;
+        input::Events::new(
+            self.terminal.backend().terminal().event_reader(),
+            self.terminal_input.clone(),
+        )
     }
 
     #[cfg(all(not(feature = "integration"), windows))]
