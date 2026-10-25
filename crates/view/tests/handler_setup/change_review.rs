@@ -1190,6 +1190,21 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
         let (_, doc) = current_ref!(f.editor);
         assert_eq!(doc.language_name(), Some(language));
         assert!(doc.syntax().is_some());
+        let source = doc.id();
+        f.editor.set_document_language(source, None)?;
+        assert!(f.editor.document(source).unwrap().syntax().is_none());
+        f.editor.refresh_doc_language(source);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while f.editor.document(source).unwrap().is_syntax_pending() {
+                let callback = f.callbacks.recv().await.unwrap();
+                callback(&mut f.editor);
+            }
+        })
+        .await?;
+        let doc = f.editor.document(source).unwrap();
+        assert_eq!(doc.language_name(), Some(language));
+        assert!(doc.syntax().is_some());
+        assert!(doc.is_content_readonly());
     }
     Ok(())
 }

@@ -368,11 +368,14 @@ impl Document {
         &self,
         loader: &syntax::Loader,
     ) -> Option<Arc<language_config::LanguageConfiguration>> {
-        if self.is_binary() || self.is_content_readonly() {
+        if self.is_binary() || self.review().is_some() {
             return None;
         }
         let language = loader
-            .language_for_filename(self.path()?)
+            .language_for_filename(
+                self.path()
+                    .or_else(|| self.historical.as_ref().map(|source| source.path.as_path()))?,
+            )
             .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
 
         Some(loader.language(language).config().clone())
@@ -385,7 +388,7 @@ impl Document {
         language_config: Option<Arc<LanguageConfiguration>>,
         loader: &Arc<syntax::Loader>,
     ) {
-        if self.is_content_readonly() {
+        if self.review().is_some() {
             return;
         }
         self.pending_syntax = None;
@@ -402,6 +405,19 @@ impl Document {
                 })
                 .ok()
         });
+    }
+
+    /// Install syntax prepared for an immutable source, canceling any older parse.
+    pub(crate) fn install_snapshot_syntax(
+        &mut self,
+        language: Option<Arc<LanguageConfiguration>>,
+        loader: Arc<syntax::Loader>,
+        syntax: Option<Syntax>,
+    ) {
+        self.pending_syntax = None;
+        self.language = language;
+        self.syntax_loader = loader;
+        self.syntax = syntax;
     }
 
     /// Select text within the [`Document`].

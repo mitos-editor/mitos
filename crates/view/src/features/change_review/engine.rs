@@ -103,16 +103,17 @@ impl ReviewSource {
         } else {
             &self.settings
         };
-        doc.language = settings
+        let language = settings
             .language
             .map(|lang| settings.loader.language(lang).config().clone());
-        doc.syntax = self.syntax.get().and_then(|syntax| {
+        let syntax = self.syntax.get().and_then(|syntax| {
             if before {
                 syntax.before.clone()
             } else {
                 syntax.after.clone()
             }
         });
+        doc.install_snapshot_syntax(language, settings.loader.clone(), syntax);
     }
 
     pub(super) fn new(before: Rope, after: Rope, line: Option<usize>, settings: Settings) -> Self {
