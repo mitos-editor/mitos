@@ -988,7 +988,10 @@ async fn stash_review_completion_is_owned_by_its_document_and_opens_frozen_reado
     f.editor.open_review_source(true, Action::VerticalSplit)?;
     let (view, doc) = current!(f.editor);
     assert_eq!(doc.text().to_string(), "stashed\n");
-    assert_eq!(doc.workspace_root(), path.parent().unwrap());
+    assert_eq!(
+        doc.workspace_root(),
+        stdx::path::canonicalize_existing(path.parent().unwrap())
+    );
     assert!(doc.is_content_readonly());
     assert!(doc.path().is_none() && doc.uri().is_none());
     assert!(!doc.is_modified());
@@ -1028,12 +1031,27 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .await?
         .commits
         .remove(0);
-    let endpoint = RevisionFile::new(commit.id, path.strip_prefix(repo.root())?.to_owned())?;
+    let endpoint = RevisionFile::new(
+        commit.id,
+        stdx::path::canonicalize_existing(&path)
+            .strip_prefix(repo.root())?
+            .to_owned(),
+    )?;
     f.replace("captured unsaved\n");
     let request = HistoricalReviewRequest::against_buffer(&f.editor, repo, endpoint, source)?;
     f.replace("newer edits\n");
     let id = f.editor.open_historical_review(request, Action::Replace);
     finish_review(&mut f, id).await?;
+    assert!(f
+        .editor
+        .document(id)
+        .unwrap()
+        .display_name()
+        .starts_with(&format!(
+            "{} [diff:",
+            path.file_name().unwrap().to_string_lossy()
+        )));
+
     assert!(f
         .editor
         .document(id)
@@ -1082,7 +1100,12 @@ async fn deleted_historical_rows_open_the_before_version_without_recreating_the_
         .commit_files(&commit, 0)
         .await?
         .into_iter()
-        .find(|file| file.path() == path.strip_prefix(repo.root()).unwrap())
+        .find(|file| {
+            file.path()
+                == stdx::path::canonicalize_existing(&path)
+                    .strip_prefix(repo.root())
+                    .unwrap()
+        })
         .unwrap();
     let endpoint = file.endpoints(&commit, 0)?.1;
     std::fs::remove_file(&path)?;
@@ -1127,25 +1150,20 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
     // Historical language selection must use each endpoint path.
     let rust_path = f.dir.path().join("source.rs");
     std::fs::write(&rust_path, "fn historical() {}\n")?;
-    let result = std::process::Command::new("git")
-        .arg("-C")
-        .arg(f.dir.path())
-        .args(["add", "source.rs"])
-        .output()?;
-    assert!(result.status.success());
-    let result = std::process::Command::new("git")
-        .arg("-C")
-        .arg(f.dir.path())
-        .args(["-c", "commit.gpgsign=false", "commit", "-m", "rust source"])
-        .output()?;
-    assert!(result.status.success());
+    git(f.dir.path(), &["add", "source.rs"]);
+    git(f.dir.path(), &["commit", "-m", "rust source"]);
     let commit = repo
         .history_page(repo.history_cursor(None)?.unwrap())
         .await?
         .commits
         .remove(0);
     f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
-    let before = RevisionFile::new(parent.id, old_path.strip_prefix(repo.root())?.to_owned())?;
+    let before = RevisionFile::new(
+        parent.id,
+        stdx::path::canonicalize_existing(&old_path)
+            .strip_prefix(repo.root())?
+            .to_owned(),
+    )?;
     let after = RevisionFile::new(commit.id, "source.rs".into())?;
     let request = HistoricalReviewRequest::revisions(&f.editor, repo, Some(before), Some(after))?;
     let id = f.editor.open_historical_review(request, Action::Replace);

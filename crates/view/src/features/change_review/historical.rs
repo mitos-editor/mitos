@@ -163,7 +163,7 @@ impl HistoricalReviewRequest {
             "Buffer too large to compare (limit 10 MiB)"
         );
         let mut request = Self::revisions(editor, repository.clone(), Some(before.clone()), None)?;
-        request.path = path.clone();
+        request.path = stdx::path::canonicalize_existing(&path);
         request.settings = Settings::capture(editor, &path);
         request.after_label = "buffer snapshot".into();
         request.label = format!("{} → buffer", before.revision.short());
