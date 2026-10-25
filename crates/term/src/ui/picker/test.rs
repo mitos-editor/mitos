@@ -48,12 +48,19 @@ pub(crate) fn frame<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
     app: &mut Application,
 ) -> Surface {
-    let config = AppConfig::default();
+    frame_with_config(picker, app, &AppConfig::default())
+}
+
+pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
+    picker: &mut Picker<T, D>,
+    app: &mut Application,
+    config: &AppConfig,
+) -> Surface {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = Jobs::new();
     let mut cx = Context {
         config: crate::config::Context {
-            current: &config,
+            current: config,
             updates: &updates,
         },
         editor: &mut app.editor,

@@ -514,10 +514,21 @@ pub enum BreadcrumbPathOptions {
     None,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct PickerConfig {
     pub layout: PickerLayout,
+    /// Show shortcuts for the current picker's available actions.
+    pub show_keybindings: bool,
+}
+
+impl Default for PickerConfig {
+    fn default() -> Self {
+        Self {
+            layout: PickerLayout::default(),
+            show_keybindings: true,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1673,6 +1684,34 @@ mod tests {
             assert_eq!(config.picker.layout, expected);
             let serialized = toml::Value::try_from(&config).unwrap();
             assert_eq!(serialized["picker"]["layout"].as_str(), Some(name));
+        }
+    }
+
+    #[test]
+    fn picker_keybinding_hints_default_to_enabled_and_round_trip() {
+        assert!(Config::default().picker.show_keybindings);
+        for source in ["", "[picker]", "[picker]\nlayout = 'centered'"] {
+            assert!(
+                toml::from_str::<Config>(source)
+                    .unwrap()
+                    .picker
+                    .show_keybindings
+            );
+        }
+        for enabled in [true, false] {
+            let config: Config =
+                toml::from_str(&format!("[picker]\nshow-keybindings = {enabled}")).unwrap();
+            assert_eq!(config.picker.show_keybindings, enabled);
+            let serialized = toml::Value::try_from(&config).unwrap();
+            assert_eq!(
+                serialized["picker"]["show-keybindings"].as_bool(),
+                Some(enabled)
+            );
+        }
+        for value in ["'true'", "1", "[]"] {
+            assert!(
+                toml::from_str::<Config>(&format!("[picker]\nshow-keybindings = {value}")).is_err()
+            );
         }
     }
 

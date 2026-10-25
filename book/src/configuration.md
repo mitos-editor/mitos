@@ -112,7 +112,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `auto-info` | boolean | `true` | Display contextual information popups. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
 | `border-style` | `"none"`, `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. Use `"none"` to hide borders. This preference stays the same when switching themes; colors come from the theme. |
-| `picker` | table | See below | Shared picker layout. See [`[editor.picker]`](#editorpicker). |
+| `picker` | table | See below | Shared picker appearance. See [`[editor.picker]`](#editorpicker). |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
@@ -476,6 +476,7 @@ max-depth = 10
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `layout` | `"auto"` or `"centered"` | `"auto"` | `auto` fills the available area below 200 terminal columns and uses a centered layout on wider terminals. `centered` always uses 90% of the available width and height. Both reserve the bottom two rows. |
+| `show-keybindings` | boolean | `true` | Show shortcuts for available picker actions. |
 
 This applies to all pickers. See [Picker layout](./pickers.md#layout).
 

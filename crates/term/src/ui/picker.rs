@@ -2,6 +2,7 @@ use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction}
 use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod file_updates;
 mod handlers;
+mod help;
 #[cfg(all(test, feature = "integration"))]
 mod matching_tests;
 mod preview;
@@ -936,7 +937,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 );
             }
         }
-        let inner = self.render_replacement_help(area, inner, surface, cx);
+        let inner = self.render_help(area, inner, surface, cx);
 
         let input_areas = split_picker_input_area(inner, self.replacement_visible());
         let inner = input_areas.results;
