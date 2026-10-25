@@ -220,8 +220,9 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         )?))?;
     keys(&mut app, ":diff<ret>").await?;
     ready(&mut app).await?;
-    // Settle the frame requested by the completed review callback.
-    run_event_loop_until_idle(&mut app).await;
+    // Reset the idle timer and bound settling, even if the callback completed
+    // during the preceding idle pass.
+    keys(&mut app, "").await?;
     assert_eq!(
         current_ref!(app.editor)
             .1
