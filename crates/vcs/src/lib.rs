@@ -121,17 +121,20 @@ impl DiffProviderRegistry {
         f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
     ) {
         tokio::task::spawn_blocking(move || {
-            if self
-                .providers
-                .iter()
-                .find_map(|provider| provider.for_each_changed_file(&scope, trust_full, &f).ok())
-                .is_none()
-            {
-                f(
-                    scope.path(),
-                    Err(anyhow!("no diff provider returns success")),
-                );
+            let mut first_error = None;
+            for provider in &self.providers {
+                match provider.for_each_changed_file(&scope, trust_full, &f) {
+                    Ok(()) => return,
+                    Err(error) => {
+                        log::debug!("diff provider failed: {error:#}");
+                        first_error.get_or_insert(error);
+                    }
+                }
             }
+            f(
+                scope.path(),
+                Err(first_error.unwrap_or_else(|| anyhow!("no diff provider available"))),
+            );
         });
     }
 }

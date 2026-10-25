@@ -2,7 +2,7 @@ use std::{cell::RefCell, fs::File, io::Write, path::Path, process::Command};
 
 use tempfile::TempDir;
 
-use crate::{git, ChangedFileScope, FileChange};
+use crate::{git, ChangedFileScope, DiffProviderRegistry, FileChange};
 
 pub(crate) fn exec_git_cmd(args: &[&str], git_dir: &Path) {
     let res = Command::new("git")
@@ -412,4 +412,62 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
         .iter()
         .any(|path| path.ends_with(".git/refs/heads/feature")));
     assert!(paths.iter().any(|path| path.ends_with(".git/packed-refs")));
+}
+
+#[tokio::test]
+async fn changed_files_preserve_repository_discovery_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    DiffProviderRegistry::default().for_each_changed_file(
+        ChangedFileScope::Directory(directory.path().to_owned()),
+        false,
+        move |_, result| {
+            sender.send(result).unwrap();
+            false
+        },
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(format!("{:#}", result.unwrap_err()).contains("failed to discover git repo"));
+}
+
+#[test]
+fn diff_base_accepts_a_relative_worktree_path() {
+    let repository = empty_git_repo();
+    std::fs::write(repository.path().join("file.txt"), "base\n").unwrap();
+    create_commit(repository.path(), true);
+    exec_git_cmd(
+        &["worktree", "add", "-b", "relative", "linked"],
+        repository.path(),
+    );
+    // Relative backlinks should not require a recent Git CLI to construct the fixture.
+    std::fs::write(
+        repository.path().join("linked/.git"),
+        "gitdir: ../.git/worktrees/linked\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repository.path().join(".git/worktrees/linked/gitdir"),
+        "../../../linked/.git\n",
+    )
+    .unwrap();
+    let file = repository.path().join("linked/file.txt");
+    assert_eq!(git::get_diff_base(&file, true).unwrap(), b"base\n");
+    std::fs::write(&file, "changed\n").unwrap();
+    let found = std::cell::Cell::new(false);
+    git::for_each_changed_file(
+        &ChangedFileScope::Repository(file.parent().unwrap().to_owned()),
+        true,
+        |root, change| {
+            assert!(root.is_absolute());
+            if change.unwrap().path() == file {
+                found.set(true);
+            }
+            true
+        },
+    )
+    .unwrap();
+    assert!(found.get());
 }
