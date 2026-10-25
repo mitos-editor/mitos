@@ -12,7 +12,7 @@ use log::warn;
 use serde::{Deserialize, Deserializer};
 use toml::{map::Map, Value};
 
-use ui_core::graphics::UnderlineStyle;
+use ui_core::graphics::{ColorExt as _, StyleExt as _, UnderlineStyle};
 pub use ui_core::{
     graphics::{Color, Modifier, Style},
     theme::Mode,
@@ -382,14 +382,14 @@ impl Default for ThemePalette {
                 "blue".to_string() => Color::Blue,
                 "magenta".to_string() => Color::Magenta,
                 "cyan".to_string() => Color::Cyan,
-                "gray".to_string() => Color::Gray,
+                "gray".to_string() => Color::DarkGray,
                 "light-red".to_string() => Color::LightRed,
                 "light-green".to_string() => Color::LightGreen,
                 "light-yellow".to_string() => Color::LightYellow,
                 "light-blue".to_string() => Color::LightBlue,
                 "light-magenta".to_string() => Color::LightMagenta,
                 "light-cyan".to_string() => Color::LightCyan,
-                "light-gray".to_string() => Color::LightGray,
+                "light-gray".to_string() => Color::Gray,
                 "white".to_string() => Color::White,
             },
         }
@@ -438,10 +438,18 @@ impl ThemePalette {
     }
 
     pub fn parse_modifier(value: &Value) -> Result<Modifier, String> {
-        value
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .ok_or(format!("Invalid modifier: {}", value))
+        let modifier = match value.as_str() {
+            Some("bold") => Modifier::BOLD,
+            Some("dim") => Modifier::DIM,
+            Some("italic") => Modifier::ITALIC,
+            Some("slow_blink") => Modifier::SLOW_BLINK,
+            Some("rapid_blink") => Modifier::RAPID_BLINK,
+            Some("reversed") => Modifier::REVERSED,
+            Some("hidden") => Modifier::HIDDEN,
+            Some("crossed_out") => Modifier::CROSSED_OUT,
+            _ => return Err(format!("Invalid modifier: {}", value)),
+        };
+        Ok(modifier)
     }
 
     pub fn parse_underline_style(value: &Value) -> Result<UnderlineStyle, String> {
@@ -529,6 +537,16 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_grays_preserve_their_ansi_colors() {
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.text" = "gray"
+            "ui.text.focus" = "light-gray"
+        }));
+        assert_eq!(theme.get("ui.text").fg, Some(Color::DarkGray));
+        assert_eq!(theme.get("ui.text.focus").fg, Some(Color::Gray));
+    }
 
     #[test]
     fn resources_compile_inherited_styles_and_return_warnings() {

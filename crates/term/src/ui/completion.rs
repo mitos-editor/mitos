@@ -8,6 +8,7 @@ use theme::icons::ICONS;
 use theme::{Color, Modifier, Style};
 use tui::text::Line;
 use tui::{buffer::Buffer as Surface, text::Span};
+use ui_core::graphics::ColorExt as _;
 use view::features::completion::LspCompletionItem;
 use view::features::completion::{
     CompletionItem, CompletionResponse, CompletionSession, ResolveHandler, SnippetCompletion,

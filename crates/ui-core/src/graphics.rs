@@ -1,5 +1,5 @@
-use bitflags::bitflags;
 pub use ratatui_core::layout::{Margin, Rect};
+pub use ratatui_core::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
@@ -111,29 +111,6 @@ impl RectExt for Rect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Color {
-    Reset,
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    Gray,
-    LightRed,
-    LightGreen,
-    LightYellow,
-    LightBlue,
-    LightMagenta,
-    LightCyan,
-    LightGray,
-    White,
-    Rgb(u8, u8, u8),
-    Indexed(u8),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MalformedHex {
     NoHash,
     LenOOB,
@@ -153,14 +130,21 @@ impl fmt::Display for MalformedHex {
     }
 }
 
-impl Color {
+/// Parse the hex color forms supported by Mitos themes.
+pub trait ColorExt {
+    fn from_hex(value: &str) -> Result<Self, MalformedHex>
+    where
+        Self: Sized;
+}
+
+impl ColorExt for Color {
     /// Creates a `Color` from a hex string of the form
     /// "#RRGGBB" or "#RGB"
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use ui_core::theme::Color;
+    /// use ui_core::graphics::{Color, ColorExt};
     ///
     /// let color1 = Color::from_hex("#c0ffee").unwrap();
     /// let color2 = Color::Rgb(192, 255, 238);
@@ -170,7 +154,7 @@ impl Color {
     /// let color3 = Color::from_hex("#012").unwrap();
     /// assert_eq!(color3, Color::Rgb(0, 17, 34));
     /// ```
-    pub fn from_hex(h: &str) -> Result<Self, MalformedHex> {
+    fn from_hex(h: &str) -> Result<Self, MalformedHex> {
         let h = h.as_bytes();
         if !h.starts_with(b"#") {
             return Err(MalformedHex::NoHash);
@@ -199,87 +183,6 @@ impl Color {
     }
 }
 
-impl From<Color> for ratatui_core::style::Color {
-    fn from(color: Color) -> Self {
-        match color {
-            Color::Reset => Self::Reset,
-            Color::Black => Self::Black,
-            Color::Red => Self::Red,
-            Color::Green => Self::Green,
-            Color::Yellow => Self::Yellow,
-            Color::Blue => Self::Blue,
-            Color::Magenta => Self::Magenta,
-            Color::Cyan => Self::Cyan,
-            Color::Gray => Self::DarkGray,
-            Color::LightRed => Self::LightRed,
-            Color::LightGreen => Self::LightGreen,
-            Color::LightYellow => Self::LightYellow,
-            Color::LightBlue => Self::LightBlue,
-            Color::LightMagenta => Self::LightMagenta,
-            Color::LightCyan => Self::LightCyan,
-            Color::LightGray => Self::Gray,
-            Color::White => Self::White,
-            Color::Rgb(r, g, b) => Self::Rgb(r, g, b),
-            Color::Indexed(index) => Self::Indexed(index),
-        }
-    }
-}
-
-#[cfg(feature = "term")]
-impl From<Color> for termina::style::ColorSpec {
-    fn from(color: Color) -> Self {
-        match color {
-            Color::Reset => Self::Reset,
-            Color::Black => Self::BLACK,
-            Color::Red => Self::RED,
-            Color::Green => Self::GREEN,
-            Color::Yellow => Self::YELLOW,
-            Color::Blue => Self::BLUE,
-            Color::Magenta => Self::MAGENTA,
-            Color::Cyan => Self::CYAN,
-            Color::Gray => Self::BRIGHT_BLACK,
-            Color::White => Self::BRIGHT_WHITE,
-            Color::LightRed => Self::BRIGHT_RED,
-            Color::LightGreen => Self::BRIGHT_GREEN,
-            Color::LightBlue => Self::BRIGHT_BLUE,
-            Color::LightYellow => Self::BRIGHT_YELLOW,
-            Color::LightMagenta => Self::BRIGHT_MAGENTA,
-            Color::LightCyan => Self::BRIGHT_CYAN,
-            Color::LightGray => Self::WHITE,
-            Color::Indexed(i) => Self::PaletteIndex(i),
-            Color::Rgb(r, g, b) => termina::style::RgbColor::new(r, g, b).into(),
-        }
-    }
-}
-
-#[cfg(all(feature = "term", windows))]
-impl From<Color> for crossterm::style::Color {
-    fn from(color: Color) -> Self {
-        use crossterm::style::Color as CColor;
-
-        match color {
-            Color::Reset => CColor::Reset,
-            Color::Black => CColor::Black,
-            Color::Red => CColor::DarkRed,
-            Color::Green => CColor::DarkGreen,
-            Color::Yellow => CColor::DarkYellow,
-            Color::Blue => CColor::DarkBlue,
-            Color::Magenta => CColor::DarkMagenta,
-            Color::Cyan => CColor::DarkCyan,
-            Color::Gray => CColor::DarkGrey,
-            Color::LightRed => CColor::Red,
-            Color::LightGreen => CColor::Green,
-            Color::LightBlue => CColor::Blue,
-            Color::LightYellow => CColor::Yellow,
-            Color::LightMagenta => CColor::Magenta,
-            Color::LightCyan => CColor::Cyan,
-            Color::LightGray => CColor::Grey,
-            Color::White => CColor::White,
-            Color::Indexed(i) => CColor::AnsiValue(i),
-            Color::Rgb(r, g, b) => CColor::Rgb { r, g, b },
-        }
-    }
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnderlineStyle {
     Reset,
@@ -370,339 +273,17 @@ impl From<UnderlineStyle> for crossterm::style::Attribute {
     }
 }
 
-bitflags! {
-    /// Modifier changes the way a piece of text is displayed.
-    ///
-    /// They are bitflags so they can easily be composed.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::Modifier;
-    ///
-    /// let m = Modifier::BOLD | Modifier::ITALIC;
-    /// ```
-    #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-    pub struct Modifier: u16 {
-        const BOLD              = 0b0000_0000_0001;
-        const DIM               = 0b0000_0000_0010;
-        const ITALIC            = 0b0000_0000_0100;
-        const SLOW_BLINK        = 0b0000_0001_0000;
-        const RAPID_BLINK       = 0b0000_0010_0000;
-        const REVERSED          = 0b0000_0100_0000;
-        const HIDDEN            = 0b0000_1000_0000;
-        const CROSSED_OUT       = 0b0001_0000_0000;
-    }
+/// Rich underline shapes transported through reserved Ratatui modifier bits.
+/// All ordinary color and style composition is owned by Ratatui.
+pub trait StyleExt {
+    fn underline_style(self, style: UnderlineStyle) -> Self;
 }
 
-impl From<Modifier> for ratatui_core::style::Modifier {
-    fn from(modifier: Modifier) -> Self {
-        let mut result = Self::empty();
-        if modifier.contains(Modifier::BOLD) {
-            result.insert(Self::BOLD);
-        }
-        if modifier.contains(Modifier::DIM) {
-            result.insert(Self::DIM);
-        }
-        if modifier.contains(Modifier::ITALIC) {
-            result.insert(Self::ITALIC);
-        }
-        if modifier.contains(Modifier::SLOW_BLINK) {
-            result.insert(Self::SLOW_BLINK);
-        }
-        if modifier.contains(Modifier::RAPID_BLINK) {
-            result.insert(Self::RAPID_BLINK);
-        }
-        if modifier.contains(Modifier::REVERSED) {
-            result.insert(Self::REVERSED);
-        }
-        if modifier.contains(Modifier::HIDDEN) {
-            result.insert(Self::HIDDEN);
-        }
-        if modifier.contains(Modifier::CROSSED_OUT) {
-            result.insert(Self::CROSSED_OUT);
-        }
-        result
-    }
-}
-
-impl FromStr for Modifier {
-    type Err = &'static str;
-
-    fn from_str(modifier: &str) -> Result<Self, Self::Err> {
-        match modifier {
-            "bold" => Ok(Self::BOLD),
-            "dim" => Ok(Self::DIM),
-            "italic" => Ok(Self::ITALIC),
-            "slow_blink" => Ok(Self::SLOW_BLINK),
-            "rapid_blink" => Ok(Self::RAPID_BLINK),
-            "reversed" => Ok(Self::REVERSED),
-            "hidden" => Ok(Self::HIDDEN),
-            "crossed_out" => Ok(Self::CROSSED_OUT),
-            _ => Err("Invalid modifier"),
-        }
-    }
-}
-
-/// Style let you control the main characteristics of the displayed elements.
-///
-/// ```rust
-/// # use ui_core::graphics::{Color, Modifier, Style};
-/// Style::default()
-///     .fg(Color::Black)
-///     .bg(Color::Green)
-///     .add_modifier(Modifier::ITALIC | Modifier::BOLD);
-/// ```
-///
-/// It represents an incremental change. If you apply the styles S1, S2, S3 to a cell of the
-/// terminal buffer, the style of this cell will be the result of the merge of S1, S2 and S3, not
-/// just S3.
-///
-/// ```rust
-/// # use ui_core::graphics::{Rect, Color, Modifier, Style};
-/// # use ratatui_core::buffer::Buffer;
-/// # use ratatui_core::style::{Modifier as RatatuiModifier, Style as RatatuiStyle};
-/// let styles = [
-///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
-///     Style::default().bg(Color::Red),
-///     Style::default().fg(Color::Yellow).remove_modifier(Modifier::ITALIC),
-/// ];
-/// let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 1));
-/// for style in &styles {
-///   buffer[(0, 0)].set_style(*style);
-/// }
-/// assert_eq!(
-///     RatatuiStyle::default()
-///         .fg(Color::Yellow.into())
-///         .bg(Color::Red.into())
-///         .underline_color(Color::Reset.into())
-///         .add_modifier(RatatuiModifier::BOLD),
-///     buffer[(0, 0)].style(),
-/// );
-/// ```
-///
-/// The default implementation returns a `Style` that does not modify anything. If you wish to
-/// reset all properties until that point use [`Style::reset`].
-///
-/// ```
-/// # use ui_core::graphics::{Rect, Color, Modifier, Style};
-/// # use ratatui_core::{buffer::Buffer, style::Style as RatatuiStyle};
-/// let styles = [
-///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
-///     Style::reset().fg(Color::Yellow),
-/// ];
-/// let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 1));
-/// for style in &styles {
-///   buffer[(0, 0)].set_style(*style);
-/// }
-/// assert_eq!(
-///     RatatuiStyle::default()
-///         .fg(Color::Yellow.into())
-///         .bg(Color::Reset.into())
-///         .underline_color(Color::Reset.into()),
-///     buffer[(0, 0)].style(),
-/// );
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Style {
-    pub fg: Option<Color>,
-    pub bg: Option<Color>,
-    pub underline_color: Option<Color>,
-    pub underline_style: Option<UnderlineStyle>,
-    pub add_modifier: Modifier,
-    pub sub_modifier: Modifier,
-}
-
-impl Default for Style {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Style {
-    pub const fn new() -> Self {
-        Style {
-            fg: None,
-            bg: None,
-            underline_color: None,
-            underline_style: None,
-            add_modifier: Modifier::empty(),
-            sub_modifier: Modifier::empty(),
-        }
-    }
-
-    /// Returns a `Style` resetting all properties.
-    pub const fn reset() -> Self {
-        Self {
-            fg: Some(Color::Reset),
-            bg: Some(Color::Reset),
-            underline_color: None,
-            underline_style: None,
-            add_modifier: Modifier::empty(),
-            sub_modifier: Modifier::all(),
-        }
-    }
-
-    /// Changes the foreground color.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{Color, Style};
-    /// let style = Style::default().fg(Color::Blue);
-    /// let diff = Style::default().fg(Color::Red);
-    /// assert_eq!(style.patch(diff), Style::default().fg(Color::Red));
-    /// ```
-    pub const fn fg(mut self, color: Color) -> Style {
-        self.fg = Some(color);
-        self
-    }
-
-    /// Changes the background color.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{Color, Style};
-    /// let style = Style::default().bg(Color::Blue);
-    /// let diff = Style::default().bg(Color::Red);
-    /// assert_eq!(style.patch(diff), Style::default().bg(Color::Red));
-    /// ```
-    pub const fn bg(mut self, color: Color) -> Style {
-        self.bg = Some(color);
-        self
-    }
-
-    /// Changes the underline color.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{Color, Style};
-    /// let style = Style::default().underline_color(Color::Blue);
-    /// let diff = Style::default().underline_color(Color::Red);
-    /// assert_eq!(style.patch(diff), Style::default().underline_color(Color::Red));
-    /// ```
-    pub const fn underline_color(mut self, color: Color) -> Style {
-        self.underline_color = Some(color);
-        self
-    }
-
-    /// Changes the underline style.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{UnderlineStyle, Style};
-    /// let style = Style::default().underline_style(UnderlineStyle::Line);
-    /// let diff = Style::default().underline_style(UnderlineStyle::Curl);
-    /// assert_eq!(style.patch(diff), Style::default().underline_style(UnderlineStyle::Curl));
-    /// ```
-    pub const fn underline_style(mut self, style: UnderlineStyle) -> Style {
-        self.underline_style = Some(style);
-        self
-    }
-
-    /// Changes the text emphasis.
-    ///
-    /// When applied, it adds the given modifier to the `Style` modifiers.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{Color, Modifier, Style};
-    /// let style = Style::default().add_modifier(Modifier::BOLD);
-    /// let diff = Style::default().add_modifier(Modifier::ITALIC);
-    /// let patched = style.patch(diff);
-    /// assert_eq!(patched.add_modifier, Modifier::BOLD | Modifier::ITALIC);
-    /// assert_eq!(patched.sub_modifier, Modifier::empty());
-    /// ```
-    pub fn add_modifier(mut self, modifier: Modifier) -> Style {
-        self.sub_modifier.remove(modifier);
-        self.add_modifier.insert(modifier);
-        self
-    }
-
-    /// Changes the text emphasis.
-    ///
-    /// When applied, it removes the given modifier from the `Style` modifiers.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// # use ui_core::graphics::{Color, Modifier, Style};
-    /// let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
-    /// let diff = Style::default().remove_modifier(Modifier::ITALIC);
-    /// let patched = style.patch(diff);
-    /// assert_eq!(patched.add_modifier, Modifier::BOLD);
-    /// assert_eq!(patched.sub_modifier, Modifier::ITALIC);
-    /// ```
-    pub fn remove_modifier(mut self, modifier: Modifier) -> Style {
-        self.add_modifier.remove(modifier);
-        self.sub_modifier.insert(modifier);
-        self
-    }
-
-    /// Results in a combined style that is equivalent to applying the two individual styles to
-    /// a style one after the other.
-    ///
-    /// ## Examples
-    /// ```
-    /// # use ui_core::graphics::{Color, Modifier, Style};
-    /// let style_1 = Style::default().fg(Color::Yellow);
-    /// let style_2 = Style::default().bg(Color::Red);
-    /// let combined = style_1.patch(style_2);
-    /// assert_eq!(
-    ///     Style::default().patch(style_1).patch(style_2),
-    ///     Style::default().patch(combined));
-    /// ```
-    pub fn patch(mut self, other: Style) -> Style {
-        self.fg = other.fg.or(self.fg);
-        self.bg = other.bg.or(self.bg);
-        self.underline_color = other.underline_color.or(self.underline_color);
-        self.underline_style = other.underline_style.or(self.underline_style);
-
-        self.add_modifier.remove(other.sub_modifier);
-        self.add_modifier.insert(other.add_modifier);
-        self.sub_modifier.remove(other.add_modifier);
-        self.sub_modifier.insert(other.sub_modifier);
-
-        self
-    }
-}
-
-impl From<Style> for ratatui_core::style::Style {
-    fn from(style: Style) -> Self {
-        let mut add_modifier: ratatui_core::style::Modifier = style.add_modifier.into();
-        let mut sub_modifier: ratatui_core::style::Modifier = style.sub_modifier.into();
-        match style.underline_style {
-            Some(UnderlineStyle::Reset) => {
-                add_modifier.remove(
-                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK,
-                );
-                sub_modifier.insert(
-                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK,
-                );
-            }
-            Some(underline_style) => {
-                let encoded = underline_style.ratatui_modifier();
-                let underline_bits =
-                    ratatui_core::style::Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK;
-                add_modifier.remove(underline_bits);
-                add_modifier.insert(encoded);
-                sub_modifier.insert(underline_bits);
-                sub_modifier.remove(encoded);
-            }
-            None => {}
-        }
-
-        ratatui_core::style::Style {
-            fg: style.fg.map(Into::into),
-            bg: style.bg.map(Into::into),
-            underline_color: style.underline_color.map(Into::into),
-            add_modifier,
-            sub_modifier,
-        }
+impl StyleExt for Style {
+    fn underline_style(self, style: UnderlineStyle) -> Self {
+        let underline_bits = Modifier::UNDERLINED | RATATUI_UNDERLINE_STYLE_MASK;
+        self.remove_modifier(underline_bits)
+            .add_modifier(style.ratatui_modifier())
     }
 }
 
@@ -806,8 +387,7 @@ mod tests {
         ];
 
         for underline_style in styles {
-            let style =
-                ratatui_core::style::Style::from(Style::default().underline_style(underline_style));
+            let style = Style::default().underline_style(underline_style);
             assert_eq!(
                 UnderlineStyle::from_ratatui_modifier(style.add_modifier),
                 underline_style

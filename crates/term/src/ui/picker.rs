@@ -1056,7 +1056,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         for grapheme in span.content.graphemes(true) {
                             let style = if grapheme_idx == next_highlight_idx {
                                 next_highlight_idx = indices.next().unwrap_or(u32::MAX);
-                                span.style.patch(tui::style::Style::from(highlight_style))
+                                span.style.patch(highlight_style)
                             } else {
                                 span.style
                             };

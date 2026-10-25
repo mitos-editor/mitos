@@ -9,7 +9,7 @@ use language_config::LanguageServerFeature;
 use theme::icons::ICONS;
 use theme::Theme;
 use view::{
-    graphics::{Style, UnderlineStyle},
+    graphics::{Style, StyleExt as _, UnderlineStyle},
     Document, Editor, View,
 };
 

@@ -100,7 +100,7 @@ fn statusline_areas(viewport: Rect, right_width: u16) -> [Rect; 2] {
 }
 
 fn append<'a>(buffer: &mut Line<'a>, mut span: Span<'a>, base_style: Style) {
-    span.style = tui::style::Style::from(base_style).patch(span.style);
+    span.style = base_style.patch(span.style);
     buffer.spans.push(span);
 }
 

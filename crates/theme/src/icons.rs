@@ -8,6 +8,7 @@ use std::{
     path::Path,
     sync::LazyLock,
 };
+use ui_core::graphics::ColorExt as _;
 
 type SmartString = String;
 type StackString = ArrayString<28>;

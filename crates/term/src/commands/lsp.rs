@@ -414,19 +414,19 @@ mod symbol_picker_tests {
 
         assert_eq!(
             kind.content.lines[0].spans[0].style,
-            DEFAULT_THEME.get("ui.text.inactive").into()
+            DEFAULT_THEME.get("ui.text.inactive")
         );
         assert_eq!(
             name.content.lines[0].spans[0].style,
-            DEFAULT_THEME.get("function").into()
+            DEFAULT_THEME.get("function")
         );
         assert_eq!(
             container.content.lines[0].spans[0].style,
-            DEFAULT_THEME.get("ui.text.inactive").into()
+            DEFAULT_THEME.get("ui.text.inactive")
         );
         assert_eq!(
             path.content.lines[0].spans[0].style,
-            DEFAULT_THEME.get("ui.text.directory").into()
+            DEFAULT_THEME.get("ui.text.directory")
         );
     }
 

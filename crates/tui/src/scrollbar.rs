@@ -28,9 +28,9 @@ pub fn render(
         .begin_symbol(None)
         .end_symbol(None)
         .thumb_symbol(symbol)
-        .thumb_style(RatatuiStyle::default().fg(thumb.into()))
+        .thumb_style(RatatuiStyle::default().fg(thumb))
         .track_symbol((!bordered).then_some(symbol))
-        .track_style(RatatuiStyle::default().fg(track.into()));
+        .track_style(RatatuiStyle::default().fg(track));
     let mut state = ScrollbarState::new(content_height)
         .position(position)
         .viewport_content_length(viewport_height as usize);

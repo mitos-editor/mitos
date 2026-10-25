@@ -193,11 +193,11 @@ mod tests {
         let name = command_palette_name(&command, &data);
         let name = &name.content.lines[0].spans[0];
         assert_eq!(name.content, ":write (w)");
-        assert_eq!(name.style, tui::style::Style::from(command_style));
+        assert_eq!(name.style, command_style);
 
         let bindings = command_palette_bindings(&command, &data);
         let bindings = &bindings.content.lines[0].spans[0];
         assert_eq!(bindings.content, "<space>?");
-        assert_eq!(bindings.style, tui::style::Style::from(binding_style));
+        assert_eq!(bindings.style, binding_style);
     }
 }

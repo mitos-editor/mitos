@@ -54,11 +54,11 @@ mod tests {
             let mut surface = Buffer::empty(area);
             bordered(&theme, config.border_style).render(area, &mut surface);
             assert_eq!(surface[(0, 0)].symbol(), "╭");
-            assert_eq!(surface[(0, 0)].fg, color.into());
+            assert_eq!(surface[(0, 0)].fg, color);
 
             top_border(theme.get("ui.window"), config.border_style).render(area, &mut surface);
             assert_eq!(surface[(0, 0)].symbol(), "─");
-            assert_eq!(surface[(0, 0)].fg, color.into());
+            assert_eq!(surface[(0, 0)].fg, color);
         }
     }
 

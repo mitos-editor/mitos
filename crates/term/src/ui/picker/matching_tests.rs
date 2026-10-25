@@ -190,7 +190,7 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     for cell in &row[start..start + 4] {
         assert!(cell.modifier.contains(tui::style::Modifier::BOLD));
         if let Some(fg) = highlight.fg {
-            assert_eq!(cell.fg, fg.into());
+            assert_eq!(cell.fg, fg);
         }
     }
     let icon = row.iter().find(|cell| cell.symbol() == "🦀").unwrap();

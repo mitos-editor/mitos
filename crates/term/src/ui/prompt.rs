@@ -509,9 +509,9 @@ impl Prompt {
                         return Span::raw("");
                     };
                     let style = if Some(index) == self.selection {
-                        selected_color.into()
+                        selected_color
                     } else {
-                        tui::style::Style::from(completion_color).patch(completion.style)
+                        completion_color.patch(completion.style)
                     };
                     Span::styled(completion.content.as_ref(), style)
                 });
