@@ -95,6 +95,24 @@ impl Search {
             .collect()
     }
 
+    /// Search an edited buffer using the same line/block semantics as workspace search.
+    /// This does not walk directories or read files from disk.
+    pub fn search_document(&self, path: &Path, text: &Rope) -> std::io::Result<Vec<Match>> {
+        let mut results = Vec::new();
+        search_file(
+            &mut searcher(),
+            &self.matcher,
+            path,
+            Some(text),
+            || false,
+            |matched| {
+                results.push(matched);
+                ControlFlow::Continue(())
+            },
+        )?;
+        Ok(results)
+    }
+
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
     /// Snapshots take precedence over files at the same path. Unreadable entries are skipped
     /// and search I/O errors are logged, allowing other files to produce results.
@@ -108,10 +126,7 @@ impl Search {
     ) {
         let stopped = AtomicBool::new(false);
         let cancelled = || stopped.load(Ordering::Relaxed) || is_cancelled();
-        let searcher = SearcherBuilder::new()
-            .binary_detection(BinaryDetection::quit(b'\x00'))
-            .multi_line(true)
-            .build();
+        let searcher = searcher();
         let walker = options.walker(root);
         walker.build_parallel().run(|| {
             let mut searcher = searcher.clone();
@@ -127,37 +142,20 @@ impl Search {
                     Ok(entry) if entry.path().is_file() => entry,
                     _ => return WalkState::Continue,
                 };
-                let sink = sinks::UTF8(|line_start, line_content| {
-                    if cancelled() {
-                        return Ok(false);
-                    }
-                    let Some((line_start, match_start_col, line_end, match_end_col)) =
-                        match_line_cols(line_start as usize - 1, line_content, &matcher)
-                    else {
-                        return Ok(true);
-                    };
-                    if emit(Match {
-                        path: entry.path().to_owned(),
-                        line_start,
-                        line_end,
-                        match_start_col,
-                        match_end_col,
-                    })
-                    .is_break()
-                    {
-                        stopped.store(true, Ordering::Relaxed);
-                    }
-                    Ok(!cancelled())
-                });
-                let result = if let Some(text) = documents.get(entry.path()) {
-                    if searcher.multi_line_with_matcher(&matcher) {
-                        searcher.search_slice(&matcher, text.to_string().as_bytes(), sink)
-                    } else {
-                        searcher.search_reader(&matcher, RopeReader::new(text.slice(..)), sink)
-                    }
-                } else {
-                    searcher.search_path(&matcher, entry.path(), sink)
-                };
+                let result = search_file(
+                    &mut searcher,
+                    &matcher,
+                    entry.path(),
+                    documents.get(entry.path()),
+                    cancelled,
+                    |matched| {
+                        let flow = emit(matched);
+                        if flow.is_break() {
+                            stopped.store(true, Ordering::Relaxed);
+                        }
+                        flow
+                    },
+                );
                 if let Err(error) = result {
                     log::error!("Global search error: {}, {}", entry.path().display(), error);
                 }
@@ -168,6 +166,50 @@ impl Search {
                 }
             })
         });
+    }
+}
+
+fn searcher() -> grep_searcher::Searcher {
+    SearcherBuilder::new()
+        .binary_detection(BinaryDetection::quit(b'\x00'))
+        .multi_line(true)
+        .build()
+}
+
+fn search_file(
+    searcher: &mut grep_searcher::Searcher,
+    matcher: &RegexMatcher,
+    path: &Path,
+    text: Option<&Rope>,
+    cancelled: impl Fn() -> bool,
+    mut emit: impl FnMut(Match) -> ControlFlow<()>,
+) -> std::io::Result<()> {
+    let sink = sinks::UTF8(|line_start, line_content| {
+        if cancelled() {
+            return Ok(false);
+        }
+        let Some((line_start, match_start_col, line_end, match_end_col)) =
+            match_line_cols(line_start as usize - 1, line_content, matcher)
+        else {
+            return Ok(true);
+        };
+        let flow = emit(Match {
+            path: path.to_owned(),
+            line_start,
+            line_end,
+            match_start_col,
+            match_end_col,
+        });
+        Ok(flow.is_continue() && !cancelled())
+    });
+    if let Some(text) = text {
+        if searcher.multi_line_with_matcher(matcher) {
+            searcher.search_slice(matcher, text.to_string().as_bytes(), sink)
+        } else {
+            searcher.search_reader(matcher, RopeReader::new(text.slice(..)), sink)
+        }
+    } else {
+        searcher.search_path(matcher, path, sink)
     }
 }
 
@@ -323,6 +365,35 @@ mod tests {
             }]
         );
         assert!(collect(dir.path(), &options(), &documents, "disk").is_empty());
+    }
+
+    #[test]
+    fn document_search_has_the_same_results_as_workspace_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("document.txt");
+        std::fs::write(&path, "unrelated disk contents").unwrap();
+        let text = Rope::from("α foo foo\r\nβ FOO\nfoo\n");
+        let documents = HashMap::from([(path.clone(), text.clone())]);
+        for pattern in ["foo", "foo\\r?\\nβ", "(?m)^", "(?i)foo"] {
+            assert_eq!(
+                Search::new(pattern, true)
+                    .unwrap()
+                    .search_document(&path, &text)
+                    .unwrap(),
+                collect(dir.path(), &options(), &documents, pattern),
+                "{pattern}",
+            );
+        }
+        // The direct buffer path also works when the file no longer exists on disk.
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            Search::new("foo", true)
+                .unwrap()
+                .search_document(&path, &text)
+                .unwrap()
+                .len(),
+            3
+        );
     }
 
     #[test]

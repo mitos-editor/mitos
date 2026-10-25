@@ -15,6 +15,49 @@ fn changed(editor: &mut Editor, path: &Path, ty: EventType) {
 }
 
 #[tokio::test]
+async fn reordered_selection_near_the_end_keeps_the_results_page_full() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("name", |item: &u32, _: &()| {
+            format!("result-{item:02}").into()
+        })],
+        0,
+        0..40,
+        (),
+        |_, _, _| {},
+    )
+    .with_item_key(|item| *item);
+    until(&mut picker, &mut app, |picker| {
+        picker.results.matcher.snapshot().matched_item_count() == 40
+    })
+    .await?;
+    assert_eq!(picker.selection(), Some(&0));
+    picker.refresh_options(
+        (1..40).chain([0]).collect(),
+        picker.results.editor_data.clone(),
+    );
+    until(&mut picker, &mut app, |picker| picker.results.cursor == 39).await?;
+    assert_eq!(picker.selection(), Some(&0));
+    assert_eq!(picker.results.matcher.snapshot().matched_item_count(), 40);
+    // Every available row should be filled, even though selection moved to the end.
+    let frame = super::super::test::frame(&mut picker, &mut app);
+    let visible_rows = frame
+        .content
+        .chunks(frame.area.width as usize)
+        .filter(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("result-")
+        })
+        .count();
+    assert_eq!(visible_rows, picker.completion_height as usize);
+    assert!(visible_rows > 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn refresh_keeps_navigation_and_viewport_until_publication() -> anyhow::Result<()> {
     let mut app = application(false)?;
     let dir = tempfile::tempdir()?;

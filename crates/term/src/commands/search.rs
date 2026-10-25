@@ -376,10 +376,38 @@ fn global_search_picker(
             },
         })
     })
-    .with_replacement(|cx, items, query, replacement, replace_all, config| {
-        let search = ::search::Search::new(query, !config.case_sensitive.load(Ordering::Relaxed))?;
-        cx.editor
-            .replace_workspace_matches(&search, items, replacement, replace_all)
+    .with_replacement(|cx, request, config| {
+        let search = ::search::Search::new(
+            request.query,
+            !config.case_sensitive.load(Ordering::Relaxed),
+        )?;
+        let count = cx.editor.replace_workspace_matches(
+            &search,
+            request.matches,
+            request.replacement,
+            request.replace_all,
+        )?;
+        // Only edited buffers can have changed. Preserve all other files and their
+        // ordering, including rows hidden by the current path filter.
+        let mut refreshed = std::collections::HashMap::new();
+        for item in request.matches {
+            if refreshed.contains_key(&item.path) {
+                continue;
+            }
+            let id = cx.editor.open(&item.path, view::editor::Action::Load)?;
+            let document = cx.editor.document(id).unwrap();
+            let rows = search.search_document(&item.path, document.text())?;
+            refreshed.insert(item.path.clone(), rows);
+        }
+        let mut options = Vec::new();
+        for item in request.options {
+            if let Some(rows) = refreshed.get_mut(&item.path) {
+                options.append(rows);
+            } else {
+                options.push((*item).clone());
+            }
+        }
+        Ok((count, options))
     })
     .with_case_sensitive_toggle(initial_case_sensitive, |config, enabled| {
         config.case_sensitive.store(enabled, Ordering::Relaxed);

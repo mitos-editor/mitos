@@ -42,6 +42,10 @@ impl<T, D> FileUpdates<T, D> {
         self.dirty || self.pending.is_some()
     }
 
+    pub(super) fn mark_documents_refreshed(&mut self, editor: &Editor) {
+        self.changes.mark_documents_refreshed(editor);
+    }
+
     pub(super) fn stop(&mut self) {
         self.task.cancel();
         self.pending = None;

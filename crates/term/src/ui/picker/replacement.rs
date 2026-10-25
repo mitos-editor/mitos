@@ -2,8 +2,18 @@
 
 use super::*;
 
+/// Inputs are borrowed from one settled result generation. Options include rows
+/// hidden by column filters, so refreshing edited files cannot discard other rows.
+pub(crate) struct ReplacementRequest<'a, T> {
+    pub matches: &'a [&'a T],
+    pub options: &'a [&'a T],
+    pub query: &'a str,
+    pub replacement: &'a str,
+    pub replace_all: bool,
+}
+
 type ReplacementCallback<T, D> =
-    Box<dyn Fn(&mut Context, &[&T], &str, &str, bool, &D) -> anyhow::Result<usize>>;
+    Box<dyn Fn(&mut Context, ReplacementRequest<'_, T>, &D) -> anyhow::Result<(usize, Vec<T>)>>;
 type CaseSensitiveCallback<D> = Box<dyn Fn(&D, bool)>;
 
 pub(super) struct Replacement<T, D> {
@@ -56,7 +66,8 @@ pub(super) fn split_picker_input_area(area: Rect, show_replacement: bool) -> Pic
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     pub(crate) fn with_replacement(
         mut self,
-        callback: impl Fn(&mut Context, &[&T], &str, &str, bool, &D) -> anyhow::Result<usize> + 'static,
+        callback: impl Fn(&mut Context, ReplacementRequest<'_, T>, &D) -> anyhow::Result<(usize, Vec<T>)>
+            + 'static,
     ) -> Self {
         self.replacement = Some(Replacement {
             prompt: Prompt::new("replace: ".into(), None, ui::completers::none, |_, _, _| {}),
@@ -77,6 +88,70 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             callback: Box::new(callback),
         });
         self
+    }
+
+    pub(super) fn render_replacement_help(
+        &self,
+        area: Rect,
+        mut inner: Rect,
+        surface: &mut Surface,
+        cx: &Context,
+    ) -> Rect {
+        if self.replacement.is_none() || area.height == 0 || area.width <= 4 {
+            return inner;
+        }
+        let keys = (self.keymap)(&cx.config.current.component_keys);
+        let mut actions = vec![(
+            PickerAction::ToggleReplacement,
+            if self.replacement_visible() {
+                "switch input"
+            } else {
+                "replace"
+            },
+        )];
+        if self.case_sensitive.is_some() {
+            actions.push((PickerAction::ToggleCaseSensitive, "toggle case"));
+        }
+        actions.push((
+            PickerAction::Accept,
+            if self.replacement_visible() {
+                "replace one"
+            } else {
+                "open"
+            },
+        ));
+        if self.replacement_visible() {
+            actions.push((PickerAction::ReplaceAll, "replace all"));
+        }
+        let hints = actions
+            .into_iter()
+            .filter_map(|(action, label)| {
+                let key = crate::keymap::component::action_hint(keys, &action);
+                (key != "unbound").then(|| format!("{key} {label}"))
+            })
+            .collect();
+        let width = area.width.saturating_sub(4) as usize;
+        let lines = help_lines(hints, width);
+        let bottom_border = u16::from(inner.bottom() < area.bottom());
+        let reserved = 3 + self.header_height() + if self.replacement_visible() { 2 } else { 0 };
+        let height = lines.len().min(
+            inner
+                .height
+                .saturating_sub(reserved)
+                .saturating_add(bottom_border) as usize,
+        ) as u16;
+        let top = area.bottom().saturating_sub(height);
+        inner.height = inner.height.min(top.saturating_sub(inner.y));
+        for (row, line) in lines.into_iter().take(height as usize).enumerate() {
+            surface.set_stringn(
+                area.x + 2,
+                top + row as u16,
+                line,
+                width,
+                cx.editor.theme.get("ui.text.inactive"),
+            );
+        }
+        inner
     }
 
     pub(super) fn replacement_visible(&self) -> bool {
@@ -173,23 +248,28 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             cx.editor.set_status("No matches to replace");
             return;
         }
+        let options: Vec<_> = (0..snapshot.item_count())
+            .filter_map(|index| snapshot.get_item(index).map(|item| item.data))
+            .collect();
         let result = (replacement.callback)(
             cx,
-            &items,
-            &query,
-            replacement.prompt.line(),
-            replace_all,
+            ReplacementRequest {
+                matches: &items,
+                options: &options,
+                query: &query,
+                replacement: replacement.prompt.line(),
+                replace_all,
+            },
             &self.results.editor_data,
         );
         match result {
-            Ok(0) => cx.editor.set_status("No matches replaced"),
-            Ok(count) => {
-                // Refresh coordinates and preview from the changed buffers. Do not
-                // leave stale rows actionable while the next generation loads.
+            Ok((0, _)) => cx.editor.set_status("No matches replaced"),
+            Ok((count, options)) => {
+                // Keep stale coordinates locked until updated rows are published.
+                self.refresh_options(options, self.results.editor_data.clone());
                 if let Some(updates) = &mut self.file_updates {
-                    updates.stop();
+                    updates.mark_documents_refreshed(cx.editor);
                 }
-                self.request_dynamic_refresh(true);
                 cx.editor.set_status(format!(
                     "Replaced {count} {}",
                     if count == 1 { "match" } else { "matches" }
@@ -198,6 +278,30 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             Err(error) => cx.editor.set_error(|| format!("Replace failed: {error}")),
         }
     }
+}
+
+/// Wrap whole hints so a shortcut and its action stay together.
+fn help_lines(hints: Vec<String>, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for hint in hints {
+        if !line.is_empty()
+            && Line::from(line.as_str()).width() + 3 + Line::from(hint.as_str()).width() > width
+        {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push_str(" · ");
+        }
+        line.push_str(&hint);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 #[cfg(test)]

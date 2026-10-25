@@ -15,6 +15,7 @@ struct Harness {
     app: Application,
     compositor: Compositor,
     jobs: Jobs,
+    config: Config,
 }
 
 impl Harness {
@@ -28,17 +29,18 @@ impl Harness {
             app,
             compositor,
             jobs,
+            config: Config::default(),
         })
     }
 
     fn event(&mut self, event: Event) {
-        let config = Config::default();
+        let config = &self.config;
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         self.compositor.handle_event(
             &event,
             &mut UiContext {
                 config: crate::config::Context {
-                    current: &config,
+                    current: config,
                     updates: &updates,
                 },
                 editor: &mut self.app.editor,
@@ -63,7 +65,7 @@ impl Harness {
     }
 
     fn frame(&mut self) -> String {
-        let config = Config::default();
+        let config = &self.config;
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let area = Rect::new(0, 0, 120, 24);
         let mut surface = tui::buffer::Buffer::empty(area);
@@ -77,7 +79,7 @@ impl Harness {
             &mut surface,
             &mut UiContext {
                 config: crate::config::Context {
-                    current: &config,
+                    current: config,
                     updates: &updates,
                 },
                 editor: &mut self.app.editor,
@@ -93,12 +95,12 @@ impl Harness {
     async fn settle(&mut self) -> anyhow::Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let config = Config::default();
+                let config = &self.config;
                 let updates = tokio::sync::mpsc::unbounded_channel().0;
                 while let Ok(callback) = self.jobs.callbacks.try_recv() {
                     self.jobs.handle_callback(
                         crate::config::Context {
-                            current: &config,
+                            current: config,
                             updates: &updates,
                         },
                         &mut self.app.editor,
@@ -128,6 +130,114 @@ impl Harness {
 }
 
 #[tokio::test]
+async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow::Result<()> {
+    use crate::keymap::component::PickerAction;
+    use ui_core::keymap::{Binding, Keymap};
+
+    let dir = tempfile::tempdir()?;
+    let mut h = Harness::new(dir.path())?;
+    let frame = h.frame();
+    assert!(frame.contains("<A-r> replace"));
+    assert!(frame.contains("<A-c> toggle case"));
+    assert!(!frame.contains("replace all"));
+    h.key("A-r");
+    let frame = h.frame();
+    assert!(frame.contains("<A-r> switch input"));
+    assert!(frame.contains("<ret> replace one"));
+    assert!(frame.contains("<C-ret> replace all"));
+
+    let keys = &mut h.config.component_keys.picker.0;
+    keys.insert("A-r".parse()?, Binding::Unbound);
+    keys.insert(
+        "F4".parse()?,
+        Binding::Actions(vec![PickerAction::ToggleReplacement]),
+    );
+    keys.insert("A-c".parse()?, Binding::Unbound);
+    keys.insert("C-ret".parse()?, Binding::Unbound);
+    keys.insert("Meta-ret".parse()?, Binding::Unbound);
+    keys.insert(
+        "F5".parse()?,
+        Binding::Keys(Keymap(std::collections::HashMap::from([(
+            "a".parse()?,
+            Binding::Actions(vec![PickerAction::ReplaceAll]),
+        )]))),
+    );
+    let frame = h.frame();
+    assert!(frame.contains("<F4> switch input"));
+    assert!(frame.contains("<F5>a replace all"));
+    assert!(!frame.contains("<A-r>"));
+    assert!(!frame.contains("toggle case"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn single_replace_refreshes_only_its_buffer_and_preserves_all_other_results(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    for index in 0..40 {
+        std::fs::write(
+            dir.path().join(format!("{index:02}.txt")),
+            "α foo\nfoo\nfoo\n",
+        )?;
+    }
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 120);
+    let selected = h.picker().selection().unwrap().clone();
+    assert_eq!(selected.line_start, 0);
+    let unchanged: Vec<_> = test::items(h.picker())
+        .filter(|item| item.path != selected.path)
+        .cloned()
+        .collect();
+    // With watching/polling disabled, a silent disk edit must not be read during
+    // replacement of another file. An explicit filesystem event refreshes it below.
+    let other = dir.path().join(unchanged[0].path.file_name().unwrap());
+    std::fs::write(&other, "no matches\n")?;
+    h.key("A-r");
+    h.event(Event::Paste("bar\nnew".into()));
+    h.key("ret");
+    h.settle().await?;
+    assert_eq!(h.count(), 119);
+    let remaining: Vec<_> = test::items(h.picker()).cloned().collect();
+    assert_eq!(
+        remaining
+            .iter()
+            .filter(|item| item.path != selected.path)
+            .cloned()
+            .collect::<Vec<_>>(),
+        unchanged
+    );
+    let changed: Vec<_> = remaining
+        .iter()
+        .filter(|item| item.path == selected.path)
+        .collect();
+    assert_eq!(changed.len(), 2);
+    // Inserting a newline shifts all following matches in the edited buffer.
+    assert_eq!(
+        changed
+            .iter()
+            .map(|item| item.line_start)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    h.app
+        .editor
+        .handle_file_events(&view::file_watcher::Events::from(vec![
+            view::file_watcher::Event {
+                path: view::file_watcher::CanonicalPathBuf::assert_canonicalized(
+                    &stdx::path::canonicalize_existing(&other),
+                ),
+                ty: view::file_watcher::EventType::Modified,
+            },
+        ]));
+    h.settle().await?;
+    assert_eq!(h.count(), 116);
+    assert!(test::items(h.picker()).all(|item| item.path.file_name() != other.file_name()));
+    Ok(())
+}
+
+#[tokio::test]
 async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("included.txt");
@@ -143,15 +253,6 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     h.key("A-r");
     h.event(Event::Paste("longer".into()));
     h.key("ret");
-    // A second action before refreshed coordinates are published cannot edit stale rows.
-    h.key("ret");
-    assert!(h
-        .app
-        .editor
-        .get_status()
-        .unwrap()
-        .0
-        .contains("Wait for global search"));
     h.settle().await?;
     let id = h.app.editor.open(&path, view::editor::Action::Load)?;
     assert_eq!(
@@ -180,6 +281,16 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     );
     assert_eq!(std::fs::read_to_string(&path)?, "α foo foo\nfoo\n");
     assert_eq!(std::fs::read_to_string(&excluded)?, "foo\n");
+    h.key("A-r");
+    h.key("C-a");
+    h.key("C-k");
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 1);
+    assert_eq!(
+        h.picker().selection().unwrap().path.file_name(),
+        excluded.file_name()
+    );
     h.app.editor.open(&path, view::editor::Action::Replace)?;
     assert!(h.app.editor.change_history(buffer::HistoryAction::Undo));
     assert_eq!(

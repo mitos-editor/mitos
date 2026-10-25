@@ -177,6 +177,13 @@ impl WorkspaceChanges {
         changed
     }
 
+    /// A consumer has refreshed known, synchronous edits to editor documents.
+    /// Keep filesystem events and polling due so independent changes are still observed.
+    pub fn mark_documents_refreshed(&mut self, editor: &Editor) {
+        self.versions =
+            document_versions(editor, &self.root, self.policy.documents, &mut self.paths);
+    }
+
     pub fn poll_due(&self, editor: &Editor) -> bool {
         if !self.owner.same_destination(editor.callback_sender()) {
             return false;

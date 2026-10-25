@@ -79,7 +79,8 @@ step per affected buffer. Open buffers, including unsaved edits, take precedence
 over files on disk.
 
 Results and previews refresh after replacement so subsequent actions use current
-match positions. These bindings can be changed under `[keys.picker]`.
+match positions. The footer shows available actions with your current keybindings.
+These bindings can be changed under `[keys.picker]`.
 
 ## File explorer
 

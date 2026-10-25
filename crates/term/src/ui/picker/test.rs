@@ -36,6 +36,13 @@ pub(crate) fn draw<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
     app: &mut Application,
 ) {
+    frame(picker, app);
+}
+
+pub(crate) fn frame<T: Send + Sync, D: Send + Sync>(
+    picker: &mut Picker<T, D>,
+    app: &mut Application,
+) -> Surface {
     let config = AppConfig::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = Jobs::new();
@@ -51,7 +58,9 @@ pub(crate) fn draw<T: Send + Sync, D: Send + Sync>(
         is_cursor_owner: true,
     };
     let area = Rect::new(0, 0, 70, 20);
-    picker.render(area, &mut Surface::empty(area), &mut cx);
+    let mut surface = Surface::empty(area);
+    picker.render(area, &mut surface, &mut cx);
+    surface
 }
 
 pub(crate) async fn until<T: Send + Sync, D: Send + Sync>(

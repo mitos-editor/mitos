@@ -936,6 +936,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 );
             }
         }
+        let inner = self.render_replacement_help(area, inner, surface, cx);
 
         let input_areas = split_picker_input_area(inner, self.replacement_visible());
         let inner = input_areas.results;
@@ -993,9 +994,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
 
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
+        self.completion_height = rows as u16;
         let rows = rows.max(1);
         // Page by the visible rows left after the help footer.
         self.completion_height = rows as u16;
+        // Publication can move selection toward the end of a reordered result set.
+        // Fill the viewport from above instead of leaving most rows blank.
+        self.results.offset = self
+            .results
+            .offset
+            .min(snapshot.matched_item_count().saturating_sub(rows));
         self.results.offset = self.results.offset.min(self.results.cursor);
         if self.results.cursor >= self.results.offset.saturating_add(rows) {
             self.results.offset = self.results.cursor + 1 - rows;
