@@ -457,6 +457,10 @@ const BASE_WIDTH: u16 = 30;
 
 impl Prompt {
     pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        if area.is_empty() {
+            self.line_area = area;
+            return;
+        }
         let theme = &cx.editor.theme;
         let prompt_color = theme.get("ui.text");
         let completion_color = theme.get("ui.menu");
@@ -568,6 +572,9 @@ impl Prompt {
             .clip_left(self.prompt.len() as u16)
             .clip_top(line)
             .clip_right(2);
+        if self.line_area.is_empty() {
+            return;
+        }
 
         if self.line.is_empty() {
             self.anchor = 0;
@@ -862,7 +869,7 @@ impl Component for Prompt {
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
-        if area.is_empty() {
+        if area.is_empty() || self.line_area.is_empty() {
             return Cursor::Hidden;
         }
         let area = area

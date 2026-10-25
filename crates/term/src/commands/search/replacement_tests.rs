@@ -65,9 +65,13 @@ impl Harness {
     }
 
     fn frame(&mut self) -> String {
+        self.frame_at(120, 24)
+    }
+
+    fn frame_at(&mut self, width: u16, height: u16) -> String {
         let config = &self.config;
         let updates = tokio::sync::mpsc::unbounded_channel().0;
-        let area = Rect::new(0, 0, 120, 24);
+        let area = Rect::new(0, 0, width, height);
         let mut surface = tui::buffer::Buffer::empty(area);
         let picker = &mut self
             .compositor
@@ -89,6 +93,7 @@ impl Harness {
                 is_cursor_owner: true,
             },
         );
+        let _ = picker.cursor(area, &self.app.editor);
         surface.content.iter().map(|cell| cell.symbol()).collect()
     }
 
@@ -171,6 +176,36 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
 }
 
 #[tokio::test]
+async fn replacement_footer_keeps_inputs_and_results_visible_on_small_terminals(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    std::fs::write(dir.path().join("entry.txt"), "foo\n")?;
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    h.key("A-r");
+    h.event(Event::Paste("bar".into()));
+    let frame = h.frame_at(40, 12);
+    for text in [
+        "search: foo",
+        "replace: bar",
+        "entry.txt",
+        "<ret> replace one",
+        "<C-ret> replace all",
+    ] {
+        assert!(frame.contains(text), "missing {text:?} in {frame}");
+    }
+    // Layout clipping must also remain safe when a terminal is very small.
+    h.key("C-a");
+    for width in [0, 1, 2, 4, 5, 20, 40, 73] {
+        for height in [0, 1, 2, 4, 6, 8] {
+            h.frame_at(width, height);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn single_replace_refreshes_only_its_buffer_and_preserves_all_other_results(
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -234,6 +269,43 @@ async fn single_replace_refreshes_only_its_buffer_and_preserves_all_other_result
     h.settle().await?;
     assert_eq!(h.count(), 116);
     assert!(test::items(h.picker()).all(|item| item.path.file_name() != other.file_name()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn replace_all_with_no_remaining_matches_still_publishes_the_buffer_refresh(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let included = dir.path().join("included.txt");
+    let excluded = dir.path().join("excluded.txt");
+    std::fs::write(&included, "foo\n")?;
+    std::fs::write(&excluded, "foo\n")?;
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo %p included".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 1);
+    assert_eq!(test::all_items(h.picker()).count(), 2);
+    // Neither file is open or watched. Replace-all should discover that the
+    // included match disappeared, without reading the excluded file again.
+    std::fs::write(&included, "gone\n")?;
+    std::fs::write(&excluded, "gone\n")?;
+    h.key("A-r");
+    h.event(Event::Paste("bar".into()));
+    h.key("C-ret");
+    h.settle().await?;
+    assert_eq!(h.count(), 0);
+    assert_eq!(test::all_items(h.picker()).count(), 1);
+    assert_eq!(
+        test::all_items(h.picker()).next().unwrap().path.file_name(),
+        excluded.file_name()
+    );
+    assert!(h
+        .app
+        .editor
+        .get_status()
+        .unwrap()
+        .0
+        .contains("No matches replaced"));
     Ok(())
 }
 

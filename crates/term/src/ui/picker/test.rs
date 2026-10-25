@@ -10,6 +10,11 @@ pub(crate) fn items<T: Send + Sync, D>(picker: &Picker<T, D>) -> impl Iterator<I
         .map(|item| item.data)
 }
 
+pub(crate) fn all_items<T: Send + Sync, D>(picker: &Picker<T, D>) -> impl Iterator<Item = &T> {
+    let snapshot = picker.results.matcher.snapshot();
+    (0..snapshot.item_count()).filter_map(|index| snapshot.get_item(index).map(|item| item.data))
+}
+
 pub(crate) fn application(poll: bool) -> anyhow::Result<Application> {
     let mut config = AppConfig::default();
     config.editor.lsp.enable = false;

@@ -263,17 +263,20 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             &self.results.editor_data,
         );
         match result {
-            Ok((0, _)) => cx.editor.set_status("No matches replaced"),
             Ok((count, options)) => {
                 // Keep stale coordinates locked until updated rows are published.
                 self.refresh_options(options, self.results.editor_data.clone());
                 if let Some(updates) = &mut self.file_updates {
                     updates.mark_documents_refreshed(cx.editor);
                 }
-                cx.editor.set_status(format!(
-                    "Replaced {count} {}",
-                    if count == 1 { "match" } else { "matches" }
-                ));
+                if count == 0 {
+                    cx.editor.set_status("No matches replaced");
+                } else {
+                    cx.editor.set_status(format!(
+                        "Replaced {count} {}",
+                        if count == 1 { "match" } else { "matches" }
+                    ));
+                }
             }
             Err(error) => cx.editor.set_error(|| format!("Replace failed: {error}")),
         }
