@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use arc_swap::ArcSwap;
 use gix::filter::plumbing::driver::apply::Delay;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -66,7 +65,7 @@ pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
     }
 }
 
-pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwap<Box<str>>>> {
+pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<str>> {
     debug_assert!(!file.exists() || file.is_file());
     debug_assert!(file.is_absolute());
     let file = gix::path::realpath(file).context("resolve symlinks")?;
@@ -83,7 +82,32 @@ pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwa
         None => head_commit.id.to_hex_with_len(8).to_string(),
     };
 
-    Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
+    Ok(name.into())
+}
+
+/// Resolve the status of one path, preserving rename and conflict information.
+pub fn file_status(path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+    let directory = path
+        .parent()
+        .and_then(|path| path.ancestors().find(|path| path.is_dir()))
+        .ok_or_else(|| anyhow::anyhow!("File has no existing parent directory"))?;
+    let result = std::cell::RefCell::new(None);
+    for_each_file_status(
+        &ChangedFileScope::Repository(directory.into()),
+        trust_full,
+        |_, status| match status {
+            Ok(status) if status.path() == path => {
+                *result.borrow_mut() = Some(Ok(status));
+                false
+            }
+            Err(error) => {
+                *result.borrow_mut() = Some(Err(error));
+                false
+            }
+            _ => true,
+        },
+    )?;
+    result.into_inner().transpose()
 }
 
 #[cfg(test)]

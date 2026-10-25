@@ -1,23 +1,12 @@
 //! Version-control status and asynchronous document diffs.
 //!
-//! [`DiffProviderRegistry`] is deliberately best-effort: callers are editing
-//! files, so an unavailable repository or provider should remove VCS decoration
-//! rather than prevent the document from opening. Provider failures from
-//! [`DiffProviderRegistry::get_diff_base`] and
-//! [`DiffProviderRegistry::get_current_head_name`] are logged and returned as
-//! `None`. Changed-file enumeration reports a terminal error through its
-//! callback when no provider can serve the query.
-//!
-//! Git is currently the only compiled provider. The `trust_full` argument on
-//! registry operations controls whether repository-local configuration and the
-//! features it enables may be trusted; preserve it when adding new entry points.
+//! Decorations are best-effort: an unavailable repository removes VCS decoration
+//! instead of preventing a document from opening. Explicit status and comparison
+//! operations report errors. Git support is selected at compile time; every
+//! repository operation retains its explicit workspace trust decision.
 
-use anyhow::{anyhow, bail, Result};
-use arc_swap::ArcSwap;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "git")]
 mod git;
@@ -57,212 +46,131 @@ impl ChangedFileScope {
     }
 }
 
-/// Contains all active diff providers. Diff providers are compiled in via features. Currently
-/// only `git` is supported.
-#[derive(Clone)]
-pub struct DiffProviderRegistry {
-    providers: Vec<DiffProvider>,
-}
-
-impl DiffProviderRegistry {
-    /// Git metadata whose changes invalidate status, branch names, and document diff bases.
-    pub fn get_watched_paths(&self, path: &Path, trust_full: bool) -> Vec<PathBuf> {
-        self.providers
-            .iter()
-            .flat_map(|provider| match provider {
-                #[cfg(feature = "git")]
-                DiffProvider::Git => git::get_watched_paths(path, trust_full).unwrap_or_default(),
-                DiffProvider::None => Vec::new(),
-            })
-            .collect()
-    }
-
-    /// Reads the unedited version of `file` used as the base of a document diff.
-    ///
-    /// Providers are tried in registry order. Errors are logged and suppressed;
-    /// `None` means no provider produced a base.
-    pub fn get_diff_base(&self, file: &Path, trust_full: bool) -> Option<Vec<u8>> {
-        self.providers
-            .iter()
-            .find_map(|provider| match provider.get_diff_base(file, trust_full) {
-                Ok(res) => Some(res),
-                Err(err) => {
-                    log::debug!("{err:#?}");
-                    log::debug!("failed to open diff base for {}", file.display());
-                    None
-                }
-            })
-    }
-
-    /// Returns a live, shareable value containing the current repository head name.
-    ///
-    /// The inner [`ArcSwap`] may be updated by the provider after branch changes.
-    /// Provider errors are logged and suppressed.
-    pub fn get_current_head_name(
-        &self,
-        file: &Path,
-        trust_full: bool,
-    ) -> Option<Arc<ArcSwap<Box<str>>>> {
-        self.providers.iter().find_map(|provider| {
-            match provider.get_current_head_name(file, trust_full) {
-                Ok(res) => Some(res),
-                Err(err) => {
-                    log::debug!("{err:#?}");
-                    log::debug!("failed to obtain current head name for {}", file.display());
-                    None
-                }
-            }
-        })
-    }
-
-    /// Starts changed-file enumeration on a blocking worker thread.
-    ///
-    /// The callback may run repeatedly on that worker and returning `false`
-    /// stops iteration. If no provider succeeds, it is called once with an error
-    /// and [`ChangedFileScope::path`] as the path.
-    pub fn for_each_changed_file(
-        self,
-        scope: ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
-    ) {
-        self.for_each_file_status(scope, trust_full, move |root, status| {
-            f(root, status.map(|status| status.change().clone()))
-        });
-    }
-
-    /// Enumerate changes without discarding either the index or working-tree state.
-    pub fn for_each_file_status(
-        self,
-        scope: ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
-    ) {
-        tokio::task::spawn_blocking(move || {
-            if self
-                .providers
-                .iter()
-                .find_map(|provider| provider.for_each_file_status(&scope, trust_full, &f).ok())
-                .is_none()
-            {
-                f(
-                    scope.path(),
-                    Err(anyhow!("no diff provider returns success")),
-                );
-            }
-        });
-    }
-    /// Read bounded, immutable comparison inputs on the caller's blocking worker.
-    pub fn read_comparison(
-        &self,
-        status: &FileStatus,
-        kind: ComparisonKind,
-        trust_full: bool,
-    ) -> Result<Comparison> {
-        #[cfg(not(feature = "git"))]
-        let _ = (status, kind, trust_full);
-        for provider in &self.providers {
-            match provider {
-                #[cfg(feature = "git")]
-                DiffProvider::Git => return review::read_git_comparison(status, kind, trust_full),
-                DiffProvider::None => {}
-            }
-        }
-        bail!("No Git support compiled in")
-    }
-
-    /// Resolve the current staged/unstaged paths, including rename chains.
-    /// Call on a blocking worker when a review is opened without a status picker
-    /// or explicitly refreshed; ordinary preview polling can reuse its status.
-    pub fn file_status(&self, path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
-        #[cfg(feature = "git")]
-        if self
-            .providers
-            .iter()
-            .any(|provider| matches!(provider, DiffProvider::Git))
-        {
-            let directory = path
-                .parent()
-                .and_then(|path| path.ancestors().find(|path| path.is_dir()))
-                .ok_or_else(|| anyhow!("File has no existing parent directory"))?;
-            let result = std::cell::RefCell::new(None);
-            git::for_each_file_status(
-                &ChangedFileScope::Repository(directory.into()),
-                trust_full,
-                |_, status| match status {
-                    Ok(status) if status.path() == path => {
-                        *result.borrow_mut() = Some(Ok(status));
-                        false
-                    }
-                    Err(error) => {
-                        *result.borrow_mut() = Some(Err(error));
-                        false
-                    }
-                    _ => true,
-                },
-            )?;
-            return result.into_inner().transpose();
-        }
-        let _ = (path, trust_full);
-        bail!("No Git support compiled in")
-    }
-}
-
-impl Default for DiffProviderRegistry {
-    fn default() -> Self {
-        // currently only git is supported
-        // TODO make this configurable when more providers are added
-        let providers = vec![
-            #[cfg(feature = "git")]
-            DiffProvider::Git,
-            DiffProvider::None,
-        ];
-        DiffProviderRegistry { providers }
-    }
-}
-
-/// A union type that includes all types that implement [DiffProvider]. We need this type to allow
-/// cloning [DiffProviderRegistry] as `Clone` cannot be used in trait objects.
-///
-/// `Copy` is simply to ensure the `clone()` call is the simplest it can be.
-#[derive(Copy, Clone)]
-enum DiffProvider {
+/// Git metadata whose changes invalidate status, branch names, and diff bases.
+pub fn get_watched_paths(path: &Path, trust_full: bool) -> Vec<PathBuf> {
     #[cfg(feature = "git")]
-    Git,
-    None,
+    {
+        git::get_watched_paths(path, trust_full).unwrap_or_default()
+    }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (path, trust_full);
+        Vec::new()
+    }
 }
 
-impl DiffProvider {
-    fn get_diff_base(&self, file: &Path, trust_full: bool) -> Result<Vec<u8>> {
-        match self {
-            #[cfg(feature = "git")]
-            Self::Git => git::get_diff_base(file, trust_full),
-            Self::None => bail!("No diff support compiled in"),
-        }
+/// Read a document's unedited diff base, logging and suppressing repository errors.
+pub fn get_diff_base(file: &Path, trust_full: bool) -> Option<Vec<u8>> {
+    #[cfg(feature = "git")]
+    {
+        git::get_diff_base(file, trust_full)
+            .inspect_err(|err| {
+                log::debug!("failed to open diff base for {}: {err:#}", file.display())
+            })
+            .ok()
     }
-
-    fn get_current_head_name(
-        &self,
-        file: &Path,
-        trust_full: bool,
-    ) -> Result<Arc<ArcSwap<Box<str>>>> {
-        match self {
-            #[cfg(feature = "git")]
-            Self::Git => git::get_current_head_name(file, trust_full),
-            Self::None => bail!("No diff support compiled in"),
-        }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (file, trust_full);
+        None
     }
+}
 
-    fn for_each_file_status(
-        &self,
-        scope: &ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileStatus>) -> bool,
-    ) -> Result<()> {
-        match self {
-            #[cfg(feature = "git")]
-            Self::Git => git::for_each_file_status(scope, trust_full, f),
-            Self::None => bail!("No diff support compiled in"),
+/// Read the current branch or detached HEAD name. Refreshes replace this snapshot.
+pub fn get_current_head_name(file: &Path, trust_full: bool) -> Option<std::sync::Arc<str>> {
+    #[cfg(feature = "git")]
+    {
+        git::get_current_head_name(file, trust_full)
+            .inspect_err(|err| {
+                log::debug!("failed to obtain head name for {}: {err:#}", file.display())
+            })
+            .ok()
+    }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (file, trust_full);
+        None
+    }
+}
+
+/// Enumerate staged and working-tree status on a blocking worker.
+/// Returning `false` from the callback stops iteration. Repository failures are
+/// delivered once through the same callback at the query's discovery path.
+pub fn for_each_file_status(
+    scope: ChangedFileScope,
+    trust_full: bool,
+    f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
+) {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(feature = "git")]
+        let result = git::for_each_file_status(&scope, trust_full, &f);
+        #[cfg(not(feature = "git"))]
+        let result: Result<()> = Err(anyhow::anyhow!("No Git support compiled in"));
+        #[cfg(not(feature = "git"))]
+        let _ = trust_full;
+        if let Err(error) = result {
+            f(scope.path(), Err(error));
         }
+    });
+}
+
+/// Read bounded, immutable comparison inputs on the caller's blocking worker.
+pub fn read_comparison(
+    status: &FileStatus,
+    kind: ComparisonKind,
+    trust_full: bool,
+) -> Result<Comparison> {
+    #[cfg(feature = "git")]
+    {
+        review::read_git_comparison(status, kind, trust_full)
+    }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (status, kind, trust_full);
+        anyhow::bail!("No Git support compiled in")
+    }
+}
+
+/// Resolve current staged/unstaged paths, including rename chains.
+/// Call on a blocking worker; preview polling can reuse an existing status.
+pub fn file_status(path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+    #[cfg(feature = "git")]
+    {
+        git::file_status(path, trust_full)
+    }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (path, trust_full);
+        anyhow::bail!("No Git support compiled in")
+    }
+}
+
+#[cfg(all(test, not(feature = "git")))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disabled_git_skips_decorations_and_reports_explicit_operations() {
+        let path = PathBuf::from("unavailable.txt");
+        assert!(get_watched_paths(&path, false).is_empty());
+        assert!(get_diff_base(&path, false).is_none());
+        assert!(get_current_head_name(&path, false).is_none());
+        assert!(file_status(&path, false).is_err());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        for_each_file_status(
+            ChangedFileScope::Repository(path.clone()),
+            false,
+            move |root, result| {
+                tx.send((root.to_owned(), result)).unwrap();
+                true
+            },
+        );
+        let (root, result) = rx.recv().await.unwrap();
+        assert_eq!(root, path);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "No Git support compiled in"
+        );
+        assert!(rx.recv().await.is_none());
     }
 }

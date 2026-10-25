@@ -81,7 +81,7 @@ impl Editor {
             .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
             .is_trusted();
         if doc.update_blame_trust(trust_full) {
-            doc.refresh_vcs(&self.diff_providers, trust_full);
+            doc.refresh_vcs(trust_full);
         }
         if doc.file_blame().is_none() {
             handler.request(doc, trust_full, Some(line));
@@ -132,7 +132,7 @@ fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
         .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
         .is_trusted();
     if doc.update_blame_trust(trust_full) {
-        doc.refresh_vcs(&editor.diff_providers, trust_full);
+        doc.refresh_vcs(trust_full);
     }
     handler.request(doc, trust_full, None);
 }
@@ -182,7 +182,7 @@ pub(crate) fn register_hooks() {
                 .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
                 .is_trusted();
             if doc.update_blame_trust(trust_full) {
-                doc.refresh_vcs(&event.editor.diff_providers, trust_full);
+                doc.refresh_vcs(trust_full);
             }
         }
         request_visible_blame(event.editor);

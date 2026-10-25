@@ -480,20 +480,19 @@ mod tests {
         let mut doc = open(&path);
         let view = View::new(doc.id(), Default::default(), event::Redraw::default());
         doc.set_selection(view.id, Selection::point(0));
-        let providers = vcs::DiffProviderRegistry::default();
-        doc.reload(&providers, false).unwrap();
+        doc.reload(false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.is_readonly());
         assert_eq!(doc.text().len(), 0);
         // Replacing it with text restores the normal editor path.
         fs::write(&path, "plain text\n").unwrap();
-        doc.reload(&providers, false).unwrap();
+        doc.reload(false).unwrap();
         assert!(!doc.is_binary());
         assert!(!doc.is_readonly());
         assert_eq!(doc.text().to_string(), "plain text\n");
         image::DynamicImage::new_rgb8(20, 20).save(&path).unwrap();
         doc.set_encoding("utf-16le").unwrap();
-        doc.reload(&providers, false).unwrap();
+        doc.reload(false).unwrap();
         assert!(doc.is_binary());
         assert!(doc.is_readonly());
         assert_eq!(doc.text().len(), 0);

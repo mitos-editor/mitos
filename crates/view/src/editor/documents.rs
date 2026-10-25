@@ -273,11 +273,9 @@ impl Editor {
             let diff_base = if doc.is_binary() {
                 None
             } else {
-                self.diff_providers.get_diff_base(&path, trust_full)
+                vcs::get_diff_base(&path, trust_full)
             };
-            doc.set_version_control_head(
-                self.diff_providers.get_current_head_name(&path, trust_full),
-            );
+            doc.set_version_control_head(vcs::get_current_head_name(&path, trust_full));
 
             let id = self.new_document(doc);
             if let Some(diff_base) = diff_base {

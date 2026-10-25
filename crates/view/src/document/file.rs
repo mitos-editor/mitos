@@ -26,7 +26,6 @@ use stdx::{
     Url,
 };
 use text_io::to_writer;
-use vcs::DiffProviderRegistry;
 
 /// The text, revision, and destination confirmed by a completed write.
 #[derive(Debug, Clone)]
@@ -491,11 +490,7 @@ impl Document {
     }
 
     /// Reload the document from its path.
-    pub fn reload(
-        &mut self,
-        provider_registry: &DiffProviderRegistry,
-        trust_full: bool,
-    ) -> Result<(), Error> {
+    pub fn reload(&mut self, trust_full: bool) -> Result<(), Error> {
         anyhow::ensure!(
             !self.is_content_readonly(),
             "Use :diff-refresh to refresh a review document"
@@ -548,7 +543,7 @@ impl Document {
         self.pickup_last_saved_time();
         self.refresh_settings();
 
-        self.refresh_vcs(provider_registry, trust_full);
+        self.refresh_vcs(trust_full);
 
         Ok(())
     }

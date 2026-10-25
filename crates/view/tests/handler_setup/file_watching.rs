@@ -109,10 +109,7 @@ async fn assert_native_index_changes(linked: bool) -> anyhow::Result<()> {
     f.editor
         .open(&worktree.join("document.words"), Action::Load)?;
     f.editor.refresh_vcs_watches();
-    let index = f
-        .editor
-        .diff_providers
-        .get_watched_paths(&worktree, false)
+    let index = vcs::get_watched_paths(&worktree, false)
         .into_iter()
         .find(|path| path.file_name().is_some_and(|name| name == "index"))
         .unwrap();
@@ -158,10 +155,7 @@ async fn assert_native_index_changes(linked: bool) -> anyhow::Result<()> {
         .await
         .context("index change was not delivered without polling")??;
     }
-    let attributes = f
-        .editor
-        .diff_providers
-        .get_watched_paths(&worktree, false)
+    let attributes = vcs::get_watched_paths(&worktree, false)
         .into_iter()
         .find(|path| path.ends_with("info/attributes"))
         .unwrap();

@@ -571,12 +571,7 @@ async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabl
     changed(&head, "ref: refs/heads/second\n", 2)?;
     app.editor.handle_file_events(&fs_events(&[&head]));
     assert_eq!(
-        current_ref!(app.editor)
-            .1
-            .version_control_head()
-            .unwrap()
-            .as_ref()
-            .as_ref(),
+        current_ref!(app.editor).1.version_control_head().unwrap(),
         "second"
     );
     assert!(app
@@ -586,12 +581,7 @@ async fn shared_filesystem_and_polling_paths_refresh_vcs_with_auto_reload_disabl
     changed(&head, "ref: refs/heads/first\n", 3)?;
     check_unwatched(&mut app.editor);
     assert_eq!(
-        current_ref!(app.editor)
-            .1
-            .version_control_head()
-            .unwrap()
-            .as_ref()
-            .as_ref(),
+        current_ref!(app.editor).1.version_control_head().unwrap(),
         "first"
     );
     assert!(app

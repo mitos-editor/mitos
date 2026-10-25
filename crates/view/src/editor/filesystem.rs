@@ -284,7 +284,7 @@ impl Editor {
             .workspace_trust
             .query(doc.workspace_root(), TrustQuery::Git)
             .is_trusted();
-        doc.refresh_vcs(&self.diff_providers, trust_full);
+        doc.refresh_vcs(trust_full);
         self.refresh_doc_language(doc_id);
         self.refresh_vcs_watches();
     }

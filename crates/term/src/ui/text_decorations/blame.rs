@@ -120,7 +120,7 @@ mod tests {
     }
 
     async fn prepare_blame(doc: &mut Document, path: &std::path::Path) {
-        doc.refresh_vcs(&vcs::DiffProviderRegistry::default(), false);
+        doc.refresh_vcs(false);
         doc.set_file_blame(vcs::FileBlame::try_new(path.to_path_buf(), false));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while !doc.diff_handle().unwrap().load().is_current() {

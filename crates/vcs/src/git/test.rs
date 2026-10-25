@@ -75,6 +75,26 @@ fn unmodified_file() {
 }
 
 #[test]
+fn head_names_are_snapshots_across_branch_changes_and_detachment() {
+    let repo = empty_git_repo();
+    let file = repo.path().join("file.txt");
+    std::fs::write(&file, "text").unwrap();
+    create_commit(repo.path(), true);
+    let original = crate::get_current_head_name(&file, false).unwrap();
+    assert_eq!(&*original, "main");
+    exec_git_cmd(&["checkout", "-b", "next"], repo.path());
+    assert_eq!(&*original, "main");
+    assert_eq!(
+        &*crate::get_current_head_name(&file, false).unwrap(),
+        "next"
+    );
+    exec_git_cmd(&["checkout", "--detach"], repo.path());
+    let detached = crate::get_current_head_name(&file, false).unwrap();
+    assert_eq!(detached.len(), 8);
+    assert!(detached.bytes().all(|byte| byte.is_ascii_hexdigit()));
+}
+
+#[test]
 fn modified_file() {
     let temp_git = empty_git_repo();
     let file = temp_git.path().join("file.txt");

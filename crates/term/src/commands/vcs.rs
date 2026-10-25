@@ -229,7 +229,6 @@ fn display_path(change: &FileChange, worktree_root: &Path) -> String {
 }
 
 fn refresh_changed_files(
-    providers: vcs::DiffProviderRegistry,
     scope: vcs::ChangedFileScope,
     trust_full: bool,
     display_root: Option<std::path::PathBuf>,
@@ -237,7 +236,7 @@ fn refresh_changed_files(
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<ChangedFileEntry>>> {
     Box::pin(async move {
         let (tx, mut results) = tokio::sync::mpsc::unbounded_channel();
-        providers.for_each_file_status(scope, trust_full, move |root, change| {
+        vcs::for_each_file_status(scope, trust_full, move |root, change| {
             if cancel.is_canceled() {
                 return false;
             }
@@ -399,7 +398,6 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 .query(&data.workspace_root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
             refresh_changed_files(
-                editor.diff_providers.clone(),
                 data.scope.clone(),
                 trust_full,
                 data.display_root.clone(),
@@ -439,7 +437,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         .query(&workspace_root, workspace::trust::TrustQuery::Git)
         .is_trusted();
     let status = cx.editor.status_sender().clone();
-    cx.editor.diff_providers.clone().for_each_file_status(
+    vcs::for_each_file_status(
         scope,
         trust_full,
         move |worktree_root, change| match change {
@@ -814,42 +812,22 @@ mod file_refresh_tests {
         std::fs::write(&path, "new\n")?;
         let scope = vcs::ChangedFileScope::Directory(dir.path().to_owned());
         let mut task = event::TaskController::new();
-        let entries = refresh_changed_files(
-            vcs::DiffProviderRegistry::default(),
-            scope.clone(),
-            false,
-            None,
-            task.restart(),
-        )
-        .await?;
+        let entries = refresh_changed_files(scope.clone(), false, None, task.restart()).await?;
         assert_eq!(entries.len(), 1);
         assert!(
             matches!(entries[0].status.change(), FileChange::Untracked { path: found } if found == &path)
         );
         git(&["add", "new.txt"])?;
-        let entries = refresh_changed_files(
-            vcs::DiffProviderRegistry::default(),
-            scope.clone(),
-            false,
-            None,
-            task.restart(),
-        )
-        .await?;
+        let entries = refresh_changed_files(scope.clone(), false, None, task.restart()).await?;
         assert_eq!(entries.len(), 1);
         assert!(
             matches!(entries[0].status.change(), FileChange::Added { path: found } if found == &path)
         );
         git(&["rm", "--cached", "new.txt"])?;
         std::fs::remove_file(&path)?;
-        assert!(refresh_changed_files(
-            vcs::DiffProviderRegistry::default(),
-            scope,
-            false,
-            None,
-            task.restart()
-        )
-        .await?
-        .is_empty());
+        assert!(refresh_changed_files(scope, false, None, task.restart())
+            .await?
+            .is_empty());
         Ok(())
     }
 }

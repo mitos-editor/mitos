@@ -9,3 +9,7 @@ identity, literal pathspecs, and subprocess output limits. It uses Git's own
 locking and filter semantics for writes. `view::features::git_operations` admits
 operations against editor state and coordinates saves; terminal pickers only
 present actions and drive their tasks to completion.
+
+Git reads use direct, stateless entry points. Builds without Git return no decorations
+and report unavailable support for explicit operations. Branch names are immutable
+snapshots replaced when the document refreshes its repository state.

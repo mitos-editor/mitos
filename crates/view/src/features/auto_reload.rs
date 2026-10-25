@@ -293,7 +293,7 @@ pub(crate) fn reload_vcs(editor: &mut Editor) {
             .workspace_trust
             .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
             .is_trusted();
-        doc.refresh_vcs(&editor.diff_providers, trust_full);
+        doc.refresh_vcs(trust_full);
         log::debug!("refreshed VCS state for {}", path.display());
     }
     // HEAD may now point to another loose ref.

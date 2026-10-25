@@ -34,7 +34,7 @@ impl Editor {
             .workspace_trust
             .query(doc.workspace_root(), TrustQuery::Git)
             .is_trusted();
-        doc.reload(&self.diff_providers, trusted)?;
+        doc.reload(trusted)?;
         doc.breakpoint_saved_text = Some(doc.text().clone());
         let debugger_path = doc.path().map(|path| path.to_owned());
         for (view, _) in self.tree.views_mut() {

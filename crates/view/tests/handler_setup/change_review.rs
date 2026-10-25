@@ -124,7 +124,6 @@ async fn review_protection_covers_editing_history_modes_and_forced_writes() -> a
     let version = f.editor.document(id).unwrap().version();
     let text = f.editor.document(id).unwrap().text().clone();
     let exported = f.dir.path().join("must-not-exist.txt");
-    let trust = f.editor.diff_providers.clone();
     let (view, doc) = current!(f.editor);
     let edit = Transaction::change(
         doc.text(),
@@ -137,7 +136,7 @@ async fn review_protection_covers_editing_history_modes_and_forced_writes() -> a
     );
     assert!(!doc.undo() && !doc.redo());
     assert!(doc.save(Some(exported.clone()), true).is_err());
-    assert!(doc.reload(&trust, true).is_err());
+    assert!(doc.reload(true).is_err());
     assert_eq!(doc.version(), version);
     assert_eq!(doc.text(), &text);
     f.editor.set_mode(view::document::Mode::Insert);

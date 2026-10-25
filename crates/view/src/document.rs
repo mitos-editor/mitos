@@ -45,12 +45,13 @@ pub use syntax_initialization::SyntaxRequest;
 
 use anyhow::{bail, Error};
 use arc_swap::access::DynAccess;
+#[cfg(test)]
 use arc_swap::ArcSwap;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::encoding::Encoding;
 use language_config::LanguageServerFeature;
 use text_layout::text_annotations::Overlay;
-use vcs::{DiffHandle, DiffProviderRegistry};
+use vcs::DiffHandle;
 
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
@@ -243,7 +244,7 @@ pub struct Document {
     opened_language_servers: HashSet<LanguageServerId>,
 
     diff_handle: Option<DiffHandle>,
-    version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
+    version_control_head: Option<Arc<str>>,
     pub(crate) blame: DocumentBlame,
 
     // when document was used for most-recent-used buffer picker
@@ -637,7 +638,7 @@ impl Document {
     }
 
     /// Refresh both branch display and the diff base after repository changes.
-    pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+    pub fn refresh_vcs(&mut self, trust_full: bool) {
         self.update_blame_trust(trust_full);
         self.blame.refresh();
         let Some(path) = self.path().map(ToOwned::to_owned) else {
@@ -646,12 +647,12 @@ impl Document {
         if self.is_binary() {
             self.diff_handle = None;
         } else {
-            match providers.get_diff_base(&path, trust_full) {
+            match vcs::get_diff_base(&path, trust_full) {
                 Some(base) => self.set_diff_base(base),
                 None => self.diff_handle = None,
             }
         }
-        self.version_control_head = providers.get_current_head_name(&path, trust_full);
+        self.version_control_head = vcs::get_current_head_name(&path, trust_full);
         if self.config.load().inline_blame.show != editor_config::InlineBlameShow::Never
             && let Some(handler) = self.blame.handler().cloned()
         {
@@ -683,14 +684,11 @@ impl Document {
         }
     }
 
-    pub fn version_control_head(&self) -> Option<Arc<Box<str>>> {
-        self.version_control_head.as_ref().map(|a| a.load_full())
+    pub fn version_control_head(&self) -> Option<&str> {
+        self.version_control_head.as_deref()
     }
 
-    pub fn set_version_control_head(
-        &mut self,
-        version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
-    ) {
+    pub fn set_version_control_head(&mut self, version_control_head: Option<Arc<str>>) {
         self.version_control_head = version_control_head;
     }
 

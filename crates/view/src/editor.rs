@@ -43,7 +43,6 @@ use crate::{
 use editor_config::Config;
 use event::dispatch;
 use theme::Theme;
-use vcs::DiffProviderRegistry;
 use workspace::trust::WorkspaceTrust;
 
 use futures_util::StreamExt;
@@ -99,7 +98,6 @@ pub struct Editor {
     pub(crate) language_servers: crate::language_servers::Registry,
     initialized_language_servers: HashSet<LanguageServerId>,
     pub(crate) diagnostics: LspDiagnostics,
-    pub diff_providers: DiffProviderRegistry,
 
     pub(crate) debugger: crate::debugger::DebuggerState,
 
@@ -224,9 +222,8 @@ impl Editor {
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();
 
-        // Initialize file watcher and diff providers
+        // Initialize file watching
         let file_watcher = Watcher::new(&conf.files.watch, handlers.callbacks.clone());
-        let diff_providers = DiffProviderRegistry::default();
 
         // HAXX: offset the render area height by 1 to account for prompt/commandline
         area.height -= 1;
@@ -245,7 +242,6 @@ impl Editor {
             language_servers,
             initialized_language_servers: HashSet::new(),
             diagnostics: LspDiagnostics::new(),
-            diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
             theme_loader,
@@ -817,7 +813,7 @@ impl Editor {
                 .workspace_trust
                 .query(&root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
+            paths.extend(vcs::get_watched_paths(&root, trusted));
             for doc in self.documents.values() {
                 let Some(path) = doc
                     .path()
@@ -837,7 +833,7 @@ impl Editor {
                     .workspace_trust
                     .query(workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted();
-                paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
+                paths.extend(vcs::get_watched_paths(path, trust_full));
             }
         }
         self.file_watcher.set_extra_watched_paths(paths);

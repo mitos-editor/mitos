@@ -41,9 +41,7 @@ pub(super) fn prepare(f: &mut Fixture, title: &str) {
     std::fs::write(f.dir.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
     git(f.dir.path(), &["init"]);
     commit(f, title);
-    current!(f.editor)
-        .1
-        .refresh_vcs(&f.editor.diff_providers, true);
+    current!(f.editor).1.refresh_vcs(true);
 }
 
 async fn wait_for_blame(f: &mut Fixture) -> anyhow::Result<()> {
@@ -189,9 +187,7 @@ async fn blame_maps_lf_and_crlf_worktree_lines_to_committed_lines() -> anyhow::R
         )?;
         git(f.dir.path(), &["init"]);
         commit(&f, "initial");
-        current!(f.editor)
-            .1
-            .refresh_vcs(&f.editor.diff_providers, true);
+        current!(f.editor).1.refresh_vcs(true);
         f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
         wait_for_blame(&mut f).await?;
         let doc = current_ref!(f.editor).1;
@@ -285,7 +281,7 @@ async fn visible_blame_refreshes_after_head_changes_and_file_opens() -> anyhow::
     std::fs::write(&path, "after\n")?;
     commit(&f, "after commit");
     let (_, doc) = current!(f.editor);
-    doc.reload(&f.editor.diff_providers, true)?;
+    doc.reload(true)?;
     assert!(doc.file_blame().is_none());
     wait_for_blame(&mut f).await?;
     assert_eq!(
@@ -394,7 +390,7 @@ async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
     let path = current_ref!(f.editor).1.path().unwrap().to_path_buf();
     std::fs::write(&path, "inserted\nbefore\n")?;
     let (_, doc) = current!(f.editor);
-    doc.reload(&f.editor.diff_providers, true)?;
+    doc.reload(true)?;
     assert!(matches!(
         doc.line_blame(0, "{title}"),
         Err(LineBlameError::NotReadyYet)
@@ -430,9 +426,7 @@ async fn hiding_blame_discards_debounced_repository_refreshes() -> anyhow::Resul
     f.configure(|config| config.inline_blame.show = InlineBlameShow::CursorLine);
     // A burst of refreshes becomes a single hook completion.
     for _ in 0..20 {
-        current!(f.editor)
-            .1
-            .refresh_vcs(&f.editor.diff_providers, true);
+        current!(f.editor).1.refresh_vcs(true);
     }
     let refresh = tokio::time::timeout(Duration::from_secs(10), callbacks.recv())
         .await?
@@ -591,9 +585,7 @@ async fn queued_details_do_not_survive_edits_or_repository_refreshes() -> anyhow
     wait_for_diff(&f).await?;
     request_details(&mut f.editor);
     let update = next_update(&f.editor).unwrap();
-    current!(f.editor)
-        .1
-        .refresh_vcs(&f.editor.diff_providers, true);
+    current!(f.editor).1.refresh_vcs(true);
     assert!(update.resolve(&f.editor).is_none());
     Ok(())
 }
