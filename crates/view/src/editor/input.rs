@@ -59,9 +59,23 @@ impl Editor {
         Ok(())
     }
 
+    pub fn delete_sub_word_backward(&mut self, count: usize) -> Result<(), EditError> {
+        let (view, doc) = current!(self);
+        editing::insert::delete_sub_word_backward(doc, view.id, count)?;
+        self.input_applied(InputKind::Other);
+        Ok(())
+    }
+
     pub fn delete_word_forward(&mut self, count: usize) -> Result<(), EditError> {
         let (view, doc) = current!(self);
         editing::insert::delete_word_forward(doc, view.id, count)?;
+        self.input_applied(InputKind::Delete);
+        Ok(())
+    }
+
+    pub fn delete_sub_word_forward(&mut self, count: usize) -> Result<(), EditError> {
+        let (view, doc) = current!(self);
+        editing::insert::delete_sub_word_forward(doc, view.id, count)?;
         self.input_applied(InputKind::Delete);
         Ok(())
     }
