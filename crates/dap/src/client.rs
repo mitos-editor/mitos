@@ -17,6 +17,22 @@ use tokio::{
     sync::mpsc::{channel, UnboundedReceiver},
 };
 
+/// Build a locally managed adapter without access to the editor's controlling terminal.
+fn adapter_command(command: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)] // The child hook is Unix-only.
+    let mut command = Command::new(command);
+    #[cfg(unix)]
+    // SAFETY: the child hook only calls the async-signal-safe setsid syscall and
+    // converts errno on failure; it does not access locks or shared parent state.
+    unsafe {
+        command.pre_exec(|| match libc::setsid() {
+            -1 => Err(std::io::Error::last_os_error()),
+            _ => Ok(()),
+        });
+    }
+    command
+}
+
 #[derive(Debug)]
 /// One debug-adapter transport and its typed protocol requests.
 ///
@@ -80,7 +96,7 @@ impl Client {
         // Resolve path to the binary
         let cmd = stdx::env::which(cmd)?;
 
-        let process = Command::new(cmd)
+        let process = adapter_command(cmd)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -473,6 +489,17 @@ impl Drop for PendingRequest {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_adapter_owns_a_separate_session() {
+        let (client, _events) =
+            super::Client::stdio("sh", vec!["-c", "exec sleep 30"], Default::default()).unwrap();
+        let pid = client._process.as_ref().unwrap().id().unwrap() as libc::pid_t;
+        // SAFETY: getsid accepts any process ID and does not access Rust memory.
+        assert_eq!(unsafe { libc::getsid(pid) }, pid);
+        drop(client);
+    }
+
     use super::*;
     use serde_json::json;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
