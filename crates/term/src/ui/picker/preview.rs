@@ -19,7 +19,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 use stdx::rope::RopeExt as _;
 use text_layout::char_idx_at_visual_offset;
@@ -33,6 +33,9 @@ use view::{
 
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
+// Bound both text content and per-document overhead such as syntax trees.
+const MAX_CACHED_PREVIEWS: usize = 32;
+const MAX_CACHED_TEXT_BYTES: usize = 32 * 1024 * 1024;
 
 #[cfg(all(test, feature = "integration"))]
 #[path = "syntax_preview_tests.rs"]
@@ -153,6 +156,7 @@ struct CacheEntry {
     stamp: Option<FileStamp>,
     preview: CachedPreview,
     checked: tokio::time::Instant,
+    last_used: Instant,
 }
 
 impl CacheEntry {
@@ -162,6 +166,7 @@ impl CacheEntry {
             stamp,
             preview,
             checked: tokio::time::Instant::now(),
+            last_used: Instant::now(),
         }
     }
 }
@@ -199,6 +204,33 @@ impl Default for FilePreview {
 }
 
 impl FilePreview {
+    fn cache(&mut self, path: Arc<Path>, mut entry: CacheEntry) {
+        let text_bytes = |entry: &CacheEntry| match &entry.preview {
+            CachedPreview::Document(doc) => doc.text().len_bytes(),
+            _ => 0,
+        };
+        // The file may have grown since its size was checked before loading.
+        if text_bytes(&entry) > MAX_CACHED_TEXT_BYTES {
+            entry.preview = CachedPreview::LargeFile;
+        }
+        let mut bytes = self.preview_cache.values().map(text_bytes).sum::<usize>();
+        while self.preview_cache.len() >= MAX_CACHED_PREVIEWS
+            || bytes + text_bytes(&entry) > MAX_CACHED_TEXT_BYTES
+        {
+            let Some(oldest) = self
+                .preview_cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(path, _)| path.clone())
+            else {
+                break;
+            };
+            bytes -= text_bytes(&self.preview_cache[&oldest]);
+            self.remove(&oldest);
+        }
+        self.preview_cache.insert(path, entry);
+    }
+
     fn cancel_image_load(&mut self, location: Option<(&Path, Size)>) {
         if self
             .image_task
@@ -381,6 +413,7 @@ impl FilePreview {
                     let path = Arc::clone(path);
                     self.highlight::<T, D>(path.clone(), jobs);
                     let preview = self.preview_cache.get_mut(&path).unwrap();
+                    preview.last_used = Instant::now();
                     return Some((Preview::Cached(&mut preview.preview), range));
                 }
 
@@ -391,7 +424,7 @@ impl FilePreview {
                     // Other images remain available in the shared, bounded cache.
                     self.preview_cache
                         .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
-                    self.preview_cache.insert(
+                    self.cache(
                         path.clone(),
                         CacheEntry::new(
                             &path,
@@ -469,8 +502,7 @@ impl FilePreview {
                     self.preview_cache
                         .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
                 }
-                self.preview_cache
-                    .insert(path.clone(), CacheEntry::new(&path, stamp, preview));
+                self.cache(path.clone(), CacheEntry::new(&path, stamp, preview));
                 self.highlight::<T, D>(path.clone(), jobs);
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
@@ -919,5 +951,95 @@ mod image_preview_tests {
         assert!(
             decode_image_preview(&path, &ImagePicker::halfblocks(), Size::new(20, 10)).is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use arc_swap::ArcSwap;
+    use editor_core::Rope;
+
+    fn document(bytes: usize) -> CacheEntry {
+        let doc = Document::from(
+            Rope::from("x".repeat(bytes)),
+            None,
+            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
+            Arc::new(language::syntax::Loader::default()),
+        );
+        CacheEntry::new(
+            Path::new("/cache-test"),
+            None,
+            CachedPreview::Document(Box::new(doc)),
+        )
+    }
+
+    #[tokio::test]
+    async fn text_budget_evicts_oldest_and_keeps_the_new_preview() {
+        let mut cache = FilePreview::default();
+        for i in 0..5 {
+            cache.cache(
+                PathBuf::from(format!("/preview-{i}")).into(),
+                document(9 * 1024 * 1024),
+            );
+        }
+        assert_eq!(cache.preview_cache.len(), 3);
+        assert!(cache.preview_cache.contains_key(Path::new("/preview-4")));
+        assert!(!cache.preview_cache.contains_key(Path::new("/preview-0")));
+        let bytes: usize = cache
+            .preview_cache
+            .values()
+            .map(|entry| match &entry.preview {
+                CachedPreview::Document(doc) => doc.text().len_bytes(),
+                _ => 0,
+            })
+            .sum();
+        assert!(bytes <= MAX_CACHED_TEXT_BYTES);
+    }
+
+    #[tokio::test]
+    async fn eviction_cancels_a_documents_syntax_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("first.json");
+        std::fs::write(&path, "{}").unwrap();
+        let mut doc = Document::open_for_preview(
+            &path,
+            Arc::new(ArcSwap::from_pointee(editor_config::Config::default())),
+            Arc::new(language::loader::default_lang_loader(
+                loader::syntax::Resources::default(),
+            )),
+        )
+        .unwrap();
+        let request = doc.syntax_request().unwrap();
+        let mut cache = FilePreview::default();
+        cache.cache(
+            path.clone().into(),
+            CacheEntry::new(&path, None, CachedPreview::Document(Box::new(doc))),
+        );
+        for i in 0..MAX_CACHED_PREVIEWS {
+            let path: Arc<Path> = PathBuf::from(format!("/preview-{i}")).into();
+            cache.cache(
+                path.clone(),
+                CacheEntry::new(&path, None, CachedPreview::NotFound),
+            );
+        }
+        assert!(!cache.preview_cache.contains_key(path.as_path()));
+        tokio::time::timeout(Duration::from_millis(100), request.canceled())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn entry_budget_applies_to_small_and_non_text_previews() {
+        let mut cache = FilePreview::default();
+        for i in 0..MAX_CACHED_PREVIEWS * 3 {
+            let path: Arc<Path> = PathBuf::from(format!("/preview-{i}")).into();
+            cache.cache(
+                path.clone(),
+                CacheEntry::new(&path, None, CachedPreview::NotFound),
+            );
+        }
+        assert_eq!(cache.preview_cache.len(), MAX_CACHED_PREVIEWS);
+        assert!(!cache.preview_cache.contains_key(Path::new("/preview-0")));
     }
 }
