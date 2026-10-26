@@ -96,6 +96,14 @@ impl<'a> DecorationManager<'a> {
         }
     }
 
+    pub(crate) fn next_anchor(&self) -> usize {
+        self.decorations
+            .iter()
+            .map(|(_, anchor)| *anchor)
+            .min()
+            .unwrap_or(usize::MAX)
+    }
+
     pub(crate) fn decorate_grapheme(
         &mut self,
         renderer: &mut TextRenderer,

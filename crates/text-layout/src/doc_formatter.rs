@@ -175,6 +175,7 @@ impl Default for TextFormat {
 
 #[derive(Debug)]
 pub struct DocumentFormatter<'t> {
+    text: RopeSlice<'t>,
     text_fmt: &'t TextFormat,
     annotations: &'t TextAnnotations<'t>,
 
@@ -223,6 +224,7 @@ impl<'t> DocumentFormatter<'t> {
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
+            text,
             text_fmt,
             annotations,
             visual_pos: DisplayPosition { row: 0, col: 0 },
@@ -414,6 +416,47 @@ impl<'t> DocumentFormatter<'t> {
                 return;
             }
         }
+    }
+
+    /// Advance over printable ASCII beyond the viewport without formatting each
+    /// grapheme. Stops before annotations, controls, Unicode, and caller anchors.
+    /// Wrapped text and pending virtual text always use normal traversal.
+    pub fn skip_ascii(&mut self, end: usize) -> usize {
+        if self.text_fmt.soft_wrap
+            || self
+                .inline_annotation_graphemes
+                .as_ref()
+                .is_some_and(|(g, _)| !g.as_str().is_empty())
+        {
+            return 0;
+        }
+        let end = end
+            .min(self.annotations.next_anchor())
+            .min(self.text.len_chars());
+        if end <= self.char_pos {
+            return 0;
+        }
+        let remaining = self.text.slice(self.char_pos..end);
+        let mut bytes = 0;
+        for chunk in remaining.chunks() {
+            let count = chunk
+                .bytes()
+                .take_while(|b| (b' '..=b'~').contains(b))
+                .count();
+            bytes += count;
+            if count != chunk.len() {
+                break;
+            }
+        }
+        // Keep the last ASCII character when Unicode follows: it may be the
+        // base of a combining grapheme. Resume at an established boundary.
+        bytes = bytes.saturating_sub(1);
+        if bytes != 0 {
+            self.char_pos += bytes;
+            self.visual_pos.col += bytes;
+            self.graphemes = self.text.slice(self.char_pos..).graphemes();
+        }
+        bytes
     }
 
     /// returns the char index at the end of the last yielded grapheme
