@@ -958,3 +958,14 @@ async fn match_bracket() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reflow_preserves_a_saved_jump_in_the_middle_of_a_paragraph() -> anyhow::Result<()> {
+    test((
+        "aaaa bbbb #[c|]#ccc dddd\n",
+        "<C-s>mip:reflow 9<ret><C-o>",
+        "aaaa bbbb\n#[c|]#ccc dddd\n",
+        LineFeedHandling::AsIs,
+    ))
+    .await
+}
