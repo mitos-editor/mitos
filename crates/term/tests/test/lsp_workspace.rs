@@ -1,5 +1,6 @@
 use std::{path::Path, time::Duration};
 
+use anyhow::Context as _;
 use editor_config::WatchConfig;
 use lsp_client::{jsonrpc::ErrorCode, lsp};
 use serde_json::{json, Value};
@@ -323,34 +324,28 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
-    .await?;
+    .await
+    .context("native watch root did not become ready")?;
     std::fs::write(&native, "native change\n")?;
     let native_uri = lsp::Url::from_file_path(&native).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            run_event_loop_until_idle(&mut first.app).await;
-            let contents = std::fs::read_to_string(&first.logs[0])?;
-            if contents
-                .split_inclusive('\n')
-                .filter(|line| line.ends_with('\n'))
-                .map(serde_json::from_str::<Value>)
-                .collect::<Result<Vec<_>, _>>()?
-                .iter()
-                .any(|message| {
-                    message["params"]["changes"]
-                        .as_array()
-                        .is_some_and(|changes| {
-                            changes
-                                .iter()
-                                .any(|change| change["uri"] == native_uri.as_str())
-                        })
+    // The server can log a notification after the editor has gone idle. Poll
+    // that acknowledgement independently so it can finish even when no more
+    // editor events arrive to wake an already-consumed idle timer.
+    let mut input = first.app.event_stream();
+    tokio::select! {
+        result = logged(&first.logs[0], |message| {
+            message["params"]["changes"]
+                .as_array()
+                .is_some_and(|changes| {
+                    changes.iter().any(|change| change["uri"] == native_uri.as_str())
                 })
-            {
-                return anyhow::Ok(());
-            }
+        }) => {
+            result.context("native file change did not reach its owning language server")?;
         }
-    })
-    .await??;
+        () = first.app.event_loop(&mut input) => {
+            anyhow::bail!("editor exited before delivering the native file change");
+        }
+    }
     first.app.editor.file_watcher.reload(&WatchConfig {
         enable: false,
         ..Default::default()
