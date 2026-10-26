@@ -1,0 +1,39 @@
+name: Rebuild documentation
+
+on:
+  release:
+    types: [published, edited, deleted, unpublished]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: documentation-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    if: github.repository == 'mitos-editor/mitos'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the Cloudflare website build
+        env:
+          CLOUDFLARE_DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          hook = os.environ["CLOUDFLARE_DEPLOY_HOOK"]
+          if not hook:
+              raise SystemExit("::error::Set the CLOUDFLARE_DEPLOY_HOOK repository secret")
+          try:
+              with urlopen(Request(hook, method="POST"), timeout=30) as response:
+                  result = json.load(response)
+          except (OSError, ValueError):
+              raise SystemExit("::error::Cloudflare deploy hook request failed") from None
+          if not result.get("success"):
+              raise SystemExit("::error::Cloudflare rejected the website build request")
+          print("Cloudflare website build triggered. Check Workers Builds for its status.")
+          PYTHON

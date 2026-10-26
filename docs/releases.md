@@ -41,6 +41,10 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 3. Wait for CI and merge the release PR.
 4. Verify the Release-plz and Release workflows finish, and check the uploaded
    archives, Debian package, and provenance attestations on the GitHub release.
+5. Verify the Rebuild documentation workflow triggers a Cloudflare build and
+   the site publishes the new release at `/docs/` and its
+   permanent `/docs/vX.Y.Z/` URL. See [website documentation](../book/README.md#documentation-versions)
+   for the deploy hook setup.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
