@@ -96,7 +96,8 @@ Run `cargo test --workspace` to run unit tests and documentation tests in all pa
 
 ## Integration Tests
 
-Integration tests for term can be run with `cargo integration-test`. Code
+Integration tests for term and workspace unit tests with integration support can
+be run together with `cargo integration-test`. Code
 contributors are strongly encouraged to write integration tests for their code.
 Existing tests can be used as examples. Helpers can be found in
 [helpers.rs][helpers.rs]. The log level can be set with the `MITOS_LOG_LEVEL`

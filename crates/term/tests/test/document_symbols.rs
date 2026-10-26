@@ -11,6 +11,8 @@ async fn syntax_picker_refreshes(keys: &str) -> anyhow::Result<()> {
     let path = dir.path().join("file.rs");
     std::fs::write(&path, "fn sample_original() {}\n")?;
     let mut config = test_config();
+    // Let the real dynamic-query debounce publish its callbacks before idle.
+    config.editor.idle_timeout = editor_config::Config::default().idle_timeout;
     config.editor.lsp.enable = false;
     let mut app = AppBuilder::new().with_config(config).build()?;
     app.editor.open(&path, Action::Replace)?;

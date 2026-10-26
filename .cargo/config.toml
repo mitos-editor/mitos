@@ -13,5 +13,6 @@ rustflags = ["--cfg", "tokio_unstable", "-C", "target-feature=-crt-static"]
 
 [alias]
 xtask = "run --package xtask --"
-integration-test = "test --features integration --profile integration --workspace --test integration"
+# Keep the same workspace feature graph for integration and frontend unit tests.
+integration-test = "test --features integration --profile integration --workspace --lib --test integration"
 

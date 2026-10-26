@@ -60,7 +60,10 @@ opt-level = 3
 inherits = "test"
 package.core.opt-level = 2
 package.tui.opt-level = 2
-package.term.opt-level = 2
+# Frontend tests spend most of their time waiting for events. Keep their build
+# cheaper while retaining source locations in CI backtraces.
+package.term.opt-level = 1
+package.term.debug = 1
 
 [workspace.dependencies]
 # Workspace crates

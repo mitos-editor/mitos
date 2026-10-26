@@ -16,6 +16,8 @@ async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<Application> {
         server = server.arg(arg);
     }
     let mut config = test_config();
+    // Let the real dynamic-query debounce publish its callbacks before idle.
+    config.editor.idle_timeout = editor_config::Config::default().idle_timeout;
     config.editor.lsp.enable = true;
     let mut app = AppBuilder::new()
         .with_config(config)
