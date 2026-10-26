@@ -204,9 +204,14 @@ impl WhitespacePalette {
             nbsp: character(config.render.nbsp(), chars.nbsp),
             nnbsp: character(config.render.nnbsp(), chars.nnbsp),
             tab: if visible(config.render.tab()) {
-                std::iter::once(chars.tab)
-                    .chain(std::iter::repeat_n(chars.tabpad, tab_width - 1))
-                    .collect()
+                if tab_width == 1 {
+                    chars.tab.to_string()
+                } else {
+                    std::iter::once(chars.tab)
+                        .chain(std::iter::repeat_n(chars.tabpad, tab_width - 2))
+                        .chain(std::iter::once(chars.tabend.unwrap_or(chars.tabpad)))
+                        .collect()
+                }
             } else {
                 " ".repeat(tab_width)
             },
@@ -408,11 +413,24 @@ impl<'a> TextRenderer<'a> {
         } else {
             &self.tab
         };
+        let mut shortened_tab = String::new();
         let grapheme = match grapheme.raw {
             Grapheme::Tab { width } => {
                 is_tab = true;
                 let grapheme_tab_width = char_to_byte_idx(tab, width);
-                &tab[..grapheme_tab_width]
+                let prefix = &tab[..grapheme_tab_width];
+                // Tabs starting between tab stops have fewer cells. Keep the
+                // end marker at the actual stop rather than clipping it away.
+                if width > 1
+                    && let Some(end) = tab.chars().next_back()
+                    && prefix.chars().next_back() != Some(end)
+                {
+                    shortened_tab.push_str(&prefix[..char_to_byte_idx(prefix, width - 1)]);
+                    shortened_tab.push(end);
+                    shortened_tab.as_str()
+                } else {
+                    prefix
+                }
             }
             // TODO special rendering for other whitespaces?
             Grapheme::Other { ref g } if g == " " && !grapheme.source.is_eof() => space,
@@ -632,6 +650,37 @@ mod whitespace_tests {
     use super::*;
     use editor_core::Rope;
     use ratatui_core::style::Color;
+
+    #[test]
+    fn tab_end_marks_the_last_cell_and_preserves_single_cell_tabs() {
+        let mut config = WhitespaceConfig::default();
+        config.render = editor_config::WhitespaceRender::Basic(WhitespaceRenderValue::All);
+        config.characters.tabpad = '·';
+        config.characters.tabend = Some('←');
+        assert_eq!(WhitespacePalette::new(&config, 4, false).tab, "→··←");
+        assert_eq!(WhitespacePalette::new(&config, 1, false).tab, "→");
+        config.characters.tabend = None;
+        assert_eq!(WhitespacePalette::new(&config, 4, false).tab, "→···");
+    }
+
+    #[test]
+    fn tab_end_follows_actual_tab_stops_and_viewport_clipping() {
+        let settings = "[whitespace]\nrender = 'all'\n[whitespace.characters]\ntabend = '←'";
+        let surface = render("\tX\nx\tX\nxx\tX\nxxx\tX", settings, 16, false, 0);
+        for (row, expected) in ["→··←X", "x→·←X", "xx→←X", "xxx→X"].into_iter().enumerate()
+        {
+            let actual: String = (0..5)
+                .map(|col| surface[(col, row as u16)].symbol())
+                .collect();
+            assert_eq!(actual, expected, "row {row}");
+        }
+        let clipped = render("x\tX", settings, 3, false, 0);
+        let actual: String = (0..3).map(|col| clipped[(col, 0)].symbol()).collect();
+        assert_eq!(actual, "x→·");
+        let scrolled = render("x\tX", settings, 10, false, 2);
+        let actual: String = (0..3).map(|col| scrolled[(col, 0)].symbol()).collect();
+        assert_eq!(actual, "·←X");
+    }
 
     fn render(text: &str, settings: &str, width: u16, wrap: bool, offset: usize) -> Surface {
         render_with_annotations(text, settings, width, wrap, offset, &[])
