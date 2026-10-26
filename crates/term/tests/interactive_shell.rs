@@ -277,6 +277,35 @@ shell = {shell}
         modes.c_lflag & libc::ICANON == 0
     }
 
+    fn signal(&self, signal: i32) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            unsafe { libc::kill(self.child.id() as i32, signal) } == 0,
+            "signal {signal}: {}",
+            io::Error::last_os_error()
+        );
+        Ok(())
+    }
+
+    fn suspend(&mut self) -> anyhow::Result<()> {
+        self.signal(libc::SIGTSTP)?;
+        self.wait("editor suspension", |editor| {
+            let mut status = 0;
+            let pid = unsafe {
+                libc::waitpid(
+                    editor.child.id() as i32,
+                    &mut status,
+                    libc::WUNTRACED | libc::WNOHANG,
+                )
+            };
+            pid == editor.child.id() as i32 && libc::WIFSTOPPED(status)
+        })?;
+        self.drain()?;
+        assert!(!self.raw(), "suspension did not restore terminal modes");
+        assert!(self.output.contains("\x1b[?1049l"));
+        self.output.clear();
+        Ok(())
+    }
+
     fn interactive(&mut self, command: &str) -> anyhow::Result<()> {
         self.output.clear();
         self.send(&format!(":outline '{}'\r", command.replace('\'', "''")))
@@ -338,6 +367,69 @@ impl Drop for Editor {
         drop(self.terminal.take());
         let _ = self.child.wait();
     }
+}
+
+#[test]
+fn suspension_reclaims_terminal_before_processing_queued_events() -> anyhow::Result<()> {
+    let mut editor = Editor::new()?;
+    for cycle in 0..16 {
+        // Leave input and redraw work ready when the suspend signal wins.
+        editor.send(if cycle % 2 == 0 { "j" } else { "k" })?;
+        editor.suspend()?;
+        let size = libc::winsize {
+            ws_row: if cycle % 2 == 0 { 20 } else { 24 },
+            ws_col: 80,
+            ws_xpixel: 640,
+            ws_ypixel: 320,
+        };
+        assert_eq!(
+            unsafe {
+                libc::ioctl(
+                    editor.terminal.as_ref().unwrap().as_raw_fd(),
+                    libc::TIOCSWINSZ as _,
+                    &size,
+                )
+            },
+            0
+        );
+        editor.signal(libc::SIGUSR1)?;
+        // Let the idle timer become due while the editor is stopped.
+        thread::sleep(Duration::from_millis(300));
+        editor.signal(libc::SIGCONT)?;
+        editor.wait("resumed editor", |editor| {
+            editor.raw() && editor.output.contains("NOR")
+        })?;
+        assert!(
+            editor.output.starts_with("\x1b[?1049h"),
+            "cycle {cycle}: editor wrote before reclaiming the alternate screen: {:?}",
+            editor.output
+        );
+        editor.output.clear();
+        let status = format!("resumed-{cycle}");
+        editor.send(&format!(":echo {status}\r"))?;
+        editor.wait("resumed input", |editor| {
+            editor.screen.contains_line(&status)
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
+fn termination_pending_on_resume_exits_the_editor() -> anyhow::Result<()> {
+    let mut editor = Editor::new()?;
+    editor.suspend()?;
+    editor.signal(libc::SIGTERM)?;
+    editor.signal(libc::SIGCONT)?;
+    editor.wait("shutdown after suspension", |editor| !editor.raw())?;
+    // Waiting for exit, rather than restored modes alone, checks that the
+    // exclusive signal wait still honors shutdown.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while editor.child.try_wait()?.is_none() {
+        anyhow::ensure!(Instant::now() < deadline, "editor did not shut down");
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!editor.raw());
+    Ok(())
 }
 
 #[test]

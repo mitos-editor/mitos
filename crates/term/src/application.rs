@@ -4,8 +4,6 @@
 use arc_swap::ArcSwap;
 use futures_util::Stream;
 use tui::backend::BackendExt;
-#[cfg(not(windows))]
-use view::graphics::Rect;
 use view::Editor;
 
 mod configuration;
@@ -15,6 +13,8 @@ mod input;
 mod interactive;
 mod lsp;
 mod render;
+#[cfg(not(windows))]
+mod signals;
 mod startup;
 
 use crate::{compositor::Compositor, config::Config, job::Jobs};
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::Error;
 
 #[cfg(not(windows))]
-use {signal_hook::consts::signal, signal_hook_tokio::Signals};
+use signal_hook_tokio::Signals;
 #[cfg(windows)]
 type Signals = futures_util::stream::Empty<()>;
 
@@ -197,71 +197,6 @@ impl Application {
     #[cfg(windows)]
     // no signal handling available on windows
     pub async fn handle_signals(&mut self, _signal: ()) -> bool {
-        true
-    }
-
-    #[cfg(not(windows))]
-    pub async fn handle_signals(&mut self, signal: i32) -> bool {
-        match signal {
-            signal::SIGTSTP => {
-                self.restore_term().unwrap();
-
-                // SAFETY:
-                //
-                // - mitos must have permissions to send signals to all processes in its signal
-                //   group, either by already having the requisite permission, or by having the
-                //   user's UID / EUID / SUID match that of the receiving process(es).
-                let res = unsafe {
-                    // A pid of 0 sends the signal to the entire process group, allowing the user to
-                    // regain control of their terminal if the editor was spawned under another process
-                    // (e.g. when running `git commit`).
-                    //
-                    // We have to send SIGSTOP (not SIGTSTP) to the entire process group, because,
-                    // as mentioned above, the terminal will get stuck if `mitos` was spawned from
-                    // an external process and that process waits for `mitos` to complete. This may
-                    // be an issue with signal-hook-tokio, but the author of signal-hook believes it
-                    // could be a tokio issue instead:
-                    // https://github.com/vorner/signal-hook/issues/132
-                    libc::kill(0, signal::SIGSTOP)
-                };
-
-                if res != 0 {
-                    let err = std::io::Error::last_os_error();
-                    eprintln!("{}", err);
-                    let res = err.raw_os_error().unwrap_or(1);
-                    std::process::exit(res);
-                }
-            }
-            signal::SIGCONT => {
-                // Copy/Paste from same issue from neovim:
-                // https://github.com/neovim/neovim/issues/12322
-                // https://github.com/neovim/neovim/pull/13084
-                for retries in 1..=10 {
-                    match self.terminal.backend_mut().claim() {
-                        Ok(()) => break,
-                        Err(err) if retries == 10 => panic!("Failed to claim terminal: {}", err),
-                        Err(_) => continue,
-                    }
-                }
-
-                // redraw the terminal
-                let area = Rect::from(self.terminal.size().expect("failed to read terminal size"));
-                self.compositor.resize(area);
-                self.compositor.need_full_redraw();
-
-                self.render().await;
-            }
-            signal::SIGUSR1 => {
-                self.refresh_config();
-                self.render().await;
-            }
-            signal::SIGTERM | signal::SIGINT => {
-                self.restore_term().unwrap();
-                return false;
-            }
-            _ => unreachable!(),
-        }
-
         true
     }
 
