@@ -7,7 +7,7 @@
 use editor_core::{Rope, RopeReader};
 use grep_matcher::{Captures, Matcher};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
-use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
+use grep_searcher::{BinaryDetection, SearcherBuilder, Sink, SinkMatch};
 use ignore::WalkState;
 
 mod walk;
@@ -114,7 +114,7 @@ impl Search {
     }
 
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
-    /// Snapshots take precedence over files at the same path. Unreadable entries are skipped
+    /// Snapshots take precedence at the walked path or its resolved filesystem path. Unreadable entries are skipped
     /// and search I/O errors are logged, allowing other files to produce results.
     pub fn run(
         &self,
@@ -142,11 +142,17 @@ impl Search {
                     Ok(entry) if entry.path().is_file() => entry,
                     _ => return WalkState::Continue,
                 };
+                let snapshot = documents.get(entry.path()).or_else(|| {
+                    if documents.is_empty() {
+                        return None;
+                    }
+                    documents.get(&entry.path().canonicalize().ok()?)
+                });
                 let result = search_file(
                     &mut searcher,
                     &matcher,
                     entry.path(),
-                    documents.get(entry.path()),
+                    snapshot,
                     cancelled,
                     |matched| {
                         let flow = emit(matched);
@@ -184,13 +190,29 @@ fn search_file(
     cancelled: impl Fn() -> bool,
     mut emit: impl FnMut(Match) -> ControlFlow<()>,
 ) -> std::io::Result<()> {
-    let sink = sinks::UTF8(|line_start, line_content| {
+    let sink = MatchSink(|matched: &SinkMatch<'_>| {
         if cancelled() {
             return Ok(false);
         }
-        let Some((line_start, match_start_col, line_end, match_end_col)) =
-            match_line_cols(line_start as usize - 1, line_content, matcher)
-        else {
+        // Keep the original haystack around the match. Slicing a matching line
+        // first would give document anchors such as \A and \z a new meaning.
+        let range = matched.bytes_range_in_buffer();
+        let Some(found) = matcher.find_at(matched.buffer(), range.start).unwrap() else {
+            return Ok(true);
+        };
+        if found.start() > range.end
+            || found.end() > range.end
+            || (found.start() == range.end && !matched.bytes().is_empty())
+        {
+            return Ok(true);
+        }
+        let line_content = std::str::from_utf8(matched.bytes())
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        let Some((line_start, match_start_col, line_end, match_end_col)) = match_line_cols(
+            matched.line_number().unwrap() as usize - 1,
+            line_content,
+            found.start() - range.start..found.end() - range.start,
+        ) else {
             return Ok(true);
         };
         let flow = emit(Match {
@@ -213,16 +235,29 @@ fn search_file(
     }
 }
 
+struct MatchSink<F>(F);
+
+impl<F: FnMut(&SinkMatch<'_>) -> std::io::Result<bool>> Sink for MatchSink<F> {
+    type Error = std::io::Error;
+
+    fn matched(
+        &mut self,
+        _: &grep_searcher::Searcher,
+        matched: &SinkMatch<'_>,
+    ) -> std::io::Result<bool> {
+        (self.0)(matched)
+    }
+}
+
 /// Converts the regex engine's byte match within `line_content` into
 /// zero-based line and character-column bounds relative to `line_start`.
 fn match_line_cols(
     line_start: usize,
     line_content: &str,
-    matcher: &grep_regex::RegexMatcher,
+    matched: std::ops::Range<usize>,
 ) -> Option<(usize, usize, usize, usize)> {
-    let matched = matcher.find(line_content.as_bytes()).ok().flatten()?;
-    let prefix = line_content.get(..matched.start())?;
-    let matched_text = line_content.get(..matched.end())?;
+    let prefix = line_content.get(..matched.start)?;
+    let matched_text = line_content.get(..matched.end)?;
 
     let start_line = line_start + prefix.matches('\n').count();
     let start_col = prefix.rsplit('\n').next().unwrap_or(prefix).chars().count();
@@ -315,9 +350,7 @@ mod tests {
                 .replacement_changes(text.slice(..), replacement, None)
                 .is_err());
         }
-        assert!(
-            match_line_cols(0, "é", &Search::new(r"(?-u:\xA9)", true).unwrap().matcher).is_none()
-        );
+        assert!(match_line_cols(0, "é", 1..2).is_none());
     }
 
     fn options() -> Options {
@@ -454,5 +487,66 @@ mod tests {
             },
         );
         assert_eq!(results.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn search_and_replacement_agree_on_document_anchors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file");
+        for prefix in ["start\n".into(), format!("{}\n", "x".repeat(100_000))] {
+            let text = Rope::from(format!("{prefix}foo bar\n"));
+            std::fs::write(&path, text.to_string()).unwrap();
+            let search = Search::new(r"\Afoo|bar", true).unwrap();
+            let rows = search.search_document(&path, &text).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].match_start_col, 4, "only bar matches on this line");
+            assert_eq!(
+                collect(dir.path(), &options(), &HashMap::new(), r"\Afoo|bar"),
+                rows
+            );
+            let start = prefix.chars().count() + 4;
+            assert_eq!(
+                search
+                    .replacement_changes(text.slice(..), "x", Some(start..start + 3))
+                    .unwrap(),
+                vec![(start, start + 3, Some("x".into()))]
+            );
+        }
+    }
+
+    #[test]
+    fn reported_ranges_are_replaceable_with_the_original_haystack() {
+        for text in ["", "α\nβ\n", "foo\r\n", "start\nfoo bar\n"] {
+            for pattern in [
+                r"\A",
+                r"\z",
+                "(?m)^",
+                "(?m)$",
+                "foo",
+                r"foo\r?\n",
+                r"\Afoo|bar",
+            ] {
+                let search = Search::new(pattern, true).unwrap();
+                let rope = Rope::from(text);
+                for matched in search.search_document(Path::new("file"), &rope).unwrap() {
+                    let offset = |line| {
+                        text.split_inclusive('\n')
+                            .take(line)
+                            .map(|line| line.chars().count())
+                            .sum::<usize>()
+                    };
+                    let range = offset(matched.line_start) + matched.match_start_col
+                        ..offset(matched.line_end) + matched.match_end_col;
+                    assert_eq!(
+                        search
+                            .replacement_changes(rope.slice(..), "x", Some(range))
+                            .unwrap()
+                            .len(),
+                        1,
+                        "pattern {pattern:?}, text {text:?}, match {matched:?}"
+                    );
+                }
+            }
+        }
     }
 }

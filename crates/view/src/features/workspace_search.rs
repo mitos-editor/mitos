@@ -34,10 +34,16 @@ impl Request {
         );
         let search = ::search::Search::new(query, config.smart_case)
             .context("Invalid regular expression")?;
-        let documents = editor
-            .documents()
-            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.text().clone())))
-            .collect();
+        let mut documents = HashMap::new();
+        for doc in editor.documents() {
+            let Some(path) = doc.path() else { continue };
+            let path = stdx::path::canonicalize_existing(path);
+            anyhow::ensure!(
+                documents.insert(path.clone(), doc.text().clone()).is_none(),
+                "Multiple buffers are open for {}",
+                path.display()
+            );
+        }
         Ok(Some(Self {
             search,
             documents,

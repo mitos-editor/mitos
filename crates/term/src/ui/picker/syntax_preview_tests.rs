@@ -487,3 +487,49 @@ async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn replacement_preserves_highlighted_preview() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let path = fixture.preview("preview.json");
+    let callback = fixture.completion().await;
+    fixture.publish(callback);
+    assert!(fixture.document(&path).syntax().is_some());
+    let mut controller = event::TaskController::new();
+    let selected = search::Search::new(r"\{", true)?
+        .search_document(&path, &editor_core::Rope::from("{}\n"))?;
+    let request = view::editor::WorkspaceReplacement::new(
+        &fixture.app.editor,
+        search::Search::new(r"\{", true)?,
+        &[&selected[0]],
+        "{ ",
+        false,
+        controller.restart(),
+    )?;
+    let pending = request.prepare().await?.apply(&mut fixture.app.editor)?;
+    // Atomic saves may temporarily remove the file. Keep the last complete,
+    // highlighted preview even if native events overflow while writes run.
+    let resolved = path.canonicalize()?;
+    let backup = path.with_extension("backup");
+    std::fs::rename(&path, &backup)?;
+    let events = view::file_watcher::Events::from(vec![view::file_watcher::Event {
+        path: view::file_watcher::CanonicalPathBuf::assert_canonicalized(&resolved),
+        ty: view::file_watcher::EventType::Modified,
+    }]);
+    for _ in 0..100 {
+        fixture.app.editor.handle_file_events(&events);
+    }
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("{}\n"));
+    assert!(fixture.document(&path).syntax().is_some());
+    std::fs::rename(&backup, &path)?;
+    let outcome = pending.finish().await;
+    assert!(outcome.error.is_none());
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("{ }\n"));
+    assert!(fixture.document(&path).syntax().is_some());
+    assert!(!fixture.document(&path).is_syntax_pending());
+    // Delayed notifications for our own write must not drop highlighting either.
+    fixture.app.editor.handle_file_events(&events);
+    assert_eq!(fixture.read_preview(&path).as_deref(), Some("{ }\n"));
+    assert!(fixture.document(&path).syntax().is_some());
+    Ok(())
+}

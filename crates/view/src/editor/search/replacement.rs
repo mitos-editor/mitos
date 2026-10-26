@@ -8,7 +8,10 @@ use std::{
 };
 
 use anyhow::{ensure, Context as _};
-use editor_core::{line_ending::line_end_char_index, Rope, Transaction};
+use editor_core::{
+    line_ending::{line_end_char_index, normalize_line_endings},
+    LineEnding, Rope, Transaction,
+};
 use event::TaskHandle;
 use futures_util::FutureExt;
 use stdx::rope::RopeExt as _;
@@ -21,10 +24,12 @@ struct OpenBuffer {
     id: DocumentId,
     version: i32,
     text: Rope,
+    line_ending: LineEnding,
 }
 
 struct Target {
     path: PathBuf,
+    source_path: PathBuf,
     aliases: Vec<PathBuf>,
     matched: search::Match,
     buffer: Option<OpenBuffer>,
@@ -107,10 +112,7 @@ impl WorkspaceReplacement {
         replace_all: bool,
         cancel: TaskHandle,
     ) -> anyhow::Result<Self> {
-        let documents: HashMap<_, _> = editor
-            .documents()
-            .filter_map(|doc| Some((doc.path()?.to_owned(), doc)))
-            .collect();
+        let documents = documents_by_file(editor);
         let mut targets: Vec<Target> = Vec::new();
         let mut indices = HashMap::new();
         let mut paths = HashSet::new();
@@ -118,7 +120,7 @@ impl WorkspaceReplacement {
             if !paths.insert(matched.path.clone()) {
                 continue;
             }
-            let path = stdx::path::canonicalize(&matched.path);
+            let path = stdx::path::canonicalize_existing(&matched.path);
             if let Some(&index) = indices.get(&path) {
                 let target: &mut Target = &mut targets[index];
                 if !target.aliases.contains(&matched.path) {
@@ -128,18 +130,26 @@ impl WorkspaceReplacement {
             }
             let buffer = documents
                 .get(&path)
-                .map(|doc| {
+                .map(|documents| {
+                    ensure!(
+                        documents.len() == 1,
+                        "Multiple buffers are open for {}",
+                        path.display()
+                    );
+                    let doc = documents[0];
                     doc.validate_editable()?;
                     Ok::<_, anyhow::Error>(OpenBuffer {
                         id: doc.id(),
                         version: doc.version(),
                         text: doc.text().clone(),
+                        line_ending: doc.line_ending,
                     })
                 })
                 .transpose()?;
             indices.insert(path.clone(), targets.len());
             targets.push(Target {
                 path,
+                source_path: stdx::path::canonicalize(&matched.path),
                 aliases: vec![matched.path.clone()],
                 matched: (*matched).clone(),
                 buffer,
@@ -171,15 +181,15 @@ impl WorkspaceReplacement {
         let config = Arc::new(arc_swap::access::Constant(self.config));
         for target in self.targets {
             ensure!(!self.cancel.is_canceled(), "Replacement canceled");
-            let (text, file) = if let Some(buffer) = &target.buffer {
-                (buffer.text.clone(), None)
+            let (text, line_ending, file) = if let Some(buffer) = &target.buffer {
+                (buffer.text.clone(), buffer.line_ending, None)
             } else {
                 let stamp = FileStamp::new(
                     std::fs::metadata(&target.path)
                         .with_context(|| format!("failed to read '{}'", target.path.display()))?,
                 )?;
                 let doc = Document::open(
-                    &target.path,
+                    &target.source_path,
                     None,
                     false,
                     config.clone(),
@@ -192,11 +202,12 @@ impl WorkspaceReplacement {
                     target.path.display()
                 );
                 ensure!(
-                    stamp == FileStamp::new(std::fs::metadata(&target.path)?)?,
+                    stdx::path::canonicalize_existing(&target.source_path) == target.path
+                        && stamp == FileStamp::new(std::fs::metadata(&target.path)?)?,
                     "File changed while reading: {}",
                     target.path.display()
                 );
-                (doc.text().clone(), Some((doc, stamp)))
+                (doc.text().clone(), doc.line_ending, Some((doc, stamp)))
             };
             let range = if self.replace_all {
                 None
@@ -225,9 +236,14 @@ impl WorkspaceReplacement {
                 );
                 Some(start..end)
             };
-            let changes =
+            let mut changes =
                 self.search
                     .replacement_changes(text.slice(..), &self.replacement, range)?;
+            for (_, _, inserted) in &mut changes {
+                if let Some(text) = inserted {
+                    *text = normalize_line_endings(text, line_ending).as_ref().into();
+                }
+            }
             ensure!(
                 self.replace_all || !changes.is_empty(),
                 "the selected text no longer matches the search pattern"
@@ -269,6 +285,9 @@ impl WorkspaceReplacement {
                     // This document is never registered with the editor. Only its
                     // buffer and normal encoding/save machinery are needed here.
                     doc.buffer.apply(transaction.changes())?;
+                    // Keep settings from the searched alias, but write the resolved
+                    // file reserved by the plan even if an alias changes later.
+                    doc.set_path(Some(&target.path));
                     let save = doc.save(None::<PathBuf>, false)?;
                     let path = target.path.clone();
                     Some(
@@ -284,10 +303,10 @@ impl WorkspaceReplacement {
                     )
                 };
                 let reservations = if write.is_some() {
-                    vec![
-                        target.path.clone(),
-                        stdx::path::canonicalize_existing(&target.path),
-                    ]
+                    rows.keys()
+                        .map(stdx::path::canonicalize)
+                        .chain(std::iter::once(target.path.clone()))
+                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -309,6 +328,19 @@ impl WorkspaceReplacement {
     }
 }
 
+fn documents_by_file(editor: &Editor) -> HashMap<PathBuf, Vec<&Document>> {
+    let mut documents: HashMap<_, Vec<_>> = HashMap::new();
+    for doc in editor.documents() {
+        if let Some(path) = doc.path() {
+            documents
+                .entry(stdx::path::canonicalize_existing(path))
+                .or_default()
+                .push(doc);
+        }
+    }
+    documents
+}
+
 impl ReplacementPlan {
     /// Validate every buffer before editing, then reserve disk paths until writes finish.
     pub fn apply(self, editor: &mut Editor) -> anyhow::Result<PendingReplacement> {
@@ -316,13 +348,12 @@ impl ReplacementPlan {
             !self.cancel.is_canceled() && self.owner.same_destination(editor.callback_sender()),
             "Replacement canceled or editor changed"
         );
-        let documents: HashMap<_, _> = editor
-            .documents()
-            .filter_map(|doc| Some((doc.path()?.to_owned(), doc.id())))
-            .collect();
+        let documents = documents_by_file(editor);
         for edit in &self.buffers {
             ensure!(
-                documents.get(&edit.path) == Some(&edit.id),
+                documents
+                    .get(&edit.path)
+                    .is_some_and(|docs| docs.len() == 1 && docs[0].id() == edit.id),
                 "Replacement buffer was closed or moved: {}",
                 edit.path.display()
             );
@@ -333,6 +364,19 @@ impl ReplacementPlan {
                 edit.path.display()
             );
             doc.validate_changes(edit.transaction.changes())?;
+        }
+        for (path, rows) in self
+            .buffers
+            .iter()
+            .map(|edit| (&edit.path, &edit.rows))
+            .chain(self.files.iter().map(|edit| (&edit.path, &edit.rows)))
+        {
+            ensure!(
+                rows.keys()
+                    .all(|alias| stdx::path::canonicalize_existing(alias) == *path),
+                "Replacement path changed: {}",
+                path.display()
+            );
         }
         for edit in &self.files {
             ensure!(

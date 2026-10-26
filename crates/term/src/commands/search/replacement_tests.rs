@@ -532,3 +532,68 @@ async fn closing_during_case_refresh_keeps_reopened_replacement_usable() -> anyh
     assert_eq!(h.app.editor.document(id).unwrap().text(), "bar\nFOO\n");
     Ok(())
 }
+
+#[tokio::test]
+async fn register_replacement_preserves_crlf() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "foo\r\n")?;
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste("foo".into()));
+    h.settle().await?;
+    h.key("A-r");
+    h.app.editor.registers.push('r', "one\ntwo".into())?;
+    h.key("C-r");
+    h.key("r");
+    h.key("ret");
+    h.settle().await?;
+    assert_eq!(std::fs::read_to_string(&path)?, "one\r\ntwo\r\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn document_anchors_select_replaceable_matches() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "start\nfoo bar\n")?;
+    let mut h = Harness::new(dir.path())?;
+    h.event(Event::Paste(r"\Afoo|bar".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 1);
+    h.key("A-r");
+    h.event(Event::Paste("x".into()));
+    h.key("ret");
+    h.settle().await?;
+    assert_eq!(std::fs::read_to_string(&path)?, "start\nfoo x\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn search_and_replacement_share_unsaved_symlink_buffers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    std::fs::write(&target, "foo\n")?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let mut h = Harness::new(dir.path())?;
+    let id = h.app.editor.open(&alias, view::editor::Action::Replace)?;
+    h.app.editor.enter_insert_mode();
+    h.app.editor.insert_char('α')?;
+    h.event(Event::Paste("αfoo".into()));
+    h.settle().await?;
+    assert_eq!(h.count(), 1);
+    assert_eq!(
+        h.picker().selection().unwrap().path.file_name(),
+        target.file_name()
+    );
+    assert!(h.frame().contains("αfoo"));
+    h.key("A-r");
+    h.event(Event::Paste("bar".into()));
+    h.key("ret");
+    h.settle().await?;
+    assert_eq!(h.app.editor.document(id).unwrap().text(), "bar\n");
+    assert!(h.app.editor.document(id).unwrap().is_modified());
+    assert_eq!(std::fs::read_to_string(&target)?, "foo\n");
+    Ok(())
+}

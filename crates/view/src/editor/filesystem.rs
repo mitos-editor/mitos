@@ -240,11 +240,7 @@ impl Editor {
     }
 
     pub(crate) fn ensure_path_not_writing(&self, path: &Path) -> io::Result<()> {
-        if self.writes.conflicts_with(path)
-            || self
-                .writes
-                .conflicts_with(&stdx::path::canonicalize_existing(path))
-        {
+        if self.file_is_writing(path) {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 format!(
@@ -254,6 +250,14 @@ impl Editor {
             ));
         }
         Ok(())
+    }
+
+    /// Includes accepted replacement writes and aliases of the same file.
+    pub fn file_is_writing(&self, path: &Path) -> bool {
+        self.writes.conflicts_with(&stdx::path::canonicalize(path))
+            || self
+                .writes
+                .conflicts_with(&stdx::path::canonicalize_existing(path))
     }
 
     pub fn set_doc_path(&mut self, doc_id: DocumentId, path: &Path) {

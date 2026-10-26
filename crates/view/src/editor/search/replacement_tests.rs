@@ -320,3 +320,166 @@ async fn disk_replacement_preserves_symlinks_and_reserves_the_resolved_path() ->
     assert_eq!(editor.documents().count(), 1);
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn replacements_use_unsaved_buffers_through_symlinks() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    std::fs::write(&target, "foo\n")?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let id = editor.open(&alias, Action::Replace)?;
+    editor.enter_insert_mode();
+    editor.insert_char('x')?;
+    let outcome = prepare(&editor, &[&matched(&target, 0, 3)], "bar", true)
+        .await?
+        .apply(&mut editor)?
+        .finish()
+        .await;
+    assert!(outcome.error.is_none());
+    assert_eq!(
+        std::fs::read_to_string(&target)?,
+        "foo\n",
+        "an open unsaved buffer should prevent direct disk writes"
+    );
+    assert_eq!(editor.document(id).unwrap().text(), "xbar\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn replacements_deduplicate_symlink_targets() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    std::fs::write(&target, "foo\n")?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let outcome = prepare(
+        &editor,
+        &[&matched(&target, 0, 3), &matched(&alias, 0, 3)],
+        "longer",
+        true,
+    )
+    .await?
+    .apply(&mut editor)?
+    .finish()
+    .await;
+    assert!(outcome.error.is_none(), "aliases should be deduplicated");
+    assert_eq!(outcome.count, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn multiline_replacements_preserve_crlf() -> anyhow::Result<()> {
+    for opened in [false, true] {
+        let (mut editor, _store) = editor("#[|]#\n");
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("target.txt");
+        std::fs::write(&path, "foo\r\n")?;
+        let buffer = opened
+            .then(|| editor.open(&path, Action::Load))
+            .transpose()?;
+        let outcome = prepare(&editor, &[&matched(&path, 0, 3)], "one\ntwo", true)
+            .await?
+            .apply(&mut editor)?
+            .finish()
+            .await;
+        assert!(outcome.error.is_none());
+        if let Some(id) = buffer {
+            assert_eq!(editor.document(id).unwrap().text(), "one\r\ntwo\r\n");
+            assert_eq!(std::fs::read_to_string(&path)?, "foo\r\n");
+        } else {
+            assert_eq!(std::fs::read_to_string(&path)?, "one\r\ntwo\r\n");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn aliases_opened_or_retargeted_during_planning_reject_the_plan() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    let other = dir.path().join("other.txt");
+    std::fs::write(&target, "foo\n")?;
+    std::fs::write(&other, "foo\n")?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let plan = prepare(&editor, &[&matched(&alias, 0, 3)], "bar", true).await?;
+    std::fs::remove_file(&alias)?;
+    std::os::unix::fs::symlink(&other, &alias)?;
+    assert!(plan.apply(&mut editor).is_err());
+    std::fs::remove_file(&alias)?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let plan = prepare(&editor, &[&matched(&target, 0, 3)], "bar", true).await?;
+    editor.open(&alias, Action::Load)?;
+    assert!(plan.apply(&mut editor).is_err());
+    let plan = prepare(&editor, &[&matched(&alias, 0, 3)], "bar", true).await?;
+    std::fs::remove_file(&alias)?;
+    std::os::unix::fs::symlink(&other, &alias)?;
+    assert!(plan.apply(&mut editor).is_err());
+    assert_eq!(std::fs::read_to_string(&target)?, "foo\n");
+    assert_eq!(std::fs::read_to_string(&other)?, "foo\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn conflicting_alias_buffers_reject_replacement() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let target = dir.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    std::fs::write(&target, "foo\n")?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    editor.open(&target, Action::Load)?;
+    let plan = prepare(&editor, &[&matched(&target, 0, 3)], "bar", true).await?;
+    editor.open(&alias, Action::Load)?;
+    assert!(plan.apply(&mut editor).is_err());
+    assert!(prepare(&editor, &[&matched(&target, 0, 3)], "bar", true)
+        .await
+        .is_err());
+    let config = Arc::new(crate::features::workspace_search::WorkspaceSearch {
+        root: dir.path().into(),
+        smart_case: true,
+        options: search::Options::default(),
+    });
+    assert!(crate::features::workspace_search::Request::new("foo", &editor, config).is_err());
+    assert_eq!(std::fs::read_to_string(&target)?, "foo\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn resolved_replacements_keep_encoding_settings_from_the_searched_alias() -> anyhow::Result<()>
+{
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    let target = outside.path().join("target.txt");
+    let alias = dir.path().join("alias.txt");
+    let encode = |text: &str| {
+        text.encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>()
+    };
+    std::fs::write(&target, encode("foo\n"))?;
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[alias.txt]\ncharset = utf-16le\n",
+    )?;
+    std::os::unix::fs::symlink(&target, &alias)?;
+    let outcome = prepare(&editor, &[&matched(&alias, 0, 3)], "bar", true)
+        .await?
+        .apply(&mut editor)?
+        .finish()
+        .await;
+    assert!(outcome.error.is_none());
+    assert_eq!(std::fs::read(&target)?, encode("bar\n"));
+    assert!(std::fs::symlink_metadata(&alias)?.is_symlink());
+    Ok(())
+}

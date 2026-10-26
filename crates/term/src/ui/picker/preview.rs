@@ -153,6 +153,7 @@ struct CacheEntry {
     stamp: Option<FileStamp>,
     preview: CachedPreview,
     checked: tokio::time::Instant,
+    invalidated: bool,
 }
 
 impl CacheEntry {
@@ -162,6 +163,7 @@ impl CacheEntry {
             stamp,
             preview,
             checked: tokio::time::Instant::now(),
+            invalidated: false,
         }
     }
 }
@@ -274,6 +276,46 @@ impl FilePreview {
         self.preview_cache.remove(path);
     }
 
+    fn invalidate(&mut self, path: &Path) {
+        if let Some(entry) = self.preview_cache.get_mut(path)
+            && matches!(entry.preview, CachedPreview::Document(_))
+        {
+            entry.invalidated = true;
+        } else {
+            self.remove(path);
+        }
+    }
+
+    fn refresh_document(&mut self, path: &Path, editor: &Editor, stamp: Option<FileStamp>) -> bool {
+        let Some(entry) = self.preview_cache.get_mut(path) else {
+            return false;
+        };
+        let CachedPreview::Document(doc) = &mut entry.preview else {
+            return false;
+        };
+        if stamp
+            .as_ref()
+            .is_none_or(|stamp| stamp.is_dir || stamp.len > MAX_FILE_SIZE_FOR_PREVIEW)
+        {
+            return false;
+        }
+        let Ok(refreshed) =
+            Document::open_for_preview(path, editor.config.clone(), editor.syn_loader.load_full())
+        else {
+            return false;
+        };
+        if refreshed.is_binary() {
+            return false;
+        }
+        doc.refresh_preview(refreshed);
+        doc.replace_diagnostics(editor.diagnostics_for_document(doc), &[], None);
+        entry.stamp = stamp;
+        entry.canonical_path = stdx::path::canonicalize_existing(path);
+        entry.checked = tokio::time::Instant::now();
+        entry.invalidated = false;
+        true
+    }
+
     fn receive_changes(&mut self, editor: &Editor) {
         use tokio::sync::broadcast::error::TryRecvError;
         if self.events.is_none() {
@@ -300,17 +342,18 @@ impl FilePreview {
                         .map(|(path, _)| path.clone())
                         .collect();
                     for path in paths {
-                        self.remove(&path);
+                        self.invalidate(&path);
                     }
                 }
                 Err(TryRecvError::Lagged(_)) => {
-                    for entry in self.preview_cache.values() {
-                        invalidate_cached_image(&entry.canonical_path);
+                    for path in self.preview_cache.keys().cloned().collect::<Vec<_>>() {
+                        self.invalidate(&path);
                     }
-                    self.clear();
                 }
                 Err(TryRecvError::Closed) => {
-                    self.clear();
+                    for path in self.preview_cache.keys().cloned().collect::<Vec<_>>() {
+                        self.invalidate(&path);
+                    }
                     self.events = Some(editor.file_watcher.subscribe());
                     break;
                 }
@@ -350,6 +393,14 @@ impl FilePreview {
             PathOrId::Path(path) => {
                 if let Some(doc) = editor
                     .document_by_path(stdx::path::canonicalize(path))
+                    .or_else(|| {
+                        let resolved = stdx::path::canonicalize_existing(path);
+                        editor.documents().find(|doc| {
+                            doc.path().is_some_and(|path| {
+                                stdx::path::canonicalize_existing(path) == resolved
+                            })
+                        })
+                    })
                     .filter(|doc| !doc.is_binary())
                 {
                     self.cancel_syntax_load(None);
@@ -359,15 +410,23 @@ impl FilePreview {
                 let stamp = FileStamp::read(path);
                 let loader = editor.syn_loader.load();
                 let poll = &editor.config().files.reload.poll;
-                if self.preview_cache.get(path).is_some_and(|entry| {
-                    entry.stamp != stamp
-                        || matches!(&entry.preview, CachedPreview::Document(doc)
+                let writing = editor.file_is_writing(path);
+                if writing && !self.preview_cache.contains_key(path) {
+                    return None;
+                }
+                if !writing
+                    && self.preview_cache.get(path).is_some_and(|entry| {
+                        entry.invalidated
+                            || entry.stamp != stamp
+                            || matches!(&entry.preview, CachedPreview::Document(doc)
                             if !std::ptr::eq(doc.syntax_loader(), loader.as_ref()))
-                        || (matches!(entry.preview, CachedPreview::Directory(_))
-                            && poll.enable
-                            && entry.checked.elapsed()
-                                >= Duration::from_millis(poll.interval.max(100)))
-                }) {
+                            || (matches!(entry.preview, CachedPreview::Directory(_))
+                                && poll.enable
+                                && entry.checked.elapsed()
+                                    >= Duration::from_millis(poll.interval.max(100)))
+                    })
+                    && !self.refresh_document(path, editor, FileStamp::read(path))
+                {
                     self.remove(path);
                 }
                 if matches!(self.preview_cache.get(path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))

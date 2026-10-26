@@ -5,6 +5,34 @@ use crate::ViewId;
 use editor_core::Transaction;
 
 impl Document {
+    /// Refresh an unregistered file preview without dropping compatible syntax.
+    pub fn refresh_preview(&mut self, mut refreshed: Self) {
+        let same_language = match (&self.language, &refreshed.language) {
+            (Some(previous), Some(current)) => std::sync::Arc::ptr_eq(previous, current),
+            (None, None) => true,
+            _ => false,
+        };
+        if same_language
+            && std::sync::Arc::ptr_eq(&self.syntax_loader, &refreshed.syntax_loader)
+            && let Some(mut syntax) = self.syntax.take()
+        {
+            let transaction = text_diff::compare_ropes(self.text(), refreshed.text());
+            match syntax.update(
+                self.text().slice(..),
+                refreshed.text().slice(..),
+                transaction.changes(),
+                &refreshed.syntax_loader,
+            ) {
+                Ok(()) => {
+                    refreshed.syntax = Some(syntax);
+                    refreshed.pending_syntax = None;
+                }
+                Err(error) => log::error!("Failed to update preview syntax: {error}"),
+            }
+        }
+        *self = refreshed;
+    }
+
     pub(crate) fn presentation(&self, transaction: &Transaction, origin: ViewId) -> Self {
         let mut doc = Self::from(
             self.text().clone(),
