@@ -29,9 +29,7 @@ fn main() -> Result<()> {
 async fn main_impl() -> Result<i32> {
     let args = Args::parse_args().context("could not parse arguments")?;
 
-    loader::initialize_config_file(args.config_file.clone());
-    loader::initialize_log_file(args.log_file.clone());
-
+    // Informational flags must work without a home directory or user configuration.
     // Help has a higher priority and should be handled separately.
     if args.display_help {
         print!(
@@ -61,7 +59,7 @@ FLAGS:
                                    Export migrated config to stdout without changing the file
     -v                             Increase logging verbosity each use for up to 3 times
     --log <file>                   Specify a file to use for logging
-                                   (default file: {})
+                                   (default file: mitos.log in the cache directory)
     -V, --version                  Print version information
     --vsplit                       Split all given files vertically into different windows
     --hsplit                       Split all given files horizontally into different windows
@@ -73,7 +71,6 @@ FLAGS:
             VERSION_AND_GIT_HASH,
             env!("CARGO_PKG_AUTHORS"),
             env!("CARGO_PKG_DESCRIPTION"),
-            loader::default_log_file().display(),
         );
         std::process::exit(0);
     }
@@ -82,6 +79,9 @@ FLAGS:
         println!("mitos {}", VERSION_AND_GIT_HASH);
         std::process::exit(0);
     }
+
+    loader::initialize_config_file(args.config_file.clone());
+    loader::initialize_log_file(args.log_file.clone());
 
     if let Some(path) = &args.migrate_config {
         let source = std::fs::read_to_string(path)
