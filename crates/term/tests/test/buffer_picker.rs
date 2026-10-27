@@ -258,22 +258,28 @@ async fn paging_keeps_the_selected_row_on_screen_row() -> anyhow::Result<()> {
     f.keys("<down><down><down><down><down>").await?;
     let (rows, row) = picker_rows(f.app.terminal_backend().buffer());
     let first = selected_name(&rows, row);
-    let mut seen = vec![first.clone()];
-    for key in ["<pagedown>", "<C-d>", "<pagedown>", "<pageup>", "<C-u>"] {
+    let mut previous = first.clone();
+    for key in ["<pagedown>", "<C-d>", "<pageup>", "<C-u>"] {
         f.keys(key).await?;
         let (rows, now) = picker_rows(f.app.terminal_backend().buffer());
         let name = selected_name(&rows, now);
         assert_eq!(
             now, row,
-            "{key} moved the selection to another screen row ({seen:?} -> {name})"
+            "{key} moved the selection to another screen row ({previous} -> {name})"
         );
-        assert_ne!(seen.last(), Some(&name), "{key} did not move");
-        seen.push(name);
+        assert_ne!(previous, name, "{key} did not move");
+        previous = name;
     }
-    // The test terminal shows about 140 rows, so 400 buffers make three pages: two
-    // presses reach the last page, the third wraps to the first, and PageUp wraps back.
-    assert_eq!(seen[3], seen[0], "{seen:?}");
-    assert_eq!(seen[4], seen[2], "{seen:?}");
+    assert_eq!(previous, first);
+    for (boundary, paging) in [("<end>", "<pagedown><C-d>"), ("<home>", "<pageup><C-u>")] {
+        f.keys(boundary).await?;
+        let (rows, row) = picker_rows(f.app.terminal_backend().buffer());
+        let endpoint = selected_name(&rows, row);
+        f.keys(paging).await?;
+        let (rows, now) = picker_rows(f.app.terminal_backend().buffer());
+        assert_eq!(now, row);
+        assert_eq!(selected_name(&rows, now), endpoint);
+    }
     f.finish().await;
     Ok(())
 }

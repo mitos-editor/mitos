@@ -613,19 +613,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     /// Scroll up by one page, keeping the cursor on the same visible row.
-    /// After the first page comes the last page.
+    /// Once the first page is visible, move to the first entry and stop.
     pub fn page_up(&mut self) {
         self.page(Direction::Backward);
     }
 
     /// Scroll down by one page, keeping the cursor on the same visible row.
-    /// After the last page comes the first page.
+    /// Once the last page is visible, move to the last entry and stop.
     pub fn page_down(&mut self) {
         self.page(Direction::Forward);
     }
 
     fn page(&mut self, direction: Direction) {
-        // Nothing has been rendered yet, so there is no page to move by.
+        // There are no visible result rows to page through.
         if self.completion_height == 0 {
             return;
         }
@@ -1639,9 +1639,8 @@ fn visible_offset(cursor: u32, offset: u32, rows: u32, len: u32) -> u32 {
 /// Cursor and offset after paging, as `(cursor, offset)`.
 ///
 /// The viewport and cursor move together so the cursor keeps its visible row. When less
-/// than a full page remains, only the remaining distance is scrolled; paging past either
-/// end wraps to the opposite page. Results that fit on one page move to the first or last
-/// entry instead, since there is nothing to scroll.
+/// than a full page remains, only the remaining distance is scrolled. Once the first or
+/// last page is visible, paging reaches the corresponding endpoint and stops.
 fn page_position(
     cursor: u32,
     offset: u32,
@@ -1657,20 +1656,13 @@ fn page_position(
     let offset = visible_offset(cursor, offset, rows, len);
     let row = cursor - offset;
     let last_page = len.saturating_sub(rows);
-    if last_page == 0 {
-        let cursor = match direction {
-            Direction::Forward => len - 1,
-            Direction::Backward => 0,
-        };
-        return (cursor, 0);
-    }
     let offset = match direction {
         Direction::Forward if offset < last_page => offset + rows.min(last_page - offset),
-        Direction::Forward => 0,
+        Direction::Forward => return (len - 1, offset),
         Direction::Backward if offset > 0 => offset - rows.min(offset),
-        Direction::Backward => last_page,
+        Direction::Backward => return (0, offset),
     };
-    ((offset + row).min(len - 1), offset)
+    (offset + row, offset)
 }
 
 #[cfg(test)]
@@ -1709,9 +1701,18 @@ mod tests {
     }
 
     #[test]
-    fn paging_past_either_end_wraps_to_the_opposite_page() {
-        assert_eq!(page_position(19, 15, 10, 25, Forward), (4, 0));
-        assert_eq!(page_position(4, 0, 10, 25, Backward), (19, 15));
+    fn paging_on_the_outer_pages_reaches_the_endpoints_and_stops() {
+        assert_eq!(page_position(19, 15, 10, 25, Forward), (24, 15));
+        assert_eq!(page_position(24, 15, 10, 25, Forward), (24, 15));
+        assert_eq!(page_position(4, 0, 10, 25, Backward), (0, 0));
+        assert_eq!(page_position(0, 0, 10, 25, Backward), (0, 0));
+    }
+
+    #[test]
+    fn paging_one_result_beyond_a_full_page_reaches_the_last_result() {
+        assert_eq!(page_position(0, 0, 10, 11, Forward), (1, 1));
+        assert_eq!(page_position(1, 1, 10, 11, Forward), (10, 1));
+        assert_eq!(page_position(10, 1, 10, 11, Forward), (10, 1));
     }
 
     #[test]
@@ -1726,8 +1727,8 @@ mod tests {
         // Cursor below the stored viewport: rendering would show it on the last row.
         assert_eq!(visible_offset(30, 0, 10, 100), 21);
         assert_eq!(page_position(30, 0, 10, 100, Forward), (40, 31));
-        // Results shrank under the viewport: offset 2 is now the last page, so wrap.
-        assert_eq!(page_position(4, 90, 10, 12, Forward), (2, 0));
+        // Results shrank under the viewport: offset 2 is now the last page.
+        assert_eq!(page_position(4, 90, 10, 12, Forward), (11, 2));
     }
 
     #[test]
@@ -1736,9 +1737,24 @@ mod tests {
             for start in 0..len {
                 for direction in [Forward, Backward] {
                     let offset = visible_offset(start, 0, 10, len);
-                    let (cursor, offset) = page_position(start, offset, 10, len, direction);
-                    assert!(cursor < len);
-                    assert_eq!(visible_offset(cursor, offset, 10, len), offset);
+                    let (mut cursor, mut offset) = (start, offset);
+                    loop {
+                        let (next, next_offset) = page_position(cursor, offset, 10, len, direction);
+                        assert!(next < len);
+                        assert_eq!(visible_offset(next, next_offset, 10, len), next_offset);
+                        match direction {
+                            Forward => assert!(next >= cursor),
+                            Backward => assert!(next <= cursor),
+                        }
+                        if next == cursor {
+                            assert_eq!(next, if direction == Forward { len - 1 } else { 0 });
+                            break;
+                        }
+                        if next_offset != offset {
+                            assert_eq!(next - next_offset, cursor - offset);
+                        }
+                        (cursor, offset) = (next, next_offset);
+                    }
                 }
             }
         }

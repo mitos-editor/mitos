@@ -112,10 +112,32 @@ async fn page_down_near_the_end_never_moves_the_selection_up() -> anyhow::Result
         );
         assert_eq!(screen_row(&mut picker, &mut app, after), row);
     }
-    // Past the last page, wrap to the first page on the same row.
-    press(&mut picker, &mut app, "pagedown");
-    assert_eq!(picker.selection(), Some(&2));
-    assert_eq!(screen_row(&mut picker, &mut app, 2), row);
+    // Once scrolling stops, reach the final result and stay there.
+    for key in ["pagedown", "C-d"] {
+        press(&mut picker, &mut app, key);
+        assert_eq!(picker.selection(), Some(&39));
+        assert_eq!(picker.results.offset, last_page);
+        assert_eq!(
+            screen_row(&mut picker, &mut app, 39),
+            row + (rows - 3) as usize
+        );
+    }
+    // Paging up likewise reaches the first result without wrapping.
+    while picker.results.offset > 0 {
+        let before = *picker.selection().unwrap();
+        press(&mut picker, &mut app, "pageup");
+        assert!(*picker.selection().unwrap() < before);
+    }
+    for key in ["pageup", "C-u"] {
+        press(&mut picker, &mut app, key);
+        assert_eq!(picker.selection(), Some(&0));
+        assert_eq!(picker.results.offset, 0);
+    }
+    // Individual arrow navigation keeps its existing wrap behavior.
+    press(&mut picker, &mut app, "up");
+    assert_eq!(picker.selection(), Some(&39));
+    press(&mut picker, &mut app, "down");
+    assert_eq!(picker.selection(), Some(&0));
     Ok(())
 }
 
