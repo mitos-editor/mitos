@@ -224,3 +224,56 @@ async fn stale_buffer_row_refreshes_and_empty_selection_does_nothing() -> anyhow
     f.finish().await;
     Ok(())
 }
+
+/// Screen rows of the picker's results, as (row index, text), and the selected row.
+fn picker_rows(screen: &tui::buffer::Buffer) -> (Vec<String>, usize) {
+    let width = screen.area.width as usize;
+    let rows: Vec<String> = screen
+        .content
+        .chunks(width)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let selected = rows
+        .iter()
+        .position(|row| row.contains(" > ") && row.contains("page-"))
+        .expect("a selected result row");
+    (rows, selected)
+}
+
+fn selected_name(rows: &[String], selected: usize) -> String {
+    let row = &rows[selected];
+    let start = row.find("page-").unwrap();
+    row[start..start + "page-000.txt".len()].to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paging_keeps_the_selected_row_on_screen_row() -> anyhow::Result<()> {
+    let names: Vec<String> = (0..400)
+        .map(|index| format!("page-{index:03}.txt"))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut f = Fixture::new(&names)?;
+    f.keys("<space>b").await?;
+    f.keys("page-").await?;
+    f.keys("<down><down><down><down><down>").await?;
+    let (rows, row) = picker_rows(f.app.terminal_backend().buffer());
+    let first = selected_name(&rows, row);
+    let mut seen = vec![first.clone()];
+    for key in ["<pagedown>", "<C-d>", "<pagedown>", "<pageup>", "<C-u>"] {
+        f.keys(key).await?;
+        let (rows, now) = picker_rows(f.app.terminal_backend().buffer());
+        let name = selected_name(&rows, now);
+        assert_eq!(
+            now, row,
+            "{key} moved the selection to another screen row ({seen:?} -> {name})"
+        );
+        assert_ne!(seen.last(), Some(&name), "{key} did not move");
+        seen.push(name);
+    }
+    // The test terminal shows about 140 rows, so 400 buffers make three pages: two
+    // presses reach the last page, the third wraps to the first, and PageUp wraps back.
+    assert_eq!(seen[3], seen[0], "{seen:?}");
+    assert_eq!(seen[4], seen[2], "{seen:?}");
+    f.finish().await;
+    Ok(())
+}
