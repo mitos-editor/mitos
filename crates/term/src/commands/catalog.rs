@@ -1597,12 +1597,12 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "vcs-project-diff", aliases: &[], doc: "Review repository changes together: buffer (default), staged, or unstaged.",
+        name: "vcs-project-diff", aliases: &[], doc: "Review changed files together, including unsaved edits. Use staged for the next commit or unstaged for saved changes.",
         fun: super::project_review::open, completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "vcs-project-refresh", aliases: &[], doc: "Reload the current project review snapshot.",
+        name: "vcs-project-refresh", aliases: &[], doc: "Update the project review with the latest file and staged changes.",
         fun: super::project_review::refresh, completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
@@ -1612,7 +1612,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "vcs-project-open", aliases: &[], doc: "Open the selected file from a project review as a live file review.",
+        name: "vcs-project-open", aliases: &[], doc: "Open the selected file's review. Use Ctrl-o to return to the project review.",
         fun: super::project_review::open_file, completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },

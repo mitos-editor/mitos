@@ -478,44 +478,43 @@ yourself.
 Run `:vcs-project-diff` to review repository changes in one read-only buffer,
 including unsaved edits in open files. Choose `:vcs-project-diff staged` to review
 what the next commit will contain, or `:vcs-project-diff unstaged` to compare the
-index with files on disk.
+staging area with saved files.
 
-Each file has a heading followed by its diff. Source syntax highlighting and
-added/removed-line colors use the same comparison model as file reviews.
-Binary files and other unsupported comparisons show an explanation without
-preventing review of the remaining files.
+Each file has a heading followed by its changes, with added and removed lines
+marked. Move, select, search, and yank as usual. Binary files and other files
+that cannot be reviewed show an explanation; you can keep reviewing the rest.
 
 | Command | Action |
 | --- | --- |
 | `:vcs-project-next file` / `previous-file` | Move between files |
 | `:vcs-project-next hunk` / `previous-hunk` | Move between hunks |
-| `Enter`, `:vcs-project-open` | Open the selected file as a live review |
-| `:vcs-project-refresh` | Capture the repository and buffers again |
+| `Enter`, `:vcs-project-open` | Open the selected file's review |
+| `:vcs-project-refresh` | Update the review with the latest changes |
 
 Use `[g` / `]g` to move between hunks across files, and `[G` / `]G` for the
 first / last hunk. Counts such as `2]g` work as they do in file reviews.
+Press `Enter` to inspect one file's review, then `Ctrl-o` to return to the
+project review.
 
 Run `:vcs-stage-hunk` or `:vcs-stage-lines` directly in a project review to stage
 the selected change. Use a staged project review with `:vcs-unstage-hunk` or
-`:vcs-unstage-lines` to remove selected changes from the index. Selected added
-and removed rows work independently. Each action must stay within one file;
-selections spanning files are rejected.
+`:vcs-unstage-lines` to leave selected changes out of the next commit. You can
+select additions and removals separately. Keep each action's selections within
+one file; selections spanning files are rejected. These actions keep your saved
+files and unsaved edits.
 
-In buffer comparisons, staging includes that file's captured unsaved edits
-without saving it. Unstaged comparisons stage the file on disk. Changes to the
-source buffer or Git state require a fresh review before the action can run.
+When staging from the default review, unsaved edits shown for that file are
+included without saving it. An unstaged review stages the saved content instead.
+If you edit a file or change the staging area after opening the review, run
+`:vcs-project-refresh` before staging or unstaging.
 
-`:vcs-stage-and-next` stages the selected hunk and moves to the next remaining
-hunk in that file, then the next changed file. It waits for the review to update
-and keeps any newer cursor movement you make while the action is running.
+Use `:vcs-stage-and-next` to stage the selected hunks and move to the next
+remaining hunk in that file, then to the next changed file.
 
-Project reviews are snapshots. Git actions in Mitos refresh open project reviews
-automatically. Refresh after editing or running Git outside Mitos. Buffer text
-captured during loading must still match when results arrive; otherwise refresh
-to try again. Normal movement, selection, search, and
-yank work in the aggregate buffer. Opening a file review records the project
-review in the jumplist, so `Ctrl-o` returns to it.
+Git actions in Mitos update open project reviews automatically. After editing or
+running Git outside Mitos, use `:vcs-project-refresh` to see the latest changes.
+If files change while the review is loading, refresh to try again.
 
-The review includes at most 500 files, 10 MiB of projected text, and 64 MiB of
-source snapshots. A notice explains when results are shortened. Review the
-remaining files through the changed-file picker.
+Large reviews stop at 500 files, 10 MiB of diff text, or 64 MiB of file contents
+used for comparison. A notice explains when a review is shortened. Use the
+changed-file picker to review the remaining files individually.
