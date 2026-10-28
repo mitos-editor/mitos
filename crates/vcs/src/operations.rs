@@ -15,8 +15,10 @@ use tokio::{
 
 use crate::{FileChange, FileStatus};
 
+mod commit;
 pub mod history;
 mod partial;
+pub use commit::CommitSnapshot;
 pub use partial::{PartialSelection, PartialSource};
 mod stash;
 pub use stash::{StashEntry, StashFile, StashLayer};
@@ -44,7 +46,7 @@ impl FileOperation {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum Operation {
     Partial {
         kind: FileOperation,
@@ -62,6 +64,7 @@ enum Operation {
         id: String,
         restore_index: bool,
     },
+    Commit(tempfile::NamedTempFile),
 }
 
 /// Immutable preflight. A changed index, HEAD, configuration, or selected file invalidates it.
@@ -93,6 +96,11 @@ impl PreparedOperation {
         )
     }
 
+    /// Commit hooks may update files, but unsaved editor text can be retained.
+    pub fn requires_clean_buffers(&self) -> bool {
+        self.changes_worktree() && !matches!(self.operation, Operation::Commit(_))
+    }
+
     /// File paths, or the entire worktree for stash application, whose writes must be suspended.
     pub fn affected_paths(&self) -> Vec<PathBuf> {
         match &self.operation {
@@ -101,7 +109,9 @@ impl PreparedOperation {
                 .iter()
                 .map(|path| self.repository.root.join(path))
                 .collect(),
-            Operation::Stash | Operation::Apply { .. } => vec![self.repository.root.clone()],
+            Operation::Stash | Operation::Apply { .. } | Operation::Commit(_) => {
+                vec![self.repository.root.clone()]
+            }
         }
     }
 
@@ -114,6 +124,7 @@ impl PreparedOperation {
             Operation::File { kind, .. } => kind.label(),
             Operation::Stash => "Stash all repository changes",
             Operation::Apply { .. } => "Apply stash (keep stash)",
+            Operation::Commit(_) => "Commit staged changes",
         }
     }
 
@@ -202,6 +213,11 @@ impl PreparedOperation {
                     command.arg("--index");
                 }
                 command.arg(id);
+            }
+            Operation::Commit(message) => {
+                command
+                    .args(["commit", "--cleanup=strip", "--file"])
+                    .arg(dunce::simplified(message.path()));
             }
         }
         run(command).await.map(|_| ())

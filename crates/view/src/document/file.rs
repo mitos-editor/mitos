@@ -661,6 +661,10 @@ impl Document {
     /// `.jj`, or `.mitos`. Falls back to the current working directory's workspace when the
     /// document has no path (scratch buffers). Lazily memoised on first call.
     pub fn workspace_root(&self) -> &Path {
+        #[cfg(feature = "git")]
+        if let Some(commit) = self.commit_message() {
+            return commit.workspace();
+        }
         if let Some(review) = self.review() {
             return review.workspace();
         }
@@ -691,6 +695,10 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
+        #[cfg(feature = "git")]
+        if let Some(commit) = self.commit_message() {
+            return commit.name().into();
+        }
         if let Some(name) = &self.file.readonly_name {
             return name.as_str().into();
         }
