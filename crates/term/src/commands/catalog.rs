@@ -1597,7 +1597,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
-        name: "vcs-project-diff", aliases: &[], doc: "Review changed files together, including unsaved edits. Use staged for the next commit or unstaged for saved changes.",
+        name: "vcs-project-diff", aliases: &[], doc: "Review unstaged changes together, including unsaved edits. Use staged for the next commit or unstaged for saved changes.",
         fun: super::project_review::open, completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
     },

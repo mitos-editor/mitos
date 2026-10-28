@@ -475,10 +475,10 @@ yourself.
 
 ## Project review
 
-Run `:vcs-project-diff` to review repository changes in one read-only buffer,
-including unsaved edits in open files. Choose `:vcs-project-diff staged` to review
-what the next commit will contain, or `:vcs-project-diff unstaged` to compare the
-staging area with saved files.
+Run `:vcs-project-diff` to review unstaged changes across the repository in one
+read-only buffer, including unsaved edits. Choose `:vcs-project-diff staged` to
+review what the next commit will contain, or `:vcs-project-diff unstaged` to
+compare the staging area with saved files.
 
 Each file has a heading followed by its changes, with added and removed lines
 marked. Move, select, search, and yank as usual. Binary files and other files
@@ -515,6 +515,5 @@ Git actions in Mitos update open project reviews automatically. After editing or
 running Git outside Mitos, use `:vcs-project-refresh` to see the latest changes.
 If files change while the review is loading, refresh to try again.
 
-Large reviews stop at 500 files, 10 MiB of diff text, or 64 MiB of file contents
-used for comparison. A notice explains when a review is shortened. Use the
-changed-file picker to review the remaining files individually.
+Very large reviews may be shortened, with a notice explaining what was left out.
+Use the changed-file picker to review the remaining files individually.
