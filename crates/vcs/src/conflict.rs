@@ -36,11 +36,18 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
         .parent()
         .ok_or_else(|| anyhow::anyhow!("File has no parent"))?;
     let repo = crate::git::open_repo(parent, trusted)?.to_thread_local();
-    let relative = path.strip_prefix(
+    let root = stdx::path::canonicalize_existing(
         repo.workdir()
             .ok_or_else(|| anyhow::anyhow!("Repository has no working tree"))?,
-    )?;
-    let bytes = gix::path::try_into_bstr(relative)?;
+    );
+    // Match physical repository identity on Windows (including verbatim paths)
+    // and through ancestor aliases, without following a symlink leaf.
+    let path = stdx::path::canonicalize_existing(parent).join(
+        path.file_name()
+            .ok_or_else(|| anyhow::anyhow!("File has no name"))?,
+    );
+    let relative = path.strip_prefix(&root)?;
+    let bytes = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(relative)?);
     let index = repo.index()?;
     ensure!(
         index
