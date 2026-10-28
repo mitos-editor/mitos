@@ -300,3 +300,209 @@ async fn remote_selection_and_errors_expose_names_without_credentials() -> Resul
     assert!(!error.contains("token"));
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_switch_keeps_ignored_files_that_the_destination_starts_tracking() -> Result<()> {
+    let dir = initial()?;
+    std::fs::write(dir.path().join(".gitignore"), "ignored.txt\ncache.txt\n")?;
+    create_commit_with_message(dir.path(), true, "ignore local files");
+    exec_git_cmd(&["switch", "-c", "with-file"], dir.path());
+    std::fs::write(dir.path().join("ignored.txt"), "tracked branch contents\n")?;
+    exec_git_cmd(&["add", "-f", "ignored.txt"], dir.path());
+    create_commit_with_message(dir.path(), false, "start tracking ignored path");
+    exec_git_cmd(&["switch", "main"], dir.path());
+    std::fs::write(
+        dir.path().join("ignored.txt"),
+        "precious ignored contents\n",
+    )?;
+    std::fs::write(dir.path().join("cache.txt"), "keep cache\n")?;
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "with-file".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("ignored.txt"))?,
+        "precious ignored contents\n"
+    );
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "main" && branch.current));
+    // Ordinary ignored build/cache files do not prevent switching branches.
+    std::fs::remove_file(dir.path().join("ignored.txt"))?;
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "with-file".into(),
+        },
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("cache.txt"))?,
+        "keep cache\n"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn pull_keeps_ignored_files_that_upstream_starts_tracking() -> Result<()> {
+    let dir = initial()?;
+    std::fs::write(dir.path().join(".gitignore"), "ignored.txt\ncache.txt\n")?;
+    create_commit_with_message(dir.path(), true, "ignore local files");
+    let temporary = tempfile::tempdir()?;
+    let remote = temporary.path().join("remote.git");
+    let peer = temporary.path().join("peer");
+    exec_git_cmd(
+        &[
+            "clone",
+            "--bare",
+            dir.path().to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    exec_git_cmd(
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+        dir.path(),
+    );
+    exec_git_cmd(
+        &["clone", remote.to_str().unwrap(), peer.to_str().unwrap()],
+        dir.path(),
+    );
+    std::fs::write(peer.join("ignored.txt"), "new tracked upstream contents\n")?;
+    exec_git_cmd(&["add", "-f", "ignored.txt"], &peer);
+    create_commit_with_message(&peer, false, "start tracking ignored file");
+    exec_git_cmd(&["push", "origin", "main"], &peer);
+    std::fs::write(
+        dir.path().join("ignored.txt"),
+        "precious ignored contents\n",
+    )?;
+    std::fs::write(dir.path().join("cache.txt"), "keep cache\n")?;
+    let repo = GitRepository::discover(dir.path())?;
+    let head = current_head(&repo.open(false)?)?;
+    assert!(execute(&repo, RepositoryOperation::Pull { remote: None })
+        .await
+        .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("ignored.txt"))?,
+        "precious ignored contents\n"
+    );
+    assert_eq!(current_head(&repo.open(false)?)?, head);
+    assert!(repo.stashes().await?.is_empty());
+    std::fs::remove_file(dir.path().join("ignored.txt"))?;
+    execute(&repo, RepositoryOperation::Pull { remote: None }).await?;
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("ignored.txt"))?,
+        "new tracked upstream contents\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("cache.txt"))?,
+        "keep cache\n"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn worktree_removal_preserves_modifications_hidden_by_index_flags() -> Result<()> {
+    let dir = initial()?;
+    let temporary = tempfile::tempdir()?;
+    let linked = temporary.path().join("linked");
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: linked.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    for (enable, disable) in [
+        ("--assume-unchanged", "--no-assume-unchanged"),
+        ("--skip-worktree", "--no-skip-worktree"),
+    ] {
+        exec_git_cmd(&["update-index", enable, "file.txt"], &linked);
+        std::fs::write(linked.join("file.txt"), "precious hidden modification\n")?;
+        let error = execute(
+            &repo,
+            RepositoryOperation::RemoveWorktree {
+                path: linked.clone(),
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("assume-unchanged or skip-worktree"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(linked.join("file.txt"))?,
+            "precious hidden modification\n"
+        );
+        exec_git_cmd(&["update-index", disable, "file.txt"], &linked);
+        std::fs::write(linked.join("file.txt"), "initial\n")?;
+    }
+    execute(
+        &repo,
+        RepositoryOperation::RemoveWorktree {
+            path: linked.clone(),
+        },
+    )
+    .await?;
+    assert!(!linked.exists());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pull_revalidates_the_branch_after_fetch_before_any_checkout() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = initial()?;
+    exec_git_cmd(&["branch", "other"], dir.path());
+    let temporary = tempfile::tempdir()?;
+    let remote = temporary.path().join("remote.git");
+    exec_git_cmd(
+        &[
+            "clone",
+            "--bare",
+            dir.path().to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    exec_git_cmd(
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+        dir.path(),
+    );
+    let source = dir.path().to_str().unwrap().replace('\'', "'\\''");
+    let helper = dir.path().join(".git/switch-during-fetch");
+    std::fs::write(&helper, format!("#!/bin/sh\ngit --git-dir='{source}/.git' --work-tree='{source}' switch --quiet other || exit\nexec git upload-pack \"$@\"\n"))?;
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))?;
+    let helper_command = format!("'{}'", helper.to_str().unwrap().replace('\'', "'\\''"));
+    exec_git_cmd(
+        &["config", "remote.origin.uploadpack", &helper_command],
+        dir.path(),
+    );
+    let repo = GitRepository::discover(dir.path())?;
+    let error = execute(&repo, RepositoryOperation::Pull { remote: None })
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("branch or HEAD changed during fetch"),
+        "{error}"
+    );
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "other" && branch.current));
+    assert!(repo.open(false)?.state().is_none());
+    Ok(())
+}

@@ -66,7 +66,7 @@ impl RepositoryOperation {
                 command.args(["branch", "--", name]);
             }
             Self::SwitchBranch { name } => {
-                command.args(["switch", "--no-guess", "--", name]);
+                command.args(["switch", "--no-guess", "--no-overwrite-ignore", "--", name]);
             }
             Self::CreateWorktree { path, branch } => {
                 ensure!(
@@ -101,45 +101,31 @@ impl RepositoryOperation {
                 let remote = remote.as_deref().context("Choose a remote first")?;
                 command.args(["fetch", "--no-recurse-submodules", "--", remote]);
             }
-            Self::Pull { remote } | Self::Push { remote } => {
+            Self::Pull { remote } => {
+                return pull(repo, remote.as_deref().context("Choose a remote first")?).await;
+            }
+            Self::Push { remote } => {
                 let git = repo
                     .open(true)
                     .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
                 let (branch, destination) =
                     current_branch(&git, remote.as_deref().context("Choose a remote first")?)?;
                 let remote = remote.as_deref().unwrap();
-                if matches!(self, Self::Pull { .. }) {
-                    command.args([
-                        "-c",
-                        "merge.autoStash=false",
-                        "-c",
-                        "rebase.autoStash=false",
-                        "pull",
-                        "--ff-only",
-                        "--no-rebase",
-                        "--no-autostash",
-                        "--no-recurse-submodules",
-                        "--",
-                        remote,
-                        &destination,
-                    ]);
-                } else {
-                    let refspec = format!("refs/heads/{branch}:refs/heads/{destination}");
-                    // Git applies the configured mirror mode after parsing --no-mirror.
-                    let mirror_config = format!("remote.{remote}.mirror=false");
-                    command.args([
-                        "-c",
-                        &mirror_config,
-                        "push",
-                        "--no-force",
-                        "--no-mirror",
-                        "--no-follow-tags",
-                        "--recurse-submodules=no",
-                        "--",
-                        remote,
-                        &refspec,
-                    ]);
-                }
+                let refspec = format!("refs/heads/{branch}:refs/heads/{destination}");
+                // Git applies the configured mirror mode after parsing --no-mirror.
+                let mirror_config = format!("remote.{remote}.mirror=false");
+                command.args([
+                    "-c",
+                    &mirror_config,
+                    "push",
+                    "--no-force",
+                    "--no-mirror",
+                    "--no-follow-tags",
+                    "--recurse-submodules=no",
+                    "--",
+                    remote,
+                    &refspec,
+                ]);
             }
         }
         if matches!(
@@ -151,6 +137,73 @@ impl RepositoryOperation {
             run(command).await.map(|_| ())
         }
     }
+}
+
+/// Git pull cannot disable overwriting ignored files. Fetch first, then use
+/// merge's guarded checkout against an immutable fetched commit.
+async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
+    let capture = repo.clone();
+    let selected = remote.to_owned();
+    let (branch, destination, head) = tokio::task::spawn_blocking(move || {
+        let git = capture
+            .open(true)
+            .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
+        let (branch, destination) = current_branch(&git, &selected)?;
+        Ok::<_, anyhow::Error>((branch, destination, current_head(&git)?))
+    })
+    .await??;
+    let mut fetch = repo.command();
+    let reference = format!("refs/heads/{destination}");
+    fetch.args(["fetch", "--no-recurse-submodules", "--", remote, &reference]);
+    run_private(fetch, "Fetch for pull").await?;
+
+    // Resolve FETCH_HEAD once. Never ask the eventual merge to resolve a moving ref.
+    let mut resolve = repo.command();
+    resolve.args(["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
+    let bytes = run_private(resolve, "Read fetched commit").await?;
+    let target = history::RevisionId::parse(std::str::from_utf8(&bytes)?.trim())?;
+    let validate = repo.clone();
+    tokio::task::spawn_blocking(move || {
+        let git = validate
+            .open(true)
+            .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
+        let name = format!("refs/heads/{branch}");
+        ensure!(
+            git.head_name()?
+                .as_ref()
+                .is_some_and(|current| current.as_bstr() == name.as_bytes().as_bstr())
+                && current_head(&git)? == head
+                && git.state().is_none(),
+            "Git branch or HEAD changed during fetch; retry pull"
+        );
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+
+    let mut merge = repo.command();
+    merge.args([
+        "-c",
+        "submodule.recurse=false",
+        "-c",
+        "merge.autoStash=false",
+        "merge",
+        "--ff-only",
+        "--no-autostash",
+        "--no-overwrite-ignore",
+        "--",
+        target.as_str(),
+    ]);
+    run_private(merge, "Pull (fast-forward only)")
+        .await
+        .map(|_| ())
+}
+
+fn current_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {
+    Ok(if repo.head()?.is_unborn() {
+        None
+    } else {
+        Some(repo.head_id()?.detach())
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -399,6 +452,13 @@ async fn ensure_clean_worktree(path: &Path, owner: &GitRepository) -> Result<()>
         repo.root == path && repo.common_dir == owner.common_dir,
         "Selected path is no longer a linked worktree of this repository"
     );
+    // Status deliberately trusts these flags. Worktree removal would otherwise
+    // delete hidden local modifications while reporting the worktree as clean.
+    let mut flags = repo.command();
+    flags.args(["ls-files", "--cached", "-v", "-z"]);
+    let entries = run(flags).await?;
+    ensure!(!entries.split(|byte| *byte == 0).any(|entry| entry.first().is_some_and(|tag| tag.is_ascii_lowercase() || *tag == b'S')),
+        "Worktree has assume-unchanged or skip-worktree index entries; inspect these files in Git before removing it");
     let mut command = repo.command();
     command.args([
         "status",

@@ -367,7 +367,8 @@ directory. Repository changes require [workspace trust](./workspace-trust.md).
 | `:vcs-worktree-remove <path>` | Confirm removal of a clean linked worktree |
 
 Save modified buffers before switching branches. Git keeps changes on disk and
-refuses a switch that would overwrite them. Branch switching does not create
+refuses a switch that would overwrite them, including ignored files that the
+destination branch starts tracking. Branch switching does not create
 remote-tracking branches automatically.
 
 Create linked worktrees outside the current working tree. Without a branch name,
@@ -381,6 +382,9 @@ worktree to work in that checkout.
 Removing a worktree asks for confirmation and keeps the branch. Main, current,
 and locked worktrees cannot be removed. Modified, untracked, and ignored files
 also prevent removal. Change directory out of a worktree before removing it.
+Worktrees with assume-unchanged or skip-worktree index flags are kept too, because
+those flags can hide modified files from Git status. Inspect these files in Git
+before removing the worktree.
 
 Reopen a picker to refresh the branch or worktree list after external changes.
 
@@ -399,7 +403,10 @@ also run these commands directly:
 When exactly one remote is configured, its name is optional. With several
 remotes, choose one explicitly. Remote URLs are not shown in the picker.
 
-Pulling requires saved buffers and does not merge, rebase, or stash changes.
+Pulling requires saved buffers and never creates a merge commit, rebases, or
+stashes changes.
+Diverged branches and ignored-file collisions prevent the update. Mitos fetches
+first, then fast-forwards only if the captured branch and `HEAD` are unchanged.
 Diverged branches must be reconciled explicitly in Git. Pushing uploads only the
 current local branch, without mirroring or automatically pushing tags. When the
 selected remote matches the branch's configured upstream, its upstream branch
