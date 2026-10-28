@@ -265,45 +265,46 @@ on disk.
 
 ### Staging individual changes
 
-Use these commands in a file buffer or a live review buffer. They change Git's
-staging area and preserve the file on disk and unsaved buffer edits.
+Use these commands in a file buffer or a live review to add selected changes to
+Git's staging area or remove them. Neither action changes the saved file or your
+unsaved edits.
 
 | Command | Action |
 | --- | --- |
-| `:vcs-stage-hunk` | Stage complete hunks intersecting the selections |
+| `:vcs-stage-hunk` | Stage each hunk touched by the selections |
 | `:vcs-stage-lines` | Stage only selected lines |
-| `:vcs-unstage-hunk` | Unstage complete hunks intersecting the selections |
+| `:vcs-unstage-hunk` | Unstage each hunk touched by the selections |
 | `:vcs-unstage-lines` | Unstage only selected lines |
 | `:vcs-stage-and-next` | Stage the selected hunks and select the next unstaged hunk |
 
-Stage commands compare the index with the current buffer, including unsaved
-text. They do not save the file. To select changes from the file on disk, use
-`:vcs-stage-hunk-disk` or `:vcs-stage-lines-disk` in a saved file buffer.
+Stage commands use the current buffer, including unsaved edits. You can stage an
+edit without saving it. The `:vcs-stage-hunk-disk` and `:vcs-stage-lines-disk`
+commands use the saved file instead; save your buffer before running them.
 
-Unstage commands compare `HEAD` with the index. Buffer selections are mapped
-back to the staged lines, including when unstaged edits shifted their positions.
-The gutter and `:show-change` still show `HEAD` against the buffer, so a displayed
-change may contain both staged and unstaged text.
+Unstage commands remove the selected changes from the next commit while keeping
+them in your file. The gutter and `:show-change` show all changes since `HEAD`,
+so one displayed hunk can include both staged and unstaged changes.
 
-In `:diff buffer` or `:diff unstaged`, selecting removed and added rows lets
-`:vcs-stage-lines` remove and add those rows independently. Use `:diff staged`
-with `:vcs-unstage-lines` to select exactly which staged rows to remove or restore.
-Historical comparisons cannot change the index. Refresh a review if its source
-or index changed before running an action.
+For precise line choices, open `:diff buffer` to include unsaved edits, or
+`:diff unstaged` to review the saved file. Select added or removed lines and run
+`:vcs-stage-lines`; additions and removals can be staged separately. To leave
+selected staged changes out of the next commit, open `:diff staged` and use
+`:vcs-unstage-lines`. Reviews of past commits cannot stage or unstage changes.
+If the file or staging area changes after you open a review, run
+`:diff-refresh` before trying again.
 
-Partial staging supports UTF-8 text, Git's line-ending conversions, and trusted
-clean filters that preserve line positions. Use whole-file actions for binary
-files, other encodings, submodules, symlinks, or filters that change line counts.
-Stage a working-tree rename as a whole file before selecting its text changes.
-Text actions preserve an existing index BOM; use whole-file actions to stage an
-encoding change.
+Line and hunk actions require UTF-8 text and support normal line-ending
+conversions. Use whole-file actions in the changed-file picker for binary files,
+other encodings, submodules, and symlinks. Also stage the whole file if Git's file
+conversion changes its line count, or when changing the file's encoding. Stage a
+rename as a whole file before staging individual text changes.
 
 The current-change popup (`Space i`) also offers `s` to stage the cursor's hunk,
 `u` to unstage it, and `S` to stage and select the next unstaged hunk. These actions
-compare with the index even though the preview compares `HEAD` with the buffer.
-The footer labels each comparison. Actions close the popup; inspect again to
-review the resulting state. Remap them under `[keys.diff]` using `stage`, `unstage`,
-and `stage_and_next`.
+add changes to or remove them from the staging area. The preview shows all
+changes since `HEAD`, including staged and unstaged changes. Actions close the
+popup; press `Space i` again to review the result. Remap them under `[keys.diff]`
+using `stage`, `unstage`, and `stage_and_next`.
 
 ### Stashes
 

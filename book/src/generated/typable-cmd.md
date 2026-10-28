@@ -106,13 +106,13 @@
 | `:diff-refresh`, `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
 | `:diff-open-source`, `:vcs-diff-open-source` | Open the source at the selected diff line. |
 | `:diff-open-file`, `:vcs-diff-open-file` | Open the current file from a diff review. |
-| `:vcs-stage-hunk` | Stage complete index-to-buffer hunks intersecting the selections, including unsaved text. Does not save the file. |
-| `:vcs-stage-lines` | Stage only selected index-to-buffer lines, including unsaved text. Does not save the file. |
-| `:vcs-stage-hunk-disk` | Stage complete index-to-disk hunks intersecting the selections. Requires a saved buffer. |
-| `:vcs-stage-lines-disk` | Stage only selected index-to-disk lines. Requires a saved buffer. |
-| `:vcs-unstage-hunk` | Unstage complete HEAD-to-index hunks intersecting the selections, preserving buffer and disk edits. |
-| `:vcs-unstage-lines` | Unstage selected HEAD-to-index lines, preserving buffer and disk edits. |
-| `:vcs-stage-and-next` | Stage the selected index-to-buffer hunks and select the next unstaged hunk. |
+| `:vcs-stage-hunk` | Stage hunks touched by the selections, including unsaved edits. Does not save the file. |
+| `:vcs-stage-lines` | Stage only selected lines, including unsaved edits. Does not save the file. |
+| `:vcs-stage-hunk-disk` | Stage hunks touched by the selections from the saved file. Save the buffer first. |
+| `:vcs-stage-lines-disk` | Stage only selected lines from the saved file. Save the buffer first. |
+| `:vcs-unstage-hunk` | Unstage hunks touched by the selections, keeping saved and unsaved edits. |
+| `:vcs-unstage-lines` | Unstage only selected lines, keeping saved and unsaved edits. |
+| `:vcs-stage-and-next` | Stage the selected hunks and move to the next unstaged hunk. |
 | `:restore-change`, `:vcs-restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
 | `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
 | `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |
