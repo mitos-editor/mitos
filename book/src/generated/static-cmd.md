@@ -128,6 +128,8 @@
 | `git_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |
 | `changed_file_picker` | Browse changed files | normal: `` <space>gs ``, select: `` <space>gs `` |
 | `diff` | Show file diff | normal: `` <space>gd ``, select: `` <space>gd `` |
+| `copy_permalink` | Copy a commit-pinned link to the selected source lines |  |
+| `open_permalink` | Open a commit-pinned link to the selected source lines |  |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `diff_open_file` | Open the current file from a diff review |  |

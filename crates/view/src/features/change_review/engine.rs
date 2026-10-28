@@ -87,7 +87,7 @@ impl ReviewSource {
         self.before_settings = Some(settings);
         self
     }
-    pub(super) fn text(&self, before: bool) -> &Rope {
+    pub(crate) fn text(&self, before: bool) -> &Rope {
         if before {
             &self.before
         } else {

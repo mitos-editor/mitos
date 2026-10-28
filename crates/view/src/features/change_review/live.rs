@@ -41,6 +41,10 @@ enum RefreshEvent {
 }
 
 impl Handler {
+    #[cfg(feature = "git")]
+    pub(crate) fn worker(&self) -> Arc<Semaphore> {
+        self.worker.clone()
+    }
     pub(crate) fn new(callbacks: EditorCallbackSender) -> Self {
         let callbacks = Arc::new(callbacks);
         let events = Debounce {
