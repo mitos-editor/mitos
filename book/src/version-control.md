@@ -281,9 +281,10 @@ Stage commands use the current buffer, including unsaved edits. You can stage an
 edit without saving it. The `:vcs-stage-hunk-disk` and `:vcs-stage-lines-disk`
 commands use the saved file instead; save your buffer before running them.
 
-Unstage commands remove the selected changes from the next commit while keeping
-them in your file. The gutter and `:show-change` show all changes since `HEAD`,
-so one displayed hunk can include both staged and unstaged changes.
+Unstage commands leave selected changes out of the next commit without changing
+the saved file or your unsaved edits. The gutter and `:show-change` show all
+changes since `HEAD`, so one displayed hunk can include both staged and unstaged
+changes.
 
 For precise line choices, open `:diff buffer` to include unsaved edits, or
 `:diff unstaged` to review the saved file. Select added or removed lines and run
