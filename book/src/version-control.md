@@ -113,7 +113,7 @@ between hunks, or `[G` / `]G` for the first / last hunk.
 Buffer names show the filename and comparison, for example
 `editor.rs [diff: staged]`. Separate reviews of the same comparison receive
 numbered suffixes. The statusline shows change counts, the active comparison
-engine, and whether the review is loading.
+method, and whether the review is loading.
 
 | Command | Action |
 | --- | --- |
@@ -134,7 +134,8 @@ buffer again when you reopen it.
 External updates follow your [file watching and polling settings](./configuration.md#editorfileswatch).
 Use `:diff-refresh` to retry a failed read or update a review when watching and
 polling are disabled. [Historical comparisons](#older-versions-and-comparisons)
-keep their selected revisions and captured buffer text, including when refreshed.
+keep the chosen commits and the buffer text shown when you opened them, even
+after a refresh.
 
 To review two files side by side:
 
@@ -207,9 +208,9 @@ unsaved edits. Use a count such as `3]g` to jump forward three changes.
 | --- | --- |
 | `[g` / `]g` | Select the previous / next change |
 | `[G` / `]G` | Select the first / last change |
-| `:restore-change` | Restore changes intersecting the selections from `HEAD` |
+| `:restore-change` | Restore each hunk touched by the selections from `HEAD` |
 
-Restoring replaces whole intersecting hunks in the current buffer. Use `u` to
+Restoring replaces each selected hunk in the current buffer. Use `u` to
 undo it. The command does not save the file or change Git's staging area.
 Navigation and restoration use line changes with either comparison engine.
 

@@ -1551,7 +1551,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff",
         aliases: &["vcs-diff"],
-        doc: "Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer).",
+        doc: "Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes).",
         fun: super::vcs::typed::diff,
         completer: CommandCompleter::positional(&[completers::diff_comparison]),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
@@ -1575,7 +1575,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-refresh",
         aliases: &["vcs-diff-refresh"],
-        doc: "Retry loading the current diff. Current-file reviews update automatically; historical comparisons keep their original revisions and buffer contents.",
+        doc: "Reload the current diff. Reviews of past commits keep the versions originally chosen.",
         fun: super::vcs::typed::diff_refresh,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1591,7 +1591,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "diff-open-file",
         aliases: &["vcs-diff-open-file"],
-        doc: "Open today's file from a diff review.",
+        doc: "Open the current file from a diff review.",
         fun: super::vcs::typed::diff_open_file,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1599,7 +1599,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "restore-change",
         aliases: &["vcs-restore-change"],
-        doc: "Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index.",
+        doc: "Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged.",
         fun: super::vcs::typed::restore_change,
         completer: CommandCompleter::none(),
         signature: Signature {
