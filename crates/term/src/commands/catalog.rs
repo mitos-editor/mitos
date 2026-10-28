@@ -1530,7 +1530,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "blame",
-        aliases: &[],
+        aliases: &["vcs-blame"],
         doc: "Show commit details for the current line, with actions to copy the commit ID or message.",
         fun: super::vcs::typed::blame,
         completer: CommandCompleter::none(),
@@ -1541,7 +1541,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "show-change",
-        aliases: &[],
+        aliases: &["vcs-show-change"],
         doc: "Inspect the current change against HEAD, including deleted lines and unsaved edits.",
         fun: super::vcs::typed::show_change,
         completer: CommandCompleter::none(),
@@ -1549,7 +1549,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "diff",
-        aliases: &[],
+        aliases: &["vcs-diff"],
         doc: "Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer).",
         fun: super::vcs::typed::diff,
         completer: CommandCompleter::positional(&[completers::diff_comparison]),
@@ -1565,7 +1565,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "file-history",
-        aliases: &["git-file-history"],
+        aliases: &["git-file-history", "vcs-file-history"],
         doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons.",
         fun: super::vcs::typed::file_history,
         completer: CommandCompleter::none(),
@@ -1573,7 +1573,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "diff-refresh",
-        aliases: &[],
+        aliases: &["vcs-diff-refresh"],
         doc: "Retry loading the current diff. Current-file reviews update automatically; historical comparisons keep their original revisions and buffer contents.",
         fun: super::vcs::typed::diff_refresh,
         completer: CommandCompleter::none(),
@@ -1581,7 +1581,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "diff-open-source",
-        aliases: &[],
+        aliases: &["vcs-diff-open-source"],
         doc: "Open the source at the selected diff line.",
         fun: super::vcs::typed::diff_open_source,
         completer: CommandCompleter::none(),
@@ -1589,7 +1589,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "diff-open-file",
-        aliases: &[],
+        aliases: &["vcs-diff-open-file"],
         doc: "Open today's file from a diff review.",
         fun: super::vcs::typed::diff_open_file,
         completer: CommandCompleter::none(),
@@ -1597,7 +1597,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "restore-change",
-        aliases: &[],
+        aliases: &["vcs-restore-change"],
         doc: "Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index.",
         fun: super::vcs::typed::restore_change,
         completer: CommandCompleter::none(),
@@ -1605,6 +1605,38 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+    },
+    TypableCommand {
+        name: "vcs-changes",
+        aliases: &["git-changes"],
+        doc: "Browse changed files in the workspace.",
+        fun: super::vcs::typed::changed_files,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-repository-changes",
+        aliases: &["git-repository-changes"],
+        doc: "Browse changed files throughout the current repository.",
+        fun: super::vcs::typed::repository_changes,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-stashes",
+        aliases: &["git-stashes"],
+        doc: "Browse Git stashes in the current repository.",
+        fun: super::vcs::typed::stashes,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-toggle-inline-blame",
+        aliases: &["git-toggle-inline-blame"],
+        doc: "Show or hide inline Git blame, restoring the configured display mode.",
+        fun: super::vcs::typed::toggle_blame,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "clear-register",

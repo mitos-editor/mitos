@@ -5,13 +5,30 @@ changed a line.
 
 | Key or command | Action |
 | --- | --- |
-| `Space g` | Browse changed files |
-| `:diff` | Review changes in the current file, including unsaved edits |
-| `Space i`, `:show-change` | Inspect the change at the cursor |
-| `:file-history` | Browse commits that changed the current file |
-| `:git-history` | Browse repository commits and their changed files |
-| `:blame` | Show the commit that last changed the current line |
-| `Space B` | Show or hide inline blame |
+| `Space g c`, `:vcs-changes` | Browse changed files |
+| `Space g d`, `:vcs-diff` | Review changes in the current file, including unsaved edits |
+| `Space g i`, `:vcs-show-change` | Inspect the change at the cursor |
+| `Space g h`, `:vcs-file-history` | Browse commits that changed the current file |
+| `Space g H`, `:vcs-history` | Browse repository commits and their changed files |
+| `Space g b`, `:vcs-blame` | Show the commit that last changed the current line |
+| `Space g t`, `:vcs-toggle-inline-blame` | Show or hide inline blame |
+| `Space g s`, `:vcs-stashes` | Browse stashes |
+
+Press `Space g` to open the Git menu. Search for `vcs-` in the command palette
+(`Space ?`) to discover version-control commands. Existing command names such as
+`:diff`, `:file-history`, and `:git-history` still work. `Space i` and `Space B`
+remain shortcuts for inspecting a change and toggling inline blame.
+
+Previously, `Space g` opened changed files directly; that action is now
+`Space g c`. To restore the old binding in `config.toml`:
+
+```toml
+[keys.normal.space]
+g = "changed_file_picker"
+
+[keys.select.space]
+g = "changed_file_picker"
+```
 
 Staging, stashes, and history browsing require the `git` executable on `PATH`.
 
@@ -22,9 +39,8 @@ file without saving it or changing Git's staging area.
 
 ### Changed files
 
-Press `Space g` to browse changes within the workspace. To browse the whole
-repository, use `changed_file_picker_in_repository` from the command palette
-(`Space ?`).
+Press `Space g c` to browse changes within the workspace. To browse the whole
+repository, run `:vcs-repository-changes`.
 
 The picker has separate **staged** and **unstaged** columns. Each path appears
 once, including files with both kinds of changes. New files are labeled `added`
@@ -113,7 +129,7 @@ keep their selected revisions and captured buffer text, including when refreshed
 
 To review two files side by side:
 
-1. Open `Space g`, select a file, and press `Alt-o`.
+1. Open `Space g c`, select a file, and press `Alt-o`.
 2. Press `Space '` to restore the picker and select another file.
 3. Press `Ctrl-v` to open the second diff in a vertical split.
 
@@ -190,7 +206,7 @@ Navigation and restoration use line changes with either comparison engine.
 
 ## Git picker actions
 
-Use these shortcuts directly in the changed-file picker (`Space g`). Actions
+Use these shortcuts directly in the changed-file picker (`Space g c`). Actions
 affect the selected file's repository, or the picker's repository when no file is
 selected. Staging, unstaging, stashing, and applying stashes require
 [workspace trust](./workspace-trust.md). Use `:workspace-trust` to approve the

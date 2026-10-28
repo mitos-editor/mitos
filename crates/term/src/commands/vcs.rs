@@ -611,6 +611,68 @@ pub(super) mod typed {
     use editor_core::{Tendril, Transaction};
     use stdx::rope::RopeExt;
 
+    /// Adapt bindable Git commands while preserving their compositor callbacks.
+    fn run_command(
+        cx: &mut compositor::Context,
+        event: PromptEvent,
+        command: fn(&mut super::Context),
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            cx.jobs.callback(async move {
+                Ok(crate::job::Callback::Context(Box::new(
+                    move |compositor, cx| {
+                        let mut command_cx = super::Context {
+                            config: cx.config,
+                            register: None,
+                            count: None,
+                            editor: cx.editor,
+                            callback: Vec::new(),
+                            on_next_key_callback: None,
+                            jobs: cx.jobs,
+                        };
+                        command(&mut command_cx);
+                        for callback in command_cx.callback {
+                            callback(compositor, cx);
+                        }
+                    },
+                )))
+            });
+        }
+        Ok(())
+    }
+
+    pub(in crate::commands) fn changed_files(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        run_command(cx, event, super::changed_file_picker)
+    }
+
+    pub(in crate::commands) fn repository_changes(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        run_command(cx, event, super::changed_file_picker_in_repository)
+    }
+
+    pub(in crate::commands) fn stashes(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        run_command(cx, event, super::git_stash_picker)
+    }
+
+    pub(in crate::commands) fn toggle_blame(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        run_command(cx, event, super::toggle_inline_blame)
+    }
+
     pub(in crate::commands) fn blame(
         cx: &mut compositor::Context,
         _args: Args,

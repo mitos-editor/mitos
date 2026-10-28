@@ -94,15 +94,19 @@
 | `:pipe`, `:\|` | Pipe each selection to the shell command. |
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
-| `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
-| `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
-| `:diff` | Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
+| `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
+| `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
+| `:diff`, `:vcs-diff` | Open a review buffer for the current file: head (default, includes unsaved edits), staged, unstaged, or buffer (index to buffer). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
-| `:file-history`, `:git-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
-| `:diff-refresh` | Retry loading the current diff. Current-file reviews update automatically; historical comparisons keep their original revisions and buffer contents. |
-| `:diff-open-source` | Open the source at the selected diff line. |
-| `:diff-open-file` | Open today's file from a diff review. |
-| `:restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |
+| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:diff-refresh`, `:vcs-diff-refresh` | Retry loading the current diff. Current-file reviews update automatically; historical comparisons keep their original revisions and buffer contents. |
+| `:diff-open-source`, `:vcs-diff-open-source` | Open the source at the selected diff line. |
+| `:diff-open-file`, `:vcs-diff-open-file` | Open today's file from a diff review. |
+| `:restore-change`, `:vcs-restore-change` | Restore changes intersecting the selections from HEAD into the buffer. Undoable; does not write the file or Git index. |
+| `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
+| `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |
+| `:vcs-stashes`, `:git-stashes` | Browse Git stashes in the current repository. |
+| `:vcs-toggle-inline-blame`, `:git-toggle-inline-blame` | Show or hide inline Git blame, restoring the configured display mode. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |
 | `:redraw` | Clear and re-render the whole UI |

@@ -91,7 +91,7 @@ async fn native_review_reopens_picker_and_opens_another_diff_in_a_split() -> any
         .with_file(workspace.join("a.txt"), None)
         .build()?;
     let source = current_ref!(app.editor).1.id();
-    keys(&mut app, "<space>ga.txt").await?;
+    keys(&mut app, "<space>gca.txt").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.review().is_none() {
             keys(&mut app, "<A-o>").await.unwrap();

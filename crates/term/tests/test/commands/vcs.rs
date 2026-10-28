@@ -118,13 +118,13 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
         config.editor.inline_blame.show = show;
         let mut app = AppBuilder::new().with_config(config).build()?;
 
-        for _ in 0..2 {
-            press_space_b(&mut app).await?;
+        for keys in ["<space>B", "<space>gt", ":vcs-toggle-inline-blame<ret>"] {
+            press_keys(&mut app, keys).await?;
             assert_eq!(
                 app.editor.config().inline_blame.show,
                 InlineBlameShow::Never
             );
-            press_space_b(&mut app).await?;
+            press_keys(&mut app, keys).await?;
             assert_eq!(app.editor.config().inline_blame.show, show);
         }
 
@@ -391,7 +391,13 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
         .with_file(&existing, None)
         .build()?;
     run_event_loop_until_idle(&mut app).await;
-    for keys in ["<space>g", "<space>?changed_file_picker_in_repository<ret>"] {
+    for keys in [
+        "<space>gc",
+        ":vcs-changes<ret>",
+        ":vcs-repository-changes<ret>",
+        "<space>?vcs-changes<ret>",
+        "<space>?changed_file_picker_in_repository<ret>",
+    ] {
         press_keys(&mut app, keys).await?;
         let screen = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -496,7 +502,12 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     let (dir, path) = committed_file()?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     press_keys(&mut app, "Iunsaved-<esc>").await?;
-    for keys in [":show-change<ret>", "<space>i"] {
+    for keys in [
+        ":show-change<ret>",
+        ":vcs-show-change<ret>",
+        "<space>i",
+        "<space>gi",
+    ] {
         press_keys(&mut app, keys).await?;
         wait_for_review_screen(&mut app, "Current change", "− committed").await?;
         let screen = review_screen(&app);
@@ -580,7 +591,7 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
         .with_config(config)
         .with_file(&path, None)
         .build()?;
-    press_keys(&mut app, "<space>gfile.json").await?;
+    press_keys(&mut app, "<space>gcfile.json").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
@@ -599,7 +610,7 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
     press_keys(&mut app, "<space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
-    press_keys(&mut app, "<space>gfile.json").await?;
+    press_keys(&mut app, "<space>gcfile.json").await?;
     wait_for_review_screen(&mut app, "line · Unstaged", "parse errors").await?;
     assert!(review_screen(&app).contains("{]"));
     press_keys(&mut app, "<esc>").await?;
@@ -625,7 +636,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     std::fs::write(&path, "working contents\n")?;
     let index = std::fs::read(repo.join(".git/index"))?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    press_keys(&mut app, "Iunsaved-<esc><space>gfile.txt").await?;
+    press_keys(&mut app, "Iunsaved-<esc><space>gcfile.txt").await?;
     wait_for_review_screen(&mut app, "Unsaved · index", "unsaved-working contents").await?;
     assert!(review_screen(&app).contains("A-p/A-n versions"));
     press_keys(&mut app, "<A-n>").await?;
@@ -654,7 +665,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     // Opening a deleted row creates a pathless review and never recreates the file.
     press_keys(&mut app, "u").await?;
     std::fs::remove_file(&path)?;
-    press_keys(&mut app, "<space>gfile.txt").await?;
+    press_keys(&mut app, "<space>gcfile.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "staged contents").await?;
     let documents = app.editor.documents().count();
     press_keys(&mut app, "<ret>").await?;
@@ -743,7 +754,7 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
         .with_config(config)
         .with_file(&path, None)
         .build()?;
-    press_keys(&mut app, "<space>gwatched.txt").await?;
+    press_keys(&mut app, "<space>gcwatched.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "first edit").await?;
     git(&repo, &["add", "watched.txt"]);
     wait_for_review_screen(&mut app, "Staged · HEAD", "first edit").await?;

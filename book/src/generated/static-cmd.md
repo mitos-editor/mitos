@@ -112,14 +112,14 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
-| `show_change` | Show the current change against HEAD | normal: `` <space>i ``, select: `` <space>i `` |
-| `blame_line` | Show commit details for the current line |  |
-| `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, select: `` <space>B `` |
-| `git_history` | Browse Git commits and their changed files in the current repository |  |
-| `git_file_history` | Browse the current file history across renames |  |
-| `git_stash_picker` | Browse Git stashes in the current repository |  |
-| `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>g ``, select: `` <space>g `` |
-| `diff` | Review all changes in the current file in a read-only buffer |  |
+| `show_change` | Show the current change against HEAD | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
+| `blame_line` | Show commit details for the current line | normal: `` <space>gb ``, select: `` <space>gb `` |
+| `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
+| `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gH ``, select: `` <space>gH `` |
+| `git_file_history` | Browse the current file history across renames | normal: `` <space>gh ``, select: `` <space>gh `` |
+| `git_stash_picker` | Browse Git stashes in the current repository | normal: `` <space>gs ``, select: `` <space>gs `` |
+| `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gc ``, select: `` <space>gc `` |
+| `diff` | Review all changes in the current file in a read-only buffer | normal: `` <space>gd ``, select: `` <space>gd `` |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `diff_open_file` | Open the current file from a diff review |  |

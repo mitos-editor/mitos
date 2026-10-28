@@ -279,7 +279,7 @@
 | `` <space>S `` | Open workspace symbol picker from LSP or syntax information | `` lsp_or_syntax_workspace_symbol_picker `` |
 | `` <space>d `` | Open diagnostic picker | `` diagnostics_picker `` |
 | `` <space>D `` | Open workspace diagnostic picker | `` workspace_diagnostics_picker `` |
-| `` <space>g `` | Open changed file picker in workspace | `` changed_file_picker `` |
+| `` <space>g `` | Git | Prefix |
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
 | `` <space>' `` | Open last picker | `` last_picker `` |
@@ -300,6 +300,19 @@
 | `` <space>? `` | Open command palette | `` command_palette `` |
 | `` <space>B `` | Toggle inline Git blame | `` toggle_inline_blame `` |
 | `` <space>i `` | Show the current change against HEAD | `` show_change `` |
+
+#### `` <space>g `` — Git
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>gc `` | Open changed file picker in workspace | `` changed_file_picker `` |
+| `` <space>gd `` | Review all changes in the current file in a read-only buffer | `` diff `` |
+| `` <space>gh `` | Browse the current file history across renames | `` git_file_history `` |
+| `` <space>gH `` | Browse Git commits and their changed files in the current repository | `` git_history `` |
+| `` <space>gb `` | Show commit details for the current line | `` blame_line `` |
+| `` <space>gi `` | Show the current change against HEAD | `` show_change `` |
+| `` <space>gt `` | Toggle inline Git blame | `` toggle_inline_blame `` |
+| `` <space>gs `` | Browse Git stashes in the current repository | `` git_stash_picker `` |
 
 #### `` <space>G `` — Debug (experimental)
 
