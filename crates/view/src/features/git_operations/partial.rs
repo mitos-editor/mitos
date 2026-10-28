@@ -8,6 +8,15 @@ use vcs::operations::{FileOperation, PartialSelection, PartialSource};
 use super::{GitAction, GitRequest};
 use crate::{DocumentId, Editor, ViewId};
 
+/// Match the UTF-8 bytes that saving the buffer would write, including its BOM.
+pub fn buffer_text(doc: &crate::Document) -> String {
+    let mut text = doc.text().to_string();
+    if doc.has_bom() {
+        text.insert(0, '\u{feff}');
+    }
+    text
+}
+
 pub struct NextPartialTarget {
     document: DocumentId,
     view: ViewId,
@@ -40,7 +49,7 @@ pub fn capture_cursor_hunk(
         GitAction::Partial {
             path,
             kind,
-            source: PartialSource::Buffer(doc.text().to_string()),
+            source: PartialSource::Buffer(buffer_text(doc)),
             selection: PartialSelection::Hunks(
                 std::iter::once(line..line.saturating_add(1)).collect(),
             ),
@@ -123,7 +132,17 @@ pub fn capture(
             kind != FileOperation::Stage || !staged,
             "Use unstage commands in a staged review"
         );
-        let text = source.after().to_string();
+        let mut text = source.after().to_string();
+        if matches!(
+            review.comparison(),
+            ReviewComparison::Head | ReviewComparison::Buffer
+        ) && review
+            .source_document()
+            .and_then(|id| editor.document(id))
+            .is_some_and(|doc| doc.has_bom())
+        {
+            text.insert(0, '\u{feff}');
+        }
         let input = match review.comparison() {
             ReviewComparison::Staged => PartialSource::IndexSnapshot(text),
             ReviewComparison::Buffer | ReviewComparison::Unstaged => PartialSource::Snapshot {
@@ -202,7 +221,7 @@ pub fn capture(
         let source = if disk {
             PartialSource::Worktree
         } else {
-            PartialSource::Buffer(doc.text().to_string())
+            PartialSource::Buffer(buffer_text(doc))
         };
         (path, doc.workspace_root().to_owned(), source, ranges)
     };
@@ -217,7 +236,10 @@ pub fn capture(
     } else {
         PartialSelection::Hunks(ranges)
     };
-    let request = GitRequest::capture(
+    let source_document = doc
+        .review()
+        .map_or(Some(doc.id()), |review| review.source_document());
+    let request = GitRequest::capture_with_document(
         editor,
         workspace,
         GitAction::Partial {
@@ -226,6 +248,7 @@ pub fn capture(
             source,
             selection,
         },
+        source_document,
     )?;
     let next = Some(NextPartialTarget {
         document: doc.id(),

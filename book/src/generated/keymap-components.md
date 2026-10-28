@@ -240,3 +240,6 @@
 | `` r `` | `` restore `` |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
+| `` s `` | `` stage `` |
+| `` n `` | `` stage_and_next `` |
+| `` u `` | `` unstage `` |

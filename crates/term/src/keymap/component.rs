@@ -114,6 +114,9 @@ pub enum DiffAction {
     ScrollLeft,
     ScrollRight,
     Restore,
+    Stage,
+    Unstage,
+    StageAndNext,
 }
 
 /// Terminal component maps, resolved from defaults and user configuration.
@@ -304,6 +307,9 @@ impl Default for ComponentKeymaps {
                 ("left", DiffAction::ScrollLeft),
                 ("right", DiffAction::ScrollRight),
                 ("r", DiffAction::Restore),
+                ("s", DiffAction::Stage),
+                ("u", DiffAction::Unstage),
+                ("n", DiffAction::StageAndNext),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),

@@ -1373,3 +1373,114 @@ async fn partial_staging_rejects_a_buffer_changed_after_preparation() -> anyhow:
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn partial_staging_popup_actions_use_index_comparisons_and_follow_remaps(
+) -> anyhow::Result<()> {
+    for (stage, unstage) in [("s", "u"), ("<A-s>", "<A-u>")] {
+        let (dir, path) = committed_file()?;
+        std::fs::write(&path, "staged\n")?;
+        git(dir.path(), &["add", "file.txt"]);
+        let mut config = test_config();
+        if stage == "<A-s>" {
+            config.component_keys = term::config::Config::load(
+                Ok(
+                    &"[keys.diff]\ns = 'unbound'\nu = 'unbound'\nA-s = 'stage'\nA-u = 'unstage'\n"
+                        .to_owned(),
+                ),
+                Err(term::config::ConfigLoadError::default()),
+            )
+            .unwrap()
+            .component_keys;
+        }
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_file(&path, None)
+            .build()?;
+        press_keys(&mut app, "Iunsaved-<esc><space>i").await?;
+        wait_for_review_screen(&mut app, "Current change", "stage: index").await?;
+        assert!(review_screen(&app).contains("unstage: HEAD"));
+        if stage == "<A-s>" {
+            assert!(review_screen(&app).contains("<A-s> stage"));
+        }
+        press_keys(&mut app, stage).await?;
+        finish_partial(&mut app).await?;
+        assert_eq!(partial_index(&path), "unsaved-staged\n");
+        assert!(!review_screen(&app).contains("Current change"));
+        press_keys(&mut app, "<space>i").await?;
+        wait_for_review_screen(&mut app, "Current change", "unstage: HEAD").await?;
+        press_keys(&mut app, unstage).await?;
+        finish_partial(&mut app).await?;
+        assert_eq!(partial_index(&path), "committed\n");
+        assert_eq!(std::fs::read_to_string(&path)?, "staged\n");
+        assert_eq!(
+            current_ref!(app.editor).1.text().to_string(),
+            "unsaved-staged\n"
+        );
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn partial_staging_popup_rejects_a_changed_repository_snapshot() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Iunsaved-<esc><space>i").await?;
+    wait_for_review_screen(&mut app, "Current change", "stage: index").await?;
+    std::fs::write(&path, "external\n")?;
+    git(dir.path(), &["add", "file.txt"]);
+    press_keys(&mut app, "s").await?;
+    finish_partial(&mut app).await?;
+    assert_eq!(partial_index(&path), "external\n");
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "unsaved-committed\n"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn partial_staging_popup_and_next_affects_only_the_cursor_hunk() -> anyhow::Result<()> {
+    use editor_core::{Range, Selection};
+    use stdx::rope::RopeExt;
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, "first\nkeep\nlast\n")?;
+    git(dir.path(), &["add", "file.txt"]);
+    git(dir.path(), &["commit", "-m", "multiple hunks"]);
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Inew <esc>jjInew <esc>").await?;
+    {
+        let (view, doc) = current!(app.editor);
+        let end = doc.text().line_to_char_idx(2);
+        doc.set_selection(
+            view.id,
+            Selection::new(vec![Range::point(0), Range::point(end)].into(), 0),
+        );
+    }
+    press_keys(&mut app, "<space>i").await?;
+    wait_for_review_screen(&mut app, "Current change", "stage: index").await?;
+    press_keys(&mut app, "n").await?;
+    finish_partial(&mut app).await?;
+    assert_eq!(partial_index(&path), "new first\nkeep\nlast\n");
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.cursor_line(view.id), 2);
+    assert_eq!(std::fs::read_to_string(&path)?, "first\nkeep\nlast\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn partial_staging_buffer_keeps_the_bom_of_a_new_utf8_file() -> anyhow::Result<()> {
+    let (dir, _path) = committed_file()?;
+    let path = dir.path().join("new.txt");
+    std::fs::write(&path, "\u{feff}text\n")?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Iselected <esc>:vcs-stage-hunk<ret>").await?;
+    finish_partial(&mut app).await?;
+    assert_eq!(partial_index(&path), "\u{feff}selected text\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}text\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
