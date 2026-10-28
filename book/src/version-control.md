@@ -313,8 +313,8 @@ and selection. `Space '` restores the last picker after opening a review.
 Historical versions open in read-only buffers with syntax highlighting. In a
 historical diff, `Enter` on a removed line opens the original version; on an added
 or unchanged line it opens the updated version. When comparing with unsaved
-edits, this is the captured buffer text. `:diff-open-file` opens the current file
-instead.
+edits, it opens the text shown when you started the review. Use `:diff-open-file`
+to open the current file instead.
 
 Refreshing a historical comparison keeps the same revisions and any buffer text
 from when you opened it. Start a new comparison to include newer edits.
