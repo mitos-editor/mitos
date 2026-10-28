@@ -1,4 +1,4 @@
-//! Language-aware joining and comment operations over documents.
+//! Text transformations, joining, and comment operations over documents.
 
 use crate::{editing::EditError, Document, ViewId};
 use editor_core::{
@@ -295,5 +295,241 @@ pub fn continued_line_comment_token<'a>(
         doc.language_config()
             .and_then(|config| config.comment_tokens.as_ref())
             .and_then(|tokens| comment::get_comment_token(text, tokens, line_num))
+    }
+}
+
+/// Move selected line blocks as one transaction, retaining selection and history bookkeeping.
+pub fn move_lines(
+    doc: &mut Document,
+    view_id: ViewId,
+    direction: editor_core::transform::MoveLinesDirection,
+    count: usize,
+) -> Result<(), EditError> {
+    let transaction =
+        editor_core::transform::move_lines(doc.text(), doc.selection(view_id), direction, count);
+    super::apply(doc, &transaction, view_id)
+}
+
+#[cfg(test)]
+mod move_lines_tests {
+    use super::*;
+    use crate::editing::{self, tests::document_and_view};
+    use editor_core::{test, transform::MoveLinesDirection};
+
+    #[tokio::test]
+    async fn move_lines_down_with_single_cursor() {
+        let (mut doc, view) = document_and_view("#[a|]#aa\nbbb\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "bbb\n#[a|]#aa\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_with_single_cursor() {
+        let (mut doc, view) = document_and_view("aaa\n#[b|]#bb\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[b|]#bb\naaa\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_with_two_cursors_on_same_line() {
+        let (mut doc, view) = document_and_view("#[a|]#b#(c|)#d\nbbbb\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "bbbb\n#[a|]#b#(c|)#d\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_with_adjacent_cursors_on_same_line() {
+        let (mut doc, view) = document_and_view("#[a|]##(b|)#\nbbbb\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(doc.text(), "bbbb\nab\n");
+        // The markers of the two adjacent cursors share a position, so assert
+        // the selection explicitly instead of through `test::plain`.
+        let selection = doc.selection(view.id);
+        assert_eq!(selection.primary_index(), 0);
+        assert_eq!(
+            selection.iter().copied().collect::<Vec<_>>(),
+            vec![Range::new(5, 6), Range::new(6, 7)]
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_with_multiple_cursors_at_top() {
+        let (mut doc, view) = document_and_view("#[|a]#aa\nbbb\n#(c|)#cc\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[|a]#aa\n#(c|)#cc\nbbb\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_with_multiple_cursors_at_bottom() {
+        let (mut doc, view) = document_and_view("aaaa\n#[b|]#bbb\ncccc\n#(d|)#ddd\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "aaaa\ncccc\n#[b|]#bbb\n\n#(d|)#ddd"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_with_edge_and_middle_blocks() {
+        let (mut doc, view) = document_and_view("#[|a]#aa\nbbbb\ncccc\n#(d|)#ddd\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[|a]#aa\nbbbb\n#(d|)#ddd\ncccc\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_on_last_line_without_trailing_newline_is_a_noop() {
+        let (mut doc, view) = document_and_view("aaa\n#[b|]#bb");
+        let version = doc.version();
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "aaa\n#[b|]#bb"
+        );
+        assert_eq!(doc.version(), version);
+        assert!(doc.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_with_multiline_selection() {
+        let (mut doc, view) = document_and_view("#[aaa\nbbb|]#\nccc\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "ccc\n#[aaa\nbbb|]#\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_with_block_of_unequal_lengths() {
+        let (mut doc, view) = document_and_view("a\n#(b|)#bb\n#[c|]#cc\nddd\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#(b|)#bb\n#[c|]#cc\na\nddd\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_preserves_backward_selection_direction() {
+        let (mut doc, view) = document_and_view("#[|b]#b\nccc\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "ccc\n#[|b]#b\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_with_block_at_top_is_a_noop() {
+        let (mut doc, view) = document_and_view("#[aaa\nbbb|]#\nccc\n");
+        let version = doc.version();
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[aaa\nbbb|]#\nccc\n"
+        );
+        assert_eq!(doc.version(), version);
+        assert!(doc.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_with_block_at_bottom_is_a_noop() {
+        let (mut doc, view) = document_and_view("aaa\n#[bbb\nccc|]#");
+        let version = doc.version();
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "aaa\n#[bbb\nccc|]#"
+        );
+        assert_eq!(doc.version(), version);
+        assert!(doc.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn move_lines_at_edge_is_a_noop() {
+        let (mut doc, view) = document_and_view("#[|a]#aa\nbbb\n");
+        let version = doc.version();
+        move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[|a]#aa\nbbb\n"
+        );
+        assert_eq!(doc.version(), version);
+        assert!(doc.changes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn move_lines_between_identical_lines_moves_selection_only() {
+        let (mut doc, view) = document_and_view("#[a|]#a\naa\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(doc.text(), "aa\naa\n");
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "aa\n#[a|]#a\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_down_block_ending_in_empty_line_crlf() {
+        let (mut doc, view) =
+            document_and_view("#[aaaa\r\nbbbb\r\n \r\n|]#cccc\r\ndddd\r\neeee\r\n");
+        for _ in 0..3 {
+            move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        }
+        assert_eq!(doc.text(), "cccc\r\ndddd\r\neeee\r\naaaa\r\nbbbb\r\n \r\n");
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "cccc\r\ndddd\r\neeee\r\n#[aaaa\r\nbbbb\r\n \r\n|]#"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_up_block_ending_in_empty_line() {
+        let (mut doc, view) = document_and_view(
+            "b2-line_1\nb2-line_2\nb2-line_3\nb2-line_4\nb2-line_5\n\n\
+             #[b1-line_1\nb1-line_2\nb1-line_3\nb1-line_4\nb1-line_5\n\n|]#",
+        );
+        for _ in 0..6 {
+            move_lines(&mut doc, view.id, MoveLinesDirection::Above, 1).unwrap();
+        }
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[b1-line_1\nb1-line_2\nb1-line_3\nb1-line_4\nb1-line_5\n\n|]#\
+             b2-line_1\nb2-line_2\nb2-line_3\nb2-line_4\nb2-line_5\n\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn move_lines_undo_and_redo() {
+        let (mut doc, view) = document_and_view("#[a|]#aa\nbbb\n");
+        move_lines(&mut doc, view.id, MoveLinesDirection::Below, 1).unwrap();
+        assert_eq!(doc.text(), "bbb\naaa\n");
+        assert!(editing::undo(&mut doc, view.id));
+        assert_eq!(doc.text(), "aaa\nbbb\n");
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "#[a|]#aa\nbbb\n"
+        );
+        assert!(editing::redo(&mut doc, view.id));
+        assert_eq!(doc.text(), "bbb\naaa\n");
+        assert_eq!(
+            test::plain(doc.text().slice(..), doc.selection(view.id)),
+            "bbb\n#[a|]#aa\n"
+        );
     }
 }

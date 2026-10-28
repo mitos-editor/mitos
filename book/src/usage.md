@@ -42,6 +42,11 @@ inside a word. [Textobjects](./textobjects.md) and
 lines, `_` trims whitespace from selections, and `&` aligns selections in
 columns. `Alt-(` and `Alt-)` rotate the selected contents between locations.
 
+`Ctrl-j` and `Ctrl-k` move selected lines down and up. Adjacent selected lines
+move as one block; a count such as `3 Ctrl-j` moves it three lines in one undo
+step. Blocks stop at document edges. A multiline block ending in a blank line also stops
+before a final line without a newline, keeping that blank line in the selection.
+
 See the [selection keymap](./keymap.md#selection-manipulation) for the full list,
 [Registers](./registers.md) for copying text, and
 [Shell commands](./shell.md) for filtering selections through other tools.

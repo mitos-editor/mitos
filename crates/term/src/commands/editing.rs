@@ -2,7 +2,7 @@
 
 use super::{context::Context, mode::exit_select_mode};
 use crate::ui::{self, Prompt, PromptEvent};
-use editor_core::{Rope, Selection, Tendril, Transaction};
+use editor_core::{transform::MoveLinesDirection, Rope, Selection, Tendril, Transaction};
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::editing::surround::{self, Delimiter, Replacement};
 use view::{document::Mode, info::Info, Editor};
@@ -468,5 +468,21 @@ pub(super) mod typed {
         view.ensure_cursor_in_view(doc, scrolloff);
 
         Ok(())
+    }
+}
+
+pub(super) fn move_lines_up(cx: &mut Context) {
+    move_lines_impl(cx, MoveLinesDirection::Above);
+}
+
+pub(super) fn move_lines_down(cx: &mut Context) {
+    move_lines_impl(cx, MoveLinesDirection::Below)
+}
+
+fn move_lines_impl(cx: &mut Context, direction: MoveLinesDirection) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    if let Err(error) = view::editing::move_lines(doc, view.id, direction, count) {
+        cx.editor.set_error(|| error.to_string());
     }
 }

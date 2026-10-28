@@ -1,9 +1,11 @@
 //! Text transformations expressed as transactions over explicit selections.
 
 use stdx::rope::RopeExt as _;
+mod move_lines;
 mod paste;
 mod selection_contents;
 mod sort;
+pub use move_lines::{move_lines, MoveLinesDirection};
 pub use paste::{paste, replace_selection_contents, PastePosition};
 pub use selection_contents::{increment_selections, reflow_selections, replace_graphemes};
 pub use sort::{sort_selection_contents, SortMode, SortOptions};

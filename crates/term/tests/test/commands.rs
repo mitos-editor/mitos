@@ -1720,3 +1720,37 @@ async fn test_move_two_cursors_down() -> anyhow::Result<()> {
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn move_lines_counts_and_history() -> anyhow::Result<()> {
+    for (input, keys, expected) in [
+        ("#[|a]#\nb\nc\nd", "2<C-j>", "b\nc\n#[|a]#\nd"),
+        ("a\nb\nc\n#[|d]#", "2<C-k>", "a\n#[|d]#\nb\nc"),
+        ("#[|a]#\nb\nc", "99<C-j>", "b\nc\n#[|a]#"),
+        ("a\nb\n#[|c]#", "99<C-k>", "#[|c]#\na\nb"),
+        ("#[|a]#\nb\nc\nd", "2<C-j>u", "#[|a]#\nb\nc\nd"),
+        ("#[|a]#\nb\nc\nd", "2<C-j>u<U>", "b\nc\n#[|a]#\nd"),
+        ("#[|a]#\nb\nc\nd", "v2<C-j>", "b\nc\n#[|a]#\nd"),
+    ] {
+        test((input, keys, expected, LineFeedHandling::AsIs)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn move_lines_preserves_empty_tail_at_eof() -> anyhow::Result<()> {
+    for input in ["#[a\n\n|]#b", "#[a\r\n\r\n|]#b"] {
+        test((input, "<C-j>", input, LineFeedHandling::AsIs)).await?;
+        test((input, "<C-j><C-k>", input, LineFeedHandling::AsIs)).await?;
+    }
+    test(("#[\n|]#b", "<C-j><C-k>", "#[\n|]#b", LineFeedHandling::AsIs)).await?;
+    test(("a\n#[|]#", "<C-k><C-j>", "a\n#[|]#", LineFeedHandling::AsIs)).await?;
+    test((
+        "#[a\n\n|]#b\nc",
+        "99<C-j>",
+        "b\n#[a\n\n|]#c",
+        LineFeedHandling::AsIs,
+    ))
+    .await?;
+    Ok(())
+}
