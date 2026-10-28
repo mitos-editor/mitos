@@ -353,7 +353,7 @@ your terminal if needed.
 ## Branches and worktrees
 
 These commands use the current file's repository. A review or commit message
-continues to use the repository it was opened from. In an empty buffer, commands
+continues to use the repository it was opened from. In an unnamed file, commands
 use the current directory. Changing a repository requires
 [workspace trust](./workspace-trust.md).
 
@@ -389,10 +389,10 @@ Opening a worktree keeps your open files and unsaved edits. Choose a file from
 the new worktree's picker to start working there.
 
 Removing a worktree asks for confirmation and keeps its branch. Save and commit
-or stash your changes, check for untracked and ignored files, and change
-directory out of the worktree before removing it. Main and locked worktrees
-cannot be removed. If Git is set to hide changes in some files, Mitos asks you to
-check them with Git first.
+or stash your changes, then check for untracked and ignored files. Open a file in
+another worktree and change directory out of the one you want to remove. Main
+and locked worktrees cannot be removed. If Git is set to hide changes in some
+files, Mitos asks you to check them with Git first.
 
 Reopen the picker to see branch or worktree changes made outside Mitos.
 
