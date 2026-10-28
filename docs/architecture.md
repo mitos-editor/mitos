@@ -612,9 +612,10 @@ selections, and mapped caches are copied without live services. Acceptance alone
 changes the live document.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
-have state modules under `view/src/features/`. Each groups its cache, request
-controllers, and attached scheduling handle. Pull diagnostics keeps its handle
-with its diagnostic state. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
+have state modules under `view/src/features/`. Document-wide caches and request
+controllers stay on the document; per-view caches and controllers live in its
+`DocumentViewState` records. Scheduling handles stay attached to the document.
+Pull diagnostics keeps its handle with its diagnostic state. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
 raw LSP caching, both conversion directions, push/pull publication,
 and provider cleanup live in its `protocol` module. Frontends read diagnostics
 through immutable accessors. Removing a view cancels its per-view work; dropping a
@@ -1387,9 +1388,12 @@ protocol sessions, cancellation, and view bindings remain editor-level checks.
 ## Document/view state
 
 Each document owns one `DocumentViewState` per bound view, containing its selection,
-viewport position, jump labels, append cursor restoration, and structural selection history. Initialization
-preserves existing records; removal drops them together while feature coordinators
-cancel their own requests. Selection and viewport anchors map through each edit before observers
+viewport position, jump labels, append cursor restoration, structural selection history,
+search state, highlights, inlay hints, code-action availability, breadcrumbs, and
+view-bound hover, code-action, and shell request controllers. Initialization preserves
+existing records; removal drops these caches and cancels their requests together.
+Presentation copies clone cached values with fresh request controllers. Shared symbol
+trees, colors, links, and their document-wide requests retain the document lifetime. Selection and viewport anchors map through each edit before observers
 run. Optional selection lookup and read-only iterators expose the state without
 parallel maps. Revision-keyed cursor history remains document-owned so undo in
 another split can restore the original selection after its originating view closes.

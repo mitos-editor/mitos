@@ -194,7 +194,7 @@ pub(crate) fn register_hooks() {
             let doc_id = event.doc.id();
             let view_id = event.view;
             event.doc.document_highlight_controller(view_id).cancel();
-            if let Some(handler) = &event.doc.document_highlights.handler {
+            if let Some(handler) = &event.doc.document_highlight_handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_highlights(editor, doc_id, view_id);
                 });
@@ -224,7 +224,7 @@ pub(crate) fn register_hooks() {
         {
             let doc_id = event.doc.id();
             event.doc.document_highlight_controller(view_id).cancel();
-            if let Some(handler) = &event.doc.document_highlights.handler {
+            if let Some(handler) = &event.doc.document_highlight_handler {
                 handler.callbacks.send_blocking(move |editor| {
                     request_document_highlights(editor, doc_id, view_id);
                 });

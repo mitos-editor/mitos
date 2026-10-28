@@ -1,9 +1,9 @@
 //! Selection shell operations with document-owned cancellation and snapshot validation.
 
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use editor_core::{Range, Rope, Selection, SmallVec, Tendril, Transaction};
-use event::{cancelable_future, register_hook, TaskController, TaskHandle};
+use event::{cancelable_future, register_hook};
 use stdx::rope::RopeSliceExt;
 use tokio::process::Command;
 
@@ -22,22 +22,13 @@ pub enum ShellBehavior {
     Keep,
 }
 
-#[derive(Default)]
-pub(crate) struct ShellFilters {
-    requests: HashMap<ViewId, TaskController>,
-}
-
-impl ShellFilters {
-    fn restart(&mut self, view: ViewId) -> TaskHandle {
-        self.requests.entry(view).or_default().restart()
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.requests.clear();
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.requests.remove(&view);
+impl crate::Document {
+    pub(crate) fn cancel_shell_filters(&mut self, view: Option<ViewId>) {
+        for (&id, state) in &mut self.view_states {
+            if view.is_none_or(|view| view == id) {
+                state.shell_filter.cancel();
+            }
+        }
     }
 }
 
@@ -45,10 +36,9 @@ impl Editor {
     /// Selection shell operations still executing or waiting to apply their results.
     pub fn has_pending_shell_filters(&self) -> bool {
         self.documents.values().any(|doc| {
-            doc.shell_filters
-                .requests
+            doc.view_states
                 .values()
-                .any(TaskController::is_running)
+                .any(|state| state.shell_filter.is_running())
         })
     }
 
@@ -64,7 +54,7 @@ impl Editor {
         let callbacks = self.handlers.callbacks.clone();
         let owner = callbacks.clone();
         let doc = self.document_mut(document).unwrap();
-        let cancel = doc.shell_filters.restart(view);
+        let cancel = doc.view_state_mut(view).shell_filter.restart();
         let request = SelectionRequest::new(doc, view, cancel.clone(), vec![]);
         let text = doc.text().clone();
         let selection = doc.selection(view).clone();
@@ -85,7 +75,7 @@ impl Editor {
                     let view = editor.tree.get_mut(request.view_id());
                     let doc = editor.documents.get_mut(&request.document_id()).unwrap();
                     // Retire the request before editing dispatches selection/change hooks.
-                    doc.shell_filters.remove_view(view.id);
+                    doc.cancel_shell_filters(Some(view.id));
                     match result {
                         Ok(FilterResult::Transaction(transaction)) => {
                             if let Err(error) = crate::editing::apply(doc, &transaction, view.id) {
@@ -244,16 +234,16 @@ pub(crate) fn register_hooks() {
             .is_none_or(|view| view.doc != event.doc)
             && let Some(doc) = event.editor.document_mut(event.doc)
         {
-            doc.shell_filters.remove_view(event.view);
+            doc.cancel_shell_filters(Some(event.view));
         }
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event.doc.shell_filters.clear();
+        event.doc.cancel_shell_filters(None);
         Ok(())
     });
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        event.doc.shell_filters.remove_view(event.view);
+        event.doc.cancel_shell_filters(Some(event.view));
         Ok(())
     });
 }

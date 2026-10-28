@@ -5,7 +5,7 @@ use lsp_client::{
     lsp::{self, DocumentSymbol},
     OffsetEncoding,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use super::DocumentSymbolsHandler;
 use crate::{Document, ViewId};
@@ -13,7 +13,6 @@ use crate::{Document, ViewId};
 #[derive(Default)]
 pub(crate) struct DocumentSymbols {
     cache: Option<DocumentSymbolCache>,
-    breadcrumbs: HashMap<ViewId, Breadcrumbs>,
     pub(super) request: TaskController,
     pub(super) picker: TaskController,
     pub(super) handler: Option<DocumentSymbolsHandler>,
@@ -23,29 +22,12 @@ impl DocumentSymbols {
     pub(crate) fn presentation(&self) -> Self {
         Self {
             cache: self.cache.clone(),
-            breadcrumbs: self.breadcrumbs.clone(),
             ..Self::default()
         }
     }
 
     pub(crate) fn bind_handler(&mut self, handler: DocumentSymbolsHandler) {
         self.handler = Some(handler);
-    }
-
-    /// Cancel symbol requests and invalidate every derived breadcrumb.
-    pub(crate) fn clear(&mut self) {
-        self.request.cancel();
-        self.picker.cancel();
-        self.clear_cache();
-    }
-
-    pub(super) fn clear_cache(&mut self) {
-        self.cache = None;
-        self.breadcrumbs.clear();
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.breadcrumbs.remove(&view);
     }
 }
 
@@ -117,6 +99,13 @@ impl From<&ThinDocumentSymbol> for Crumb {
 }
 
 impl Document {
+    /// Cancel symbol requests and invalidate the shared tree and every view's breadcrumbs.
+    pub(crate) fn invalidate_document_symbols(&mut self) {
+        self.document_symbols.request.cancel();
+        self.document_symbols.picker.cancel();
+        self.clear_document_symbols();
+    }
+
     #[cold]
     pub fn set_document_symbols(
         &mut self,
@@ -148,12 +137,15 @@ impl Document {
     /// Clear the symbol tree and breadcrumbs without canceling a replacement request.
     #[inline]
     pub fn clear_document_symbols(&mut self) {
-        self.document_symbols.clear_cache();
+        self.document_symbols.cache = None;
+        for state in self.view_states.values_mut() {
+            state.breadcrumbs = None;
+        }
     }
 
     #[inline]
     pub fn breadcrumbs(&self, view_id: ViewId) -> Option<&Breadcrumbs> {
-        self.document_symbols.breadcrumbs.get(&view_id)
+        self.view_states.get(&view_id)?.breadcrumbs.as_ref()
     }
 
     // For all non-hotpaths, we use this function to prevent code bloat.
@@ -166,7 +158,9 @@ impl Document {
     #[inline(always)]
     pub fn update_breadcrumbs_for_view_inlined(&mut self, view_id: ViewId) {
         if !self.breadcrumb_enabled() {
-            self.document_symbols.breadcrumbs.remove(&view_id);
+            if let Some(state) = self.view_states.get_mut(&view_id) {
+                state.breadcrumbs = None;
+            }
             return;
         }
 
@@ -211,15 +205,11 @@ impl Document {
 
         let position = self.position(view_id, symbols.offset_encoding);
 
-        let breadcrumb = {
-            let breadcrumb = self
-                .document_symbols
-                .breadcrumbs
-                .entry(view_id)
-                .or_default();
-            breadcrumb.clear();
-            breadcrumb
+        let Some(state) = self.view_states.get_mut(&view_id) else {
+            return;
         };
+        let breadcrumb = state.breadcrumbs.get_or_insert_with(Breadcrumbs::default);
+        breadcrumb.clear();
 
         let mut current = symbols.tree.as_slice();
 
@@ -295,7 +285,7 @@ mod tests {
         );
         doc.set_document_symbols(vec![parent], OffsetEncoding::Utf8);
 
-        let breadcrumb = &doc.document_symbols.breadcrumbs[&view];
+        let breadcrumb = doc.breadcrumbs(view).unwrap();
         assert_eq!(
             breadcrumb
                 .iter()
@@ -310,7 +300,8 @@ mod tests {
         doc.set_selection(view, Selection::single(child_end, child_end));
         doc.update_breadcrumbs_for_view_inlined(view);
         assert_eq!(
-            doc.document_symbols.breadcrumbs[&view]
+            doc.breadcrumbs(view)
+                .unwrap()
                 .iter()
                 .map(|crumb| crumb.name.as_ref())
                 .collect::<Vec<_>>(),
@@ -320,7 +311,8 @@ mod tests {
         doc.set_selection(view, Selection::single(1, 1));
         doc.update_breadcrumbs_for_view_inlined(view);
         assert_eq!(
-            doc.document_symbols.breadcrumbs[&view]
+            doc.breadcrumbs(view)
+                .unwrap()
                 .iter()
                 .map(|crumb| crumb.name.as_ref())
                 .collect::<Vec<_>>(),
@@ -333,7 +325,7 @@ mod tests {
         assert!(doc.document_symbols.cache.is_some());
         assert!(!request.is_canceled());
 
-        doc.document_symbols.clear();
+        doc.invalidate_document_symbols();
         assert!(doc.document_symbols.cache.is_none());
         assert!(request.is_canceled());
     }

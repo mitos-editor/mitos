@@ -10,18 +10,18 @@ impl Document {
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
         }
-        self.hover.clear();
+        self.cancel_hover_requests(None);
         self.navigation.clear();
         self.rename.cancel();
-        self.code_actions.clear();
+        self.cancel_code_action_requests(None);
         self.workspace_symbols.cancel();
-        self.inlay_hints.clear();
+        self.reset_all_inlay_hints();
         self.inline_completions.clear();
         self.accepted_completions.cancel();
         self.document_colors.invalidate();
         self.document_links.invalidate();
         self.code_lenses.clear();
-        self.document_symbols.clear();
+        self.invalidate_document_symbols();
         self.clear_all_document_highlights();
         self.clear_all_code_action_hints();
         self.pull_diagnostics.clear();

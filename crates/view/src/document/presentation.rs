@@ -56,10 +56,7 @@ impl Document {
         doc.document_colors = self.document_colors.presentation();
         doc.document_links = self.document_links.presentation();
         doc.code_lenses = self.code_lenses.presentation();
-        doc.document_highlights = self.document_highlights.presentation();
         doc.document_symbols = self.document_symbols.presentation();
-        doc.code_action_hints = self.code_action_hints.presentation();
-        doc.inlay_hints = self.inlay_hints.presentation();
         let change = doc
             .buffer
             .apply(transaction.changes())
@@ -99,7 +96,14 @@ mod tests {
         let view = ViewId::default();
         doc.ensure_view_init(view);
         doc.set_document_highlights(view, std::iter::once(1..4).collect());
-        let request = doc.rename.restart();
+        let requests = [
+            doc.rename.restart(),
+            doc.document_highlight_controller(view).restart(),
+            doc.code_action_controller(view).restart(),
+            doc.view_state_mut(view).hover.restart(),
+            doc.view_state_mut(view).code_actions.restart(),
+            doc.view_state_mut(view).shell_filter.restart(),
+        ];
         let before = doc.snapshot();
         let selection = doc.selection(view).clone();
         let transaction =
@@ -117,7 +121,7 @@ mod tests {
         assert_eq!(doc.selection(view), &selection);
         assert_eq!(events.load(Ordering::Relaxed), 0);
         drop(presentation);
-        assert!(!request.is_canceled());
+        assert!(requests.iter().all(|request| !request.is_canceled()));
         crate::editing::apply(&mut doc, &transaction, view).unwrap();
         assert_eq!(events.load(Ordering::Relaxed), 1);
     }

@@ -18,23 +18,13 @@ use crate::{
     DocumentId, Editor, ViewId,
 };
 
-/// Cancellation follows the owning document and its attached views.
-#[derive(Default)]
-pub(crate) struct HoverState {
-    requests: std::collections::HashMap<ViewId, event::TaskController>,
-}
-
-impl HoverState {
-    pub(crate) fn restart(&mut self, view: ViewId) -> event::TaskHandle {
-        self.requests.entry(view).or_default().restart()
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.requests.remove(&view);
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.requests.clear();
+impl crate::Document {
+    pub(crate) fn cancel_hover_requests(&mut self, view: Option<ViewId>) {
+        for (&id, state) in &mut self.view_states {
+            if view.is_none_or(|view| view == id) {
+                state.hover.cancel();
+            }
+        }
     }
 }
 
@@ -93,14 +83,14 @@ pub fn request(editor: &mut Editor) {
     if let Some((doc, view)) = previous
         && let Some(doc) = editor.document_mut(doc)
     {
-        doc.hover.remove_view(view);
+        doc.cancel_hover_requests(Some(view));
     }
     if !editor.config().lsp.enable {
         editor.set_error(|| "No configured language server supports hover");
         return;
     }
     let (view, doc) = crate::current!(editor);
-    let cancel = doc.hover.restart(view.id);
+    let cancel = doc.view_state_mut(view.id).hover.restart();
     let mut servers = HashSet::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Hover)
@@ -176,25 +166,25 @@ pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
-                doc.hover.clear();
+                doc.cancel_hover_requests(None);
             }
         }
         Ok(())
     });
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        event.doc.hover.remove_view(event.view);
+        event.doc.cancel_hover_requests(Some(event.view));
         Ok(())
     });
     register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            doc.hover.clear();
+            doc.cancel_hover_requests(None);
         }
         Ok(())
     });
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.hover.clear();
+                doc.cancel_hover_requests(None);
             }
         }
         Ok(())
