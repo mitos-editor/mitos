@@ -295,6 +295,15 @@ Partial staging supports UTF-8 text, Git's line-ending conversions, and trusted
 clean filters that preserve line positions. Use whole-file actions for binary
 files, other encodings, submodules, symlinks, or filters that change line counts.
 Stage a working-tree rename as a whole file before selecting its text changes.
+Text actions preserve an existing index BOM; use whole-file actions to stage an
+encoding change.
+
+The current-change popup (`Space i`) also offers `s` to stage the cursor's hunk,
+`u` to unstage it, and `n` to stage and select the next unstaged hunk. These actions
+compare with the index even though the preview compares `HEAD` with the buffer.
+The footer labels each comparison. Actions close the popup; inspect again to
+review the resulting state. Remap them under `[keys.diff]` using `stage`, `unstage`,
+and `stage_and_next`.
 
 ### Stashes
 

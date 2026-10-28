@@ -122,7 +122,7 @@ impl GitRequest {
                     } = source
                     {
                         ensure!(
-                            doc.text() == text.as_str(),
+                            doc.text() == text.trim_start_matches('\u{feff}'),
                             "Source buffer changed since this review; refresh and try again"
                         );
                     }
