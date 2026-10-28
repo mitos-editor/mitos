@@ -1663,7 +1663,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-branch-switch",
         aliases: &["git-branch-switch"],
-        doc: "Switch to an existing local branch, preserving working changes. Save modified buffers first.",
+        doc: "Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes.",
         fun: super::vcs::typed::branch_switch,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1671,7 +1671,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-worktrees",
         aliases: &["git-worktrees"],
-        doc: "Browse registered worktrees. Enter changes directory and opens the worktree's file picker.",
+        doc: "Browse worktrees. Enter opens the selected worktree's file picker.",
         fun: super::vcs::typed::worktrees,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1679,7 +1679,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-worktree-create",
         aliases: &["git-worktree-create"],
-        doc: "Create a linked worktree at a new path. Optionally specify an existing branch; otherwise use detached HEAD.",
+        doc: "Create a worktree in a new folder. Give an existing branch name, or open the current commit without a branch.",
         fun: super::vcs::typed::worktree_create,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
@@ -1687,7 +1687,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-worktree-open",
         aliases: &["git-worktree-open"],
-        doc: "Change directory to a registered worktree and open its file picker, keeping existing buffers.",
+        doc: "Change directory to a worktree and open its file picker, keeping your open files.",
         fun: super::vcs::typed::worktree_open,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1695,7 +1695,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-worktree-remove",
         aliases: &["git-worktree-remove"],
-        doc: "Confirm removal of a clean linked worktree. Modified, untracked, ignored, current, main, and locked worktrees are kept.",
+        doc: "Confirm removal of a clean worktree, keeping its branch.",
         fun: super::vcs::typed::worktree_remove,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1703,7 +1703,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-remotes",
         aliases: &["git-remotes"],
-        doc: "Choose a configured remote name, then explicitly fetch, pull, or push. Remote URLs are hidden.",
+        doc: "Choose a remote, then fetch, pull, or push.",
         fun: super::vcs::typed::remotes,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1711,7 +1711,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-fetch",
         aliases: &["git-fetch"],
-        doc: "Fetch a remote without changing working files. Specify its name when several remotes exist.",
+        doc: "Download remote commits without changing your files. Give a remote name when several are configured.",
         fun: super::vcs::typed::fetch,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
@@ -1719,7 +1719,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-pull",
         aliases: &["git-pull"],
-        doc: "Pull the current branch by fast-forward only, without merging, rebasing, or autostashing. Optionally specify a remote name.",
+        doc: "Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name.",
         fun: super::vcs::typed::pull,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
@@ -1727,7 +1727,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-push",
         aliases: &["git-push"],
-        doc: "Push only the current branch, without force, mirroring, or automatic tags. Optionally specify a remote name.",
+        doc: "Upload commits from the current branch. Optionally give a remote name.",
         fun: super::vcs::typed::push,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
