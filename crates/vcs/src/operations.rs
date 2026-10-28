@@ -20,6 +20,8 @@ pub mod history;
 mod partial;
 pub use commit::CommitSnapshot;
 pub use partial::{PartialSelection, PartialSource};
+pub mod repository;
+pub use repository::RepositoryOperation;
 mod stash;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
@@ -54,6 +56,7 @@ enum Operation {
         patch: Vec<u8>,
         next_line: Option<u32>,
     },
+    Repository(RepositoryOperation),
     File {
         kind: FileOperation,
         paths: Vec<PathBuf>,
@@ -86,6 +89,9 @@ impl PreparedOperation {
     }
 
     pub fn changes_worktree(&self) -> bool {
+        if let Operation::Repository(operation) = &self.operation {
+            return operation.changes_worktree();
+        }
         !matches!(
             self.operation,
             Operation::Partial { .. }
@@ -105,6 +111,7 @@ impl PreparedOperation {
     pub fn affected_paths(&self) -> Vec<PathBuf> {
         match &self.operation {
             Operation::Partial { path, .. } => vec![self.repository.root.join(path)],
+            Operation::Repository(operation) => operation.affected_paths(&self.repository),
             Operation::File { paths, .. } => paths
                 .iter()
                 .map(|path| self.repository.root.join(path))
@@ -121,6 +128,7 @@ impl PreparedOperation {
                 FileOperation::Stage => "Stage selected changes",
                 FileOperation::Unstage => "Unstage selected changes",
             },
+            Operation::Repository(operation) => operation.label(),
             Operation::File { kind, .. } => kind.label(),
             Operation::Stash => "Stash all repository changes",
             Operation::Apply { .. } => "Apply stash (keep stash)",
@@ -146,6 +154,9 @@ impl PreparedOperation {
             Ok::<_, anyhow::Error>(self)
         })
         .await??;
+        if let Operation::Repository(operation) = &prepared.operation {
+            return operation.execute(&prepared.repository).await.map(|()| None);
+        }
         let mut command = prepared.repository.command();
         match &prepared.operation {
             Operation::Partial { patch, .. } => {
@@ -179,6 +190,7 @@ impl PreparedOperation {
                 write?;
                 return Ok(None);
             }
+            Operation::Repository(_) => unreachable!(),
             Operation::File {
                 kind: FileOperation::Stage,
                 paths,

@@ -21,6 +21,8 @@ mod commit;
 mod history;
 #[cfg(feature = "git")]
 pub(crate) mod partial;
+#[cfg(feature = "git")]
+mod repository;
 
 pub(super) fn git_history(cx: &mut Context) {
     #[cfg(feature = "git")]
@@ -788,6 +790,40 @@ pub(super) mod typed {
             bail!("No Git support included in this build")
         }
     }
+
+    macro_rules! repository_command {
+        ($name:ident, $command:ident) => {
+            pub(in crate::commands) fn $name(
+                cx: &mut compositor::Context,
+                args: Args,
+                event: PromptEvent,
+            ) -> anyhow::Result<()> {
+                if event != PromptEvent::Validate {
+                    return Ok(());
+                }
+                #[cfg(feature = "git")]
+                {
+                    super::repository::execute(cx, args, super::repository::Command::$command)
+                }
+                #[cfg(not(feature = "git"))]
+                {
+                    let _ = (cx, args);
+                    bail!("No Git support included in this build")
+                }
+            }
+        };
+    }
+    repository_command!(branches, Branches);
+    repository_command!(branch_create, BranchCreate);
+    repository_command!(branch_switch, BranchSwitch);
+    repository_command!(worktrees, Worktrees);
+    repository_command!(worktree_create, WorktreeCreate);
+    repository_command!(worktree_open, WorktreeOpen);
+    repository_command!(worktree_remove, WorktreeRemove);
+    repository_command!(remotes, Remotes);
+    repository_command!(fetch, Fetch);
+    repository_command!(pull, Pull);
+    repository_command!(push, Push);
 
     pub(in crate::commands) fn blame(
         cx: &mut compositor::Context,
