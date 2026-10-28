@@ -112,6 +112,8 @@
 | `` <pagedown> `` | Move page down | `` page_down `` |
 | `` <C-u> `` | Move page and cursor half up | `` page_cursor_half_up `` |
 | `` <C-d> `` | Move page and cursor half down | `` page_cursor_half_down `` |
+| `` <C-k> `` | Move current line selection up | `` move_lines_up `` |
+| `` <C-j> `` | Move current line selection down | `` move_lines_down `` |
 | `` <C-w> `` | Window | Prefix |
 | `` <C-c> `` | Comment/uncomment selections | `` toggle_comments `` |
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |

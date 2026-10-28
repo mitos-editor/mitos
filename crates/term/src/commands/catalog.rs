@@ -176,6 +176,8 @@ impl MappableCommand {
         goto_declaration => super::lsp::goto_declaration, "Goto declaration",
         add_newline_above => super::insert::add_newline_above, "Add newline above",
         add_newline_below => super::insert::add_newline_below, "Add newline below",
+        move_lines_up => super::insert::move_lines_up, "Move current line selection up",
+        move_lines_down => super::insert::move_lines_down, "Move current line selection down",
         goto_type_definition => super::lsp::goto_type_definition, "Goto type definition",
         goto_implementation => super::lsp::goto_implementation, "Goto implementation",
         show_code_lenses_under_cursor => super::lsp::show_code_lenses_under_cursor, "Show code lenses under cursor",

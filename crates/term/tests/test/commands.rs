@@ -1522,3 +1522,201 @@ async fn nested_macro_can_supply_count_to_outer_macro() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_single_selection_up() -> anyhow::Result<()> {
+    test((
+        indoc! {"
+            aaaaaa
+            bbbbbb
+            cc#[|c]#ccc
+            dddddd
+            "},
+        "<C-k>",
+        indoc! {"
+            aaaaaa
+            cc#[|c]#ccc
+            bbbbbb
+            dddddd
+            "},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_single_selection_down() -> anyhow::Result<()> {
+    test((
+        indoc! {"
+            aa#[|a]#aaa
+            bbbbbb
+            cccccc
+            dddddd
+            "},
+        "<C-j>",
+        indoc! {"
+            bbbbbb
+            aa#[|a]#aaa
+            cccccc
+            dddddd
+            "},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_single_selection_top_up() -> anyhow::Result<()> {
+    // if already on top of the file and going up, nothing should change
+    test((
+        indoc! {"
+            aa#[|a]#aaa
+            bbbbbb
+            cccccc
+            dddddd"},
+        "<C-k>",
+        indoc! {"
+            aa#[|a]#aaa
+            bbbbbb
+            cccccc
+            dddddd"},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_single_selection_bottom_down() -> anyhow::Result<()> {
+    // If going down on the bottom line, nothing should change. `AsIs` keeps
+    // the document without a trailing newline, so the last line really is at
+    // the edge (the default handling appends one, leaving an empty trailing
+    // line for the move to swap with).
+    test((
+        "aaaaaa\nbbbbbb\ncccccc\ndd#[|d]#ddd",
+        "<C-j>",
+        "aaaaaa\nbbbbbb\ncccccc\ndd#[|d]#ddd",
+        LineFeedHandling::AsIs,
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_multiple_cursors_top_up() -> anyhow::Result<()> {
+    // The run at the top edge stays put, while the other run still moves.
+    test((
+        indoc! {"
+            #[|a]#aaaaa
+            bbbbbb
+            #(c|)#ccccc
+            dddddd
+            "},
+        "<C-k>",
+        indoc! {"
+            #[|a]#aaaaa
+            #(c|)#ccccc
+            bbbbbb
+            dddddd
+            "},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_multiple_cursors_bottom_down() -> anyhow::Result<()> {
+    // The run at the bottom edge stays put, while the other run still moves.
+    // `AsIs` keeps the document without a trailing newline, so the last line
+    // really is at the edge.
+    test((
+        "aaaaaa\n#[|b]#bbbbb\ncccccc\n#(d|)#ddddd",
+        "<C-j>",
+        "aaaaaa\ncccccc\n#[|b]#bbbbb\n#(d|)#ddddd",
+        LineFeedHandling::AsIs,
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_block_ending_in_empty_line_down() -> anyhow::Result<()> {
+    test((
+        "\nblock_1-line_1\nblock_1-line_2\n#[|]#block_1-line_3\nblock_1-line_4\nblock_1-line_5\n\n\
+         block_2-line_1\nblock_2-line_2\nblock_2-line_3\nblock_2-line_4\nblock_2-line_5\n\n",
+        "mipx<C-j><C-j><C-j><C-j><C-j><C-j>",
+        "\nblock_2-line_1\nblock_2-line_2\nblock_2-line_3\nblock_2-line_4\nblock_2-line_5\n\n\
+         #[block_1-line_1\nblock_1-line_2\nblock_1-line_3\nblock_1-line_4\nblock_1-line_5\n\n|]#",
+        LineFeedHandling::AsIs,
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_block_up() -> anyhow::Result<()> {
+    test((
+        indoc! {"
+            aaaaaa
+            bb#[bbbb
+            ccc|]#ccc
+            dddddd
+            eeeeee
+            "},
+        "<C-k>",
+        indoc! {"
+            bb#[bbbb
+            ccc|]#ccc
+            aaaaaa
+            dddddd
+            eeeeee
+            "},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_selection_block_down() -> anyhow::Result<()> {
+    test((
+        indoc! {"
+            #[|aaaaaa
+            bbbbbb
+            ccc]#ccc
+            dddddd
+            eeeeee
+            "},
+        "<C-j>",
+        indoc! {"
+            dddddd
+            #[|aaaaaa
+            bbbbbb
+            ccc]#ccc
+            eeeeee
+            "},
+    ))
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_two_cursors_down() -> anyhow::Result<()> {
+    test((
+        indoc! {"
+            aaaaaa
+            bb#[|b]#bbb
+            cccccc
+            d#(dd|)#ddd
+            eeeeee
+            "},
+        "<C-j>",
+        indoc! {"
+            aaaaaa
+            cccccc
+            bb#[|b]#bbb
+            eeeeee
+            d#(dd|)#ddd
+            "},
+    ))
+    .await?;
+    Ok(())
+}

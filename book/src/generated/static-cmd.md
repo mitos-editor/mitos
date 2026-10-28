@@ -142,6 +142,8 @@
 | `goto_declaration` | Goto declaration | normal: `` gD ``, select: `` gD `` |
 | `add_newline_above` | Add newline above | normal: `` [<space> ``, select: `` [<space> `` |
 | `add_newline_below` | Add newline below | normal: `` ]<space> ``, select: `` ]<space> `` |
+| `move_lines_up` | Move current line selection up | normal: `` <C-k> ``, select: `` <C-k> `` |
+| `move_lines_down` | Move current line selection down | normal: `` <C-j> ``, select: `` <C-j> `` |
 | `goto_type_definition` | Goto type definition | normal: `` gy ``, select: `` gy `` |
 | `goto_implementation` | Goto implementation | normal: `` gi ``, select: `` gi `` |
 | `show_code_lenses_under_cursor` | Show code lenses under cursor | normal: `` <space>l ``, select: `` <space>l `` |

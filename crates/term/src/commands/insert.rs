@@ -5,8 +5,8 @@ use super::{
 };
 use crate::key;
 use editor_config::SmartTabConfig;
-use insert::LineBoundary;
 pub use insert::{CommentContinuation, Open};
+use insert::{LineBoundary, MoveSelection};
 use stdx::rope::RopeExt as _;
 use ui_core::{input::KeyEvent, keyboard::KeyCode};
 use view::{document::Mode, editing::insert};
@@ -214,6 +214,21 @@ fn add_newline_impl(cx: &mut Context, open: Open) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
     if let Err(error) = insert::add_newlines(doc, view.id, open, count) {
+        cx.editor.set_error(|| error.to_string());
+    }
+}
+
+pub(super) fn move_lines_up(cx: &mut Context) {
+    move_lines_impl(cx, MoveSelection::Above);
+}
+
+pub(super) fn move_lines_down(cx: &mut Context) {
+    move_lines_impl(cx, MoveSelection::Below)
+}
+
+fn move_lines_impl(cx: &mut Context, direction: MoveSelection) {
+    let (view, doc) = current!(cx.editor);
+    if let Err(error) = insert::move_lines(doc, view.id, direction) {
         cx.editor.set_error(|| error.to_string());
     }
 }
