@@ -272,6 +272,8 @@ enum ChoiceKind {
     Review(usize),
     Version,
     Buffer,
+    CopyLink,
+    OpenLink,
 }
 #[derive(Clone)]
 struct Choice {
@@ -323,6 +325,16 @@ fn action_picker(
             });
         }
     }
+    choices.extend([
+        Choice {
+            label: "Copy commit permalink".into(),
+            kind: ChoiceKind::CopyLink,
+        },
+        Choice {
+            label: "Open commit permalink".into(),
+            kind: ChoiceKind::OpenLink,
+        },
+    ]);
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [PickerColumn::new("action", |choice: &Choice, _: &()| {
@@ -334,6 +346,17 @@ fn action_picker(
         move |cx, choice, action| {
             let result = (|| -> Result<bool> {
                 match choice.kind {
+                    ChoiceKind::CopyLink | ChoiceKind::OpenLink => {
+                        super::permalink::request_commit_permalink(
+                            cx.editor,
+                            cx.jobs,
+                            data.repo.root().to_owned(),
+                            data.repo.root().to_owned(),
+                            commit.id.as_str().to_owned(),
+                            matches!(choice.kind, ChoiceKind::OpenLink),
+                        );
+                        Ok(false)
+                    }
                     ChoiceKind::Review(parent) => {
                         if parent == baseline
                             && let Some(file) = &commit.file

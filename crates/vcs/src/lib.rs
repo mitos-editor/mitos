@@ -38,6 +38,8 @@ pub use review::{Comparison, ComparisonKind, MAX_REVIEW_BYTES};
 
 #[cfg(feature = "git")]
 pub mod operations;
+#[cfg(feature = "git")]
+pub mod permalink;
 
 /// Selects which changed files a status query should return.
 #[derive(Clone)]

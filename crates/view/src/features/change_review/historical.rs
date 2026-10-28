@@ -7,6 +7,13 @@ use std::{path::PathBuf, sync::Arc};
 #[cfg(feature = "git")]
 use vcs::operations::{history::RevisionFile, GitRepository};
 
+#[cfg(feature = "git")]
+#[derive(Clone)]
+pub(crate) struct HistoricalPermalink {
+    pub path: PathBuf,
+    pub revision: vcs::operations::history::RevisionId,
+}
+
 #[derive(Clone)]
 enum Input {
     #[cfg(feature = "git")]
@@ -49,6 +56,30 @@ pub struct HistoricalReviewSnapshot {
 }
 
 impl HistoricalReviewRequest {
+    /// The actual Git endpoint behind a historical side, never a shortened label.
+    #[cfg(feature = "git")]
+    pub(crate) fn permalink_source(&self, before_side: bool) -> Option<HistoricalPermalink> {
+        match &self.input {
+            Input::Revisions {
+                before,
+                after,
+                buffer,
+                repository,
+                ..
+            } => {
+                let endpoint = if before_side || buffer.is_some() {
+                    before.as_ref()
+                } else {
+                    after.as_ref()
+                }?;
+                Some(HistoricalPermalink {
+                    path: repository.root().join(endpoint.path()),
+                    revision: endpoint.revision.clone(),
+                })
+            }
+            _ => None,
+        }
+    }
     /// Capture preloaded immutable sources from any VCS provider.
     pub fn comparison(
         editor: &Editor,
@@ -320,19 +351,20 @@ pub(crate) struct HistoricalDocument {
     pub path: PathBuf,
     pub workspace: PathBuf,
     pub label: String,
+    #[cfg(feature = "git")]
+    pub revision: Option<HistoricalPermalink>,
     _task: event::TaskController,
 }
 
 impl Editor {
     pub(super) fn open_historical_source(
         &mut self,
-        path: PathBuf,
-        workspace: PathBuf,
-        label: String,
+        request: &HistoricalReviewRequest,
         source: Arc<ReviewSource>,
         action: Action,
         before: bool,
     ) -> DocumentId {
+        let (path, label) = request.source_metadata(before);
         let mut doc = Document::from(
             source.text(before).clone(),
             None,
@@ -342,8 +374,10 @@ impl Editor {
         // Syntax was prepared off-thread for this exact snapshot. It carries no filesystem/LSP identity.
         doc.historical = Some(HistoricalDocument {
             path,
-            workspace,
+            workspace: request.workspace.clone(),
             label,
+            #[cfg(feature = "git")]
+            revision: request.permalink_source(before),
             _task: event::TaskController::new(),
         });
         let id = self.new_file_from_document(action, doc);
@@ -377,6 +411,8 @@ impl Editor {
             path,
             workspace: request.workspace.clone(),
             label,
+            #[cfg(feature = "git")]
+            revision: request.permalink_source(false),
             _task: task,
         });
         let id = self.new_file_from_document(action, doc);

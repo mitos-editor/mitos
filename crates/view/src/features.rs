@@ -26,6 +26,8 @@ pub mod inlay_hints;
 pub mod inline_completion;
 pub mod lsp_progress;
 pub mod navigation;
+#[cfg(feature = "git")]
+pub mod permalink;
 pub(crate) mod process;
 pub mod rename;
 pub(crate) mod request;

@@ -24,6 +24,8 @@ pub struct BlameDetails {
     title: String,
     body: Option<String>,
     message: String,
+    #[cfg(feature = "git")]
+    source: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl BlameDetails {
@@ -51,6 +53,8 @@ impl BlameDetails {
             title,
             body,
             message,
+            #[cfg(feature = "git")]
+            source: None,
         }
     }
 
@@ -104,13 +108,25 @@ pub fn show(
     };
     match result {
         Ok(blame) => {
-            let popup = Popup::new(BlameDetails::ID, BlameDetails::new(blame)).auto_close(true);
+            let details = BlameDetails::new(blame);
+            #[cfg(feature = "git")]
+            let details = {
+                let mut details = details;
+                let (_, doc) = view::current_ref!(editor);
+                details.source = doc
+                    .path()
+                    .map(|path| (path.to_owned(), doc.workspace_root().to_owned()));
+                details
+            };
+            let popup = Popup::new(BlameDetails::ID, details).auto_close(true);
             compositor.replace_or_push(BlameDetails::ID, popup);
             let keys = &config.component_keys;
             editor.set_status(format!(
-                "Blame: {} copies commit ID; {} copies message; {} closes",
+                "Blame: {} copies ID; {} copies message; {} copies link; {} opens link; {} closes",
                 action_hint(&keys.blame, &BlameAction::CopyCommitId),
                 action_hint(&keys.blame, &BlameAction::CopyMessage),
+                action_hint(&keys.blame, &BlameAction::CopyCommitLink),
+                action_hint(&keys.blame, &BlameAction::OpenCommitLink),
                 action_hint(&keys.popup, &PopupAction::Cancel),
             ));
         }
@@ -135,9 +151,27 @@ impl Component for BlameDetails {
             Lookup::Unbound => EventResult::Ignored(None),
             Lookup::Actions(actions) => {
                 for action in actions {
+                    if matches!(
+                        action,
+                        BlameAction::CopyCommitLink | BlameAction::OpenCommitLink
+                    ) {
+                        #[cfg(feature = "git")]
+                        if let Some((path, workspace)) = &self.source {
+                            crate::commands::request_commit_permalink(
+                                cx.editor,
+                                cx.jobs,
+                                path.clone(),
+                                workspace.clone(),
+                                self.commit_id.clone(),
+                                *action == BlameAction::OpenCommitLink,
+                            );
+                        }
+                        continue;
+                    }
                     let (text, label) = match action {
                         BlameAction::CopyCommitId => (&self.commit_id, "commit ID"),
                         BlameAction::CopyMessage => (&self.message, "commit message"),
+                        BlameAction::CopyCommitLink | BlameAction::OpenCommitLink => unreachable!(),
                     };
                     match cx.editor.registers.write('+', vec![text.clone()]) {
                         Ok(()) => cx.editor.set_status(format!("Copied {label}")),

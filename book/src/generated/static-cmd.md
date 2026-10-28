@@ -114,6 +114,8 @@
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
 | `show_change` | Show the current change against HEAD | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
 | `blame_line` | Show commit details for the current line | normal: `` <space>gb ``, select: `` <space>gb `` |
+| `copy_permalink` | Copy a commit-pinned link to the selected source lines |  |
+| `open_permalink` | Open a commit-pinned link to the selected source lines |  |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
 | `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gl ``, select: `` <space>gl `` |
 | `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, select: `` <space>gf `` |

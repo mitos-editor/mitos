@@ -17,6 +17,10 @@ use view::{document::Mode, Editor};
 mod actions;
 #[cfg(feature = "git")]
 mod history;
+mod permalink;
+#[cfg(feature = "git")]
+pub(crate) use permalink::request_commit_permalink;
+pub(super) use permalink::{copy_permalink, open_permalink};
 
 pub(super) fn git_history(cx: &mut Context) {
     #[cfg(feature = "git")]
@@ -671,6 +675,71 @@ pub(super) mod typed {
         event: PromptEvent,
     ) -> anyhow::Result<()> {
         run_command(cx, event, super::toggle_inline_blame)
+    }
+
+    pub(in crate::commands) fn copy_permalink(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            super::permalink::request(cx.editor, cx.jobs, args.first().map(str::to_owned), false);
+        }
+        Ok(())
+    }
+    pub(in crate::commands) fn open_permalink(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        if event == PromptEvent::Validate {
+            super::permalink::request(cx.editor, cx.jobs, args.first().map(str::to_owned), true);
+        }
+        Ok(())
+    }
+
+    pub(in crate::commands) fn copy_commit_link(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        commit_link(cx, args, event, false)
+    }
+    pub(in crate::commands) fn open_commit_link(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        commit_link(cx, args, event, true)
+    }
+    fn commit_link(
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+        open: bool,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        #[cfg(feature = "git")]
+        {
+            let request = view::features::permalink::CommitPermalinkRequest::capture(
+                cx.editor,
+                args[0].to_owned(),
+            );
+            super::permalink::request_commit(
+                cx.jobs,
+                request,
+                args.get(1).map(|remote| remote.to_string()),
+                open,
+            );
+            Ok(())
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = (cx, args, open);
+            bail!("No Git support included in this build");
+        }
     }
 
     pub(in crate::commands) fn blame(

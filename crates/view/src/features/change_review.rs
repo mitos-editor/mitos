@@ -328,7 +328,7 @@ impl ReviewRequest {
     }
 }
 
-fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
+pub(crate) fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
     ensure!(
         bytes.len() <= MAX_REVIEW_BYTES,
         "File too large to review (limit 10 MiB)"

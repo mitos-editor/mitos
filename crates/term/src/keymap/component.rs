@@ -106,6 +106,8 @@ pub enum PageAction {
 pub enum BlameAction {
     CopyCommitId,
     CopyMessage,
+    CopyCommitLink,
+    OpenCommitLink,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -304,6 +306,8 @@ impl Default for ComponentKeymaps {
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),
                 ("Y", BlameAction::CopyMessage),
+                ("l", BlameAction::CopyCommitLink),
+                ("o", BlameAction::OpenCommitLink),
             ]),
         }
     }
