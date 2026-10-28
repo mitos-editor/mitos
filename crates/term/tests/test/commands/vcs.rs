@@ -289,6 +289,7 @@ async fn ready_commit_message(app: &mut Application) -> anyhow::Result<()> {
             if ready {
                 break;
             }
+            app.editor.reset_idle_timer();
             run_event_loop_until_idle(app).await;
         }
     })
@@ -299,6 +300,7 @@ async fn ready_commit_message(app: &mut Application) -> anyhow::Result<()> {
 async fn finish_commit(app: &mut Application) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
+            app.editor.reset_idle_timer();
             run_event_loop_until_idle(app).await;
             if !app.editor.handlers().git_operations.busy()
                 && app
@@ -410,13 +412,14 @@ async fn commit_composer_from_project_review_keeps_its_repository_and_workspace(
     let (dir, path) = committed_file()?;
     std::fs::write(&path, "staged\n")?;
     git(dir.path(), &["add", "file.txt"]);
+    std::fs::write(&path, "unstaged source\n")?;
     let repository = vcs::operations::GitRepository::discover(dir.path())?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     let workspace = current_ref!(app.editor).1.workspace_root().to_owned();
-    app.editor.open_project_review(
+    app.editor.open_git_review(
         repository.root().to_owned(),
         workspace.clone(),
-        view::features::change_review::ReviewComparison::Staged,
+        false,
         view::editor::Action::Replace,
     );
     assert!(current_ref!(app.editor)
@@ -424,11 +427,24 @@ async fn commit_composer_from_project_review_keeps_its_repository_and_workspace(
         .display_metadata()
         .source_path
         .is_none());
-    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    press_keys(&mut app, "c").await?;
     ready_commit_message(&mut app).await?;
     let composer = current_ref!(app.editor).1.commit_message().unwrap();
     assert_eq!(composer.repository().root(), repository.root());
     assert_eq!(composer.workspace(), workspace);
+    let review = app.editor.document(composer.review()).unwrap();
+    let state = review.project_review().unwrap();
+    assert!(!state.combined);
+    assert_eq!(
+        state.comparison,
+        view::features::change_review::ReviewComparison::Staged
+    );
+    assert!(state.sections.iter().all(
+        |section| section.comparison == view::features::change_review::ReviewComparison::Staged
+    ));
+    let text = review.text().to_string();
+    assert!(text.contains("+staged"), "{text}");
+    assert!(!text.contains("unstaged source"), "{text}");
     assert!(app.close().await.is_empty());
     Ok(())
 }

@@ -247,6 +247,7 @@
 
 | Key | Action |
 | --- | --- |
+| `` c `` | `` commit `` |
 | `` <A-o> `` | `` open_review `` |
 | `` <ret> `` | `` open_source `` |
 | `` R `` | `` refresh `` |
