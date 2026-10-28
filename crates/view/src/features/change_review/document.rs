@@ -81,6 +81,9 @@ struct Observed {
 }
 
 impl ReviewDocument {
+    pub(crate) fn source_is_current(&self, editor: &Editor) -> bool {
+        self.request.is_current(editor)
+    }
     pub(crate) fn is_live(&self) -> bool {
         matches!(self.request, Request::Live(_))
     }
