@@ -144,7 +144,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
 | `keys.blame` | `copy_commit_id`, `copy_message` |
-| `keys.diff` | `scroll_left`, `scroll_right` |
+| `keys.diff` | `scroll_left`, `scroll_right`, `restore` (current-change popup only) |
 
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.

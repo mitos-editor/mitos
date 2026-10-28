@@ -533,6 +533,44 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn change_popup_restores_with_default_and_remapped_shortcuts() -> anyhow::Result<()> {
+    for shortcut in ["r", "<A-r>"] {
+        let (dir, path) = committed_file()?;
+        let mut config = test_config();
+        if shortcut == "<A-r>" {
+            config.component_keys = term::config::Config::load(
+                Ok(&"[keys.diff]\nr = 'unbound'\nA-r = 'restore'\n".to_owned()),
+                Err(term::config::ConfigLoadError::default()),
+            )
+            .unwrap()
+            .component_keys;
+        }
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_file(&path, None)
+            .build()?;
+        press_keys(&mut app, "Iunsaved-<esc><space>i").await?;
+        wait_for_review_screen(&mut app, "Current change", "restore hunk from HEAD").await?;
+        if shortcut == "<A-r>" {
+            assert!(review_screen(&app).contains("<A-r> restore"));
+        }
+        press_keys(&mut app, shortcut).await?;
+        assert!(!review_screen(&app).contains("Current change"));
+        assert_eq!(current_ref!(app.editor).1.text().to_string(), "committed\n");
+        press_keys(&mut app, "u").await?;
+        assert_eq!(
+            current_ref!(app.editor).1.text().to_string(),
+            "unsaved-committed\n"
+        );
+        assert_eq!(std::fs::read_to_string(&path)?, "committed\n");
+        git(dir.path(), &["diff", "--cached", "--exit-code"]);
+        press_keys(&mut app, "u").await?;
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
 #[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
 async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() -> anyhow::Result<()>

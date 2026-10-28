@@ -159,8 +159,22 @@ popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
 Use `Ctrl-d` / `Ctrl-u` or Page Down / Page Up to scroll, Left / Right to scroll
-horizontally, and `Esc` to close. Remap scrolling and closing under `[keys.popup]`,
-and horizontal scrolling under `[keys.diff]`.
+horizontally, and `Esc` to close. Press `r` to restore the inspected change from
+`HEAD` into the buffer, then `u` to undo. This restores only the change at the
+inspected cursor, even when nearby changes appear in the same popup. It does not
+save the file or change Git's staging area. If the buffer, cursor selection, or
+repository changes while the popup is open, inspect the change again first.
+
+Remap scrolling and closing under `[keys.popup]`, and horizontal scrolling and
+restoration under `[keys.diff]`. For example:
+
+```toml
+[keys.diff]
+r = "unbound"
+A-r = "restore"
+```
+
+The popup shows the configured restoration shortcut below the change.
 
 ### Syntax-aware review
 

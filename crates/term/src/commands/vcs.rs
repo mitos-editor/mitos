@@ -137,13 +137,12 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
                     return;
                 }
                 match result {
-                    Ok((_, review))
-                        if review.additions != 0 || review.deletions != 0 || review.truncated =>
+                    Ok(snapshot)
+                        if snapshot.review.additions != 0
+                            || snapshot.review.deletions != 0
+                            || snapshot.review.truncated =>
                     {
-                        let view = crate::ui::change_review::ReviewView::from_shared(
-                            "Current change · HEAD → buffer".into(),
-                            review,
-                        );
+                        let view = crate::ui::change_review::HunkReviewView::new(snapshot);
                         compositor.replace_or_push(
                             crate::ui::change_review::ReviewView::ID,
                             crate::ui::Popup::new(crate::ui::change_review::ReviewView::ID, view)
@@ -608,8 +607,6 @@ pub(super) mod typed {
     use crate::{compositor, ui::PromptEvent};
     use ::command_line::Args;
     use anyhow::bail;
-    use editor_core::{Tendril, Transaction};
-    use stdx::rope::RopeExt;
 
     /// Adapt bindable Git commands while preserving their compositor callbacks.
     fn run_command(
@@ -814,32 +811,16 @@ pub(super) mod typed {
         };
 
         let diff = handle.load();
+        anyhow::ensure!(diff.is_current(), "Diff is updating; try restoring again");
         let doc_text = doc.text().slice(..);
-        let diff_base = diff.diff_base();
-        let mut changes = 0;
-
-        let transaction = Transaction::change(
-            doc.text(),
-            diff.hunks_intersecting_line_ranges(doc.selection(view.id).line_ranges(doc_text))
-                .map(|hunk| {
-                    changes += 1;
-                    let start = diff_base.line_to_char_idx(hunk.before.start as usize);
-                    let end = diff_base.line_to_char_idx(hunk.before.end as usize);
-                    let text: Tendril = diff_base.slice_chars(start..end).chunks().collect();
-                    (
-                        doc_text.line_to_char_idx(hunk.after.start as usize),
-                        doc_text.line_to_char_idx(hunk.after.end as usize),
-                        (!text.is_empty()).then_some(text),
-                    )
-                }),
-        );
-        if changes == 0 {
-            bail!("There are no changes under any selection");
-        }
-
-        drop(diff); // make borrow check happy
-        view::editing::apply(doc, &transaction, view.id)?;
-        doc.commit_changes();
+        let diff_base = diff.diff_base().clone();
+        let hunks: Vec<_> = diff
+            .hunks_intersecting_line_ranges(doc.selection(view.id).line_ranges(doc_text))
+            .cloned()
+            .collect();
+        drop(diff);
+        let changes =
+            view::features::change_review::restore_hunks(doc, view.id, &diff_base, hunks)?;
         view.sync_changes(doc);
         view.ensure_cursor_in_view(doc, scrolloff);
         cx.editor.set_status(format!(

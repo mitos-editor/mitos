@@ -1367,3 +1367,72 @@ async fn conflict_previews_keep_source_sections_and_explicit_reviews_still_compu
     assert!(matches!(resolved.content, ReviewContent::Diff(_)));
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspected_hunk_restoration_is_precise_and_undoable() -> anyhow::Result<()> {
+    let mut f = Fixture::new("one\nkeep\nthree\n")?;
+    prepare(&mut f, "initial");
+    f.replace_and_commit("ONE\nkeep\nTHREE\n");
+    let (view, doc) = current!(f.editor);
+    let origin = view.id;
+    doc.set_selection(
+        origin,
+        Selection::new(
+            vec![
+                editor_core::Range::new(0, 0),
+                editor_core::Range::new(
+                    doc.text().line_to_char_idx(2),
+                    doc.text().line_to_char_idx(2),
+                ),
+            ]
+            .into(),
+            0,
+        ),
+    );
+    let snapshot = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+        .run()
+        .await?;
+    assert_eq!(snapshot.review.additions, 2, "nearby hunks share context");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let index = std::fs::read(f.dir.path().join(".git/index"))?;
+    snapshot.restore(&mut f.editor)?;
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "one\nkeep\nTHREE\n"
+    );
+    assert_eq!(std::fs::read_to_string(path)?, "one\nkeep\nthree\n");
+    assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
+    assert!(view::editing::undo(current!(f.editor).1, origin));
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "ONE\nkeep\nTHREE\n"
+    );
+    assert!(
+        snapshot.restore(&mut f.editor).is_err(),
+        "undo does not revive a stale snapshot"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspected_hunk_restoration_rejects_changed_buffer_and_repository() -> anyhow::Result<()> {
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    f.replace_and_commit("inspected\n");
+    let snapshot = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+        .run()
+        .await?;
+    f.replace_and_commit("newer\n");
+    assert!(snapshot.restore(&mut f.editor).is_err());
+    assert_eq!(current_ref!(f.editor).1.text().to_string(), "newer\n");
+    let snapshot = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+        .run()
+        .await?;
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(path, "new HEAD\n")?;
+    git(f.dir.path(), &["add", "-A"]);
+    git(f.dir.path(), &["commit", "-m", "new HEAD"]);
+    assert!(snapshot.restore(&mut f.editor).is_err());
+    assert_eq!(current_ref!(f.editor).1.text().to_string(), "newer\n");
+    Ok(())
+}

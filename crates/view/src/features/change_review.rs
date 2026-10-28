@@ -98,6 +98,27 @@ pub enum ReviewContent {
     Conflict(Arc<super::conflicts::ConflictPresentation>),
 }
 
+fn repository_stamp(paths: impl IntoIterator<Item = PathBuf>) -> RepositoryStamp {
+    paths
+        .into_iter()
+        .map(|path| {
+            // Match native event spellings without following a symlink leaf.
+            let path = path.parent().zip(path.file_name()).map_or_else(
+                || path.clone(),
+                |(parent, name)| stdx::path::canonicalize_existing(parent).join(name),
+            );
+            let stamp = std::fs::symlink_metadata(&path).ok().and_then(|metadata| {
+                Some(FileStamp {
+                    modified: metadata.modified().ok()?,
+                    len: metadata.len(),
+                    symlink: metadata.file_type().is_symlink(),
+                })
+            });
+            (path, stamp)
+        })
+        .collect()
+}
+
 /// A bounded review and the metadata used to avoid repeating unchanged comparisons.
 pub struct ReviewSnapshot {
     pub content: ReviewContent,
@@ -229,24 +250,7 @@ impl ReviewRequest {
         }
         paths.sort();
         paths.dedup();
-        paths
-            .into_iter()
-            .map(|path| {
-                // Match native event spellings without following a symlink leaf.
-                let path = path.parent().zip(path.file_name()).map_or_else(
-                    || path.clone(),
-                    |(parent, name)| stdx::path::canonicalize_existing(parent).join(name),
-                );
-                let stamp = std::fs::symlink_metadata(&path).ok().and_then(|metadata| {
-                    Some(FileStamp {
-                        modified: metadata.modified().ok()?,
-                        len: metadata.len(),
-                        symlink: metadata.file_type().is_symlink(),
-                    })
-                });
-                (path, stamp)
-            })
-            .collect()
+        repository_stamp(paths)
     }
 
     /// Polling checks small metadata before decoding or diffing file contents again.
@@ -397,6 +401,70 @@ pub struct HunkReviewRequest {
     settings: Settings,
 }
 
+/// An inspected change and the exact editable source it can restore.
+pub struct HunkReviewSnapshot {
+    pub source: Arc<ReviewSource>,
+    pub review: Arc<Review>,
+    request: Arc<HunkReviewRequest>,
+    stamp: RepositoryStamp,
+    hunk: Option<vcs::Hunk>,
+}
+
+impl HunkReviewSnapshot {
+    /// Restore only the hunk at the captured cursor, including when nearby hunks
+    /// share the popup's context. Repository and buffer changes invalidate it.
+    pub fn restore(&self, editor: &mut Editor) -> Result<()> {
+        ensure!(
+            self.request.is_current(editor)
+                && self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone())),
+            "Change inspection is stale; inspect the change again before restoring"
+        );
+        let hunk = self
+            .hunk
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("There is no change at the inspected line"))?;
+        let scrolloff = editor.config().scroll.padding;
+        let (view, doc) = crate::current!(editor);
+        restore_hunks(doc, view.id, self.source.text(true), [hunk])?;
+        view.sync_changes(doc);
+        view.ensure_cursor_in_view(doc, scrolloff);
+        editor.set_status("Restored inspected change from HEAD");
+        Ok(())
+    }
+}
+
+/// Restore line hunks into an editable buffer as a single undoable operation.
+/// Callers must validate that the hunks still describe this document snapshot.
+pub fn restore_hunks(
+    doc: &mut crate::Document,
+    view: crate::ViewId,
+    base: &Rope,
+    hunks: impl IntoIterator<Item = vcs::Hunk>,
+) -> Result<usize> {
+    use editor_core::{Tendril, Transaction};
+    use stdx::rope::RopeExt as _;
+    let text = doc.text().slice(..);
+    let mut count = 0;
+    let transaction = Transaction::change(
+        doc.text(),
+        hunks.into_iter().map(|hunk| {
+            count += 1;
+            let before = base.line_to_char_idx(hunk.before.start as usize)
+                ..base.line_to_char_idx(hunk.before.end as usize);
+            let replacement: Tendril = base.slice_chars(before).chunks().collect();
+            (
+                text.line_to_char_idx(hunk.after.start as usize),
+                text.line_to_char_idx(hunk.after.end as usize),
+                (!replacement.is_empty()).then_some(replacement),
+            )
+        }),
+    );
+    ensure!(count != 0, "There are no changes under any selection");
+    crate::editing::apply(doc, &transaction, view)?;
+    doc.commit_changes();
+    Ok(count)
+}
+
 impl HunkReviewRequest {
     pub fn capture(editor: &Editor) -> Result<Self> {
         let (view, doc) = crate::current_ref!(editor);
@@ -446,10 +514,50 @@ impl HunkReviewRequest {
 
     /// Serialize blocking hunk work per editor. Cancellation drops queued requests immediately;
     /// a running worker retains its permit until its blocking computation actually finishes.
-    pub async fn run(self: Arc<Self>) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
+    pub async fn run(self: Arc<Self>) -> Result<Arc<HunkReviewSnapshot>> {
         let worker = self.worker.clone();
         let cancel = self.target.cancel_handle().clone();
-        run_review(worker, cancel, move || self.compute_review()).await
+        run_review(worker, cancel, move || {
+            let directory = self.path.parent().unwrap_or(&self.workspace);
+            let mut paths = self.providers.get_watched_paths(directory, self.trust_full);
+            paths.extend(
+                directory
+                    .ancestors()
+                    .map(|path| path.join(".gitattributes")),
+            );
+            paths.push(self.path.clone());
+            paths.sort();
+            paths.dedup();
+            let stamp = repository_stamp(paths);
+            let (source, review) = self.compute_review()?;
+            let hunk = if review.truncated {
+                None
+            } else {
+                text_diff::LineDiff::new(source.text(true).clone(), self.text.clone())
+                    .hunks()
+                    .find(|hunk| {
+                        let start = hunk.after.start as usize;
+                        let end = hunk.after.end as usize;
+                        if start == end {
+                            self.line == start
+                        } else {
+                            (start..end).contains(&self.line)
+                        }
+                    })
+            };
+            ensure!(
+                stamp == repository_stamp(stamp.iter().map(|(path, _)| path.clone())),
+                "Repository changed while inspecting the change; try again"
+            );
+            Ok(Arc::new(HunkReviewSnapshot {
+                source,
+                review,
+                request: self,
+                stamp,
+                hunk,
+            }))
+        })
+        .await
     }
 
     pub fn compute(&self) -> Result<Arc<Review>> {

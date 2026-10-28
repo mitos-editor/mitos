@@ -237,5 +237,6 @@
 
 | Key | Action |
 | --- | --- |
+| `` r `` | `` restore `` |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
