@@ -32,7 +32,11 @@ fn staged_text(root: &Path, path: &str) -> String {
         .env_remove("GIT_DIR")
         .output()
         .unwrap();
-    assert!(result.status.success());
+    assert!(
+        result.status.success(),
+        "git show :{path} failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     String::from_utf8(result.stdout).unwrap()
 }
 
