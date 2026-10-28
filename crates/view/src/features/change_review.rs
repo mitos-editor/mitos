@@ -84,7 +84,7 @@ pub struct ReviewRequest {
     settings: Settings,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct FileStamp {
     modified: SystemTime,
     len: u64,
@@ -97,6 +97,18 @@ type RepositoryStamp = Vec<(PathBuf, Option<FileStamp>)>;
 pub enum ReviewContent {
     Diff(Arc<Review>),
     Conflict(Arc<super::conflicts::ConflictPresentation>),
+}
+
+/// Captured repository inputs retained from displayed review through Git admission.
+#[derive(Clone)]
+pub struct ReviewGuard {
+    stamp: RepositoryStamp,
+}
+
+impl ReviewGuard {
+    pub fn is_current(&self) -> bool {
+        self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone()))
+    }
 }
 
 fn repository_stamp(paths: impl IntoIterator<Item = PathBuf>) -> RepositoryStamp {
@@ -134,6 +146,17 @@ impl ReviewSnapshot {
             ReviewContent::Diff(review) => Ok(review.clone()),
             ReviewContent::Conflict(_) => anyhow::bail!("Conflict preview is not a diff"),
         }
+    }
+
+    pub fn action_guard(&self) -> ReviewGuard {
+        ReviewGuard {
+            stamp: self.stamp.clone(),
+        }
+    }
+    /// Validate immutable review inputs before an action based on their source rows.
+    pub fn is_current(&self, editor: &Editor) -> bool {
+        self.request.is_current(editor)
+            && self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone()))
     }
 
     pub fn engine(&self) -> DiffEngine {
@@ -442,6 +465,11 @@ pub struct HunkReviewSnapshot {
 }
 
 impl HunkReviewSnapshot {
+    pub fn action_guard(&self) -> ReviewGuard {
+        ReviewGuard {
+            stamp: self.stamp.clone(),
+        }
+    }
     pub fn is_current(&self, editor: &Editor) -> bool {
         self.request.is_current(editor)
             && self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone()))

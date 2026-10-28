@@ -23,6 +23,15 @@ pub struct ProjectReviewDocument {
     pub loading: bool,
     complete: bool,
     task: TaskController,
+    advance: Option<ProjectAdvance>,
+}
+
+pub(crate) struct ProjectAdvance {
+    pub(crate) view: crate::ViewId,
+    pub(crate) snapshot: buffer::Snapshot,
+    pub(crate) selection: Selection,
+    pub(crate) path: PathBuf,
+    pub(crate) line: Option<u32>,
 }
 
 pub struct ProjectSection {
@@ -66,6 +75,29 @@ impl ProjectSection {
 }
 
 impl ProjectReviewDocument {
+    pub fn hunk_rows(&self) -> Vec<usize> {
+        self.sections
+            .iter()
+            .flat_map(|section| {
+                section.snapshot.iter().flat_map(move |snapshot| {
+                    let ReviewContent::Diff(review) = &snapshot.content else {
+                        return Vec::new().into_iter();
+                    };
+                    review
+                        .lines
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(row, line)| {
+                            (line.kind == ReviewLineKind::Header)
+                                .then_some(section.start_line + 1 + row)
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                })
+            })
+            .collect()
+    }
+
     pub fn is_loading(&self) -> bool {
         self.loading
     }
@@ -118,6 +150,7 @@ impl Editor {
             loading: true,
             complete: false,
             task: TaskController::new(),
+            advance: None,
         }));
         let id = self.new_file_from_document(action, doc);
         self.start_project_review(id);
@@ -158,6 +191,7 @@ impl Editor {
         let cancel = state.task.restart();
         state.loading = true;
         state.complete = false;
+        state.advance = None;
         let (root, workspace, comparison) = (
             state.root.clone(),
             state.workspace.clone(),
@@ -424,6 +458,21 @@ impl Editor {
         let Some(doc) = self.documents.get_mut(&id) else {
             return;
         };
+        let advance = doc
+            .project_review
+            .as_mut()
+            .unwrap()
+            .advance
+            .take()
+            .filter(|advance| {
+                advance.snapshot.is_current(&doc.buffer)
+                    && doc.try_selection(advance.view) == Some(&advance.selection)
+                    && self.tree.focus() == advance.view
+                    && self
+                        .tree
+                        .try_get(advance.view)
+                        .is_some_and(|view| view.doc == id)
+            });
         let transaction = text_diff::compare_ropes(doc.text(), &Rope::from(text));
         if let Err(error) = doc.replace_readonly_content(transaction.changes(), true) {
             self.set_error(|| error.to_string());
@@ -433,7 +482,37 @@ impl Editor {
         state.sections = sections;
         state.loading = false;
         state.complete = complete;
+        if let Some(advance) = advance
+            && let Some(line) = advance.target(state)
+        {
+            doc.set_selection(
+                advance.view,
+                Selection::point(doc.text().line_to_char_idx(line)),
+            );
+            let padding = self.config.load().scroll.padding;
+            self.tree
+                .get_mut(advance.view)
+                .ensure_cursor_in_view(doc, padding);
+        }
         self.redraw().request();
+    }
+
+    /// Resolve an aggregate stage-and-next target against the replacement rows.
+    /// A manual refresh or newer cursor movement cancels this continuation.
+    #[cfg(feature = "git")]
+    pub(crate) fn advance_project_review_after_refresh(
+        &mut self,
+        document: DocumentId,
+        advance: ProjectAdvance,
+    ) {
+        if let Some(state) = self
+            .documents
+            .get_mut(&document)
+            .and_then(|doc| doc.project_review.as_mut())
+            && state.loading
+        {
+            state.advance = Some(advance);
+        }
     }
 
     pub fn navigate_project_review(&mut self, forward: bool, files: bool) -> Result<()> {
@@ -442,29 +521,15 @@ impl Editor {
             .project_review()
             .ok_or_else(|| anyhow::anyhow!("Current buffer is not a project review"))?;
         let line = doc.cursor_line(view.id);
-        let targets = state
-            .sections
-            .iter()
-            .flat_map(|section| {
-                if files {
-                    return vec![section.start_line];
-                }
-                section
-                    .snapshot
-                    .as_ref()
-                    .and_then(|snapshot| snapshot.diff().ok())
-                    .map(|review| {
-                        review
-                            .lines
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, row)| row.kind == ReviewLineKind::Header)
-                            .map(|(i, _)| section.start_line + 1 + i)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
+        let targets = if files {
+            state
+                .sections
+                .iter()
+                .map(|section| section.start_line)
+                .collect::<Vec<_>>()
+        } else {
+            state.hunk_rows()
+        };
         ensure!(!targets.is_empty(), "No changes to navigate");
         let target = if forward {
             targets
@@ -508,6 +573,54 @@ impl Editor {
         .with_fresh_status();
         self.open_review(request, Action::Replace, None);
         Ok(())
+    }
+}
+
+impl ProjectAdvance {
+    fn target(&self, project: &ProjectReviewDocument) -> Option<usize> {
+        if let Some(section) = project
+            .sections
+            .iter()
+            .find(|section| section.status.path() == self.path)
+            && let Some(snapshot) = &section.snapshot
+            && let Ok(review) = snapshot.diff()
+        {
+            let mut header = None;
+            let mut first = None;
+            for (row, mapped) in review.lines.iter().enumerate() {
+                if mapped.kind == ReviewLineKind::Header {
+                    header = Some(section.start_line + 1 + row);
+                    first = first.or(header);
+                }
+                if self
+                    .line
+                    .is_some_and(|line| mapped.after == Some(line as usize))
+                    && header.is_some()
+                {
+                    return header;
+                }
+            }
+            if first.is_some() {
+                return first;
+            }
+        }
+        let first_hunk = |section: &ProjectSection| {
+            section
+                .snapshot
+                .as_ref()?
+                .diff()
+                .ok()?
+                .lines
+                .iter()
+                .position(|row| row.kind == ReviewLineKind::Header)
+                .map(|row| section.start_line + 1 + row)
+        };
+        project
+            .sections
+            .iter()
+            .filter(|section| section.status.path() > self.path.as_path())
+            .find_map(first_hunk)
+            .or_else(|| project.sections.iter().find_map(first_hunk))
     }
 }
 

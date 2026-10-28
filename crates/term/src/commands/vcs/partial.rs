@@ -38,9 +38,13 @@ pub(crate) fn start_captured(
                         let completion = task.execute().await;
                         Ok(Callback::Editor(Box::new(move |editor| {
                             let line = completion.next_partial_line();
+                            let succeeded = completion.succeeded();
                             completion.finish(editor);
-                            if advance && let (Some(next), Some(line)) = (next, line) {
-                                next.select_line(editor, line);
+                            if advance
+                                && succeeded
+                                && let Some(next) = next
+                            {
+                                next.select_after(editor, line);
                             }
                         })))
                     })

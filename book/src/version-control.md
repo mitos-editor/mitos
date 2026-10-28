@@ -263,9 +263,9 @@ on disk.
 
 ### Staging individual changes
 
-Use these commands in a file buffer or a live review to add selected changes to
-Git's staging area or remove them. Neither action changes the saved file or your
-unsaved edits.
+Use these commands in a file buffer, a live review, or a
+[project review](#project-review) to add selected changes to Git's staging area
+or remove them. Neither action changes the saved file or your unsaved edits.
 
 | Command | Action |
 | --- | --- |
@@ -289,7 +289,7 @@ For precise line choices, open `:diff buffer` to include unsaved edits, or
 `:vcs-stage-lines`; additions and removals can be staged separately. To leave
 selected staged changes out of the next commit, open `:diff staged` and use
 `:vcs-unstage-lines`. Reviews of past commits cannot stage or unstage changes.
-If the file or staging area changes after you open a review, run
+If the file, staging area, or current commit changes after you open a review, run
 `:diff-refresh` before trying again.
 
 Line and hunk actions require UTF-8 text and support normal line-ending
@@ -492,9 +492,27 @@ preventing review of the remaining files.
 | `Enter`, `:vcs-project-open` | Open the selected file as a live review |
 | `:vcs-project-refresh` | Capture the repository and buffers again |
 
+Use `[g` / `]g` to move between hunks across files, and `[G` / `]G` for the
+first / last hunk. Counts such as `2]g` work as they do in file reviews.
+
+Run `:vcs-stage-hunk` or `:vcs-stage-lines` directly in a project review to stage
+the selected change. Use a staged project review with `:vcs-unstage-hunk` or
+`:vcs-unstage-lines` to remove selected changes from the index. Selected added
+and removed rows work independently. Each action must stay within one file;
+selections spanning files are rejected.
+
+In buffer comparisons, staging includes that file's captured unsaved edits
+without saving it. Unstaged comparisons stage the file on disk. Changes to the
+source buffer or Git state require a fresh review before the action can run.
+
+`:vcs-stage-and-next` stages the selected hunk and moves to the next remaining
+hunk in that file, then the next changed file. It waits for the review to update
+and keeps any newer cursor movement you make while the action is running.
+
 Project reviews are snapshots. Git actions in Mitos refresh open project reviews
-automatically. Refresh after editing or running Git outside Mitos. Buffer text captured during loading must still match when results
-arrive; otherwise refresh to try again. Normal movement, selection, search, and
+automatically. Refresh after editing or running Git outside Mitos. Buffer text
+captured during loading must still match when results arrive; otherwise refresh
+to try again. Normal movement, selection, search, and
 yank work in the aggregate buffer. Opening a file review records the project
 review in the jumplist, so `Ctrl-o` returns to it.
 
