@@ -12,7 +12,7 @@ The title in the top border identifies the picker.
 | `Space /` | Project search |
 | `Space s` / `Space S` | File / workspace symbols |
 | `Space d` / `Space D` | File / workspace diagnostics |
-| `Space g c` | [Changed Git files](./version-control.md#changed-files) |
+| `Space g s` | [Changed Git files](./version-control.md#changed-files) |
 | `Space '` | Reopen the last picker |
 
 ## Open a result

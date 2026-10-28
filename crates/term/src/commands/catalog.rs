@@ -152,7 +152,7 @@ impl MappableCommand {
         git_history => super::vcs::git_history, "Browse Git commits and their changed files in the current repository",
         git_file_history => super::vcs::git_file_history, "Browse the current file history across renames",
         git_stash_picker => super::vcs::git_stash_picker, "Browse Git stashes in the current repository",
-        vcs_command_mode => super::command_line::vcs_command_mode, "Choose a version-control command",
+        vcs_command_mode => super::command_line::vcs_command_mode, "Choose a Git command",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         diff => super::vcs::diff, "Review all changes in the current file in a read-only buffer",
         diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
@@ -1634,7 +1634,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-toggle-inline-blame",
         aliases: &["git-toggle-inline-blame"],
-        doc: "Show or hide inline Git blame, restoring the configured display mode.",
+        doc: "Show or hide inline Git blame.",
         fun: super::vcs::typed::toggle_blame,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },

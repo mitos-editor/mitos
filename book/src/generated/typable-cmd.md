@@ -106,7 +106,7 @@
 | `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
 | `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |
 | `:vcs-stashes`, `:git-stashes` | Browse Git stashes in the current repository. |
-| `:vcs-toggle-inline-blame`, `:git-toggle-inline-blame` | Show or hide inline Git blame, restoring the configured display mode. |
+| `:vcs-toggle-inline-blame`, `:git-toggle-inline-blame` | Show or hide inline Git blame. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |
 | `:redraw` | Clear and re-render the whole UI |

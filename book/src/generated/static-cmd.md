@@ -118,7 +118,7 @@
 | `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gH ``, `` <space>gl ``, select: `` <space>gH ``, `` <space>gl `` |
 | `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, `` <space>gh ``, select: `` <space>gf ``, `` <space>gh `` |
 | `git_stash_picker` | Browse Git stashes in the current repository | normal: `` <space>gS ``, select: `` <space>gS `` |
-| `vcs_command_mode` | Choose a version-control command | normal: `` <space>ga ``, select: `` <space>ga `` |
+| `vcs_command_mode` | Choose a Git command | normal: `` <space>ga ``, select: `` <space>ga `` |
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gc ``, `` <space>gs ``, select: `` <space>gc ``, `` <space>gs `` |
 | `diff` | Review all changes in the current file in a read-only buffer | normal: `` <space>gd ``, select: `` <space>gd `` |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
