@@ -102,6 +102,40 @@ async fn repository_commands_target_the_current_buffer_and_protect_unsaved_edits
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn repository_commands_keep_project_and_commit_buffer_context() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, "staged\n")?;
+    git(dir.path(), &["add", "file.txt"]);
+    let repository = vcs::operations::GitRepository::discover(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let workspace = current_ref!(app.editor).1.workspace_root().to_owned();
+    app.editor.open_project_review(
+        repository.root().to_owned(),
+        workspace.clone(),
+        view::features::change_review::ReviewComparison::Staged,
+        view::editor::Action::Replace,
+    );
+    assert!(current_ref!(app.editor).1.path().is_none());
+    press_keys(&mut app, ":vcs-branch-create project-context<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    assert!(current_ref!(app.editor).1.path().is_none());
+    let scope = view::features::git_operations::GitScope::capture(&app.editor);
+    assert_eq!(scope.path, repository.root());
+    assert_eq!(scope.workspace, workspace);
+    press_keys(&mut app, ":vcs-branch-create message-context<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    let branches = repository.branches().await?;
+    for name in ["project-context", "message-context"] {
+        assert!(branches.iter().any(|branch| branch.name == name));
+    }
+    assert_eq!(std::fs::read_to_string(path)?, "staged\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn repository_worktree_commands_open_keep_buffers_and_confirm_clean_removal(
 ) -> anyhow::Result<()> {
     let Some(_root) = super::super::helpers::isolation::workspace("test::commands::vcs::repository_worktree_commands_open_keep_buffers_and_confirm_clean_removal")? else { return Ok(()); };

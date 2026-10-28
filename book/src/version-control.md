@@ -353,7 +353,8 @@ your terminal if needed.
 ## Branches and worktrees
 
 Git commands use the current file's repository, including when it differs from
-the current working directory. With no source file open, they use the current
+the current working directory. Review and commit-message buffers keep their
+captured repository. Other buffers without a source file use the current
 directory. Repository changes require [workspace trust](./workspace-trust.md).
 
 | Command | Action |
