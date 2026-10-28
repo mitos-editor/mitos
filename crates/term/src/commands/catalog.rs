@@ -1559,7 +1559,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-resolve",
         aliases: &[],
-        doc: "Resolve the conflict at the cursor with current, incoming, or both. Undoable; save and stage separately.",
+        doc: "Keep current, incoming, or both sides of the conflict at the cursor. Changes can be undone with u; save and stage when ready.",
         fun: super::conflicts::resolve,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1567,7 +1567,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-show",
         aliases: &[],
-        doc: "Inspect current, base (when present), and incoming marker contents in a read-only split.",
+        doc: "Inspect both sides of the conflict at the cursor and its base when available, in a read-only split.",
         fun: super::conflicts::inspect,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1575,7 +1575,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-source",
         aliases: &[],
-        doc: "Inspect a complete base, current, or incoming file from unresolved Git index stages.",
+        doc: "Inspect the complete base, current, or incoming version of a conflicted file.",
         fun: super::conflicts::source,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
