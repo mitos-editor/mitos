@@ -177,7 +177,7 @@ impl PreparedOperation {
                     literal(&err)
                 );
                 write?;
-                return Ok(());
+                return Ok(None);
             }
             Operation::File {
                 kind: FileOperation::Stage,
