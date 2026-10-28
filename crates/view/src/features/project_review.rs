@@ -70,7 +70,12 @@ impl ProjectReviewDocument {
         self.loading
     }
     pub fn is_complete(&self) -> bool {
-        self.complete && !self.loading
+        self.complete
+            && !self.loading
+            && self
+                .sections
+                .iter()
+                .all(|section| section.snapshot.is_some())
     }
 
     pub fn section(&self, line: usize) -> Option<&ProjectSection> {
@@ -234,7 +239,10 @@ impl Editor {
                     editor.finish_project_review(id, &cancel, format!("Could not read project changes: {failure}\nUse :vcs-project-refresh to retry.\n"), Vec::new(), false);
                     return;
                 }
-                if editor.workspace_trust.query(&workspace, workspace::trust::TrustQuery::Git).is_trusted() != trusted { return; }
+                if editor.workspace_trust.query(&workspace, workspace::trust::TrustQuery::Git).is_trusted() != trusted {
+                    editor.finish_project_review(id, &cancel, "Workspace trust changed while loading; use :vcs-project-refresh to retry.\n".into(), Vec::new(), false);
+                    return;
+                }
                 if comparison == ReviewComparison::Buffer {
                     for (id, path) in &aliases {
                         if path.starts_with(&root) && editor.document(*id).is_some_and(|doc| doc.is_modified())
