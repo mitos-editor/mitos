@@ -337,7 +337,7 @@ async fn partial_staging_preserves_utf8_bom_and_staged_rename() -> Result<()> {
     repo.prepare_partial(
         &path,
         FileOperation::Stage,
-        &PartialSource::Buffer("selected\nkeep one\nkeep two\nkeep three\n".into()),
+        &PartialSource::Buffer("\u{feff}selected\nkeep one\nkeep two\nkeep three\n".into()),
         PartialSelection::Lines(std::iter::once(0..1).collect()),
         true,
     )?
@@ -361,6 +361,68 @@ async fn partial_staging_preserves_utf8_bom_and_staged_rename() -> Result<()> {
         "\u{feff}head\nkeep one\nkeep two\nkeep three\n"
     );
     assert!(!dir.path().join("file.txt").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_untracked_review_snapshot_preserves_utf8_bom() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("new.txt");
+    std::fs::write(&path, "\u{feff}first\nsecond\n")?;
+    let repo = GitRepository::discover(dir.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Snapshot {
+            index: String::new(),
+            text: "first\nsecond\n".into(),
+            buffer: false,
+        },
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "new.txt"), "\u{feff}second\n");
+    let source = PartialSource::Buffer("\u{feff}first\nsecond\n".into());
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &source,
+        PartialSelection::Lines(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "new.txt"),
+        "\u{feff}first\nsecond\n"
+    );
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &source,
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "new.txt"), "\u{feff}first\n");
+
+    assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}first\nsecond\n");
+    std::fs::remove_file(&path)?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Worktree,
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert!(statuses(dir.path())
+        .iter()
+        .all(|status| status.path() != path));
     Ok(())
 }
 

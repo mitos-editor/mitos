@@ -81,8 +81,16 @@ struct Observed {
 }
 
 impl ReviewDocument {
+    #[cfg(feature = "git")]
     pub(crate) fn source_is_current(&self, editor: &Editor) -> bool {
         self.request.is_current(editor)
+    }
+    #[cfg(feature = "git")]
+    pub(crate) fn source_document(&self) -> Option<DocumentId> {
+        match &self.request {
+            Request::Live(request) => request.document.map(|(id, _)| id),
+            Request::Historical(_) => None,
+        }
     }
     pub(crate) fn is_live(&self) -> bool {
         matches!(self.request, Request::Live(_))

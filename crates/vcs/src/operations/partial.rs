@@ -186,21 +186,19 @@ impl GitRepository {
                         == index_text.trim_start_matches('\u{feff}'),
                     "Git index changed since this review; refresh and try again"
                 );
-                if !buffer && index != text {
+                if !buffer {
                     let current = read_worktree(path)?;
                     ensure!(
                         self::text(&current)?.trim_start_matches('\u{feff}')
                             == text.trim_start_matches('\u{feff}'),
                         "Source file changed since this review; refresh and try again"
                     );
+                    current
+                } else {
+                    text.as_bytes().to_owned()
                 }
-                text.as_bytes().to_owned()
             }
         };
-        let mut input = input;
-        if indexed.starts_with(b"\xef\xbb\xbf") && !input.starts_with(b"\xef\xbb\xbf") {
-            input.splice(..0, [0xef, 0xbb, 0xbf]);
-        }
         let input = text(&input)?;
         match kind {
             FileOperation::Stage => {
@@ -222,13 +220,30 @@ impl GitRepository {
                     line_count(input) == line_count(cleaned),
                     "This file's Git filters change line positions; use whole-file staging"
                 );
-                let changed = select_changes(text(&indexed)?, cleaned, &selection, Side::After)?;
+                let mut changed = select_changes(
+                    text(&indexed)?.trim_start_matches('\u{feff}'),
+                    cleaned.trim_start_matches('\u{feff}'),
+                    &selection,
+                    Side::After,
+                )?;
                 let delete_file = matches!(
                     source,
                     PartialSource::Worktree | PartialSource::Snapshot { buffer: false, .. }
                 ) && std::fs::symlink_metadata(path)
                     .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
-                let remaining = hunks(&changed, cleaned);
+                // Text actions preserve an existing index BOM; new files use their source BOM.
+                let has_bom = if entry.is_none() {
+                    cleaned.starts_with('\u{feff}')
+                } else {
+                    indexed.starts_with(b"\xef\xbb\xbf")
+                };
+                if has_bom && !(delete_file && changed.is_empty()) {
+                    changed.insert(0, '\u{feff}');
+                }
+                let remaining = hunks(
+                    changed.trim_start_matches('\u{feff}'),
+                    cleaned.trim_start_matches('\u{feff}'),
+                );
                 let cursor = selection.ranges().first().map_or(0, |range| range.start);
                 let next_line = remaining
                     .iter()
@@ -258,7 +273,11 @@ impl GitRepository {
                     source,
                     PartialSource::Index | PartialSource::IndexSnapshot(_)
                 ) {
-                    selection = map_to_index(index_text, input, selection);
+                    selection = map_to_index(
+                        index_text.trim_start_matches('\u{feff}'),
+                        input.trim_start_matches('\u{feff}'),
+                        selection,
+                    );
                 }
                 let head = if repo.head()?.is_unborn() {
                     None
@@ -301,7 +320,20 @@ impl GitRepository {
                     None => Vec::new(),
                 };
                 let restored = text(&original)?.to_owned();
-                let changed = select_changes(text(&indexed)?, &restored, &selection, Side::Before)?;
+                let mut changed = select_changes(
+                    text(&indexed)?.trim_start_matches('\u{feff}'),
+                    restored.trim_start_matches('\u{feff}'),
+                    &selection,
+                    Side::Before,
+                )?;
+                let has_bom = if entry.is_none() {
+                    restored.starts_with('\u{feff}')
+                } else {
+                    indexed.starts_with(b"\xef\xbb\xbf")
+                };
+                if has_bom && !(remove && changed.is_empty()) {
+                    changed.insert(0, '\u{feff}');
+                }
                 self.partial_result(
                     relative,
                     kind,

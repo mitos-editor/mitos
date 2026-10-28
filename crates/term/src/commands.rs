@@ -35,6 +35,8 @@ mod symbols;
 pub(crate) mod syntax;
 mod textobjects;
 mod vcs;
+#[cfg(feature = "git")]
+pub(crate) use vcs::partial::start_captured as start_partial_git;
 mod windows;
 mod workspace;
 
