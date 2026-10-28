@@ -160,31 +160,34 @@ pub fn capture(
         );
         ensure!(!disk, "Disk staging commands are for editable file buffers");
         let source = review.source().context("Review source is not available")?;
+        let source_buffer = review.source_document().and_then(|id| editor.document(id));
+        ensure!(
+            source_buffer.is_none_or(|doc| !doc.is_binary() && doc.encoding() == encoding::UTF_8),
+            "Partial staging requires a UTF-8 source buffer"
+        );
         let staged = review.comparison() == ReviewComparison::Staged;
         ensure!(
             kind != FileOperation::Stage || !staged,
             "Use unstage commands in a staged review"
         );
-        let mut text = source.after().to_string();
-        if matches!(
+        let use_buffer = matches!(
             review.comparison(),
             ReviewComparison::Head | ReviewComparison::Buffer
-        ) && review
-            .source_document()
-            .and_then(|id| editor.document(id))
-            .is_some_and(|doc| doc.has_bom())
-        {
-            text.insert(0, '\u{feff}');
-        }
+        ) && source_buffer.is_some();
+        let text = if use_buffer {
+            buffer_text(source_buffer.unwrap())
+        } else {
+            source.after().to_string()
+        };
         let input = match review.comparison() {
             ReviewComparison::Staged => PartialSource::IndexSnapshot(text),
             ReviewComparison::Buffer | ReviewComparison::Unstaged => PartialSource::Snapshot {
                 index: source.before().to_string(),
                 text,
-                buffer: review.comparison() == ReviewComparison::Buffer,
+                buffer: use_buffer,
             },
-            ReviewComparison::Head => PartialSource::Buffer(text),
-            ReviewComparison::HeadToWorktree => PartialSource::Worktree,
+            ReviewComparison::Head if use_buffer => PartialSource::Buffer(text),
+            ReviewComparison::Head | ReviewComparison::HeadToWorktree => PartialSource::Worktree,
             ReviewComparison::Historical => unreachable!(),
         };
         let mut ranges = Vec::new();

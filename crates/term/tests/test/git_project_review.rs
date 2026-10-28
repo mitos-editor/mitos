@@ -90,6 +90,24 @@ async fn acted(app: &mut Application) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn ready_file_review(app: &mut Application) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(app).await;
+            if !app.editor.handlers().git_operations.busy()
+                && current_ref!(app.editor)
+                    .1
+                    .review()
+                    .is_some_and(|review| !review.is_loading())
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 fn row(app: &Application, file: &str, kind: ReviewLineKind, text: &str) -> usize {
     let project = current_ref!(app.editor).1.project_review().unwrap();
     let section = project
@@ -522,5 +540,51 @@ async fn live_staged_review_rechecks_head_before_unstaging() -> anyhow::Result<(
     assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
     assert_eq!(index_text(dir.path(), "a.txt"), "staged a\n");
     assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn live_review_of_an_unopened_bom_file_uses_its_raw_disk_source() -> anyhow::Result<()> {
+    for comparison in ["buffer", "head"] {
+        let dir = repo()?;
+        let path = dir.path().join("bom.txt");
+        std::fs::write(&path, "\u{feff}first\n")?;
+        let mut app = AppBuilder::new()
+            .with_file(dir.path().join("a.txt"), None)
+            .build()?;
+        keys(&mut app, ":vcs-project-diff buffer<ret>").await?;
+        ready(&mut app).await?;
+        let selected = row(&app, "bom.txt", ReviewLineKind::Added, "first");
+        select_line(&mut app, selected);
+        keys(&mut app, "<ret>").await?;
+        ready_file_review(&mut app).await?;
+        if comparison == "head" {
+            keys(&mut app, ":diff head<ret>").await?;
+            ready_file_review(&mut app).await?;
+        }
+        assert!(!app
+            .editor
+            .documents()
+            .any(|doc| doc.path().is_some_and(|path| path.ends_with("bom.txt"))));
+        let (_, doc) = current_ref!(app.editor);
+        let selected = (0..doc.text().len_lines(stdx::rope::LINE_TYPE))
+            .find(|line| {
+                doc.review()
+                    .unwrap()
+                    .row(*line)
+                    .is_some_and(|row| row.kind == ReviewLineKind::Added)
+            })
+            .unwrap();
+        select_line(&mut app, selected);
+        keys(&mut app, ":vcs-stage-hunk<ret>").await?;
+        ready_file_review(&mut app).await?;
+        assert_eq!(
+            index_text(dir.path(), "bom.txt"),
+            "\u{feff}first\n",
+            "{comparison}"
+        );
+        assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}first\n");
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }
